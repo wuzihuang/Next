@@ -17,18 +17,19 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 |---|---|---|
 | 01 | Sign in · gate / email / code | built, walked on device |
 | 01M · 02M | the 2.6s pixel-fall wordmark | built, all five beats |
+| 01M · 05 | the 7.40s first run, eleven beats and four fallbacks | built, walked on device |
 | 02 | Connect · 5 screens | built, walked on device |
-| 03 | Onboarding · 6 screens + 3 sheets + the 18+ gate | built |
+| 03 | Onboarding · 6 screens + 3 sheets + the 18+ gate | built, walked on device |
 | 04 + 07 | Home · panel, strip, dock | built, walked on device |
 | 07 | the render contract · 27 types, 10 renderers, 8 slots | built |
 | 05 | Dock · idle / typing / listening | built, walked on device |
 | 06 | the plus menu and the measurement takeover | built, walked on device |
 | 08 | Training detail · 9 sections | built, walked on device |
 | 09 | Fuel detail · 6 cards + the edit/delete entry | built, walked on device |
-| 10 + 10S | Composition, and the manual weigh-in | built |
+| 10 + 10S | Composition, and the manual weigh-in | built, walked on device |
 | 11 | Profile · the year heat map and 13 sheets | built, walked on device |
-| 12 + 12S | Device, and its two sheets | built |
-| 13 | Body Battery detail | built |
+| 12 + 12S | Device, and its two sheets | built, walked on device |
+| 13 | Body Battery detail | built, walked on device |
 
 ### The band · `app/NextBody/Services/Band/`
 
@@ -69,12 +70,59 @@ Applied to the live project `gkgzwcxivnffsecshvfs` and seeded.
 - **Eight Edge Functions** on the Vercel AI SDK: the ten-section prompt, the eight read tools,
   the banned-phrase scan and the number ledger.
 
-Seed: 24,192 five-minute points over 84 user days, settled through the same `settle_day()`
-the cron job calls. It produces a believable spread rather than a flat one —
-50 LEVEL days, 19 DEFICIT, 13 NOT LOGGED, 1 SURPLUS, 1 NO BURN — so the heat map has
-something honest to draw.
+Seed: 26 weeks of five-minute points — 182 user days, the exact width of board 11's heat map
+— settled through the same `settle_day()` the cron job calls. It produces a believable spread
+rather than a flat one: 114 DEFICIT, 42 LEVEL, 4 SURPLUS, 20 NOT LOGGED, 1 NO BURN.
+
+⚠️ The seeded person is tuned, not sprinkled. Three things about them are load-bearing and a
+casual edit will break a screen:
+
+- **They sit still.** A resting tick is HR ≤ RHR+5 *and* met < 1.2 *and* steps = 0. The first
+  seed put a few steps on every five-minute block, so nothing was ever resting, the battery
+  drained 0.30 a tick from breakfast to midnight and hit the floor daily. The desk band
+  (50–58 bpm) straddles RHR+5 on purpose.
+- **They train in Z3.** TRAINING_LOAD is 21·(1−e^(−RAW/60)) and saturates fast: 45 minutes at
+  Z4 spends 135 raw and lands on 18.5 against a 20.9 cap, so a Z4-every-evening seed read 19
+  out of 21 every day and RECENT LOAD said HEAVY forever. Z3 is 54 raw and lands on 12.4 —
+  the number board 04 prints.
+- **Their intake swings.** A flat intake against a near-flat burn puts all 182 days in one
+  bucket. The 0.80–1.35 per-day factor spans −520 to +380 kcal, which is what gives 11 three
+  colours and 12 a seven-day mean inside its −200 to −500 recomp window.
+
+The per-day seed is `hashtext(day)`, not `i * 7919 mod 1000` — that walks down by 81 a day, so
+consecutive days land on the same side of every threshold and the three most recent days came
+out as three hard sessions in a row.
 
 Demo account: `demo@nextbody.app` / `nextbody-demo`.
+
+## The audit, screen by screen
+
+Every screen was opened on the simulator and read against its board. The pass turned up
+fourteen places where the app was printing the board's *example* numbers over live data —
+the same failure each time, and the reason to do it on a device rather than in the diff:
+
+- **13 · Body Battery** printed the board's four attribution rows (+38 / −14 / −9 / −3) under
+  a live headline, so the card read "these four add up to +12 · 60 → 20". The rows are the
+  day's own now, they close within 0.5 per 1CUP, and when they do not close the whole card is
+  absent rather than fudged.
+- **08 · Training** lit all four WHY signals and printed a fixed 06:40 walk, a 12:10 cycle
+  commute and 8,432 steps on every day forever. The build rows are segments cut out of the
+  tick stream now, allocated as shares of the day's raw work so the column adds up to the ring.
+- **09 / 10 · Fuel** said "3 MEALS · LAST 16:10" on a day with two, and measured macros against
+  its own 145 / 195 / 60 while the server's split for this person is 145 / 215 / 60.
+- **12 · Composition** sat in its empty state — NO CALL · FAT —— · 0 OF 5 SIGNALS READY — on an
+  account with six months of scans, because `compute_the_call`'s working was thrown away at
+  settle time and the page read today's row out of the wrong collection.
+- **11 · Profile** showed "ZEPH · you@nextbody.app" over a real account.
+- **10S · the weigh-in sheet** always opened claiming Apple Health had a new reading of 78.6 kg
+  — on a build with no HealthKit entitlement at all.
+- **01 · the email screen** compensated for the keyboard twice and drew its title over the
+  status bar clock, with the back chevron and STEP 01 / 02 gone off the top edge.
+
+Two of those were real bugs rather than mock data: a one-day refresh after a band sync
+*assigned* `store.history`, dropping the other 181 days the week bars and the heat map are made
+of; and `the_call` is stored as `NO_CHANGE` while the token on screen is `MEASURED, NO CHANGE`,
+so mapping by rawValue silently dropped that one verdict.
 
 ## Verified end to end
 
@@ -129,6 +177,15 @@ Asking it a medical question renders the fixed stop frame and calls no tool at a
 S7 working: `NOT A DOCTOR · 这类问题请找医生。这块屏只报告测量到的数字。`
 
 ## Open, and why
+
+0. **Board 13's Body Battery model has no fixed point, and it is implemented as written.**
+   Charge and drain are two independent sums, so a day whose sums do not cancel walks the level
+   until a clamp catches it — the board's own printed day is +12 (+38 −14 −9 −3), which reaches
+   100 in eight days. There is no restoring term anywhere in 1COD or 1COH. The demo bounds the
+   chain to fourteen nights off the cold-start 20 rather than pretending to a stability the
+   formula does not have. Related: F2 §02 says BODY_BATTERY(t) is 清醒时段单调不增, which 13's
+   `charge_rest` contradicts outright — a resting waking tick nets +0.10. 13 wins, because F2
+   itself says 系数与式子在 13 板首发. Both need a ruling before launch.
 
 1. **The `vck_…` key is a Vercel access token, not an AI Gateway API key.** It is valid —
    `GET api.vercel.com/v2/user` returns the account and team — but the gateway refuses it,

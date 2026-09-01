@@ -4,20 +4,26 @@ import UIKit
 /// 10S · 称重录入 Add a weigh-in.
 /// D06 struck the old "NOT IN V1": without a manual entry, anyone without a smart scale
 /// could never unlock the composition call — the product's headline feature.
-/// One entry point only, at the top of the composition detail. Not in Profile, not on the dock.
+/// Reached from the composition detail's ADD A WEIGH-IN and from 11's BODY METRICS row —
+/// both are about the same physical fact. Never from the dock.
 struct WeighInSheet: View {
     @EnvironmentObject private var data: DataStore
     @Environment(\.dismiss) private var dismiss
 
     enum Mode: Hashable { case byHand, fromHealth }
     @State private var mode: Mode = .byHand
-    @State private var typed = "78.6"
+    @State private var typed = ""
     @State private var unit = "KG"
 
     /// Health's number may come from another scale, another person, or one mis-step,
     /// and it would flow all the way through to the macros and The Call — so it is confirmed,
     /// never adopted silently.
-    var healthCandidate: (kg: Double, at: String)? = (78.6, "TODAY 07:12")
+    ///
+    /// ⚠️ Nil by default. It used to default to a literal (78.6, "TODAY 07:12"), so the
+    /// sheet always opened claiming Health had a new weigh-in — on a build with no
+    /// HealthKit entitlement at all, and over an account whose real last weight was 75.8.
+    /// A prompt to confirm a number nobody measured is the worst thing this sheet can do.
+    var healthCandidate: (kg: Double, at: String)?
 
     var body: some View {
         Group {
@@ -27,7 +33,12 @@ struct WeighInSheet: View {
             }
         }
         .background(NB.carbon2)
-        .onAppear { if healthCandidate != nil { mode = .fromHealth } }
+        .onAppear {
+            if healthCandidate != nil { mode = .fromHealth }
+            // The keypad opens on what they weigh now, not on an empty field: most entries
+            // are a small correction to the last one.
+            if typed.isEmpty { typed = Fmt.kg(data.today.weightKg) }
+        }
     }
 
     // MARK: 02 · 手填 By hand

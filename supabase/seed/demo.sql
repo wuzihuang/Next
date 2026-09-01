@@ -19,6 +19,7 @@ declare
   v_train boolean;
   v_asleep boolean;
   v_moving boolean;
+  v_scale numeric;
 begin
   select id into v_user from auth.users where email = 'demo@nextbody.app';
 
@@ -74,6 +75,12 @@ begin
     -- consecutive days land on the same side of every threshold and the first three days
     -- of history are all hard sessions in a row. A hash of the day gives an actual spread.
     v_seed := (hashtext(d::text) & 2147483647) / 2147483647.0;
+    -- ⚠️ A fixed daily intake against a near-fixed burn puts every one of the eighty-four
+    -- days in the same bucket: with 1,550 in and 1,900 out the heat map on 11 came out
+    -- solid DEFICIT, and with 1,950 in it came out solid LEVEL. The day-to-day swing is
+    -- what makes the map worth drawing — 0.90 to 1.48 spans −520 to +380 kcal, which is
+    -- the three tiers plus the recomp window 09's footnote counts.
+    v_scale := 0.90 + ((hashtext(d::text || 'kcal') & 2147483647) / 2147483647.0) * 0.58;
     -- ⚠️ The day stops at the last tick that has actually happened. Generating the rest of
     -- today would put readings in the future, and the panel's HR row reads the newest tick.
     for t in select generate_series(
@@ -185,18 +192,18 @@ begin
       select v_user, d, m.slot, m.at, m.text, m.kcal, m.p, m.c, m.f, m.conf, 'seed', extensions.gen_random_uuid()
       from (values
         ('BREAKFAST', (d + time '07:20') at time zone 'America/Los_Angeles',
-         'OATS · WHEY · BLUEBERRIES', 380 + (random() * 60)::int, 32, 44, 9, 'HIGH'),
+         'OATS · WHEY · BLUEBERRIES', round((300 + random() * 50) * v_scale)::int, 32, 34, 8, 'HIGH'),
         ('LUNCH', (d + time '12:40') at time zone 'America/Los_Angeles',
-         'CHICKEN · RICE · GREENS', 560 + (random() * 130)::int, 44, 62, 18, 'MEDIUM'),
+         'CHICKEN · RICE · GREENS', round((450 + random() * 90) * v_scale)::int, 44, 46, 14, 'MEDIUM'),
         ('DINNER', (d + time '19:40') at time zone 'America/Los_Angeles',
-         'SALMON · POTATO · BROCCOLI', 600 + (random() * 160)::int, 46, 54, 24, 'MEDIUM')
+         'SALMON · POTATO · BROCCOLI', round((480 + random() * 120) * v_scale)::int, 46, 42, 18, 'MEDIUM')
       ) as m(slot, at, text, kcal, p, c, f, conf)
       where m.at <= now()
       on conflict do nothing;
       if v_seed > 0.55 then
         insert into public.meals (user_id, user_day, slot, logged_at, text_input, kcal, protein_g, carb_g, fat_g, confidence, model_version, client_op_id)
         select v_user, d, 'SNACK', (d + time '16:10') at time zone 'America/Los_Angeles',
-               'GREEK YOGURT · ALMONDS', 240 + (random() * 60)::int, 22, 18, 11, 'HIGH', 'seed',
+               'GREEK YOGURT · ALMONDS', round((180 + random() * 50) * v_scale)::int, 22, 14, 8, 'HIGH', 'seed',
                extensions.gen_random_uuid()
         where (d + time '16:10') at time zone 'America/Los_Angeles' <= now()
         on conflict do nothing;

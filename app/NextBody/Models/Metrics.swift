@@ -218,7 +218,8 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var nightInputs: NightInputs?
 
     // Energy
-    var bmr: Double?
+    var bmr: Double?                   // the part of the baseline that has elapsed
+    var bmrFull: Double?               // the whole day's baseline — 10's header is an estimate
     var eActive: Double?
     var eTrain: Double?
     var eTrainPlan: Double?

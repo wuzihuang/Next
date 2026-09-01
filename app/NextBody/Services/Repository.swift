@@ -105,7 +105,7 @@ final class Repository {
             guard !rows.isEmpty else { return }
 
             let fuel = try await db.select("day_fuel", query: [
-                .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states"),
+                .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g"),
             ])
             let reserve = try await db.select("reserve_daily", query: [
                 .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs"),
@@ -201,6 +201,27 @@ final class Repository {
                 if let fu = fuelBy[id] {
                     m.eIn = number(fu["kcal_in"])
                     m.eOutNow = number(fu["kcal_out"])
+                    m.bmr = number(fu["bmr_kcal"])
+                    m.eActive = number(fu["active_kcal"])
+                    // 10 · the header is an estimate of where the day lands. Baseline for
+                    // the whole day, today's movement carried forward at the rate it has
+                    // actually run at, and the session that is still owed.
+                    let elapsed = Double(userDay.elapsedMinutes()) / 1440
+                    let full = number(fu["bmr_full_kcal"])
+                    m.bmrFull = full
+                    let forecast = elapsed > 0.05
+                        ? (number(fu["active_kcal"]) ?? 0) / elapsed
+                        : number(fu["active_kcal"]) ?? 0
+                    m.activeForecast = forecast
+                    m.eTrainPlan = nil
+                    // The estimate itself is assembled in merge(), once every row it is
+                    // made of is known.
+                    m.targetIn = number(fu["target_in"])
+                    // The macro targets are the server's split, not a second one computed
+                    // here — two answers to "what is my protein target" is one too many.
+                    if let p = number(fu["protein_g"]) { m.protein = MacroSlot(target: Int(p), eaten: 0) }
+                    if let c = number(fu["carb_g"])    { m.carb    = MacroSlot(target: Int(c), eaten: 0) }
+                    if let f = number(fu["fat_g"])     { m.fat     = MacroSlot(target: Int(f), eaten: 0) }
                     switch fu["intake_state"] as? String {
                     case "FASTED": m.fuelState = .fasted
                     case "CONFIRMED": m.fuelState = .confirmed
@@ -325,26 +346,37 @@ final class Repository {
         m.leanKg = local.leanKg
         m.fatEmaDelta7d = local.fatEmaDelta7d
         m.leanEmaDelta7d = local.leanEmaDelta7d
-        m.targetIn = local.targetIn
-        m.bmr = local.bmr
-        m.eActive = local.eActive
+        m.targetIn = server.targetIn ?? local.targetIn
+        m.bmr = server.bmr ?? local.bmr
+        m.bmrFull = server.bmrFull ?? local.bmrFull
+        m.eActive = server.eActive ?? local.eActive
         m.eTrain = local.eTrain
-        m.eTrainPlan = local.eTrainPlan
-        m.eOutFull = local.eOutFull
-        m.activeForecast = local.activeForecast
+        // A9 · what the planned session would actually cost this person, from their own
+        // weight — never a fixed 480. It is the same session board 08 is offering.
+        let gap = (server.targetLoad ?? 0) - (server.trainingLoad ?? 0)
+        let plan: (minutes: Double, met: Double)? =
+            gap >= 8 ? (45, 6.0) : gap >= 3 ? (30, 6.0) : gap > 0 ? (20, 3.5) : nil
+        m.eTrainPlan = plan.flatMap { p in
+            m.weightKg.map { (p.met - 1) * 1.05 * $0 * (p.minutes / 60) }
+        }
+        m.activeForecast = server.activeForecast ?? local.activeForecast
         m.scans7d = local.scans7d
         m.logged7d = local.logged7d
         m.bandCoverage = local.bandCoverage
 
+        // The targets come from the server; only what was eaten is decided here.
+        let pTarget = server.protein ?? local.protein
+        let cTarget = server.carb ?? local.carb
+        let fTarget = server.fat ?? local.fat
         if case .unlogged = server.fuelState {
-            m.protein = local.protein.map { MacroSlot(target: $0.target, eaten: 0) }
-            m.carb = local.carb.map { MacroSlot(target: $0.target, eaten: 0) }
-            m.fat = local.fat.map { MacroSlot(target: $0.target, eaten: 0) }
+            m.protein = pTarget.map { MacroSlot(target: $0.target, eaten: 0) }
+            m.carb = cTarget.map { MacroSlot(target: $0.target, eaten: 0) }
+            m.fat = fTarget.map { MacroSlot(target: $0.target, eaten: 0) }
             m.nextMeal = nil
         } else {
-            m.protein = local.protein
-            m.carb = local.carb
-            m.fat = local.fat
+            m.protein = pTarget
+            m.carb = cTarget
+            m.fat = fTarget
             // NEXT_MEAL · the remaining budget divided by the open slots. One open slot left
             // means a plain subtraction; more than one rounds down to 50 and clamps 150–1200.
             if let target = m.targetIn, let eaten = m.eIn {
@@ -353,6 +385,12 @@ final class Repository {
             } else {
                 m.nextMeal = nil
             }
+        }
+        // ⚠️ Assembled last, and out of exactly the three rows board 10 lists. Computing it
+        // earlier meant a later assignment overwrote it and the card's header disagreed
+        // with the numbers directly beneath it.
+        if let baseline = m.bmrFull {
+            m.eOutFull = baseline + (m.activeForecast ?? 0) + (m.eTrainPlan ?? 0)
         }
         return m
     }

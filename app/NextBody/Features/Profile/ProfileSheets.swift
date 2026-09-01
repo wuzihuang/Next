@@ -345,23 +345,43 @@ struct DeleteAccountSheet: View {
     @EnvironmentObject private var session: SessionStore
     @Environment(\.dismiss) private var dismiss
 
+    @State private var weighIns: Int?
+    @State private var weeks: Int?
+    @State private var nights: Int?
+    @State private var failure: String?
+
+    /// ⚠️ 1BAY · the second ask must count out what is about to be lost. Counting what is in
+    /// memory counts the page size — the list is fetched 60 at a time — so these are exact
+    /// counts off the server, and each one stays "——" until it arrives rather than guessing.
+    private var losses: String {
+        let w = weighIns.map(String.init) ?? Fmt.dash
+        let c = weeks.map { "\($0) weeks" } ?? Fmt.dash
+        let n = nights.map { "\($0) nights" } ?? Fmt.dash
+        return "\(w) weigh-ins, \(c) of composition and \(n) you have slept in it go with it. The HOOP unpairs itself. There is no undo."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Delete your account?")
                 .font(NBFont.ui(500, 24)).tracking(0.01 * 24)
                 .foregroundStyle(NB.text1)
-            Text("\(data.weighIns.count) weigh-ins, 12 weeks of composition and every night you have slept in it go with it. The HOOP unpairs itself. There is no undo.")
+            Text(losses)
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(7)
                 .foregroundStyle(NB.text2)
+
+            if let failure {
+                Text(failure)
+                    .font(NBFont.ui(400, 12)).tracking(0.02 * 12)
+                    .foregroundStyle(NB.alert2)
+            }
 
             Spacer(minLength: 0)
 
             LimePillButton(title: "Keep my account") { dismiss() }
 
             Button {
-                session.reset()
-                dismiss()
+                Task { await deleteEverything() }
             } label: {
                 Text("DELETE EVERYTHING")
                     .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
@@ -375,6 +395,30 @@ struct DeleteAccountSheet: View {
         .padding(.top, 26)
         .padding(.bottom, 26)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task {
+            weighIns = await SupabaseClient.shared.count("weigh_ins")
+            nights = await SupabaseClient.shared.count("sleep_nights")
+            if let days = await SupabaseClient.shared.count("body_composition") {
+                weeks = max(1, Int((Double(days) / 7).rounded()))
+            }
+            await Analytics.shared.track("ACCOUNT_DELETE_SHOWN", [:])
+        }
+    }
+
+    /// ⚠️ 1DPG · account/delete failing is a legal event, not a toast. The button used to
+    /// call session.reset(), which signs the user out and deletes nothing — under a sentence
+    /// promising there is no undo. If the endpoint cannot be reached the account is still
+    /// there, and the sheet has to say so rather than look like it worked.
+    private func deleteEverything() async {
+        await Analytics.shared.track("ACCOUNT_DELETE_CONFIRMED", [:])
+        do {
+            _ = try await SupabaseClient.shared.callFunction("account-delete", payload: [:])
+            session.reset()
+            dismiss()
+        } catch {
+            failure = "Could not reach the server. Nothing has been deleted — your account is still here. Try again when you are back online."
+            await Analytics.shared.track("ACCOUNT_DELETE_FAILED", ["ERROR": "\(error)"])
+        }
     }
 }
 

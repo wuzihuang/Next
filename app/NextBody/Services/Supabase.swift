@@ -196,6 +196,26 @@ actor SupabaseClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
+    /// An exact row count, from the Content-Range header rather than by pulling the rows.
+    /// ⚠️ 11's delete confirmation counts out what is about to be lost, and counting what
+    /// happens to be in memory counts the page size instead — 60 weigh-ins for an account
+    /// that has 151.
+    func count(_ table: String, query: [URLQueryItem] = []) async -> Int? {
+        var r = URLRequest(url: SupabaseConfig.url
+            .appendingPathComponent("rest/v1/\(table)")
+            .appending(queryItems: query + [URLQueryItem(name: "select", value: "user_id")]))
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                   forHTTPHeaderField: "Authorization")
+        r.setValue("count=exact", forHTTPHeaderField: "Prefer")
+        r.setValue("0-0", forHTTPHeaderField: "Range")
+        guard let (_, resp) = try? await session.data(for: r),
+              let http = resp as? HTTPURLResponse,
+              let range = http.value(forHTTPHeaderField: "content-range"),
+              let total = range.split(separator: "/").last else { return nil }
+        return Int(total)
+    }
+
     /// The signed-in user's id. Every write that names a user_id needs it; RLS still checks
     /// it, so this is convenience, never authority.
     var currentUserId: String? { userId }

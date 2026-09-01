@@ -88,7 +88,11 @@ enum SheetChrome {
         switch route {
         case .plusMenu:                     return 430   // 06 · two groups, five rows
         case .weighIn:                      return 500   // 10S · the keypad, and no more
-        case .deleteAccount, .signOut:      return 360
+        case .signOut:                      return 360
+        // 11's delete sheet has room for the sentence that counts out what is lost *and*
+        // the line that says nothing was deleted when the endpoint cannot be reached.
+        // At 360 the two together clipped the sentence to "…14 nights you…".
+        case .deleteAccount:                return 400
         case .language, .appleHealth:       return 400
         case .goal, .notifications, .units: return 480
         default:                            return maxHeight

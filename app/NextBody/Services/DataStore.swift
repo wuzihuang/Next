@@ -17,6 +17,11 @@ final class DataStore: ObservableObject {
     /// 04 · the HR / STRESS row under the readout, and the tick it came from. 13 · the age
     /// of that tick is what decides whether the numbers are shown, dimmed, or dashed.
     @Published var vitals: LiveVitals = .mock
+    /// 12 · what this HOOP reports it can do, as last stored. The device page and 07's
+    /// capabilities() gate read this so they are right before the band answers, and still
+    /// right when it is out of range.
+    @Published var capabilities = BandCapabilities()
+    @Published var capabilitiesReadAt: Date?
     @Published var isOffline = false
 
     // 11 · the three tiles. Two net changes over twelve weeks and one absolute value,

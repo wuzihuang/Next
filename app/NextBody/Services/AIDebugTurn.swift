@@ -116,20 +116,85 @@ extension AIService {
             "response_format": ["type": "json_object"],
         ]
 
-        guard let raw = await Self.call(payload) else { return nil }
-        guard let env = Self.firstJSONObject(in: raw) else { return nil }
+        let began = Date()
+        guard let raw = await Self.call(payload) else {
+            await Self.log(text: text, outcome: "E_MODEL", began: began, frameId: nil)
+            return nil
+        }
+        guard let env = Self.firstJSONObject(in: raw) else {
+            await Self.log(text: text, outcome: "E_SCHEMA", began: began, frameId: nil)
+            return nil
+        }
 
         // F4 §05 · banned phrases — one hit and the whole frame goes.
         let blob = ["title", "sentence", "footer", "action"]
             .compactMap { env[$0] as? String }.joined(separator: " ")
         for p in Self.bannedPatterns {
-            if blob.range(of: p, options: .regularExpression) != nil { return nil }
+            if blob.range(of: p, options: .regularExpression) != nil {
+                await Self.log(text: text, outcome: "E_BANNED", began: began, frameId: nil)
+                return Self.fallback(m)
+            }
         }
 
         // F4 §06 · one untraceable number rejects the frame.
-        guard ledger.audit(blob) else { return nil }
+        guard ledger.audit(blob) else {
+            await Self.log(text: text, outcome: "E_LEDGER", began: began, frameId: nil)
+            return Self.fallback(m)
+        }
 
+        // The same two rows the Edge Function writes. ⚠️ Without them a turn taken on the
+        // DEBUG path leaves no trace at all, and "why did she say that" has no answer for
+        // exactly the turns most likely to be wrong — the ones taken before deployment.
+        let frameId = await Self.recordFrame(env)
+        await Self.log(text: text, outcome: "OK", began: began, frameId: frameId)
         return widget(from: env)
+    }
+
+    /// ⚠️ A rejected frame is not silence. The banned-phrase scan and the number ledger both
+    /// throw the whole frame away — that is the rule and it is right — but a user who asked a
+    /// question and got a panel that never changed has no idea whether it heard them. The
+    /// Edge Function answers with `batteryFallback`, so this does too: the measurement, with
+    /// no sentence built on top of it.
+    private static func fallback(_ m: DailyMetrics) -> PanelWidget {
+        PanelWidget(
+            type: .battery, title: "BODY BATTERY", tag: .recover,
+            sentence: m.bodyBattery.map { "现在 \($0)。" } ?? "还没有可用的夜间数据。",
+            footer: nil, action: nil,
+            data: .ring(value: Double(m.bodyBattery ?? 0), goal: 100, unit: "%"),
+            priority: .normal)
+    }
+
+    /// F4 · screen_frames is what screen.current reads back, so the frame has to be stored
+    /// before the widget is shown, not after.
+    private static func recordFrame(_ env: [String: Any]) async -> String? {
+        guard let userId = await SupabaseClient.shared.currentUserId else { return nil }
+        let id = UUID().uuidString
+        let row: [String: Any] = [
+            "id": id, "user_id": userId,
+            "trigger": "turn",
+            "widget_tree": env,
+            "model_version": "qwen3.8-flash",
+        ]
+        guard (try? await SupabaseClient.shared.insert("screen_frames", row: row)) != nil else { return nil }
+        return id
+    }
+
+    private static func log(text: String, outcome: String, began: Date, frameId: String?) async {
+        guard let userId = await SupabaseClient.shared.currentUserId else { return }
+        var row: [String: Any] = [
+            "id": UUID().uuidString,
+            "user_id": userId,
+            "user_text": text,
+            "model_version": "qwen3.8-flash",
+            "latency_ms": Int(Date().timeIntervalSince(began) * 1000),
+            "outcome": outcome,
+        ]
+        if let frameId { row["frame_id"] = frameId }
+        _ = try? await SupabaseClient.shared.insert("ai_turns", row: row)
+        await Analytics.shared.track("AI_TURN", ["OUTCOME": outcome])
+        // A turn is a natural batch boundary: it already cost a network round trip, and the
+        // events around it are the ones worth having if the session ends here.
+        await Analytics.shared.flush()
     }
 
     func debugEstimate(entry: MealEntry, into store: DataStore) async -> PanelWidget? {

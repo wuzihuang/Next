@@ -8,7 +8,11 @@ import Foundation
 final class Repository {
     static let shared = Repository()
 
-    private let db = SupabaseClient.shared
+    let db = SupabaseClient.shared
+
+    /// The bound HOOP's row id. Cached because sync_runs and device_capabilities both name
+    /// it, and neither is worth a round trip of its own.
+    private(set) var deviceId: String?
 
     /// Signing in to the seeded demo account. In production this is the six-digit code path.
     func signInDemo() async throws {
@@ -21,6 +25,7 @@ final class Repository {
         // 11 · the heat map is twenty-six columns of seven days.
         await load(days: 182, endingAt: today, into: store)
         await loadComposition(into: store)
+        await loadCapabilities(into: store)
     }
 
     /// The profile exists from onboarding onwards; failing to read it is a serious fault,
@@ -32,6 +37,14 @@ final class Repository {
         ]).first else { return }
 
         if let name = row["display_name"] as? String, !name.isEmpty { store.profile.name = name }
+        if let d = try? await db.select("devices", query: [
+            .init(name: "select", value: "id,firmware_version,battery_percent,device_number"),
+            .init(name: "limit", value: "1"),
+        ]).first {
+            deviceId = d["id"] as? String
+            if let fw = d["firmware_version"] as? String { store.band.firmware = fw }
+            if let pct = number(d["battery_percent"]) { store.band.batteryPercent = Int(pct) }
+        }
         // The address is whoever is signed in — never a placeholder next to real numbers.
         if let mail = await db.signedInEmail() { store.profile.email = mail }
         if let h = number(row["height_cm"]) { store.profile.heightCm = h }
@@ -420,7 +433,7 @@ final class Repository {
 
     /// PostgREST hands back fractional seconds and no zone suffix on some columns;
     /// the plain ISO parser rejects both, so try the strict form first and fall back.
-    private static func timestamp(_ raw: String) -> Date? {
+    static func timestamp(_ raw: String) -> Date? {
         let strict = ISO8601DateFormatter()
         strict.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = strict.date(from: raw) { return d }

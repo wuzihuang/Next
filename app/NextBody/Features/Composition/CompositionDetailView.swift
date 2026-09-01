@@ -56,6 +56,13 @@ struct CompositionDetailView: View {
         } onBack: {
             router.backToRoot()
         }
+        .task {
+            await Analytics.shared.track("COMP_DETAIL_OPEN", [
+                "CALL": call?.rawValue ?? "NO_CALL",
+                "CONFIDENCE": m.confidence.rawValue,
+                "SCANS_7D": m.scans7d,
+            ])
+        }
     }
 
     private var header: some View {

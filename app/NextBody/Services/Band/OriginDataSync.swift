@@ -133,13 +133,24 @@ final class OriginDataSync {
 
     private struct SyncRun { let startedAt: Date }
 
+    /// ⚠️ user_id is NOT NULL on this table and the insert never sent one, so every write
+    /// was rejected and swallowed by the `try?` — the table that exists to explain a bad
+    /// sync was empty for exactly as long as syncs had been running.
+    ///
+    /// outcome = 'partial' does not advance last_origin_sync_at, but the row is still
+    /// written: four days out of seven and nothing at all are different events, and that
+    /// difference is the whole reason for the table.
     private func record(_ run: SyncRun, outcome: String, requested: Int, returned: Int) async {
-        _ = try? await db.insert("sync_runs", rows: [[
+        guard let userId = await db.currentUserId else { return }
+        var row: [String: Any] = [
+            "user_id": userId,
             "started_at": ISO8601DateFormatter().string(from: run.startedAt),
             "finished_at": ISO8601DateFormatter().string(from: Date()),
             "outcome": outcome,
             "days_requested": requested,
             "days_returned": returned,
-        ]])
+        ]
+        if let deviceId = await Repository.shared.deviceId { row["device_id"] = deviceId }
+        _ = try? await db.insert("sync_runs", rows: [row])
     }
 }

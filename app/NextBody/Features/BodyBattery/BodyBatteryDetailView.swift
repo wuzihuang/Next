@@ -45,6 +45,33 @@ struct BodyBatteryDetailView: View {
         } onBack: {
             router.backToRoot()
         }
+        // 13 · the board names its events exactly, because each acceptance line is written
+        // against one of them. A different name is a line nobody can check.
+        .task {
+            await Analytics.shared.track("BB_DETAIL_OPEN", ["ENTRY": "panel"])
+            if let bb = m.bodyBattery {
+                await Analytics.shared.track("BB_CONFIDENCE_SHOWN",
+                                             ["LEVEL": m.confidence.rawValue, "SCORE": bb])
+            } else {
+                await Analytics.shared.track("BB_NO_SCORE",
+                                             ["REASON": hasNight ? "NOT_SYNCED" : "SHORT_NIGHT"])
+            }
+            // ⚠️ Raised when the four rows do not close. The server withholds them rather
+            // than fudging a fifth row, and this is the alarm that says it happened.
+            if hasNight && m.reserveDrivers == nil {
+                await Analytics.shared.track("BB_ATTRIBUTION_MISMATCH",
+                                             ["TICKS": m.reserveCurve.count])
+            }
+            if let wake = m.bbWake, let target = m.targetLoad, let zone = m.optimalZone {
+                await Analytics.shared.track("BB_TARGET_SET",
+                                             ["BB": wake, "TARGET": target,
+                                              "LO": zone.lowerBound, "HI": zone.upperBound])
+            }
+            if data.vitals.freshness == .stale, let at = data.vitals.at {
+                await Analytics.shared.track("BB_STALE_SHOWN",
+                                             ["MIN": Int(Date().timeIntervalSince(at) / 60)])
+            }
+        }
     }
 
     private var header: some View {
@@ -230,7 +257,13 @@ struct BodyBatteryDetailView: View {
             Spacer(minLength: 0)
             Button {
                 // A manual BATTERY CHECK is the only thing allowed to re-anchor the day.
+                let from = data.today.bodyBattery
                 data.today.bodyBattery = m.bbWake
+                Task {
+                    await Analytics.shared.track("BB_TARGET_REANCHORED",
+                                                 ["FROM": from as Any, "TO": m.bbWake as Any,
+                                                  "SOURCE": "battery_check"])
+                }
             } label: {
                 Text("BATTERY CHECK")
                     .font(NBFont.dot(600, 10)).tracking(0.16 * 10)

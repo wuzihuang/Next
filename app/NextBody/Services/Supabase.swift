@@ -101,15 +101,21 @@ actor SupabaseClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
+    /// ⚠️ `returning` is not a convenience. Asking for the row back makes PostgREST add a
+    /// RETURNING clause, and RETURNING has to pass a *select* policy — so on a table that is
+    /// deliberately write-only, like analytics_events, a perfectly legal insert comes back as
+    /// "new row violates row-level security policy" and looks like the write was rejected.
     @discardableResult
-    func insert(_ table: String, rows: [[String: Any]]) async throws -> [[String: Any]] {
+    func insert(_ table: String, rows: [[String: Any]],
+                returning: Bool = true) async throws -> [[String: Any]] {
         var r = URLRequest(url: SupabaseConfig.url.appendingPathComponent("rest/v1/\(table)"))
         r.httpMethod = "POST"
         r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
         r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
                    forHTTPHeaderField: "Authorization")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.setValue("return=representation", forHTTPHeaderField: "Prefer")
+        r.setValue(returning ? "return=representation" : "return=minimal",
+                   forHTTPHeaderField: "Prefer")
         r.httpBody = try JSONSerialization.data(withJSONObject: rows)
         let (data, resp) = try await session.data(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -118,6 +124,59 @@ actor SupabaseClient {
         }
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
+
+    /// An upsert. PostgREST wants the conflict target named, otherwise a repeat write is a
+    /// duplicate-key error rather than a replacement.
+    @discardableResult
+    func upsert(_ table: String, row: [String: Any], onConflict: String) async throws -> [[String: Any]] {
+        var r = URLRequest(url: SupabaseConfig.url
+            .appendingPathComponent("rest/v1/\(table)")
+            .appending(queryItems: [URLQueryItem(name: "on_conflict", value: onConflict)]))
+        r.httpMethod = "POST"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                   forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("resolution=merge-duplicates,return=representation", forHTTPHeaderField: "Prefer")
+        r.httpBody = try JSONSerialization.data(withJSONObject: [row])
+        let (data, resp) = try await session.data(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+    }
+
+    @discardableResult
+    func insert(_ table: String, row: [String: Any]) async throws -> [[String: Any]] {
+        try await insert(table, rows: [row])
+    }
+
+    /// A PATCH by primary key. Used to close a row that was opened before the work started —
+    /// a sync run, a turn — so the row exists even if the work never finishes.
+    @discardableResult
+    func patch(_ table: String, id: String, row: [String: Any]) async throws -> [[String: Any]] {
+        var r = URLRequest(url: SupabaseConfig.url
+            .appendingPathComponent("rest/v1/\(table)")
+            .appending(queryItems: [URLQueryItem(name: "id", value: "eq.\(id)")]))
+        r.httpMethod = "PATCH"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                   forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("return=representation", forHTTPHeaderField: "Prefer")
+        r.httpBody = try JSONSerialization.data(withJSONObject: row)
+        let (data, resp) = try await session.data(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+    }
+
+    /// The signed-in user's id. Every write that names a user_id needs it; RLS still checks
+    /// it, so this is convenience, never authority.
+    var currentUserId: String? { userId }
 
     enum Failure: Error, LocalizedError {
         case http(Int, String)

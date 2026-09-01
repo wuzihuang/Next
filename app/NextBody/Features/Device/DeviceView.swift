@@ -113,11 +113,23 @@ struct DeviceView: View {
             router.back()
         }
         .task {
+            // What was stored the last time this HOOP answered. The page is right from the
+            // first frame, and stays right when the band is out of range — which is the
+            // whole reason device_capabilities is a table rather than a local variable.
+            capabilities = data.capabilities
+            await Analytics.shared.track("DEVICE_PAGE_OPEN", ["CONNECTED": connected])
             guard connected else { return }
             // P1 · a page opened. These three reads are what the whole screen is made of,
             // so nothing below renders a guess while they are in flight.
             identity = try? await Band.live.readIdentity()
-            capabilities = (try? await Band.live.readCapabilities()) ?? BandCapabilities()
+            if let fresh = try? await Band.live.readCapabilities() {
+                capabilities = fresh
+                data.capabilities = fresh
+                if let deviceId = Repository.shared.deviceId,
+                   let userId = await SupabaseClient.shared.currentUserId {
+                    await Repository.shared.saveCapabilities(fresh, deviceId: deviceId, userId: userId)
+                }
+            }
             battery = try? await Band.live.readBattery()
             if let battery, let percent = battery.percent {
                 data.band.batteryPercent = percent

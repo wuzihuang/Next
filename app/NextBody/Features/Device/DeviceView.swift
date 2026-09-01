@@ -274,6 +274,10 @@ struct DeviceView: View {
         .cardSkin()
     }
 
+    /// The version the update server offers. A constant until there is an update server;
+    /// it is not something the band can tell us.
+    private static let availableFirmware = "2.5.0"
+
     /// Five reasons the button can be grey, and it always says which one.
     /// "Temporarily unavailable" is never allowed to stand in for all five.
     private var firmwareCard: some View {
@@ -283,13 +287,16 @@ struct DeviceView: View {
                     .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.text3Prod)
                 HStack(spacing: 8) {
-                    Text("2.4.1")
+                    // The left side is the band's own reported version. ⚠️ It read a fixed
+                    // 2.4.1, which happened to match the seed and would have quietly lied
+                    // about every other HOOP.
+                    Text(identity?.firmware ?? data.band.firmware)
                         .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
                         .foregroundStyle(NB.text2)
                     Text("→")
                         .font(NBFont.dot(700, 13))
                         .foregroundStyle(NB.lime1)
-                    Text("2.5.0")
+                    Text(Self.availableFirmware)
                         .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
                         .foregroundStyle(NB.lime1)
                 }

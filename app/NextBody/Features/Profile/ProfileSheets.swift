@@ -72,6 +72,8 @@ struct PersonalInfoSheet: View {
             LimePillButton(title: "Save") {
                 data.profile.name = name
                 data.profile.email = email
+                let saved = data.profile
+                Task { await Repository.shared.saveProfile(saved, editedFields: ["display_name"]) }
                 dismiss()
             }
         }
@@ -96,6 +98,8 @@ struct TrainingGoalSheet: View {
                 ForEach(Self.options, id: \.0) { g, title, sub in
                     Button {
                         data.profile.goal = g
+                        let saved = data.profile
+                        Task { await Repository.shared.saveProfile(saved, editedFields: ["goal"]) }
                         dismiss()
                     } label: {
                         HStack {
@@ -240,7 +244,11 @@ struct UnitsSheet: View {
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
         }
-        .onChange(of: weightUnit) { _, v in data.profile.usesMetric = (v == "KG") }
+        .onChange(of: weightUnit) { _, v in
+            data.profile.usesMetric = (v == "KG")
+            let saved = data.profile
+            Task { await Repository.shared.saveProfile(saved, editedFields: ["units_metric"]) }
+        }
     }
 }
 

@@ -54,6 +54,36 @@ extension Repository {
     }
 }
 
+// MARK: - profiles
+
+extension Repository {
+    /// F3 §02.3 · profile edits are client-direct RLS writes, not endpoints.
+    ///
+    /// ⚠️ The sheets used to assign to `data.profile` and stop there. The row looked right
+    /// until the next launch, and in the meantime the server went on computing every target
+    /// from the old goal — the one place where a change that silently does not happen is
+    /// worse than a change that visibly fails.
+    ///
+    /// A field the user edits is marked `edit` in field_sources, which every later
+    /// HealthKit sync skips. We do not compare timestamps and we never win against them.
+    func saveProfile(_ profile: Profile, editedFields: [String]) async {
+        var row: [String: Any] = [
+            "display_name": profile.name,
+            "goal": profile.goal.rawValue,
+            "units_metric": profile.usesMetric,
+            "height_cm": profile.heightCm,
+        ]
+        if !editedFields.isEmpty {
+            var sources: [String: String] = [:]
+            for f in editedFields { sources[f] = "edit" }
+            row["field_sources"] = sources
+        }
+        guard let userId = await db.currentUserId else { return }
+        _ = try? await db.patchWhere("profiles", column: "user_id", equals: userId, row: row)
+        await Analytics.shared.track("PROFILE_EDITED", ["FIELDS": editedFields])
+    }
+}
+
 // MARK: - analytics_events
 
 /// The boards name their events exactly — BB_MORNING_SHOWN{SCORE,DELTA,BAND},

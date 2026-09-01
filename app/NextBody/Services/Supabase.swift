@@ -174,6 +174,28 @@ actor SupabaseClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
+    /// A PATCH filtered on any column, for tables whose primary key is not `id`.
+    @discardableResult
+    func patchWhere(_ table: String, column: String, equals value: String,
+                    row: [String: Any]) async throws -> [[String: Any]] {
+        var r = URLRequest(url: SupabaseConfig.url
+            .appendingPathComponent("rest/v1/\(table)")
+            .appending(queryItems: [URLQueryItem(name: column, value: "eq.\(value)")]))
+        r.httpMethod = "PATCH"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                   forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("return=representation", forHTTPHeaderField: "Prefer")
+        r.httpBody = try JSONSerialization.data(withJSONObject: row)
+        let (data, resp) = try await session.data(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+    }
+
     /// The signed-in user's id. Every write that names a user_id needs it; RLS still checks
     /// it, so this is convenience, never authority.
     var currentUserId: String? { userId }

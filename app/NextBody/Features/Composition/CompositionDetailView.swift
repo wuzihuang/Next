@@ -13,14 +13,20 @@ struct CompositionDetailView: View {
     @State private var day: UserDay = UserDay.containing(Date())
 
     private var m: DailyMetrics {
-        data.history.first { $0.day == day } ?? data.today
+        // ⚠️ Today's row has to come from `today`, not from `history`. Both exist — history
+        // holds the raw server rows and `today` is the merged one — and only the merged one
+        // carries the composition figures the fetch fills in afterwards.
+        if day == UserDay.containing(Date()) { return data.today }
+        return data.history.first { $0.day == day } ?? data.today
     }
     /// The Call needs 7-day EMA and at least five weigh-ins. Below that it is PENDING and
     /// the quadrant is not drawn at all.
     private var hasCall: Bool { m.fatEmaDelta7d != nil && m.leanEmaDelta7d != nil && m.scans7d >= 5 }
 
     private var call: TheCall? {
-        guard let f = m.fatEmaDelta7d, let l = m.leanEmaDelta7d, hasCall else { return nil }
+        guard hasCall else { return nil }
+        if let settled = m.serverCall { return settled }
+        guard let f = m.fatEmaDelta7d, let l = m.leanEmaDelta7d else { return nil }
         return TheCall.from(fatDelta7d: f, leanDelta7d: l)
     }
 
@@ -183,21 +189,54 @@ struct CompositionDetailView: View {
     /// Four signals. The card header says how many agree; the dots are lime only when
     /// that signal clears its own threshold.
     private var whyCard: some View {
-        CardBlock(title: "WHY \(call?.rawValue ?? "")", trailing: "4/4 SIGNALS AGREE", trailingIsDot: true) {
+        let s = signals
+        return CardBlock(title: "WHY \(call?.rawValue ?? "")",
+                         trailing: "\(s.filter(\.lit).count)/4 SIGNALS AGREE", trailingIsDot: true) {
             VStack(spacing: 12) {
-                SignalRow(lit: true, name: "FAT MASS TREND",
-                          value: "\(Fmt.signedKg(m.fatEmaDelta7d)) KG",
-                          note: "7D EMA · CLEARS THE -0.15 KG THRESHOLD")
-                SignalRow(lit: true, name: "LEAN MASS TREND",
-                          value: "\(Fmt.signedKg(m.leanEmaDelta7d)) KG",
-                          note: "7D EMA · CLEARS THE +0.10 KG THRESHOLD")
-                // 1.9 g/kg is the daily target; 1.8 is the threshold that scores a vote.
-                SignalRow(lit: true, name: "PROTEIN INTAKE", value: "2.3 G/KG",
-                          note: "\(m.logged7d) OF 7 DAYS AT OR ABOVE 1.8 G/KG")
-                SignalRow(lit: true, name: "ENERGY BALANCE", value: "-380 KCAL",
-                          note: "INSIDE THE -200 TO -500 RECOMP WINDOW")
+                ForEach(s, id: \.name) { sig in
+                    SignalRow(lit: sig.lit, name: sig.name, value: sig.value, note: sig.note)
+                }
             }
         }
+    }
+
+    /// F2 §05 · the four signals behind THE CALL, each with the threshold it is measured
+    /// against. ⚠️ A row is lit only when its own number actually clears — the card used to
+    /// light all four and print "CLEARS THE −0.15 KG THRESHOLD" beside a −0.05, which is
+    /// the page telling the user their own arithmetic is wrong.
+    private var signals: [(name: String, value: String, note: String, lit: Bool)] {
+        let fat = m.fatEmaDelta7d
+        let lean = m.leanEmaDelta7d
+        let fatLit = (fat.map { abs($0) > TheCall.fatBand }) ?? false
+        let leanLit = (lean.map { abs($0) > TheCall.leanBand }) ?? false
+
+        // 1.9 g/kg is the daily target; 1.8 is the threshold that scores a vote.
+        let week = data.history.filter { $0.day <= m.day }.suffix(7)
+        let perKg = week.compactMap { d -> Double? in
+            guard let p = d.proteinIn, let kg = d.weightKg, kg > 0 else { return nil }
+            return Double(p) / kg
+        }
+        let hitDays = perKg.filter { $0 >= 1.8 }.count
+        let avgPerKg = perKg.isEmpty ? nil : perKg.reduce(0, +) / Double(perKg.count)
+
+        let balances = week.compactMap(\.balance)
+        let avgBalance = balances.isEmpty ? nil : balances.reduce(0, +) / Double(balances.count)
+        let inWindow = (avgBalance.map { $0 <= -200 && $0 >= -500 }) ?? false
+
+        return [
+            ("FAT MASS TREND", "\(Fmt.signedKg(fat)) KG",
+             fatLit ? "7D EMA · CLEARS THE ±0.15 KG THRESHOLD"
+                    : "7D EMA · INSIDE THE ±0.15 KG THRESHOLD", fatLit),
+            ("LEAN MASS TREND", "\(Fmt.signedKg(lean)) KG",
+             leanLit ? "7D EMA · CLEARS THE ±0.10 KG THRESHOLD"
+                     : "7D EMA · INSIDE THE ±0.10 KG THRESHOLD", leanLit),
+            ("PROTEIN INTAKE",
+             avgPerKg.map { String(format: "%.1f G/KG", $0) } ?? Fmt.dash,
+             "\(hitDays) OF \(perKg.count) DAYS AT OR ABOVE 1.8 G/KG", hitDays >= 4),
+            ("ENERGY BALANCE", Fmt.signedKcal(avgBalance) + " KCAL",
+             inWindow ? "INSIDE THE −200 TO −500 RECOMP WINDOW"
+                      : "OUTSIDE THE −200 TO −500 RECOMP WINDOW", inWindow),
+        ]
     }
 
     private var needsCard: some View {

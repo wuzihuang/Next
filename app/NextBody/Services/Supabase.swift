@@ -12,6 +12,9 @@ actor SupabaseClient {
     private var accessToken: String?
     private var refreshToken: String?
     private(set) var userId: String?
+    /// The address the session belongs to. 11 prints it under the name, so it has to be
+    /// whoever actually signed in.
+    private(set) var userEmail: String?
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 30
@@ -45,6 +48,7 @@ actor SupabaseClient {
         accessToken = token
         refreshToken = out["refresh_token"] as? String
         userId = ((out["user"] as? [String: Any])?["id"] as? String)
+        userEmail = (out["user"] as? [String: Any])?["email"] as? String
         return token
     }
 
@@ -76,6 +80,7 @@ actor SupabaseClient {
         }
         accessToken = access
         userId = ((out["user"] as? [String: Any])?["id"] as? String)
+        userEmail = (out["user"] as? [String: Any])?["email"] as? String
         return access
     }
 
@@ -181,4 +186,6 @@ actor SupabaseClient {
             }
         }
     }
+
+    func signedInEmail() -> String? { userEmail }
 }

@@ -232,7 +232,10 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var protein: MacroSlot?
     var carb: MacroSlot?
     var fat: MacroSlot?
-    var nextMeal: Double?              // NEXT_MEAL
+    var nextMeal: Double?
+    /// What actually went in that day, and the weight its targets were set against.
+    /// 12 averages the protein over seven days to score one of THE CALL's four signals.
+    var proteinIn: Int?              // NEXT_MEAL
 
     // Composition
     var weightKg: Double?
@@ -241,6 +244,8 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var fatSource: MeasurementSource?
     var fatEmaDelta7d: Double?
     var leanEmaDelta7d: Double?
+    /// THE_CALL as the server settled it. F3 §00 · one source, one instant.
+    var serverCall: TheCall?
     var confidence: Confidence = .pending
     var scans7d: Int = 0
     var logged7d: Int = 0

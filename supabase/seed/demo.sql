@@ -65,11 +65,12 @@ begin
   values (v_user, 'C4-2E-8F-1A-73-9D', 'uuid', 'HB-0042', '2.4.1', 82, true, now())
   on conflict do nothing;
 
-  -- 84 user days of five-minute points
+  -- 26 user days… no: 26 weeks of them. Board 11's heat map is 26 columns wide, and
+  -- a demo that fills twelve of them looks like a broken map rather than a new account.
   -- ⚠️ The loop walks the profile's calendar, not the server's. current_date is UTC, and
   -- seeding against it puts the whole demo a day out for anyone west of Greenwich: the
   -- app cuts its days in the device's zone and would find today empty.
-  for i in 0..83 loop
+  for i in 0..181 loop
     d := (timezone('America/Los_Angeles', now()))::date - i;
     -- ⚠️ i * 7919 mod 1000 walks 919, 838, 757, 676 … — it steps down by 81 every day, so
     -- consecutive days land on the same side of every threshold and the first three days
@@ -78,9 +79,10 @@ begin
     -- ⚠️ A fixed daily intake against a near-fixed burn puts every one of the eighty-four
     -- days in the same bucket: with 1,550 in and 1,900 out the heat map on 11 came out
     -- solid DEFICIT, and with 1,950 in it came out solid LEVEL. The day-to-day swing is
-    -- what makes the map worth drawing — 0.90 to 1.48 spans −520 to +380 kcal, which is
+    -- what makes the map worth drawing. It is centred so the seven-day mean lands inside
+    -- 12's −200 to −500 recomp window, which is the signal that page scores: 0.80 to 1.35
     -- the three tiers plus the recomp window 09's footnote counts.
-    v_scale := 0.90 + ((hashtext(d::text || 'kcal') & 2147483647) / 2147483647.0) * 0.58;
+    v_scale := 0.80 + ((hashtext(d::text || 'kcal') & 2147483647) / 2147483647.0) * 0.55;
     -- ⚠️ The day stops at the last tick that has actually happened. Generating the rest of
     -- today would put readings in the future, and the panel's HR row reads the newest tick.
     for t in select generate_series(
@@ -192,18 +194,18 @@ begin
       select v_user, d, m.slot, m.at, m.text, m.kcal, m.p, m.c, m.f, m.conf, 'seed', extensions.gen_random_uuid()
       from (values
         ('BREAKFAST', (d + time '07:20') at time zone 'America/Los_Angeles',
-         'OATS · WHEY · BLUEBERRIES', round((300 + random() * 50) * v_scale)::int, 32, 34, 8, 'HIGH'),
+         'OATS · WHEY · BLUEBERRIES', round((300 + random() * 50) * v_scale)::int, 34, 34, 8, 'HIGH'),
         ('LUNCH', (d + time '12:40') at time zone 'America/Los_Angeles',
-         'CHICKEN · RICE · GREENS', round((450 + random() * 90) * v_scale)::int, 44, 46, 14, 'MEDIUM'),
+         'CHICKEN · RICE · GREENS', round((450 + random() * 90) * v_scale)::int, 50, 46, 14, 'MEDIUM'),
         ('DINNER', (d + time '19:40') at time zone 'America/Los_Angeles',
-         'SALMON · POTATO · BROCCOLI', round((480 + random() * 120) * v_scale)::int, 46, 42, 18, 'MEDIUM')
+         'SALMON · POTATO · BROCCOLI', round((480 + random() * 120) * v_scale)::int, 52, 42, 18, 'MEDIUM')
       ) as m(slot, at, text, kcal, p, c, f, conf)
       where m.at <= now()
       on conflict do nothing;
       if v_seed > 0.55 then
         insert into public.meals (user_id, user_day, slot, logged_at, text_input, kcal, protein_g, carb_g, fat_g, confidence, model_version, client_op_id)
         select v_user, d, 'SNACK', (d + time '16:10') at time zone 'America/Los_Angeles',
-               'GREEK YOGURT · ALMONDS', round((180 + random() * 50) * v_scale)::int, 22, 14, 8, 'HIGH', 'seed',
+               'GREEK YOGURT · ALMONDS', round((180 + random() * 50) * v_scale)::int, 24, 14, 8, 'HIGH', 'seed',
                extensions.gen_random_uuid()
         where (d + time '16:10') at time zone 'America/Los_Angeles' <= now()
         on conflict do nothing;
@@ -223,9 +225,9 @@ begin
            body_fat_pct, fat_mass_kg, lean_body_mass_kg, bmr_kcal, derived_fields)
         values (v_user, (d + time '06:45') at time zone 'America/Los_Angeles', d, 'device_bia',
                 round((75.6 - i * 0.017)::numeric, 2),
-                round((14.6 + i * 0.012 + (random() - 0.5) * 0.4)::numeric, 2),
-                round(((75.6 - i * 0.017) * (14.6 + i * 0.012) / 100)::numeric, 2),
-                round(((75.6 - i * 0.017) * (1 - (14.6 + i * 0.012) / 100))::numeric, 2),
+                round((14.6 + i * 0.038 + (random() - 0.5) * 0.25)::numeric, 2),
+                round(((75.6 - i * 0.017) * (14.6 + i * 0.038) / 100)::numeric, 2),
+                round(((75.6 - i * 0.017) * (1 - (14.6 + i * 0.038) / 100))::numeric, 2),
                 1710, '{}');
       end if;
     end if;

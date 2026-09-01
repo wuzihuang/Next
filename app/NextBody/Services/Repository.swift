@@ -18,7 +18,8 @@ final class Repository {
     func loadToday(into store: DataStore) async {
         let today = UserDay.containing(Date())
         await loadProfile(into: store)
-        await load(days: 84, endingAt: today, into: store)
+        // 11 · the heat map is twenty-six columns of seven days.
+        await load(days: 182, endingAt: today, into: store)
         await loadComposition(into: store)
     }
 
@@ -26,10 +27,13 @@ final class Repository {
     /// so the screen keeps whatever it already had rather than blanking the identity card.
     func loadProfile(into store: DataStore) async {
         guard let row = try? await db.select("profiles", query: [
-            .init(name: "select", value: "sex,height_cm,birth_date,goal,units_metric,timezone"),
+            .init(name: "select", value: "display_name,sex,height_cm,birth_date,goal,units_metric,timezone"),
             .init(name: "limit", value: "1"),
         ]).first else { return }
 
+        if let name = row["display_name"] as? String, !name.isEmpty { store.profile.name = name }
+        // The address is whoever is signed in — never a placeholder next to real numbers.
+        if let mail = await db.signedInEmail() { store.profile.email = mail }
         if let h = number(row["height_cm"]) { store.profile.heightCm = h }
         if let sex = row["sex"] as? String { store.profile.sexIsMale = (sex == "male") }
         if let goal = (row["goal"] as? String).flatMap(Goal.init(rawValue:)) { store.profile.goal = goal }
@@ -53,14 +57,17 @@ final class Repository {
         store.today.leanKg = number(latest["lean_body_mass_kg"])
         store.today.fatSource = (latest["measurement_source"] as? String) == "manual" ? .derived : .measured
 
-        let iso = ISO8601DateFormatter()
+        // ⚠️ Not ISO8601DateFormatter(): PostgREST returns measured_at with an offset the
+        // plain parser will take but a fractional-second column will not, and every row
+        // then fails its date test — scans7d came back 0 and board 12 sat in its empty
+        // state on an account with six months of measurements.
         /// The oldest row at least `daysAgo` old — or, if the history is shorter than that,
         /// the oldest row there is. A net change over "as much history as exists" is honest;
         /// refusing to show one because the window is not full is not.
         func at(daysAgo: Int) -> [String: Any]? {
             let cutoff = Date().addingTimeInterval(-Double(daysAgo) * 86_400)
             let older = rows.first { row in
-                guard let s = row["measured_at"] as? String, let d = iso.date(from: s) else { return false }
+                guard let s = row["measured_at"] as? String, let d = Self.timestamp(s) else { return false }
                 return d <= cutoff
             }
             return older ?? rows.last
@@ -73,7 +80,7 @@ final class Repository {
                 - (number(weekAgo["lean_body_mass_kg"]) ?? 0)
         }
         store.today.scans7d = rows.filter { row in
-            guard let s = row["measured_at"] as? String, let d = iso.date(from: s) else { return false }
+            guard let s = row["measured_at"] as? String, let d = Self.timestamp(s) else { return false }
             return d >= Date().addingTimeInterval(-7 * 86_400)
         }.count
 
@@ -97,7 +104,7 @@ final class Repository {
         do {
             let rows = try await db.select("daily_results", query: [
                 .init(name: "select",
-                      value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,computed_at,algo_version"),
+                      value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version"),
                 .init(name: "user_day", value: "gte.\(from)"),
                 .init(name: "user_day", value: "lte.\(to)"),
                 .init(name: "order", value: "user_day.asc"),
@@ -105,7 +112,7 @@ final class Repository {
             guard !rows.isEmpty else { return }
 
             let fuel = try await db.select("day_fuel", query: [
-                .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g"),
+                .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,protein_in_g,weight_kg"),
             ])
             let reserve = try await db.select("reserve_daily", query: [
                 .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs"),
@@ -148,6 +155,18 @@ final class Repository {
                 m.balance = number(row["fuel_balance_kcal"])
                 m.calcVersion = row["algo_version"] as? String ?? "?"
                 m.confidence = Confidence(rawValue: row["the_call_confidence"] as? String ?? "") ?? .pending
+                // F3 · computed in Postgres like everything else; the local derivation is
+                // the offline fallback, never a second opinion.
+                // ⚠️ The column stores NO_CHANGE while the token on screen is "MEASURED,
+                // NO CHANGE" — mapping by rawValue alone silently drops that one verdict.
+                m.serverCall = (row["the_call"] as? String).flatMap { raw in
+                    raw == "NO_CHANGE" ? TheCall.noChange : TheCall(rawValue: raw)
+                }
+                // 12 · the working behind the verdict, so any day can show it and not only
+                // the one the composition fetch happens to have filled in.
+                m.fatEmaDelta7d = number(row["fat_delta_7d"])
+                m.leanEmaDelta7d = number(row["lean_delta_7d"])
+                m.scans7d = Int(number(row["scans_7d"]) ?? 0)
                 if let iso = row["computed_at"] as? String {
                     m.asOf = Self.timestamp(iso)
                 }
@@ -201,6 +220,8 @@ final class Repository {
                 if let fu = fuelBy[id] {
                     m.eIn = number(fu["kcal_in"])
                     m.eOutNow = number(fu["kcal_out"])
+                    m.proteinIn = number(fu["protein_in_g"]).map { Int($0) }
+                    m.weightKg = number(fu["weight_kg"]) ?? m.weightKg
                     m.bmr = number(fu["bmr_kcal"])
                     m.eActive = number(fu["active_kcal"])
                     // 10 · the header is an estimate of where the day lands. Baseline for
@@ -344,8 +365,8 @@ final class Repository {
         m.weightKg = server.weightKg ?? local.weightKg
         m.fatKg = local.fatKg
         m.leanKg = local.leanKg
-        m.fatEmaDelta7d = local.fatEmaDelta7d
-        m.leanEmaDelta7d = local.leanEmaDelta7d
+        m.fatEmaDelta7d = server.fatEmaDelta7d ?? local.fatEmaDelta7d
+        m.leanEmaDelta7d = server.leanEmaDelta7d ?? local.leanEmaDelta7d
         m.targetIn = server.targetIn ?? local.targetIn
         m.bmr = server.bmr ?? local.bmr
         m.bmrFull = server.bmrFull ?? local.bmrFull
@@ -360,7 +381,9 @@ final class Repository {
             m.weightKg.map { (p.met - 1) * 1.05 * $0 * (p.minutes / 60) }
         }
         m.activeForecast = server.activeForecast ?? local.activeForecast
-        m.scans7d = local.scans7d
+        m.scans7d = server.scans7d > 0 ? server.scans7d : local.scans7d
+        m.proteinIn = server.proteinIn
+        m.serverCall = server.serverCall ?? local.serverCall
         m.logged7d = local.logged7d
         m.bandCoverage = local.bandCoverage
 

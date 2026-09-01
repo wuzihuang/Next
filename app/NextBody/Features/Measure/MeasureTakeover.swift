@@ -37,7 +37,6 @@ struct MeasureTakeover: View {
                 header
                 Spacer(minLength: 0)
                 headline
-                Spacer(minLength: 0)
                 stage
                 Spacer(minLength: 0)
                 footer
@@ -379,7 +378,7 @@ struct LiveECG: View {
                 for i in 0..<n {
                     let x = size.width * CGFloat(i) / CGFloat(n - 1)
                     let phase = Double(i) / Double(n) * 3.4 - t * 0.85
-                    let beat = phase.truncatingRemainder(dividingBy: 1)
+                    let beat = phase - phase.rounded(.down)   // wrap to [0,1); a negative phase must not skip the beat
                     var v: Double = 0
                     if beat > 0.30 && beat < 0.35 { v = -0.16 }
                     else if beat > 0.35 && beat < 0.41 { v = 1.0 }

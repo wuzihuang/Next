@@ -30,6 +30,7 @@ struct SignInFlow: View {
         }
         .carbonPage()
         .ignoresSafeArea(.container, edges: .vertical)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .animation(.easeInOut(duration: 0.24), value: step)
     }
 
@@ -204,6 +205,7 @@ private struct EmailScreen: View {
     let onSend: () -> Void
 
     @FocusState private var focused: Bool
+    @StateObject private var keyboard = KeyboardHeight()
 
     private var valid: Bool {
         let p = #"^[^@\s]+@[^@\s]+\.[^@\s]+$"#
@@ -222,6 +224,7 @@ private struct EmailScreen: View {
                 Text("We'll send a 6-digit code.\nNo password to set.")
                     .font(NBFont.ui(300, 15)).tracking(0.02 * 15)
                     .lineSpacing(24 - 15)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(NB.text2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -252,12 +255,17 @@ private struct EmailScreen: View {
                         .stroke(NB.lime1.opacity(0.42), lineWidth: 1))
 
                 // Not selling points — an answer to "why should I give you my email".
-                VStack(spacing: 0) {
-                    ReasonRow(lit: true, text: "A code signs you in — nothing to remember")
-                        .overlay(alignment: .bottom) { Hairline() }
-                    ReasonRow(lit: false, text: "Used only for sign-in and your weekly report")
+                // They are read before typing starts, so once the keyboard is up they give
+                // their room to the button rather than fighting it for space.
+                if keyboard.height == 0 {
+                    VStack(spacing: 0) {
+                        ReasonRow(lit: true, text: "A code signs you in — nothing to remember")
+                            .overlay(alignment: .bottom) { Hairline() }
+                        ReasonRow(lit: false, text: "Used only for sign-in and your weekly report")
+                    }
+                    .padding(.top, 22)
+                    .transition(.opacity)
                 }
-                .padding(.top, 22)
             }
             .padding(.horizontal, 24)
             .padding(.top, 38)
@@ -289,6 +297,9 @@ private struct EmailScreen: View {
 
             HomeIndicator().padding(.top, 16)
         }
+        // The keyboard takes the bottom of the screen; the layout above it does not move.
+        .padding(.bottom, keyboard.height)
+        .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
         .onAppear { focused = true }
     }
 }

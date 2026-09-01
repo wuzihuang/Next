@@ -494,7 +494,7 @@ private struct ECGTrace: View {
             for i in 0..<n {
                 let x = size.width * CGFloat(i) / CGFloat(n - 1)
                 let phase = Double(i) / Double(n) * 4 - t * 0.9
-                let beat = phase.truncatingRemainder(dividingBy: 1)
+                let beat = phase - phase.rounded(.down)   // wrap to [0,1); a negative phase must not skip the beat
                 var v: Double = 0
                 if beat > 0.30 && beat < 0.36 { v = -0.18 }
                 else if beat > 0.36 && beat < 0.42 { v = 1.0 }

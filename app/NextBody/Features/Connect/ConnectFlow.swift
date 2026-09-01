@@ -18,8 +18,10 @@ struct ConnectFlow: View {
         ZStack {
             switch step {
             case .turnOn:    TurnItOn { go(.searching) }
-            case .searching: Searching { go(.found) }
-            case .found:     FoundIt(onConnect: { go(.pairing) }, onSearchAgain: { go(.searching) })
+            case .searching: Searching(onBack: { go(.turnOn) }) { go(.found) }
+            case .found:     FoundIt(onBack: { go(.searching) },
+                                     onConnect: { go(.pairing) },
+                                     onSearchAgain: { go(.searching) })
             case .pairing:   Pairing(progress: progress, stage: pairStage)
             case .connected: Connected { session.stage = .gateOnboarding }
             }
@@ -191,9 +193,10 @@ struct BandPortrait: View {
             ctx.fill(r(139, 112, 112, 196, 36), with: .color(Color(hex: 0x17181C)))
             ctx.stroke(r(139, 112, 112, 196, 36), with: .color(NB.white.opacity(0.07)), lineWidth: 1)
 
-            // face
+            // face · the LEDs light up, the panel behind them does not.
+            // A solid lime block would read as a lamp; the band is a dot screen.
             let face = r(153, 126, 84, 168, 26)
-            ctx.fill(face, with: .color(faceLit ? NB.lime1.opacity(0.9) : Color(hex: 0x0A0A0D)))
+            ctx.fill(face, with: .color(Color(hex: 0x0A0A0D)))
             ctx.clip(to: face)
             var dots = Path()
             var y: CGFloat = 127
@@ -206,7 +209,7 @@ struct BandPortrait: View {
                 }
                 y += 4
             }
-            ctx.fill(dots, with: .color(faceLit ? NB.limeMid.opacity(0.55) : Color(hex: 0x24252C)))
+            ctx.fill(dots, with: .color(faceLit ? NB.lime1 : Color(hex: 0x24252C)))
         }
         .overlay {
             Canvas { ctx, size in
@@ -235,6 +238,7 @@ struct BandPortrait: View {
 // MARK: 02 · 搜索 Searching
 
 private struct Searching: View {
+    var onBack: (() -> Void)? = nil
     let onFound: () -> Void
     @State private var phase: Double = 0
 
@@ -256,7 +260,7 @@ private struct Searching: View {
 
             VStack(spacing: 0) {
                 Color.clear.frame(height: 66)
-                PairHeader(index: 2)
+                PairHeader(index: 2, onBack: onBack)
                 PairTitle(title: "Searching",
                           sub: "Keep the band close to your phone. This usually takes a few seconds.")
                     .padding(.top, 24)
@@ -291,6 +295,7 @@ private struct Searching: View {
 // MARK: 03 · 找到 Found
 
 private struct FoundIt: View {
+    var onBack: (() -> Void)? = nil
     let onConnect: () -> Void
     let onSearchAgain: () -> Void
 
@@ -311,7 +316,7 @@ private struct FoundIt: View {
 
             VStack(spacing: 0) {
                 Color.clear.frame(height: 66)
-                PairHeader(index: 3)
+                PairHeader(index: 3, onBack: onBack)
                 PairTitle(title: "Found it",
                           sub: "One band is in range. Tap connect and keep it near your phone.")
                     .padding(.top, 24)

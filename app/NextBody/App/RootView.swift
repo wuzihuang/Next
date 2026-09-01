@@ -69,7 +69,10 @@ struct SheetHost: View {
             default:              ProfileSheet(route: route)
             }
         }
-        .presentationDetents([.height(SheetChrome.maxHeight)])
+        // F1 · D · a sheet never passes 78% of the screen, and the screen underneath always
+        // keeps its title and at least one row of value. Each route asks for only the height
+        // its own content needs.
+        .presentationDetents([.height(SheetChrome.height(for: route))])
         .presentationDragIndicator(.visible)
         .presentationBackground(NB.carbon2)
         .presentationCornerRadius(NB.R.panel)
@@ -80,4 +83,15 @@ struct SheetHost: View {
 /// keeps showing its title and at least one row of value.
 enum SheetChrome {
     static let maxHeight: CGFloat = 844 * 0.78
+
+    static func height(for route: SheetRoute) -> CGFloat {
+        switch route {
+        case .plusMenu:                     return 430   // 06 · two groups, five rows
+        case .weighIn:                      return 620   // 10S · a keypad needs the room
+        case .deleteAccount, .signOut:      return 360
+        case .language, .appleHealth:       return 400
+        case .goal, .notifications, .units: return 480
+        default:                            return maxHeight
+        }
+    }
 }

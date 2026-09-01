@@ -48,8 +48,6 @@ struct OnboardingFlow: View {
             if underage { AgeGate { underage = false } }
         }
         .carbonPage()
-        .ignoresSafeArea(.container, edges: .vertical)
-        .animation(.easeInOut(duration: 0.24), value: step)
         .sheet(item: $sheet) { route in
             Group {
                 switch route {
@@ -149,7 +147,7 @@ private struct OnbPage<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: 66)
+            Color.clear.frame(height: Chrome.gateTopInset)
             OnbHeader(counter: counter, onBack: onBack)
             OnbTitle(title: title, sub: sub).padding(.top, 24)
             content.padding(.top, 28)
@@ -162,7 +160,7 @@ private struct OnbPage<Content: View>: View {
                     .padding(.top, 16)
                     .onTapGesture { onFootnote?() }
             }
-            HomeIndicator().padding(.top, 10)
+            Color.clear.frame(height: 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -442,7 +440,7 @@ private struct ScanningScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: 66)
+            Color.clear.frame(height: Chrome.gateTopInset)
             // Once the scan starts the back key is gone — you cannot half-measure a body.
             OnbHeader(counter: "BASELINE 02 / 03")
             OnbTitle(title: "Scanning",
@@ -474,7 +472,7 @@ private struct ScanningScreen: View {
                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .foregroundStyle(NB.white.opacity(0.42))
 
-            HomeIndicator().padding(.top, 20)
+            Color.clear.frame(height: 20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onReceive(tick) { _ in
@@ -538,7 +536,7 @@ private struct BaselineScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: 66)
+            Color.clear.frame(height: Chrome.gateTopInset)
             OnbHeader(counter: "BASELINE 03 / 03")
             OnbTitle(title: "Your baseline", sub: "First scan complete — this is day zero.")
                 .padding(.top, 24)
@@ -570,7 +568,7 @@ private struct BaselineScreen: View {
                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .foregroundStyle(NB.white.opacity(0.42))
                 .padding(.top, 16)
-            HomeIndicator().padding(.top, 10)
+            Color.clear.frame(height: 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

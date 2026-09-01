@@ -5,8 +5,13 @@ import UIKit
 /// The board draws its own status bar at 62px tall; on device iOS draws it for us,
 /// so we reserve the same 62px and let the system paint into it.
 enum Chrome {
+    /// The boards draw their own 62pt status-bar block; on device iOS paints into the same
+    /// 47pt and we make up the difference.
     static let statusBarBlock: CGFloat = 62
     static let homeIndicatorBlock: CGFloat = 19
+
+    /// The gate screens put their header line at y = 66. Inside the safe area that is 19pt.
+    static let gateTopInset: CGFloat = 19
 }
 
 struct HomeIndicator: View {

@@ -27,8 +27,7 @@ struct ConnectFlow: View {
             }
         }
         .carbonPage()
-        .ignoresSafeArea(.container, edges: .vertical)
-        .animation(.easeInOut(duration: 0.25), value: step)
+        .transaction { $0.animation = nil }
     }
 
     private func go(_ s: Step) {
@@ -131,10 +130,10 @@ private struct TurnItOn: View {
 
             BandPortrait(sideKeyLit: true, ripples: [34, 58, 82], rippleAlpha: [0.42, 0.20, 0.08])
                 .frame(width: 390, height: 470)
-                .offset(y: 252)
+                .offset(y: 252 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             VStack(spacing: 0) {
-                Color.clear.frame(height: 66)
+                Color.clear.frame(height: Chrome.gateTopInset)
                 PairHeader(index: 1)
                 PairTitle(title: "Turn it on",
                           sub: "Hold the button on the right edge for two seconds, until the band lights up.")
@@ -146,7 +145,7 @@ private struct TurnItOn: View {
                 .font(NBFont.dot(800, 13)).tracking(0.24 * 13)
                 .foregroundStyle(NB.lime1)
                 .frame(width: 390, alignment: .center)
-                .offset(y: 608)
+                .offset(y: 608 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             // The only real dead end in the flow, answered on the screen it happens on.
             Text("Nothing lights up? It may be flat — charge it for ten minutes, then hold again.")
@@ -155,14 +154,13 @@ private struct TurnItOn: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.text3Prod)
                 .frame(width: 326)
-                .offset(x: 32, y: 640)
+                .offset(x: 32, y: 640 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             LimePillButton(title: "It's on", action: onNext)
-                .offset(x: 16, y: 708)
+                .offset(x: 16, y: 708 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
-            HomeIndicator().frame(width: 390).offset(y: 806)
         }
-        .frame(width: 390, height: 844, alignment: .topLeading)
+        .frame(width: 390, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -255,11 +253,11 @@ private struct Searching: View {
                     return 60 + CGFloat(p) * 130
                 })
                 .frame(width: 390, height: 470)
-                .offset(y: 252)
+                .offset(y: 252 - Chrome.statusBarBlock + Chrome.gateTopInset)
             }
 
             VStack(spacing: 0) {
-                Color.clear.frame(height: 66)
+                Color.clear.frame(height: Chrome.gateTopInset)
                 PairHeader(index: 2, onBack: onBack)
                 PairTitle(title: "Searching",
                           sub: "Keep the band close to your phone. This usually takes a few seconds.")
@@ -271,17 +269,16 @@ private struct Searching: View {
                 .font(NBFont.dot(600, 12)).tracking(0.34 * 12)
                 .foregroundStyle(NB.white.opacity(0.42))
                 .frame(width: 390, alignment: .center)
-                .offset(y: 700)
+                .offset(y: 700 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             Text("Keep it within arm's reach.")
                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .foregroundStyle(NB.text3Prod)
                 .frame(width: 390, alignment: .center)
-                .offset(y: 750)
+                .offset(y: 750 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
-            HomeIndicator().frame(width: 390).offset(y: 806)
         }
-        .frame(width: 390, height: 844, alignment: .topLeading)
+        .frame(width: 390, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task {
             // The first band found ends the scan — one account owns one band, so a list
@@ -312,10 +309,10 @@ private struct FoundIt: View {
 
             BandPortrait(faceLit: true)
                 .frame(width: 390, height: 470)
-                .offset(y: 252)
+                .offset(y: 252 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             VStack(spacing: 0) {
-                Color.clear.frame(height: 66)
+                Color.clear.frame(height: Chrome.gateTopInset)
                 PairHeader(index: 3, onBack: onBack)
                 PairTitle(title: "Found it",
                           sub: "One band is in range. Tap connect and keep it near your phone.")
@@ -324,10 +321,10 @@ private struct FoundIt: View {
             }
 
             DeviceRow()
-                .offset(x: 16, y: 600)
+                .offset(x: 16, y: 600 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             LimePillButton(title: "Connect", action: onConnect)
-                .offset(x: 16, y: 700)
+                .offset(x: 16, y: 700 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             Button(action: onSearchAgain) {
                 Text("Not your band? Search again")
@@ -336,11 +333,10 @@ private struct FoundIt: View {
                     .frame(width: 390)
             }
             .buttonStyle(.plain)
-            .offset(y: 770)
+            .offset(y: 770 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
-            HomeIndicator().frame(width: 390).offset(y: 806)
         }
-        .frame(width: 390, height: 844, alignment: .topLeading)
+        .frame(width: 390, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -407,11 +403,11 @@ private struct Pairing: View {
             TimelineView(.animation) { tl in
                 Collapse(t: tl.date.timeIntervalSinceReferenceDate, progress: progress)
                     .frame(width: 390, height: 400)
-                    .offset(y: 260)
+                    .offset(y: 260 - Chrome.statusBarBlock + Chrome.gateTopInset)
             }
 
             VStack(spacing: 0) {
-                Color.clear.frame(height: 66)
+                Color.clear.frame(height: Chrome.gateTopInset)
                 PairHeader(index: 4)
                 PairTitle(title: "Pairing", sub: "Keep it close — pulling everything into place.")
                     .padding(.top, 24)
@@ -429,27 +425,26 @@ private struct Pairing: View {
                     .contentTransition(.numericText())
             }
             .frame(width: NB.Layout.contentWidth)
-            .offset(x: 16, y: 636)
+            .offset(x: 16, y: 636 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             DottedProgress(progress: progress)
                 .frame(width: NB.Layout.contentWidth, height: 6)
-                .offset(x: 16, y: 672)
+                .offset(x: 16, y: 672 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             Text(Self.stages[min(stage, 3)])
                 .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
                 .foregroundStyle(NB.white.opacity(0.34))
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
-                .offset(x: 16, y: 690)
+                .offset(x: 16, y: 690 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             Text("Keep it within arm's reach.")
                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .foregroundStyle(NB.text3Prod)
                 .frame(width: 390, alignment: .center)
-                .offset(y: 730)
+                .offset(y: 730 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
-            HomeIndicator().frame(width: 390).offset(y: 806)
         }
-        .frame(width: 390, height: 844, alignment: .topLeading)
+        .frame(width: 390, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -526,21 +521,20 @@ private struct Connected: View {
 
             Burst(progress: burst)
                 .frame(width: 390, height: 560)
-                .offset(y: 90)
+                .offset(y: 90 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             Text("CONNECTED")
                 .font(NBFont.dot(700, 20)).tracking(0.34 * 20)
                 .foregroundStyle(NB.lime1)
                 .frame(width: 390, alignment: .center)
-                .offset(y: 356)
+                .offset(y: 356 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             // No header, no back key, one button — pairing to profile is a straight line.
             LimePillButton(title: "Now let me get to know you", action: onNext)
-                .offset(x: 16, y: 700)
+                .offset(x: 16, y: 700 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
-            HomeIndicator().frame(width: 390).offset(y: 806)
         }
-        .frame(width: 390, height: 844, alignment: .topLeading)
+        .frame(width: 390, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { withAnimation(.easeOut(duration: 0.9)) { burst = 1 } }
     }

@@ -29,9 +29,7 @@ struct SignInFlow: View {
             }
         }
         .carbonPage()
-        .ignoresSafeArea(.container, edges: .vertical)
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .animation(.easeInOut(duration: 0.24), value: step)
     }
 
     private func sendCode() {
@@ -68,7 +66,7 @@ private struct GateScreen: View {
             GateAurora().frame(width: 390, height: 520)
 
             VStack(spacing: 0) {
-                Color.clear.frame(height: Chrome.statusBarBlock)
+                Color.clear.frame(height: Chrome.gateTopInset)
 
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .top, spacing: 9) {
@@ -119,7 +117,7 @@ private struct GateScreen: View {
                     .padding(.horizontal, 40)
                     .padding(.top, 22)
 
-                HomeIndicator().padding(.top, 12)
+                Color.clear.frame(height: 12)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
@@ -214,7 +212,7 @@ private struct EmailScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: Chrome.statusBarBlock)
+            Color.clear.frame(height: Chrome.gateTopInset)
             StepBar(step: "STEP 01 / 02", onBack: onBack)
 
             VStack(alignment: .leading, spacing: 14) {
@@ -295,7 +293,7 @@ private struct EmailScreen: View {
             }
             .padding(.horizontal, 16)
 
-            HomeIndicator().padding(.top, 16)
+            Color.clear.frame(height: 16)
         }
         // The keyboard takes the bottom of the screen; the layout above it does not move.
         .padding(.bottom, keyboard.height)
@@ -335,7 +333,7 @@ private struct CodeScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: Chrome.statusBarBlock)
+            Color.clear.frame(height: Chrome.gateTopInset)
             StepBar(step: "STEP 02 / 02", onBack: onBack)
 
             VStack(alignment: .leading, spacing: 14) {
@@ -411,7 +409,7 @@ private struct CodeScreen: View {
                 .padding(.horizontal, 6)
                 .padding(.top, 26)
 
-            HomeIndicator().padding(.top, 16)
+            Color.clear.frame(height: 16)
         }
         .onReceive(timer) { _ in if resendIn > 0 { resendIn -= 1 } }
     }

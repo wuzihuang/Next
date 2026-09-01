@@ -169,16 +169,16 @@ struct DecimalPad: View {
     private let rows = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], [".", "0", "DEL"]]
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             ForEach(rows, id: \.self) { row in
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(row, id: \.self) { key in
                         Button { tap(key) } label: {
                             Text(key)
                                 .font(key == "DEL" ? NBFont.ui(500, 12) : NBFont.ui(400, 22))
                                 .tracking(key == "DEL" ? 0.16 * 12 : 0)
                                 .foregroundStyle(key == "DEL" ? NB.text3Prod : NB.text1)
-                                .frame(maxWidth: .infinity).frame(height: 52)
+                                .frame(maxWidth: .infinity).frame(height: 46)
                                 .background(NB.smokeKey, in: RoundedRectangle(cornerRadius: NB.R.key, style: .continuous))
                         }
                         .buttonStyle(.plain)

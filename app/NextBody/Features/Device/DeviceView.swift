@@ -135,51 +135,53 @@ struct DeviceView: View {
     /// "about 3 days of charge left" is what a normal person wanted to know.
     /// ⚠️ Days are our own estimate — the SDK gives percent / level / chargeState only.
     private var batteryCard: some View {
-        HStack(spacing: 18) {
-            ZStack {
-                Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
-                RingArc(from: 0, to: Double(data.band.batteryPercent) / 100)
-                    .stroke(connected ? NB.lime1 : NB.white.opacity(0.28),
-                            style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    .frame(width: 69, height: 69)
-                VStack(spacing: 2) {
-                    Text("\(data.band.batteryPercent)")
-                        .font(NBFont.dot(700, 20))
-                        .foregroundStyle(NB.text1)
-                    Text(connected ? "PERCENT" : "LAST SEEN")
-                        .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
-                        .foregroundStyle(NB.white.opacity(0.34))
+        VStack(spacing: 16) {
+            HStack(spacing: 18) {
+                ZStack {
+                    Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
+                    RingArc(from: 0, to: Double(data.band.batteryPercent) / 100)
+                        .stroke(connected ? NB.lime1 : NB.white.opacity(0.28),
+                                style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                        .frame(width: 69, height: 69)
+                    VStack(spacing: 2) {
+                        Text("\(data.band.batteryPercent)")
+                            .font(NBFont.dot(700, 20))
+                            .foregroundStyle(NB.text1)
+                        Text(connected ? "PERCENT" : "LAST SEEN")
+                            .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
+                            .foregroundStyle(NB.white.opacity(0.34))
+                    }
                 }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(data.band.name)
+                        .font(NBFont.ui(600, 18)).tracking(0.02 * 18)
+                        .foregroundStyle(NB.text1)
+                    Text("KR96 PRO")
+                        .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+                        .foregroundStyle(NB.white.opacity(0.34))
+                    // The ring gives a number; this line gives what a person wanted to know.
+                    // ⚠️ Days are our own estimate — the SDK reports percent / level / chargeState.
+                    Text(connected ? "About 3 days of charge left" : "Still recording on your wrist")
+                        .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
+                        .foregroundStyle(connected ? NB.lime1 : NB.text2)
+                }
+                Spacer(minLength: 0)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(data.band.name)
-                    .font(NBFont.ui(600, 18)).tracking(0.02 * 18)
-                    .foregroundStyle(NB.text1)
-                Text("KR96 PRO")
-                    .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(NB.white.opacity(0.34))
-                Text(connected ? "About 3 days of charge left" : "Still recording on your wrist")
-                    .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
-                    .foregroundStyle(connected ? NB.lime1 : NB.text2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(18)
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-        .overlay(alignment: .bottom) {
+
+            Hairline()
+
             HStack(spacing: 0) {
                 // POWER goes UNKNOWN rather than keeping a stale value: charge state changes
-                // any second, battery level cannot appear out of nowhere.
+                // any second, and battery level cannot appear out of nowhere. The two expire
+                // at different speeds, which is why they are three columns and not one.
                 DeviceFact(label: "POWER", value: connected ? "UNPLUGGED" : "UNKNOWN")
                 DeviceFact(label: "ON DEVICE", value: "7 DAYS")
                 DeviceFact(label: "SYNCED", value: connected ? "2 MIN AGO" : "2 HRS AGO")
             }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 14)
-            .offset(y: 58)
         }
-        .padding(.bottom, 58)
+        .padding(18)
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .cardSkin()
     }
 
     /// Five reasons the button can be grey, and it always says which one.

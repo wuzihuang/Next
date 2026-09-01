@@ -87,7 +87,7 @@ enum SheetChrome {
     static func height(for route: SheetRoute) -> CGFloat {
         switch route {
         case .plusMenu:                     return 430   // 06 · two groups, five rows
-        case .weighIn:                      return 620   // 10S · a keypad needs the room
+        case .weighIn:                      return 500   // 10S · the keypad, and no more
         case .deleteAccount, .signOut:      return 360
         case .language, .appleHealth:       return 400
         case .goal, .notifications, .units: return 480

@@ -37,8 +37,13 @@ export class NumberLedger {
     }
   }
 
+  private sealed = false;
+
   /// Close the ledger, adding the four legal derivations of every pair.
+  /// Idempotent: the render tool seals it mid-turn, and the caller seals it again after.
   seal() {
+    if (this.sealed) return;
+    this.sealed = true;
     const base = [...new Set(this.values)];
     for (const v of base) {
       this.add(Math.round(v), `round(${v})`);

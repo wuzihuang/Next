@@ -47,6 +47,11 @@ struct HomeView: View {
             // F3 §05 · the home screen reads one row of daily_results and nothing else.
             try? await Repository.shared.signInDemo()
             await Repository.shared.loadToday(into: data)
+
+            // P2 · background. Pulling the band's day is the lowest priority in the queue:
+            // anything the user presses jumps in front of it.
+            guard data.band.connected else { return }
+            await OriginDataSync().sync(day: UserDay.containing(Date()), into: data)
         }
     }
 

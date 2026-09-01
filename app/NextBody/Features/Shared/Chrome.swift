@@ -51,8 +51,9 @@ struct Wordmark: View {
     }
 }
 
-/// The band's own battery — a 12×7 dot-matrix cell scaled to 22×13, plus a Doto percentage.
-struct BandBattery: View {
+/// The band's own battery, as the header draws it — a 12×7 dot-matrix cell scaled to
+/// 22×13, plus a Doto percentage.
+struct BandBatteryPip: View {
     let percent: Int
     var body: some View {
         HStack(spacing: 6) {
@@ -105,7 +106,7 @@ struct HomeHeader: View {
             Wordmark()
             Spacer(minLength: 0)
             HStack(spacing: 12) {
-                BandBattery(percent: batteryPercent)
+                BandBatteryPip(percent: batteryPercent)
                 AvatarButton(action: onAvatar)
             }
         }

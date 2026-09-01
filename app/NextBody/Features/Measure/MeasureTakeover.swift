@@ -14,20 +14,21 @@ struct MeasureTakeover: View {
     @EnvironmentObject private var data: DataStore
 
     enum Phase: Hashable {
-        case opening, waiting, nudge, contact, counting, halfway, lost, computing, result
+        case opening, waiting, nudge, contact, counting, halfway, lost, computing, result, failed
     }
 
     @State private var phase: Phase = .opening
     @State private var remaining: Int = 60
     @State private var lostGrace: Double = 3
-    @State private var sweep = 0
     @State private var grown = false
+    @State private var reading: PartialReading?
+    @State private var failure: String?
 
     private var isBodyScan: Bool { kind == .bodyComposition }
     private var total: Int { isBodyScan ? 30 : 60 }
     private var title: String { isBodyScan ? "BODY SCAN" : "BATTERY CHECK" }
 
-    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private let secondHand = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
@@ -47,7 +48,7 @@ struct MeasureTakeover: View {
         .scaleEffect(grown ? 1 : 0.92)
         .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : NB.R.hero, style: .continuous))
         .onAppear { open() }
-        .onReceive(tick) { _ in advance() }
+        .onReceive(secondHand) { _ in tick() }
         .statusBarHidden(false)
     }
 
@@ -86,6 +87,7 @@ struct MeasureTakeover: View {
         case .lost:      "Put it back."
         case .computing: "Working it out."
         case .result:    isBodyScan ? "Fourteen fields." : "Done."
+        case .failed:    "That didn't take."
         }
     }
 
@@ -115,6 +117,10 @@ struct MeasureTakeover: View {
             FlatlineStage()
         case .result:
             CountdownStage(remaining: 0, total: total)
+        case .failed:
+            // Nothing is drawn where the reading would have been: an empty frame in that
+            // position would read as a number we could not print.
+            Color.clear.frame(height: 300)
         }
     }
 
@@ -144,11 +150,13 @@ struct MeasureTakeover: View {
         case .lost:      "SIGNAL LOST · HOLDING \(Int(lostGrace.rounded()))S"
         case .computing: isBodyScan ? "COMPUTING 14 FIELDS" : "COMPUTING HRV · STRESS"
         case .result:    "SAVED"
+        case .failed:    failure ?? "NOT MEASURED"
         }
     }
     private var statusTint: Color {
         switch phase {
         case .nudge, .lost: NB.ember2
+        case .failed: NB.ember2
         case .contact, .counting, .halfway: NB.lime1
         default: NB.white.opacity(0.40)
         }
@@ -168,68 +176,131 @@ struct MeasureTakeover: View {
                                     : "Come back within three seconds and nothing is lost."
         case .computing: "You can lift your finger now."
         case .result:    "Folding it back onto the panel."
+        case .failed:    "Close this and try again when you are ready."
         }
     }
 
     // MARK: choreography
 
+    /// The panel grows to full screen, then waits for a finger. Everything after that is
+    /// driven by what the band actually reports — not by a timer pretending to be one.
     private func open() {
         remaining = total
         withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) { grown = true }
+
         Task {
             try? await Task.sleep(for: .milliseconds(460))
             phase = .waiting
-            // The nudge lands at 5s and never times out on its own; the only exit is close.
-            try? await Task.sleep(for: .seconds(5))
-            if phase == .waiting { phase = .nudge }
-            // mock: contact arrives ~1.2s later
-            try? await Task.sleep(for: .milliseconds(1200))
-            if phase == .nudge || phase == .waiting { makeContact() }
+
+            // The nudge lands at 5s and the screen never times out on its own:
+            // the only exit is the close mark.
+            let nudge = Task {
+                try? await Task.sleep(for: .seconds(5))
+                if phase == .waiting { withAnimation { phase = .nudge } }
+            }
+
+            do {
+                // F2 §05 · the band's BIA multiplies by the weight we push down, so the
+                // weight goes first and a scan without it is refused rather than stored.
+                if isBodyScan {
+                    try await Band.live.syncPersonalInfo(PersonalInfo(
+                        heightCm: Int(data.profile.heightCm),
+                        weightKg: Int((data.today.weightKg ?? 70).rounded()),
+                        birthYear: Calendar.current.component(.year, from: data.profile.birthdate),
+                        sexIsMale: data.profile.sexIsMale,
+                        targetStep: 8000))
+                }
+
+                let stream = isBodyScan
+                    ? Band.live.measureBodyComposition()
+                    : Band.live.measureHeartRate()
+
+                for try await step in stream {
+                    nudge.cancel()
+                    apply(step)
+                }
+            } catch {
+                nudge.cancel()
+                failure = (error as? BandError)?.errorDescription ?? "BAND OFFLINE"
+                withAnimation { phase = .failed }
+            }
         }
     }
 
-    private func makeContact() {
-        // The only haptic in the flow, fired on the first `testing` state — never on `start`.
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        withAnimation(.easeInOut(duration: 0.3)) { phase = .contact }
-        Task {
-            try? await Task.sleep(for: .seconds(1))
-            withAnimation { phase = .counting }
+    private func apply(_ step: MeasurementProgress) {
+        switch step {
+        case .waitingForContact:
+            if phase == .opening { withAnimation { phase = .waiting } }
+
+        case .contact:
+            // The only haptic in the flow, fired on the first `testing` state that comes
+            // back — never on the fact that we sent `start`.
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            withAnimation(.easeInOut(duration: 0.3)) { phase = .contact }
+            lostGrace = 3
+
+        case .measuring(let fraction, let partial):
+            reading = partial
+            remaining = max(0, total - Int((Double(total) * fraction).rounded()))
+            // The first real number lands halfway; before that there is nothing to show.
+            let next: Phase = partial == nil ? .counting : .halfway
+            if phase != next { withAnimation { phase = next } }
+
+        case .lostContact:
+            withAnimation { phase = .lost }
+
+        case .finished(let result):
+            store(result)
+            withAnimation { phase = .computing }
+            Task {
+                try? await Task.sleep(for: .milliseconds(1400))
+                withAnimation { phase = .result }
+                try? await Task.sleep(for: .milliseconds(500))
+                done()
+            }
+
+        case .failed(let reason):
+            failure = reason
+            withAnimation { phase = .failed }
         }
     }
 
-    private func advance() {
+    /// Every countdown runs on the phone's clock. ⚠️ The SDK's own progress is not a timer
+    /// and reading it as one makes the number jump.
+    private func tick() {
         switch phase {
-        case .counting:
-            remaining -= 1
-            sweep = (total - remaining) / 5
-            // The first real number lands at T+30 for the battery check.
-            if remaining <= total / 2 { withAnimation { phase = .halfway } }
-        case .halfway:
-            remaining -= 1
-            if remaining <= 0 { withAnimation { phase = .computing }; finish() }
+        case .counting, .halfway:
+            if remaining > 0 { remaining -= 1 }
         case .lost:
             lostGrace -= 1
-            if lostGrace <= 0 { withAnimation { phase = .counting }; lostGrace = 3 }
+            // Three seconds of grace on a battery check; a body scan has no resume at all.
+            if lostGrace <= 0 {
+                if isBodyScan {
+                    remaining = total
+                    withAnimation { phase = .waiting }
+                } else {
+                    withAnimation { phase = .counting }
+                }
+                lostGrace = 3
+            }
         default:
             break
         }
     }
 
-    private func finish() {
-        Task {
-            try? await Task.sleep(for: .milliseconds(1400))
-            if isBodyScan {
-                data.addWeighIn(WeighIn(id: UUID(), date: Date(),
-                                        weightKg: data.today.weightKg ?? 68.4,
-                                        bodyFatPercent: 24.1, source: .measured, origin: .band))
-            } else {
-                data.today.bodyBattery = 72
-                data.today.bbWake = 72
-            }
-            withAnimation { phase = .result }
-            try? await Task.sleep(for: .milliseconds(500))
-            done()
+    private func store(_ result: MeasurementResult) {
+        switch result {
+        case .heartRate(let hr, _, _):
+            data.today.bodyBattery = data.today.bbWake
+            reading = PartialReading(heartRate: hr)
+        case .bodyComposition(let r):
+            // F0 rule 09 · a band BIA reading is MEASURED and re-anchors the EMA.
+            data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: r.inputWeightKg,
+                                    bodyFatPercent: r.bodyFatPercent,
+                                    source: .measured, origin: .band))
+            data.today.fatKg = r.fatMassKg
+            data.today.leanKg = r.leanMassKg
+            data.today.fatSource = .measured
         }
     }
 }

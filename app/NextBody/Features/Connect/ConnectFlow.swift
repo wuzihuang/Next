@@ -10,6 +10,8 @@ struct ConnectFlow: View {
     @State private var step: Step = .turnOn
     @State private var progress: Double = 0
     @State private var pairStage = 0
+    @State private var found: DiscoveredBand?
+    @State private var scanTask: Task<Void, Never>?
 
     /// 04 · the percentage maps to four real steps; never a fake tween.
     private static let stages = ["CONNECT", "AUTHORISE", "READ CAPABILITIES", "READ FIRMWARE"]
@@ -18,8 +20,9 @@ struct ConnectFlow: View {
         ZStack {
             switch step {
             case .turnOn:    TurnItOn { go(.searching) }
-            case .searching: Searching(onBack: { go(.turnOn) }) { go(.found) }
-            case .found:     FoundIt(onBack: { go(.searching) },
+            case .searching: Searching(onBack: { go(.turnOn) }, found: found) { go(.found) }
+            case .found:     FoundIt(band: found,
+                                     onBack: { go(.searching) },
                                      onConnect: { go(.pairing) },
                                      onSearchAgain: { go(.searching) })
             case .pairing:   Pairing(progress: progress, stage: pairStage)
@@ -32,26 +35,89 @@ struct ConnectFlow: View {
 
     private func go(_ s: Step) {
         step = s
-        if s == .pairing { runPairing() }
+        switch s {
+        case .searching: runScan()
+        case .pairing:   runPairing()
+        default:         scanTask?.cancel()
+        }
     }
 
-    /// Four real steps, 20s cap. When it stalls it stalls on the number it reached —
-    /// stopping is more honest than snapping back to zero.
+    /// 02 · 02 · the first band found ends the scan. One account owns one band, so a list
+    /// would be a list of things you cannot choose between.
+    private func runScan() {
+        found = nil
+        scanTask?.cancel()
+        scanTask = Task {
+            await Band.live.startScan()
+            for await event in Band.live.events {
+                if case .discovered(let device) = event {
+                    found = device
+                    await Band.live.stopScan()
+                    go(.found)
+                    return
+                }
+                if Task.isCancelled { return }
+            }
+        }
+    }
+
+    /// 02 · 04 · the percentage maps to four real steps — connect, authorise, read the
+    /// capability table, read the firmware version. When it stalls it stalls on the number
+    /// it reached: stopping is more honest than snapping back to zero.
     private func runPairing() {
         progress = 0; pairStage = 0
         Task {
-            for i in 0..<4 {
-                pairStage = i
-                let target = Double(i + 1) / 4
-                while progress < target {
-                    try? await Task.sleep(for: .milliseconds(28))
-                    withAnimation(.linear(duration: 0.03)) { progress = min(target, progress + 0.006) }
-                }
-                try? await Task.sleep(for: .milliseconds(220))
+            do {
+                guard let device = found else { throw BandError.notConnected }
+
+                await advance(to: 0.25, stage: 0)
+                try await Band.live.connect(device)
+
+                await advance(to: 0.50, stage: 1)
+                let identity = try await Band.live.readIdentity()
+
+                await advance(to: 0.75, stage: 2)
+                // The capability table decides which measurement entries exist at all,
+                // so it is read before the first screen that could offer one.
+                let caps = try await Band.live.readCapabilities()
+
+                await advance(to: 1.0, stage: 3)
+                let battery = try await Band.live.readBattery()
+
+                data.band = BandState(
+                    connected: true, name: identity.name, mac: identity.bleIdentifier,
+                    batteryPercent: battery.percent ?? 0, firmware: identity.firmware,
+                    lastSync: Date(),
+                    capabilities: Self.capabilitySet(caps))
+                step = .connected
+            } catch {
+                // Every failure degrades in place, on the screen it happened on. That rule
+                // was set here in Connect, and this page is where it is enforced.
+                BandLog.shared.record("pairing", error: error)
+                step = .found
             }
-            data.band.connected = true
-            step = .connected
         }
+    }
+
+    private func advance(to target: Double, stage: Int) async {
+        pairStage = stage
+        while progress < target {
+            try? await Task.sleep(for: .milliseconds(24))
+            withAnimation(.linear(duration: 0.03)) { progress = min(target, progress + 0.01) }
+        }
+    }
+
+    private static func capabilitySet(_ caps: BandCapabilities) -> Set<BandState.Capability> {
+        var out: Set<BandState.Capability> = []
+        if caps.bodyComponent == .support { out.insert(.bodyComponent) }
+        if caps.ecg == .support { out.insert(.ecg) }
+        if caps.hrv == .support { out.insert(.heartRate) }
+        if caps.stress == .support { out.insert(.temperature) }
+        if caps.autoMeasure == .support { out.insert(.alarms) }
+        if caps.wearDetection == .support { out.insert(.wearDetection) }
+        if caps.functions["spo2"] == .support { out.insert(.bloodOxygen) }
+        if caps.functions["blood"] == .support { out.insert(.bloodPressure) }
+        return out
     }
 }
 
@@ -237,8 +303,8 @@ struct BandPortrait: View {
 
 private struct Searching: View {
     var onBack: (() -> Void)? = nil
+    var found: DiscoveredBand?
     let onFound: () -> Void
-    @State private var phase: Double = 0
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -280,18 +346,14 @@ private struct Searching: View {
         }
         .frame(width: 390, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task {
-            // The first band found ends the scan — one account owns one band, so a list
-            // would be a list of things you cannot choose.
-            try? await Task.sleep(for: .seconds(2.2))
-            onFound()
-        }
+
     }
 }
 
 // MARK: 03 · 找到 Found
 
 private struct FoundIt: View {
+    var band: DiscoveredBand?
     var onBack: (() -> Void)? = nil
     let onConnect: () -> Void
     let onSearchAgain: () -> Void
@@ -320,7 +382,7 @@ private struct FoundIt: View {
                 Spacer(minLength: 0)
             }
 
-            DeviceRow()
+            DeviceRow(band: band)
                 .offset(x: 16, y: 600 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
             LimePillButton(title: "Connect", action: onConnect)
@@ -343,6 +405,19 @@ private struct FoundIt: View {
 
 /// One found band. ⚠️ Never a serial number on this card — the SDK has no such field.
 private struct DeviceRow: View {
+    var band: DiscoveredBand?
+
+    /// RSSI in dBm, not a percentage. −50 is on the desk, −90 is in the next room.
+    static func bars(_ rssi: Int?) -> Int {
+        guard let rssi else { return 0 }
+        switch rssi {
+        case (-55)...:   return 4
+        case (-67)..<(-55): return 3
+        case (-80)..<(-67): return 2
+        default:         return 1
+        }
+    }
+
     var body: some View {
         HStack(spacing: 14) {
             ZStack {
@@ -354,7 +429,7 @@ private struct DeviceRow: View {
             .frame(width: 34, height: 34)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("NEXTBODY HOOP")
+                Text(band?.name.uppercased() ?? "NEXTBODY HOOP")
                     .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                     .foregroundStyle(NB.text1)
                 Text("READY TO PAIR")
@@ -362,10 +437,11 @@ private struct DeviceRow: View {
                     .foregroundStyle(NB.text3Prod)
             }
             Spacer(minLength: 0)
-            Text("96%")
+            // A band that has not told us its charge yet says so, rather than showing 96%.
+            Text(band?.batteryPercent.map { "\($0)%" } ?? Fmt.dash)
                 .font(NBFont.dot(600, 10)).tracking(0.1 * 10)
                 .foregroundStyle(NB.text3Prod)
-            SignalBars(level: 4)
+            SignalBars(level: Self.bars(band?.rssi))
         }
         .padding(.horizontal, 16)
         .frame(width: NB.Layout.contentWidth, height: 72)

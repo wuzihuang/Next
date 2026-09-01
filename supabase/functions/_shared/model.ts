@@ -6,7 +6,11 @@ import { createOpenAICompatible } from "npm:@ai-sdk/openai-compatible@0.2.14";
 /// what she says — only where the request went.
 export function model() {
   const gatewayKey = Deno.env.get("AI_GATEWAY_API_KEY");
-  if (gatewayKey) {
+  // ⚠️ A Vercel access token (vck_…) is not an AI Gateway API key. It authenticates against
+  // api.vercel.com and is refused by the gateway with "Authentication failed", which reads
+  // like an outage rather than the wrong kind of credential. Gateway keys are minted at
+  // vercel.com → team → AI Gateway → API Keys.
+  if (gatewayKey && !gatewayKey.startsWith("vck_")) {
     const gw = createOpenAICompatible({
       name: "vercel-gateway",
       baseURL: "https://ai-gateway.vercel.sh/v1",

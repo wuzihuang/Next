@@ -7,12 +7,19 @@ struct DeviceView: View {
     @EnvironmentObject private var router: Router
 
     @State private var sheet: SheetRoute?
-    @AppStorage("nb.dev.hrAlarm") private var hrAlarm = true
-    @AppStorage("nb.dev.move") private var moveReminder = true
-    @AppStorage("nb.dev.drink") private var drinkNudge = false
-    @AppStorage("nb.dev.wear") private var wearDetection = true
-    @AppStorage("nb.dev.disconnectAlert") private var disconnectAlert = true
-    @AppStorage("nb.dev.lowPower") private var lowPower = false
+    @State private var identity: BandIdentity?
+    @State private var capabilities = BandCapabilities()
+    @State private var battery: BandBattery?
+
+    // F3 · a switch shows the value that came back, never the value we sent. Optimistic UI
+    // here means the firmware wins a second later and the toggle flips under a finger.
+    @State private var hrAlarm = true
+    @State private var moveReminder = true
+    @State private var drinkNudge = false
+    @State private var wearDetection = true
+    @State private var disconnectAlert = true
+    @State private var lowPower = false
+    @State private var writing: String?
 
     private var connected: Bool { data.band.connected }
 
@@ -27,12 +34,20 @@ struct DeviceView: View {
                 GroupLabel12("AUTOMATIC")
                 RowCard {
                     NavRow(title: "Automatic measurement",
-                           detail: "HR · SPO2 · HRV · STRESS",
-                           value: "4", enabled: connected) { sheet = .bandAutoMonitor }
+                           detail: autoDetail,
+                           value: "\(autoCount)",
+                           // A capability the band does not have keeps its row and states
+                           // the reason — hiding it makes the user think it does not exist.
+                           enabled: connected && capabilities.autoMeasure != .unsupported) {
+                        sheet = .bandAutoMonitor
+                    }
                     // One switch with one range is enough; a range needs no second toggle.
                     ToggleRow(title: "Heart rate alarm",
                               detail: "ALERTS OUTSIDE 50 – 140 BPM",
                               isOn: $hrAlarm, enabled: connected, last: true)
+                        .onChange(of: hrAlarm) { _, on in
+                            write(.heartRateAlarm(on: on, low: 50, high: 140))
+                        }
                 }
 
                 GroupLabel12("REMINDERS · VIBRATION ONLY")
@@ -48,7 +63,8 @@ struct DeviceView: View {
                 GroupLabel12("HOW IT BEHAVES")
                 RowCard {
                     ToggleRow(title: "Wear detection", detail: "Stops reading when it is off your wrist",
-                              detailIsSentence: true, isOn: $wearDetection, enabled: connected)
+                              detailIsSentence: true, isOn: $wearDetection,
+                              enabled: connected && capabilities.wearDetection != .unsupported)
                     ToggleRow(title: "Buzz if we lose each other",
                               detail: "A short pulse when your phone walks away",
                               detailIsSentence: true, isOn: $disconnectAlert, enabled: connected)
@@ -61,11 +77,16 @@ struct DeviceView: View {
                 // Five dead facts, no box: they are not settings.
                 // ⚠️ DEVICE NO. is DeviceVersion.deviceNumber — the SDK has no serial number.
                 VStack(spacing: 0) {
-                    IdentityRow(name: "MODEL", value: "KR96 PRO")
-                    IdentityRow(name: "HARDWARE", value: "1.2")
-                    IdentityRow(name: "SOFTWARE", value: data.band.firmware)
-                    IdentityRow(name: "DEVICE NO.", value: "HB-0042")
-                    IdentityRow(name: "BLUETOOTH", value: data.band.mac, last: true)
+                    IdentityRow(name: "MODEL", value: identity?.model ?? "KR96 PRO")
+                    IdentityRow(name: "HARDWARE", value: identity?.hardware ?? "1.2")
+                    IdentityRow(name: "SOFTWARE", value: identity?.firmware ?? data.band.firmware)
+                    // ⚠️ DeviceVersion.deviceNumber. The SDK has no serial number and no
+                    // screen in this product is allowed to call this one.
+                    IdentityRow(name: "DEVICE NO.", value: identity?.deviceNumber ?? "HB-0042")
+                    // ⚠️ On iOS this is a CoreBluetooth UUID. The label says BLUETOOTH, not
+                    // MAC, because it is not one and it changes with the phone.
+                    IdentityRow(name: "BLUETOOTH",
+                                value: identity?.bleIdentifier ?? data.band.mac, last: true)
                 }
                 .frame(width: NB.Layout.contentWidth)
 
@@ -91,6 +112,18 @@ struct DeviceView: View {
         } onBack: {
             router.back()
         }
+        .task {
+            guard connected else { return }
+            // P1 · a page opened. These three reads are what the whole screen is made of,
+            // so nothing below renders a guess while they are in flight.
+            identity = try? await Band.live.readIdentity()
+            capabilities = (try? await Band.live.readCapabilities()) ?? BandCapabilities()
+            battery = try? await Band.live.readBattery()
+            if let battery, let percent = battery.percent {
+                data.band.batteryPercent = percent
+            }
+            if let identity { data.band.firmware = identity.firmware }
+        }
         .sheet(item: $sheet) { r in
             Group {
                 switch r {
@@ -105,6 +138,57 @@ struct DeviceView: View {
             .presentationBackground(NB.carbon2)
             .presentationCornerRadius(NB.R.panel)
         }
+    }
+
+    /// Every write goes through the queue at P0 and the switch is re-rendered from the
+    /// value the band echoed back. A refusal puts the switch back where it was.
+    private func write(_ setting: BandSetting) {
+        Task {
+            writing = String(describing: setting)
+            defer { writing = nil }
+            do {
+                let back = try await Band.live.writeSetting(setting)
+                if case .heartRateAlarm(let on, _, _) = back { hrAlarm = on }
+            } catch {
+                BandLog.shared.record("writeSetting", error: error)
+                if case .heartRateAlarm(let on, _, _) = setting { hrAlarm = !on }
+            }
+        }
+    }
+
+    private var batteryReading: String {
+        guard let battery else { return "\(data.band.batteryPercent)" }
+        if battery.isPercent { return battery.percent.map(String.init) ?? Fmt.dash }
+        return battery.level.map { "\($0)/4" } ?? Fmt.dash
+    }
+    private var batteryUnit: String {
+        guard connected else { return "LAST SEEN" }
+        guard let battery else { return "PERCENT" }
+        return battery.isPercent ? "PERCENT" : "BARS"
+    }
+
+    private var chargeLine: String {
+        guard connected else { return "Still recording on your wrist" }
+        switch battery?.chargeState {
+        // POWER goes UNKNOWN rather than keeping a stale value: charge state changes any
+        // second, and battery level cannot appear out of nowhere.
+        case .charging: return "Charging"
+        case .full:     return "Charged"
+        default:        return "About 3 days of charge left"
+        }
+    }
+
+    /// Only what this HOOP can measure is listed.
+    private var autoDetail: String {
+        var kinds: [String] = []
+        if capabilities.hrv != .unsupported { kinds.append("HR") }
+        if capabilities.functions["spo2"] != .unsupported { kinds.append("SPO2") }
+        if capabilities.hrv == .support { kinds.append("HRV") }
+        if capabilities.stress != .unsupported { kinds.append("STRESS") }
+        return kinds.isEmpty ? "NOTHING THIS HOOP MEASURES ON ITS OWN" : kinds.joined(separator: " · ")
+    }
+    private var autoCount: Int {
+        autoDetail.contains("·") ? autoDetail.components(separatedBy: " · ").count : 0
     }
 
     private var header: some View {
@@ -139,15 +223,17 @@ struct DeviceView: View {
             HStack(spacing: 18) {
                 ZStack {
                     Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
-                    RingArc(from: 0, to: Double(data.band.batteryPercent) / 100)
+                    RingArc(from: 0, to: battery?.ringFraction ?? Double(data.band.batteryPercent) / 100)
                         .stroke(connected ? NB.lime1 : NB.white.opacity(0.28),
                                 style: StrokeStyle(lineWidth: 5, lineCap: .round))
                         .frame(width: 69, height: 69)
                     VStack(spacing: 2) {
-                        Text("\(data.band.batteryPercent)")
+                        // ⚠️ Firmware with isPercent = false reports 0–4 bars. Those are
+                        // shown as bars; a bar count never gets a % sign put on it.
+                        Text(batteryReading)
                             .font(NBFont.dot(700, 20))
                             .foregroundStyle(NB.text1)
-                        Text(connected ? "PERCENT" : "LAST SEEN")
+                        Text(batteryUnit)
                             .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
                             .foregroundStyle(NB.white.opacity(0.34))
                     }
@@ -161,7 +247,7 @@ struct DeviceView: View {
                         .foregroundStyle(NB.white.opacity(0.34))
                     // The ring gives a number; this line gives what a person wanted to know.
                     // ⚠️ Days are our own estimate — the SDK reports percent / level / chargeState.
-                    Text(connected ? "About 3 days of charge left" : "Still recording on your wrist")
+                    Text(chargeLine)
                         .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                         .foregroundStyle(connected ? NB.lime1 : NB.text2)
                 }
@@ -174,8 +260,12 @@ struct DeviceView: View {
                 // POWER goes UNKNOWN rather than keeping a stale value: charge state changes
                 // any second, and battery level cannot appear out of nowhere. The two expire
                 // at different speeds, which is why they are three columns and not one.
-                DeviceFact(label: "POWER", value: connected ? "UNPLUGGED" : "UNKNOWN")
-                DeviceFact(label: "ON DEVICE", value: "7 DAYS")
+                DeviceFact(label: "POWER",
+                           value: connected
+                                ? (battery?.chargeState.rawValue.uppercased() ?? "UNKNOWN")
+                                : "UNKNOWN")
+                DeviceFact(label: "ON DEVICE",
+                           value: identity.map { "\($0.watchDataDayNumber) DAYS" } ?? "7 DAYS")
                 DeviceFact(label: "SYNCED", value: connected ? "2 MIN AGO" : "2 HRS AGO")
             }
         }
@@ -403,12 +493,11 @@ private struct DestructiveRow: View {
 // MARK: 12S · the two device sheets
 
 /// One row per thing the band can measure — only what this HOOP reports is listed.
+/// The list is the band's own answer to readAutoMonitSwitchInfo, not a fixed menu: a HOOP
+/// that cannot take a temperature simply has no temperature row.
 struct AutoMeasurementSheet: View {
-    @AppStorage("nb.auto.hr") private var hr = true
-    @AppStorage("nb.auto.spo2") private var spo2 = true
-    @AppStorage("nb.auto.hrv") private var hrv = true
-    @AppStorage("nb.auto.stress") private var stress = true
-    @AppStorage("nb.auto.temp") private var temp = false
+    @State private var slots: [AutoMonitorSlot] = []
+    @State private var loading = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -420,23 +509,43 @@ struct AutoMeasurementSheet: View {
                 .foregroundStyle(NB.white.opacity(0.38))
                 .padding(.top, 6)
 
-            VStack(spacing: 0) {
-                MeasureToggle(title: "Heart rate", detail: "WINDOW AND INTERVAL, BOTH YOURS",
-                              chips: ["00:00 – 24:00", "EVERY 30 MIN"], isOn: $hr)
-                MeasureToggle(title: "Blood oxygen", detail: "22:00 – 07:00 · EVERY 60 MIN", isOn: $spo2)
-                MeasureToggle(title: "HRV", detail: "EVERY 60 MIN", isOn: $hrv)
-                MeasureToggle(title: "Stress", detail: "09:00 – 22:00 · EVERY 30 MIN", isOn: $stress)
-                MeasureToggle(title: "Skin temperature", detail: temp ? "ON" : "OFF", isOn: $temp, last: true)
-            }
-            .frame(width: NB.Layout.contentWidth)
-            .cardSkin()
-            .padding(.top, 16)
+            if !slots.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
+                        MeasureToggle(
+                            title: Self.title(slot.kind),
+                            detail: Self.detail(slot),
+                            chips: slot.supportsRange
+                                ? [String(format: "%02d:00 – %02d:00", slot.startHour, slot.endHour),
+                                   "EVERY \(slot.intervalMinutes) MIN"]
+                                : [],
+                            isOn: Binding(
+                                get: { slots[index].on },
+                                set: { on in
+                                    slots[index].on = on
+                                    let updated = slots[index]
+                                    Task { try? await Band.live.writeAutoMonitoring(updated) }
+                                }),
+                            last: index == slots.count - 1)
+                    }
+                }
+                .frame(width: NB.Layout.contentWidth)
+                .cardSkin()
+                .padding(.top, 16)
 
-            Text("Only what this HOOP can measure is listed")
-                .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
-                .foregroundStyle(NB.white.opacity(0.30))
-                .frame(maxWidth: .infinity)
-                .padding(.top, 14)
+                Text("Only what this HOOP can measure is listed")
+                    .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
+                    .foregroundStyle(NB.white.opacity(0.30))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 14)
+            } else if !loading {
+                // ⚠️ An empty answer means the band told us nothing, which is not the same
+                // as the band having nothing. The screen says which one it is.
+                Text("THIS HOOP DID NOT REPORT ITS AUTOMATIC MEASUREMENTS")
+                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                    .foregroundStyle(NB.ember1)
+                    .padding(.top, 24)
+            }
 
             Spacer(minLength: 0)
         }
@@ -444,6 +553,33 @@ struct AutoMeasurementSheet: View {
         .padding(.top, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(NB.carbon2)
+        .task {
+            slots = (try? await Band.live.readAutoMonitoring()) ?? []
+            loading = false
+        }
+    }
+
+    private static func title(_ kind: AutoMonitorSlot.Kind) -> String {
+        switch kind {
+        case .heartRate:       "Heart rate"
+        case .bloodPressure:   "Blood pressure"
+        case .bloodGlucose:    "Blood glucose"
+        case .stress:          "Stress"
+        case .bloodOxygen:     "Blood oxygen"
+        case .temperature:     "Skin temperature"
+        case .lorentz:         "Lorentz"
+        case .hrv:             "HRV"
+        case .bloodComponents: "Blood components"
+        }
+    }
+
+    private static func detail(_ slot: AutoMonitorSlot) -> String {
+        guard slot.on else { return "OFF" }
+        if slot.supportsRange {
+            return String(format: "%02d:00 – %02d:00 · EVERY %d MIN",
+                          slot.startHour, slot.endHour, slot.intervalMinutes)
+        }
+        return "EVERY \(slot.intervalMinutes) MIN"
     }
 }
 

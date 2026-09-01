@@ -1,5 +1,5 @@
 import { tool } from "npm:ai@4.3.16";
-import { z } from "npm:zod@3.23.8";
+import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
 import type { NumberLedger } from "./ledger.ts";
 
@@ -83,13 +83,13 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
           .gte("user_day", from).lte("user_day", to)
           .order("user_day").limit(90);
         if (error) return { ok: false } as Err;
+        const rows = (data ?? []) as unknown as Record<string, unknown>[];
         return record("range.get", {
           ok: true,
           data: {
             // A missing day is a null point, never a 0, and never interpolated.
-            points: (data ?? []).map((r: Record<string, unknown>) =>
-              ({ dayKey: r.user_day, value: r[column] ?? null })),
-            truncated: (data?.length ?? 0) >= 90,
+            points: rows.map((r) => ({ dayKey: r.user_day, value: r[column] ?? null })),
+            truncated: rows.length >= 90,
           },
         });
       },

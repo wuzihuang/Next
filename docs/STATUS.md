@@ -30,6 +30,30 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 12 + 12S | Device, and its two sheets | built |
 | 13 | Body Battery detail | built |
 
+### The band · `app/NextBody/Services/Band/`
+
+The SDK ships **arm64 only** — `lipo -info` on `VeepooBleSDK` says
+`Non-fat file: architecture: arm64` — so it cannot link into a simulator build at all.
+The app is therefore written against a `BandService` protocol with two implementations:
+
+- `MockBand` on the simulator, which answers on the real timings: the scan takes 2.2s,
+  contact arrives ~1.2s after the finger lands, and a body scan really does take 30s.
+  A stub returning instantly would hide every timing bug the takeover has, which is the
+  only part of that flow that is hard to get right.
+- `VeepooBand` on a device, behind `#if canImport(VeepooBleSDK)`. Drag the framework into
+  the target as *Embed & Sign* and `Band.live` picks it up — nothing else changes.
+
+`HoopQueue` is F3 §06: one serial queue, exactly one native command in flight, P0/P1/P2,
+and a higher priority jumps the queue head but never interrupts the command already running.
+
+`OriginDataSync` is F2 §01: it works out the user-day window first and only then decides how
+many pages to pull — one in daylight, two in the small hours and at every day close.
+
+Wired through: the pairing sequence runs four real steps, the device page reads identity,
+capabilities and the three-value battery, the automatic-measurement sheet lists what this
+HOOP actually reports, and the measurement takeover is driven by the band's own contact
+signal rather than by a timer pretending to be one.
+
 ### Backend · `supabase/`
 
 Applied to the live project `gkgzwcxivnffsecshvfs` and seeded.
@@ -69,31 +93,68 @@ Demo account: `demo@nextbody.app` / `nextbody-demo`.
   `剩余负荷 · MOVE · 今日目标负荷14.5，已练2.8，剩余11.7。· 体感电量20` — every number
   traceable through the ledger, 11.7 being the legal derivation 14.5 − 2.8.
 
+## The Edge Functions, run for real
+
+They were served locally with Deno against the live Supabase and the live model, and calling
+them found four bugs a typechecker could not:
+
+1. `ai@4.3.16` pulls a `zod-to-json-schema` that imports `zod/v3`, a subpath `zod@3.23.8`
+   does not export. Pinned to `zod@3.25.76`.
+2. `generateObject` reaches for a `json_schema` response format that DashScope's
+   OpenAI-compatible endpoint does not accept. It needs `mode: "json"`.
+3. `screen.render` was written as text for the server to parse back. Board 07 · S1 says the
+   only way she speaks is by *calling* screen.render, so it is now a real tool with a real
+   schema — there is no free prose to parse, and nothing to mis-parse.
+4. That tool's `type` and `target` were free strings, so the model invented `type: "day"` and
+   `target: "dailyDirection"` and the whole frame was rejected. With the 27 types and the 5
+   targets in the tool schema it picks a real one.
+
+What a turn does now, against the seeded account:
+
+```
+event: state         {"value":"THINKING"}
+event: tool          {"name":"day.get"}
+event: tool          {"name":"profile.get"}
+event: tool          {"name":"screen.render"}
+event: screen.render {"envelope":{"type":"gauge","title":"TODAY CAPACITY","tag":"RECOVER",
+                      "sentence":"电量 19，今日负荷 19.1，方向 LEVEL",
+                      "footer":"剩余可练量：无对应读数","target":"training", ...}}
+event: done          {}
+```
+
+Every number traces to a tool return, and where it had none it wrote 无对应读数 rather than
+inventing one — S4's absence law, holding under a real model.
+
+Asking it a medical question renders the fixed stop frame and calls no tool at all, which is
+S7 working: `NOT A DOCTOR · 这类问题请找医生。这块屏只报告测量到的数字。`
+
 ## Open, and why
 
-1. **The Vercel AI Gateway key does not authenticate.**
-   `vck_8HH0…` returns `Authentication failed. Check that your Vercel credential is valid and
-   has access to AI Gateway.` The model therefore runs through DashScope — the fallback the
-   brief names. `supabase/functions/_shared/model.ts` prefers the gateway the moment
-   `AI_GATEWAY_API_KEY` is set, so this is one secret away, not a rewrite.
+1. **The `vck_…` key is a Vercel access token, not an AI Gateway API key.** It is valid —
+   `GET api.vercel.com/v2/user` returns the account and team — but the gateway refuses it,
+   and its own error says why: *"Create an API key and set in AI_GATEWAY_API_KEY."* There is
+   no API to mint one; it is made at **vercel.com → your team → AI Gateway → API Keys**.
+   Until then the model runs through DashScope, the fallback the brief names.
+   `model()` now ignores a `vck_` key rather than sending a request that will be refused, and
+   switches to the gateway the moment a real key is set.
 
-2. **The Edge Functions are written but not deployed.** `supabase login` needs a browser, so
-   the CLI could not be authenticated from here. Until they are deployed the app falls back to
-   a DEBUG-only path that runs the same prompt, the same envelope contract, the same
-   banned-phrase scan and the same number ledger directly against DashScope. It is compiled
-   out of release builds. To deploy:
+2. **Deployment needs one `supabase login`.** The CLI's login is a browser flow, so it could
+   not be done from here. The functions themselves are finished and proven — run these four
+   lines with `!` in front and they are live:
 
    ```sh
    supabase login
    supabase link --project-ref gkgzwcxivnffsecshvfs
-   supabase secrets set DASHSCOPE_API_KEY=… AI_GATEWAY_API_KEY=… SETTLE_SECRET=…
+   supabase secrets set DASHSCOPE_API_KEY=… SETTLE_SECRET=…
    supabase functions deploy turn meal meal-commit day-settle screen-current asr export account-delete
    ```
 
-3. **The band is not connected.** Everything the SDK would provide is seeded instead. The BLE
-   queue, `startReadOriginData` paging, `startBodyCompositionTest` and `syncPersonalInfo` are
-   specified in F3 §06 and in board 12 but not implemented — that is the piece to do together
-   with the hardware in the room.
+   Until then the app uses a DEBUG-only path with the same prompt, envelope contract,
+   banned-phrase scan and number ledger. It is compiled out of release builds, which I checked.
+
+3. **The band layer is written; only the hardware test is left.** Both implementations exist
+   and the whole product runs on the mock. Linking the framework and putting a HOOP on a
+   wrist is the remaining step, and that is the part you said we would do together.
 
 4. **Two numbers in the design file disagree with each other.** Board 08's screen prints the
    optimal zone as `13.0 – 16.0`; board 13's nine-band table and the TODAY'S TARGET card both
@@ -103,7 +164,8 @@ Demo account: `demo@nextbody.app` / `nextbody-demo`.
 
 5. **F2's own open item stands.** The six zone weights and K = 60 were, in the board's words,
    拍 from four anchors and have never been regressed against real data. Reproducing the
-   anchors is not the same as being right about a real person.
+   anchors is not the same as being right about a real person. The board itself files this
+   under 上线前必须成立, and it needs 20 people × 14 days.
 
 ## Running it
 

@@ -4,7 +4,7 @@
 // no extra cold start — and the tool bodies build a Supabase client from this turn's JWT,
 // so RLS applies and the agent physically cannot read another user's rows.
 
-import { z } from "npm:zod@3.23.8";
+import { z } from "npm:zod@3.25.76";
 
 export const PANEL_TYPES = [
   "battery", "metric", "text", "line", "band", "bars", "days", "sparks", "ring", "gauge",
@@ -14,17 +14,26 @@ export const PANEL_TYPES = [
 
 export type PanelType = (typeof PANEL_TYPES)[number];
 
+/// F0 rule 06 · every widget declares the page it lands on. There is no sixth destination.
+export const TARGETS = ["training", "fuel", "bodyBattery", "composition", "profile"] as const;
+
 /// 07 · 04 · fourteen fields, four of them required. Anything outside this table is
 /// dropped without an error; a missing required field is E_SCHEMA and the frame never ships.
 /// The length caps are truncation, not validation — which makes them a rule for writing
 /// copy, not a safety net.
+/// ⚠️ The length caps truncate, they do not reject. Writing too long costs half a sentence
+/// on screen, which makes the cap a rule for writing copy rather than a safety net — and
+/// throwing the frame away over one long word would be a worse outcome than trimming it.
+const trimmed = (max: number) =>
+  z.string().transform((s) => (s.length > max ? s.slice(0, max) : s));
+
 export const Envelope = z.object({
   type: z.enum(PANEL_TYPES),
-  title: z.string().max(18),
+  title: trimmed(18),
   tag: z.enum(["MOVE", "FUEL", "RECOVER", "ALERT"]).optional(),
-  sentence: z.string().max(48),
-  footer: z.string().max(42).optional(),
-  action: z.string().max(32).optional(),
+  sentence: trimmed(48),
+  footer: trimmed(42).optional(),
+  action: trimmed(32).optional(),
   accent: z.string().optional(),
   data: z.record(z.any()),
   theme: z.record(z.any()).optional(),
@@ -35,7 +44,7 @@ export const Envelope = z.object({
   priority: z.enum(["normal", "alert"]).default("normal"),
   locale: z.enum(["zh-CN", "en-US"]).default("zh-CN"),
   // F0 rule 06 · every widget declares the page it lands on. No target, no screen.
-  target: z.enum(["training", "fuel", "bodyBattery", "composition", "profile"]),
+  target: z.enum(TARGETS),
 });
 
 export type Envelope = z.infer<typeof Envelope>;

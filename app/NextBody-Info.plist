@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>NextBody</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NBDebugModelKey</key>
+	<string>$(NB_DEBUG_MODEL_KEY)</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>NextBody connects to your band to read heart rate, steps and sleep.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>NextBody connects to your band to read heart rate, steps and sleep.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo of your meal so NextBody can log it.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Read weight and body-fat from Apple Health.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Write weight entries back to Apple Health.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Talk to NextBody instead of typing.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Count steps when your band is out of range.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pick a photo of your meal so NextBody can log it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turn what you say into a logged meal.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Doto-Black.ttf</string>
+		<string>Doto-Bold.ttf</string>
+		<string>Doto-ExtraBold.ttf</string>
+		<string>Doto-Medium.ttf</string>
+		<string>Doto-Regular.ttf</string>
+		<string>Doto-SemiBold.ttf</string>
+		<string>InterTight-Black.ttf</string>
+		<string>InterTight-Bold.ttf</string>
+		<string>InterTight-ExtraBold.ttf</string>
+		<string>InterTight-Light.ttf</string>
+		<string>InterTight-Medium.ttf</string>
+		<string>InterTight-Regular.ttf</string>
+		<string>InterTight-SemiBold.ttf</string>
+		<string>Jost-Bold.ttf</string>
+		<string>Jost-ExtraLight.ttf</string>
+		<string>Jost-Light.ttf</string>
+		<string>Jost-Medium.ttf</string>
+		<string>Jost-Regular.ttf</string>
+		<string>Jost-SemiBold.ttf</string>
+	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>armv7</string>
+	</array>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
+</dict>
+</plist>

@@ -1,0 +1,65 @@
+import SwiftUI
+
+/// F1 · The Map. Four kinds of surface and no fifth.
+///  A · GATE      — a straight line walked once per account
+///  B · THE ROOT  — Home, the only root
+///  C · FROM THE ROOT · 5 — full pages, never nested, back always returns to the root
+///  D · ON TOP    — takeovers and sheets; closing one restores the same scroll position
+enum Destination: Hashable {
+    case training
+    case fuel
+    case bodyBattery
+    case composition(date: Date?)
+    case profile
+    case device            // THE ONLY SECOND LEVEL, reached from profile
+    case deviceAlarms      // second-level-of-second-level, see F6 dead-control ruling
+    case deviceAutoMonitor
+}
+
+/// Where a detail page was entered from. One layer only — no multi-level history stack.
+enum EntryPoint: Hashable { case home, profile }
+
+/// Full-screen takeovers. Not pages: the panel on Home grown to full size.
+enum Takeover: Hashable, Identifiable {
+    case wordmark                  // 2.6s brand animation, no close mark
+    case measure(MeasureKind)
+    var id: String { String(describing: self) }
+}
+
+enum MeasureKind: String, Hashable, CaseIterable {
+    case heartRate, bloodOxygen, bloodPressure, ecg, temperature, bodyComposition
+}
+
+/// Bottom sheets · 13 of them. The screen underneath always shows its title and one row of value.
+enum SheetRoute: Hashable, Identifiable {
+    // 03 · onboarding
+    case height, weightBaseline, birthday
+    // 10S
+    case weighIn
+    // 11 · profile
+    case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, deleteAccount, signOut
+    // 12S · device
+    case bandAlarm, bandAutoMonitor, findBand, unbind, firmware
+    // dock
+    case plusMenu
+    var id: String { String(describing: self) }
+}
+
+@MainActor
+final class Router: ObservableObject {
+    @Published var path: [Destination] = []
+    @Published var entry: EntryPoint = .home
+    @Published var takeover: Takeover?
+    @Published var sheet: SheetRoute?
+
+    /// F0 rule 06: every widget on the panel is tappable and declares its target page.
+    func open(_ d: Destination, from: EntryPoint = .home) {
+        entry = from
+        path.append(d)
+    }
+
+    /// All detail pages return to the root — not to the previous screen, not to a scroll position.
+    func backToRoot() { path.removeAll() }
+
+    func back() { if !path.isEmpty { path.removeLast() } }
+}

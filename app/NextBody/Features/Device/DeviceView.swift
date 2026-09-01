@@ -1,0 +1,681 @@
+import SwiftUI
+
+/// 12 · 设备 Device — the only second-level page in the product, because it really does have
+/// a page of content. Entered from Profile; back returns to Profile, not to the root.
+struct DeviceView: View {
+    @EnvironmentObject private var data: DataStore
+    @EnvironmentObject private var router: Router
+
+    @State private var sheet: SheetRoute?
+    @AppStorage("nb.dev.hrAlarm") private var hrAlarm = true
+    @AppStorage("nb.dev.move") private var moveReminder = true
+    @AppStorage("nb.dev.drink") private var drinkNudge = false
+    @AppStorage("nb.dev.wear") private var wearDetection = true
+    @AppStorage("nb.dev.disconnectAlert") private var disconnectAlert = true
+    @AppStorage("nb.dev.lowPower") private var lowPower = false
+
+    private var connected: Bool { data.band.connected }
+
+    var body: some View {
+        DetailScroll(glow: NB.lime1) {
+            VStack(alignment: .leading, spacing: 14) {
+                header
+                batteryCard
+                firmwareCard
+                if !connected { readOnlyNotice }
+
+                GroupLabel12("AUTOMATIC")
+                RowCard {
+                    NavRow(title: "Automatic measurement",
+                           detail: "HR · SPO2 · HRV · STRESS",
+                           value: "4", enabled: connected) { sheet = .bandAutoMonitor }
+                    // One switch with one range is enough; a range needs no second toggle.
+                    ToggleRow(title: "Heart rate alarm",
+                              detail: "ALERTS OUTSIDE 50 – 140 BPM",
+                              isOn: $hrAlarm, enabled: connected, last: true)
+                }
+
+                GroupLabel12("REMINDERS · VIBRATION ONLY")
+                RowCard {
+                    ToggleRow(title: "Move reminder", detail: "EVERY 60 MIN · 09:00 – 18:00",
+                              isOn: $moveReminder, enabled: connected)
+                    ToggleRow(title: "Drink & breathe nudges", detail: drinkNudge ? "ON" : "OFF",
+                              isOn: $drinkNudge, enabled: connected)
+                    NavRow(title: "Alarms", detail: "07:30 MON–FRI · 08:45 SAT",
+                           value: "2", enabled: connected, last: true) { sheet = .bandAlarm }
+                }
+
+                GroupLabel12("HOW IT BEHAVES")
+                RowCard {
+                    ToggleRow(title: "Wear detection", detail: "Stops reading when it is off your wrist",
+                              detailIsSentence: true, isOn: $wearDetection, enabled: connected)
+                    ToggleRow(title: "Buzz if we lose each other",
+                              detail: "A short pulse when your phone walks away",
+                              detailIsSentence: true, isOn: $disconnectAlert, enabled: connected)
+                    ToggleRow(title: "Low power mode",
+                              detail: "Fewer readings. Roughly twice the battery.",
+                              detailIsSentence: true, isOn: $lowPower, enabled: connected, last: true)
+                }
+
+                GroupLabel12("IDENTITY")
+                // Five dead facts, no box: they are not settings.
+                // ⚠️ DEVICE NO. is DeviceVersion.deviceNumber — the SDK has no serial number.
+                VStack(spacing: 0) {
+                    IdentityRow(name: "MODEL", value: "KR96 PRO")
+                    IdentityRow(name: "HARDWARE", value: "1.2")
+                    IdentityRow(name: "SOFTWARE", value: data.band.firmware)
+                    IdentityRow(name: "DEVICE NO.", value: "HB-0042")
+                    IdentityRow(name: "BLUETOOTH", value: data.band.mac, last: true)
+                }
+                .frame(width: NB.Layout.contentWidth)
+
+                GroupLabel12("CONNECTION")
+                RowCard {
+                    if connected {
+                        // Disconnecting is reversible, so the safe button is not red.
+                        DestructiveRow(title: "Disconnect",
+                                       detail: "It keeps recording. Nothing reaches the app.",
+                                       tint: NB.text1) { sheet = .unbind }
+                    } else {
+                        DestructiveRow(title: "Why won't it connect?",
+                                       detail: "Bluetooth, distance, or a flat battery.",
+                                       tint: NB.text1) { sheet = .findBand }
+                    }
+                    DestructiveRow(title: "Forget this HOOP",
+                                   detail: "Removes it from this phone. Your history stays.",
+                                   tint: NB.alert2, last: true) { sheet = .unbind }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 30)
+        } onBack: {
+            router.back()
+        }
+        .sheet(item: $sheet) { r in
+            Group {
+                switch r {
+                case .bandAutoMonitor: AutoMeasurementSheet()
+                case .bandAlarm:       AlarmsSheet()
+                case .unbind:          ForgetHoopSheet()
+                default:               WhyWontItConnectSheet()
+                }
+            }
+            .presentationDetents([.fraction(0.62)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(NB.carbon2)
+            .presentationCornerRadius(NB.R.panel)
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("PROFILE")
+                .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
+                .foregroundStyle(NB.text3Prod)
+            HStack(alignment: .firstTextBaseline) {
+                Text("DEVICE")
+                    .font(NBFont.brand(700, 30)).tracking(-0.02 * 30)
+                    .foregroundStyle(NB.text1)
+                Spacer(minLength: 0)
+                HStack(spacing: 7) {
+                    Circle().fill(connected ? NB.lime1 : NB.white.opacity(0.3))
+                        .frame(width: 6, height: 6)
+                    Text(connected ? "CONNECTED" : "DISCONNECTED")
+                        .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
+                        .foregroundStyle(connected ? NB.lime1 : NB.text3Prod)
+                }
+                .padding(.horizontal, 10).frame(height: 24)
+                .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+            }
+        }
+        .padding(.top, 14)
+    }
+
+    /// The ring and the sentence answer two different questions: 82 is a number, and
+    /// "about 3 days of charge left" is what a normal person wanted to know.
+    /// ⚠️ Days are our own estimate — the SDK gives percent / level / chargeState only.
+    private var batteryCard: some View {
+        HStack(spacing: 18) {
+            ZStack {
+                Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
+                RingArc(from: 0, to: Double(data.band.batteryPercent) / 100)
+                    .stroke(connected ? NB.lime1 : NB.white.opacity(0.28),
+                            style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .frame(width: 69, height: 69)
+                VStack(spacing: 2) {
+                    Text("\(data.band.batteryPercent)")
+                        .font(NBFont.dot(700, 20))
+                        .foregroundStyle(NB.text1)
+                    Text(connected ? "PERCENT" : "LAST SEEN")
+                        .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
+                        .foregroundStyle(NB.white.opacity(0.34))
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(data.band.name)
+                    .font(NBFont.ui(600, 18)).tracking(0.02 * 18)
+                    .foregroundStyle(NB.text1)
+                Text("KR96 PRO")
+                    .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+                    .foregroundStyle(NB.white.opacity(0.34))
+                Text(connected ? "About 3 days of charge left" : "Still recording on your wrist")
+                    .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
+                    .foregroundStyle(connected ? NB.lime1 : NB.text2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .cardSkin()
+        .overlay(alignment: .bottom) {
+            HStack(spacing: 0) {
+                // POWER goes UNKNOWN rather than keeping a stale value: charge state changes
+                // any second, battery level cannot appear out of nowhere.
+                DeviceFact(label: "POWER", value: connected ? "UNPLUGGED" : "UNKNOWN")
+                DeviceFact(label: "ON DEVICE", value: "7 DAYS")
+                DeviceFact(label: "SYNCED", value: connected ? "2 MIN AGO" : "2 HRS AGO")
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 14)
+            .offset(y: 58)
+        }
+        .padding(.bottom, 58)
+    }
+
+    /// Five reasons the button can be grey, and it always says which one.
+    /// "Temporarily unavailable" is never allowed to stand in for all five.
+    private var firmwareCard: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("FIRMWARE")
+                    .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
+                    .foregroundStyle(NB.text3Prod)
+                HStack(spacing: 8) {
+                    Text("2.4.1")
+                        .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
+                        .foregroundStyle(NB.text2)
+                    Text("→")
+                        .font(NBFont.dot(700, 13))
+                        .foregroundStyle(NB.lime1)
+                    Text("2.5.0")
+                        .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
+                        .foregroundStyle(NB.lime1)
+                }
+                Text(connected ? "Better sleep staging · about 4 min" : "Reconnect to install this update")
+                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                    .foregroundStyle(NB.text3Prod)
+            }
+            Spacer(minLength: 0)
+            Text("UPDATE")
+                .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
+                .foregroundStyle(connected ? NB.carbon : NB.text3)
+                .padding(.horizontal, 18).frame(height: 36)
+                .background(connected ? NB.lime1 : Color.clear, in: Capsule())
+                .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+        }
+        .padding(16)
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .cardSkin()
+    }
+
+    /// One sentence with a padlock covers the whole read-only段. Switches are not hidden and
+    /// not greyed into illegibility — they simply do not move.
+    private var readOnlyNotice: some View {
+        HStack(spacing: 8) {
+            LockGlyph()
+            Text("Settings below are read-only until you reconnect")
+                .font(NBFont.ui(400, 12)).tracking(0.02 * 12)
+                .foregroundStyle(NB.text3Prod)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 4)
+    }
+}
+
+private struct LockGlyph: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let s = size.width / 14
+            ctx.stroke(Path(roundedRect: CGRect(x: 3 * s, y: 6 * s, width: 8 * s, height: 7 * s),
+                            cornerRadius: 1.6 * s), with: .color(NB.text3Prod), lineWidth: 1.2 * s)
+            var arc = Path()
+            arc.addArc(center: CGPoint(x: 7 * s, y: 6 * s), radius: 2.6 * s,
+                       startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
+            ctx.stroke(arc, with: .color(NB.text3Prod), lineWidth: 1.2 * s)
+        }
+        .frame(width: 14, height: 14)
+    }
+}
+
+private struct GroupLabel12: View {
+    let text: String
+    init(_ t: String) { text = t }
+    var body: some View {
+        Text(text)
+            .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
+            .foregroundStyle(Color(hex: 0x8A8A96))
+            .padding(.leading, 2)
+            .padding(.top, 8)
+    }
+}
+
+private struct RowCard<Content: View>: View {
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(spacing: 0) { content }
+            .frame(width: NB.Layout.contentWidth)
+            .cardSkin()
+    }
+}
+
+private struct DeviceFact: View {
+    let label: String
+    let value: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
+                .foregroundStyle(NB.text3Prod)
+            Text(value)
+                .font(NBFont.dot(600, 11)).tracking(0.1 * 11)
+                .foregroundStyle(NB.text2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ToggleRow: View {
+    let title: String
+    let detail: String
+    var detailIsSentence = false
+    @Binding var isOn: Bool
+    var enabled = true
+    var last = false
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                    .foregroundStyle(enabled ? NB.text1 : NB.text2)
+                Text(detail)
+                    .font(detailIsSentence ? NBFont.ui(400, 11.5) : NBFont.dot(500, 10))
+                    .tracking(detailIsSentence ? 0.02 * 11.5 : 0.14 * 10)
+                    .foregroundStyle(NB.white.opacity(0.34))
+            }
+            Spacer(minLength: 0)
+            Toggle("", isOn: $isOn).labelsHidden().tint(NB.lime1).disabled(!enabled)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 66)
+        .opacity(enabled ? 1 : 0.55)
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+    }
+}
+
+private struct NavRow: View {
+    let title: String
+    let detail: String
+    let value: String
+    var enabled = true
+    var last = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                        .foregroundStyle(enabled ? NB.text1 : NB.text2)
+                    Text(detail)
+                        .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+                        .foregroundStyle(NB.white.opacity(0.34))
+                }
+                Spacer(minLength: 0)
+                Text(value)
+                    .font(NBFont.dot(500, 11))
+                    .foregroundStyle(NB.text3Prod)
+                Chevron()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 66)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.55)
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+    }
+}
+
+private struct IdentityRow: View {
+    let name: String
+    let value: String
+    var last = false
+    var body: some View {
+        HStack {
+            Text(name)
+                .font(NBFont.ui(500, 11)).tracking(0.16 * 11)
+                .foregroundStyle(NB.text3Prod)
+            Spacer(minLength: 0)
+            Text(value)
+                .font(NBFont.dot(500, 11)).tracking(0.06 * 11)
+                .foregroundStyle(NB.text2)
+        }
+        .frame(height: 38)
+        .overlay(alignment: .bottom) { last ? nil : Hairline() }
+    }
+}
+
+private struct DestructiveRow: View {
+    let title: String
+    let detail: String
+    let tint: Color
+    var last = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                        .foregroundStyle(tint)
+                    Text(detail)
+                        .font(NBFont.ui(400, 11.5)).tracking(0.02 * 11.5)
+                        .foregroundStyle(NB.white.opacity(0.34))
+                }
+                Spacer(minLength: 0)
+                Chevron()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 66)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+    }
+}
+
+// MARK: 12S · the two device sheets
+
+/// One row per thing the band can measure — only what this HOOP reports is listed.
+struct AutoMeasurementSheet: View {
+    @AppStorage("nb.auto.hr") private var hr = true
+    @AppStorage("nb.auto.spo2") private var spo2 = true
+    @AppStorage("nb.auto.hrv") private var hrv = true
+    @AppStorage("nb.auto.stress") private var stress = true
+    @AppStorage("nb.auto.temp") private var temp = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Automatic measurement")
+                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
+                .foregroundStyle(NB.text1)
+            Text("What the HOOP measures on its own, all day.")
+                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                .foregroundStyle(NB.white.opacity(0.38))
+                .padding(.top, 6)
+
+            VStack(spacing: 0) {
+                MeasureToggle(title: "Heart rate", detail: "WINDOW AND INTERVAL, BOTH YOURS",
+                              chips: ["00:00 – 24:00", "EVERY 30 MIN"], isOn: $hr)
+                MeasureToggle(title: "Blood oxygen", detail: "22:00 – 07:00 · EVERY 60 MIN", isOn: $spo2)
+                MeasureToggle(title: "HRV", detail: "EVERY 60 MIN", isOn: $hrv)
+                MeasureToggle(title: "Stress", detail: "09:00 – 22:00 · EVERY 30 MIN", isOn: $stress)
+                MeasureToggle(title: "Skin temperature", detail: temp ? "ON" : "OFF", isOn: $temp, last: true)
+            }
+            .frame(width: NB.Layout.contentWidth)
+            .cardSkin()
+            .padding(.top, 16)
+
+            Text("Only what this HOOP can measure is listed")
+                .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
+                .foregroundStyle(NB.white.opacity(0.30))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 14)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(NB.carbon2)
+    }
+}
+
+private struct MeasureToggle: View {
+    let title: String
+    let detail: String
+    var chips: [String] = []
+    @Binding var isOn: Bool
+    var last = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                        .foregroundStyle(NB.text1)
+                    Text(detail)
+                        .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+                        .foregroundStyle(isOn ? NB.lime1.opacity(0.7) : NB.white.opacity(0.28))
+                }
+                Spacer(minLength: 0)
+                Toggle("", isOn: $isOn).labelsHidden().tint(NB.lime1)
+            }
+            if !chips.isEmpty && isOn {
+                HStack(spacing: 10) {
+                    ForEach(chips, id: \.self) { c in
+                        Text(c)
+                            .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
+                            .foregroundStyle(NB.text2)
+                            .padding(.horizontal, 14).frame(height: 32)
+                            .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+    }
+}
+
+/// One table. Every save rewrites all of it — the band replaces the whole alarm set at once,
+/// and its capacity is 3 / 10 / 20 depending on firmware, so a failure is a rollback,
+/// never an optimistic success.
+struct AlarmsSheet: View {
+    @State private var alarms: [(String, String, Bool)] = [
+        ("07:30", "MON TUE WED THU FRI", true),
+        ("08:45", "SAT", true),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Alarms")
+                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
+                .foregroundStyle(NB.text1)
+            Text("The HOOP buzzes. There is no screen to snooze on.")
+                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                .foregroundStyle(NB.white.opacity(0.38))
+                .padding(.top, 6)
+
+            VStack(spacing: 0) {
+                ForEach(alarms.indices, id: \.self) { i in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(alarms[i].0)
+                                .font(NBFont.dot(700, 22)).tracking(0.06 * 22)
+                                .foregroundStyle(NB.text1)
+                            Text(alarms[i].1)
+                                .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+                                .foregroundStyle(NB.white.opacity(0.34))
+                        }
+                        Spacer(minLength: 0)
+                        Toggle("", isOn: Binding(get: { alarms[i].2 },
+                                                 set: { alarms[i].2 = $0 }))
+                            .labelsHidden().tint(NB.lime1)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 74)
+                    .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
+                }
+                HStack {
+                    Text("Add an alarm")
+                        .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                        .foregroundStyle(NB.lime1)
+                    Spacer(minLength: 0)
+                    Text("\(alarms.count) SAVED")
+                        .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+                        .foregroundStyle(NB.white.opacity(0.34))
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 56)
+            }
+            .frame(width: NB.Layout.contentWidth)
+            .cardSkin()
+            .padding(.top, 16)
+
+            Text("Saved to the band the moment you close this")
+                .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
+                .foregroundStyle(NB.white.opacity(0.30))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 14)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(NB.carbon2)
+    }
+}
+
+/// The only row on DEVICE that asks twice.
+/// ⚠️ The SDK only offers disconnect(); "forget" is the app clearing its own device id.
+/// "Forget this HOOP" is possible; "factory reset" is not, and the two must never blur.
+struct ForgetHoopSheet: View {
+    @EnvironmentObject private var data: DataStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Forget this HOOP?")
+                .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
+                .foregroundStyle(NB.text1)
+            Text("This phone stops pairing with it. Everything it has already sent you stays — 12 weeks of nights and every reading. Pairing it again takes about a minute.")
+                .font(NBFont.brand(400, 14))
+                .lineSpacing(7)
+                .foregroundStyle(NB.text2)
+            Spacer(minLength: 0)
+            LimePillButton(title: "Keep it paired") { dismiss() }
+            Button {
+                data.band.connected = false
+                dismiss()
+            } label: {
+                Text("FORGET THIS HOOP")
+                    .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
+                    .foregroundStyle(NB.alert2)
+                    .frame(width: NB.Layout.contentWidth, height: 52)
+                    .overlay(Capsule().stroke(NB.alert2.opacity(0.6), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 26)
+        .padding(.bottom, 26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(NB.carbon2)
+    }
+}
+
+/// Reversible, so the safe button is not red.
+struct DisconnectSheet: View {
+    @EnvironmentObject private var data: DataStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Disconnect the HOOP?")
+                .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
+                .foregroundStyle(NB.text1)
+            Text("It keeps recording on your wrist. Nothing new reaches the app until you connect again.")
+                .font(NBFont.brand(400, 14))
+                .lineSpacing(7)
+                .foregroundStyle(NB.text2)
+            Spacer(minLength: 0)
+            LimePillButton(title: "Stay connected") { dismiss() }
+            Button {
+                data.band.connected = false
+                dismiss()
+            } label: {
+                Text("DISCONNECT")
+                    .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
+                    .foregroundStyle(NB.text2)
+                    .frame(width: NB.Layout.contentWidth, height: 52)
+                    .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 26)
+        .padding(.bottom, 26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(NB.carbon2)
+    }
+}
+
+/// Three reasons, in the order they actually happen: Bluetooth, distance, a flat battery.
+struct WhyWontItConnectSheet: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Why won't it connect?")
+                .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
+                .foregroundStyle(NB.text1)
+            VStack(alignment: .leading, spacing: 0) {
+                ReasonItem(index: "01", title: "Bluetooth is off",
+                           detail: "Turn it on in Control Centre, then come back.")
+                ReasonItem(index: "02", title: "It's out of range",
+                           detail: "Bring the band within arm's reach of the phone.")
+                ReasonItem(index: "03", title: "The battery is flat",
+                           detail: "Charge it for ten minutes and hold the side key.", last: true)
+            }
+            .frame(width: NB.Layout.contentWidth)
+            .cardSkin()
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(NB.carbon2)
+    }
+}
+
+private struct ReasonItem: View {
+    let index: String
+    let title: String
+    let detail: String
+    var last = false
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text(index)
+                .font(NBFont.dot(600, 11)).tracking(0.16 * 11)
+                .foregroundStyle(NB.lime1)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                    .foregroundStyle(NB.text1)
+                Text(detail)
+                    .font(NBFont.ui(400, 12)).tracking(0.02 * 12)
+                    .foregroundStyle(NB.white.opacity(0.42))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+    }
+}

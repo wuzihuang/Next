@@ -8,3 +8,13 @@ DerivedData/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+# Local environment values
+.env.local
+
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/
+
+# Local-only secrets for the simulator debug path
+app/Local.xcconfig

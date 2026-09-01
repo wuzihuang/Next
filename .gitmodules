@@ -1,0 +1,3 @@
+[submodule "iOS_Ble_SDK"]
+	path = iOS_Ble_SDK
+	url = https://github.com/HBandSDK/iOS_Ble_SDK.git

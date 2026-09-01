@@ -48,6 +48,11 @@ struct HomeView: View {
             try? await Repository.shared.signInDemo()
             await Repository.shared.loadToday(into: data)
 
+            // F1 · A · the gate was walked once. Every launch after that reconnects on its
+            // own; being asked to pair again is how a user learns their history is gone.
+            await Band.live.reconnectIfBound()
+            data.band.connected = Band.live.state == .connected
+
             // P2 · background. Pulling the band's day is the lowest priority in the queue:
             // anything the user presses jumps in front of it.
             guard data.band.connected else { return }

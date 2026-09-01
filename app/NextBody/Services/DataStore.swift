@@ -23,6 +23,9 @@ final class DataStore: ObservableObject {
     @Published var bodyFatPercent: Double?
 
     private init() {
+        // The seeded demo account is a returning user: the gate was walked, the band is
+        // bound, and the app reconnects to it the way it would on any later launch.
+        if BoundBand.identifier == nil { BoundBand.identifier = "C4-2E-8F-1A-73-9D" }
         today = DataStore.seedToday()
         history = DataStore.seedHistory()
         meals = MealEntry.seed

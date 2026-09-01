@@ -10,6 +10,10 @@ protocol BandService: AnyObject {
     func startScan() async
     func stopScan() async
     func connect(_ device: DiscoveredBand) async throws
+    /// F1 · A · the gate is walked once. After that the band is bound, and every later launch
+    /// reconnects to it on its own — being asked to pair again is how a user learns their
+    /// history is gone.
+    func reconnectIfBound() async
     /// ⚠️ The SDK only offers disconnect(). "Forget this HOOP" is the app clearing its own
     /// device id — "factory reset" is not something we can do, and the two must never blur.
     func disconnect() async

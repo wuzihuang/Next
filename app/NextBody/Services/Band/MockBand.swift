@@ -38,7 +38,18 @@ final class MockBand: BandService, @unchecked Sendable {
         // 02 · 04 · four real steps, not a fake tween.
         for _ in 0..<4 { try? await Task.sleep(for: .milliseconds(600)) }
         state = .connected
+        BoundBand.identifier = device.id
         continuation?.yield(.battery(try await readBattery()))
+    }
+
+    func reconnectIfBound() async {
+        guard let bound = BoundBand.identifier, state != .connected else { return }
+        state = .connecting
+        try? await Task.sleep(for: .milliseconds(700))
+        state = .connected
+        continuation?.yield(.battery(BandBattery(
+            isPercent: true, percent: 82, level: nil, chargeState: .unplugged)))
+        _ = bound
     }
 
     func disconnect() async { state = .disconnected }

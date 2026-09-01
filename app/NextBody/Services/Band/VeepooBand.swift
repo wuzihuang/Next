@@ -75,6 +75,15 @@ final class VeepooBand: BandService, @unchecked Sendable {
         }
     }
 
+    /// The SDK reconnects to a peripheral it already knows by UUID; nothing is re-paired
+    /// and no screen from the gate comes back.
+    func reconnectIfBound() async {
+        guard BoundBand.identifier != nil, state != .connected else { return }
+        state = .connecting
+        central.automaticConnection = true
+        await startScan()
+    }
+
     func disconnect() async {
         central.veepooSDKDisconnectDevice()
         state = .disconnected
@@ -376,6 +385,18 @@ final class VeepooBand: BandService, @unchecked Sendable {
     }
 }
 #endif
+
+/// Which band this phone is bound to. ⚠️ On iOS this is a CoreBluetooth UUID, so it is
+/// meaningful only on this phone — a new phone re-pairs, and the history is on the server.
+enum BoundBand {
+    private static let key = "nb.band.identifier"
+    static var identifier: String? {
+        get { UserDefaults.standard.string(forKey: key) }
+        set { UserDefaults.standard.setValue(newValue, forKey: key) }
+    }
+    /// "Forget this HOOP" is the app clearing its own device id — the history stays.
+    static func forget() { UserDefaults.standard.removeObject(forKey: key) }
+}
 
 /// One place decides which band the app is talking to.
 enum Band {

@@ -711,6 +711,11 @@ struct ForgetHoopSheet: View {
             Spacer(minLength: 0)
             LimePillButton(title: "Keep it paired") { dismiss() }
             Button {
+                // ⚠️ The SDK only offers disconnect(). "Forget" is the app dropping its own
+                // device id — "factory reset" is not something we can do, and the difference
+                // between those two sentences has to be kept word for word.
+                BoundBand.forget()
+                Task { await Band.live.disconnect() }
                 data.band.connected = false
                 dismiss()
             } label: {

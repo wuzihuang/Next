@@ -7,43 +7,34 @@ struct HomeView: View {
 
     @StateObject private var ai = AIService.shared
     @StateObject private var keyboard = KeyboardHeight()
+    @StateObject private var firstRun = FirstRun()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dockMode: Dock.Mode = .idle
     @State private var draft = ""
     @State private var widget: PanelWidget?
 
     var body: some View {
-        VStack(spacing: 12) {
-            Color.clear.frame(height: Chrome.statusBarBlock - 12)
-
-            HomeHeader(batteryPercent: data.band.batteryPercent) {
-                router.open(.profile, from: .home)
-            }
-
-            AIPanel(m: data.today, band: data.band, lastSync: data.lastSync, widget: widget) { target in
-                router.open(target, from: .home)
-            }
-
-            BottomStrip(m: data.today,
-                        onTraining: { router.open(.training, from: .home) },
-                        onFuel: { router.open(.fuel, from: .home) })
-
-            Dock(mode: $dockMode, draft: $draft,
-                 onSend: handleSend,
-                 onCamera: { router.sheet = .plusMenu },
-                 onPlus: { router.sheet = .plusMenu })
-                .offset(y: -keyboard.height)
-                .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
-
-            HomeIndicator()
+        // The panel is one view for the whole ceremony: it starts as the entire screen and
+        // folds to 358 × 470 at ◇7. Everything else is laid out around the space it leaves.
+        ZStack(alignment: .topLeading) {
+            page
+            panel
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .carbonPage()
         .ignoresSafeArea(.container, edges: .vertical)
         // 05 · A·04 · the keyboard rises with the screen and the layout does not move a pixel.
-        // The dock rides up on top of the keyboard; nothing else shifts, nothing is re-laid out.
+        // The dock rides up on top of the keyboard; nothing else shifts.
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        .statusBarHidden(firstRun.statusBarHidden)
+        // Any tap at all lands on ◇11 — there is no "skip?" to answer.
+        .contentShape(Rectangle())
+        .onTapGesture { firstRun.skip() }
         .animation(.easeInOut(duration: 0.28), value: widget)
         .task {
+            firstRun.start(reduceMotion: reduceMotion,
+                           lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+
             // F3 §05 · the home screen reads one row of daily_results and nothing else.
             try? await Repository.shared.signInDemo()
             await Repository.shared.loadToday(into: data)
@@ -60,7 +51,62 @@ struct HomeView: View {
         }
     }
 
-    /// The dock never answers in place: whatever she says comes back onto the panel.
+    private var page: some View {
+        VStack(spacing: 12) {
+            Color.clear.frame(height: Chrome.statusBarBlock - 12)
+
+            // ◇8 · the top bar slides in from −8px as the card lands.
+            HomeHeader(batteryPercent: data.band.batteryPercent) {
+                router.open(.profile, from: .home)
+            }
+            .opacity(firstRun.chromeVisible ? 1 : 0)
+            .offset(y: firstRun.chromeVisible ? 0 : -8)
+
+            // the room the panel occupies once it has folded
+            Color.clear.frame(width: NB.Layout.contentWidth, height: NB.Layout.panelHeight)
+
+            // ◇9 · the two tiles rise from +16px, left before right by 80ms.
+            BottomStrip(m: data.today,
+                        onTraining: { router.open(.training, from: .home) },
+                        onFuel: { router.open(.fuel, from: .home) })
+                .opacity(firstRun.tilesVisible ? 1 : 0)
+                .offset(y: firstRun.tilesVisible ? 0 : 16)
+
+            // ◇10 · the three keys land together: it is one tool, not three.
+            // ⚠️ Before that the dock is simply not there — never a greyed-out disabled state.
+            if firstRun.dockVisible {
+                Dock(mode: $dockMode, draft: $draft,
+                     onSend: handleSend,
+                     onCamera: { router.sheet = .plusMenu },
+                     onPlus: { router.sheet = .plusMenu })
+                    .offset(y: -keyboard.height)
+                    .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
+                    .transition(.opacity)
+            } else {
+                Color.clear.frame(height: NB.Layout.dockHeight)
+            }
+
+            HomeIndicator().opacity(firstRun.indicatorVisible ? 1 : 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// ⚠️ One view, animating frame and cornerRadius. Two views cross-fading would show a
+    /// seam exactly where the whole moment lives.
+    private var panel: some View {
+        let full = firstRun.panelIsFullScreen
+        return AIPanel(m: data.today, band: data.band, lastSync: data.lastSync,
+                       widget: widget, firstRun: firstRun,
+                       size: full ? CGSize(width: 390, height: 844)
+                                  : CGSize(width: NB.Layout.contentWidth,
+                                           height: NB.Layout.panelHeight),
+                       radius: firstRun.panelRadius) { target in
+            router.open(target, from: .home)
+        }
+        .offset(x: full ? 0 : NB.Layout.gutter,
+                y: full ? 0 : Chrome.statusBarBlock + 12 + 30 + 12)
+    }
+
     private func handleSend(_ text: String) {
         let day = UserDay.containing(Date())
         withAnimation { widget = .thinking }

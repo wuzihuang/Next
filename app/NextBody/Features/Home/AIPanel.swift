@@ -7,12 +7,41 @@ struct AIPanel: View {
     let band: BandState
     let lastSync: Date
     var widget: PanelWidget?
+    /// 01M · while the ceremony runs, this same surface is the whole screen. The fold at
+    /// ◇7 animates its frame and corner radius — one layer, never a cross-fade.
+    var firstRun: FirstRun?
+    var size: CGSize = CGSize(width: NB.Layout.contentWidth, height: NB.Layout.panelHeight)
+    var radius: CGFloat = NB.R.hero
     let onWidget: (Destination) -> Void
+
+    private var ceremony: Bool { firstRun?.playing == true }
 
     var body: some View {
         ZStack {
-            HalftoneScreen { StandbyArt(charge: Double(m.bodyBattery ?? 0) / 100) }
+            if let firstRun, ceremony {
+                HalftoneScreen {
+                    FirstRunArt(coreLit: firstRun.coreLit,
+                                orbitFraction: firstRun.orbitFraction,
+                                spinning: firstRun.orbitSpinning)
+                }
+            } else {
+                HalftoneScreen { StandbyArt(charge: Double(m.bodyBattery ?? 0) / 100) }
+            }
 
+            if let firstRun, ceremony {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    // ◇5 · the hairline pulls open from the centre over 0.3s.
+                    Rectangle().fill(NB.hairline)
+                        .frame(width: firstRun.hairlineOpen ? 236 : 0, height: 1)
+                        .animation(.easeOut(duration: 0.3), value: firstRun.hairlineOpen)
+                        .padding(.bottom, 22)
+                    FirstRunSubtitle(typed: firstRun.typed,
+                                     bandPaired: band.connected,
+                                     showsCursor: firstRun.beat >= .type && firstRun.beat < .idle)
+                    Spacer(minLength: 0).frame(height: size.height * 0.16)
+                }
+            } else
             // 07 · 03 · the widget owns the whole 358 × 470 surface, top row included:
             // its title and tag live at y16, exactly where STANDBY and the clock sit when
             // there is nothing to say. Only one of the two is ever drawn.
@@ -35,11 +64,11 @@ struct AIPanel: View {
                 .padding(.vertical, 16)
             }
         }
-        .frame(width: NB.Layout.contentWidth, height: NB.Layout.panelHeight)
+        .frame(width: size.width, height: size.height)
         .background(NB.panelInk)
-        .clipShape(RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous)
-            .stroke(NB.white.opacity(0.08), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .stroke(NB.white.opacity(ceremony ? 0 : 0.08), lineWidth: 1))
     }
 
     private var header: some View {

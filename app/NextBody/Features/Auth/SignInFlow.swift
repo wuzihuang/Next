@@ -29,7 +29,6 @@ struct SignInFlow: View {
             }
         }
         .carbonPage()
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     private func sendCode() {
@@ -295,8 +294,12 @@ private struct EmailScreen: View {
 
             Color.clear.frame(height: 16)
         }
-        // The keyboard takes the bottom of the screen; the layout above it does not move.
-        .padding(.bottom, keyboard.height)
+        // ⚠️ The page neither pads itself by the keyboard's height nor ignores the keyboard
+        // inset — it did both at once, which is why "Your email" ended up under the status
+        // bar clock with the step bar gone entirely. Padding by 309pt while the frame was
+        // already 309pt shorter made the content overflow by twice the keyboard, and the
+        // overflow came off the top. The two reason rows below give up their room instead,
+        // which is what leaves the Spacer enough to sit the button just above the keys.
         .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
         .onAppear { focused = true }
     }

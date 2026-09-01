@@ -10,13 +10,25 @@ struct BodyBatteryDetailView: View {
     private var m: DailyMetrics { data.today }
     private var hasNight: Bool { m.bbWake != nil }
 
+    /// ⚠️ 1CUP · the four rows are only ever present when they close within 0.5 of
+    /// BB(now) − BB(anchor). The server drops them when they do not, and there is no OTHER
+    /// row to absorb a difference — the whole card goes away instead.
+    private var drivers: ReserveDrivers? { m.reserveDrivers }
+
+    /// The peak is the highest point on the curve, not a fixed hour. With no curve on hand
+    /// the board's 07:12 stands in.
+    private var peakTime: String {
+        guard let top = m.reserveCurve.max(by: { $0.value < $1.value }) else { return "07:12" }
+        return Fmt.clock(top.ts)
+    }
+
     var body: some View {
         DetailScroll(glow: NB.violet1) {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 if hasNight {
                     heroCard
-                    whyCard
+                    if drivers != nil { whyCard }
                     inputsCard
                     targetCard
                     confidenceCard
@@ -63,15 +75,15 @@ struct BodyBatteryDetailView: View {
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text("PEAK 07:12")
+                    Text("PEAK \(peakTime)")
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.white.opacity(0.42))
-                    Text("+38 LAST NIGHT")
+                    Text("\(Fmt.signed(drivers?.lastNight ?? 0)) LAST NIGHT")
                         .font(NBFont.dot(700, 12)).tracking(0.12 * 12)
                         .foregroundStyle(NB.violet1)
                 }
             }
-            BatteryCurve().frame(width: 318, height: 120)
+            BatteryCurve(samples: m.reserveCurve).frame(width: 318, height: 120)
             HStack {
                 ForEach(["04", "10", "NOW", "22"], id: \.self) { t in
                     Text(t)
@@ -90,23 +102,33 @@ struct BodyBatteryDetailView: View {
 
     /// Four rows that must add up to the number at the top, within ±0.5.
     /// The order cannot change: last night first, then the three ways the day spent it.
-    private var whyCard: some View {
-        CardBlock(title: "WHY \(Fmt.int(m.bodyBattery))", trailing: "FROM 60 AT 04:00") {
+    @ViewBuilder private var whyCard: some View {
+        let d = drivers ?? ReserveDrivers(lastNight: 0, awake: 0, movement: 0, stress: 0, anchor: 0)
+        let scale = max(1, max(abs(d.lastNight), max(abs(d.awake), max(abs(d.movement), abs(d.stress)))))
+        CardBlock(title: "WHY \(Fmt.int(m.bodyBattery))", trailing: "FROM \(d.anchor) AT 04:00") {
             VStack(spacing: 11) {
-                ContribRow(label: "Last night", value: 38, maxAbs: 38, tint: NB.violet1)
-                ContribRow(label: "Just being awake", value: -14, maxAbs: 38, tint: NB.white.opacity(0.35))
-                ContribRow(label: "Moving around", value: -9, maxAbs: 38, tint: NB.white.opacity(0.35))
-                ContribRow(label: "Stress", value: -3, maxAbs: 38, tint: NB.white.opacity(0.35))
+                ContribRow(label: "Last night", value: d.lastNight, maxAbs: scale, tint: NB.violet1)
+                ContribRow(label: "Just being awake", value: d.awake, maxAbs: scale, tint: NB.white.opacity(0.35))
+                ContribRow(label: "Moving around", value: d.movement, maxAbs: scale, tint: NB.white.opacity(0.35))
+                ContribRow(label: "Stress", value: d.stress, maxAbs: scale, tint: NB.white.opacity(0.35))
             }
             Hairline()
             HStack {
-                Text("THESE FOUR ADD UP TO +12")
+                Text("THESE FOUR ADD UP TO \(Fmt.signed(d.sum))")
                     .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
-                Text("60  →  \(Fmt.int(m.bodyBattery))")
+                Text("\(d.anchor)  →  \(Fmt.int(m.bodyBattery))")
                     .font(NBFont.dot(700, 11)).tracking(0.08 * 11)
                     .foregroundStyle(NB.text2)
+            }
+            // ⚠️ 1CK4 · the first night has no yesterday to start from, so it starts from an
+            // assumption. Say it in words; never let 20 read as something we measured.
+            if d.assumedAnchor {
+                Text("There was no yesterday to start from, so this day begins at an assumed 20. It stops being an assumption tomorrow.")
+                    .font(NBFont.brand(400, 13))
+                    .lineSpacing(6)
+                    .foregroundStyle(NB.white.opacity(0.62))
             }
         }
     }
@@ -114,13 +136,19 @@ struct BodyBatteryDetailView: View {
     /// HRV and resting heart rate are allowed on screen because we measure them and they have
     /// a unit. Sleep duration and stages are not, here or anywhere.
     private var inputsCard: some View {
-        CardBlock(title: "LAST NIGHT'S INPUTS", trailing: "3 OF 3") {
+        let n = m.nightInputs ?? NightInputs()
+        return CardBlock(title: "LAST NIGHT'S INPUTS", trailing: "\(n.present) OF 3") {
             VStack(spacing: 12) {
-                InputRow(name: "HRV", value: "54", unit: "MS", base: "BASE 61")
+                InputRow(name: "HRV", value: Fmt.kg(n.hrv, decimals: 0), unit: n.hrv == nil ? nil : "MS",
+                         base: n.hrvBase.map { "BASE \(Int($0))" })
                 Hairline()
-                InputRow(name: "Resting heart rate", value: "51", unit: "BPM", base: "BASE 48")
+                InputRow(name: "Resting heart rate", value: Fmt.kg(n.rhr, decimals: 0),
+                         unit: n.rhr == nil ? nil : "BPM",
+                         base: n.rhrBase.map { "BASE \(Int($0))" })
                 Hairline()
-                InputRow(name: "Charge multiplier", value: "0.88", unit: nil, base: nil)
+                InputRow(name: "Charge multiplier",
+                         value: n.multiplier.map { String(format: "%.2f", $0) } ?? Fmt.dash,
+                         unit: nil, base: nil)
             }
         }
     }
@@ -133,7 +161,7 @@ struct BodyBatteryDetailView: View {
                     .font(NBFont.dot(700, 11)).tracking(0.22 * 11)
                     .foregroundStyle(NB.white)
                 Spacer(minLength: 0)
-                Text("SET AT 07:12")
+                Text("SET AT \(peakTime)")
                     .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                     .foregroundStyle(NB.white.opacity(0.42))
             }
@@ -184,7 +212,7 @@ struct BodyBatteryDetailView: View {
                         .frame(height: 5)
                 }
             }
-            Text("HRV BASELINE 9 / 14 NIGHTS")
+            Text("BASELINE \(m.nightInputs?.rhrNights ?? 0) / 14 NIGHTS")
                 .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
                 .foregroundStyle(NB.text3Prod)
         }
@@ -196,7 +224,7 @@ struct BodyBatteryDetailView: View {
 
     private var footer: some View {
         HStack {
-            Text("SYNCED 07:12")
+            Text("SYNCED \(Fmt.clock(data.lastSync))")
                 .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
                 .foregroundStyle(NB.text3)
             Spacer(minLength: 0)
@@ -323,19 +351,39 @@ private struct InputRow: View {
 }
 
 /// Violet up through the night, white down through the day, one lime dot at NOW.
+/// With real samples the shape is the day's own; with none it falls back to the board's
+/// path, so the page looks like the design before the first night has been recorded.
 struct BatteryCurve: View {
-    private static let charge: [CGPoint] = [
+    var samples: [ReserveSample] = []
+
+    private static let boardCharge: [CGPoint] = [
         .init(x: 4, y: 96), .init(x: 28, y: 92), .init(x: 52, y: 74),
         .init(x: 76, y: 50), .init(x: 96, y: 34), .init(x: 108, y: 30),
     ]
-    private static let drain: [CGPoint] = [
+    private static let boardDrain: [CGPoint] = [
         .init(x: 108, y: 30), .init(x: 132, y: 40), .init(x: 158, y: 52),
         .init(x: 184, y: 48), .init(x: 210, y: 60), .init(x: 236, y: 56), .init(x: 258, y: 66),
     ]
 
-    @State private var draw: CGFloat = 0
+    /// The 318 × 120 box the board draws in. x is the 24 hours from the 04:00 cut,
+    /// y is 0–100 of battery; the two are split at the peak, which is when you woke.
+    private func path() -> (charge: [CGPoint], drain: [CGPoint]) {
+        guard samples.count > 1,
+              let first = samples.first,
+              let peak = samples.enumerated().max(by: { $0.element.value < $1.element.value })
+        else { return (Self.boardCharge, Self.boardDrain) }
+
+        let day = UserDay.containing(first.ts)
+        func point(_ s: ReserveSample) -> CGPoint {
+            let t = min(1, max(0, s.ts.timeIntervalSince(day.start) / 86_400))
+            return CGPoint(x: 4 + t * 310, y: 112 - Double(s.value) / 100 * 104)
+        }
+        let all = samples.map(point)
+        return (Array(all[...peak.offset]), Array(all[peak.offset...]))
+    }
 
     var body: some View {
+        let (charge, drain) = path()
         Canvas { ctx, size in
             let sx = size.width / 318, sy = size.height / 120
             func p(_ pt: CGPoint) -> CGPoint { CGPoint(x: pt.x * sx, y: pt.y * sy) }
@@ -345,27 +393,31 @@ struct BatteryCurve: View {
                          with: .color(NB.white.opacity(0.06)))
             }
 
+            guard let head = charge.first, let tail = drain.last else { return }
+
             var area = Path()
-            area.move(to: p(Self.charge[0]))
-            (Self.charge.dropFirst() + Self.drain.dropFirst()).forEach { area.addLine(to: p($0)) }
-            area.addLine(to: p(.init(x: 258, y: 112)))
-            area.addLine(to: p(.init(x: 4, y: 112)))
+            area.move(to: p(head))
+            (charge.dropFirst() + drain.dropFirst()).forEach { area.addLine(to: p($0)) }
+            area.addLine(to: p(.init(x: tail.x, y: 112)))
+            area.addLine(to: p(.init(x: head.x, y: 112)))
             area.closeSubpath()
             ctx.fill(area, with: .color(NB.violet1.opacity(0.10)))
 
             var up = Path()
-            up.move(to: p(Self.charge[0]))
-            Self.charge.dropFirst().forEach { up.addLine(to: p($0)) }
+            up.move(to: p(head))
+            charge.dropFirst().forEach { up.addLine(to: p($0)) }
             ctx.stroke(up, with: .color(NB.violet1),
                        style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
 
-            var down = Path()
-            down.move(to: p(Self.drain[0]))
-            Self.drain.dropFirst().forEach { down.addLine(to: p($0)) }
-            ctx.stroke(down, with: .color(NB.white.opacity(0.42)),
-                       style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+            if let dhead = drain.first {
+                var down = Path()
+                down.move(to: p(dhead))
+                drain.dropFirst().forEach { down.addLine(to: p($0)) }
+                ctx.stroke(down, with: .color(NB.white.opacity(0.42)),
+                           style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+            }
 
-            let now = p(.init(x: 258, y: 66))
+            let now = p(tail)
             ctx.fill(Path(ellipseIn: CGRect(x: now.x - 4.5, y: now.y - 4.5, width: 9, height: 9)),
                      with: .color(NB.lime1))
         }

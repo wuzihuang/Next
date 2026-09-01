@@ -6,6 +6,9 @@ struct AIPanel: View {
     let m: DailyMetrics
     let band: BandState
     let lastSync: Date
+    /// 04 · the last five-minute tick. Its age decides whether the readout prints, dims,
+    /// or dashes (13 · CURVE STOPS AT THE LAST REAL TICK).
+    var vitals: LiveVitals = .mock
     var widget: PanelWidget?
     /// 01M · while the ceremony runs, this same surface is the whole screen. The fold at
     /// ◇7 animates its frame and corner radius — one layer, never a cross-fade.
@@ -109,10 +112,10 @@ struct AIPanel: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 readoutLabel("HR")
-                readoutValue(Fmt.int(vitals.hr))
+                readoutValue(Fmt.int(readout.hr))
                 readoutDot
                 readoutLabel("STRESS")
-                readoutValue(Fmt.int(vitals.stress))
+                readoutValue(Fmt.int(readout.stress))
                 readoutDot
                 Text(agoText)
                     .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
@@ -127,15 +130,25 @@ struct AIPanel: View {
         }
     }
 
-    private var vitals: (hr: Int?, stress: Int?) { (72, 31) }
+    /// 13 · past six hours the numbers are gone, not dimmed and not carried forward.
+    private var readout: (hr: Int?, stress: Int?) {
+        vitals.freshness == .gone ? (nil, nil) : (vitals.hr, vitals.stress)
+    }
 
+    /// ⚠️ 1CVO · the only prediction on the product, and it renders only when all four of
+    /// board 13's conditions hold. Otherwise the row is empty — never a placeholder, and
+    /// never a discharge sentence the board never wrote.
     private var chargeLine: String {
         guard m.bodyBattery != nil else { return "NO NIGHT ON RECORD" }
-        return "CHARGING WHILE YOU WIND DOWN · FULL 06:40"
+        if vitals.freshness == .stale, let at = vitals.at {
+            return "SYNCED \(Fmt.clock(at))"
+        }
+        return ChargeForecast.line(curve: m.reserveCurve) ?? ""
     }
 
     private var agoText: String {
-        let mins = max(0, Int(Date().timeIntervalSince(lastSync) / 60))
+        guard let at = vitals.at else { return "NO TICK" }
+        let mins = max(0, Int(Date().timeIntervalSince(at) / 60))
         if mins < 1 { return "JUST NOW" }
         if mins < 60 { return "\(mins) MIN AGO" }
         return "\(mins / 60) HR AGO"

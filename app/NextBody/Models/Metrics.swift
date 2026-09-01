@@ -138,6 +138,42 @@ enum HRZone: Int, CaseIterable, Hashable {
     }
 }
 
+/// 13 · WHY <n>. Four terms that must add up to the number printed on top, ±0.5.
+/// They are additive on purpose: a multiplicative model cannot be listed as rows.
+struct ReserveDrivers: Codable, Hashable {
+    var lastNight: Double
+    var awake: Double
+    var movement: Double
+    var stress: Double
+    /// Where the day started at 04:00 — yesterday's closing value.
+    var anchor: Int
+    /// True when there was no yesterday and the 20 is the cold-start assumption. The page
+    /// has to say so in words rather than let it read as something we measured.
+    var assumedAnchor: Bool = false
+
+    var sum: Double { lastNight + awake + movement + stress }
+}
+
+/// 13 · LAST NIGHT'S INPUTS. Every field is optional because the card's whole job is to
+/// show what the multiplier was computed from — a value we do not have has to read "——".
+struct NightInputs: Codable, Hashable {
+    var hrv: Double?
+    var hrvBase: Double?
+    var rhr: Double?
+    var rhrBase: Double?
+    var rhrNights: Int = 0
+    var multiplier: Double?
+
+    /// The card's "n OF 3" — how many of the three inputs actually arrived.
+    var present: Int { (hrv != nil ? 1 : 0) + (rhr != nil ? 1 : 0) + (multiplier != nil ? 1 : 0) }
+}
+
+/// One point on the reserve curve. 288 of them make a day at five-minute ticks.
+struct ReserveSample: Codable, Hashable {
+    let ts: Date
+    let value: Int
+}
+
 /// F2 §02 · one row of daily_metrics. Everything is computed server-side; the app only lays it out.
 struct DailyMetrics: Codable, Hashable, Identifiable {
     var id: Date { day.date }
@@ -152,6 +188,11 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     // Body Battery
     var bbWake: Int?                   // BB_WAKE — frozen for the day
     var bodyBattery: Int?              // BODY_BATTERY(t) — the live curve
+    // 13 · the four attribution rows, and the curve behind them. Both come from the
+    // server so the detail page never has to re-derive a number the day already settled.
+    var reserveDrivers: ReserveDrivers?
+    var reserveCurve: [ReserveSample] = []
+    var nightInputs: NightInputs?
 
     // Energy
     var bmr: Double?
@@ -242,6 +283,11 @@ enum Fmt {
         return (v < 0 ? "−" : "+") + String(format: "%.\(decimals)f", abs(v))
     }
     static func int(_ v: Int?) -> String { v.map(String.init) ?? dash }
+    /// 13 · the attribution rows carry their own sign, and a zero row reads "0", not "+0".
+    static func signed(_ v: Double) -> String {
+        let n = Int(v.rounded())
+        return n > 0 ? "+\(n)" : "\(n)"
+    }
     static func pct(_ v: Int?) -> String { v.map { "\($0)%" } ?? dash }
     static func clock(_ d: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)

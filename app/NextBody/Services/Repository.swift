@@ -108,7 +108,7 @@ final class Repository {
                 .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states"),
             ])
             let reserve = try await db.select("reserve_daily", query: [
-                .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers"),
+                .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs"),
             ])
             let training = try await db.select("daily_training", query: [
                 .init(name: "select", value: "result_id,zone_minutes,peak_hr,curve"),
@@ -149,12 +149,28 @@ final class Repository {
                 m.calcVersion = row["algo_version"] as? String ?? "?"
                 m.confidence = Confidence(rawValue: row["the_call_confidence"] as? String ?? "") ?? .pending
                 if let iso = row["computed_at"] as? String {
-                    m.asOf = ISO8601DateFormatter().date(from: iso)
+                    m.asOf = Self.timestamp(iso)
                 }
 
                 if let r = reserveBy[id] {
                     m.bbWake = number(r["wake_value"]).map { Int($0) }
                     m.bodyBattery = number(r["current_value"]).map { Int($0) }
+                    if let d = r["drain_drivers"] as? [String: Any], !d.isEmpty {
+                        m.reserveDrivers = ReserveDrivers(
+                            lastNight: number(d["last_night"]) ?? 0,
+                            awake: number(d["awake"]) ?? 0,
+                            movement: number(d["movement"]) ?? 0,
+                            stress: number(d["stress"]) ?? 0,
+                            anchor: Int(number(d["anchor"]) ?? 0),
+                            assumedAnchor: d["assumed_anchor"] as? Bool ?? false)
+                    }
+                    if let n = r["night_inputs"] as? [String: Any], !n.isEmpty {
+                        m.nightInputs = NightInputs(
+                            hrv: number(n["hrv"]), hrvBase: number(n["hrv_base"]),
+                            rhr: number(n["rhr"]), rhrBase: number(n["rhr_base"]),
+                            rhrNights: Int(number(n["rhr_nights"]) ?? 0),
+                            multiplier: number(n["multiplier"]))
+                    }
                     if let wake = m.bbWake {
                         let band = BodyBattery.band(for: wake)
                         m.targetLoad = band.target
@@ -191,7 +207,7 @@ final class Repository {
             store.meals = mealRows.compactMap { row in
                 guard let slot = MealEntry.Slot(rawValue: row["slot"] as? String ?? ""),
                       let iso = row["logged_at"] as? String,
-                      let at = ISO8601DateFormatter().date(from: iso) else { return nil }
+                      let at = Self.timestamp(iso) else { return nil }
                 return MealEntry(
                     id: UUID(uuidString: row["id"] as? String ?? "") ?? UUID(),
                     day: day, at: at, slot: slot, status: .confirmed,
@@ -203,8 +219,53 @@ final class Repository {
                     source: .typed)
             }
 
+            // 13 · the curve is 288 five-minute ticks of the shown day, not a shape we draw
+            // from the day's endpoints. Bounded by the 04:00 cut like everything else.
+            let stamp = ISO8601DateFormatter()
+            let sampleRows = try await db.select("reserve_samples", query: [
+                .init(name: "select", value: "ts,value"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: day.start))"),
+                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
+                .init(name: "order", value: "ts.asc"),
+            ])
+            let curve: [ReserveSample] = sampleRows.compactMap { row in
+                guard let t = row["ts"] as? String,
+                      let at = Self.timestamp(t),
+                      let v = number(row["value"]) else { return nil }
+                return ReserveSample(ts: at, value: Int(v))
+            }
+            if !history.isEmpty { history[history.count - 1].reserveCurve = curve }
+
+            // 04 · the HR / STRESS row is the last tick, not an average and not a guess.
+            let liveRows = try await db.select("raw_samples", query: [
+                .init(name: "select", value: "ts,heart,stress"),
+                // A tick in the future is a tick the band cannot have reported.
+                .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
+                .init(name: "order", value: "ts.desc"),
+                .init(name: "limit", value: "1"),
+            ])
+            if let live = liveRows.first {
+                store.vitals = LiveVitals(
+                    hr: number(live["heart"]).map { Int($0) },
+                    stress: number(live["stress"]).map { Int($0) },
+                    at: (live["ts"] as? String).flatMap(Self.timestamp))
+                if let at = store.vitals.at { store.lastSync = at }
+            }
+
             store.history = history
             if let last = history.last { store.today = merge(last, into: store.today) }
+
+            // The macro rows are the day's own meals added up. The targets are computed
+            // locally from bodyweight and goal (F2 §04, P → F → C); what was eaten is not
+            // a target minus a guess, it is the sum of the rows the user can go and read.
+            if !store.meals.isEmpty {
+                let eatenP = store.meals.reduce(0) { $0 + $1.protein }
+                let eatenC = store.meals.reduce(0) { $0 + $1.carb }
+                let eatenF = store.meals.reduce(0) { $0 + $1.fat }
+                store.today.protein = store.today.protein.map { MacroSlot(target: $0.target, eaten: eatenP) }
+                store.today.carb    = store.today.carb.map    { MacroSlot(target: $0.target, eaten: eatenC) }
+                store.today.fat     = store.today.fat.map     { MacroSlot(target: $0.target, eaten: eatenF) }
+            }
             // WEIGHT_KG · the most recent weigh-in is what the identity card shows.
             if let latest = weighIns.first, let kg = number(latest["weight_kg"]) {
                 store.today.weightKg = kg
@@ -213,7 +274,7 @@ final class Repository {
                 guard let iso = row["measured_at"] as? String,
                       let kg = number(row["weight_kg"]) else { return nil }
                 return WeighIn(id: UUID(uuidString: row["id"] as? String ?? "") ?? UUID(),
-                               date: ISO8601DateFormatter().date(from: iso) ?? Date(),
+                               date: Self.timestamp(iso) ?? Date(),
                                weightKg: kg, bodyFatPercent: nil,
                                source: .measured,
                                origin: (row["source"] as? String) == "health" ? .health : .manual)
@@ -268,6 +329,24 @@ final class Repository {
             }
         }
         return m
+    }
+
+    /// PostgREST hands back fractional seconds and no zone suffix on some columns;
+    /// the plain ISO parser rejects both, so try the strict form first and fall back.
+    private static func timestamp(_ raw: String) -> Date? {
+        let strict = ISO8601DateFormatter()
+        strict.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = strict.date(from: raw) { return d }
+        if let d = ISO8601DateFormatter().date(from: raw) { return d }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        for pattern in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ", "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
+                        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
+            f.dateFormat = pattern
+            if let d = f.date(from: raw) { return d }
+        }
+        return nil
     }
 
     private func number(_ any: Any?) -> Double? {

@@ -77,3 +77,65 @@ enum BodyBattery {
         return min(100, max(0, level + delta))
     }
 }
+
+// MARK: - 04 · the one prediction on the whole product
+
+/// ⚠️ 1CVO · "CHARGING WHILE YOU WIND DOWN · FULL 06:40" is the only forecast NextBody
+/// makes, and board 13 puts four conditions on keeping it: render it only on a charging
+/// tick, only when there is less than four hours left, take the rate from the median of
+/// the last six ticks, and drop the whole line if the time it names moves by more than
+/// ±45 minutes. Fail any one of them and the line goes away — a prediction that jumps
+/// around is worse than none.
+enum ChargeForecast {
+    /// Minutes per tick on the reserve grid.
+    static let tickMinutes = 5.0
+
+    static func line(curve: [ReserveSample], calendar: Calendar = .current) -> String? {
+        guard let now = estimate(curve, endingAt: curve.count - 1) else { return nil }
+        // Condition four: the same estimate one tick ago must land within 45 minutes.
+        if let before = estimate(curve, endingAt: curve.count - 2),
+           abs(now.timeIntervalSince(before)) > 45 * 60 { return nil }
+        return "CHARGING WHILE YOU WIND DOWN · FULL \(Fmt.clock(now))"
+    }
+
+    /// The instant the reserve reaches 100, or nil if any of the first three conditions fails.
+    private static func estimate(_ curve: [ReserveSample], endingAt index: Int) -> Date? {
+        guard index >= 6, index < curve.count else { return nil }
+        let window = curve[(index - 6)...index]
+        let deltas = zip(window.dropFirst(), window).map { Double($0.value - $1.value) }
+        // Condition one: the last tick has to be charging.
+        guard let last = deltas.last, last > 0 else { return nil }
+        // Condition three: the rate is the median of the last six ticks, not the last one.
+        let rate = median(deltas)
+        guard rate > 0 else { return nil }
+        let tick = curve[index]
+        let remaining = Double(100 - tick.value)
+        guard remaining > 0 else { return nil }
+        let minutes = remaining / rate * tickMinutes
+        // Condition two: less than four hours out.
+        guard minutes < 240 else { return nil }
+        return tick.ts.addingTimeInterval(minutes * 60)
+    }
+
+    private static func median(_ xs: [Double]) -> Double {
+        guard !xs.isEmpty else { return 0 }
+        let s = xs.sorted()
+        return s.count % 2 == 1 ? s[s.count / 2] : (s[s.count / 2 - 1] + s[s.count / 2]) / 2
+    }
+}
+
+/// 13 · how old the last real tick is. The curve stops there; nothing is extrapolated to
+/// cover the gap, so the screen has to say which of the three states it is in.
+enum TickFreshness {
+    case fresh          // under 90 minutes
+    case stale          // 90 minutes to 6 hours — numbers dim, SYNCED HH:MM appears
+    case gone           // over 6 hours — the numbers themselves become ——
+
+    static func of(_ at: Date?, now: Date = Date()) -> TickFreshness {
+        guard let at else { return .gone }
+        let minutes = now.timeIntervalSince(at) / 60
+        if minutes > 360 { return .gone }
+        if minutes > 90 { return .stale }
+        return .fresh
+    }
+}

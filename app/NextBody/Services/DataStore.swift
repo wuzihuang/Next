@@ -14,6 +14,9 @@ final class DataStore: ObservableObject {
     @Published var band: BandState = .mock
     @Published var profile: Profile = .mock
     @Published var lastSync: Date = Date().addingTimeInterval(-12 * 60)
+    /// 04 · the HR / STRESS row under the readout, and the tick it came from. 13 · the age
+    /// of that tick is what decides whether the numbers are shown, dimmed, or dashed.
+    @Published var vitals: LiveVitals = .mock
     @Published var isOffline = false
 
     // 11 · the three tiles. Two net changes over twelve weeks and one absolute value,
@@ -41,6 +44,11 @@ final class DataStore: ObservableObject {
         m.zoneMinutes = [46, 38, 22, 15, 5]
         m.bbWake = 72
         m.bodyBattery = 72
+        // 13 · the four rows the board prints, and they add up to the 72 above.
+        m.reserveDrivers = ReserveDrivers(lastNight: 38, awake: -14, movement: -9,
+                                          stress: -3, anchor: 60)
+        m.nightInputs = NightInputs(hrv: 54, hrvBase: 61, rhr: 51, rhrBase: 48,
+                                    rhrNights: 9, multiplier: 0.88)
         m.bmr = 1480
         m.eActive = 320
         m.eTrain = 60
@@ -251,6 +259,17 @@ struct Profile: Hashable {
         birthdate: Calendar.current.date(byAdding: .year, value: -34, to: Date())!,
         heightCm: 176, sexIsMale: true, goal: .recomp,
         usesMetric: true, appleHealthLinked: true)
+}
+
+/// The most recent five-minute tick. Nothing here is extrapolated: if the band has been
+/// off the wrist for six hours these are simply absent (13 · CURVE STOPS AT THE LAST REAL TICK).
+struct LiveVitals: Hashable {
+    var hr: Int?
+    var stress: Int?
+    var at: Date?
+
+    static let mock = LiveVitals(hr: 72, stress: 31, at: Date().addingTimeInterval(-90))
+    var freshness: TickFreshness { TickFreshness.of(at) }
 }
 
 struct BandState: Hashable {

@@ -13,6 +13,12 @@ declare
   v_hr int;
   v_met numeric;
   v_seed numeric;
+  v_hour integer;
+  v_minute integer;
+  v_walk boolean;
+  v_train boolean;
+  v_asleep boolean;
+  v_moving boolean;
 begin
   select id into v_user from auth.users where email = 'demo@nextbody.app';
 
@@ -46,7 +52,7 @@ begin
   where id = v_user;
 
   insert into public.profiles (user_id, timezone, sex, height_cm, birth_date, goal, field_sources)
-  values (v_user, 'Asia/Shanghai', 'male', 182, date '1996-03-14', 'RECOMP',
+  values (v_user, 'America/Los_Angeles', 'male', 182, date '1996-03-14', 'RECOMP',
           '{"height_cm":"health","birth_date":"health","sex":"health"}'::jsonb)
   on conflict (user_id) do update set
     timezone = excluded.timezone, height_cm = excluded.height_cm,
@@ -59,66 +65,131 @@ begin
   on conflict do nothing;
 
   -- 84 user days of five-minute points
+  -- ⚠️ The loop walks the profile's calendar, not the server's. current_date is UTC, and
+  -- seeding against it puts the whole demo a day out for anyone west of Greenwich: the
+  -- app cuts its days in the device's zone and would find today empty.
   for i in 0..83 loop
-    d := (current_date - i);
+    d := (timezone('America/Los_Angeles', now()))::date - i;
     v_seed := (i * 7919 % 1000) / 1000.0;
+    -- ⚠️ The day stops at the last tick that has actually happened. Generating the rest of
+    -- today would put readings in the future, and the panel's HR row reads the newest tick.
     for t in select generate_series(
-        (d + time '04:00') at time zone 'Asia/Shanghai',
-        (d + 1 + time '04:00') at time zone 'Asia/Shanghai' - interval '5 minutes',
+        (d + time '04:00') at time zone 'America/Los_Angeles',
+        least((d + 1 + time '04:00') at time zone 'America/Los_Angeles' - interval '5 minutes',
+              date_trunc('hour', now()) + interval '5 minutes'
+                * floor(extract(minute from now()) / 5)),
         interval '5 minutes')
     loop
-      -- rest at night, a walk in the morning, a session in the evening
+      -- ⚠️ 13 板 · a resting tick is HR ≤ RHR+5 AND met < 1.2 AND steps = 0, and the whole
+      -- battery hangs off how many of those a day contains: a resting tick nets +0.10
+      -- (0.25 charge_rest against half the 0.30 basal) while an ordinary seated tick nets
+      -- −0.30. Sprinkle a few steps onto every five-minute block and nothing is ever
+      -- resting, so the battery falls to the floor by dinner every single day.
+      --
+      -- The seated band therefore straddles RHR+5 on purpose: the night sits at 47–53 so
+      -- the 5th percentile lands near 47, and the desk sits at 50–58, which puts a little
+      -- under a third of the seated day under the line. That is what holds the
+      -- 21-day chain inside a human range instead of pinning at 0 or 100.
+      v_hour := extract(hour from t at time zone 'America/Los_Angeles')::int;
+      v_minute := extract(minute from t at time zone 'America/Los_Angeles')::int;
+      v_walk := v_hour = 7 and v_minute < 35;
+      v_train := v_hour = 18 and v_minute < 45 and v_seed > 0.35;
+      -- asleep 00:00 → 06:29. In the 04:00 day frame that is the tail of last night at the
+      -- start and the head of tonight at the end — one night split across two user days,
+      -- which is exactly the case the 04:00 cut exists to handle.
+      v_asleep := v_hour * 60 + v_minute < 390;
+
       v_hr := case
-        when extract(hour from t at time zone 'Asia/Shanghai') between 0 and 6
-          then 49 + (random() * 6)::int
-        -- a 30-minute walk most mornings
-        when extract(hour from t at time zone 'Asia/Shanghai') = 7
-             and extract(minute from t at time zone 'Asia/Shanghai') < 35
-          then 96 + (random() * 14)::int
-        -- a 45-minute session on roughly two days in five
-        when extract(hour from t at time zone 'Asia/Shanghai') = 18
-             and extract(minute from t at time zone 'Asia/Shanghai') < 45
-             and v_seed > 0.60 then 142 + (random() * 22)::int
-        when extract(hour from t at time zone 'Asia/Shanghai') = 18
-             and extract(minute from t at time zone 'Asia/Shanghai') < 45
-             and v_seed > 0.35 then 118 + (random() * 16)::int
-        else 60 + (random() * 10)::int
+        when v_asleep then 47 + (random() * 6)::int
+        when v_walk then 96 + (random() * 14)::int
+        when v_train and v_seed > 0.60 then 142 + (random() * 22)::int
+        when v_train then 118 + (random() * 16)::int
+        -- the ordinary day: mostly still at a desk, moving for part of each hour
+        when random() < 0.12 then 76 + (random() * 16)::int
+        else round(50 + random() * 9.5)::int
       end;
-      v_met := greatest(1.0, v_hr / 62.0);
+      v_moving := v_walk or v_train or v_hr > 70;
+      v_met := case
+        when v_asleep then 0.95
+        when v_moving then greatest(1.0, v_hr / 62.0)
+        else 1.0
+      end;
+
       insert into public.raw_samples
         (user_id, ts, sampled_tz, day_offset, calendar_day, heart, step, cal, met, stress,
          sleep_states, src)
-      values (v_user, t, 'Asia/Shanghai', 0, d, v_hr,
-              (random() * 45)::int, (random() * 6)::int, round(v_met, 2),
-              20 + (random() * 30)::int,
-              case when extract(hour from t at time zone 'Asia/Shanghai') between 0 and 6
-                    or extract(hour from t at time zone 'Asia/Shanghai') = 23
-                   then 2 else 0 end,
+      values (v_user, t, 'America/Los_Angeles', 0, d, v_hr,
+              case when v_asleep then 0
+                   when v_walk then 520 + (random() * 90)::int
+                   when v_train then 40 + (random() * 60)::int
+                   when v_moving then 60 + (random() * 140)::int
+                   else 0 end,
+              case when v_asleep then 4 else 3 + (random() * 9)::int end,
+              round(v_met, 2),
+              -- stressValue idles around 30 on a seated wrist; the 40 dead zone in the
+              -- drain term exists precisely so that idle does not bill a line every tick.
+              case when v_asleep then 18 + (random() * 10)::int
+                   when v_train then 55 + (random() * 25)::int
+                   -- a rough couple of hours after lunch, which is where the stress row
+                   -- on 13 comes from: the 40 dead zone means an ordinary desk never bills
+                   when v_hour between 14 and 15 then 52 + (random() * 20)::int
+                   when v_moving then 34 + (random() * 16)::int
+                   else 26 + (random() * 12)::int end,
+              -- 1 deep · 2 light · 3 awake in bed · 0 not asleep
+              case when v_hour between 1 and 2 then 1
+                   when v_asleep and random() < 0.06 then 3
+                   when v_asleep then 2
+                   else 0 end,
               'band')
       on conflict do nothing;
     end loop;
 
     -- sleep is an input only; it never reaches the screen
-    insert into public.sleep_nights (user_id, user_day, total_minutes, deep_minutes, light_minutes, wake_count)
-    values (v_user, d, 424 + (random() * 84)::int, 76 + (random() * 44)::int,
-            220 + (random() * 60)::int, (random() * 3)::int)
-    on conflict (user_id, user_day) do nothing;
+    -- Kept consistent with the tick stream above: 00:00–06:29 is 390 minutes, of which
+    -- 01:00–02:59 reads deep. A total that disagrees with the ticks would settle a day
+    -- whose curve says something else.
+    --
+    -- ⚠️ Only the last fourteen days have nights. The band is new in this demo — the weight and
+    -- food history came from Health and from typing, which is a real shape of account and
+    -- the one board 13's empty state is written for.
+    --
+    -- It also bounds the reserve chain. BB(t) chains each day's anchor to the previous
+    -- day's close and board 13's model has no restoring term: charge and drain are two
+    -- independent sums, so any day whose sums do not cancel walks the level until a clamp
+    -- catches it. The board's own printed day is +12 (+38 −14 −9 −3), which reaches 100 in
+    -- eight days. Fourteen nights climbing off the cold-start 20 lands BB_WAKE in the
+    -- seventies, which is where every design board sits and which selects the 14.5 target
+    -- they all print — without pretending the model has a fixed point it does not have.
+    -- Fourteen is also the number 13's confidence copy is written around.
+    if i <= 13 then
+      insert into public.sleep_nights (user_id, user_day, total_minutes, deep_minutes, light_minutes, wake_count)
+      values (v_user, d, 390, 120, 250, (random() * 3)::int)
+      on conflict (user_id, user_day) do nothing;
+    end if;
 
-    -- meals: most days logged, some days with a gap, one fasted day a fortnight
-    if v_seed > 0.14 then
+    -- meals: most days logged, some days with a gap, one fasted day a fortnight.
+    -- ⚠️ Today is always logged and always filtered to the meals that have already
+    -- happened, so the current day lands in PARTIAL — the state board 04's default screen
+    -- is drawn in, and the one the whole fuel flow is written around.
+    if v_seed > 0.14 or i = 0 then
       insert into public.meals (user_id, user_day, slot, logged_at, text_input, kcal, protein_g, carb_g, fat_g, confidence, model_version, client_op_id)
-      values
-        (v_user, d, 'BREAKFAST', (d + time '07:20') at time zone 'Asia/Shanghai',
-         'OATS · WHEY · BLUEBERRIES', 380 + (random() * 60)::int, 32, 44, 9, 'HIGH', 'seed', extensions.gen_random_uuid()),
-        (v_user, d, 'LUNCH', (d + time '12:40') at time zone 'Asia/Shanghai',
-         'CHICKEN · RICE · GREENS', 560 + (random() * 130)::int, 44, 62, 18, 'MEDIUM', 'seed', extensions.gen_random_uuid()),
-        (v_user, d, 'DINNER', (d + time '19:40') at time zone 'Asia/Shanghai',
-         'SALMON · POTATO · BROCCOLI', 600 + (random() * 160)::int, 46, 54, 24, 'MEDIUM', 'seed', extensions.gen_random_uuid())
+      select v_user, d, m.slot, m.at, m.text, m.kcal, m.p, m.c, m.f, m.conf, 'seed', extensions.gen_random_uuid()
+      from (values
+        ('BREAKFAST', (d + time '07:20') at time zone 'America/Los_Angeles',
+         'OATS · WHEY · BLUEBERRIES', 380 + (random() * 60)::int, 32, 44, 9, 'HIGH'),
+        ('LUNCH', (d + time '12:40') at time zone 'America/Los_Angeles',
+         'CHICKEN · RICE · GREENS', 560 + (random() * 130)::int, 44, 62, 18, 'MEDIUM'),
+        ('DINNER', (d + time '19:40') at time zone 'America/Los_Angeles',
+         'SALMON · POTATO · BROCCOLI', 600 + (random() * 160)::int, 46, 54, 24, 'MEDIUM')
+      ) as m(slot, at, text, kcal, p, c, f, conf)
+      where m.at <= now()
       on conflict do nothing;
       if v_seed > 0.55 then
         insert into public.meals (user_id, user_day, slot, logged_at, text_input, kcal, protein_g, carb_g, fat_g, confidence, model_version, client_op_id)
-        values (v_user, d, 'SNACK', (d + time '16:10') at time zone 'Asia/Shanghai',
-                'GREEK YOGURT · ALMONDS', 240 + (random() * 60)::int, 22, 18, 11, 'HIGH', 'seed', extensions.gen_random_uuid())
+        select v_user, d, 'SNACK', (d + time '16:10') at time zone 'America/Los_Angeles',
+               'GREEK YOGURT · ALMONDS', 240 + (random() * 60)::int, 22, 18, 11, 'HIGH', 'seed',
+               extensions.gen_random_uuid()
+        where (d + time '16:10') at time zone 'America/Los_Angeles' <= now()
         on conflict do nothing;
       end if;
     end if;
@@ -126,15 +197,15 @@ begin
     -- a weigh-in most mornings, with a BIA reading every other day
     if v_seed > 0.22 then
       insert into public.weigh_ins (user_id, measured_at, sampled_tz, weight_kg, source, client_op_id)
-      values (v_user, (d + time '06:40') at time zone 'Asia/Shanghai',
-              'Asia/Shanghai', round((75.6 - i * 0.017 + (random() - 0.5) * 0.6)::numeric, 2),
+      values (v_user, (d + time '06:40') at time zone 'America/Los_Angeles',
+              'America/Los_Angeles', round((75.6 - i * 0.017 + (random() - 0.5) * 0.6)::numeric, 2),
               case when v_seed > 0.6 then 'health' else 'manual' end, extensions.gen_random_uuid());
 
       if v_seed > 0.4 then
         insert into public.body_composition
           (user_id, measured_at, user_day, measurement_source, input_weight_kg,
            body_fat_pct, fat_mass_kg, lean_body_mass_kg, bmr_kcal, derived_fields)
-        values (v_user, (d + time '06:45') at time zone 'Asia/Shanghai', d, 'device_bia',
+        values (v_user, (d + time '06:45') at time zone 'America/Los_Angeles', d, 'device_bia',
                 round((75.6 - i * 0.017)::numeric, 2),
                 round((14.6 + i * 0.012 + (random() - 0.5) * 0.4)::numeric, 2),
                 round(((75.6 - i * 0.017) * (14.6 + i * 0.012) / 100)::numeric, 2),

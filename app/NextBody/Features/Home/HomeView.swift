@@ -95,7 +95,7 @@ struct HomeView: View {
     /// seam exactly where the whole moment lives.
     private var panel: some View {
         let full = firstRun.panelIsFullScreen
-        return AIPanel(m: data.today, band: data.band, lastSync: data.lastSync,
+        return AIPanel(m: data.today, band: data.band, lastSync: data.lastSync, vitals: data.vitals,
                        widget: widget, firstRun: firstRun,
                        size: full ? CGSize(width: 390, height: 844)
                                   : CGSize(width: NB.Layout.contentWidth,

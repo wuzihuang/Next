@@ -168,6 +168,25 @@ struct NightInputs: Codable, Hashable {
     var present: Int { (hrv != nil ? 1 : 0) + (rhr != nil ? 1 : 0) + (multiplier != nil ? 1 : 0) }
 }
 
+/// 08 · one row of TODAY'S BUILD. The rows are shares of the day's raw work, so the
+/// column adds up to the number on the ring rather than overshooting it.
+struct TrainingSegment: Codable, Hashable, Identifiable {
+    var id: Date { at }
+    var at: Date
+    var name: String
+    var minutes: Int?
+    var avgHR: Int?
+    var steps: Int?
+    var delta: Double
+    var allDay: Bool
+}
+
+/// One point on the cumulative load curve — TRAINING_LOAD as it stood at that instant.
+struct LoadPoint: Codable, Hashable {
+    let ts: Date
+    let load: Double
+}
+
 /// One point on the reserve curve. 288 of them make a day at five-minute ticks.
 struct ReserveSample: Codable, Hashable {
     let ts: Date
@@ -184,6 +203,10 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var targetLoad: Double?            // TARGET_LOAD, from BB_WAKE
     var optimalZone: ClosedRange<Double>?
     var zoneMinutes: [Int]?            // ZONE_MIN[1..5], always multiples of 5
+    var segments: [TrainingSegment] = []
+    /// The cumulative curve 08 draws THROUGH THE DAY.
+    var loadCurve: [LoadPoint] = []
+    var peakHR: Int?
 
     // Body Battery
     var bbWake: Int?                   // BB_WAKE — frozen for the day
@@ -289,6 +312,20 @@ enum Fmt {
         return n > 0 ? "+\(n)" : "\(n)"
     }
     static func pct(_ v: Int?) -> String { v.map { "\($0)%" } ?? dash }
+    /// 08 · zone time. Minutes below an hour read plainly; an hour or more takes the
+    /// board's "4H 12M" shape. ⚠️ Every duration here is a multiple of five, because the
+    /// raw points are five minutes apart — never round one to something finer.
+    static func duration(_ minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes) MIN" }
+        let h = minutes / 60, m = minutes % 60
+        return m == 0 ? "\(h)H" : "\(h)H \(m)M"
+    }
+
+    static func weekday(_ d: Date) -> String {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "EEE"; return f.string(from: d).uppercased()
+    }
+
     static func clock(_ d: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
     }

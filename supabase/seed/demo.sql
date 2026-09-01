@@ -70,7 +70,10 @@ begin
   -- app cuts its days in the device's zone and would find today empty.
   for i in 0..83 loop
     d := (timezone('America/Los_Angeles', now()))::date - i;
-    v_seed := (i * 7919 % 1000) / 1000.0;
+    -- ⚠️ i * 7919 mod 1000 walks 919, 838, 757, 676 … — it steps down by 81 every day, so
+    -- consecutive days land on the same side of every threshold and the first three days
+    -- of history are all hard sessions in a row. A hash of the day gives an actual spread.
+    v_seed := (hashtext(d::text) & 2147483647) / 2147483647.0;
     -- ⚠️ The day stops at the last tick that has actually happened. Generating the rest of
     -- today would put readings in the future, and the panel's HR row reads the newest tick.
     for t in select generate_series(
@@ -93,7 +96,7 @@ begin
       v_hour := extract(hour from t at time zone 'America/Los_Angeles')::int;
       v_minute := extract(minute from t at time zone 'America/Los_Angeles')::int;
       v_walk := v_hour = 7 and v_minute < 35;
-      v_train := v_hour = 18 and v_minute < 45 and v_seed > 0.35;
+      v_train := v_hour = 18 and v_minute < 45 and v_seed > 0.30;
       -- asleep 00:00 → 06:29. In the 04:00 day frame that is the tail of last night at the
       -- start and the head of tonight at the end — one night split across two user days,
       -- which is exactly the case the 04:00 cut exists to handle.
@@ -102,8 +105,14 @@ begin
       v_hr := case
         when v_asleep then 47 + (random() * 6)::int
         when v_walk then 96 + (random() * 14)::int
-        when v_train and v_seed > 0.60 then 142 + (random() * 22)::int
-        when v_train then 118 + (random() * 16)::int
+        -- ⚠️ TRAINING_LOAD is 21·(1−e^(−RAW/60)) and it saturates fast: 45 minutes at Z4
+        -- already spends 135 raw and lands at 18.5, a hair off the 20.9 cap. A person who
+        -- trains at Z4 every evening reads as 19 out of 21 every single day, which makes
+        -- RECENT LOAD say HEAVY forever and the ring meaningless. Most sessions sit in Z3
+        -- (124–145 bpm here, given RHR 47 and HR_MAX 187), which is 54 raw and lands on
+        -- 12.4 — the number board 04 prints.
+        when v_train and v_seed > 0.75 then 148 + (random() * 16)::int
+        when v_train then 126 + (random() * 16)::int
         -- the ordinary day: mostly still at a desk, moving for part of each hour
         when random() < 0.12 then 76 + (random() * 16)::int
         else round(50 + random() * 9.5)::int

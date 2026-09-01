@@ -111,7 +111,7 @@ final class Repository {
                 .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs"),
             ])
             let training = try await db.select("daily_training", query: [
-                .init(name: "select", value: "result_id,zone_minutes,peak_hr,curve"),
+                .init(name: "select", value: "result_id,zone_minutes,peak_hr,curve,segments"),
             ])
             let weighIns = try await db.select("weigh_ins", query: [
                 .init(name: "select", value: "id,measured_at,weight_kg,source"),
@@ -179,6 +179,24 @@ final class Repository {
                 }
                 if let t = trainingBy[id] {
                     m.zoneMinutes = (t["zone_minutes"] as? [Any])?.compactMap { number($0).map(Int.init) }
+                    m.peakHR = number(t["peak_hr"]).map { Int($0) }
+                    m.segments = ((t["segments"] as? [Any]) ?? []).compactMap { any in
+                        guard let r = any as? [String: Any],
+                              let at = (r["at"] as? String).flatMap(Self.timestamp) else { return nil }
+                        return TrainingSegment(
+                            at: at, name: r["name"] as? String ?? "",
+                            minutes: number(r["minutes"]).map { Int($0) },
+                            avgHR: number(r["avg_hr"]).map { Int($0) },
+                            steps: number(r["steps"]).map { Int($0) },
+                            delta: number(r["delta"]) ?? 0,
+                            allDay: r["all_day"] as? Bool ?? false)
+                    }
+                    // The cumulative curve arrives as [[epoch, load]] — one array per tick.
+                    m.loadCurve = ((t["curve"] as? [Any]) ?? []).compactMap { any in
+                        guard let pair = any as? [Any], pair.count == 2,
+                              let epoch = number(pair[0]), let load = number(pair[1]) else { return nil }
+                        return LoadPoint(ts: Date(timeIntervalSince1970: epoch), load: load)
+                    }
                 }
                 if let fu = fuelBy[id] {
                     m.eIn = number(fu["kcal_in"])
@@ -252,7 +270,15 @@ final class Repository {
                 if let at = store.vitals.at { store.lastSync = at }
             }
 
-            store.history = history
+            // ⚠️ Merge, never replace. A one-day refresh after a band sync calls this with
+            // days: 1, and assigning the result would drop the other eighty-three — which
+            // is exactly what the week bars and the heat map are made of.
+            var merged = store.history.filter { existing in
+                !history.contains { $0.day == existing.day }
+            }
+            merged.append(contentsOf: history)
+            merged.sort { $0.day < $1.day }
+            store.history = merged
             if let last = history.last { store.today = merge(last, into: store.today) }
 
             // The macro rows are the day's own meals added up. The targets are computed

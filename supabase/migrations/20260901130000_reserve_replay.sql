@@ -402,12 +402,36 @@ declare v_day date;
 begin
   select dr.user_day into v_day from public.daily_results dr where dr.id = new.result_id;
   if v_day is not null then
-    perform nb.materialize_reserve_curve(new.user_id, v_day);
-    if new.night_inputs = '{}'::jsonb then
-      update public.reserve_daily set night_inputs = nb.night_inputs(new.user_id, v_day)
-      where result_id = new.result_id;
-    end if;
+    -- Written into NEW rather than issued as a second UPDATE, which would re-enter this
+    -- trigger; a day that re-settles gets fresh inputs rather than its first ever set.
+    new.night_inputs := nb.night_inputs(new.user_id, v_day);
   end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists reserve_daily_inputs on public.reserve_daily;
+create trigger reserve_daily_inputs
+before insert or update on public.reserve_daily
+for each row execute function nb.on_reserve_settled();
+
+-- The curve lives in another table, so it stays an AFTER trigger — there is nothing to
+-- recurse into.
+create or replace function nb.on_reserve_curve()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare v_day date;
+begin
+  select dr.user_day into v_day from public.daily_results dr where dr.id = new.result_id;
+  if v_day is not null then perform nb.materialize_reserve_curve(new.user_id, v_day); end if;
   return null;
 end;
 $$;
+
+drop trigger if exists reserve_daily_curve on public.reserve_daily;
+create trigger reserve_daily_curve
+after insert or update on public.reserve_daily
+for each row execute function nb.on_reserve_curve();

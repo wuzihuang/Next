@@ -422,6 +422,12 @@ Three things are blocked by something outside the repo, and none of them is a de
   holding unsaved work. `~/.paper/bin/paper` offers only `mcp` (a stdio relay), with no status or
   restart, so there is no lighter touch available. Restart Paper.app, then `/mcp`.
 
+  The offline route was checked too, and does not exist: `~/Library/Application Support/Paper`
+  holds a 407 MB Chromium HTTP cache, and the file id does appear in it — but every hit is an
+  image, `thumbnails/01M0SW…/thumbnail.avif` and `file-assets/01M0SW…/*.webp`. The board tree is
+  not cached as readable JSON anywhere on disk, so there is no way to read the screen boards
+  without the server. Worth knowing so nobody spends the hour I nearly did.
+
 ## F6 §05's seven rulings, checked against the app
 
 With the Paper file down, `docs/prd/F6-handoff.md` turned out to hold the part that mattered

@@ -23,6 +23,14 @@ from it, so one build lays out the same anatomy on every iPhone from the SE to t
   taking the rest. The panel's 358 × 470 widget canvas is centred and scales down as one piece
   when the panel is shorter than the board's.
 - Nothing draws a fake status bar or home indicator; iOS paints both.
+- Every detail page (`DetailScroll`) has one pinned 44pt bar under the status bar: a chevron
+  and the page's own name (`‹ DEVICE`). At rest it is glass — the bloom runs through it. As
+  the page scrolls up a carbon ground fades in (soft lower edge) and the bar slides away so it
+  covers nothing; scrolling back 20pt brings it back. The status-bar strip keeps a ground of its
+  own while scrolled so a headline never collides with the clock. Offsets come from iOS 18's
+  `onScrollGeometryChange`; on iOS 17 the bar simply stays. `NB_DEBUG_SCROLL=1` drives a page
+  down and back up for screenshots; `NB_DEBUG_ROUTE=device` opens the device page.
+- The home header's band battery opens the device page; the avatar-and-name block opens Profile.
 
 Checked on four simulators at once — iPhone SE 3 (375 × 667, iOS 18.5), 16e (390 × 844),
 Air (420 × 912), 16 Pro Max (440 × 956) — every gate screen, home, the dock edge state and
@@ -1400,10 +1408,10 @@ inbox through Resend — subject "Your NEXTBODY code", six digits in the body, n
 
 Every auth mail now wears the gate's look. `supabase/templates/build.py` is one frame — carbon
 ground, the wordmark with its lime pip, a Doto label, one white highlight, `TRAIN · RECOVER · REPEAT`
-under it — and six sets of words: magic_link and confirmation (the sign-in code), email_change
+under it — and five sets of words: magic_link and confirmation (the sign-in code), email_change
 (code, at the new address), recovery and reauthentication (code; the app has no password, so they
-should never leave), invite (the one mail that needs a link, drawn as the gate's white button).
-`auth-config.sh` pushes all six subjects and bodies; a code mail sent after the roll-out carries the
+should never leave). No invite: the app has no invite flow, and that mail only goes out when someone
+presses "Invite user" in the dashboard. `auth-config.sh` pushes the five subjects and bodies; a code mail sent after the roll-out carries the
 new frame. Config changes on the hosted project take one to three minutes to reach the mailer.
 
 ## Running it

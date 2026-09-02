@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Every auth mail from one frame — the gate's own look: carbon ground, one lime pip,
-a Doto label, one highlight per screen. Run it after editing and the six files are rewritten.
+a Doto label, one highlight per screen. Run it after editing and the five files are rewritten.
+
+No invite: the app has no invite flow, and Supabase only sends that mail when someone presses
+"Invite user" in the dashboard — which nobody should.
 
     python3 supabase/templates/build.py
 """
@@ -67,12 +70,6 @@ def code(token: str) -> str:
             f'<span style="font-family:{DOT};font-size:38px;font-weight:700;letter-spacing:0.26em;color:{WHITE};line-height:1;">{token}</span>'
             f'</td></tr>')
 
-def button(url: str, text: str) -> str:
-    """The gate's only solid button, white on carbon."""
-    return (f'<tr><td align="center" style="padding:2px 0 4px;">'
-            f'<a href="{url}" style="display:block;background:{WHITE};color:{CARBON};font-family:{UI};font-size:15px;font-weight:500;letter-spacing:0.02em;text-align:center;padding:16px 20px;border-radius:999px;">{text}</a>'
-            f'</td></tr>')
-
 IGNORE = "If you didn't ask for this, ignore it. Nobody can get in without the code."
 TEN = "It works once and expires in 10 minutes."
 
@@ -120,14 +117,6 @@ MAILS = {
         highlight=code("{{ .Token }}"),
         note=TEN,
         footer=IGNORE),
-    "invite": dict(
-        subject="You're invited to NEXTBODY",
-        label="INVITE",
-        headline="Build your next body.",
-        lede="You've been invited to NEXTBODY. Open the app from this button and you're in.",
-        highlight=button("{{ .ConfirmationURL }}", "Accept the invite"),
-        note="The link works once. If you didn't expect an invite, ignore this mail.",
-        footer=""),
 }
 
 if __name__ == "__main__":

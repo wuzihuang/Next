@@ -6,7 +6,7 @@
 #   bash supabase/scripts/auth-config.sh
 #
 # Needs: SUPABASE_ACCESS_TOKEN (personal access token), SUPABASE_AUTH_SMTP_PASS (Resend API key).
-# The six mail templates come from supabase/templates/*.html (regenerate with build.py).
+# The five mail templates come from supabase/templates/*.html (regenerate with build.py).
 set -euo pipefail
 
 REF="${SUPABASE_PROJECT_REF:-gkgzwcxivnffsecshvfs}"
@@ -25,7 +25,6 @@ subjects = {
     "email_change": "Confirm your new email",
     "recovery": "Your NEXTBODY code",
     "reauthentication": "Confirm it's you",
-    "invite": "You're invited to NEXTBODY",
 }
 body = {
     "smtp_host": "smtp.resend.com",
@@ -60,7 +59,7 @@ d = json.load(sys.stdin)
 if "smtp_host" not in d: print(d); sys.exit(1)
 for k in ["smtp_host","smtp_admin_email","mailer_otp_exp","mailer_autoconfirm","external_apple_enabled"]:
     print(f"{k:24s} {d.get(k)}")
-for n in ["magic_link","confirmation","email_change","recovery","reauthentication","invite"]:
+for n in ["magic_link","confirmation","email_change","recovery","reauthentication"]:
     c = d.get("mailer_templates_%s_content" % n) or ""
     subj = d.get("mailer_subjects_%s" % n)
     print("%-24s %-32r NEXTBODY frame: %s" % (n, subj, "NEXTBODY" in c))

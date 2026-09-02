@@ -376,6 +376,7 @@ struct MeasureTakeover: View {
                 data: .trace(samples: Self.ecgTrace(hr: hr), hz: 50))
             w.hero = "\(bb)"
             w.heroLarge = true
+            w.heroSub = "BODY BATTERY" + (yesterday.map { " · WAS \($0) YESTERDAY" } ?? "")
             w.accentOverride = NB.lime1     // 06 · 16 · lime, not the ECG warning red
             // 06 · 17 · the tap turns the reading into a question for her.
             w.replyPrompt = "刚测完：心率 \(hr)，HRV \(hrv.map(String.init) ?? "——") ms，压力 \(stress.map(String.init) ?? "——")"

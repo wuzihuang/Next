@@ -117,8 +117,10 @@ struct PanelWidget: Identifiable, Hashable {
     /// 06 · 17 · a measurement's result "becomes a message": tapping it asks her about the
     /// numbers instead of opening a page. Only the frames the band just produced carry this.
     var replyPrompt: String?
-    /// 06 · 16 · the measured number is the hero of the frame even on a trace-shaped widget.
+    /// 06 · 16 · the measured number is the hero of the frame even on a trace-shaped widget:
+    /// top-left like the small hero, but 60 pt, in the accent, with its own line under it.
     var heroLarge = false
+    var heroSub: String?
     var ttlMinutes: Int = 20
     var priority: Priority = .normal
 
@@ -342,7 +344,7 @@ struct PanelWidgetView: View {
     // MARK: hero
 
     @ViewBuilder private var hero: some View {
-        switch (widget.heroLarge ? HeroStyle.large : widget.type.hero) {
+        switch widget.type.hero {
         case .large:
             Text(heroValue)
                 .font(NBFont.brand(700, 84)).tracking(-0.045 * 84)
@@ -359,10 +361,17 @@ struct PanelWidgetView: View {
             }
 
         case .small:
+            let size: CGFloat = widget.heroLarge ? 60 : 44
             Text(heroValue)
-                .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
-                .foregroundStyle(NB.white.opacity(0.45))
+                .font(NBFont.brand(700, size)).tracking(-0.045 * size)
+                .foregroundStyle(widget.heroLarge ? widget.accent : NB.white.opacity(0.45))
                 .offset(x: Slot.heroSmall.x, y: Slot.heroSmall.y)
+            if widget.heroLarge, let sub = widget.heroSub {
+                Text(sub.uppercased())
+                    .font(NBFont.dot(500, 10.5)).tracking(0.20 * 10.5)
+                    .foregroundStyle(NB.white.opacity(0.42))
+                    .offset(x: Slot.heroSmall.x + 2, y: Slot.heroSmall.y + size + 14)
+            }
 
             if let ref = heroRef {
                 Text(ref)

@@ -65,34 +65,81 @@ struct SignInFlow: View {
         }
         sends.append(Date().timeIntervalSince1970)
         UserDefaults.standard.set(sends, forKey: key)
-        Task { await Analytics.shared.track("AUTH_CODE_SENT", [:]) }
-        step = .code
-        resendIn = 60
-        if DebugEdge.on("expired") { codeError = .expired }
+        // The seeded demo account has no mailbox: it skips the mail and any six digits
+        // open it (verify signs in with its password). Everyone else gets a real code.
+        if Self.isDemo(email) {
+            Task { await Analytics.shared.track("AUTH_CODE_SENT", [:]) }
+            step = .code; resendIn = 60
+            if DebugEdge.on("expired") { codeError = .expired }
+            return
+        }
+        sending = true
+        Task {
+            do {
+                try await SupabaseClient.shared.requestCode(email: email)
+                sending = false
+                await Analytics.shared.track("AUTH_CODE_SENT", [:])
+                withAnimation { step = .code }
+                resendIn = 60
+                if DebugEdge.on("expired") { codeError = .expired }
+            } catch SupabaseClient.Failure.http(let code, _) where code == 429 {
+                sending = false
+                withAnimation { codeError = .rateLimited }
+            } catch {
+                sending = false
+                withAnimation { codeError = .noNetwork }
+            }
+        }
+    }
+
+    static func isDemo(_ email: String) -> Bool {
+        email.lowercased().trimmingCharacters(in: .whitespaces) == "demo@nextbody.app"
+    }
+
+    /// 01 edge 1 · red outline, a 6 px shake, one haptic, then back to the first cell.
+    /// The digits are cleared, the email is not.
+    private func rejectCode() {
+        wrongCount += 1
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        withAnimation { codeError = wrongCount >= 5 ? .locked : .wrong }
+        Task {
+            await Analytics.shared.track("AUTH_CODE_ERROR", ["REASON": wrongCount >= 5 ? "LOCKED" : "WRONG"])
+            try? await Task.sleep(for: .milliseconds(420))
+            code = ""
+        }
     }
 
     /// The second the code checks out there is no toast and no tick — the pixels just fall.
-    /// ⚠️ The code is not verified against a server in this build (see STATUS); the edge states
-    /// are wired to what a real verify would return.
+    /// The code is checked against Supabase auth (`/auth/v1/verify`, type email); the demo
+    /// account signs in with its password instead, since it has no mailbox.
     private func verify() {
-        if DebugEdge.on("wrongcode") || codeError == .locked {
-            wrongCount += 1
-            // 01 edge 1 · red outline, a 6 px shake, one haptic, then back to the first cell.
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-            withAnimation { codeError = wrongCount >= 5 ? .locked : .wrong }
-            Task {
-                await Analytics.shared.track("AUTH_CODE_ERROR", ["REASON": wrongCount >= 5 ? "LOCKED" : "WRONG"])
-                try? await Task.sleep(for: .milliseconds(420))
-                code = ""
-            }
-            return
-        }
+        if DebugEdge.on("wrongcode") || codeError == .locked { rejectCode(); return }
         verifying = true
         Task {
-            try? await Task.sleep(for: .milliseconds(450))
-            verifying = false
-            await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": true])
-            withAnimation { playingWordmark = true }
+            do {
+                if Self.isDemo(email) {
+                    try await SupabaseClient.shared.signIn(email: "demo@nextbody.app", password: "nextbody-demo")
+                } else {
+                    try await SupabaseClient.shared.verifyCode(email: email, token: code)
+                }
+                verifying = false
+                await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": false])
+                withAnimation { playingWordmark = true }
+            } catch SupabaseClient.Failure.http(let status, let body) {
+                verifying = false
+                // 01 edge 2 · a code past its ten minutes says so and offers a new one;
+                // anything else the server refuses is a wrong code.
+                if body.localizedCaseInsensitiveContains("expired") && !body.localizedCaseInsensitiveContains("invalid") {
+                    withAnimation { codeError = .expired }
+                } else if status == 429 {
+                    withAnimation { codeError = .rateLimited }
+                } else {
+                    rejectCode()
+                }
+            } catch {
+                verifying = false
+                withAnimation { codeError = .noNetwork }
+            }
         }
     }
 

@@ -235,6 +235,9 @@ final class VeepooBand: BandService, @unchecked Sendable {
         AsyncThrowingStream { c in
             guard let peripheral else { c.finish(throwing: BandError.notConnected); return }
             c.yield(.waitingForContact)
+            // F1 rule 05 · stop before the screen goes. `start(false)` is the SDK's stop, and
+            // onTermination fires whether the stream ended on its own or the takeover was closed.
+            c.onTermination = { _ in peripheral.veepooSDKTestHeartStart(false) { _, _ in } }
             var started = false
             peripheral.veepooSDKTestHeartStart(true) { testState, value in
                 switch testState {
@@ -269,6 +272,9 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 return
             }
             c.yield(.waitingForContact)
+            // F1 rule 05 · see measureHeartRate. A body scan left running is worse: it holds
+            // the electrodes and the queue for the full thirty seconds.
+            c.onTermination = { _ in peripheral.veepooSDKTestBodyCompositionStart(false) { _, _ in } }
             var hadContact = false
             peripheral.veepooSDKTestBodyCompositionStart(true) { lead, progress in
                 // lead == 0 means the hand is on the electrode.

@@ -483,6 +483,37 @@ CALORIES, BODY BATTERY and the rest are literals at each use site. The law says 
 must cost one line, and today it costs a grep. It is a real refactor across every view, not a
 patch, and it should be its own change.
 
+## F1's navigation rules, and two more the app was losing
+
+| Rule | State |
+|---|---|
+| 01 只有一个根，唯一例外设备页返回「我的」 | held · `Destination` has no path between two detail pages |
+| 02 每个详情页只记一层 from，不持久化 | held · `EntryPoint` is home or profile, and nothing writes it to disk |
+| 03 没有 target 的 widget 不许上屏 | fixed earlier today · see F0 law 06 |
+| 04 sheet 不进导航栈 | held · sheets are `.sheet`, takeovers are `.fullScreenCover` |
+| 05 退出前必须先 stop*Test() | **was wrong, fixed** |
+| 06 深链落五处之一或首页，静默丢弃 | held |
+| 09 路由层不做设备门禁 | held · pages degrade themselves |
+| 上线前 · 头像热区不小于 44×44 | **was wrong, fixed** |
+
+**The measurement was left running.** F1 rule 05 is 「唯一出口是关闭标记，且退出前必须先
+stop*Test()——不能把测量丢在后台」. The takeover's close button called `done()` and nothing else:
+the task reading the measurement stream was never held onto, so it was never cancelled, and
+neither implementation had an `onTermination`. On a real HOOP the test kept running after the
+screen was gone — and F3 §06's queue allows exactly one native command in flight, so the next
+command would have come back DEVICE_BUSY against a measurement nobody was watching, which reads
+as a broken band rather than as a screen that failed to tidy up. Fixed in all three layers: the
+takeover holds the task and cancels it on the way out, `MockBand` cancels its inner task on
+termination so the simulator behaves the same way, and `VeepooBand` sends the SDK's own stop —
+`veepooSDKTestHeartStart(false)` and `veepooSDKTestBodyCompositionStart(false)` — on the same
+signal, whether the stream ended by itself or the screen was closed.
+
+**The avatar was 27 × 39.** F1's 上线前必须成立 opens with 「右上角那个头像是「我的」的唯一入口，而
+没有一块板写过它可点…热区不小于 44×44」. It was tappable at exactly its own 26pt art. Measured on
+device it came back 27 × 39, and it is the only way into Profile. It is 44 × 44 now, done with
+`.padding(9).contentShape(Rectangle()).padding(-9)` so the hit area grows while the header row
+stays the 26pt the board draws — re-measured, and the wordmark, battery and strip did not move.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

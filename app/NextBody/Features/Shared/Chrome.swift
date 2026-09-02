@@ -91,6 +91,13 @@ struct AvatarButton: View {
                 .frame(width: 26, height: 26)
                 .clipShape(Circle())
                 .overlay(Circle().stroke(Color(hex: 0xF3F3F3, opacity: 0.8), lineWidth: 1))
+                // F1 · 上线前必须成立 · 「热区不小于 44×44」. The avatar is the only way into
+                // Profile and it was tappable at exactly its own 26pt, measuring 27 × 39 on
+                // device. The padding is added and taken back out so the hit area reaches 44
+                // while the header row stays the 26pt tall the board draws.
+                .padding(9)
+                .contentShape(Rectangle())
+                .padding(-9)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("我的")

@@ -11,6 +11,11 @@ struct MeasureTakeover: View {
     let kind: MeasureKind
     let done: () -> Void
 
+    /// F1 rule 05 · the takeover's only exit is the close mark, and the measurement has to be
+    /// stopped before it goes. Cancelling this task terminates the stream, and each
+    /// implementation stops the test in its `onTermination`.
+    @State private var run: Task<Void, Never>?
+
     @EnvironmentObject private var data: DataStore
 
     enum Phase: Hashable {
@@ -59,7 +64,7 @@ struct MeasureTakeover: View {
                 .foregroundStyle(NB.white.opacity(0.55))
             Spacer(minLength: 0)
             // The only exit. There is no back key here, and that is the point.
-            Button(action: done) { CloseMark() }
+            Button(action: leave) { CloseMark() }
                 .buttonStyle(.plain)
                 .opacity(phase == .opening ? 0 : 1)
         }
@@ -184,11 +189,21 @@ struct MeasureTakeover: View {
 
     /// The panel grows to full screen, then waits for a finger. Everything after that is
     /// driven by what the band actually reports — not by a timer pretending to be one.
+    /// ⚠️ Closing used to call `done()` and nothing else. The task reading the measurement was
+    /// never held onto, so it was never cancelled — on a real HOOP the test kept running after
+    /// the screen was gone, and F3 §06's queue allows one native command in flight, so the next
+    /// one came back DEVICE_BUSY against a measurement nobody was watching.
+    private func leave() {
+        run?.cancel()
+        run = nil
+        done()
+    }
+
     private func open() {
         remaining = total
         withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) { grown = true }
 
-        Task {
+        run = Task {
             try? await Task.sleep(for: .milliseconds(460))
             phase = .waiting
 

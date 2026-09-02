@@ -148,7 +148,10 @@ final class MockBand: BandService, @unchecked Sendable {
                         finish: @escaping () -> MeasurementResult)
     -> AsyncThrowingStream<MeasurementProgress, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            // F1 rule 05 · a cancelled consumer stops the measurement. Without this the mock
+            // went on ticking after the takeover closed, which is exactly the bug the real
+            // band has and the one the simulator exists to make visible.
+            let work = Task {
                 guard state == .connected else {
                     continuation.finish(throwing: BandError.notConnected); return
                 }
@@ -164,6 +167,7 @@ final class MockBand: BandService, @unchecked Sendable {
                 continuation.yield(.finished(finish()))
                 continuation.finish()
             }
+            continuation.onTermination = { _ in work.cancel() }
         }
     }
 

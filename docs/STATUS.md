@@ -246,6 +246,36 @@ against `1,007 /1,980`: exactly `TARGET_IN − E_IN`, the one-open-slot branch, 
 so every AI turn hung on a dead socket rather than falling through to the DEBUG path. Commented
 out; the turn renders again. Uncomment it only while a local Deno server is actually up.
 
+## Third-pass audit coverage
+
+Walked on the iPhone 16e simulator against the live seeded account, reading the accessibility
+tree for exact geometry rather than eyeballing a screenshot:
+
+| Board | Checked | Result |
+|---|---|---|
+| 04 | strip geometry, both cards, dock, panel | 358×136 strip, 174×136 cards, gap 10, AI screen 358×470 — all 1:1 |
+| 06 | plus menu, body-scan takeover | two groups, 60 S / 30 S, two-contact protocol run end to end |
+| 07 | the DEBUG catalogue | `24 TYPES · 10 RENDERERS` — 27 less the three sleep types, F0 rule 03 holding |
+| 08 | ring, WHY, build, zones, week | build rows sum to the ring exactly; 5.0 + 11.0 = 16.0 = target |
+| 09 | eaten, macros, what went in | 375 + 532 + 100 = 1,007; 145−94=51, 215−85=130, 60−22=38 |
+| 10S | the weigh-in sheet | no longer claims a Health reading it cannot have |
+| 11 | heat map, account, preferences | 7 × 26 = 182 cells, the board's own width; DELETE ACCOUNT in-app |
+| 12 | device, battery, firmware | three-value battery, CONNECTED, 2.4.1 → 2.5.0 |
+| 13 | hero, WHY, inputs, target | +18 −27 −2 −2 = −13, and 65 → 52 closes exactly |
+
+The numbers agree *across* screens, which is the part a single-screen check cannot show: the
+morning battery 83% picks BAND 80–89, which sets target 16.0 and range 14.0–18.0, and those same
+three numbers appear on 13's target card, 08's WHY panel and 04's training card.
+
+Animations were read against the MOTION boards rather than watched: the wordmark's five beats sit
+at 0.00 / 0.35 / 1.10 / 1.80 / 2.15 / 2.60 with `total = 2.60`, and the first run's eleven beats
+at 0.00 → 7.40 including KEY at 5.20 doing 390×844 → 358×470, radius 44 → 30, spring(0.82/0.34)
+over 0.62s. The measurement takeover was run live and keeps the real timings.
+
+Not re-walked this pass, and still resting on the earlier passes: 02 Connect and 03 Onboarding
+(both need an unpaired or first-run account to reach), 05's typing and listening dock states, and
+10's composition detail.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

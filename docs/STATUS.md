@@ -478,10 +478,20 @@ path, and the same sentence answers 「已记 1007 kcal，晚餐还空着」 ove
 加餐 100 — which is the three rows the database holds, and the open dinner the fuel card's
 973 LEFT is computed from.
 
-⚠️ Law 02 is left open rather than quietly done. `METRIC_NAMES` does not exist; TRAINING,
-CALORIES, BODY BATTERY and the rest are literals at each use site. The law says renaming a metric
-must cost one line, and today it costs a grep. It is a real refactor across every view, not a
-patch, and it should be its own change.
+**Law 02, since done.** `MetricNames` is that one place now, and the nineteen display sites read
+from it — the strip, the panel, 08's WHY card, 10's evidence rows, 11's legend, the catalogue and
+the debug frame. Renaming BODY BATTERY back to anything costs one line, which is the whole of what
+the law asks.
+
+The boundary is F3's ruling rather than a convenience: 「显示名走 METRIC_NAMES，存储层用中性名，
+法律 01 的「字面一致」只约束界面文案与板上文字」. So three things were deliberately left as
+literals — `DailyDirection`'s raw values and the `case "DEFICIT"` that parses them, which are the
+server's vocabulary and must not move when a label does, and one analytics key that happens to
+spell LEVEL. Renaming a column is the expensive kind of rename; renaming a label is now one line.
+
+TRAINING and TRAINING LOAD both live in the file, and that is not a sixth synonym: 04 prints the
+short form on a 174-wide card where the long one does not fit, and both spellings are drawn from
+the boards.
 
 ## F1's navigation rules, and two more the app was losing
 

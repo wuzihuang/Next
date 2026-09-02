@@ -39,7 +39,7 @@ struct TrainingCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text("TRAINING")
+                Text(MetricNames.training)
                     .font(NBFont.ui(500, 11)).tracking(0.14 * 11)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
@@ -103,7 +103,7 @@ struct FuelCard: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    Text("CALORIES")
+                    Text(MetricNames.calories)
                         .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
                         .foregroundStyle(NB.text3Prod)
                     Spacer(minLength: 0)

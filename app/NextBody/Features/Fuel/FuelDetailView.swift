@@ -322,7 +322,7 @@ struct FuelDetailView: View {
                         detail: nil, value: Fmt.kcal(m.bmrFull), valueTint: NB.macroValue)
                 BurnRow(swatch: NB.cyan1, dashed: false, name: "STEPS & MOVEMENT",
                         detail: nil, value: Fmt.kcal(m.activeForecast), valueTint: NB.macroValue)
-                BurnRow(swatch: NB.cyan3.opacity(0.5), dashed: true, name: "TRAINING",
+                BurnRow(swatch: NB.cyan3.opacity(0.5), dashed: true, name: MetricNames.training,
                         detail: "PLANNED · \(plannedSession)",
                         value: Fmt.kcal(m.eTrainPlan), valueTint: NB.cyanPale)
             }

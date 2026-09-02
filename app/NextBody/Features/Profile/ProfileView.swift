@@ -396,11 +396,11 @@ struct DirectionLegend: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 18) {
-                LegendChip(direction: .deficit, label: "DEFICIT", note: "≤ −150 KCAL")
-                LegendChip(direction: .level, label: "LEVEL", note: "±150 KCAL")
+                LegendChip(direction: .deficit, label: MetricNames.deficit, note: "≤ −150 KCAL")
+                LegendChip(direction: .level, label: MetricNames.level, note: "±150 KCAL")
             }
             HStack(spacing: 18) {
-                LegendChip(direction: .surplus, label: "SURPLUS", note: "≥ +150 KCAL")
+                LegendChip(direction: .surplus, label: MetricNames.surplus, note: "≥ +150 KCAL")
                 LegendChip(direction: .greyNothing, label: "NOT LOGGED", note: "NOTHING TO GO ON")
             }
             LegendChip(direction: .greyNoBurn, label: "NO BURN", note: "BAND OFF MOST OF THE DAY")

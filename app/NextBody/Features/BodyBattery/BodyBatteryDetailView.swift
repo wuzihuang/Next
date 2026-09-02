@@ -76,7 +76,7 @@ struct BodyBatteryDetailView: View {
 
     private var header: some View {
         HStack {
-            Text("BODY BATTERY")
+            Text(MetricNames.bodyBattery)
                 .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
                 .foregroundStyle(NB.text3Prod)
             Spacer(minLength: 0)

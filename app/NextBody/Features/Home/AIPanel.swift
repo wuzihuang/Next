@@ -97,7 +97,7 @@ struct AIPanel: View {
                 onWidget(.bodyBattery)
             } label: {
                 VStack(spacing: 0) {
-                    Text("BODY BATTERY \(Fmt.pct(m.bodyBattery))")
+                    Text("\(MetricNames.bodyBattery) \(Fmt.pct(m.bodyBattery))")
                         .font(NBFont.dot(700, 15)).tracking(0.1 * 15)
                         .foregroundStyle(NB.lime1)
                         .frame(height: 18)

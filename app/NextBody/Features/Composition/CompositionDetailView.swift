@@ -525,19 +525,19 @@ struct CompositionDetailView: View {
         let battery = avg { $0.bodyBattery.map(Double.init) }
         let hard = avg { d in d.zoneMinutes.map { Double($0.dropFirst(3).reduce(0, +)) } }
         let session = window.compactMap { $0.segments.first { !$0.allDay && $0.name == "HARD SESSION" } }.first
-        return CardBlock(title: "TRAINING",
+        return CardBlock(title: MetricNames.training,
                          trailing: isWeek ? "DAILY AVERAGE"
                                           : session.map { "HARD · \(Fmt.duration($0.minutes ?? 0))" }
                                             ?? "NO SESSION") {
             HStack(spacing: 10) {
-                EvidenceStat(label: "TRAINING LOAD", value: Fmt.load(load), unit: nil,
+                EvidenceStat(label: MetricNames.trainingLoad, value: Fmt.load(load), unit: nil,
                              delta: nil, deltaTint: .clear)
                 EvidenceStat(label: "STEPS", value: Fmt.kcal(steps), unit: nil,
                              delta: nil, deltaTint: .clear)
             }
             Rectangle().fill(NB.barTrack).frame(height: 1)
             HStack(spacing: 10) {
-                EvidenceStat(label: "BODY BATTERY", value: Fmt.kg(battery, decimals: 0), unit: "%",
+                EvidenceStat(label: MetricNames.bodyBattery, value: Fmt.kg(battery, decimals: 0), unit: "%",
                              delta: nil, deltaTint: .clear)
                 EvidenceStat(label: "ZONE 4+", value: Fmt.kg(hard, decimals: 0), unit: "MIN",
                              delta: nil, deltaTint: .clear)
@@ -568,7 +568,7 @@ struct CompositionDetailView: View {
             Hairline()
             GateRow(title: "FOOD", when: "WITH YOU LOG A MEAL")
             Hairline()
-            GateRow(title: "TRAINING", when: "AFTER 1 FULL DAY")
+            GateRow(title: MetricNames.training, when: "AFTER 1 FULL DAY")
         }
         .padding(.horizontal, 14)
         .frame(width: NB.Layout.contentWidth)

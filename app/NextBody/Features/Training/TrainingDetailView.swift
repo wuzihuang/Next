@@ -70,7 +70,7 @@ struct TrainingDetailView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("TRAINING")
+                Text(MetricNames.training)
                     .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
                     .foregroundStyle(NB.text1)
                 Spacer(minLength: 0)
@@ -175,15 +175,15 @@ struct TrainingDetailView: View {
     /// it looks at history instead of at today.
     private var whyCard: some View {
         CardBlock(title: scaled ? "WHY \(Fmt.load(m.targetLoad))" : "WHAT THE RING NEEDS",
-                  trailing: scaled ? "BODY BATTERY DECIDES IT" : "0 OF 4 READY") {
+                  trailing: scaled ? "\(MetricNames.bodyBattery) DECIDES IT" : "0 OF 4 READY") {
             VStack(alignment: .leading, spacing: 13) {
-                ReasonLine(dot: NB.optimal2, title: "BODY BATTERY THIS MORNING",
+                ReasonLine(dot: NB.optimal2, title: "\(MetricNames.bodyBattery) THIS MORNING",
                            value: m.bbWake.map { "\($0)%" } ?? Fmt.dash, valueColor: NB.optimal2,
                            detail: scaled ? nightLine : "ONE NIGHT OF SLEEP ON THE BAND")
                 ReasonLine(dot: NB.cyanPale, title: "TARGET ON THE RING",
                            value: Fmt.load(m.targetLoad), valueColor: NB.cyanPale,
                            detail: scaled ? "\(Fmt.pct(m.bbWake)) LANDS AT \(ringShare) OF THE FULL RING"
-                                          : "BODY BATTERY DECIDES IT — NOTHING TO DECIDE FROM YET")
+                                          : "\(MetricNames.bodyBattery) DECIDES IT — NOTHING TO DECIDE FROM YET")
                 ReasonLine(dot: NB.cyan2, title: "OPTIMAL ZONE",
                            value: m.optimalZone.map { String(format: "%.1f – %.1f", $0.lowerBound, $0.upperBound) } ?? Fmt.dash,
                            valueColor: NB.macroValue,

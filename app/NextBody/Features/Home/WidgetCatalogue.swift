@@ -72,7 +72,7 @@ struct WidgetCatalogue: View {
         let series: [Double] = [58, 60, 58, 64, 63, 62, 66, 64, 69, 71, 68, 72]
         switch type {
         case .battery:
-            return w(type, "BODY BATTERY", "现在 64。", .ring(value: 64, goal: 100, unit: "%"))
+            return w(type, MetricNames.bodyBattery, "现在 64。", .ring(value: 64, goal: 100, unit: "%"))
         case .metric:
             return w(type, "HEART RATE", "68 bpm · +4 vs RHR 52",
                      .rows([.init(label: "HEART RATE", value: "68"),
@@ -95,7 +95,7 @@ struct WidgetCatalogue: View {
                             .init(label: "RHR", value: "48 bpm", spark: series.reversed()),
                             .init(label: "SPO2", value: "97 %", spark: series)]))
         case .ring:
-            return w(type, "TRAINING", "5.0 of 21", .ring(value: 5, goal: 21, unit: ""))
+            return w(type, MetricNames.training, "5.0 of 21", .ring(value: 5, goal: 21, unit: ""))
         case .gauge:
             return w(type, "STRESS", "31 · resting", .gauge(value: 31, zones: [(0, 40, "REST"),
                                                                                (40, 70, "MID"),

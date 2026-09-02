@@ -57,7 +57,7 @@ final class MockBand: BandService, @unchecked Sendable {
     func readIdentity() async throws -> BandIdentity {
         try await requireConnection()
         return BandIdentity(
-            name: "NEXT HOOP", model: "KR96 PRO", hardware: "1.2", firmware: "2.4.1",
+            name: "NEXTBODY HOOP", model: "KR96 PRO", hardware: "1.2", firmware: "2.4.1",
             deviceNumber: "HB-0042", bleIdentifier: "C4-2E-8F-1A-73-9D",
             watchDataDayNumber: 7)
     }

@@ -400,6 +400,8 @@ struct TrainingDetailView: View {
 /// a back mark that says where it returns to, and nothing else pinned.
 struct DetailScroll<Content: View>: View {
     let glow: Color
+    /// 10 draws its own back mark inside the eyebrow (`‹ COMPOSITION`); one back per page.
+    var showBack = true
     @ViewBuilder let content: Content
     let onBack: () -> Void
 
@@ -407,7 +409,7 @@ struct DetailScroll<Content: View>: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 Color.clear.frame(height: Chrome.statusBarBlock)
-                BackToRoot(action: onBack).padding(.leading, 18)
+                if showBack { BackToRoot(action: onBack).padding(.leading, 18) }
                 content
             }
         }

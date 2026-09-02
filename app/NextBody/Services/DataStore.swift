@@ -311,7 +311,7 @@ struct BandState: Hashable {
         case heartRate, bloodOxygen, bloodPressure, ecg, temperature, bodyComponent, wearDetection, alarms
     }
 
-    static let mock = BandState(connected: true, name: "NEXT HOOP", mac: "C4:2E:8F:1A:73:9D",
+    static let mock = BandState(connected: true, name: "NEXTBODY HOOP", mac: "C4:2E:8F:1A:73:9D",
                                 batteryPercent: 82, firmware: "1.4.7",
                                 lastSync: Date().addingTimeInterval(-12 * 60),
                                 capabilities: Set(Capability.allCases))

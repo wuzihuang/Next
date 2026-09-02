@@ -79,7 +79,7 @@ struct CompositionDetailView: View {
     }
 
     var body: some View {
-        DetailScroll(glow: NB.lime1) {
+        DetailScroll(glow: NB.lime1, showBack: false) {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 callCard
@@ -115,18 +115,25 @@ struct CompositionDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 9) {
-                Path { p in
-                    p.move(to: CGPoint(x: 7, y: 1))
-                    p.addLine(to: CGPoint(x: 1.5, y: 6.5))
-                    p.addLine(to: CGPoint(x: 7, y: 12))
+            // 10 · `‹ COMPOSITION` is the page's one back mark: it returns to wherever the
+            // page was entered from — one layer, never two.
+            Button { router.backToRoot() } label: {
+                HStack(spacing: 9) {
+                    Path { p in
+                        p.move(to: CGPoint(x: 7, y: 1))
+                        p.addLine(to: CGPoint(x: 1.5, y: 6.5))
+                        p.addLine(to: CGPoint(x: 7, y: 12))
+                    }
+                    .stroke(NB.macroLabel, style: StrokeStyle(lineWidth: 1.6, lineCap: .square))
+                    .frame(width: 8, height: 13)
+                    Text("COMPOSITION")
+                        .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
+                        .foregroundStyle(NB.macroLabel)
                 }
-                .stroke(NB.macroLabel, style: StrokeStyle(lineWidth: 1.6, lineCap: .square))
-                .frame(width: 8, height: 13)
-                Text("COMPOSITION")
-                    .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-                    .foregroundStyle(NB.macroLabel)
+                .padding(.top, 14)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
             HStack(alignment: .firstTextBaseline) {
                 Text(titleText)
                     .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
@@ -284,10 +291,15 @@ struct CompositionDetailView: View {
         if DebugEdge.on("backfill") {
             return Array(week.filter { $0 < UserDay.containing(Date()).adding(days: -1) }.prefix(3))
         }
+        // The signal is a meal logged after the day had closed, and a row recomputed after
+        // that log. `computed_at` alone is not enough: the nightly recompute touches every row.
         let now = Date()
         return week.filter { d in
-            guard let row = data.history.first(where: { $0.day == d }), let at = row.asOf else { return false }
-            return at > d.start.addingTimeInterval(48 * 3600) && now.timeIntervalSince(at) < 48 * 3600
+            let closedAt = d.adding(days: 1).start
+            let late = data.recentMeals.filter { $0.day == d && $0.at > closedAt.addingTimeInterval(4 * 3600) }
+            guard let lastLate = late.map(\.at).max(),
+                  let row = data.history.first(where: { $0.day == d }), let at = row.asOf else { return false }
+            return at >= lastLate && now.timeIntervalSince(lastLate) < 48 * 3600
         }
     }
     private func rangeLabel(_ days: [UserDay]) -> String {

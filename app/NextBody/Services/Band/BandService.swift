@@ -91,6 +91,22 @@ struct BandCapabilities {
     /// readable here — the Android note stays in the boards, marked for later.
     var wearDetection: FunctionStatus = .unknown
 
+    /// F6 §05 · an unsupported row is not drawn at all — 「加号单子少一行，好过让人惦记一件这台
+    /// 机器做不到的事」. This is deliberately not `!supports(kind)`: `unknown` is not
+    /// `unsupported`, and before the band has answered its capability read the menu would empty
+    /// itself on every cold start and fill back in a second later. Only a definite no hides a row.
+    func knownUnsupported(_ kind: MeasureKind) -> Bool {
+        func no(_ s: FunctionStatus?) -> Bool { s == .unsupported }
+        switch kind {
+        case .heartRate:        return no(hrv) && no(functions["heart"] ?? .unknown)
+        case .bodyComposition:  return no(bodyComponent)
+        case .bloodOxygen:      return no(functions["spo2"] ?? .unknown)
+        case .bloodPressure:    return no(functions["blood"] ?? .unknown)
+        case .ecg:              return no(ecg)
+        case .temperature:      return no(functions["temperature"] ?? .unknown)
+        }
+    }
+
     func supports(_ kind: MeasureKind) -> Bool {
         switch kind {
         case .heartRate:        hrv == .support || functions["heart"] == .support || hrv == .open

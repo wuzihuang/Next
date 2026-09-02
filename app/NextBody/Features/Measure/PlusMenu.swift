@@ -6,7 +6,14 @@ import SwiftUI
 /// ADD is something you hand her, MEASURE is something the band goes and does.
 struct PlusMenuSheet: View {
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var data: DataStore
     @Environment(\.dismiss) private var dismiss
+
+    // F6 §05 · a measurement this HOOP cannot do is not offered at all, rather than offered
+    // greyed out with the reason written in the row. A row you cannot press is still a row
+    // about a thing you now want.
+    private var canHeartRate: Bool { !data.capabilities.knownUnsupported(.heartRate) }
+    private var canBodyScan: Bool { !data.capabilities.knownUnsupported(.bodyComposition) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,22 +25,30 @@ struct PlusMenuSheet: View {
             MenuRow(icon: .files, title: "Files",
                     detail: "A lab PDF or an export.") { dismiss() }
 
-            Hairline().padding(.vertical, 8)
+            // The header goes with the rows. A group heading standing over nothing reads as a
+            // section that failed to load, which is the opposite of what an absent row means.
+            if canHeartRate || canBodyScan {
+                Hairline().padding(.vertical, 8)
 
-            GroupHeader("MEASURE ON THE BAND")
-            // Pressing a row is the confirmation. "60 S" is already printed on it, so a
-            // second "are you sure, 60 seconds?" box would be asking a question already answered.
-            MenuRow(icon: .pulse, title: "Battery check",
-                    detail: "Heart rate, HRV and stress, in one.",
-                    duration: "60 S") {
-                dismiss()
-                router.takeover = .measure(.heartRate)
-            }
-            MenuRow(icon: .body, title: "Body scan",
-                    detail: "Fourteen fields — fat, muscle, water.",
-                    duration: "30 S") {
-                dismiss()
-                router.takeover = .measure(.bodyComposition)
+                GroupHeader("MEASURE ON THE BAND")
+                // Pressing a row is the confirmation. "60 S" is already printed on it, so a
+                // second "are you sure, 60 seconds?" box would be asking a question already answered.
+                if canHeartRate {
+                    MenuRow(icon: .pulse, title: "Battery check",
+                            detail: "Heart rate, HRV and stress, in one.",
+                            duration: "60 S") {
+                        dismiss()
+                        router.takeover = .measure(.heartRate)
+                    }
+                }
+                if canBodyScan {
+                    MenuRow(icon: .body, title: "Body scan",
+                            detail: "Fourteen fields — fat, muscle, water.",
+                            duration: "30 S") {
+                        dismiss()
+                        router.takeover = .measure(.bodyComposition)
+                    }
+                }
             }
         }
         .padding(.horizontal, 8)

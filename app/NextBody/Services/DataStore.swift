@@ -224,7 +224,10 @@ struct WeighIn: Identifiable, Hashable {
     var bodyFatPercent: Double?
     var source: MeasurementSource
     var origin: Origin
-    enum Origin: String, Hashable { case band = "BAND BIA", scale = "SCALE", health = "APPLE HEALTH", manual = "MANUAL" }
+    /// F6 §05 · D06 · the scale case is gone: V1 has no such device, and this rawValue is
+    /// rendered straight onto the evidence card, so keeping it kept a way for the word to
+    /// reach a screen. The three that remain are the three that can actually happen.
+    enum Origin: String, Hashable { case band = "BAND BIA", health = "APPLE HEALTH", manual = "MANUAL" }
 
     static var seed: [WeighIn] {
         var out: [WeighIn] = []

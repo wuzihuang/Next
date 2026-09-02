@@ -409,6 +409,42 @@ Three things are blocked by something outside the repo, and none of them is a de
   it while it was up, or against `docs/prd/`, which is the F-series only. Further 1:1 work on the
   screen boards needs it back.
 
+## F6 §05's seven rulings, checked against the app
+
+With the Paper file down, `docs/prd/F6-handoff.md` turned out to hold the part that mattered
+most: Sec 04 names the animation deliverable as 「01M / 02M / 05M / 06M · 四块动效板」 — four
+boards, and that is the whole of it, which is what the motion table above accounts for — and
+Sec 05 adjudicates seven places where boards contradict each other. Reading the app against those
+seven rulings found two the app was on the wrong side of.
+
+| Ruling | State |
+|---|---|
+| 骨架屏 → 全局法律赢，没数据就画 —— | held · no `ProgressView`, skeleton or `redacted` anywhere |
+| unsupported 的行 → 整行不渲染 | **was wrong, fixed** |
+| 用户日 = 本地 04:00 → 次日 04:00 | held · `Metrics.boundaryHour = 4` |
+| 手环 BIA 是真实 MEASURED 源 → 接 | held · the takeover writes `origin: .band` |
+| 体重从哪来 → 两个源，V1 没有秤 | **was wrong, fixed** |
+| OTA 按 SDK 四态 | not built · the card offers an update, nothing consumes an outcome yet |
+| Android → V1 不做 | held · iOS only, no physical back key |
+
+**The scale.** Board 10's evidence card was titled `SCALE`, and the ruling is
+「V1 里没有秤这个设备，任何屏上不许出现它」. Its trailing line already read `APPLE HEALTH` while
+the title said `SCALE`, so the one page whose whole job is saying where a number came from was
+naming a device this product does not have. The card is `WEIGH-IN` now, and `WeighIn.Origin` has
+lost its `.scale` case — that rawValue is rendered straight onto the card, so leaving it kept a
+way for the word to reach a screen even though nothing constructed it.
+
+**The plus menu.** It drew `Battery check` and `Body scan` unconditionally, with no capability
+read at all — on a HOOP without BIA it would have offered a body scan that cannot happen. The
+rows are gated now, and the group header goes with them, because a heading standing over nothing
+reads as a section that failed to load rather than as an absence. The gate is
+`knownUnsupported`, not `!supports`: `unknown` is not `unsupported`, and gating on the latter
+would empty the menu on every cold start and fill it back in a second later.
+
+⚠️ OTA is the one left open. 12 板 R08 says three states, the SDK says four, and the ruling is to
+follow the SDK — but the firmware card only offers the update; no outcome is consumed yet, so
+there is no enum to correct. It becomes real when the update flow is built.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

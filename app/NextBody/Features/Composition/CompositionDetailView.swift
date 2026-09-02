@@ -38,7 +38,7 @@ struct CompositionDetailView: View {
                 thatWeekCard
                 if hasCall { whyCard } else { needsCard }
                 SectionLabel("EVIDENCE")
-                scaleCard
+                weighInCard
                 if hasCall {
                     energyCard
                     macrosCard
@@ -362,10 +362,16 @@ struct CompositionDetailView: View {
         }
     }
 
-    /// F0 rule 09 · every field is tagged at source. Band BIA and a body-fat scale are both
-    /// MEASURED and re-anchor the EMA; weight × body-fat % is DERIVED.
-    private var scaleCard: some View {
-        CardBlock(title: "SCALE", trailing: sourceLine, trailingIsDot: true) {
+    /// F0 rule 09 · every field is tagged at source. Band BIA is MEASURED and re-anchors the
+    /// EMA; weight × body-fat % is DERIVED.
+    ///
+    /// ⚠️ This card was titled SCALE. F6 §05 settles D06 the other way: weight comes from Apple
+    /// Health or from a weigh-in the user types, and 「V1 里没有秤这个设备，任何屏上不许出现它」.
+    /// The trailing line already read APPLE HEALTH while the title said SCALE, which named a
+    /// device this product does not have — on the one page whose whole job is saying where each
+    /// number came from.
+    private var weighInCard: some View {
+        CardBlock(title: "WEIGH-IN", trailing: sourceLine, trailingIsDot: true) {
             HStack(spacing: 10) {
                 EvidenceStat(label: "WEIGHT", value: Fmt.kg(m.weightKg), unit: "KG",
                              delta: "\(Fmt.signedKg(weightDelta7d)) VS 7D", deltaTint: NB.macroValue)

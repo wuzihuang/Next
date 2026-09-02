@@ -21,8 +21,15 @@ struct Dock: View {
     var menuOpen = false
     /// 05 · the middle key's two edges. The dock does not own the microphone — it reports the
     /// press and lets the caller decide whether listening actually began.
+    /// 05M · B · hold to talk. `onArm` fires when the 200 ms threshold is crossed (touch down →
+    /// armed); `onRelease` sends; `onCancel` is the slide-up abort past −56 px. The mode flips to
+    /// .listening only inside `onArm`, once the mic is actually up.
     var onListen: () -> Void
     var onStopListening: () -> Void
+    var onCancelListening: () -> Void = {}
+    @State private var pressT0: Date?
+    @State private var armed = false
+    @State private var cancelling = false
 
     @FocusState private var focused: Bool
 
@@ -85,33 +92,45 @@ struct Dock: View {
             .accessibilityLabel(note.line)
         } else {
         switch mode {
-        case .idle:
-            Button {
-                // The mode change is the caller's to make: it flips to .listening only once the
-                // microphone is actually running, so the wave never plays over a dead mic.
-                onListen()
-            } label: {
-                ZStack {
-                    Capsule().fill(NB.lime1)
-                    DotMatrix()
-                }
-                .frame(height: NB.Layout.dockHeight)
-                .frame(maxWidth: .infinity)
+        case .idle, .listening:
+            // 05M · B · one continuous press: down → armed at 200 ms → recording → release sends,
+            // slide up past −56 px cancels. Not a tap: the board's key has this one gesture, and
+            // the edge copy ("Hold, say it, then let go" · slide to cancel) presupposes it.
+            ZStack {
+                Capsule().fill(cancelling ? NB.ember1.opacity(0.85) : NB.lime1)
+                if mode == .listening { ListeningWave() } else { DotMatrix() }
             }
-            .buttonStyle(PressDimStyle())
-            .accessibilityLabel("说话")
-
-        case .listening:
-            Button { onStopListening() } label: {
-                ZStack {
-                    Capsule().fill(NB.lime1)
-                    ListeningWave()
-                }
-                .frame(height: NB.Layout.dockHeight)
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("正在听 · 点一下结束")
+            .frame(height: NB.Layout.dockHeight)
+            .frame(maxWidth: .infinity)
+            .contentShape(Capsule())
+            .scaleEffect(pressT0 != nil ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: pressT0 != nil)
+            .accessibilityLabel(mode == .listening ? "正在听 · 松手发送 · 上滑取消" : "按住说话")
+            .accessibilityAddTraits(.startsMediaSession)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        if pressT0 == nil {
+                            pressT0 = Date()
+                            // 05M · B·02 · cross the 200 ms threshold → armed, one haptic, mic up.
+                            let t0 = Date()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+                                guard pressT0 == t0 || (pressT0 != nil && !armed) else { return }
+                                guard pressT0 != nil else { return }   // released before arming
+                                armed = true
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                onListen()
+                            }
+                        }
+                        // 05M · B·04 · slide up past −56 px arms the cancel; back down re-arms send.
+                        cancelling = armed && v.translation.height < -56
+                    }
+                    .onEnded { _ in
+                        let wasArmed = armed, wasCancelling = cancelling
+                        pressT0 = nil; armed = false; cancelling = false
+                        guard wasArmed else { return }         // a slip under 200 ms: nothing began
+                        if wasCancelling { onCancelListening() } else { onStopListening() }
+                    })
 
         case .keyboard, .plus:
             // The keyboard rises with the screen and the caret is already in the field —

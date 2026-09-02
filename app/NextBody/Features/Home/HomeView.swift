@@ -198,7 +198,8 @@ struct HomeView: View {
                      },
                      menuOpen: plusOpen,
                      onListen: beginListening,
-                     onStopListening: endListening)
+                     onStopListening: endListening,
+                     onCancelListening: cancelListening)
                     // 05 · C02–C04 · the tray hangs above the field: 100 × 100, radius 16, no card and
                     // no background — it reads as "attached to this message", not as a message.
                     .overlay(alignment: .topLeading) {
@@ -379,6 +380,14 @@ struct HomeView: View {
     /// The tap that ends listening is also the send. There is no separate confirm step: the
     /// board gives the key one job, and a second press to approve what you just said would be
     /// asking a question already answered.
+    /// 05M · B·04 / 05 rule 05 · slide-up cancel: the mic stops, nothing is transcribed or sent,
+    /// the dock writes nothing. Reversible by design.
+    private func cancelListening() {
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .idle }
+        Task { _ = await SpeechCapture.shared.stop() }
+        Task { await Analytics.shared.track("VOICE_CANCEL", ["REASON": "SLIDE_UP"]) }
+    }
+
     private func endListening() {
         withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .idle }
         Task {

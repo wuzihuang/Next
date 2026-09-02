@@ -352,6 +352,39 @@ windows, not a refresh race. 11.1 is the calendar week Aug 26 – Sep 1 that 04'
 The four model-facing endpoints are therefore proven against the simulator. They are still not
 *deployed* — that needs the CLI's browser login, and nothing here can do it.
 
+## Motion, board by board
+
+The file has exactly four MOTION boards, and the question worth answering is not "does the app
+animate" but "is there an implementation for each board, and does anything animate that no board
+asked for". Both directions check out.
+
+| Board | Implementation | Evidence |
+|---|---|---|
+| 01M · first run | `FirstRun.swift` | eleven beats, 0.00 → 7.40, the enum's own values; watched full-screen, typing 「I DON'T COACH. / I READ YOU.」 then folding to 358 × 470 |
+| 02M · connect → wordmark | `WordmarkAnimation.swift`, `ConnectFlow.swift` | five beats at 0.00 / 0.35 / 1.10 / 1.80 / 2.15 / 2.60, `total = 2.60`; the burst and the splash are one implementation, not two |
+| 05M · dock input | `Dock.swift` | spring(0.34 / 0.80) idle ↔ listening, spring(0.32 / 0.82) back to idle, spring(0.30 / 0.85) on the draft, easeOut 0.09 on press |
+| 06M · plus key & measure | `MeasureTakeover.swift`, `PlusMenu.swift` | spring(0.46 / 0.86) on grow, easeInOut 0.28 / 0.24 / 0.30 on phase, easeOut 0.12 on press; the 30 s two-contact scan run end to end |
+
+Counting animation call sites per feature, the ones at zero are AIScreen, BodyBattery,
+Composition, Device, Fuel, Profile, Shared and WeighIn — every one of them a board with no MOTION
+spec. Nothing animates that no board asked for, which is the half of this that is easy to get
+wrong by adding polish the design did not request.
+
+## What this machine cannot reach, and why
+
+Three things are blocked by something outside the repo, and none of them is a decision:
+
+- **`supabase functions deploy`.** The CLI is installed (2.75.0) but holds no token, and
+  `supabase login` is a browser flow. `SUPABASE_ACCESS_TOKEN` would also do it. Until then the
+  four model-facing endpoints are proven (see above) but not deployed.
+- **The sign-in code screen.** The gate and the email screen were walked; the six-digit code goes
+  to an inbox this machine does not have, so 01's third screen and its five edge cases are the one
+  part of the flow that has not been seen running.
+- **The Paper file.** It answered for the first part of this pass and then stopped — first
+  timeouts on screenshots and trees, then `Unable to connect`. Everything above was read against
+  it while it was up, or against `docs/prd/`, which is the F-series only. Further 1:1 work on the
+  screen boards needs it back.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

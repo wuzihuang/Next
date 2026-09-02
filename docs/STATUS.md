@@ -1084,6 +1084,16 @@ tasks that outlive the view.
 
 `NB_DEBUG_ROUTE=fuel|composition|training|bodyBattery|profile` opens straight onto a detail page.
 
+### A last side-by-side against boards 04, 08, 09, 10, 11, 12
+Paper screenshots of the screen rows next to simulator screenshots of the same six pages. Three
+things were off and are fixed: 10 drew two back rows (`‹ TODAY` above `‹ COMPOSITION`) where the
+board has one — the eyebrow is now the back mark; the mock band was `NEXT HOOP` on 12 and
+`NEXTBODY HOOP` on 02; and the fuel page's new pager was showing on today, where the board's header
+has none — closed days are now reached from THIS WEEK's day labels and from 10's EDIT THIS DAY,
+and the pager appears only there. The 11 heat map is DEFICIT / SURPLUS / LEVEL by F2 §11's
+ruling, not the four-call legend 11 drew; 08's DAY / WEEK / MONTH segments stay absent by the
+board's own note. Everything else read the same.
+
 ⚠️ Back-logged meals take the slot of the current hour (a plate added to Aug 31 at 00:30 is a
 SNACK); the board does not say which slot a late plate belongs to. ⚠️ Profile still offers a
 weigh-in entry (11 col 03) although 10S rule 07 says composition and NO TARGET only — left

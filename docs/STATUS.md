@@ -1238,7 +1238,14 @@ pair ← band, column ← bars/days/delta, arc ← ring/gauge, stack ← split/f
 cells/heat/recomp, strip ← hypnogram/zones, trace ← wave, rows ← sparks/table/events/workout/meal).
 The two left out are the board's own special cases — battery (a ring-hero immediate readout) and
 food (`HERO=own`, its own skeleton, which the code also gives `HeroStyle.own`). Board 07, the one
-STATUS called least-verified, is now audited across all three of its contract tables.
+STATUS called least-verified, is now audited across all three of its contract tables — and then
+seen rendering on the simulator: the DEBUG catalogue (long-press the wordmark) draws every type
+at once, each labelled `TYPE · RENDERER`, and the labels match the map exactly — BATTERY·ARC (lime
+ring), METRIC·NUMBER, TEXT·NUMBER, LINE·CURVE (ember area), BAND·PAIR (blue), BARS·COLUMN (ember),
+MEAL·ROWS (cyan), FUEL·STACK (PRO violet / CARB green / FAT orange), BALANCE·STACK (IN orange / OUT
+cyan), RECOMP·GRID (lime heat), DELTA·COLUMN (violet), DUAL·CURVE. Domain colours match the board's
+accent-per-domain rule. The header reads 24 because the three sleep types are shown on 13, not here
+(27 − 3). So 07 is verified in code and on screen.
 
 ### 13's nine-band table read directly, and it matches to the value
 The other board STATUS flagged as never read directly is 13's body-battery → target table.

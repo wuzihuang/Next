@@ -759,6 +759,13 @@ an open question about the bottom strip, so 13 stands — but one of the two boa
    | `account.delete` | `public.account_delete(confirm)` RPC |
    | `export` | `public.export_all()` RPC |
 
+   ⚠️ A device build was tried on 2026-09-02 against the paired iPhone 15 Pro Max
+   (`00008130-001004D60091401C`) with automatic signing: Xcode has no account for the only
+   development certificate on this Mac (team 7XS9F97XYQ) and the one wildcard profile on disk
+   belongs to another team (BP7F7PYU33), so `No profiles for 'com.nextbody.hoop'` is where it
+   stops. Signing in to Xcode → Accounts with the project's Apple ID makes it a one-line build:
+   `xcodebuild -scheme NextBody -destination 'id=00008130-001004D60091401C' -allowProvisioningUpdates build`.
+
    The CLI's login is a browser flow, so it could not be done from here. ⚠️ Checked again on
    2026-09-02: `~/.supabase/access-token` exists, but `supabase projects list` shows only an
    org with a project named COREADING — that token belongs to an account that does not own

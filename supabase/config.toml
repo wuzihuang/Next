@@ -224,7 +224,7 @@ host = "smtp.resend.com"
 port = 465
 user = "resend"
 pass = "env(SUPABASE_AUTH_SMTP_PASS)"
-admin_email = "no-reply@nextbody.app"
+admin_email = "no-reply@nextbody.ai"
 sender_name = "NEXTBODY"
 
 # 01 · the gate's mail is a six-digit code, not a link: the template prints {{ .Token }}.

@@ -21,7 +21,7 @@ BODY=$(cat <<JSON
   "smtp_port": "465",
   "smtp_user": "resend",
   "smtp_pass": "${SUPABASE_AUTH_SMTP_PASS}",
-  "smtp_admin_email": "no-reply@nextbody.app",
+  "smtp_admin_email": "no-reply@nextbody.ai",
   "smtp_sender_name": "NEXTBODY",
   "smtp_max_frequency": 1,
   "rate_limit_email_sent": 200,

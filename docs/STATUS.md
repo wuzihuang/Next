@@ -6,6 +6,29 @@ Every screen below was built from that board's own JSX and computed styles — n
 screenshot — and then checked back against it on an iPhone 16e simulator, which is 390 × 844,
 the exact geometry the boards are drawn at.
 
+## Layout · the boards are 390 × 844, the phone is whatever it is
+
+Every board is drawn at 390 × 844 with a 358 column, a 62pt status block and a 19pt
+home-indicator block. The app does not copy those numbers. It reads the device once
+(`ScreenMetrics` in `Chrome.swift`: window size + real safe area) and derives everything
+from it, so one build lays out the same anatomy on every iPhone from the SE to the Pro Max:
+
+- `NB.Layout.screenWidth` / `contentWidth` / `cardWidth` are computed from the device, never
+  constants. A `.frame(width: NB.Layout.contentWidth)` fills the same 16pt gutters everywhere.
+- `Chrome.statusBarBlock` / `homeIndicatorBlock` are the real safe-area insets. `Chrome.boardStatusBar`
+  (62) exists only to convert a board Y; `Chrome.boardY(_:)` does that conversion and compresses
+  the column on a phone whose safe area is shorter than the board's (the SE).
+- Home is iOS anatomy: a 44pt avatar-and-name header under the status bar, the dock
+  (keyboard · voice · camera) 8pt over the home indicator, the strip above it, and the panel
+  taking the rest. The panel's 358 × 470 widget canvas is centred and scales down as one piece
+  when the panel is shorter than the board's.
+- Nothing draws a fake status bar or home indicator; iOS paints both.
+
+Checked on four simulators at once — iPhone SE 3 (375 × 667, iOS 18.5), 16e (390 × 844),
+Air (420 × 912), 16 Pro Max (440 × 956) — every gate screen, home, the dock edge state and
+the five detail pages. DEBUG launch hooks make that a script: `NB_DEBUG_STAGE`,
+`NB_DEBUG_ROUTE`, `NB_DEBUG_CONNECT_STEP`, `NB_DEBUG_EDGE` (all via `SIMCTL_CHILD_`).
+
 ## What runs today
 
 ### iOS app · `app/`
@@ -1356,7 +1379,7 @@ Sign in with Apple capability for a device build.
 Supabase's built-in mailer sends two mails an hour and only to the project's own team members,
 so the six-digit code never reached a real address. `supabase/config.toml` now carries
 `[auth.email.smtp]` for Resend (`smtp.resend.com:465`, user `resend`, key from
-`env(SUPABASE_AUTH_SMTP_PASS)`), sender `no-reply@nextbody.app`, `otp_expiry = 600` (01 rule 01),
+`env(SUPABASE_AUTH_SMTP_PASS)`), sender `no-reply@nextbody.ai`, `otp_expiry = 600` (01 rule 01),
 `email_sent = 200`, and a magic-link template that prints `{{ .Token }}` — a code, not a link
 (`supabase/templates/magic_link.html`). `supabase/.env` is git-ignored now; it was not.
 
@@ -1364,7 +1387,7 @@ Hosted project: `supabase/scripts/auth-config.sh` PATCHes exactly these fields p
 provider through the Management API (`/v1/projects/<ref>/config/auth`) — not `supabase config push`,
 which would replace every auth setting with the local file's (site_url 127.0.0.1 included). It reads
 `SUPABASE_ACCESS_TOKEN` and `SUPABASE_AUTH_SMTP_PASS` from the environment; neither is in the repo.
-Before running it, `nextbody.app` must be verified at Resend (its SPF/DKIM records added to DNS).
+Before running it, `nextbody.ai` must be verified at Resend (its SPF/DKIM records added to DNS).
 
 ## Running it
 

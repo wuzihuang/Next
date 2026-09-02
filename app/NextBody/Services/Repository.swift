@@ -16,8 +16,10 @@ final class Repository {
 
     /// Signing in to the seeded demo account. In production this is the six-digit code path.
     func signInDemo() async throws {
-        // A real session from the gate (six-digit code) is never replaced by the demo one.
-        if await db.isSignedIn { return }
+        // A real session from the gate (six-digit code or Apple) is never replaced by the
+        // demo one — not in this process, and not on the next launch either: the refresh
+        // token in the Keychain is tried first.
+        if await db.restoreSession() { return }
         try await db.signIn(email: "demo@nextbody.app", password: "nextbody-demo")
     }
 

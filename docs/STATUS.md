@@ -1325,6 +1325,33 @@ which your interactive Xcode build does with your identity.
 path is still the stub noted on 12; connect + HR/steps/sleep + body-composition read are the wired
 paths.
 
+## Phase 12 · Continue with Apple is a real sign-in, and a real session survives a relaunch
+
+Reported on device: tapping `Continue with Apple` went straight past the gate, and the account
+the app then showed was the demo one. Both halves were true. `provider()` never called the
+system at all — it was the placeholder behind both Apple and Google, and it just ran `finish()`;
+with no session in `SupabaseClient`, Home's `signInDemo()` then signed in as `demo@nextbody.app`.
+The hosted project's `/auth/v1/settings` confirms only the email provider is on.
+
+Built:
+- `Services/AppleSignIn.swift` — `ASAuthorizationController` with a SHA-256 nonce; the sheet's
+  identity token goes to `/auth/v1/token?grant_type=id_token` (`SupabaseClient.signInWithApple`)
+  with the raw nonce, and the session that comes back is the one the app reads. Same wordmark and
+  `finish()` as the six-digit path. Cancel is silent; a token failure shows "Sign-in failed. Try
+  email instead." and email moves to second — 01 edge 5, walked on the simulator (the simulator
+  has no Apple ID, so `akd` refuses with -7026 and that is the failure branch on screen).
+- `com.apple.developer.applesignin` in `NextBody.entitlements`.
+- 01 rule 04 · the refresh token is kept in the Keychain (`SessionKeychain`); `restoreSession()`
+  trades it for a fresh session, and `signInDemo()` tries that first, so a real account — Apple or
+  email — is no longer replaced by the demo one on the next launch. `SessionStore.reset()` now
+  also revokes and forgets the session.
+
+⚠️ Server side is not done, and it is a dashboard job: Authentication › Providers › Apple must be
+enabled with `com.nextbody.hoop` in Client IDs (native sign-in needs no secret key). Until then the
+server returns 400 and the gate shows the same "Sign-in failed" line. The App ID also needs the
+Sign in with Apple capability for a device build.
+⚠️ `Continue with Google` is still the placeholder and still skips the gate into the demo account.
+
 ## Running it
 
 ```sh

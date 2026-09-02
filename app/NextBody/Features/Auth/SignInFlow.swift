@@ -18,12 +18,13 @@ struct SignInFlow: View {
     @State private var sending = false
     @State private var wrongCount = 0
     @State private var authFailed = false
+    @State private var appleSignIn = AppleSignIn()
 
     var body: some View {
         ZStack {
             switch step {
             case .gate:  GateScreen(failed: authFailed, onEmail: { step = .email },
-                                    onApple: { provider() }, onGoogle: { provider() })
+                                    onApple: { signInWithApple() }, onGoogle: { provider() })
             case .email: EmailScreen(email: $email, sending: sending, error: codeError,
                                      onBack: { step = .gate }, onSend: sendCode)
             case .code:  CodeScreen(email: email, code: $code, resendIn: $resendIn,
@@ -40,11 +41,37 @@ struct SignInFlow: View {
         .carbonPage()
     }
 
-    /// 01 edge 5 · cancelled on the system sheet is silent; only a token failure says anything,
-    /// and then the email button moves up to second.
+    /// Google is not wired yet: this is the placeholder that used to stand in for both
+    /// providers, and it signs nothing in. Home then falls back to the demo account.
     private func provider() {
         if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
         finish()
+    }
+
+    /// 01 edge 5 · cancelled on the system sheet is silent; only a token failure says anything,
+    /// and then the email button moves up to second. The token goes to Supabase and the
+    /// session that comes back is the one the whole app then reads — the same wordmark and
+    /// the same `finish()` as the six-digit path, so the server decides new vs returning here too.
+    private func signInWithApple() {
+        if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
+        guard !verifying else { return }
+        verifying = true
+        Task {
+            await Analytics.shared.track("AUTH_METHOD_TAP", ["METHOD": "APPLE"])
+            do {
+                let cred = try await appleSignIn.request()
+                try await SupabaseClient.shared.signInWithApple(idToken: cred.idToken, nonce: cred.nonce)
+                verifying = false
+                email = await SupabaseClient.shared.signedInEmail() ?? ""
+                await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": false])
+                withAnimation { playingWordmark = true }
+            } catch AppleSignIn.Failure.cancelled {
+                verifying = false
+            } catch {
+                verifying = false
+                withAnimation { authFailed = true }
+            }
+        }
     }
 
     private func sendCode() {

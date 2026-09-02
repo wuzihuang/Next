@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// Thin REST/Edge-Function client. Everything server-side lives in Supabase (see supabase/).
 struct SupabaseConfig {
@@ -62,11 +63,89 @@ actor SupabaseClient {
               let token = out["access_token"] as? String else {
             throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
         }
-        accessToken = token
+        adopt(session: out)
+        return token
+    }
+
+    /// Sign in with Apple. The identity token the system sheet handed back is exchanged for
+    /// a session of this project's own (`/auth/v1/token?grant_type=id_token`); the raw nonce
+    /// goes along so the server can prove the token was minted for this very request and
+    /// not replayed. Nothing about the user reaches us before the server has said yes.
+    @discardableResult
+    func signInWithApple(idToken: String, nonce: String) async throws -> String {
+        var r = URLRequest(url: SupabaseConfig.url
+            .appendingPathComponent("auth/v1/token")
+            .appending(queryItems: [URLQueryItem(name: "grant_type", value: "id_token")]))
+        r.httpMethod = "POST"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try JSONSerialization.data(withJSONObject: [
+            "provider": "apple", "id_token": idToken, "nonce": nonce,
+        ])
+
+        let (data, resp) = try await session.data(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code),
+              let out = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = out["access_token"] as? String else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+        adopt(session: out)
+        return token
+    }
+
+    /// 01 rule 04 · sessions slide 90 days. The refresh token outlives the process in the
+    /// Keychain; on the next launch it is traded for a fresh session before anything else
+    /// is allowed to sign in, so a real account is never quietly replaced by the demo one.
+    /// Returns false when there was nothing to restore or the server refused it.
+    func restoreSession() async -> Bool {
+        if accessToken != nil { return true }
+        guard let stored = SessionKeychain.refreshToken else { return false }
+        var r = URLRequest(url: SupabaseConfig.url
+            .appendingPathComponent("auth/v1/token")
+            .appending(queryItems: [URLQueryItem(name: "grant_type", value: "refresh_token")]))
+        r.httpMethod = "POST"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh_token": stored])
+        guard let (data, resp) = try? await session.data(for: r) else { return false }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code),
+              let out = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              out["access_token"] is String else {
+            // A refused refresh token is dead (used, revoked, or the account is gone);
+            // a transport failure is not, and the token is kept for the next try.
+            if (400..<500).contains(code) { SessionKeychain.refreshToken = nil }
+            return false
+        }
+        adopt(session: out)
+        return true
+    }
+
+    /// Forget the session on this device. The server's row is revoked when it can be
+    /// reached; the Keychain copy goes either way, so the next launch starts at the gate.
+    func signOut() async {
+        if let token = accessToken {
+            var r = URLRequest(url: SupabaseConfig.url.appendingPathComponent("auth/v1/logout"))
+            r.httpMethod = "POST"
+            r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+            r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            _ = try? await session.data(for: r)
+        }
+        accessToken = nil
+        refreshToken = nil
+        userId = nil
+        userEmail = nil
+        SessionKeychain.refreshToken = nil
+    }
+
+    /// One place that reads a session reply, whichever grant produced it.
+    private func adopt(session out: [String: Any]) {
+        accessToken = out["access_token"] as? String
         refreshToken = out["refresh_token"] as? String
         userId = ((out["user"] as? [String: Any])?["id"] as? String)
         userEmail = (out["user"] as? [String: Any])?["email"] as? String
-        return token
+        SessionKeychain.refreshToken = refreshToken
     }
 
     /// The gate's real path: ask for a six-digit code.
@@ -95,9 +174,7 @@ actor SupabaseClient {
               let access = out["access_token"] as? String else {
             throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
         }
-        accessToken = access
-        userId = ((out["user"] as? [String: Any])?["id"] as? String)
-        userEmail = (out["user"] as? [String: Any])?["email"] as? String
+        adopt(session: out)
         return access
     }
 
@@ -363,4 +440,37 @@ actor SupabaseClient {
     }
 
     func signedInEmail() -> String? { userEmail }
+}
+
+/// The refresh token, and only that, in the Keychain. The access token is short-lived and
+/// stays in memory; the user id and email come back with every refresh.
+enum SessionKeychain {
+    private static let service = "app.nextbody.hoop.supabase"
+    private static let account = "refresh_token"
+
+    private static var query: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account]
+    }
+
+    static var refreshToken: String? {
+        get {
+            var q = query
+            q[kSecReturnData as String] = true
+            q[kSecMatchLimit as String] = kSecMatchLimitOne
+            var item: CFTypeRef?
+            guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess,
+                  let data = item as? Data else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        set {
+            SecItemDelete(query as CFDictionary)
+            guard let value = newValue, let data = value.data(using: .utf8) else { return }
+            var q = query
+            q[kSecValueData as String] = data
+            q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            SecItemAdd(q as CFDictionary, nil)
+        }
+    }
 }

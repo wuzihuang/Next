@@ -343,5 +343,10 @@ final class SessionStore: ObservableObject {
         #endif
     }
 
-    func reset() { stage = .gateSignIn; isSignedIn = false; email = "" }
+    func reset() {
+        stage = .gateSignIn; isSignedIn = false; email = ""
+        // The Keychain copy of the session goes too, or the next launch would restore it
+        // straight past the gate.
+        Task { await SupabaseClient.shared.signOut() }
+    }
 }

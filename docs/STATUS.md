@@ -1229,6 +1229,14 @@ The two left out are the board's own special cases — battery (a ring-hero imme
 food (`HERO=own`, its own skeleton, which the code also gives `HeroStyle.own`). Board 07, the one
 STATUS called least-verified, is now audited across all three of its contract tables.
 
+### 13's nine-band table read directly, and it matches to the value
+The other board STATUS flagged as never read directly is 13's body-battery → target table.
+`BodyBattery.swift` holds all nine bands, and every row matches the board: 0–19 → 4.0 / 0.0–6.0
+/ 19%, 20–29 → 6.0 / 3.0–8.5 / 29%, 30–39 → 8.0 / 5.0–10.5 / 38%, 40–49 → 10.0 / 7.0–12.5 / 48%,
+50–59 → 11.5 / 8.5–14.0 / 55%, 60–69 → 13.0 / 10.5–15.5 / 62%, 70–79 → 14.5 / 12.5–16.5 / 69%,
+80–89 → 16.0 / 14.0–18.0 / 76%, 90–100 → 18.0 / 15.5–20.0 / 86%. Target, optimal range and ring
+percent are exact for every band. Both boards STATUS called least-verified now check out to the value.
+
 ## Running it
 
 ```sh

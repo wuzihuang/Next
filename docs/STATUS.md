@@ -1390,8 +1390,13 @@ which would replace every auth setting with the local file's (site_url 127.0.0.1
 Done 2026-09-02: `nextbody.ai` (Cloudflare zone, registered that day) carries Resend's DKIM, MX and
 SPF records and is verified; the script ran against the hosted project — SMTP is Resend, OTP 600 s,
 200 mails/hour, the `{{ .Token }}` template is live, and `/auth/v1/settings` lists `apple` and
-`email`. The Resend key is a sending-only key scoped to that domain. Not yet done: a real code sent
-to a real inbox through the new SMTP.
+`email`. The Resend key is a sending-only key scoped to that domain.
+
+A first-time address does not get the magic-link template: GoTrue sends the *confirmation* mail
+(a link) to an unconfirmed user, and the confirmation template set through the API never reached
+the mailer — four test mails, four links. `mailer_autoconfirm = true` is the fix: the code itself
+is the email check, and the app has no password sign-up path. After that a real code went to a real
+inbox through Resend — subject "Your NEXTBODY code", six digits in the body, no link.
 
 ## Running it
 

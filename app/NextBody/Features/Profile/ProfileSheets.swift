@@ -18,6 +18,7 @@ struct ProfileSheet: View {
             case .units:         UnitsSheet()
             case .language:      LanguageSheet()
             case .appleHealth:   AppleHealthSheet()
+            case .export:        ExportSheet()
             case .privacy:       LegalSheet(title: "Privacy policy", body: Self.privacyText)
             case .about:         LegalSheet(title: "Terms of service", body: Self.termsText)
             case .deleteAccount: DeleteAccountSheet()
@@ -320,6 +321,78 @@ struct AppleHealthSheet: View {
     }
 }
 
+/// 11 · EXPORT MY DATA · ALL TIME.
+///
+/// ⚠️ 1ACT leaves the format and the audience open — "导什么、含不含原始读数、能不能给医生看
+/// ——都没定。一旦把健康数据外发，合规口径要整个重过一遍，这不是一个按钮的工作量." So this
+/// does the half that is decided: it assembles everything the account owns and shows what is
+/// in it. Sending it anywhere is the undecided half, and a share sheet is exactly the "把健康
+/// 数据外发" that line says not to build yet.
+///
+/// It used to route to the Terms of Service sheet, which is not a smaller version of this —
+/// it is a different screen under the wrong title.
+struct ExportSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var counts: [(String, Int)] = []
+    @State private var failed = false
+
+    var body: some View {
+        SheetFrame(title: "Export my data") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Everything this account holds, assembled here. It goes nowhere until you send it.")
+                    .font(NBFont.brand(400, 14))
+                    .lineSpacing(7)
+                    .foregroundStyle(NB.text2)
+
+                if failed {
+                    Text("Could not reach the server. Nothing was exported.")
+                        .font(NBFont.ui(400, 12)).tracking(0.02 * 12)
+                        .foregroundStyle(NB.alert2)
+                } else if counts.isEmpty {
+                    Text("ASSEMBLING …")
+                        .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
+                        .foregroundStyle(NB.text3Prod)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(counts, id: \.0) { name, n in
+                            HStack {
+                                Text(name)
+                                    .font(NBFont.ui(400, 13))
+                                    .foregroundStyle(NB.text2)
+                                Spacer(minLength: 0)
+                                Text("\(n)")
+                                    .font(NBFont.dot(700, 13)).tracking(0.04 * 13)
+                                    .foregroundStyle(NB.text1)
+                            }
+                            .frame(height: 40)
+                            .overlay(alignment: .bottom) { Hairline() }
+                        }
+                    }
+                }
+            }
+        } footer: {
+            Text("SENDING IT ON IS NOT IN THIS BUILD — THE COMPLIANCE ROUTE IS UNDECIDED")
+                .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(NB.text3Prod)
+        }
+        .task {
+            do {
+                let out = try await SupabaseClient.shared.rpc("export_all")
+                let row = (out as? [String: Any]) ?? [:]
+                counts = [("Settled days", (row["days"] as? [Any])?.count ?? 0),
+                          ("Weigh-ins", (row["weigh_ins"] as? [Any])?.count ?? 0),
+                          ("Body scans", (row["composition"] as? [Any])?.count ?? 0),
+                          ("Meals", (row["meals"] as? [Any])?.count ?? 0)]
+                await Analytics.shared.track("EXPORT_ASSEMBLED",
+                                             ["ROWS": counts.reduce(0) { $0 + $1.1 }])
+            } catch {
+                failed = true
+            }
+        }
+    }
+}
+
 struct LegalSheet: View {
     let title: String
     let body_: String
@@ -412,7 +485,16 @@ struct DeleteAccountSheet: View {
     private func deleteEverything() async {
         await Analytics.shared.track("ACCOUNT_DELETE_CONFIRMED", [:])
         do {
-            _ = try await SupabaseClient.shared.callFunction("account-delete", payload: [:])
+            // ⚠️ The confirmation is a literal the server checks, so a mis-routed call
+            // cannot delete an account. It is the same second ask this sheet just made.
+            let out = try await SupabaseClient.shared.rpc("account_delete", args: ["confirm": "DELETE"])
+            let row = (out as? [[String: Any]])?.first ?? (out as? [String: Any]) ?? [:]
+            guard row["deleted"] as? Bool == true else {
+                failure = "The server refused the request. Nothing has been deleted."
+                await Analytics.shared.track("ACCOUNT_DELETE_FAILED",
+                                             ["ERROR": "\(row["error"] ?? "unknown")"])
+                return
+            }
             session.reset()
             dismiss()
         } catch {

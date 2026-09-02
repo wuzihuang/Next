@@ -94,6 +94,7 @@ enum SheetChrome {
         // At 360 the two together clipped the sentence to "…14 nights you…".
         case .deleteAccount:                return 400
         case .language, .appleHealth:       return 400
+        case .export:                       return 440
         case .goal, .notifications, .units: return 480
         default:                            return maxHeight
         }

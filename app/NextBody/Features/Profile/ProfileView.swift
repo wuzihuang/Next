@@ -55,7 +55,7 @@ struct ProfileView: View {
                 GroupLabel("DATA & LEGAL")
                 RowGroup {
                     SettingRow(title: "EXPORT MY DATA", value: hasScans ? "ALL TIME" : "NOTHING YET") {
-                        router.sheet = .about
+                        router.sheet = .export
                     }
                     SettingRow(title: "PRIVACY POLICY", value: "UPDATED JUN 24") { router.sheet = .privacy }
                     SettingRow(title: "TERMS OF SERVICE", value: "V 2.1") { router.sheet = .about }

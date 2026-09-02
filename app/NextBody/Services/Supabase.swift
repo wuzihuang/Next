@@ -216,6 +216,26 @@ actor SupabaseClient {
         return Int(total)
     }
 
+    /// A PostgREST RPC. F4's eight endpoints are Edge Functions because that is where the
+    /// model-facing surface lives; account.delete and export are database work that happens
+    /// to be listed among them, and they are reachable this way without a deploy.
+    @discardableResult
+    func rpc(_ name: String, args: [String: Any] = [:]) async throws -> Any {
+        var r = URLRequest(url: SupabaseConfig.url.appendingPathComponent("rest/v1/rpc/\(name)"))
+        r.httpMethod = "POST"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                   forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try JSONSerialization.data(withJSONObject: args)
+        let (data, resp) = try await session.data(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) ?? [:]
+    }
+
     /// The signed-in user's id. Every write that names a user_id needs it; RLS still checks
     /// it, so this is convenience, never authority.
     var currentUserId: String? { userId }

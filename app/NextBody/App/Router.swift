@@ -37,7 +37,7 @@ enum SheetRoute: Hashable, Identifiable {
     // 10S
     case weighIn
     // 11 · profile
-    case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, deleteAccount, signOut
+    case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, export, deleteAccount, signOut
     // 12S · device
     case bandAlarm, bandAutoMonitor, findBand, unbind, firmware
     // dock

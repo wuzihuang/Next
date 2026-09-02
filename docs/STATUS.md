@@ -1352,6 +1352,20 @@ server returns 400 and the gate shows the same "Sign-in failed" line. The App ID
 Sign in with Apple capability for a device build.
 ⚠️ `Continue with Google` is still the placeholder and still skips the gate into the demo account.
 
+### Custom SMTP · Resend
+Supabase's built-in mailer sends two mails an hour and only to the project's own team members,
+so the six-digit code never reached a real address. `supabase/config.toml` now carries
+`[auth.email.smtp]` for Resend (`smtp.resend.com:465`, user `resend`, key from
+`env(SUPABASE_AUTH_SMTP_PASS)`), sender `no-reply@nextbody.app`, `otp_expiry = 600` (01 rule 01),
+`email_sent = 200`, and a magic-link template that prints `{{ .Token }}` — a code, not a link
+(`supabase/templates/magic_link.html`). `supabase/.env` is git-ignored now; it was not.
+
+Hosted project: `supabase/scripts/auth-config.sh` PATCHes exactly these fields plus the Apple
+provider through the Management API (`/v1/projects/<ref>/config/auth`) — not `supabase config push`,
+which would replace every auth setting with the local file's (site_url 127.0.0.1 included). It reads
+`SUPABASE_ACCESS_TOKEN` and `SUPABASE_AUTH_SMTP_PASS` from the environment; neither is in the repo.
+Before running it, `nextbody.app` must be verified at Resend (its SPF/DKIM records added to DNS).
+
 ## Running it
 
 ```sh

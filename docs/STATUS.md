@@ -1218,6 +1218,17 @@ footer Inter Tight 11.5/400 at 50%; action Doto 10.5/500/0.16em in the accent; a
 The panel is 1:1 with the board's own spec, not just visually close — this is the board STATUS
 flagged as least-verified, and its render contract holds.
 
+Its other two tables were read too. `09 · data 全表` lists all 27 types with their required and
+optional data — `PanelType` has all 27 (battery, metric, text, line, band, bars, days, sparks,
+ring, gauge, split, cells, hypnogram, zones, wave, table, workout, events, heat, o2night, food,
+meal, fuel, balance, recomp, delta, dual). The renderer map (B) assigns ten renderers to 25 of
+them, and `PanelType.renderer` matches every one (number ← metric/text, curve ← line/o2night/dual,
+pair ← band, column ← bars/days/delta, arc ← ring/gauge, stack ← split/fuel/balance, grid ←
+cells/heat/recomp, strip ← hypnogram/zones, trace ← wave, rows ← sparks/table/events/workout/meal).
+The two left out are the board's own special cases — battery (a ring-hero immediate readout) and
+food (`HERO=own`, its own skeleton, which the code also gives `HeroStyle.own`). Board 07, the one
+STATUS called least-verified, is now audited across all three of its contract tables.
+
 ## Running it
 
 ```sh

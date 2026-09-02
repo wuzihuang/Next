@@ -691,6 +691,35 @@ carrying database internals and the caller's key back out. It answers `E_SCHEMA 
 BAD_IDEMPOTENCY_KEY` now. Deliberately not minted silently: replacing a bad key with a fresh one
 turns a client's retry into a duplicate meal, which is the one thing the key exists to prevent.
 
+## Resume here when Paper answers
+
+The F-series is done — F0, F1, F2, F3, F4 and F6 have each been read rule by rule against the
+running app, and what failed is fixed. What the Paper outage cost is the *screen* boards: 01–13
+were verified by geometry, by arithmetic that closes across pages, and against the fragments of
+01, 04 and 00 that were read while the server was still up — but not against their own JSX and
+computed styles, which is how the earlier passes did it and the only way to catch a wrong colour
+token or a 2 px inset.
+
+In priority order, because they are the ones with the most unread spec behind them:
+
+1. **07** — twenty thousand points tall, 44 children, the render contract for all 24 types. The
+   DEBUG catalogue proves every type draws; it does not prove each draws what the board draws.
+2. **13** — the Body Battery model, and the board that wins the staleness conflict below. Its
+   nine-band table was never read directly.
+3. **06** and **05** — the two motion boards whose timings were checked in code but never against
+   the board's own frames.
+4. **08 / 09 / 10 / 11 / 12** — walked and arithmetically sound, spec-unread.
+5. **02 / 03** — walked end to end this pass; the five- and six-screen sequences match, but the
+   copy was not compared字对字.
+
+The one screen never seen running at all is **01's six-digit code entry**, and that needs an
+inbox rather than Paper: the OTP goes to `demo@nextbody.app`. Its five edge cases — wrong code,
+expired, rate limited, no network, provider cancelled — are all unverified.
+
+⚠️ And before anything else: `docs/prd/` is the F-series only. If the screen boards are ever
+mirrored there the way F0–F6 are, none of this depends on a design tool being awake again.
+That is the change that would have made this outage a non-event.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

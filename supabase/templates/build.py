@@ -24,39 +24,54 @@ FRAME = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
-<meta name="supported-color-schemes" content="dark">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
 <title>{subject}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Doto:wght@600;700&family=Inter+Tight:wght@800&family=Jost:wght@300;400;500&display=swap');
+  :root {{ color-scheme: light dark; supported-color-schemes: light dark; }}
   body {{ margin:0; padding:0; background-color:{carbon}; -webkit-text-size-adjust:100%; }}
   a {{ color:{lime}; text-decoration:none; }}
+  /* Dark-mode clients invert a mail to "make it dark". This one already is: pin every colour. */
+  @media (prefers-color-scheme: dark) {{
+    body, .nb-ground {{ background-color:{carbon} !important; background-image:linear-gradient({carbon},{carbon}) !important; }}
+    .nb-card {{ background-color:{card} !important; background-image:linear-gradient({card},{card}) !important; border-color:{hairline} !important; }}
+    .nb-code {{ background-color:{carbon} !important; background-image:linear-gradient({carbon},{carbon}) !important; color:{white} !important; }}
+    .nb-white {{ color:{white} !important; }}
+    .nb-text2 {{ color:{text2} !important; }}
+    .nb-text3 {{ color:{text3} !important; }}
+    .nb-pip {{ background-color:{lime} !important; background-image:linear-gradient({lime},{lime}) !important; }}
+  }}
+  [data-ogsc] .nb-white {{ color:{white} !important; }}
+  [data-ogsc] .nb-text2 {{ color:{text2} !important; }}
+  [data-ogsb] .nb-ground, [data-ogsb] .nb-code {{ background-color:{carbon} !important; }}
+  [data-ogsb] .nb-card {{ background-color:{card} !important; }}
 </style>
 </head>
-<body bgcolor="{carbon}" style="margin:0;padding:0;background-color:{carbon};">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{carbon}" style="background-color:{carbon};">
-  <tr><td align="center" bgcolor="{carbon}" style="background-color:{carbon};padding:40px 20px 48px;">
+<body class="nb-ground" bgcolor="{carbon}" style="margin:0;padding:0;background-color:{carbon};background-image:linear-gradient({carbon},{carbon});">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{carbon}" class="nb-ground" style="background-color:{carbon};background-image:linear-gradient({carbon},{carbon});">
+  <tr><td align="center" bgcolor="{carbon}" class="nb-ground" style="background-color:{carbon};background-image:linear-gradient({carbon},{carbon});padding:40px 20px 48px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:390px;">
 
       <!-- wordmark · the gate's own -->
       <tr><td style="padding:0 0 26px;">
-        <span style="font-family:{brand};font-size:26px;font-weight:800;letter-spacing:-0.045em;color:{white};line-height:1;">NEXTBODY</span><span style="display:inline-block;vertical-align:top;width:7px;height:7px;background-color:{lime};border-radius:2px;margin:3px 0 0 7px;line-height:7px;font-size:0;">&nbsp;</span>
+        <span class="nb-white" style="font-family:{brand};font-size:26px;font-weight:800;letter-spacing:-0.045em;color:{white};line-height:1;">NEXTBODY</span><span class="nb-pip" style="display:inline-block;vertical-align:top;width:7px;height:7px;background-color:{lime};background-image:linear-gradient({lime},{lime});border-radius:2px;margin:3px 0 0 7px;line-height:7px;font-size:0;">&nbsp;</span>
       </td></tr>
 
       <!-- card -->
-      <tr><td bgcolor="{card}" style="background-color:{card};border:1px solid {hairline};border-radius:18px;padding:26px 24px 24px;">
+      <tr><td bgcolor="{card}" class="nb-card" style="background-color:{card};background-image:linear-gradient({card},{card});border:1px solid {hairline};border-radius:18px;padding:26px 24px 24px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          <tr><td style="font-family:{dot};font-size:11px;font-weight:600;letter-spacing:0.26em;color:{text3};padding:0 0 18px;">{label}</td></tr>
-          <tr><td style="font-family:{ui};font-size:21px;font-weight:300;letter-spacing:0.02em;color:{white};line-height:1.3;padding:0 0 8px;">{headline}</td></tr>
-          <tr><td style="font-family:{ui};font-size:14px;font-weight:400;color:{text2};line-height:1.5;padding:0 0 22px;">{lede}</td></tr>
+          <tr><td class="nb-text3" style="font-family:{dot};font-size:11px;font-weight:600;letter-spacing:0.26em;color:{text3};padding:0 0 18px;">{label}</td></tr>
+          <tr><td class="nb-white" style="font-family:{ui};font-size:21px;font-weight:300;letter-spacing:0.02em;color:{white};line-height:1.3;padding:0 0 8px;">{headline}</td></tr>
+          <tr><td class="nb-text2" style="font-family:{ui};font-size:14px;font-weight:400;color:{text2};line-height:1.5;padding:0 0 22px;">{lede}</td></tr>
           {highlight}
-          <tr><td style="font-family:{ui};font-size:13px;font-weight:400;color:{text2};line-height:1.5;padding:18px 0 0;border-top:1px solid {hairline};">{note}</td></tr>
+          <tr><td class="nb-text2" style="font-family:{ui};font-size:13px;font-weight:400;color:{text2};line-height:1.5;padding:18px 0 0;border-top:1px solid {hairline};">{note}</td></tr>
         </table>
       </td></tr>
 
       <!-- footer -->
-      <tr><td style="font-family:{dot};font-size:10px;font-weight:600;letter-spacing:0.24em;color:{text3};padding:22px 0 0;">TRAIN · RECOVER · REPEAT</td></tr>
-      <tr><td style="font-family:{ui};font-size:12px;color:{text3};line-height:1.5;padding:8px 0 0;">{footer}</td></tr>
+      <tr><td class="nb-text3" style="font-family:{dot};font-size:10px;font-weight:600;letter-spacing:0.24em;color:{text3};padding:22px 0 0;">TRAIN · RECOVER · REPEAT</td></tr>
+      <tr><td class="nb-text3" style="font-family:{ui};font-size:12px;color:{text3};line-height:1.5;padding:8px 0 0;">{footer}</td></tr>
     </table>
   </td></tr>
 </table>
@@ -66,8 +81,8 @@ FRAME = """<!doctype html>
 
 def code(token: str) -> str:
     """The highlight: six digits, big, tracked — the one bright thing on the screen."""
-    return (f'<tr><td align="center" bgcolor="{CARBON}" style="background-color:{CARBON};border:1px solid {HAIRLINE};border-radius:14px;padding:22px 12px;">'
-            f'<span style="font-family:{DOT};font-size:38px;font-weight:700;letter-spacing:0.26em;color:{WHITE};line-height:1;">{token}</span>'
+    return (f'<tr><td align="center" bgcolor="{CARBON}" class="nb-code" style="background-color:{CARBON};background-image:linear-gradient({CARBON},{CARBON});border:1px solid {HAIRLINE};border-radius:14px;padding:22px 12px;">'
+            f'<span class="nb-white" style="font-family:{DOT};font-size:38px;font-weight:700;letter-spacing:0.26em;color:{WHITE};line-height:1;">{token}</span>'
             f'</td></tr>')
 
 IGNORE = "If you didn't ask for this, ignore it. Nobody can get in without the code."

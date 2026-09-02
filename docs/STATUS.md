@@ -1245,6 +1245,14 @@ programmatic cross-check found 0 hex mismatches and 0 tokens missing their board
 `--violet-1 #A78BFA`, `--state-alert-2 #EF4444`, `--thermal-1 #E84393`. The palette was ported
 token for token, not eyeballed.
 
+### The three fonts are the board's, bundled as real files
+The board's tokens name three families — `--font-ui Jost`, `--font-brand Inter Tight`, `--font-dot
+Doto` — and `Typography.swift` maps its three roles to exactly those (`ui = "Jost"`, `brand =
+"InterTight"`, `dot = "Doto"`). All three are bundled as actual TTFs (19 weight files in
+`UIAppFonts`: Doto ×6, InterTight ×7, Jost ×6), so the type is the board's type, not a system
+fallback; only the status-bar clock is deliberately SF. Colour and type — the two halves of the
+design-system foundation criterion 1 calls out — are both 1:1 with the board tokens.
+
 ## Running it
 
 ```sh

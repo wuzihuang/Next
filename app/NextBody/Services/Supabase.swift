@@ -298,6 +298,31 @@ actor SupabaseClient {
         }
     }
 
+    /// A multipart POST to an Edge Function. `asr` is the only endpoint that takes a file,
+    /// and it wants the clip under the field name `audio`.
+    func uploadFunction(_ name: String, fileURL: URL,
+                        field: String, filename: String, mime: String) async throws -> [String: Any] {
+        let boundary = "nb-\(UUID().uuidString)"
+        var body = Data()
+        func append(_ s: String) { body.append(Data(s.utf8)) }
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"\(field)\"; filename=\"\(filename)\"\r\n")
+        append("Content-Type: \(mime)\r\n\r\n")
+        body.append(try Data(contentsOf: fileURL))
+        append("\r\n--\(boundary)--\r\n")
+
+        var r = try request(name, method: "POST", body: body, isFunction: true)
+        // request() sets JSON; multipart has to say its own boundary or the far side sees one
+        // undifferentiated blob and answers E_SCHEMA.
+        r.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let (out, resp) = try await session.data(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: out, encoding: .utf8) ?? "")
+        }
+        return (try? JSONSerialization.jsonObject(with: out) as? [String: Any]) ?? [:]
+    }
+
     /// Streams an Edge Function's SSE response line by line.
     /// nonisolated because the stream is consumed on the caller's side: the actor's job is
     /// to build the request, not to hold the connection open for the length of a turn.

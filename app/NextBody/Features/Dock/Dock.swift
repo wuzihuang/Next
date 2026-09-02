@@ -12,6 +12,10 @@ struct Dock: View {
     var onSend: (String) -> Void
     var onCamera: () -> Void
     var onPlus: () -> Void
+    /// 05 · the middle key's two edges. The dock does not own the microphone — it reports the
+    /// press and lets the caller decide whether listening actually began.
+    var onListen: () -> Void
+    var onStopListening: () -> Void
 
     @FocusState private var focused: Bool
 
@@ -54,7 +58,9 @@ struct Dock: View {
         switch mode {
         case .idle:
             Button {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { mode = .listening }
+                // The mode change is the caller's to make: it flips to .listening only once the
+                // microphone is actually running, so the wave never plays over a dead mic.
+                onListen()
             } label: {
                 ZStack {
                     Capsule().fill(NB.lime1)
@@ -67,9 +73,7 @@ struct Dock: View {
             .accessibilityLabel("说话")
 
         case .listening:
-            Button {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { mode = .idle }
-            } label: {
+            Button { onStopListening() } label: {
                 ZStack {
                     Capsule().fill(NB.lime1)
                     ListeningWave()

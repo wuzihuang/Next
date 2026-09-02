@@ -78,7 +78,9 @@ struct HomeView: View {
                 Dock(mode: $dockMode, draft: $draft,
                      onSend: handleSend,
                      onCamera: { router.sheet = .plusMenu },
-                     onPlus: { router.sheet = .plusMenu })
+                     onPlus: { router.sheet = .plusMenu },
+                     onListen: beginListening,
+                     onStopListening: endListening)
                     .offset(y: -keyboard.height)
                     .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
                     .transition(.opacity)
@@ -105,6 +107,34 @@ struct HomeView: View {
         }
         .offset(x: full ? 0 : NB.Layout.gutter,
                 y: full ? 0 : Chrome.statusBarBlock + 12 + 30 + 12)
+    }
+
+    /// 05 · the wave only plays once the microphone is running. If the permission is refused or
+    /// the recorder will not start, the dock stays idle rather than animating over nothing —
+    /// which is what it did before there was a recorder at all.
+    private func beginListening() {
+        Task {
+            guard await SpeechCapture.shared.start() else { return }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .listening }
+        }
+    }
+
+    /// The tap that ends listening is also the send. There is no separate confirm step: the
+    /// board gives the key one job, and a second press to approve what you just said would be
+    /// asking a question already answered.
+    private func endListening() {
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .idle }
+        guard let clip = SpeechCapture.shared.stop() else { return }
+        withAnimation { widget = .thinking }
+        Task {
+            guard let said = await ai.transcribe(clip) else {
+                // 「DIDN'T CATCH THAT」 · nothing was heard, so nothing is asserted. The panel
+                // goes back to what it was showing rather than reporting a failure.
+                withAnimation { widget = nil }
+                return
+            }
+            handleSend(said)
+        }
     }
 
     private func handleSend(_ text: String) {

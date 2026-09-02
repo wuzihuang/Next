@@ -101,6 +101,26 @@ final class AIService: ObservableObject {
         return offlineFrame(entry.text)
     }
 
+    /// 05 · speech in, one sentence out. The clip goes to `asr` and is deleted the moment the
+    /// transcript is back; nothing about the audio outlives the turn.
+    ///
+    /// `NO_SPEECH` is not an error to apologise for — the board's word for it is
+    /// 「DIDN'T CATCH THAT」 and the dock simply returns to idle. Silence and a refusal look the
+    /// same from here on purpose: both mean there is nothing to say yet.
+    func transcribe(_ clip: URL) async -> String? {
+        defer { try? FileManager.default.removeItem(at: clip) }
+        do {
+            let out = try await SupabaseClient.shared.uploadFunction(
+                "asr", fileURL: clip, field: "audio", filename: "clip.m4a", mime: "audio/m4a")
+            if out["error"] != nil { return nil }
+            let text = (out["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (text?.isEmpty == false) ? text : nil
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     // MARK: envelope decoding
 
     func widget(from env: [String: Any]) -> PanelWidget? {

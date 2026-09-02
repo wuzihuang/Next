@@ -656,8 +656,24 @@ and it is now treated as one. `durationMs` and `confidence` are returned as `nul
 invented: writing 1.0 would read as certain on every clip, and S4's absence law binds our own
 metadata too. Both stay null until a provider that reports them is chosen.
 
-Worth knowing separately: nothing in the app calls `asr` yet. The dock's listening state animates
-but records nothing, so the voice path is server-only either way.
+**The dock's voice key is wired now.** Nothing in the app called `asr`: the middle key toggled a
+colour, `ListeningWave` animated, and the tap that ended it discarded everything. The permission
+string was already in the plist — 「Talk to NextBody instead of typing.」 — declared and unused.
+
+`SpeechCapture` records 16 kHz mono AAC while the key is lit, `SupabaseClient.uploadFunction`
+posts it as multipart, and `AIService.transcribe` deletes the clip the moment the transcript is
+back. The transcript goes through `handleSend`, so it passes the same two guards a typed sentence
+does — the medical stop, and the question test that keeps 「今天吃了多少」 out of the meals table.
+`NO_SPEECH` is not an error: the panel returns to what it was showing, which is the board's
+「DIDN'T CATCH THAT」.
+
+⚠️ Two things this cost, both found by running it. The simulator has no working audio input here —
+CoreAudio answers `0x10004003` and fires `kAudioDevicePropertyIOStoppedAbnormally` — so the
+capture itself is proven only as far as "the recorder was constructed and asked to start". And
+`AVAudioRecorder.record()` returns a `Bool` that the first version of this ignored, which meant
+the wave lit over a microphone that had refused to open: the exact bug the file was written to
+prevent, reproduced inside the fix for it. It is checked now, and a false is treated like a
+refused permission — stay idle.
 
 ⚠️ Found while testing, and fixed: `client_op_id` is a uuid column, so a malformed
 `Idempotency-Key` came back as Postgres's own `invalid input syntax for type uuid: "…"` — a 400

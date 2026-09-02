@@ -90,6 +90,8 @@ final class AIService: ObservableObject {
             ])
             if let kcal = numberOf(out["kcal"]) {
                 store.updateMeal(entry.id, kcal: kcal, text: out["name"] as? String ?? entry.text)
+                store.applyMacros(entry.id, protein: Int(numberOf(out["protein_g"]) ?? 0),
+                                  carb: Int(numberOf(out["carb_g"]) ?? 0), fat: Int(numberOf(out["fat_g"]) ?? 0))
                 return loggedFrame(name: out["name"] as? String ?? entry.text, kcal: kcal, store: store)
             }
         } catch {
@@ -99,6 +101,45 @@ final class AIService: ObservableObject {
             lastError = error.localizedDescription
         }
         return offlineFrame(entry.text)
+    }
+
+    /// 05 · C · a plate and a caption go as one message. The photo never lands on the page: it
+    /// comes back as the source chip on the answer. The meal is logged the way a typed one is.
+    func photoMeal(image: UIImage, dataURL: String, caption: String, slot: MealEntry.Slot,
+                   into store: DataStore) async -> PanelWidget? {
+        let entry = MealEntry(id: UUID(), day: UserDay.containing(Date()), at: Date(), slot: slot,
+                              status: .confirmed, text: caption, kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
+        do {
+            let out = try await SupabaseClient.shared.callFunction("meal", payload: [
+                "text": caption, "slot": slot.rawValue, "locale": "zh-CN", "image": dataURL,
+            ])
+            guard let kcal = numberOf(out["kcal"]) else { lastError = "\(out["error"] ?? "MODEL_UNAVAILABLE")"; return nil }
+            let name = out["name"] as? String ?? caption
+            let protein = Int(numberOf(out["protein_g"]) ?? 0)
+            store.logMeal(entry)
+            store.updateMeal(entry.id, kcal: kcal, text: name)
+            store.applyMacros(entry.id, protein: protein,
+                              carb: Int(numberOf(out["carb_g"]) ?? 0), fat: Int(numberOf(out["fat_g"]) ?? 0))
+            let target = store.today.protein?.target ?? 0
+            let eaten = store.today.protein?.eaten ?? protein
+            let left = max(0, target - eaten)
+            let pulled = target > 0
+                ? "Pulled from photo — PRO \(eaten)/\(target) g · \(left) g still to place"
+                : "Pulled from photo — \(protein) g protein · \(Fmt.kcal(kcal)) kcal"
+            let footer = target > 0
+                ? (left == 0 ? "PROTEIN IS CLOSED FOR TODAY" : "\(left) G STILL TO PLACE")
+                : "\(Fmt.kcal(kcal)) KCAL ON THE PLATE"
+            return PanelWidget(
+                type: .meal, title: "FROM YOUR PHOTO", tag: .fuel,
+                sentence: (out["answer"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "\(protein) g protein on that plate.",
+                footer: footer, action: nil, targetOverride: .fuel,
+                data: .rows([.init(label: name, value: Fmt.kcal(kcal))]),
+                photo: PhotoAnswer(thumbnail: image, chip: "IMG · PLATE · PARSED OK", quote: caption,
+                                   pulled: pulled, logged: "LOGGED TO TODAY'S FUEL"))
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
     }
 
     /// 05 · speech in, one sentence out. The clip goes to `asr` and is deleted the moment the

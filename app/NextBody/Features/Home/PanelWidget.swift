@@ -110,6 +110,10 @@ struct PanelWidget: Identifiable, Hashable {
     /// carries its own answer.
     var targetOverride: Destination?
     var data: PanelData
+    /// 05 · C·07 · the photo track's answer carries two optional blocks the other tracks do not:
+    /// the source chip at the top (the thumbnail and `IMG · PLATE · PARSED OK`) and the
+    /// 「已记入今天的 fuel」 line at the bottom. Optional blocks of one template, not a second screen.
+    var photo: PhotoAnswer?
     var ttlMinutes: Int = 20
     var priority: Priority = .normal
 
@@ -192,6 +196,9 @@ struct PanelWidgetView: View {
         ZStack(alignment: .topLeading) {
             Color.clear
 
+            if let photo = widget.photo {
+                photoCanvas(photo)
+            } else {
             // Slot 1 · title
             Text(widget.title.uppercased())
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
@@ -237,12 +244,94 @@ struct PanelWidgetView: View {
                     .offset(y: Slot.actionY)
             }
 
+            }
+
             // ALERT is the fourth and last layer of the stack; nothing draws above it.
             if widget.priority == .alert {
                 Color(hex: 0xEF4444, opacity: 0.12).allowsHitTesting(false)
             }
         }
         .frame(width: 358, height: 470, alignment: .topLeading)
+    }
+
+    // MARK: 05 · C·07 · FROM YOUR PHOTO
+
+    /// The same 358 × 470 canvas as A·08 / B·07, plus the source chip and the logged line.
+    @ViewBuilder private func photoCanvas(_ photo: PhotoAnswer) -> some View {
+        Text("FROM YOUR PHOTO")
+            .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+            .foregroundStyle(NB.white.opacity(0.70))
+            .offset(x: Slot.safeX, y: Slot.topY)
+        Text("PHOTO + TEXT")
+            .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+            .foregroundStyle(NB.white.opacity(0.40))
+            .frame(width: 358 - Slot.safeX * 2, alignment: .trailing)
+            .offset(x: Slot.safeX, y: Slot.topY)
+        // the source chip · 310 × 42 at y44
+        HStack(spacing: 12) {
+            Group {
+                if let t = photo.thumbnail {
+                    Image(uiImage: t).resizable().scaledToFill()
+                } else {
+                    RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0x2A2A32))
+                }
+            }
+            .frame(width: 18, height: 18).clipShape(RoundedRectangle(cornerRadius: 4))
+            Text(photo.chip)
+                .font(NBFont.dot(600, 10.5)).tracking(0.14 * 10.5)
+                .foregroundStyle(NB.white.opacity(0.55))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .frame(width: 310, height: 42)
+        .background(Color(hex: 0x101014), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(NB.white.opacity(0.13), lineWidth: 1.5))
+        .offset(x: 24, y: 44)
+        // the caption, said back
+        Text("\"\(photo.quote.uppercased())\"")
+            .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
+            .foregroundStyle(NB.white.opacity(0.55))
+            .frame(width: 358, alignment: .center)
+            .offset(y: 118)
+        Text(widget.sentence)
+            .font(NBFont.brand(500, 22)).lineSpacing(9)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(NB.white)
+            .frame(width: 286, alignment: .center)
+            .offset(x: 36, y: 174)
+        if let footer = widget.footer {
+            Text(footer.uppercased())
+                .font(NBFont.dot(700, 13)).tracking(0.18 * 13)
+                .foregroundStyle(NB.lime1)
+                .frame(width: 358, alignment: .center)
+                .offset(y: 246)
+        }
+        // two pills at y318 · the plate is already logged; the second opens fuel
+        HStack(spacing: 14) {
+            Text("LOG THE PLATE")
+                .font(NBFont.dot(600, 10)).tracking(0.14 * 10)
+                .foregroundStyle(NB.lime1)
+                .frame(width: 120, height: 40)
+                .overlay(Capsule().stroke(NB.lime1.opacity(0.6), lineWidth: 2.5))
+            Text("SHOW FUEL")
+                .font(NBFont.dot(600, 10)).tracking(0.14 * 10)
+                .foregroundStyle(NB.white.opacity(0.55))
+                .frame(width: 120, height: 40)
+                .overlay(Capsule().stroke(NB.white.opacity(0.30), lineWidth: 2))
+        }
+        .frame(width: 358)
+        .offset(y: 318)
+        Rectangle().fill(Color(hex: 0x24242C)).frame(width: 310, height: 2).offset(x: 24, y: 381)
+        Text(photo.pulled)
+            .font(NBFont.brand(400, 11.5))
+            .foregroundStyle(NB.white.opacity(0.50))
+            .frame(width: 358, alignment: .center)
+            .offset(y: 398)
+        Text(photo.logged)
+            .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+            .foregroundStyle(NB.white.opacity(0.35))
+            .frame(width: 358, alignment: .center)
+            .offset(y: 428)
     }
 
     // MARK: hero
@@ -365,4 +454,16 @@ struct PanelWidgetView: View {
         .offset(x: widget.type.renderer == .arc ? Slot.heroRing.minX : Slot.safeX,
                 y: widget.type.renderer == .arc ? Slot.heroRing.minY : Slot.chartY)
     }
+}
+
+
+/// 05 · C·07 · what the photo answer adds to the panel.
+struct PhotoAnswer: Hashable {
+    var thumbnail: UIImage?
+    var chip: String            // IMG · PLATE · PARSED OK
+    var quote: String           // the caption, said back in Doto
+    var pulled: String          // Pulled from photo — PRO 84/145 g · 61 g still to place
+    var logged: String          // LOGGED TO TODAY'S FUEL
+    static func == (a: PhotoAnswer, b: PhotoAnswer) -> Bool { a.chip == b.chip && a.quote == b.quote && a.pulled == b.pulled }
+    func hash(into h: inout Hasher) { h.combine(chip); h.combine(quote) }
 }

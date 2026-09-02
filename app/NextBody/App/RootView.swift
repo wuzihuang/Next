@@ -14,6 +14,8 @@ struct RootView: View {
             }
         }
         .carbonPage()
+        // 05 · A · the keyboard is the dock's business alone; the page never shrinks for it.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         // F5 C11 · 「maxFontSizeMultiplier = 1.35，允许到 xLarge；再大冻结在 1.35」. Fixed-pixel layouts
         // are the honest compromise the board names: the largest accessibility sizes are not
         // pretended to, but nothing clips at any size that is honoured.
@@ -45,6 +47,9 @@ struct RootView: View {
                 }
         }
         .toolbar(.hidden, for: .navigationBar)
+        // 05 · A · the keyboard moves the dock and nothing else. Without this the stack itself
+        // slid the whole home screen up under the status bar.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 }
 

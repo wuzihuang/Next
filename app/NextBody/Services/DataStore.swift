@@ -165,6 +165,16 @@ final class DataStore: ObservableObject {
         if let eIn = today.eIn, let out = today.eOutNow { today.balance = eIn - out }
         let slots = Set(confirmed.map(\.slot)).count
         today.fuelState = confirmed.isEmpty ? .unlogged : (slots >= 4 ? .confirmed : .partial(slots: slots))
+        // The macro rows are the day's own meals added up (same rule as Repository.load):
+        // a plate logged just now moves the tile the same instant, not on the next reload.
+        if !confirmed.isEmpty {
+            let p = confirmed.reduce(0) { $0 + $1.protein }
+            let c = confirmed.reduce(0) { $0 + $1.carb }
+            let f = confirmed.reduce(0) { $0 + $1.fat }
+            today.protein = today.protein.map { MacroSlot(target: $0.target, eaten: p) }
+            today.carb    = today.carb.map    { MacroSlot(target: $0.target, eaten: c) }
+            today.fat     = today.fat.map     { MacroSlot(target: $0.target, eaten: f) }
+        }
         objectWillChange.send()
     }
 

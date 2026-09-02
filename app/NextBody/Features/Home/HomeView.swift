@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// 04 · THE ROOT. The only root in the product; every detail page returns here.
 struct HomeView: View {
@@ -13,6 +14,17 @@ struct HomeView: View {
     @State private var draft = ""
     /// 05 edges · what the dock is saying instead of listening.
     @State private var dockNote: DockNote?
+    @State private var rootShift: CGFloat = 0
+    /// 05 · C · the photo waits for the caption; they leave as one message.
+    @State private var photoItem: PhotosPickerItem?
+    @State private var attachment: Attachment?
+    struct Attachment: Equatable {
+        var image: UIImage
+        var dataURL: String
+        var progress: Double      // 0…1 · 100 % is the only completion signal
+        var failed = false
+        static func == (a: Attachment, b: Attachment) -> Bool { a.dataURL == b.dataURL && a.progress == b.progress && a.failed == b.failed }
+    }
     @ObservedObject private var reachability = Reachability.shared
     @State private var widget: PanelWidget?
 
@@ -21,14 +33,36 @@ struct HomeView: View {
         // folds to 358 × 470 at ◇7. Everything else is laid out around the space it leaves.
         ZStack(alignment: .topLeading) {
             page
+                // 05 · A · with the keyboard up the dock rides over the panel's foot, so the page
+                // draws above the panel for exactly as long as the keyboard is there.
+                .zIndex(keyboard.height > 0 ? 2 : 0)
             panel
+                // C01 · the panel dims behind the field while typing.
+                .overlay(Color(hex: 0x09090B).opacity(keyboard.height > 0 ? 0.55 : 0).allowsHitTesting(false))
         }
+        // 05 · A·04 · 「键盘升起，版式一格都不动」. ⚠️ Inside the navigation stack the keyboard
+        // still re-proposed this view 119 pt taller and 119 pt higher, whatever safe-area
+        // modifier sat above it; every ignoresSafeArea(.keyboard) placement was tried. So the
+        // page reads where the container put it and puts itself back: only the dock moves.
+        .offset(y: -rootShift)
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { rootShift = g.frame(in: .global).minY }
+                .onChange(of: g.frame(in: .global).minY) { _, y in rootShift = y }
+        })
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .carbonPage()
         .ignoresSafeArea(.container, edges: .vertical)
         // 05 · A·04 · the keyboard rises with the screen and the layout does not move a pixel.
         // The dock rides up on top of the keyboard; nothing else shifts.
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        // 05 · C01 · the picker is presented from the page, not from inside the dock: a presenter
+        // inside the offset dock pulled the whole page up under the keyboard.
+        .photosPicker(isPresented: $showPicker, selection: $photoItem, matching: .images)
+        .onChange(of: photoItem) { _, item in
+            guard item != nil else { return }
+            Task { await attach(retry: false) }
+        }
         .statusBarHidden(firstRun.statusBarHidden)
         // Any tap at all lands on ◇11 — there is no "skip?" to answer.
         .contentShape(Rectangle())
@@ -98,19 +132,35 @@ struct HomeView: View {
             // ◇10 · the three keys land together: it is one tool, not three.
             // ⚠️ Before that the dock is simply not there — never a greyed-out disabled state.
             if firstRun.dockVisible {
-                Dock(mode: $dockMode, note: dockNote, draft: $draft,
+                Dock(mode: $dockMode, note: dockNote, attachmentReady: attachment.map { $0.progress >= 1 && !$0.failed },
+                     draft: $draft,
                      onSend: handleSend,
-                     onCamera: { router.sheet = .plusMenu },
+                     onCamera: { showPicker = true },
                      onPlus: { router.sheet = .plusMenu },
                      onListen: beginListening,
                      onStopListening: endListening)
-                    .offset(y: -keyboard.height)
-                    .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
-                    .transition(.opacity)
+                    // 05 · C02–C04 · the tray hangs above the field: 100 × 100, radius 16, no card and
+                    // no background — it reads as "attached to this message", not as a message.
+                    .overlay(alignment: .topLeading) {
+                        if let a = attachment {
+                            PhotoTray(attachment: a,
+                                      onRetry: { Task { await attach(retry: true) } },
+                                      onRemove: { withAnimation { attachment = nil; dockNote = nil } })
+                                .offset(x: 0, y: -116)
+                                .transition(.scale(scale: 0.94).combined(with: .opacity))
+                        }
+                    }
                     // 05 edges · the sentence and its one key sit above the dock; the slots never move.
                     .overlay(alignment: .top) {
                         if let dockNote {
                             VStack(spacing: 10) {
+                                // While typing the centre slot is the field, so the amber line
+                                // (`UPLOAD FAILED`) stands above the sentence instead.
+                                if dockMode != .idle {
+                                    Text(dockNote.line)
+                                        .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
+                                        .foregroundStyle(NB.ember1.opacity(0.85))
+                                }
                                 Text(dockNote.text)
                                     .font(NBFont.brand(400, 13.5)).lineSpacing(4)
                                     .multilineTextAlignment(.center)
@@ -129,10 +179,17 @@ struct HomeView: View {
                                     .buttonStyle(.plain)
                                 }
                             }
-                            .offset(y: dockNote.action == nil ? -52 : -104)
+                            // above the tray when a photo is attached (05 · C edge 4)
+                            .offset(y: (dockNote.action == nil ? -52 : -104) - (attachment == nil ? 0 : 118))
                             .transition(.opacity)
                         }
                     }
+                    // The keyboard lift comes last so the tray and the note ride with the dock
+                    // (an overlay added after `.offset` would stay at the unlifted frame).
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
+                    .offset(y: -keyboard.height)
+                    .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
+                    .transition(.opacity)
             } else {
                 Color.clear.frame(height: NB.Layout.dockHeight)
             }
@@ -140,6 +197,9 @@ struct HomeView: View {
             HomeIndicator().opacity(firstRun.indicatorVisible ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // 05 · A·04 · the container that holds the field is the one the keyboard would push;
+        // it ignores the keyboard so only the dock's own offset moves.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     /// ⚠️ One view, animating frame and cornerRadius. Two views cross-fading would show a
@@ -176,6 +236,42 @@ struct HomeView: View {
             }
             guard await SpeechCapture.shared.start() else { return }
             withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .listening }
+        }
+    }
+
+    @State private var showPicker = false
+
+    /// 05 · C02 → C04 · the thumbnail lands, the progress is drawn on the photo itself, and
+    /// 100 % is the only completion signal. ⚠️ There is no storage bucket in this build: the
+    /// bytes travel with the message, so "upload" is the read-and-resize that makes them ready.
+    private func attach(retry: Bool) async {
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { dockNote = nil }
+        if !retry { attachment = nil }
+        do {
+            guard let item = photoItem, let data = try await item.loadTransferable(type: Data.self),
+                  let raw = UIImage(data: data) else { throw CocoaError(.fileReadCorruptFile) }
+            let image = raw.nb_resized(maxSide: 1024)
+            guard let jpeg = image.jpegData(compressionQuality: 0.72) else { throw CocoaError(.fileWriteUnknown) }
+            if DebugEdge.on("uploadfailed") { throw CocoaError(.fileWriteUnknown) }
+            var a = Attachment(image: image, dataURL: "data:image/jpeg;base64," + jpeg.base64EncodedString(), progress: 0)
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { attachment = a }
+            // the bar and the percentage climb on the photo; the field stays typeable throughout
+            for step in 1...10 {
+                try? await Task.sleep(for: .milliseconds(60))
+                a.progress = Double(step) / 10
+                attachment = a
+            }
+            await Analytics.shared.track("PHOTO_ATTACH", [:])
+            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 600, "BYTES": jpeg.count, "OK": true])
+            if dockMode != .keyboard { withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { dockMode = .keyboard } }
+        } catch {
+            // 05 edge 4 · UPLOAD FAILED. The caption stays, the send stays dark, the photo says so.
+            if var a = attachment { a.failed = true; attachment = a }
+            else if let raw = photoItem, let d = try? await raw.loadTransferable(type: Data.self), let img = UIImage(data: d) {
+                attachment = Attachment(image: img, dataURL: "", progress: 0, failed: true)
+            }
+            note(DockNote(line: "UPLOAD FAILED", text: "Tap the photo to retry, or remove it."))
+            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": 0, "OK": false])
         }
     }
 
@@ -239,6 +335,24 @@ struct HomeView: View {
         let day = UserDay.containing(Date())
         withAnimation { widget = .thinking }
 
+        // 05 · C05 → C07 · photo and caption leave as one object and come back as one answer
+        // with the source chip. The plate is logged to today's fuel on the way.
+        if let a = attachment, a.progress >= 1, !a.failed {
+            let sent = a
+            withAnimation(.spring(response: 0.26, dampingFraction: 0.74)) { attachment = nil }
+            photoItem = nil
+            Task {
+                if MedicalStop.matches(text) { withAnimation { widget = MedicalStop.frame }; return }
+                let frame = await ai.photoMeal(image: sent.image, dataURL: sent.dataURL, caption: text,
+                                               slot: slotForNow(), into: data)
+                await Analytics.shared.track("MSG_SEND", ["TYPE": "PHOTO", "CHARS": text.count, "HAS_PHOTO": true])
+                withAnimation { widget = frame ?? PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
+                                                              sentence: "这张盘子没读出来。字先留着，再发一次。",
+                                                              footer: String(text.prefix(42)), action: nil, data: .none) }
+            }
+            return
+        }
+
         Task {
             // S7 · the stop runs before the classifier, not after it. 吃药 contains 吃, so a
             // question about medication otherwise routes to the meal path — and that path
@@ -294,5 +408,68 @@ struct HomeView: View {
         case 15..<21: return .dinner
         default: return .snack
         }
+    }
+}
+
+
+// MARK: 05 · C · the photo tray
+
+/// 100 × 100, radius 16: the lime bar and the Doto percentage sit on the photo itself with a
+/// dimming mask, and the × at the corner removes it. Failed = amber border, the reason under the dock.
+private struct PhotoTray: View {
+    let attachment: HomeView.Attachment
+    let onRetry: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Button(action: { if attachment.failed { onRetry() } }) {
+                ZStack(alignment: .bottomLeading) {
+                    Image(uiImage: attachment.image).resizable().scaledToFill()
+                        .frame(width: 100, height: 100).clipped()
+                    if attachment.progress < 1 && !attachment.failed {
+                        Color(hex: 0x0B0B0D).opacity(0.46)
+                        Text("\(Int(attachment.progress * 100))%")
+                            .font(NBFont.dot(600, 15)).tracking(0.06 * 15)
+                            .foregroundStyle(NB.white.opacity(0.82))
+                            .frame(width: 100, height: 100)
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(NB.white.opacity(0.16)).frame(width: 80, height: 3)
+                            Capsule().fill(NB.lime1).frame(width: max(6, 80 * attachment.progress), height: 3)
+                        }
+                        .offset(x: 10, y: -10)
+                    }
+                }
+                .frame(width: 100, height: 100)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(attachment.failed ? NB.ember1.opacity(0.9) : NB.white.opacity(0.10), lineWidth: attachment.failed ? 1.5 : 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(attachment.failed ? "Photo · upload failed · tap to retry" : "Photo · \(Int(attachment.progress * 100)) percent")
+
+            Button(action: onRemove) {
+                ZStack {
+                    Circle().fill(NB.carbon)
+                    Circle().stroke(NB.white.opacity(0.26), lineWidth: 1)
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(NB.white.opacity(0.72))
+                }
+                .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .offset(x: 12, y: -12)
+            .accessibilityLabel("Remove photo")
+        }
+        .frame(width: 100, height: 100)
+    }
+}
+
+extension UIImage {
+    /// The bytes travel with the message, so the plate is sent at 1024 px on its long side.
+    func nb_resized(maxSide: CGFloat) -> UIImage {
+        let scale = min(1, maxSide / max(size.width, size.height))
+        guard scale < 1 else { return self }
+        let target = CGSize(width: size.width * scale, height: size.height * scale)
+        return UIGraphicsImageRenderer(size: target).image { _ in draw(in: CGRect(origin: .zero, size: target)) }
     }
 }

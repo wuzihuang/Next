@@ -1010,6 +1010,38 @@ silently rolled-back write (capacity is only learnt from the refusal); and a win
 firmware will not let you change (`isSlotModify` / `isIntervalModify`) is simply not drawn, never a
 read-only grey chip. Rows with both editable say `WINDOW AND INTERVAL, BOTH YOURS` in lime.
 
+## Phase 7 · board 05 track C, photo + text, built end to end
+
+### What was built
+The camera key lives in the field (C01): tapping it opens the system photo picker, nothing else
+moves. The picked image is resized to 1024 px and JPEG'd at 0.72 on the client, then shown in a
+100 × 100, radius-16 tray hanging above the field with its own progress bar and percentage (C02–C04);
+the caption stays typeable throughout and the send key lights only at 100 % and ≥ 1 character
+(rule 06). Sending goes to `meal` with the caption and the image as a data URL — there is no storage
+bucket yet, the bytes travel with the message (≤ 2.8 MB, `IMAGE_TOO_LARGE` otherwise). The answer
+renders C07: `FROM YOUR PHOTO` / `PHOTO + TEXT`, the source chip `IMG · PLATE · PARSED OK` with the
+thumbnail, the quoted caption, the one sentence, the lime "n G STILL TO PLACE" footer, `LOG THE PLATE` /
+`SHOW FUEL`, the pulled line and `LOGGED TO TODAY'S FUEL`. The plate is logged as a meal row and its
+macros move the CALORIES tile the same instant (the tile is the day's meal rows added up, the same
+rule Repository.load uses; before this the tile only moved on the next reload).
+
+Edge 4, UPLOAD FAILED (`NB_DEBUG_EDGE=uploadfailed`): the thumbnail gets an amber border, the caption
+stays, send stays dark, `UPLOAD FAILED` in amber Doto and "Tap the photo to retry, or remove it."
+stand above the tray. Tapping the photo retries; × removes it.
+
+### Walked on the simulator
+Keyboard up → camera key → picker → plate → tray at 100 % → caption → send lime → answer in ~12 s
+with the chip, quote, sentence, footer, pills and pulled line all present; CALORIES tile consistent
+with the pulled line. Upload-failed edge walked the same way. Two layout bugs were found and fixed
+on the way: in keyboard mode the whole page was being re-proposed 929 pt tall at y −119 inside the
+NavigationStack (the root now cancels that shift), and the tray was hanging at the dock's *unlifted*
+frame because the overlay was added after the keyboard `.offset` (the lift now comes last).
+
+⚠️ Vision goes through `qwen3-vl-flash` (`VISION_MODEL_VERSION = qwen3-vl-flash/2026-09`), not the
+mandated qwen3.8-flash — that model has no image input. `qwen-vl-plus` looped on the JSON schema;
+the flash model answers a relaxed schema which the function coerces to integers and a tier.
+Photo retry policy is still the board's open question; the client retries once per tap.
+
 ## Running it
 
 ```sh

@@ -11,6 +11,8 @@ struct Dock: View {
     /// 05 edges · the centre capsule says what can be done now, in an amber outline; the three
     /// slots do not move, nothing pops, nothing toasts.
     var note: DockNote? = nil
+    /// 05 rule 06 · with a photo attached the send key lights only at 100 % and ≥ 1 character.
+    var attachmentReady: Bool? = nil
     @Binding var draft: String
     var onSend: (String) -> Void
     var onCamera: () -> Void
@@ -39,16 +41,17 @@ struct Dock: View {
             // the camera is only one of the five things behind it, and naming the entry
             // after one item hides the other four. Composing turns it into send.
             if mode == .keyboard {
+                let armed = !draft.trimmingCharacters(in: .whitespaces).isEmpty && (attachmentReady ?? true)
                 Button(action: send) {
                     ZStack {
-                        Circle().fill(draft.isEmpty ? NB.carbon4 : NB.lime1)
-                        if draft.isEmpty { Circle().stroke(NB.hairline, lineWidth: 1) }
-                        SendArrow(tint: draft.isEmpty ? NB.white.opacity(0.3) : NB.carbon)
+                        Circle().fill(armed ? NB.lime1 : NB.carbon4)
+                        if !armed { Circle().stroke(NB.hairline, lineWidth: 1) }
+                        SendArrow(tint: armed ? NB.carbon : NB.white.opacity(0.3))
                     }
                     .frame(width: NB.Layout.dockSideButton, height: NB.Layout.dockSideButton)
                 }
                 .buttonStyle(.plain)
-                .disabled(draft.isEmpty)
+                .disabled(!armed)
                 .transition(.scale.combined(with: .opacity))
             } else {
                 DockCircleButton(action: onPlus) { PlusGlyph() }
@@ -117,8 +120,11 @@ struct Dock: View {
                     .tint(NB.lime1)
                     .submitLabel(.send)
                     .onSubmit { send() }
+                // 05 · C01 · the camera lives in the field, not the right slot: in keyboard mode the
+                // right slot belongs to send. Tapping it only opens the picker; nothing moves.
                 Button(action: onCamera) { CameraGlyph() }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Add a photo")
             }
             .padding(.leading, 18)
             .padding(.trailing, 14)

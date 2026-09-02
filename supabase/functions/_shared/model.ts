@@ -27,3 +27,17 @@ export function model() {
 }
 
 export const MODEL_VERSION = "qwen3.8-flash/2026-09";
+
+/// 05 · C · a plate arrives as a photo. qwen3.8-flash reads text only, so the photo track goes
+/// to the same family's vision model on the same endpoint (qwen-vl-plus looped on JSON;
+/// qwen3-vl-flash answers cleanly in ~3 s). ⚠️ Not the mandated model — the nearest one that
+/// can see; recorded in STATUS as a decision to confirm.
+export function visionModel() {
+  const dashscope = createOpenAICompatible({
+    name: "dashscope",
+    baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiKey: Deno.env.get("DASHSCOPE_API_KEY")!,
+  });
+  return dashscope("qwen3-vl-flash");
+}
+export const VISION_MODEL_VERSION = "qwen3-vl-flash/2026-09";

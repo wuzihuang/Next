@@ -8,6 +8,7 @@ struct CompositionDetailView: View {
 
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
+    @ObservedObject private var queue = WeighInQueue.shared
 
     @State private var range = "DAY"
     @State private var day: UserDay = UserDay.containing(Date())
@@ -426,16 +427,22 @@ struct CompositionDetailView: View {
     /// number came from.
     private var weighInCard: some View {
         CardBlock(title: "WEIGH-IN",
-                  trailing: frozen ? "LAST READ \(lastReadLabel)" : spike ? "OUTLIER · KEPT" : sourceLine,
+                  trailing: notSynced ? "SAVED · NOT SYNCED" : frozen ? "LAST READ \(lastReadLabel)" : spike ? "OUTLIER · KEPT" : sourceLine,
                   trailingIsDot: true,
-                  trailingTint: (frozen || spike) ? NB.ember1.opacity(0.85) : nil) {
-            HStack(spacing: 10) {
-                EvidenceStat(label: "WEIGHT", value: Fmt.kg(m.weightKg), unit: frozen ? "KG · FROZEN" : "KG",
-                             delta: spike ? "\(Fmt.signedKg(weightDelta1d)) IN A DAY" : "\(Fmt.signedKg(weightDelta7d)) VS 7D",
-                             deltaTint: spike ? NB.ember1.opacity(0.85) : NB.macroValue)
-                EvidenceStat(label: "FAT MASS", value: Fmt.kg(m.fatKg), unit: "KG",
-                             delta: "\(Fmt.signedKg(m.fatEmaDelta7d)) VS 7D", deltaTint: NB.lime1)
+                  trailingTint: (notSynced || frozen || spike) ? NB.ember1.opacity(0.85) : nil) {
+            // 10S rule 07 · the composition page's top row is one of the two ways in.
+            Button { router.sheet = .weighIn } label: {
+                HStack(spacing: 10) {
+                    EvidenceStat(label: "WEIGHT", value: Fmt.kg(m.weightKg), unit: frozen ? "KG · FROZEN" : "KG",
+                                 delta: spike ? "\(Fmt.signedKg(weightDelta1d)) IN A DAY" : "\(Fmt.signedKg(weightDelta7d)) VS 7D",
+                                 deltaTint: spike ? NB.ember1.opacity(0.85) : NB.macroValue)
+                    EvidenceStat(label: "FAT MASS", value: Fmt.kg(m.fatKg), unit: "KG",
+                                 delta: "\(Fmt.signedKg(m.fatEmaDelta7d)) VS 7D", deltaTint: NB.lime1)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add a weigh-in")
             Rectangle().fill(NB.barTrack).frame(height: 1)
             HStack(spacing: 10) {
                 EvidenceStat(label: "LEAN MASS", value: Fmt.kg(m.leanKg), unit: "KG",
@@ -450,6 +457,10 @@ struct CompositionDetailView: View {
                 SourceLegend(measured: false, label: "DERIVED",
                              fields: measuredComposition ? "NOTHING TODAY" : "FAT MASS · LEAN MASS")
                 // 10 edges · the note under the legend is the receipt: what changed, and why.
+                // 10S edge 4 · the row is here and counted; the server has not seen it yet.
+                if notSynced {
+                    EvidenceNote("IT'LL GO UP LATER")
+                }
                 if frozen {
                     EvidenceNote("NOTHING NEW SINCE \(lastReadLabel).")
                 }
@@ -466,6 +477,11 @@ struct CompositionDetailView: View {
         }
     }
 
+    /// 10S edge 4 · OFFLINE: the latest weigh-in is still in the queue.
+    private var notSynced: Bool {
+        guard let w = data.weighIns.first else { return false }
+        return queue.isPending(w.id)
+    }
     private var sourceLine: String {
         guard let w = data.weighIns.first else { return "NO SOURCE CONNECTED" }
         return "\(w.origin.rawValue)  ·  \(Fmt.clock(w.date))"

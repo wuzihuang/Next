@@ -181,6 +181,8 @@ final class DataStore: ObservableObject {
     func addWeighIn(_ w: WeighIn) {
         weighIns.append(w)
         weighIns.sort { $0.date > $1.date }
+        // 10S rule 09 · optimistic: the page updates now, the row goes up when it can.
+        WeighInQueue.shared.enqueue(w)
         today.weightKg = w.weightKg
         if let bf = w.bodyFatPercent {
             today.fatKg = w.weightKg * bf / 100
@@ -236,6 +238,8 @@ struct WeighIn: Identifiable, Hashable {
     var bodyFatPercent: Double?
     var source: MeasurementSource
     var origin: Origin
+    /// 10S rule 04 · the Health record's own id, so the same sample never enters twice.
+    var healthUUID: String? = nil
     /// F6 §05 · D06 · the scale case is gone: V1 has no such device, and this rawValue is
     /// rendered straight onto the evidence card, so keeping it kept a way for the word to
     /// reach a screen. The three that remain are the three that can actually happen.

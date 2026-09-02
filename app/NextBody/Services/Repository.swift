@@ -429,6 +429,7 @@ final class Repository {
                                origin: (row["source"] as? String) == "health" ? .health : .manual)
             }
             store.isOffline = false
+            await WeighInQueue.shared.flush()
         } catch {
             #if DEBUG
             NSLog("Repository.load failed: %@", "\(error)")

@@ -23,7 +23,7 @@ struct WeighInSheet: View {
     /// sheet always opened claiming Health had a new weigh-in — on a build with no
     /// HealthKit entitlement at all, and over an account whose real last weight was 75.8.
     /// A prompt to confirm a number nobody measured is the worst thing this sheet can do.
-    @State private var healthCandidate: (kg: Double, at: String)?
+    @State private var healthCandidate: (kg: Double, at: String, when: Date, uuid: String)?
 
     var body: some View {
         Group {
@@ -39,7 +39,7 @@ struct WeighInSheet: View {
                w.at > (data.weighIns.first?.date ?? .distantPast) {
                 let f = DateFormatter(); f.dateFormat = "HH:mm"
                 let day = Calendar.current.isDateInToday(w.at) ? "TODAY" : Calendar.current.isDateInYesterday(w.at) ? "YESTERDAY" : f.string(from: w.at)
-                healthCandidate = (w.kg, "\(day) \(f.string(from: w.at))")
+                healthCandidate = (w.kg, "\(day) \(f.string(from: w.at))", w.at, w.uuid)
                 mode = .fromHealth
             }
         }
@@ -190,8 +190,11 @@ struct WeighInSheet: View {
 
             LimePillButton(title: "USE THIS") {
                 if let c = healthCandidate {
-                    data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: c.kg,
-                                            bodyFatPercent: nil, source: .measured, origin: .health))
+                    // 10 rule 08 · a Health reading keeps its own timestamp, and its own id
+                    // (10S rule 04) so the same sample never enters twice.
+                    data.addWeighIn(WeighIn(id: UUID(), date: c.when, weightKg: c.kg,
+                                            bodyFatPercent: nil, source: .measured, origin: .health,
+                                            healthUUID: c.uuid))
                 }
                 dismiss()
             }

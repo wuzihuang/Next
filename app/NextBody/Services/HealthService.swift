@@ -66,9 +66,9 @@ final class HealthService {
         return b
     }
 
-    func latestWeight() async -> (kg: Double, at: Date)? {
+    func latestWeight() async -> (kg: Double, at: Date, uuid: String)? {
         guard available, let w = await latest(.bodyMass) else { return nil }
-        return (w.quantity.doubleValue(for: .gramUnit(with: .kilo)), w.endDate)
+        return (w.quantity.doubleValue(for: .gramUnit(with: .kilo)), w.endDate, w.uuid.uuidString)
     }
 
     private func latest(_ id: HKQuantityTypeIdentifier) async -> HKQuantitySample? {

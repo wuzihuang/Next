@@ -965,7 +965,7 @@ SCAN_DONE{MS,RESTARTS}, SCAN_SKIP{REASON}, ONBOARD_DONE.
 lands in 0.18 s — the board's numbers replaced a house spring. 05M · B says HOLD TO TALK (hold 0.20 s to
 arm, release 0.22 s, cancel when dragged above −56 px); the app's dock is tap-to-talk with the same key
 ending the take. ⚠️ That is an interaction-model difference, not a timing one, and it is left for a
-ruling rather than rebuilt in passing. 05M · C (photo + caption) is not built. 06M · D open/dismiss are
+ruling rather than rebuilt in passing. 05M · C (photo + caption) was built in Phase 7. 06M · D open/dismiss are
 system sheet timings; E OPEN 0.46 s and NUDGE 5 s, F 60 s / RESULT 0.5 s, G 30 s / fourteen fields match.
 
 ## Phase 6 · boards 05, 06, 01 and 10S read rule by rule, twenty-two edge states built
@@ -979,7 +979,7 @@ The remaining screen boards' rules and edge fragments are mirrored (`05-dock.md`
 | 05 | 1 MIC DENIED | `AVAudioApplication.recordPermission == .denied` → amber capsule `MICROPHONE OFF`, "Typing still works. / Turn the mic on in Settings.", outlined Open Settings. No second system prompt |
 | 05 | 2 TOO SHORT | a take under 0.6 s: `n.nS · TOO SHORT` for 1.2 s, "Hold, say it, then let go.", nothing sent |
 | 05 | 3 NO SPEECH | empty transcript: `NOTHING HEARD`, "Say it again, or type it." — it stays in the dock |
-| 05 | 4 UPLOAD FAILED | not built: the photo track (C) is not in this build |
+| 05 | 4 UPLOAD FAILED | built in Phase 7: amber-bordered thumbnail, `UPLOAD FAILED` + "Tap the photo to retry, or remove it." above the tray, send stays dark |
 | 05 | 5 OFFLINE | `NWPathMonitor` (`Reachability`) — the draft goes back, `NO CONNECTION`, "It stays here. Send it when you're back." |
 | 05 | 6 INTERRUPTED | `AVAudioSession.interruptionNotification` mid-take → discarded, `INTERRUPTED AT m:ss`, "Not saved. Say it again when you're free." |
 | 06 | 1 NOT WEARING | amber target, "The band isn’t on your wrist.", `NOT WEARING · PUT IT BACK ON` (from the SDK's notWear reason) |

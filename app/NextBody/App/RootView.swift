@@ -47,6 +47,15 @@ struct RootView: View {
                 }
         }
         .toolbar(.hidden, for: .navigationBar)
+        #if DEBUG
+        // `SIMCTL_CHILD_NB_DEBUG_ROUTE=composition` opens straight onto a detail page for a walk.
+        .onAppear {
+            if let r = ProcessInfo.processInfo.environment["NB_DEBUG_ROUTE"],
+               let d = Destination(envelopeTarget: r), router.path.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { router.open(d, from: .home) }
+            }
+        }
+        #endif
         // 05 · A · the keyboard moves the dock and nothing else. Without this the stack itself
         // slid the whole home screen up under the status bar.
         .ignoresSafeArea(.keyboard, edges: .bottom)

@@ -119,7 +119,30 @@ the same failure each time, and the reason to do it on a device rather than in t
 - **01 · the email screen** compensated for the keyboard twice and drew its title over the
   status bar clock, with the back chevron and STEP 01 / 02 gone off the top edge.
 
-Two of those were real bugs rather than mock data: a one-day refresh after a band sync
+A second pass went after the things a screenshot cannot show.
+
+**Every table, counted rather than assumed.** Five of the twenty had never had a row
+written to them, each for its own reason and none of them "not built yet": sync_runs was
+written without the NOT NULL user_id and every insert was swallowed by a `try?`;
+analytics_events was rejected because the insert helper always asked for the row back and
+RETURNING needs a select policy on a table that is deliberately write-only; recompute_log
+stayed empty because the logging version of recompute_range *overloads* the old signature
+rather than replacing it, so every caller kept resolving to the old one; device_capabilities
+was read and written by nobody; and ai_turns had no client insert policy, so the on-device
+turn — the one path whose turns most need a record — left no trace. All twenty hold data now.
+
+**Controls that did nothing.** The DAY / WEEK / MONTH segment sat on three pages and changed
+only its own pill. The boards rule on it three times (ZUO, VAF, 1EIH) and all three say
+delete, so 08 and 09 lost it; 12 keeps DAY and WEEK because 18FW says both have real screens,
+and its week view is now built to 19YC / 19YF / 19YI / 19YL. START A SESSION was an empty
+closure and is now visibly disabled with its reason, per 10PV.
+
+**Writes that only moved the screen.** The training-goal sheet assigned `data.profile.goal`
+and stopped; the row said RECOMP while the server went on computing from the old value.
+DELETE EVERYTHING called `session.reset()` — it signed the user out and deleted nothing,
+under a sentence reading "There is no undo".
+
+Two of the first pass's findings were real bugs rather than mock data: a one-day refresh after a band sync
 *assigned* `store.history`, dropping the other 181 days the week bars and the heat map are made
 of; and `the_call` is stored as `NO_CHANGE` while the token on screen is `MEASURED, NO CHANGE`,
 so mapping by rawValue silently dropped that one verdict.
@@ -175,6 +198,16 @@ inventing one — S4's absence law, holding under a real model.
 
 Asking it a medical question renders the fixed stop frame and calls no tool at all, which is
 S7 working: `NOT A DOCTOR · 这类问题请找医生。这块屏只报告测量到的数字。`
+
+## What the audit could not reach
+
+- **Board 07's 27 widget types.** Ten renderers are built and two were exercised end to end
+  through the live model — a gauge and a stat frame, both with every number traceable. The
+  other 25 types need a turn that asks for them, and the model picks the type.
+- **WEEK's empty state on 12**, which 1EL9 and 1ACQ say deliberately not to build: the first
+  week has no previous week, and NO CALL holds that ground.
+- **Anything the band has to answer.** The mock answers on the real timings, but a HOOP on a
+  wrist is the only way to know the parsing is right.
 
 ## Open, and why
 

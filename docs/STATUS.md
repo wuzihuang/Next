@@ -514,6 +514,34 @@ device it came back 27 × 39, and it is the only way into Profile. It is 44 × 4
 `.padding(9).contentShape(Rectangle()).padding(-9)` so the hit area grows while the header row
 stays the 26pt the board draws — re-measured, and the wordmark, battery and strip did not move.
 
+## F3's rules, and the two constants on the device page
+
+| Rule | State |
+|---|---|
+| 01 daily_* keyed on (user_id, user_day), no `current_date` | held |
+| 02/03 four numbers in one `daily_results` row, one computed_at | held |
+| 04 详情页禁止发起计算 | held · detail pages join by result_id and draw —— when they miss |
+| 07 同一时刻在飞的原生命令恒等于 1 | held · `HoopQueue` is the single serial queue |
+| 08 离开测量屏前必须先 stop* | fixed today · see F1 rule 05 |
+| 09 SYNCED = 最后一次成功的 readOriginComplete | **was wrong, fixed** |
+| 11 watch_data_day_number 只从 device_capabilities 读，字面量 7 即为 bug | **was wrong, fixed** |
+| 11 能力位存 FunctionStatus 原值 | held · `BandCapabilities` keeps the enum, not a bool |
+
+Both failures sat in the same three-column row on the device page, which is the row a user opens
+when they want to know whether syncing is working at all.
+
+**ON DEVICE** fell back to the string `"7 DAYS"` when identity had not been read yet — so the page
+stated how much history the band is holding using a number the app invented. Rule 11 names that
+exact literal, and for this reason: 7 is what every HOOP is assumed to store until it says
+otherwise, so the guess is invisible precisely when it is wrong. It draws `——` now.
+
+**SYNCED** printed `"2 MIN AGO"` whenever the band was connected and `"2 HRS AGO"` when it was
+not. Two constants, true only by coincidence. Rule 09 defines SYNCED as the moment of the last
+`readOriginComplete{success:true}`, and `store.lastSync` is written on exactly that and nowhere
+else — board 13 was already reading it correctly. The device page reads the same timestamp now:
+it says `3 HR AGO` against the panel's `SYNCED 15:40` and the readout row's `3 HR AGO`, three
+surfaces agreeing where two of them used to be decorative.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

@@ -276,14 +276,32 @@ struct DeviceView: View {
                            value: connected
                                 ? (battery?.chargeState.rawValue.uppercased() ?? "UNKNOWN")
                                 : "UNKNOWN")
+                // ⚠️ F3 rule 11 · 「代码里出现字面量 7 即为 bug」. This fell back to "7 DAYS"
+                // when identity had not been read, so the page stated how much the band holds
+                // using a number the app made up — and 7 is exactly the value rule 11 names,
+                // because it is the one every HOOP is assumed to have until it says otherwise.
                 DeviceFact(label: "ON DEVICE",
-                           value: identity.map { "\($0.watchDataDayNumber) DAYS" } ?? "7 DAYS")
-                DeviceFact(label: "SYNCED", value: connected ? "2 MIN AGO" : "2 HRS AGO")
+                           value: identity.map { "\($0.watchDataDayNumber) DAYS" } ?? Fmt.dash)
+                // ⚠️ F3 rule 09 · SYNCED is the moment of the last readOriginComplete that
+                // succeeded, and `store.lastSync` is written on exactly that. This column
+                // printed "2 MIN AGO" whenever the band was connected and "2 HRS AGO" when it
+                // was not — two constants, true only by coincidence, on the one page a user
+                // opens to find out whether syncing is working.
+                DeviceFact(label: "SYNCED", value: syncedAgo)
             }
         }
         .padding(18)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
         .cardSkin()
+    }
+
+    /// Same shape the panel uses, off the same timestamp, so the two pages cannot disagree
+    /// about when the last sync was.
+    private var syncedAgo: String {
+        let mins = max(0, Int(Date().timeIntervalSince(data.lastSync) / 60))
+        if mins < 1 { return "JUST NOW" }
+        if mins < 60 { return "\(mins) MIN AGO" }
+        return "\(mins / 60) HR AGO"
     }
 
     /// The version the update server offers. A constant until there is an update server;

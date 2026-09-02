@@ -1123,6 +1123,10 @@ you.", `n / 14 FIELDS`. ⚠️ Three things are ours, not the board's: the trace
 "One reading, not a verdict…") is placeholder copy for the case the board did not draw, and the
 target does not move with the reading (14.5 → 11.0 on the board) — the target is the server's.
 
+01 read the same except one thing: the email screen hid its two reason lines whenever the
+keyboard was up, and the board says the keyboard rises with the screen — so they were never
+read. They stay now.
+
 ⚠️ Back-logged meals take the slot of the current hour (a plate added to Aug 31 at 00:30 is a
 SNACK); the board does not say which slot a late plate belongs to. ⚠️ Profile still offers a
 weigh-in entry (11 col 03) although 10S rule 07 says composition and NO TARGET only — left

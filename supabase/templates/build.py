@@ -40,7 +40,7 @@ FRAME = """<!doctype html>
 
       <!-- wordmark · the gate's own -->
       <tr><td style="padding:0 0 26px;">
-        <span style="font-family:{brand};font-size:26px;font-weight:800;letter-spacing:-0.045em;color:{white};line-height:1;">NEXTBODY</span><span style="display:inline-block;width:7px;height:7px;background-color:{lime};border-radius:2px;margin:0 0 12px 7px;line-height:0;font-size:0;">&nbsp;</span>
+        <span style="font-family:{brand};font-size:26px;font-weight:800;letter-spacing:-0.045em;color:{white};line-height:1;">NEXTBODY</span><span style="display:inline-block;vertical-align:top;width:7px;height:7px;background-color:{lime};border-radius:2px;margin:3px 0 0 7px;line-height:7px;font-size:0;">&nbsp;</span>
       </td></tr>
 
       <!-- card -->

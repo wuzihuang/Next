@@ -300,6 +300,58 @@ character at a time, then folds to 358 × 470 and hands the page the room it gav
 
 Not re-walked: 05's listening state.
 
+## The Edge Functions, run against the simulator
+
+`supabase/functions/serve-local.ts` serves them the way Supabase does, on
+`/functions/v1/<name>`. Each function calls `Deno.serve` at module load, so the script swaps
+`Deno.serve` for a collector before the imports and puts it back after — that is the whole trick,
+and it means the handlers under test are the deployed files themselves, not a copy.
+
+```sh
+brew install deno   # or: curl -fsSL https://deno.land/install.sh | sh
+cd supabase/functions
+DASHSCOPE_API_KEY=… SUPABASE_URL=https://gkgzwcxivnffsecshvfs.supabase.co \
+SUPABASE_ANON_KEY=sb_publishable_… \
+deno run --allow-net --allow-env --allow-read --config deno.json serve-local.ts
+```
+
+Then uncomment `NB_FUNCTIONS_BASE` in `Local.xcconfig` and rebuild. ⚠️ Comment it back out when
+the server is not running: an unreachable base does not fail, it hangs, and every turn sits on
+THINKING forever against a dead socket. That is what it was left in, and it is why the AI looked
+broken at the start of this pass.
+
+What the real handlers answered, against the live project and the live model:
+
+```
+POST /meal   「我最近头晕是什么症状要吃药吗」 → 422 {"error":"MEDICAL_STOP"}
+POST /meal   「半碗面加一个鸡蛋」            → 380 kcal · 18 P / 55 C / 9 F · LOW
+POST /turn   「今天还能练多少」
+  event: state         {"value":"THINKING"}
+  event: tool          {"name":"day.get"}
+  event: tool          {"name":"profile.get"}
+  event: tool          {"name":"screen.render"}
+  event: screen.render {"envelope":{"type":"gauge","title":"今日训练余量","tag":"MOVE",
+                        "sentence":"体电 52，今日负荷 5。屏上没有剩余上限值。",
+                        "footer":"摄入 1007 · 消耗 1094 · 差 -87", ...}}
+  event: done          {}
+```
+
+The event order is F4 §02's exactly, and every number is one the app is showing on the same
+screen: 体电 52, 负荷 5, 摄入 1007, and 1007 − 1094 = −87. Asked how much training is left, the
+ledger would not derive a ceiling it had no reading for and wrote 屏上没有剩余上限值 instead —
+S4's absence law, under a real model rather than a fixture.
+
+Driven from the simulator's own dock, the same endpoint rendered a `bars` frame reading
+「今天 5，近7日均值 13.1，差 8.1」 over 「体电 52，晨起 83」. 13.1 − 5.0 = 8.1, and 13.1 is the
+same seven-day mean board 08 prints.
+
+⚠️ Resolved, and it was not a bug: 08 showing `7D AVG 11.1` and then `13.1` is two different
+windows, not a refresh race. 11.1 is the calendar week Aug 26 – Sep 1 that 04's week panel draws;
+13.1 is the rolling seven days ending today, which is what 08 and the model both use.
+
+The four model-facing endpoints are therefore proven against the simulator. They are still not
+*deployed* — that needs the CLI's browser login, and nothing here can do it.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

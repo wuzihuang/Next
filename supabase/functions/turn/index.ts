@@ -9,10 +9,8 @@ import { model, MODEL_VERSION } from "../_shared/model.ts";
 import { systemPrompt } from "../_shared/prompt.ts";
 import { buildTools } from "../_shared/tools.ts";
 import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
-import { Envelope, RENDERABLE_TYPES, TARGETS, MEDICAL_STOP, batteryFallback } from "../_shared/contract.ts";
-import { userClient, currentUserId, cors, json } from "../_shared/db.ts";
-
-const MEDICAL = /(诊断|症状|吃药|用药|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|diagnos|pregnan|symptom)/i;
+import { Envelope, RENDERABLE_TYPES, TARGETS, MEDICAL, MEDICAL_STOP, batteryFallback } from "../_shared/contract.ts";
+import { userClient, currentUserId, cors, json, userDayKey, userTimezone } from "../_shared/db.ts";
 
 // 60 turns an hour and 150 a day. Free forever does not mean unlimited: the cost is real,
 // and the ceiling is a rate limit rather than a paywall.
@@ -27,7 +25,8 @@ Deno.serve(async (req) => {
   const db = userClient(req);
   const body = await req.json().catch(() => ({}));
   const text: string = body.text ?? "";
-  const dayKey: string = body.dayKey ?? new Date().toISOString().slice(0, 10);
+  // ⚠️ The user's calendar, not the server's. See userDayKey.
+  const dayKey: string = body.dayKey ?? userDayKey(await userTimezone(db, userId));
   const turnId: string = req.headers.get("Idempotency-Key") ?? crypto.randomUUID();
 
   // Replaying the same Idempotency-Key returns the same frames, so a dropped connection
@@ -40,18 +39,37 @@ Deno.serve(async (req) => {
     if (frame) return json({ envelope: frame.widget_tree, replay: true });
   }
 
+  /// ⚠️ Every failure path sent batteryFallback(null), so a degraded frame told a user with
+  /// a live battery "还没有可用的夜间数据". That sentence is for an account that has never
+  /// recorded a night, and printing it after a model timeout is a lie about their data
+  /// rather than an apology for ours. The fallback carries the real level.
+  let cachedLevel: number | null | undefined;
+  const fallback = async () => {
+    if (cachedLevel === undefined) {
+      const { data } = await db.from("daily_results")
+        .select("id, reserve_daily(current_value)")
+        .eq("user_id", userId).eq("user_day", dayKey).maybeSingle();
+      // deno-lint-ignore no-explicit-any
+      const r = (data as any)?.reserve_daily;
+      cachedLevel = (Array.isArray(r) ? r[0]?.current_value : r?.current_value) ?? null;
+    }
+    return batteryFallback(cachedLevel ?? null);
+  };
   const { count: recent } = await db.from("ai_turns")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
     .gte("created_at", new Date(Date.now() - 3600_000).toISOString());
   if ((recent ?? 0) >= HOURLY) {
+    const fb = await fallback();
     return sse((send) => {
-      send("error", { code: "RATE_LIMITED", fallback_frame: batteryFallback(null) });
+      send("error", { code: "RATE_LIMITED", fallback_frame: fb });
     });
   }
 
   const started = Date.now();
   const ledger = new NumberLedger();
+  ledger.seedConstants();
+
   const tools = buildTools(db, userId, ledger);
   const trace: unknown[] = [];
 
@@ -83,7 +101,25 @@ Deno.serve(async (req) => {
           footer: z.string().optional().describe("≤ 42 characters, segments joined by ' · '"),
           action: z.string().optional().describe("≤ 32 characters"),
           accent: z.string().optional().describe("a #RRGGBB hex, or omit for the domain colour"),
-          data: z.record(z.any()).default({}),
+          // ⚠️ 07's table gives every type an exact data shape, and this field said
+          // z.record(z.any()) — so the model shaped it however it liked and the panel drew
+          // an empty box. A free-form field is why "bins[[t,v]]" arrived as
+          // "points:[{label,value}]" and nothing rendered. The union is not enforced here
+          // (rejecting a whole frame over a key name is worse than drawing it), but the
+          // model is told, and being told is most of it.
+          data: z.record(z.any()).default({}).describe([
+            "The shape for this type, from the render contract:",
+            "battery/ring/gauge → { value, goal?, unit?, zones? }",
+            "metric/text        → { value, unit?, label?, ref? }",
+            "line/o2night/dual  → { series: [[t, v], ...] }",
+            "band               → { hi: [[t, v]], lo: [[t, v]] }",
+            "bars/days/delta    → { bins: [[label, v], ...], unit?, total? }",
+            "split/fuel/balance → { parts: [{ label, value }], ... }",
+            "cells/heat/recomp  → { rows, cols, cells: [[...]], scale? }",
+            "zones              → { minutes: [5 numbers], current_zone }",
+            "wave               → { samples: [v], hz }",
+            "sparks/table/events/workout/meal/food → { rows: [{ label, value, spark? }], hero? }",
+          ].join("\n")),
           target: z.enum(TARGETS).describe("the page this widget lands on when tapped"),
         }),
         execute: async (args) => {
@@ -109,15 +145,19 @@ Deno.serve(async (req) => {
         for (const call of step.toolCalls ?? []) {
           trace.push({ tool: call.toolName, args: call.args });
           send("tool", { name: call.toolName });
-          // The ledger closes on the last read, before the render is audited against it.
-          if (call.toolName !== "screen.render") continue;
+          // A number the model passed to a tool, and got data back for, is not invented —
+          // it is part of the same trace as the return. The arguments are schema-bound, so
+          // this is a narrow door, not an open one.
+          if (call.toolName !== "screen.render") ledger.harvest(call.args, `${call.toolName}.args`);
+          // The ledger closes below, after every read has returned — the render tool does
+          // not close it, which is what let a later tool's numbers arrive unaccounted for.
         }
       }
 
       ledger.seal();
     } catch (e) {
       console.error("turn failed:", e instanceof Error ? (e.stack ?? e.message) : e);
-      send("error", { code: "MODEL_UNAVAILABLE", fallback_frame: batteryFallback(null) });
+      send("error", { code: "MODEL_UNAVAILABLE", fallback_frame: await fallback() });
       send("done", {});
       return;
     }
@@ -125,7 +165,7 @@ Deno.serve(async (req) => {
     const parsed = Envelope.safeParse(envelope);
     if (!parsed.success) {
       console.error("E_SCHEMA", JSON.stringify(parsed.error.issues), JSON.stringify(envelope));
-      const fb = batteryFallback(null);
+      const fb = await fallback();
       await persist(db, userId, turnId, text, fb, trace, Date.now() - started);
       send("error", { code: "E_SCHEMA", fallback_frame: fb });
       send("done", {});
@@ -139,7 +179,7 @@ Deno.serve(async (req) => {
       .filter(Boolean).join(" ");
     const hit = banned.find((re) => re.test(blob));
     if (hit) {
-      const fb = batteryFallback(null);
+      const fb = await fallback();
       await persist(db, userId, turnId, text, fb, trace, Date.now() - started);
       send("error", { code: "E_SCHEMA", reason: "BANNED_PHRASE", fallback_frame: fb });
       send("done", {});
@@ -149,8 +189,11 @@ Deno.serve(async (req) => {
     // F4 §06 · one untraceable number rejects the frame.
     const audit = auditFrame(parsed.data as unknown as Record<string, unknown>, ledger);
     if (!audit.ok) {
-      const fb = batteryFallback(null);
+      const fb = await fallback();
       await persist(db, userId, turnId, text, fb, trace, Date.now() - started);
+      // The number alone is not diagnosable — 7 could be a window, a weekday or a real
+      // measurement the tools failed to return. The frame goes in the log with it.
+      console.error("UNTRACEABLE_NUMBER", audit.value, JSON.stringify(parsed.data));
       send("error", {
         code: "E_SCHEMA", reason: "UNTRACEABLE_NUMBER", value: audit.value, fallback_frame: fb,
       });

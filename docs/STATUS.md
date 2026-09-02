@@ -213,6 +213,48 @@ S7 working: `NOT A DOCTOR · 这类问题请找医生。这块屏只报告测量
 - **Anything the band has to answer.** The mock answers on the real timings, but a HOOP on a
   wrist is the only way to know the parsing is right.
 
+## The third pass · two defects the boards' own numbers exposed
+
+Both were found by reading the running simulator against the boards rather than the diff, and
+both are fixed and re-verified on the simulator against the live seeded account.
+
+**S7 was reachable around the side.** The dock decides between the turn path and the meal path
+with `looksLikeFood`, which matches the marker 吃 — and 吃药 contains 吃. So
+「我最近头晕是什么症状要吃药吗」 never reached the medical stop: it was classified as food,
+`logMeal` wrote the row *before* the model was called, and it came back rendered as
+`LOGGED · 1 KCAL · LOW`, name 头晕咨询, with the fuel card ticking 1,007 → 1,008. Two holes met
+here. The stop lived only inside `AIDebugTurn`, which is `#if DEBUG`, so a release build had no
+client-side stop at all; and `meal` / `meal-commit` had no server-side stop either, so the
+sentence would have been estimated for calories on a deployed backend too. S7's wording is that
+the stop happens *before any tool call*, which has to mean before the classifier, because the
+classifier is what decides which tool runs. There is now one `MedicalStop` compiled into every
+build, checked at the top of `handleSend`; one `MEDICAL` in `_shared/contract.ts` that both
+`turn` and `meal` read; and the turn path and the dock can no longer drift apart. Re-tested: the
+fixed frame renders and intake stays at 1,007.
+
+**NEXT_MEAL never divided by the open slots.** F2 gives it three branches — one open slot is
+`TARGET_IN − E_IN` with no rounding and no clamp, more than one divides by the open-slot count
+then floors to 50 and clamps 150–1200, and a non-positive numerator is ——. The code did the
+flooring and clamping unconditionally and never divided at all, so the whole day's remainder was
+printed as though it were one meal. On the seeded account it showed `1,050 LEFT` against
+`907 /1,980`, which is floor50(1073) — a number that reads like a budget, the one thing F2 says
+this is not. `merge` now takes the open-slot count, counting a slot settled when it is logged or
+SKIPPED per 04's three outcomes. With three of four slots logged the card now reads `973 LEFT`
+against `1,007 /1,980`: exactly `TARGET_IN − E_IN`, the one-open-slot branch, un-rounded.
+
+⚠️ `Local.xcconfig` had `NB_FUNCTIONS_BASE` pointing at `127.0.0.1:8000` with nothing serving it,
+so every AI turn hung on a dead socket rather than falling through to the DEBUG path. Commented
+out; the turn renders again. Uncomment it only while a local Deno server is actually up.
+
+## Board conflicts left standing, not silently resolved
+
+**The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;
+13 specifies three states — fresh under 90 minutes, stale from 90 minutes to 6 hours with the
+numbers dimmed and `SYNCED HH:MM` shown, gone past 6 hours with the numbers becoming ——. The app
+implements 13, and on the seeded account the row reads `HR 54 · STRESS 71 · 2 HR AGO`, which 04
+would have removed outright. 13 is the specific model and 04 raises it inside 上线前必须成立 as
+an open question about the bottom strip, so 13 stands — but one of the two boards needs editing.
+
 ## Open, and why
 
 0. **Board 13's Body Battery model has no fixed point, and it is implemented as written.**

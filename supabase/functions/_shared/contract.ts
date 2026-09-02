@@ -78,6 +78,11 @@ export function batteryFallback(level: number | null): Envelope {
 
 /// F4 · the fixed medical stop frame. S7 renders this and nothing else — no tools,
 /// no explanation. "consult your doctor" is only ever allowed to appear here.
+// S7 · the one list. `turn` checks it before any tool call, and `meal` checks it too:
+// the dock's food classifier looks for 吃, which 吃药 contains, so a medication question
+// reaches /meal without ever passing through /turn.
+export const MEDICAL = /(诊断|症状|吃药|用药|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|diagnos|pregnan|symptom)/i;
+
 export const MEDICAL_STOP: Envelope = {
   type: "text",
   title: "NOT A DOCTOR",

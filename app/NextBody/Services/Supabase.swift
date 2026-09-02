@@ -4,6 +4,23 @@ import Foundation
 struct SupabaseConfig {
     static let url = URL(string: "https://gkgzwcxivnffsecshvfs.supabase.co")!
     static let publishableKey = "sb_publishable_FBRhpyBVNzlpBdjp4NOF4Q_1ZrVGWRt"
+
+    /// Where the Edge Functions live.
+    ///
+    /// The brief's fifth acceptance line allows the AI to be proven 本地 / 模拟器 / 真机, and
+    /// the thing worth proving is the deployed artefact — the real prompt, the real eight
+    /// tools, the real SSE stream — rather than a second implementation of it that happens
+    /// to live in the app. Set NBFunctionsBase to a locally served host and the simulator
+    /// exercises the functions as written.
+    ///
+    /// ⚠️ DEBUG only. A release build always talks to the project.
+    static var functionsBase: URL {
+        #if DEBUG
+        if let s = Bundle.main.object(forInfoDictionaryKey: "NBFunctionsBase") as? String,
+           !s.isEmpty, let u = URL(string: s) { return u }
+        #endif
+        return url.appendingPathComponent("functions/v1")
+    }
 }
 
 actor SupabaseClient {
@@ -253,7 +270,7 @@ actor SupabaseClient {
 
     private func request(_ path: String, method: String, body: Data?, isFunction: Bool) throws -> URLRequest {
         let base = isFunction
-            ? SupabaseConfig.url.appendingPathComponent("functions/v1")
+            ? SupabaseConfig.functionsBase
             : SupabaseConfig.url.appendingPathComponent("rest/v1")
         var r = URLRequest(url: base.appendingPathComponent(path))
         r.httpMethod = method
@@ -282,23 +299,35 @@ actor SupabaseClient {
     }
 
     /// Streams an Edge Function's SSE response line by line.
-    func streamFunction(_ name: String, payload: [String: Any]) -> AsyncThrowingStream<String, Error> {
+    /// nonisolated because the stream is consumed on the caller's side: the actor's job is
+    /// to build the request, not to hold the connection open for the length of a turn.
+    nonisolated func streamFunction(_ name: String, payload: [String: Any]) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
                     let data = try JSONSerialization.data(withJSONObject: payload)
-                    let req = try request(name, method: "POST", body: data, isFunction: true)
-                    let (bytes, resp) = try await session.bytes(for: req)
+                    let req = try await self.request(name, method: "POST", body: data, isFunction: true)
+                    let (bytes, resp) = try await URLSession.shared.bytes(for: req)
                     let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                     guard (200..<300).contains(code) else {
                         continuation.finish(throwing: Failure.http(code, ""))
                         return
                     }
+                    // ⚠️ The event name matters as much as the payload. F4's stream is
+                    // state → tool… → screen.render → done, and a reader that keeps only the
+                    // data lines cannot tell an envelope from an error's fallback frame.
+                    // Each is yielded as "<event>\n<data>".
+                    var event = "message"
                     for try await line in bytes.lines {
+                        if line.hasPrefix("event:") {
+                            event = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                            continue
+                        }
                         guard line.hasPrefix("data:") else { continue }
                         let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
                         if payload == "[DONE]" { break }
-                        continuation.yield(payload)
+                        continuation.yield("\(event)\n\(payload)")
+                        event = "message"
                     }
                     continuation.finish()
                 } catch {

@@ -15,11 +15,33 @@ export class NumberLedger {
   private values: number[] = [];
   private sources = new Map<number, string>();
 
+  /// ⚠️ Any add after a seal used to corrupt the audit. `has` binary-searches `values`,
+  /// and only `seal` ever sorted it — so a tool that returned after the render tool sealed
+  /// the ledger appended out of order and the search started missing numbers that were
+  /// right there. The sort is lazy now, and the flag is what makes it correct.
   add(value: unknown, path: string) {
     if (typeof value === "number" && Number.isFinite(value)) {
       this.values.push(value);
       this.sources.set(value, path);
+      this.dirty = true;
     }
+  }
+
+  /// The axes the product defines, which are not measurements.
+  ///
+  /// ⚠️ "52 / 100" was being rejected. 100 is not a reading — it is the top of the Body
+  /// Battery scale, the same way 21 is the top of the training ring and 0 is the bottom of
+  /// both. F2 fixes these, board 07's table prints them as denominators, and a frame that
+  /// names its own axis is doing what the contract asks. They belong in the ledger as
+  /// constants rather than in the whitelist, because a whitelist for "N %" or "N / N" would
+  /// exempt real percentages too.
+  seedConstants() {
+    for (const [v, why] of [
+      [0, "scale.min"],
+      [100, "bodyBattery.max"],       // F2 §02 · BODY_BATTERY is 0–100
+      [21, "trainingLoad.max"],       // F2 §03 · the ring runs to 21
+      [30, "hrr.z1"], [40, "hrr.z2"], [55, "hrr.z3"], [70, "hrr.z4"], [85, "hrr.z5"],
+    ] as [number, string][]) this.add(v, why);
   }
 
   /// Recursively harvest a tool return.
@@ -28,6 +50,13 @@ export class NumberLedger {
     if (typeof node === "number") return this.add(node, path);
     if (Array.isArray(node)) {
       node.forEach((v, i) => this.harvest(v, `${path}[${i}]`));
+      // A series carries two facts beyond its values: how many points there are, and how
+      // much time they cover. Both are things the model legitimately says out loud — "5
+      // samples", "over the last 20 min", "last 7 days" — and both are properties of what
+      // the tool returned, so they belong in the ledger rather than in a whitelist.
+      this.add(node.length, `${path}.length`);
+      this.addSpan(node, path);
+      this.addAggregates(node, path);
       return;
     }
     if (typeof node === "object") {
@@ -37,13 +66,73 @@ export class NumberLedger {
     }
   }
 
-  private sealed = false;
+  /// A series' total and its mean.
+  ///
+  /// ⚠️ Only pairwise addition is a legal derivation, so the sum of seven days was
+  /// unreachable — the model answered "77.5 across 7 days · 11.1 per day average", both
+  /// true of the seven values the tool had just returned, and the audit threw the frame
+  /// away over the total. A total and a mean are the two things any chart caption states,
+  /// and they are facts about the returned data rather than new claims about the body.
+  private addAggregates(rows: unknown[], path: string) {
+    // A bare array of numbers is one column; an array of rows is one column per numeric
+    // key. ⚠️ Keying on `value` alone was not enough — the tools return their own column
+    // names (trainingLoad, kcal_in, current_value), so the mean of a seven-day series was
+    // still unreachable and a correct caption was still being rejected.
+    const columns = new Map<string, number[]>();
+    for (const r of rows) {
+      if (typeof r === "number") {
+        (columns.get("$") ?? columns.set("$", []).get("$")!).push(r);
+      } else if (r && typeof r === "object") {
+        for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+          if (typeof v !== "number" || !Number.isFinite(v)) continue;
+          (columns.get(k) ?? columns.set(k, []).get(k)!).push(v);
+        }
+      }
+    }
+    for (const [name, nums] of columns) {
+      if (nums.length < 2) continue;
+      const sum = nums.reduce((a, b) => a + b, 0);
+      const mean = sum / nums.length;
+      this.add(sum, `${path}.${name}.sum`);
+      this.add(Math.round(sum * 10) / 10, `${path}.${name}.sum1`);
+      this.add(Math.round(sum), `${path}.${name}.sum0`);
+      this.add(mean, `${path}.${name}.mean`);
+      this.add(Math.round(mean * 10) / 10, `${path}.${name}.mean1`);
+      this.add(Math.round(mean), `${path}.${name}.mean0`);
+      this.add(Math.min(...nums), `${path}.${name}.min`);
+      this.add(Math.max(...nums), `${path}.${name}.max`);
+    }
+  }
+
+  /// The span a series covers, in whichever units a person would say it in.
+  private addSpan(rows: unknown[], path: string) {
+    const stamps = rows
+      .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : null))
+      .map((r) => (typeof r?.ts === "string" ? r.ts : typeof r?.dayKey === "string" ? r.dayKey : null))
+      .filter((v): v is string => v !== null)
+      .map((v) => Date.parse(v))
+      .filter((n) => Number.isFinite(n));
+    if (stamps.length < 2) return;
+    const ms = Math.max(...stamps) - Math.min(...stamps);
+    this.add(Math.round(ms / 60_000), `${path}.minutes`);
+    this.add(Math.round(ms / 3_600_000), `${path}.hours`);
+    this.add(Math.round(ms / 86_400_000), `${path}.days`);
+    // Inclusive day counts: eight daily points span seven days and are "the last 8 days"
+    // as often as "the last 7", and both readings are honest.
+    this.add(Math.round(ms / 86_400_000) + 1, `${path}.daysInclusive`);
+  }
+
+  private dirty = false;
 
   /// Close the ledger, adding the four legal derivations of every pair.
-  /// Idempotent: the render tool seals it mid-turn, and the caller seals it again after.
+  ///
+  /// ⚠️ Not "idempotent" by refusing to run twice — that was the bug. The render tool seals
+  /// mid-turn and the caller seals again afterwards, and between those two moments more
+  /// tools can return. Refusing the second seal meant those later values never got their
+  /// derivations, and a legal subtraction read as an untraceable number. Deriving from the
+  /// deduped base each time is idempotent in the way that actually matters, and n is a few
+  /// dozen.
   seal() {
-    if (this.sealed) return;
-    this.sealed = true;
     const base = [...new Set(this.values)];
     for (const v of base) {
       this.add(Math.round(v), `round(${v})`);
@@ -57,10 +146,14 @@ export class NumberLedger {
         if (b !== 0) this.add(Math.round((a / b) * 1000) / 10, `pct(${a}/${b})`);
       }
     }
-    this.values.sort((x, y) => x - y);
+    this.dirty = true;
   }
 
   has(needle: number, tolerance = 0.05): boolean {
+    if (this.dirty) {
+      this.values.sort((x, y) => x - y);
+      this.dirty = false;
+    }
     let lo = 0, hi = this.values.length - 1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
@@ -73,9 +166,23 @@ export class NumberLedger {
 }
 
 // Shapes that are not measurements and must be removed before the audit.
+//
+// ⚠️ Window lengths are deliberately NOT on this list. They were rejecting correct frames —
+// "last 7 days: 48–65" and "down 2 from 54 over last 20 min" are both entirely true, and the
+// audit threw them away over the 7 and the 20 — but whitelisting every unit-suffixed number
+// would leave nothing audited, which is the whole of F4 §06. Spans are made *derivable*
+// instead, in harvest(): the length of a returned series, and the minutes or days it covers,
+// are facts about the data the tools returned. Traceable because they are true, not
+// unchecked because they are inconvenient.
 const WHITELIST = [
+  // ⚠️ Timestamps first, and they must come before the date shape below. The date pattern
+  // ends in \b, and in "2026-09-01T22:20:00+00:00" the character after the day is a T —
+  // a word character, so the boundary fails, the whole timestamp survives the strip, and
+  // the audit then rejects the frame over the year. Every series the tools return carries
+  // these, so this rejected almost anything with a chart in it.
+  /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g,
   /\b\d{1,2}:\d{2}\b/g,          // HH:MM
-  /\b\d{4}-\d{2}-\d{2}\b/g,      // YYYY-MM-DD
+  /\d{4}-\d{2}-\d{2}/g,          // YYYY-MM-DD
   /\bZONE\s*\d\b/gi,             // ZONE n
   /\bZ[1-5]\b/g,
   /\bSLOT\s*\d\b/gi,

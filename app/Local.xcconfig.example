@@ -1,2 +1,7 @@
 // Copy to Local.xcconfig and fill in. Git-ignored.
 NB_DEBUG_MODEL_KEY =
+
+// Optional. Point a DEBUG build at a locally served copy of the Edge Functions.
+// ⚠️ The $() is not a typo: xcconfig treats // as a comment, so the slashes have to be
+// split or the value is truncated to "http:".
+// NB_FUNCTIONS_BASE = http:/$()/127.0.0.1:8000/functions/v1

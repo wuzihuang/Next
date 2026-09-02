@@ -379,7 +379,12 @@ final class Repository {
             merged.append(contentsOf: history)
             merged.sort { $0.day < $1.day }
             store.history = merged
-            if let last = history.last { store.today = merge(last, into: store.today) }
+            if let last = history.last {
+                // 04 · a slot is open until it has a conclusion — logged or SKIPPED.
+                let settled = Set(store.meals.filter { $0.status != .open }.map(\.slot))
+                store.today = merge(last, into: store.today,
+                                    openSlots: MealEntry.Slot.allCases.count - settled.count)
+            }
 
             // The macro rows are the day's own meals added up. The targets are computed
             // locally from bodyweight and goal (F2 §04, P → F → C); what was eaten is not
@@ -418,7 +423,8 @@ final class Repository {
     /// ⚠️ F2 rule 05 · when the server says UNLOGGED, every number derived from intake goes
     /// back to nil. Carrying a stale 660 forward would put a number on screen that no longer
     /// has a source, which is exactly the failure the ledger exists to prevent.
-    private func merge(_ server: DailyMetrics, into local: DailyMetrics) -> DailyMetrics {
+    private func merge(_ server: DailyMetrics, into local: DailyMetrics,
+                       openSlots: Int) -> DailyMetrics {
         var m = server
         m.weightKg = server.weightKg ?? local.weightKg
         m.fatKg = local.fatKg
@@ -460,11 +466,23 @@ final class Repository {
             m.protein = pTarget
             m.carb = cTarget
             m.fat = fTarget
-            // NEXT_MEAL · the remaining budget divided by the open slots. One open slot left
-            // means a plain subtraction; more than one rounds down to 50 and clamps 150–1200.
-            if let target = m.targetIn, let eaten = m.eIn {
+            // NEXT_MEAL · F2 · the remaining budget divided by the open slots. One open slot
+            // left means a plain subtraction; more than one rounds down to 50 and clamps
+            // 150–1200.
+            // ⚠️ The divisor was missing entirely, so every multi-slot day printed the whole
+            // day's remainder as though it were one meal — 1,073 left over two open slots
+            // rendered as 1,050 rather than 500. It read like a budget, which is the one
+            // thing F2 says this number is not.
+            if let target = m.targetIn, let eaten = m.eIn, openSlots > 0 {
                 let remaining = target - eaten
-                m.nextMeal = remaining > 0 ? min(1200, max(150, (remaining / 50).rounded(.down) * 50)) : nil
+                if remaining <= 0 {
+                    m.nextMeal = nil
+                } else if openSlots == 1 {
+                    m.nextMeal = remaining
+                } else {
+                    let share = remaining / Double(openSlots)
+                    m.nextMeal = min(1200, max(150, (share / 50).rounded(.down) * 50))
+                }
             } else {
                 m.nextMeal = nil
             }

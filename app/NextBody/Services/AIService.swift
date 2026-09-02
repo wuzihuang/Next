@@ -21,6 +21,10 @@ final class AIService: ObservableObject {
     let hourlyCap = 60
     let dailyCap = 150
 
+    /// The tool she is reading right now, while she reads it. 07 · 16 · the panel says what
+    /// it is doing instead of showing a spinner over an empty box.
+    @Published var reading: String?
+
     // MARK: a conversational turn
 
     func turn(_ text: String, day: UserDay, store: DataStore) async -> PanelWidget? {
@@ -35,16 +39,38 @@ final class AIService: ObservableObject {
         let dayKey = Self.dayFormatter.string(from: day.start)
 
         do {
-            let out = try await SupabaseClient.shared.callFunction("turn", payload: [
+            // ⚠️ `turn` streams. It had been called as though it returned one JSON object,
+            // so the parse threw on the very first `event:` line and every server turn —
+            // including the ones the server logged as OK — fell through to the offline
+            // frame. The DEBUG path masked it by answering in its place.
+            var frame: [String: Any]?
+            for try await chunk in SupabaseClient.shared.streamFunction("turn", payload: [
                 "text": text, "dayKey": dayKey,
-            ])
-            if let envelope = out["envelope"] as? [String: Any] {
-                return widget(from: envelope)
+            ]) {
+                let parts = chunk.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+                guard parts.count == 2,
+                      let data = parts[1].data(using: .utf8),
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else { continue }
+
+                switch String(parts[0]) {
+                case "tool":
+                    // 07 · 16 · she names what she is reading while she reads it.
+                    if let name = obj["name"] as? String { reading = name }
+                case "screen.render":
+                    frame = obj["envelope"] as? [String: Any]
+                case "error":
+                    // A degraded frame is still a frame — S4's absence law, not a failure.
+                    if let fb = obj["fallback_frame"] as? [String: Any], frame == nil { frame = fb }
+                    if let reason = obj["reason"] as? String { lastError = reason }
+                default:
+                    break
+                }
             }
-            if let fallback = (out["fallback_frame"] as? [String: Any]) {
-                return widget(from: fallback)
-            }
+            reading = nil
+            if let frame { return widget(from: frame) }
         } catch {
+            reading = nil
             #if DEBUG
             if let local = await debugTurn(text, day: day, store: store) { return local }
             #endif
@@ -105,46 +131,91 @@ final class AIService: ObservableObject {
             priority: (env["priority"] as? String) == "alert" ? .alert : .normal)
     }
 
+    /// ⚠️ Tolerant on purpose, in both directions. The contract's shape is pairs —
+    /// `bins[[label, v]]`, `series[[t, v]]` — and a model reaching for clarity sends
+    /// `points: [{label, value}]` instead. Insisting on one form meant a frame whose
+    /// sentence and footer were perfectly correct drew an empty panel with a 0 in it, which
+    /// is a worse outcome than reading both. The tool schema now states the contract; this
+    /// reads whichever arrives.
+    private static func numbers(_ any: Any?) -> [Double] {
+        guard let rows = any as? [Any] else { return [] }
+        return rows.compactMap { row in
+            if let n = row as? Double { return n }
+            if let n = row as? Int { return Double(n) }
+            if let pair = row as? [Any] { return (pair.last as? Double) ?? (pair.last as? Int).map(Double.init) }
+            if let obj = row as? [String: Any] {
+                for k in ["value", "v", "y", "kcal", "load", "level", "minutes"] {
+                    if let n = obj[k] as? Double { return n }
+                    if let n = obj[k] as? Int { return Double(n) }
+                }
+            }
+            return nil
+        }
+    }
+
+    private static func labelled(_ any: Any?) -> [(String, Double)] {
+        guard let rows = any as? [Any] else { return [] }
+        return rows.enumerated().compactMap { i, row in
+            if let pair = row as? [Any], pair.count >= 2 {
+                let v = (pair[1] as? Double) ?? (pair[1] as? Int).map(Double.init)
+                return v.map { ("\(pair[0])", $0) }
+            }
+            if let obj = row as? [String: Any] {
+                let label = (obj["label"] as? String) ?? (obj["dayKey"] as? String)
+                    ?? (obj["slot"] as? String) ?? (obj["name"] as? String) ?? "\(i + 1)"
+                for k in ["value", "v", "y", "kcal", "load", "minutes"] {
+                    if let n = obj[k] as? Double { return (label, n) }
+                    if let n = obj[k] as? Int { return (label, Double(n)) }
+                }
+            }
+            return nil
+        }
+    }
+
     static func decodeData(_ d: [String: Any], type: PanelType) -> PanelData {
         switch type.renderer {
         case .curve:
-            let s = (d["series"] as? [[Double]])?.compactMap { $0.last }
-                ?? (d["series"] as? [Double]) ?? []
+            let s = numbers(d["series"] ?? d["points"] ?? d["samples"])
             return .series(s)
         case .pair:
-            return .pair(hi: (d["hi"] as? [[Double]])?.compactMap { $0.last } ?? [],
-                         lo: (d["lo"] as? [[Double]])?.compactMap { $0.last } ?? [])
+            return .pair(hi: numbers(d["hi"] ?? d["a"]), lo: numbers(d["lo"] ?? d["b"]))
         case .column:
-            let bins = (d["bins"] as? [[Any]])?.compactMap { row -> (String, Double)? in
-                guard row.count >= 2, let v = row[1] as? Double else { return nil }
-                return ("\(row[0])", v)
-            } ?? []
-            return .bins(bins)
+            return .bins(labelled(d["bins"] ?? d["points"] ?? d["days"] ?? d["series"]))
         case .arc:
-            return .ring(value: (d["value"] as? Double) ?? (d["level"] as? Double) ?? 0,
-                         goal: (d["goal"] as? Double) ?? 100,
-                         unit: (d["unit"] as? String) ?? "")
+            let v = ["value", "level", "current", "load"].compactMap { key -> Double? in
+                (d[key] as? Double) ?? (d[key] as? Int).map(Double.init)
+            }.first ?? 0
+            let goal = ["goal", "target", "max"].compactMap { key -> Double? in
+                (d[key] as? Double) ?? (d[key] as? Int).map(Double.init)
+            }.first ?? 100
+            return .ring(value: v, goal: goal, unit: (d["unit"] as? String) ?? "")
         case .stack:
-            let parts = (d["parts"] as? [[String: Any]])?.enumerated().map { i, p in
-                (p["label"] as? String ?? "",
-                 (p["min"] as? Double) ?? (p["kcal"] as? Double) ?? 0,
-                 [NB.cyan1, NB.violet1, NB.optimal2, NB.ember1][i % 4])
-            } ?? []
+            let source = d["parts"] ?? d["macros"] ?? d["rows"]
+            let parts = labelled(source).enumerated().map { i, p in
+                (p.0, p.1, [NB.cyan1, NB.violet1, NB.optimal2, NB.ember1][i % 4])
+            }
             return .parts(parts)
         case .grid:
-            let cells = (d["cells"] as? [[Int]])?.flatMap { $0 } ?? []
+            let cells = (d["cells"] as? [[Int]])?.flatMap { $0 }
+                ?? (d["cells"] as? [Int])
+                ?? numbers(d["grid"] ?? d["points"]).map { Int($0) }
+                ?? []
             return .cells(rows: (d["rows"] as? Int) ?? 7, cols: (d["cols"] as? Int) ?? 12,
                           values: cells, levels: (d["scale"] as? Int) ?? 4)
         case .strip:
-            let stages = (d["minutes"] as? [Double]) ?? []
+            let stages = numbers(d["minutes"] ?? d["stages"] ?? d["zones"])
             return .strip(stages.enumerated().map { ($0.offset, $0.element) })
         case .trace:
-            return .trace(samples: (d["samples"] as? [Double]) ?? [], hz: (d["hz"] as? Double) ?? 125)
+            return .trace(samples: numbers(d["samples"] ?? d["series"]),
+                          hz: (d["hz"] as? Double) ?? 125)
         case .rows:
-            let rows = (d["rows"] as? [[String: Any]])?.map {
-                PanelData.RowItem(label: $0["label"] as? String ?? "",
-                                  value: "\($0["value"] ?? "")",
-                                  spark: $0["spark"] as? [Double])
+            let raw = (d["rows"] ?? d["items"] ?? d["logged"] ?? d["events"] ?? d["points"])
+            let rows = (raw as? [[String: Any]])?.map { r -> PanelData.RowItem in
+                let label = (r["label"] as? String) ?? (r["name"] as? String)
+                    ?? (r["slot"] as? String) ?? (r["dayKey"] as? String) ?? ""
+                let value = r["value"] ?? r["kcal"] ?? r["v"] ?? r["minutes"] ?? ""
+                return PanelData.RowItem(label: label, value: "\(value)",
+                                         spark: numbers(r["spark"]).isEmpty ? nil : numbers(r["spark"]))
             } ?? []
             return .rows(rows)
         case .number:

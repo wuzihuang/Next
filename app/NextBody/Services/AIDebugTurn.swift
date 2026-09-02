@@ -70,19 +70,10 @@ extension AIService {
         "(?i)as an ai", "(?i)\\brecovery\\b", "(?i)\\bstrain\\b",
     ]
 
-    private static let medical = try! NSRegularExpression(
-        pattern: "(诊断|症状|吃药|用药|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|diagnos|pregnan|symptom)",
-        options: [.caseInsensitive])
-
     func debugTurn(_ text: String, day: UserDay, store: DataStore) async -> PanelWidget? {
-        // S7 · the medical stop happens before anything else.
-        let range = NSRange(text.startIndex..., in: text)
-        if Self.medical.firstMatch(in: text, range: range) != nil {
-            return PanelWidget(type: .text, title: "NOT A DOCTOR", tag: .alert,
-                               sentence: "这类问题请找医生。这块屏只报告测量到的数字。",
-                               footer: "NEXTBODY IS NOT A MEDICAL DEVICE",
-                               action: nil, data: .none, priority: .alert)
-        }
+        // S7 · the medical stop happens before anything else. One list, in MedicalStop,
+        // so the turn path and the dock's classifier can never drift apart.
+        if MedicalStop.matches(text) { return MedicalStop.frame }
 
         let m = store.today
         let context: [String: Any] = [

@@ -112,6 +112,13 @@ struct HomeView: View {
         withAnimation { widget = .thinking }
 
         Task {
+            // S7 · the stop runs before the classifier, not after it. 吃药 contains 吃, so a
+            // question about medication otherwise routes to the meal path — and that path
+            // writes the row before the model is called.
+            if MedicalStop.matches(text) {
+                withAnimation { widget = MedicalStop.frame }
+                return
+            }
             if Self.looksLikeFood(text) {
                 let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotForNow(),
                                       status: .confirmed, text: text,

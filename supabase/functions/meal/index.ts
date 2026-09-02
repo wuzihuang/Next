@@ -6,6 +6,7 @@ import { generateObject } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import { model, MODEL_VERSION } from "../_shared/model.ts";
 import { currentUserId, cors, json } from "../_shared/db.ts";
+import { MEDICAL } from "../_shared/contract.ts";
 
 const Draft = z.object({
   name: z.string().max(48),
@@ -24,6 +25,11 @@ Deno.serve(async (req) => {
 
   const { text, slot, locale } = await req.json();
   const draftId = req.headers.get("Idempotency-Key") ?? crypto.randomUUID();
+
+  // S7 · a medication question is not a meal. It arrives here because 吃药 contains 吃 and
+  // the dock's classifier routes on that marker, so the stop has to stand on this endpoint
+  // too — estimating it would answer a medical question with a calorie count.
+  if (MEDICAL.test(text ?? "")) return json({ error: "MEDICAL_STOP" }, 422);
 
   try {
     const { object } = await generateObject({

@@ -246,6 +246,9 @@ struct AutoMonitorSlot: Identifiable, Hashable {
     var startHour: Int
     var endHour: Int
     var intervalMinutes: Int
+    /// 12 rule 06 · isSlotModify / isIntervalModify from readAutoMeasureSetting().
+    var slotModifiable = true
+    var intervalModifiable = true
 }
 
 enum BandError: LocalizedError {

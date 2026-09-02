@@ -693,10 +693,14 @@ struct AutoMeasurementSheet: View {
                         MeasureToggle(
                             title: Self.title(slot.kind),
                             detail: Self.detail(slot),
+                            // 12S decision 2 · isSlotModify / isIntervalModify: a chip the firmware
+                            // will not let you change is not rendered — a read-only grey chip gets
+                            // tapped over and over. Both false leaves only the switch.
                             chips: slot.supportsRange
-                                ? [String(format: "%02d:00 – %02d:00", slot.startHour, slot.endHour),
-                                   "EVERY \(slot.intervalMinutes) MIN"]
+                                ? [slot.slotModifiable ? String(format: "%02d:00 – %02d:00", slot.startHour, slot.endHour) : nil,
+                                   slot.intervalModifiable ? "EVERY \(slot.intervalMinutes) MIN" : nil].compactMap { $0 }
                                 : [],
+                            detailIsLime: slot.on && slot.supportsRange && slot.slotModifiable && slot.intervalModifiable,
                             isOn: Binding(
                                 get: { slots[index].on },
                                 set: { on in
@@ -754,6 +758,8 @@ struct AutoMeasurementSheet: View {
     private static func detail(_ slot: AutoMonitorSlot) -> String {
         guard slot.on else { return "OFF" }
         if slot.supportsRange {
+            // The board's line for a row whose window and interval are both editable.
+            if slot.slotModifiable && slot.intervalModifiable { return "WINDOW AND INTERVAL, BOTH YOURS" }
             return String(format: "%02d:00 – %02d:00 · EVERY %d MIN",
                           slot.startHour, slot.endHour, slot.intervalMinutes)
         }
@@ -765,6 +771,7 @@ private struct MeasureToggle: View {
     let title: String
     let detail: String
     var chips: [String] = []
+    var detailIsLime = false
     @Binding var isOn: Bool
     var last = false
 
@@ -776,8 +783,8 @@ private struct MeasureToggle: View {
                         .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
                         .foregroundStyle(NB.text1)
                     Text(detail)
-                        .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                        .foregroundStyle(isOn ? NB.lime1.opacity(0.7) : NB.white.opacity(0.28))
+                        .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
+                        .foregroundStyle(detailIsLime ? NB.lime1 : isOn ? NB.text3Prod : NB.white.opacity(0.28))
                 }
                 Spacer(minLength: 0)
                 Toggle("", isOn: $isOn).labelsHidden().tint(NB.lime1)
@@ -786,10 +793,11 @@ private struct MeasureToggle: View {
                 HStack(spacing: 10) {
                     ForEach(chips, id: \.self) { c in
                         Text(c)
-                            .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
-                            .foregroundStyle(NB.text2)
-                            .padding(.horizontal, 14).frame(height: 32)
-                            .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
+                            .font(NBFont.dot(600, 11)).tracking(0.14 * 11)
+                            .foregroundStyle(NB.lime1)
+                            .frame(maxWidth: .infinity).frame(height: 32)
+                            .background(Color(hex: 0x17171B), in: Capsule())
+                            .overlay(Capsule().stroke(NB.lime1.opacity(0.24), lineWidth: 1))
                     }
                 }
             }
@@ -808,6 +816,29 @@ struct AlarmsSheet: View {
         ("07:30", "MON TUE WED THU FRI", true),
         ("08:45", "SAT", true),
     ]
+    /// 12S decision 1 · the table is written whole and the capacity (3 / 10 / 20) is only learnt
+    /// from the first refused write. That refusal is silent — the row turns amber and says the
+    /// limit; deleting one turns it back to lime.
+    @State private var full = false
+    @State private var capacity: Int?
+
+    private func add() {
+        let candidate = alarms + [("07:00", "MON TUE WED THU FRI SAT SUN", true)]
+        Task {
+            if DebugEdge.on("alarmfull") { capacity = 10; withAnimation { full = true }; return }
+            let table = candidate.map { BandAlarm(hour: Int($0.0.prefix(2)) ?? 7, minute: Int($0.0.suffix(2)) ?? 0, weekdays: [1, 2, 3, 4, 5, 6, 7], on: $0.2) }
+            do {
+                _ = try await Band.live.writeSetting(.alarms(table))
+                alarms = candidate
+                full = false
+            } catch {
+                // Rolled back whole; the user sees the limit, not an error.
+                capacity = alarms.count
+                withAnimation { full = true }
+                BandLog.shared.record("alarms", error: error)
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -839,17 +870,37 @@ struct AlarmsSheet: View {
                     .frame(height: 74)
                     .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
                 }
-                HStack {
-                    Text("Add an alarm")
-                        .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
-                        .foregroundStyle(NB.lime1)
-                    Spacer(minLength: 0)
-                    Text("\(alarms.count) SAVED")
-                        .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                        .foregroundStyle(NB.white.opacity(0.34))
+                if full {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 12) {
+                            Text("\(capacity ?? alarms.count) alarms is all this HOOP holds")
+                                .font(NBFont.ui(500, 14.5)).tracking(0.01 * 14.5)
+                                .foregroundStyle(NB.ember1)
+                            Spacer(minLength: 0)
+                            Text("FULL").font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
+                        }
+                        Text("Delete one and this row goes back to lime")
+                            .font(NBFont.ui(300, 12.5)).foregroundStyle(NB.white.opacity(0.42))
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 64)
+                } else {
+                    Button(action: add) {
+                        HStack {
+                            Text("Add an alarm")
+                                .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                                .foregroundStyle(NB.lime1)
+                            Spacer(minLength: 0)
+                            Text("\(alarms.count) SAVED")
+                                .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+                                .foregroundStyle(NB.white.opacity(0.34))
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(height: 56)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
-                .frame(height: 56)
             }
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()

@@ -1002,6 +1002,14 @@ The remaining screen boards' rules and edge fragments are mirrored (`05-dock.md`
 fire from the debug switch, not from a real reply. The edge UI is wired to what a real verify would
 return.
 
+### 12S · the four device sheets, and the two calls the board makes
+The sheets' copy matches the board word for word (Automatic measurement, Alarms, Disconnect, Forget).
+The board's two decisions are now built: a full alarm table turns the `Add an alarm` row amber —
+"10 alarms is all this HOOP holds · FULL / Delete one and this row goes back to lime" — after a
+silently rolled-back write (capacity is only learnt from the refusal); and a window or interval the
+firmware will not let you change (`isSlotModify` / `isIntervalModify`) is simply not drawn, never a
+read-only grey chip. Rows with both editable say `WINDOW AND INTERVAL, BOTH YOURS` in lime.
+
 ## Running it
 
 ```sh

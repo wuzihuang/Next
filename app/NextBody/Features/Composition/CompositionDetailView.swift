@@ -250,22 +250,58 @@ struct CompositionDetailView: View {
     /// F0 rule 05 · seven cells coloured by Daily Direction, not by the quadrant.
     private var thatWeekCard: some View {
         // 19YI · the same seven cells, renamed, with coverage in place of the date range.
-        CardBlock(title: isWeek ? "DAILY BREAKDOWN" : "THAT WEEK",
-                  trailing: isWeek ? "\(loggedDays) OF 7 LOGGED" : weekLabel,
-                  trailingIsDot: true) {
+        let late = backfilled
+        return CardBlock(title: isWeek ? "DAILY BREAKDOWN" : "THAT WEEK",
+                  trailing: !late.isEmpty && !isWeek ? "\(late.count) DAY\(late.count == 1 ? "" : "S") RECALCULATED"
+                          : isWeek ? "\(loggedDays) OF 7 LOGGED" : weekLabel,
+                  trailingIsDot: true,
+                  trailingTint: !late.isEmpty && !isWeek ? NB.ember1.opacity(0.85) : nil) {
             HStack(spacing: 6) {
                 ForEach(weekDays, id: \.self) { d in
                     let metrics = data.history.first { $0.day == d }
                     VStack(spacing: 7) {
                         DirectionCell(direction: metrics?.direction ?? .greyNothing,
                                       today: d == day, height: 34)
+                            // 10 edge 5 · a recoloured cell is marked, so the receipt names it.
+                            .overlay(late.contains(d) ? RoundedRectangle(cornerRadius: 6).stroke(NB.ember1.opacity(0.85), lineWidth: 1) : nil)
                         Text(dayNumber(d))
                             .font(NBFont.dot(d == day ? 700 : 500, 11))
-                            .foregroundStyle(d == day ? NB.text1 : Color(hex: 0x8A8A96))
+                            .foregroundStyle(d == day ? NB.text1 : late.contains(d) ? NB.ember1.opacity(0.85) : Color(hex: 0x8A8A96))
                     }
                 }
             }
+            if !late.isEmpty, !isWeek {
+                EvidenceNote("YOU LOGGED \(rangeLabel(late)) LATE. \(countWord(late.count)) CHANGED.")
+            }
         }
+    }
+
+    /// 10 edge 5 · BACKFILL. A day whose row was recomputed well after the day closed — more
+    /// than two days later — and recently, is a day that changed because something was
+    /// logged late. 10 rule 09: any call change needs a visible receipt naming the signal.
+    private var backfilled: [UserDay] {
+        let week = weekDays
+        if DebugEdge.on("backfill") {
+            return Array(week.filter { $0 < UserDay.containing(Date()).adding(days: -1) }.prefix(3))
+        }
+        let now = Date()
+        return week.filter { d in
+            guard let row = data.history.first(where: { $0.day == d }), let at = row.asOf else { return false }
+            return at > d.start.addingTimeInterval(48 * 3600) && now.timeIntervalSince(at) < 48 * 3600
+        }
+    }
+    private func rangeLabel(_ days: [UserDay]) -> String {
+        let f = DateFormatter(); f.dateFormat = "MMM d"
+        guard let first = days.first, let last = days.last else { return "" }
+        if days.count == 1 { return f.string(from: first.start).uppercased() }
+        let contiguous = zip(days, days.dropFirst()).allSatisfy { $1 == $0.adding(days: 1) }
+        let sameMonth = Calendar.current.isDate(first.start, equalTo: last.start, toGranularity: .month)
+        if contiguous && sameMonth { return "\(f.string(from: first.start).uppercased())–\(dayNumber(last))" }
+        return days.map { f.string(from: $0.start).uppercased() }.joined(separator: ", ")
+    }
+    private func countWord(_ n: Int) -> String {
+        let words = ["", "THAT DAY", "THOSE TWO DAYS", "THOSE THREE DAYS", "THOSE FOUR DAYS", "THOSE FIVE DAYS", "THOSE SIX DAYS", "THOSE SEVEN DAYS"]
+        return n < words.count ? words[n] : "THOSE \(n) DAYS"
     }
 
     private var weekDays: [UserDay] {
@@ -664,7 +700,7 @@ struct CompositionDetailView: View {
     }
 }
 
-private struct PagerButton: View {
+struct PagerButton: View {
     let forward: Bool
     let enabled: Bool
     let action: () -> Void

@@ -12,6 +12,8 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dockMode: Dock.Mode = .idle
     @State private var draft = ""
+    /// 09 edge 5 · the day a back-logged meal belongs to; nil means today.
+    @State private var backlogDay: UserDay?
     /// 05 edges · what the dock is saying instead of listening.
     @State private var dockNote: DockNote?
     @State private var rootShift: CGFloat = 0
@@ -44,6 +46,13 @@ struct HomeView: View {
         // still re-proposed this view 119 pt taller and 119 pt higher, whatever safe-area
         // modifier sat above it; every ignoresSafeArea(.keyboard) placement was tried. So the
         // page reads where the container put it and puts itself back: only the dock moves.
+        .onChange(of: router.dockPrefill) { _, p in
+            guard let p else { return }
+            draft = p.text
+            backlogDay = p.day
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { dockMode = .keyboard }
+            router.dockPrefill = nil
+        }
         .offset(y: -rootShift)
         .background(GeometryReader { g in
             Color.clear
@@ -83,8 +92,15 @@ struct HomeView: View {
                            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
 
             // F3 §05 · the home screen reads one row of daily_results and nothing else.
-            try? await Repository.shared.signInDemo()
-            await Repository.shared.loadToday(into: data)
+            // ⚠️ Unstructured on purpose: `.task` is cancelled the moment a detail page is
+            // pushed over this view, and a cancelled load fell back to the offline seed —
+            // opening any page in the first seconds silently turned the whole app into a mock.
+            let store = data
+            let load = Task { @MainActor in
+                try? await Repository.shared.signInDemo()
+                await Repository.shared.loadToday(into: store)
+            }
+            await load.value
 
             // 13 col 01 · 昨夜, once a day, within six hours of waking. F5 C4 · the notification
             // primer follows the first real morning and nothing else.
@@ -104,7 +120,11 @@ struct HomeView: View {
             // 补屏 rule 01 · 「02 板配对成功不构成取数许可」. The band stays paired; without consent
             // startReadOriginData() is never called.
             guard data.band.connected, ConsentStore.shared.granted else { return }
-            await OriginDataSync().sync(day: UserDay.containing(Date()), into: data)
+            // Same reason as the load above: the pull must outlive this view's `.task`.
+            let sync = Task { @MainActor in
+                await OriginDataSync().sync(day: UserDay.containing(Date()), into: store)
+            }
+            _ = await sync.value
         }
     }
 
@@ -332,7 +352,9 @@ struct HomeView: View {
             note(DockNote(line: "NO CONNECTION", text: "It stays here. Send it when you're back."))
             return
         }
-        let day = UserDay.containing(Date())
+        let day = backlogDay ?? UserDay.containing(Date())
+        let backlogging = backlogDay != nil
+        backlogDay = nil
         withAnimation { widget = .thinking }
 
         // 05 · C05 → C07 · photo and caption leave as one object and come back as one answer
@@ -361,7 +383,7 @@ struct HomeView: View {
                 withAnimation { widget = MedicalStop.frame }
                 return
             }
-            if Self.looksLikeFood(text) {
+            if backlogging || Self.looksLikeFood(text) {
                 let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotForNow(),
                                       status: .confirmed, text: text,
                                       kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)

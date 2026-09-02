@@ -910,12 +910,12 @@ accessibility tree.
 | 09 | 2 OUT UNKNOWN | `nH OF DATA ONLY`, OUT and BALANCE ——, "TODAY'S BURN NEEDS A FULL DAY OF WEAR…"; threshold = half the elapsed day (⚠️ the board's own open 拍板) |
 | 09 | 3 OVER TARGET | header `+n OVER`, `+n OVER — STILL A FINE DAY`, bar capped, no colour change |
 | 09 | 4 NO TARGET | the full screen (Phase 3) |
-| 09 | 5 PAST DAY | not built — the fuel page has no past-day route; composition's day view mirrors it |
+| 09 | 5 PAST DAY | built in Phase 8: pager, CLOSED, MEASURED · NO ESTIMATE, ADD TO THAT DAY back-logs through the dock |
 | 10 | 1 SOURCE GONE | `LAST READ MMM D`, `KG · FROZEN`, "NOTHING NEW SINCE …"; confidence −1 tier at 3 days, NO CALL at 7 |
 | 10 | 2 MEASURED ARRIVES | legend moves FAT/LEAN MASS to MEASURED, "ESTIMATE WAS x · THE SERIES RE-ANCHORS FROM HERE" |
 | 10 | 3 WEIGHT SPIKE | `OUTLIER · KEPT`, `+1.4 IN A DAY`, "THE 7-DAY AVERAGE BARELY MOVED." — the "call did not flip" half is not claimed |
 | 10 | 4 SIGNALS SPLIT | under the confidence row: "FAT IS DOWN, LEAN IS TOO. PROTEIN AND BALANCE DISAGREE." built from the four signals |
-| 10 | 5 BACKFILL | not built — needs a server-side recalculation receipt |
+| 10 | 5 BACKFILL | built in Phase 8 from `computed_at`: n DAYS RECALCULATED, ringed cells, the receipt sentence |
 | 11 | 1 HEALTH REVOKED | row sub-line `LAST READ MMM D · NOTHING NEW` when a later read came back empty; value stays NOT CONNECTED (F5: permission cannot be probed) |
 | 11 | 2 GOAL SWITCHED | row sub-line `FROM TOMORROW · TODAY IS UNCHANGED` on the day the goal changed |
 | 11 | 3 EXPORT RUNNING | row value `PREPARING…` (amber) + `YOU CAN LEAVE THIS PAGE` while export_all runs |
@@ -996,11 +996,10 @@ The remaining screen boards' rules and edge fragments are mirrored (`05-dock.md`
 | 10S | 2 ALREADY ONE TODAY | `ALREADY ONE TODAY` + "78.6 REPLACES 78.4" above SAVE, no confirm |
 | 10S | 3 OUT OF RANGE | 20–300 kg (44–661 lb): number amber, SAVE off, `OUT OF RANGE` + the range only |
 | 10S | 5 FROM HEALTH · LB | Health's reading renders in HOOP's unit preference, stored in kg |
-| 10S | 1 / 4 | 1 is the default (straight to the keypad); 4 OFFLINE is not built — saves are not queued |
+| 10S | 1 / 4 | 1 is the default (straight to the keypad); 4 OFFLINE built in Phase 8 — SAVED · NOT SYNCED, queue retries |
 
-⚠️ Sign-in is still a mock: the code is not verified against a server, so the wrong/expired states
-fire from the debug switch, not from a real reply. The edge UI is wired to what a real verify would
-return.
+Sign-in was a mock until Phase 8; the code is now verified against Supabase auth and the
+wrong/expired/rate-limited states come from the server's own replies.
 
 ### 12S · the four device sheets, and the two calls the board makes
 The sheets' copy matches the board word for word (Automatic measurement, Alarms, Disconnect, Forget).
@@ -1041,6 +1040,54 @@ frame because the overlay was added after the keyboard `.offset` (the lift now c
 mandated qwen3.8-flash — that model has no image input. `qwen-vl-plus` looped on the JSON schema;
 the flash model answers a relaxed schema which the function coerces to integers and a tier.
 Photo retry policy is still the board's open question; the client retries once per tap.
+
+## Phase 8 · the writes the app was not making, and five edge states that needed them
+
+### What was found
+Three things looked built and were not persisting anything. A meal the model parsed was logged
+in memory only — the app never called `meal-commit`, so every plate the demo account "logged"
+vanished at the next launch. A weigh-in went to `addWeighIn` and nowhere else. And the initial
+`Repository.load` ran inside HomeView's `.task`, which SwiftUI cancels the moment a detail page
+is pushed over it: open any page in the first seconds and the whole app fell back to the offline
+seed without saying so (the log read `Repository.load failed: cancelled`). All three are fixed:
+the draft the model produced is committed with its `draft_id` as the idempotency key (F4 §02),
+weigh-ins go through a persisted queue, and the load and the band pull run as unstructured
+tasks that outlive the view.
+
+### Built and walked on the simulator
+- **10S rule 09 / edge 4 · OFFLINE.** `WeighInQueue` keeps rows in UserDefaults, flushes on
+  launch and when `Reachability` comes back, and dedupes on `client_op_id` (409 clears the row).
+  Offline (`NB_DEBUG_EDGE=offline`): the WEIGH-IN card says `SAVED · NOT SYNCED` / "IT'LL GO UP
+  LATER"; relaunch online: the row is on the server (`weigh_ins` 68.40 kg, tz, client_op_id).
+  A Health reading keeps its own timestamp and uuid (10 rule 08, 10S rule 04). The evidence
+  card's top row now opens the sheet (10S rule 07).
+- **01 · the code is real.** `sendCode` posts `/auth/v1/otp`, `verify` posts `/auth/v1/verify`
+  (type email): 429 → RATE LIMITED, an expired token → EXPIRED, any other refusal → wrong code,
+  locked after five. The seeded demo account keeps a mailbox-free path (any six digits sign it
+  in with its password) and a real session is never replaced by the demo one. Walked: gate →
+  email → code → wordmark → PAIRING 01/05. The real 403 body was checked with curl
+  (`otp_expired · Token has expired or is invalid` maps to wrong, not expired).
+- **09 edge 5 · PAST DAY.** The fuel page pages back like 10 (7 user days, F2 §08): `‹ MON 31
+  AUG` · `CLOSED` · EATEN THAT DAY · the day's own rows from the week window · ENERGY BALANCE
+  `CLOSED` with `MEASURED · NO ESTIMATE` · no EST card, no OPEN slots, no suggestions · CTA
+  `ADD TO THAT DAY`. The CTA opens the dock prefilled with the day (`8月31日 `) and the meal
+  lands on that day: walked end to end, the server row reads `user_day 2026-08-31 · 米饭鸡腿 ·
+  450 kcal`.
+- **10 edge 5 · BACKFILL.** THAT WEEK says `n DAYS RECALCULATED` in amber, the cells get an
+  amber ring, and the receipt reads "YOU LOGGED AUG 21–23 LATE. THOSE THREE DAYS CHANGED." A day
+  counts as recalculated when its row's `computed_at` is more than two days after the day
+  opened and less than two days old (`NB_DEBUG_EDGE=backfill` forces it).
+- **02 edge 2 · BLUETOOTH IS OFF** is read from CoreBluetooth (`BluetoothState`), not only the
+  debug switch: off mid-search ends the search, back on restarts it. The simulator reports
+  `.unsupported`, so the state path was exercised only through the switch; the scan still
+  finds the mock band.
+
+`NB_DEBUG_ROUTE=fuel|composition|training|bodyBattery|profile` opens straight onto a detail page.
+
+⚠️ Back-logged meals take the slot of the current hour (a plate added to Aug 31 at 00:30 is a
+SNACK); the board does not say which slot a late plate belongs to. ⚠️ Profile still offers a
+weigh-in entry (11 col 03) although 10S rule 07 says composition and NO TARGET only — left
+for a ruling since 11 draws it.
 
 ## Running it
 

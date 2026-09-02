@@ -69,6 +69,10 @@ final class Router: ObservableObject {
     @Published var entry: EntryPoint = .home
     @Published var takeover: Takeover?
     @Published var sheet: SheetRoute?
+    /// 09 edge 5 · ADD TO THAT DAY: back-logging goes through the dock, prefilled with the
+    /// day, and the meal lands on that day rather than today.
+    struct DockPrefill: Equatable { let text: String; let day: UserDay }
+    @Published var dockPrefill: DockPrefill?
 
     /// F0 rule 06: every widget on the panel is tappable and declares its target page.
     func open(_ d: Destination, from: EntryPoint = .home) {

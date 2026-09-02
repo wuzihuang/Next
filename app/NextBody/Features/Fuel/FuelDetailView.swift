@@ -7,9 +7,35 @@ struct FuelDetailView: View {
     @EnvironmentObject private var router: Router
 
     @State private var editing: MealEntry?
+    /// 09 edge 5 · PAST DAY. The page pages back like 10 does; a closed day shows what was
+    /// measured and nothing that is still an estimate. Range-limited to 7 user days (F2 §08).
+    @State private var day: UserDay = UserDay.containing(Date())
+    private var today: UserDay { UserDay.containing(Date()) }
+    private var isPast: Bool { day < today }
 
-    private var m: DailyMetrics { data.today }
+    private var m: DailyMetrics {
+        guard isPast else { return data.today }
+        var row = data.history.first { $0.day == day } ?? DailyMetrics(day: day)
+        // History rows carry what went in as totals; the macro slots are filled from them so
+        // the same card reads the same way on a past day.
+        row.protein = row.protein.map { MacroSlot(target: $0.target, eaten: row.proteinIn ?? dayMeals.reduce(0) { $0 + $1.protein }) }
+        row.carb    = row.carb.map    { MacroSlot(target: $0.target, eaten: row.carbIn    ?? dayMeals.reduce(0) { $0 + $1.carb }) }
+        row.fat     = row.fat.map     { MacroSlot(target: $0.target, eaten: row.fatIn     ?? dayMeals.reduce(0) { $0 + $1.fat }) }
+        if row.eIn == nil, !dayMeals.isEmpty { row.eIn = dayMeals.reduce(0) { $0 + $1.kcal } }
+        return row
+    }
+    /// The day's own rows: today's from `meals`, a past day's from the week window, plus
+    /// anything back-logged in this session.
+    private var dayMeals: [MealEntry] {
+        let own = data.meals.filter { $0.day == day && $0.status == .confirmed }
+        let window = data.recentMeals.filter { r in r.day == day && !own.contains { $0.id == r.id } }
+        return (own + window).sorted { $0.at < $1.at }
+    }
     private var logged: Bool { m.eIn != nil }
+    private var pastTitle: String {
+        let f = DateFormatter(); f.dateFormat = "EEE d MMM"
+        return f.string(from: day.start).uppercased()
+    }
     /// 09 edge 1 · PARTIAL: logged but not closed — a slot is still open.
     private var closed: Bool { openSlots.isEmpty }
     private var partialSummary: String {
@@ -30,7 +56,8 @@ struct FuelDetailView: View {
     }
     private var outUnknown: Bool {
         if DebugEdge.on("outunknown") { return true }
-        let elapsed = Date().timeIntervalSince(m.day.start) / 3600
+        // A closed day is judged on the whole day it had, not on the clock.
+        let elapsed = isPast ? 24 : Date().timeIntervalSince(m.day.start) / 3600
         return logged && elapsed > 6 && coverageHours < elapsed * 0.5
     }
     /// 补屏 B rule 07 · NO TARGET is for an account that has never had a weight — not one
@@ -55,7 +82,10 @@ struct FuelDetailView: View {
                 SectionLabel(logged ? "WHAT WENT IN" : "WHAT GOES IN")
                 foodCard
                 balanceCard
-                if logged {
+                // 09 edge 5 · EST is gone on a closed day: the burn card is a forecast.
+                if isPast {
+                    EmptyView()
+                } else if logged {
                     burnCard
                     weekCard
                 } else {
@@ -85,16 +115,41 @@ struct FuelDetailView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("FUEL")
-                    .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
-                    .foregroundStyle(NB.text1)
+                if isPast {
+                    // 09 edge 5 · `‹ SAT 30 AUG` — the chevron is the way back to today.
+                    Button { withAnimation { day = today } } label: {
+                        HStack(spacing: 8) {
+                            Text("‹").font(NBFont.brand(400, 28)).foregroundStyle(NB.macroLabel)
+                            Text(pastTitle)
+                                .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
+                                .foregroundStyle(NB.text1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back to today")
+                } else {
+                    Text("FUEL")
+                        .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
+                        .foregroundStyle(NB.text1)
+                }
                 Spacer(minLength: 0)
-                // Deliberately the same number as the one on the home card: you tap it
-                // in the upper half and it is still there when you have scrolled down.
-                Text(logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "\(Fmt.kcal(m.nextMeal)) LEFT")
-                            : "\(Fmt.kcal(m.targetIn)) TARGET")
-                    .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                    .foregroundStyle(NB.emberPale)
+                if isPast {
+                    Text(overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "CLOSED")
+                        .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
+                        .foregroundStyle(NB.emberPale)
+                } else {
+                    // Deliberately the same number as the one on the home card: you tap it
+                    // in the upper half and it is still there when you have scrolled down.
+                    Text(logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "\(Fmt.kcal(m.nextMeal)) LEFT")
+                                : "\(Fmt.kcal(m.targetIn)) TARGET")
+                        .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
+                        .foregroundStyle(NB.emberPale)
+                }
+                HStack(spacing: 6) {
+                    PagerButton(forward: false, enabled: day > today.adding(days: -6)) { withAnimation { day = day.adding(days: -1) } }
+                    PagerButton(forward: true, enabled: isPast) { withAnimation { day = day.adding(days: 1) } }
+                }
+                .padding(.leading, 10)
             }
             // ⚠️ Absent on purpose — see 08. VAF · "留一个点了没反应的分段控件比没有更糟",
             // and 1EIH rules delete for both pages. THIS WEEK at the foot of this page is
@@ -108,11 +163,12 @@ struct FuelDetailView: View {
     private var eatenCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
-                Text("EATEN TODAY")
+                Text(isPast ? "EATEN THAT DAY" : "EATEN TODAY")
                     .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
-                Text(logged ? (closed ? mealSummary : partialSummary) : "NOTHING LOGGED YET")
+                Text(isPast ? (logged ? mealSummary : "NOTHING LOGGED")
+                     : logged ? (closed ? mealSummary : partialSummary) : "NOTHING LOGGED YET")
                     .font(logged && !closed ? NBFont.dot(700, 12) : NBFont.ui(500, 11))
                     .tracking(logged && !closed ? 0.04 * 12 : 0.06 * 11)
                     .foregroundStyle(logged && !closed ? NB.ember1.opacity(0.85) : NB.text3Prod)
@@ -138,7 +194,9 @@ struct FuelDetailView: View {
                 HStack(alignment: .firstTextBaseline) {
                     // "an empty page" and "a broken page" must not look the same:
                     // NOTHING COUNTED YET — A BLANK, NOT A ZERO.
-                    Text(logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER — STILL A FINE DAY" }
+                    Text(isPast ? (logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER — STILL A FINE DAY" } ?? "CLOSED — NOTHING LEFT TO PLACE")
+                                          : "NOTHING COUNTED — A BLANK, NOT A ZERO")
+                         : logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER — STILL A FINE DAY" }
                                    ?? "\(Fmt.kcal(m.nextMeal)) LEFT — \(leftInWords)")
                                 : "NOTHING COUNTED YET — A BLANK, NOT A ZERO")
                         .font(NBFont.ui(500, 12)).tracking(0.04 * 12)
@@ -243,8 +301,8 @@ struct FuelDetailView: View {
     /// The last row is the single amber OPEN slot — the only highlight the page allows.
     private var foodCard: some View {
         CardBlock(title: "FOOD",
-                  trailing: logged ? "\(Fmt.kcal(m.eIn)) KCAL · \(m.protein?.eaten ?? 0) G PRO" : "NOTHING IN YET") {
-            let confirmed = data.meals.filter { $0.status == .confirmed }.sorted { $0.at < $1.at }
+                  trailing: logged ? "\(Fmt.kcal(m.eIn)) KCAL · \(m.protein?.eaten ?? m.proteinIn ?? dayMeals.reduce(0) { $0 + $1.protein }) G PRO" : isPast ? "NOTHING IN" : "NOTHING IN YET") {
+            let confirmed = dayMeals
             VStack(spacing: 10) {
                 ForEach(Array(confirmed.enumerated()), id: \.element.id) { i, meal in
                     // F0 right column · the edit / delete entry point this page was missing.
@@ -255,13 +313,14 @@ struct FuelDetailView: View {
                     if i < confirmed.count - 1 { Hairline() }
                 }
             }
-            ForEach(openSlots, id: \.self) { slot in
+            // 09 edge 5 · OPEN slots and suggestions are for a day that is still running.
+            ForEach(isPast ? [] : openSlots, id: \.self) { slot in
                 OpenSlotRow(slot: slot,
                             hint: slot == nextSlot ? (logged ? "AIM FOR 60 G PROTEIN IN IT" : "START WITH 40 G PROTEIN") : "NOT LOGGED",
                             kcal: slot == nextSlot ? (logged ? Fmt.kcal(m.nextMeal) : "~500") : Fmt.dash,
                             lit: slot == nextSlot)
             }
-            if !logged {
+            if !logged, !isPast {
                 // B4 · one of the four ways to let a user say "I didn't eat".
                 // ⚠️ It appears only in the empty state.
                 HStack {
@@ -299,9 +358,9 @@ struct FuelDetailView: View {
     /// NOW = E_IN − E_OUT_NOW, both measured. The second row is a conditional, not an estimate.
     private var balanceCard: some View {
         CardBlock(title: "ENERGY BALANCE",
-                  trailing: outUnknown ? "\(Int(coverageHours))H OF DATA ONLY"
+                  trailing: isPast ? "CLOSED" : outUnknown ? "\(Int(coverageHours))H OF DATA ONLY"
                           : logged ? "SO FAR TODAY" : "NEEDS A DAY OF WEAR",
-                  trailingIsDot: outUnknown,
+                  trailingIsDot: outUnknown || isPast,
                   trailingTint: outUnknown ? NB.ember1.opacity(0.85) : nil) {
             HStack(spacing: 10) {
                 BalanceStat(label: "IN", value: Fmt.kcal(m.eIn), tint: logged ? NB.ember1 : NB.text3Prod)
@@ -313,12 +372,19 @@ struct FuelDetailView: View {
                             tint: outUnknown ? NB.text3Prod : NB.text1)
             }
             if outUnknown {
-                Text("TODAY'S BURN NEEDS A FULL DAY OF WEAR. THE MEALS STILL COUNT.")
+                Text(isPast ? "THAT DAY'S BURN NEEDED A FULL DAY OF WEAR. THE MEALS STILL COUNT."
+                            : "TODAY'S BURN NEEDS A FULL DAY OF WEAR. THE MEALS STILL COUNT.")
                     .font(NBFont.ui(300, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
+            if isPast {
+                // 09 edge 5 · a closed day has one number, and it was measured.
+                Text("MEASURED · NO ESTIMATE")
+                    .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
+                    .foregroundStyle(NB.macroValue)
+            }
             BalanceAxis(now: m.balance,
-                        ifBudget: (m.targetIn ?? 0) - (m.eOutFull ?? 0),
+                        ifBudget: isPast ? (m.balance ?? 0) : (m.targetIn ?? 0) - (m.eOutFull ?? 0),
                         enabled: logged && !outUnknown)
                 .frame(height: 52)
             HStack(spacing: 4) {
@@ -336,7 +402,7 @@ struct FuelDetailView: View {
                         .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                         .foregroundStyle(NB.text3Prod)
                 }
-                if logged {
+                if logged, !isPast {
                     HStack(spacing: 7) {
                         Circle().stroke(NB.ember1, lineWidth: 2).frame(width: 9, height: 9)
                             .accessibilityLabel("Needs you")   // F5 §09 · colour is not the only carrier
@@ -424,9 +490,14 @@ struct FuelDetailView: View {
     /// prefilled. Lime and solid in the empty state, dark and outlined once there is data.
     private var logButton: some View {
         Button {
+            if isPast {
+                // 09 edge 5 · back-logging stays open: the dock, prefilled with the day.
+                let f = DateFormatter(); f.dateFormat = "M月d日"
+                router.dockPrefill = .init(text: "\(f.string(from: day.start)) ", day: day)
+            }
             router.backToRoot()
         } label: {
-            Text("LOG A MEAL")
+            Text(isPast ? "ADD TO THAT DAY" : "LOG A MEAL")
                 .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
                 .foregroundStyle(logged ? NB.text1 : NB.carbon)
                 .frame(width: NB.Layout.contentWidth, height: logged ? 48 : 56)

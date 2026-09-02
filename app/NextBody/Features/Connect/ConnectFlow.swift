@@ -40,6 +40,12 @@ struct ConnectFlow: View {
             }
         }
         .carbonPage()
+        // 02 edge 2 · the radio going off mid-search ends the search; coming back restarts it.
+        .onReceive(BluetoothState.shared.$poweredOff.dropFirst()) { off in
+            guard step == .searching else { return }
+            if off { scanTask?.cancel(); Task { await Band.live.stopScan() }; scanEdge = .bluetoothOff }
+            else if scanEdge == .bluetoothOff { runScan() }
+        }
         .transaction { $0.animation = nil }
     }
 
@@ -60,7 +66,8 @@ struct ConnectFlow: View {
         scanTask?.cancel()
         // DEBUG · 02 edges 1 and 2 on a simulator whose mock band always answers.
         if DebugEdge.on("nothingfound") { scanEdge = .nothingFound; return }
-        if DebugEdge.on("btoff") { scanEdge = .bluetoothOff; return }
+        BluetoothState.shared.start()
+        if DebugEdge.on("btoff") || BluetoothState.shared.poweredOff { scanEdge = .bluetoothOff; return }
         scanTask = Task {
             await Band.live.startScan()
             // 02 rule 01 · scan 15 s (provisional). Edge 1 · the ripples stop, the line changes,

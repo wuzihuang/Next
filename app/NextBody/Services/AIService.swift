@@ -79,6 +79,34 @@ final class AIService: ObservableObject {
         return offlineFrame(text)
     }
 
+    /// F4 §02 · the draft the model produced this turn is the only thing that can be
+    /// committed, and the draft's own id is the idempotency key — a retry is a no-op, never
+    /// a second meal. Until this ran, a logged meal lived only in this process.
+    private func commit(entry: MealEntry, out: [String: Any]) async {
+        guard let draft = out["draft_id"] as? String, let kcal = numberOf(out["kcal"]), kcal > 0 else { return }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
+        do {
+            _ = try await SupabaseClient.shared.callFunction("meal-commit", payload: [
+                "draft_id": draft,
+                "user_day": f.string(from: entry.day.start),
+                "slot": entry.slot.rawValue,
+                "name": out["name"] as? String ?? entry.text,
+                "kcal": Int(kcal),
+                "protein_g": Int(numberOf(out["protein_g"]) ?? 0),
+                "carb_g": Int(numberOf(out["carb_g"]) ?? 0),
+                "fat_g": Int(numberOf(out["fat_g"]) ?? 0),
+                "confidence": out["confidence"] as? String ?? "MEDIUM",
+                "model_version": out["model_version"] as? String ?? "",
+            ])
+            await Analytics.shared.track("MEAL_COMMITTED", ["SLOT": entry.slot.rawValue])
+        } catch {
+            #if DEBUG
+            NSLog("meal-commit failed: %@", "\(error)")
+            #endif
+            lastError = error.localizedDescription
+        }
+    }
+
     /// Turns "半碗面加一个鸡蛋" into a logged meal.
     @discardableResult
     func estimate(entry: MealEntry, into store: DataStore) async -> PanelWidget? {
@@ -92,6 +120,7 @@ final class AIService: ObservableObject {
                 store.updateMeal(entry.id, kcal: kcal, text: out["name"] as? String ?? entry.text)
                 store.applyMacros(entry.id, protein: Int(numberOf(out["protein_g"]) ?? 0),
                                   carb: Int(numberOf(out["carb_g"]) ?? 0), fat: Int(numberOf(out["fat_g"]) ?? 0))
+                Task { await commit(entry: entry, out: out) }
                 return loggedFrame(name: out["name"] as? String ?? entry.text, kcal: kcal, store: store)
             }
         } catch {
@@ -120,6 +149,7 @@ final class AIService: ObservableObject {
             store.updateMeal(entry.id, kcal: kcal, text: name)
             store.applyMacros(entry.id, protein: protein,
                               carb: Int(numberOf(out["carb_g"]) ?? 0), fat: Int(numberOf(out["fat_g"]) ?? 0))
+            Task { await commit(entry: entry, out: out) }
             let target = store.today.protein?.target ?? 0
             let eaten = store.today.protein?.eaten ?? protein
             let left = max(0, target - eaten)

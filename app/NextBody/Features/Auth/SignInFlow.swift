@@ -372,17 +372,15 @@ private struct EmailScreen: View {
                         .stroke(NB.lime1.opacity(0.42), lineWidth: 1))
 
                 // Not selling points — an answer to "why should I give you my email".
-                // They are read before typing starts, so once the keyboard is up they give
-                // their room to the button rather than fighting it for space.
-                if keyboard.height == 0 {
-                    VStack(spacing: 0) {
-                        ReasonRow(lit: true, text: "A code signs you in — nothing to remember")
-                            .overlay(alignment: .bottom) { Hairline() }
-                        ReasonRow(lit: false, text: "Used only for sign-in and your weekly report")
-                    }
-                    .padding(.top, 22)
-                    .transition(.opacity)
+                // 01 · 02 · the keyboard rises with the screen (board: 「键盘随屏起」), so the two
+                // lines have to live above it or they are never read; the key under the
+                // keyboard is `go`, and the lime button is what the keyboard's dismissal reveals.
+                VStack(spacing: 0) {
+                    ReasonRow(lit: true, text: "A code signs you in — nothing to remember")
+                        .overlay(alignment: .bottom) { Hairline() }
+                    ReasonRow(lit: false, text: "Used only for sign-in and your weekly report")
                 }
+                .padding(.top, 22)
             }
             .padding(.horizontal, 24)
             .padding(.top, 38)

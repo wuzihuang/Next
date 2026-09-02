@@ -13,6 +13,15 @@ Deno.serve(async (req) => {
   const body = await req.json();
   const opId = req.headers.get("Idempotency-Key") ?? body.draft_id ?? crypto.randomUUID();
 
+  // ⚠️ client_op_id is a uuid column, so a malformed Idempotency-Key came back as Postgres's
+  // own `invalid input syntax for type uuid: "…"` — a 400 carrying database internals and the
+  // caller's key, for a request this endpoint should simply refuse. Not minted silently either:
+  // replacing a bad key with a fresh one would turn a client's retry into a duplicate meal,
+  // which is the one thing the key exists to prevent.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(opId)) {
+    return json({ error: "E_SCHEMA", reason: "BAD_IDEMPOTENCY_KEY" }, 422);
+  }
+
   // A 0 kcal meal does not exist; writing 0 means the parser failed.
   if (!body.kcal || body.kcal <= 0) return json({ error: "E_SCHEMA" }, 422);
 

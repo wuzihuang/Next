@@ -601,6 +601,30 @@ a number being laundered out of prose, which is worth more than the frame it cos
 `screen.last` must stay outside `record`. Nothing said so, and every other tool records, so it now
 carries a comment explaining why wrapping it would quietly undo this.
 
+## The other two endpoints, run the same way
+
+`turn` and `meal` were exercised above. The remaining two were served locally and put through
+their contracts, and the demo account's data was left exactly as it was found — 1,007 kcal across
+three rows, before and after.
+
+**meal-commit.** 0 kcal is refused with `E_SCHEMA` — the comment in the file is right that
+writing 0 means the parser failed, not that someone ate nothing. A real commit returns
+`{"id":"a1dad129…","replay":false}`; sending the same `Idempotency-Key` again returns
+`{"id":null,"replay":true}` and the table holds exactly one row for that op id. That is F3 rule
+05's unique index on `(user_id, client_op_id)` making a retry a no-op rather than a second dinner.
+The audit row was soft-deleted afterwards.
+
+**asr.** `401` without a session, `E_SCHEMA` with no `audio` part, `413 TOO_LARGE` past the 2 MB
+ceiling. The transcription itself needs real speech, which this machine cannot produce, so the
+`NO_SPEECH` and `confidence < 0.4` paths are still unproven — they are the two the client's
+「DIDN'T CATCH THAT」 degrade depends on.
+
+⚠️ Found while testing, and fixed: `client_op_id` is a uuid column, so a malformed
+`Idempotency-Key` came back as Postgres's own `invalid input syntax for type uuid: "…"` — a 400
+carrying database internals and the caller's key back out. It answers `E_SCHEMA ·
+BAD_IDEMPOTENCY_KEY` now. Deliberately not minted silently: replacing a bad key with a fresh one
+turns a client's retry into a duplicate meal, which is the one thing the key exists to prevent.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

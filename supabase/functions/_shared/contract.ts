@@ -78,6 +78,18 @@ export function batteryFallback(level: number | null): Envelope {
 
 /// F4 · the fixed medical stop frame. S7 renders this and nothing else — no tools,
 /// no explanation. "consult your doctor" is only ever allowed to appear here.
+// F4 rule 11 · 「标签闭合串必须转义」.
+//
+// ⚠️ The user's words go into the prompt between <user_text> and </user_text>, and the system
+// message says everything between those tags is data rather than instruction. Nothing stopped
+// the user from writing the closing tag themselves — typing </user_text> ended the quoted
+// region and everything after it read as instruction, which is the one sentence the wrapper
+// exists to prevent. The tags are what separates her words from ours, so she does not get to
+// write one. Replaced rather than stripped: the model still sees what was typed.
+export function tagSafe(s: unknown): string {
+  return String(s ?? "").replace(/<(\/?)(user_text|photo_extract)>/gi, "‹$1$2›");
+}
+
 // S7 · the one list. `turn` checks it before any tool call, and `meal` checks it too:
 // the dock's food classifier looks for 吃, which 吃药 contains, so a medication question
 // reaches /meal without ever passing through /turn.

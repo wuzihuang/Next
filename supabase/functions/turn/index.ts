@@ -9,7 +9,7 @@ import { model, MODEL_VERSION } from "../_shared/model.ts";
 import { systemPrompt } from "../_shared/prompt.ts";
 import { buildTools } from "../_shared/tools.ts";
 import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
-import { Envelope, RENDERABLE_TYPES, TARGETS, MEDICAL, MEDICAL_STOP, batteryFallback } from "../_shared/contract.ts";
+import { Envelope, RENDERABLE_TYPES, TARGETS, MEDICAL, MEDICAL_STOP, batteryFallback, tagSafe } from "../_shared/contract.ts";
 import { userClient, currentUserId, cors, json, userDayKey, userTimezone } from "../_shared/db.ts";
 
 // 60 turns an hour and 150 a day. Free forever does not mean unlimited: the cost is real,
@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
         model: model(),
         system: systemPrompt(),
         // S9 · everything between the tags is data, not instruction.
-        prompt: `<user_text>\n${text}\n</user_text>\n\ndayKey=${dayKey}`,
+        prompt: `<user_text>\n${tagSafe(text)}\n</user_text>\n\ndayKey=${dayKey}`,
         tools: { ...tools, ...renderTool },
         maxSteps: 8,
         toolChoice: "auto",

@@ -26,6 +26,7 @@ BODY=$(cat <<JSON
   "smtp_max_frequency": 1,
   "rate_limit_email_sent": 200,
   "mailer_otp_exp": 600,
+  "mailer_autoconfirm": true,
   "mailer_otp_length": 6,
   "mailer_subjects_magic_link": "Your NEXTBODY code",
   "mailer_templates_magic_link_content": ${TEMPLATE},

@@ -1165,10 +1165,17 @@ export, account-delete); `DASHSCOPE_API_KEY` and `SETTLE_SECRET` are set from an
   model's own thinking dominates (three tool calls, then the render). Not tuned here — worth a
   ruling on `enable_thinking` for the turn path.
 
-⚠️ `consents` has no row for the demo account although the app's consent screen was walked; the
-server's consent check evidently reads elsewhere (`turn` answered). Worth a look before the first
-real account. ⚠️ `app/Local.xcconfig` now points at production (the `:8001` override is commented
-out; the peer host was still listening).
+### The consent gate, found and closed
+Once the schema cache refreshed, `turn` by curl started answering 403 consent_withdrawn: the
+`consents` table was empty even though the app records a decision. The insert omitted `user_id`,
+and the RLS insert policy is `with check (user_id = auth.uid())`, so every row was refused inside
+the `try?`. The app now sends `user_id` (the same way AuditTrails does). Verified: a granted row
+inserts under RLS, and `turn` then returns a real SSE stream (`state → tool ×6 → screen.render`,
+a `line` frame). Six tools ran for 「我最近怎么样」, all reads, then the render — the number law held.
+
+⚠️ `app/Local.xcconfig` now points at production (the `:8001` override is commented out; the peer
+host was still listening). ⚠️ `turn` latency is 27–38 s on production; the model's thinking
+dominates and it is not tuned here.
 
 ## Running it
 

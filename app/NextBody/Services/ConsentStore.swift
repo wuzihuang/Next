@@ -42,13 +42,19 @@ final class ConsentStore: ObservableObject {
                                    "at": ISO8601DateFormatter().string(from: Date())], forKey: Self.key)
         // Rule 05. `try?` because the table arrives with migration 20260902030000 — until it is
         // applied the decision lives on the phone, and the server does not enforce it either.
-        _ = try? await SupabaseClient.shared.insert("consents", row: [
-            "consent_version": Self.version,
-            "choice": c.rawValue,
-            "text_sha256": Self.textSHA256,
-            "locale": Self.locale,
-            "ms_on_screen": msOnScreen as Any,
-        ])
+        // The RLS insert policy checks user_id = auth.uid(); without it every row was refused
+        // silently (the `try?`), so the table stayed empty and the server — once the table
+        // existed — answered every turn with 403 consent_withdrawn.
+        if let uid = await SupabaseClient.shared.currentUserId {
+            _ = try? await SupabaseClient.shared.insert("consents", row: [
+                "user_id": uid,
+                "consent_version": Self.version,
+                "choice": c.rawValue,
+                "text_sha256": Self.textSHA256,
+                "locale": Self.locale,
+                "ms_on_screen": msOnScreen as Any,
+            ])
+        }
         switch c {
         case .granted, .declined:
             await Analytics.shared.track("CONSENT_RESULT", ["VERSION": Self.version, "CHOICE": c.rawValue.uppercased(),

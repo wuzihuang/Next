@@ -29,6 +29,8 @@ BODY=$(cat <<JSON
   "mailer_otp_length": 6,
   "mailer_subjects_magic_link": "Your NEXTBODY code",
   "mailer_templates_magic_link_content": ${TEMPLATE},
+  "mailer_subjects_confirmation": "Your NEXTBODY code",
+  "mailer_templates_confirmation_content": ${TEMPLATE},
   "external_apple_enabled": true,
   "external_apple_client_id": "com.nextbody.hoop"
 }

@@ -232,6 +232,11 @@ sender_name = "NEXTBODY"
 subject = "Your NEXTBODY code"
 content_path = "./supabase/templates/magic_link.html"
 
+# A first-time address gets the "confirmation" mail, not the magic-link one — same code, same look.
+[auth.email.template.confirmation]
+subject = "Your NEXTBODY code"
+content_path = "./supabase/templates/magic_link.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"

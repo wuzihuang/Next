@@ -4,11 +4,16 @@ import SwiftUI
 
 /// curve · line · o2night · dual. Line, gradient fill, glow, dot.
 struct CurveRenderer: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let values: [Double]
     let accent: Color
     var fill = true
     var glow: Double = 0.35
     var dot = true
+    /// 13 col 01 · 「the night in violet, the day so far in lime」. Points up to and including
+    /// `splitAt` take `accent`; the rest take `accent2`. Nil draws one colour, as before.
+    var splitAt: Int? = nil
+    var accent2: Color? = nil
 
     @State private var draw: CGFloat = 0
 
@@ -22,19 +27,30 @@ struct CurveRenderer: View {
                                              startPoint: .top, endPoint: .bottom))
                         .opacity(draw)
                 }
-                line(pts)
-                    .trim(from: 0, to: draw)
-                    .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                    .shadow(color: accent.opacity(glow), radius: 6)
+                if let k = splitAt, let a2 = accent2, k >= 0, k < pts.count - 1 {
+                    line(Array(pts[...k]))
+                        .trim(from: 0, to: draw)
+                        .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .shadow(color: accent.opacity(glow), radius: 6)
+                    line(Array(pts[k...]))
+                        .trim(from: 0, to: draw)
+                        .stroke(a2, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .shadow(color: a2.opacity(glow), radius: 6)
+                } else {
+                    line(pts)
+                        .trim(from: 0, to: draw)
+                        .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .shadow(color: accent.opacity(glow), radius: 6)
+                }
                 if dot, let last = pts.last {
-                    Circle().fill(accent)
+                    Circle().fill(accent2 ?? accent)
                         .frame(width: 5, height: 5)
                         .position(last)
                         .opacity(draw == 1 ? 1 : 0)
                 }
             }
         }
-        .onAppear { withAnimation(.easeOut(duration: 0.9)) { draw = 1 } }
+        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.9)) { draw = 1 } }
     }
 
     private func points(in size: CGSize) -> [CGPoint] {
@@ -104,6 +120,7 @@ struct PairRenderer: View {
 
 /// column · bars · days · delta. delta uses the zero-axis variant.
 struct ColumnRenderer: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let bins: [(String, Double)]
     let accent: Color
     var zeroAxis = false
@@ -140,12 +157,13 @@ struct ColumnRenderer: View {
                 }
             }
         }
-        .onAppear { withAnimation(.easeOut(duration: 0.7)) { grown = 1 } }
+        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.7)) { grown = 1 } }
     }
 }
 
 /// arc · ring · gauge · battery.
 struct ArcRenderer: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let fraction: Double
     let accent: Color
     let label: String
@@ -162,7 +180,7 @@ struct ArcRenderer: View {
                 .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
                 .foregroundStyle(NB.white.opacity(0.45))
         }
-        .onAppear { withAnimation(.easeOut(duration: 0.9)) { shown = min(fraction, 1) } }
+        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.9)) { shown = min(fraction, 1) } }
     }
 }
 

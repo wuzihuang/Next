@@ -105,7 +105,7 @@ final class MockBand: BandService, @unchecked Sendable {
                 time: String(format: "%02d:%02d", hour, minute % 60),
                 heart: hr, step: asleep ? 0 : Int.random(in: 0...45),
                 cal: Int.random(in: 0...6), distance: Int.random(in: 0...40),
-                met: max(1.0, Double(hr) / 62), spo2: nil, temperature: nil,
+                met: max(1.0, Double(hr) / 62), temperature: nil,
                 stress: asleep ? nil : 20 + Int.random(in: 0...30),
                 sleepState: asleep ? 2 : 0)
         }

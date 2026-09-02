@@ -108,6 +108,7 @@ export const MEDICAL_STOP: Envelope = {
 };
 
 export const ERROR_CODES = [
+  "E_CLAIM",   // F5 C7 · banned phrase
   "RATE_LIMITED", "MODEL_UNAVAILABLE", "E_SCHEMA", "TOOL_TIMEOUT",
   "NO_SPEECH", "IDEMPOTENT_REPLAY",
 ] as const;

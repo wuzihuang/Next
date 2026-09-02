@@ -7,8 +7,10 @@ struct OnboardingFlow: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var data: DataStore
 
-    enum Step: Hashable { case healthSync, confirm, goal, fingersOn, scanning, baseline }
-    @State private var step: Step = .healthSync
+    // 补屏 A · 六屏变七屏. Consent comes first: before HealthKit's dialog, before the first
+    // band read. An account that has already answered this version skips straight past it.
+    enum Step: Hashable { case consent, healthSync, confirm, goal, fingersOn, scanning, baseline }
+    @State private var step: Step = ConsentStore.shared.decided ? .healthSync : .consent
     @State private var sheet: SheetRoute?
     @State private var underage = false
 
@@ -25,6 +27,10 @@ struct OnboardingFlow: View {
     var body: some View {
         ZStack {
             switch step {
+            case .consent:
+                // Declining (the chevron) is not a dead end — the rest of onboarding still runs,
+                // and nothing is ever read until the screen is answered again from Settings.
+                ConsentScreen(onContinue: { step = .healthSync }, onBack: { step = .healthSync })
             case .healthSync:
                 HealthSync(onSync: { step = .confirm }, onManual: { step = .confirm })
             case .confirm:
@@ -33,7 +39,8 @@ struct OnboardingFlow: View {
                               bornFromHealth: bornFromHealth, sexFromHealth: sexFromHealth,
                               onBack: { step = .healthSync },
                               onEdit: { sheet = $0 },
-                              onNext: { step = .goal })
+                              // F5 C5 · 「judged on 03/02 Looks right, not live on the birthday wheel」.
+                              onNext: { if age(from: born) < 18 { underage = true } else { step = .goal } })
             case .goal:
                 GoalScreen(goal: $goal, onBack: { step = .confirm }, onNext: { step = .fingersOn })
             case .fingersOn:
@@ -59,7 +66,6 @@ struct OnboardingFlow: View {
                     BirthdayWheelSheet(value: $born) { comps in
                         born = comps
                         bornFromHealth = false
-                        if age(from: comps) < 18 { underage = true }
                         sheet = nil
                     } onCancel: { sheet = nil }
                 default: EmptyView()

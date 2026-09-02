@@ -137,6 +137,9 @@ final class Repository {
                 .init(name: "user_day", value: "lte.\(to)"),
                 .init(name: "order", value: "user_day.asc"),
             ])
+            #if DEBUG
+            NSLog("Repository.load: %d daily_results rows", rows.count)
+            #endif
             guard !rows.isEmpty else { return }
 
             let fuel = try await db.select("day_fuel", query: [
@@ -145,9 +148,22 @@ final class Repository {
             let reserve = try await db.select("reserve_daily", query: [
                 .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs"),
             ])
-            let training = try await db.select("daily_training", query: [
+            var training = try await db.select("daily_training", query: [
                 .init(name: "select", value: "result_id,zone_minutes,peak_hr,curve,segments"),
             ])
+            // 补屏 B · active_minutes / distance_m arrive with migration 20260902040000. Asked
+            // for separately so a project without them still loads the day — naming an
+            // unknown column is a 400 for the whole select, and that 400 took the home
+            // screen offline.
+            if let extras = try? await db.select("daily_training", query: [
+                .init(name: "select", value: "result_id,active_minutes,distance_m"),
+            ]) {
+                let by = Dictionary(uniqueKeysWithValues: extras.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
+                training = training.map { row in
+                    guard let id = row["result_id"] as? String, let e = by[id] else { return row }
+                    var r = row; r["active_minutes"] = e["active_minutes"]; r["distance_m"] = e["distance_m"]; return r
+                }
+            }
             let weighIns = try await db.select("weigh_ins", query: [
                 .init(name: "select", value: "id,measured_at,weight_kg,source"),
                 .init(name: "order", value: "measured_at.desc"),
@@ -227,6 +243,8 @@ final class Repository {
                 if let t = trainingBy[id] {
                     m.zoneMinutes = (t["zone_minutes"] as? [Any])?.compactMap { number($0).map(Int.init) }
                     m.peakHR = number(t["peak_hr"]).map { Int($0) }
+                    m.activeMinutes = number(t["active_minutes"]).map { Int($0) }
+                    m.distanceM = number(t["distance_m"]).map { Int($0) }
                     m.segments = ((t["segments"] as? [Any]) ?? []).compactMap { any in
                         guard let r = any as? [String: Any],
                               let at = (r["at"] as? String).flatMap(Self.timestamp) else { return nil }
@@ -412,6 +430,9 @@ final class Repository {
             }
             store.isOffline = false
         } catch {
+            #if DEBUG
+            NSLog("Repository.load failed: %@", "\(error)")
+            #endif
             // Offline shows the last row that was successfully stored, with AS OF HH:MM
             // on the card header. The client never computes a substitute.
             store.isOffline = true

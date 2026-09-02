@@ -14,6 +14,10 @@ struct RootView: View {
             }
         }
         .carbonPage()
+        // F5 C11 · 「maxFontSizeMultiplier = 1.35，允许到 xLarge；再大冻结在 1.35」. Fixed-pixel layouts
+        // are the honest compromise the board names: the largest accessibility sizes are not
+        // pretended to, but nothing clips at any size that is honoured.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .fullScreenCover(item: $router.takeover) { t in
             TakeoverHost(takeover: t)
         }
@@ -55,6 +59,10 @@ struct TakeoverHost: View {
             WordmarkAnimation(onFinish: { router.takeover = nil })
         case .measure(let kind):
             MeasureTakeover(kind: kind) { router.takeover = nil }
+        case .consent:
+            ConsentScreen(onContinue: { router.takeover = nil }, onBack: { router.takeover = nil })
+        case .notificationPrimer:
+            NotificationPrimer(onDone: { router.takeover = nil })
         }
     }
 }

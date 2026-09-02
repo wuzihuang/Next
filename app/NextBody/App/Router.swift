@@ -39,6 +39,8 @@ enum EntryPoint: Hashable { case home, profile }
 enum Takeover: Hashable, Identifiable {
     case wordmark                  // 2.6s brand animation, no close mark
     case measure(MeasureKind)
+    case consent                   // 补屏 A · from NOT COLLECTING or Settings › Data
+    case notificationPrimer        // F5 C4 · before the one system dialog, after the first real morning
     var id: String { String(describing: self) }
 }
 

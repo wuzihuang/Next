@@ -58,6 +58,9 @@ final class OriginDataSync {
                 "sampled_tz": tz,
                 // The calendar day derived from the offset travels with the batch: without it
                 // two pages cannot be put back in order.
+                // ⚠️ F7 rule 09 / F2 · both of these are on their way out. They are written only
+                // because the live table still has them NOT NULL; migration 20260902010000
+                // relaxes that, and 20260902020000 drops them. Delete these two lines when B ships.
                 "calendar_day": Self.dayString(ts),
                 "day_offset": wanted.first ?? 0,
                 "src": "band",
@@ -67,7 +70,6 @@ final class OriginDataSync {
             if let v = point.cal { row["cal"] = v }
             if let v = point.distance { row["dis"] = v }
             if let v = point.met { row["met"] = v }
-            if let v = point.spo2 { row["spo2"] = v }
             if let v = point.temperature { row["temp"] = v }
             if let v = point.stress { row["stress"] = v }
             if let v = point.sleepState { row["sleep_states"] = v }

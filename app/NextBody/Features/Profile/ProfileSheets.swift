@@ -144,7 +144,7 @@ struct NotificationsSheet: View {
     @AppStorage("nb.notif.training") private var training = true
     @AppStorage("nb.notif.weekly") private var weekly = false
     @AppStorage("nb.notif.quiet") private var quiet = true
-    @State private var showPrimer = false
+    @EnvironmentObject private var router: Router
 
     var body: some View {
         SheetFrame(title: "Notifications") {
@@ -171,7 +171,8 @@ struct NotificationsSheet: View {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .notDetermined else { return }
-        showPrimer = true
+        // F5 C4 · the same primer the first morning shows; the system dialog only after its Turn on.
+        router.takeover = .notificationPrimer
     }
 }
 
@@ -296,6 +297,7 @@ struct AppleHealthSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 14) {
                     Circle().fill(data.profile.appleHealthLinked ? NB.optimal2 : NB.ember1)
+                        .accessibilityLabel(data.profile.appleHealthLinked ? "Connected" : "Needs you")
                         .frame(width: 8, height: 8)
                     Text(data.profile.appleHealthLinked ? "SYNCED" : "NOT CONNECTED")
                         .font(NBFont.dot(700, 12)).tracking(0.16 * 12)
@@ -308,7 +310,7 @@ struct AppleHealthSheet: View {
                     .foregroundStyle(NB.text2)
                 Text("A blank read means nothing came back — not that you refused.")
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                    .foregroundStyle(NB.text3)
+                    .foregroundStyle(NB.text3Prod)
             }
             .padding(16)
             .frame(width: NB.Layout.contentWidth, alignment: .leading)
@@ -490,7 +492,8 @@ struct DeleteAccountSheet: View {
             let out = try await SupabaseClient.shared.rpc("account_delete", args: ["confirm": "DELETE"])
             let row = (out as? [[String: Any]])?.first ?? (out as? [String: Any]) ?? [:]
             guard row["deleted"] as? Bool == true else {
-                failure = "The server refused the request. Nothing has been deleted."
+                // F5 C8 · the failure sentence is fixed, and the same whichever half failed.
+                failure = "Couldn't finish. Nothing was deleted."
                 await Analytics.shared.track("ACCOUNT_DELETE_FAILED",
                                              ["ERROR": "\(row["error"] ?? "unknown")"])
                 return
@@ -498,7 +501,7 @@ struct DeleteAccountSheet: View {
             session.reset()
             dismiss()
         } catch {
-            failure = "Could not reach the server. Nothing has been deleted — your account is still here. Try again when you are back online."
+            failure = "Couldn't finish. Nothing was deleted."
             await Analytics.shared.track("ACCOUNT_DELETE_FAILED", ["ERROR": "\(error)"])
         }
     }

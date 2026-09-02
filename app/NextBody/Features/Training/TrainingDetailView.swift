@@ -50,7 +50,7 @@ struct TrainingDetailView: View {
                 VStack(spacing: 8) {
                     Text("START A SESSION")
                         .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                        .foregroundStyle(NB.text3)
+                        .foregroundStyle(NB.text3Prod)
                         .frame(width: NB.Layout.contentWidth, height: 48)
                         .background(Color(hex: 0x101014), in: Capsule())
                         .overlay(Capsule().stroke(NB.white.opacity(0.06), lineWidth: 1))
@@ -592,6 +592,7 @@ struct NextSuggestion: View {
 }
 
 struct ZoneBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let zone: String
     let fill: Double
     let tint: Color
@@ -617,7 +618,7 @@ struct ZoneBar: View {
                 .foregroundStyle(NB.macroValue)
                 .frame(width: 56, alignment: .trailing)
         }
-        .onAppear { withAnimation(.easeOut(duration: 0.7)) { grown = fill } }
+        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.7)) { grown = fill } }
     }
 }
 
@@ -632,7 +633,7 @@ struct GateRow: View {
             Spacer(minLength: 0)
             Text(when)
                 .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                .foregroundStyle(NB.text3)
+                .foregroundStyle(NB.text3Prod)
         }
         .frame(height: 44)
     }
@@ -640,6 +641,7 @@ struct GateRow: View {
 
 /// The 200pt version of the ring. Same ruler, same three lanes.
 struct BigTrainingRing: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let load: Double?
     let target: Double?
     let zone: ClosedRange<Double>?
@@ -666,13 +668,17 @@ struct BigTrainingRing: View {
             VStack(spacing: 6) {
                 Text(Fmt.load(load))
                     .font(NBFont.dot(700, 46)).tracking(-0.02 * 46)
-                    .foregroundStyle(load == nil ? NB.text3 : NB.cyan1)
+                    .foregroundStyle(load == nil ? NB.text3Prod : NB.cyan1)
                 Text("OF 21")
                     .font(NBFont.ui(500, 11)).tracking(0.22 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
         }
-        .onAppear { withAnimation(.easeOut(duration: 0.9)) { shown = load ?? 0 } }
+        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.9)) { shown = load ?? 0 } }
+        // F5 §09 · VoiceOver reads one element — "Training load 14.5 out of 21" — not the arc,
+        // not the percentage, not the dot. The paths underneath are hidden as children.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(MetricNames.trainingLoad.capitalized) \(Fmt.load(load)) out of 21")
     }
 }
 

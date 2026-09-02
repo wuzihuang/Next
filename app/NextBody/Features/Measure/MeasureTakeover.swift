@@ -322,12 +322,13 @@ struct MeasureTakeover: View {
 
 /// The band seen through a ring of ripples that never stop and never time out.
 private struct ContactTarget: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let tint: Color
     let pulse: Bool
 
     var body: some View {
         TimelineView(.animation) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
+            let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
             ZStack {
                 ForEach(0..<3, id: \.self) { i in
                     // one 1.6s loop, three phases apart
@@ -451,13 +452,14 @@ private struct FlatlineStage: View {
 /// A real waveform, drawn as dots — one sweep is never the same as the last,
 /// and that is the whole proof that it is really reading you.
 struct LiveECG: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var tint: Color = NB.lime1
     var amplitude: Double = 1
 
     var body: some View {
         TimelineView(.animation) { tl in
             Canvas { ctx, size in
-                let t = tl.date.timeIntervalSinceReferenceDate
+                let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
                 let mid = size.height / 2
                 var dots = Path()
                 let n = 200

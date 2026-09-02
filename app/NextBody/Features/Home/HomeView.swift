@@ -39,6 +39,14 @@ struct HomeView: View {
             try? await Repository.shared.signInDemo()
             await Repository.shared.loadToday(into: data)
 
+            // 13 col 01 · 昨夜, once a day, within six hours of waking. F5 C4 · the notification
+            // primer follows the first real morning and nothing else.
+            if widget == nil, let morning = MorningWidget.frame(today: data.today, history: data.history) {
+                withAnimation { widget = morning }
+                await MorningWidget.markShown(day: data.today.day, widget: morning)
+                if await NotificationPrimer.shouldOffer() { router.takeover = .notificationPrimer }
+            }
+
             // F1 · A · the gate was walked once. Every launch after that reconnects on its
             // own; being asked to pair again is how a user learns their history is gone.
             await Band.live.reconnectIfBound()
@@ -46,7 +54,9 @@ struct HomeView: View {
 
             // P2 · background. Pulling the band's day is the lowest priority in the queue:
             // anything the user presses jumps in front of it.
-            guard data.band.connected else { return }
+            // 补屏 rule 01 · 「02 板配对成功不构成取数许可」. The band stays paired; without consent
+            // startReadOriginData() is never called.
+            guard data.band.connected, ConsentStore.shared.granted else { return }
             await OriginDataSync().sync(day: UserDay.containing(Date()), into: data)
         }
     }
@@ -97,7 +107,8 @@ struct HomeView: View {
     /// seam exactly where the whole moment lives.
     private var panel: some View {
         let full = firstRun.panelIsFullScreen
-        return AIPanel(m: data.today, band: data.band, lastSync: data.lastSync, vitals: data.vitals,
+        return AIPanel(onTurnOn: { router.takeover = .consent },
+                       m: data.today, band: data.band, lastSync: data.lastSync, vitals: data.vitals,
                        widget: widget, firstRun: firstRun,
                        size: full ? CGSize(width: 390, height: 844)
                                   : CGSize(width: NB.Layout.contentWidth,
@@ -107,6 +118,9 @@ struct HomeView: View {
         }
         .offset(x: full ? 0 : NB.Layout.gutter,
                 y: full ? 0 : Chrome.statusBarBlock + 12 + 30 + 12)
+            // F5 §09 · 「整屏接管」in the accessibility layer: while a frame is up, VoiceOver's
+            // focus stays inside the panel, the way the eye does.
+            .accessibilityAddTraits(widget == nil ? [] : .isModal)
     }
 
     /// 05 · the wave only plays once the microphone is running. If the permission is refused or
@@ -140,6 +154,10 @@ struct HomeView: View {
     }
 
     private func handleSend(_ text: String) {
+        // 补屏 edge 2 · withdrawn or never granted: the server would answer 403 consent_withdrawn;
+        // this side does not ask. The panel is already NOT COLLECTING, and the way back is the
+        // consent screen, not a turn.
+        guard ConsentStore.shared.granted else { router.takeover = .consent; return }
         let day = UserDay.containing(Date())
         withAnimation { widget = .thinking }
 

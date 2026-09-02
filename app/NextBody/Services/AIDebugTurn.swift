@@ -68,6 +68,14 @@ extension AIService {
         "(?i)\\bprobably\\b", "(?i)\\bi think\\b", "(?i)\\broughly\\b",
         "(?i)\\bunfortunately\\b", "(?i)\\b0 kcal\\b", "(?i)\\b0 g\\b",
         "(?i)as an ai", "(?i)\\brecovery\\b", "(?i)\\bstrain\\b",
+        // F5 §06 · the FDA general-wellness line. Mirrors 20260902010100_banned_phrases_f5.sql.
+        "(?i)\\bdiagnos(e|es|ed|ing|is|tic)\\b", "(?i)\\bdetect(s|ed|ing|ion)?\\b",
+        "(?i)clinically[- ]validated", "(?i)medical[- ]grade", "(?i)accurate to",
+        "(?i)\\babnormal\\b", "(?i)\\bnormal\\b", "(?i)out of range",
+        "(?i)\\bdiseases?\\b", "(?i)\\bdisorders?\\b", "(?i)\\bconditions?\\b",
+        "(?i)\\btreat(s|ed|ing|ment)?\\b", "(?i)\\bcures?\\b", "(?i)\\bprevent(s|ed|ing|ion)?\\b",
+        "(?i)\\bmanage your\\b", "(?i)see a doctor", "(?i)\\byou should see\\b",
+        "(?i)\\bmeasurement\\b", "(?i)\\btest result",
     ]
 
     func debugTurn(_ text: String, day: UserDay, store: DataStore) async -> PanelWidget? {

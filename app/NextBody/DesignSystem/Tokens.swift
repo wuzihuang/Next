@@ -36,7 +36,11 @@ enum NB {
     static let white        = Color(hex: 0xFFFFFF)   // --white
     static let text1        = Color(hex: 0xFFFFFF)                 // --text-1
     static let text2        = Color(hex: 0xFFFFFF, opacity: 0.60)  // --text-2
-    static let text3        = Color(hex: 0xFFFFFF, opacity: 0.42)  // --text-3
+    // ⚠️ F5 C10 · there is no `text3` here on purpose. --text-3 is white at 42%, which
+    // measures 4.06:1 on #0B0B0D — under WCAG AA's 4.5:1 for body text. It exists in the
+    // design file as a visual, and the ruling is that code never references it: secondary
+    // text is --text-3-prod, and the file already holds that more conservative value rather
+    // than a third one being invented. Twenty-two call sites used to read the 42% token.
     static let text3Prod    = Color(hex: 0xFFFFFF, opacity: 0.55)  // --text-3-prod
     static let hairline     = Color(hex: 0xFFFFFF, opacity: 0.08)  // --hairline
     static let macroLabel   = Color(hex: 0xB8B8C0)

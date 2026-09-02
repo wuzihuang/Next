@@ -10,8 +10,20 @@ struct FuelDetailView: View {
 
     private var m: DailyMetrics { data.today }
     private var logged: Bool { m.eIn != nil }
+    /// 补屏 B rule 07 · NO TARGET is for an account that has never had a weight — not one
+    /// whose weight is old (edge 4: a 62-day-old weight is still a denominator).
+    private var noTarget: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["NB_DEBUG_NO_TARGET"] == "1" { return true }
+        #endif
+        return data.weighIns.isEmpty && m.weightKg == nil && m.targetIn == nil
+    }
 
     var body: some View {
+        if noTarget { NoTargetFuel() } else { fuelPage }
+    }
+
+    private var fuelPage: some View {
         DetailScroll(glow: NB.ember1) {
             VStack(alignment: .leading, spacing: 14) {
                 header
@@ -83,7 +95,7 @@ struct FuelDetailView: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(Fmt.kcal(m.eIn))
                     .font(NBFont.dot(700, 54)).tracking(-0.02 * 54)
-                    .foregroundStyle(logged ? NB.ember1 : NB.text3)
+                    .foregroundStyle(logged ? NB.ember1 : NB.text3Prod)
                 Text("/\(Fmt.kcal(m.targetIn)) KCAL")
                     .font(NBFont.dot(500, 14)).tracking(0.02 * 14)
                     .foregroundStyle(NB.macroValue)
@@ -263,8 +275,8 @@ struct FuelDetailView: View {
         CardBlock(title: "ENERGY BALANCE",
                   trailing: logged ? "SO FAR TODAY" : "NEEDS A DAY OF WEAR") {
             HStack(spacing: 10) {
-                BalanceStat(label: "IN", value: Fmt.kcal(m.eIn), tint: logged ? NB.ember1 : NB.text3)
-                BalanceStat(label: "OUT", value: Fmt.kcal(m.eOutNow), tint: logged ? NB.cyan1 : NB.text3)
+                BalanceStat(label: "IN", value: Fmt.kcal(m.eIn), tint: logged ? NB.ember1 : NB.text3Prod)
+                BalanceStat(label: "OUT", value: Fmt.kcal(m.eOutNow), tint: logged ? NB.cyan1 : NB.text3Prod)
                 BalanceStat(label: "BALANCE", value: Fmt.signedKcal(m.balance), tint: NB.text1)
             }
             BalanceAxis(now: m.balance,
@@ -289,6 +301,7 @@ struct FuelDetailView: View {
                 if logged {
                     HStack(spacing: 7) {
                         Circle().stroke(NB.ember1, lineWidth: 2).frame(width: 9, height: 9)
+                            .accessibilityLabel("Needs you")   // F5 §09 · colour is not the only carrier
                         Text("IF YOU EAT THE \(Fmt.kcal(m.nextMeal))")
                             .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                             .foregroundStyle(NB.text3Prod)

@@ -35,6 +35,11 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
     }
 
     var start: Date { date }
+    /// The server's `user_day` string for this day.
+    var key: String {
+        let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyy-MM-dd"; return f.string(from: date)
+    }
     var end: Date { Calendar.current.date(byAdding: .day, value: 1, to: date)! }
 
     func adding(days: Int) -> UserDay {
@@ -203,6 +208,9 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var targetLoad: Double?            // TARGET_LOAD, from BB_WAKE
     var optimalZone: ClosedRange<Double>?
     var zoneMinutes: [Int]?            // ZONE_MIN[1..5], always multiples of 5
+    /// 补屏 B · true without a weight: met ≥ 3 points × 5, and the band's own metres.
+    var activeMinutes: Int?
+    var distanceM: Int?
     var segments: [TrainingSegment] = []
     /// The cumulative curve 08 draws THROUGH THE DAY.
     var loadCurve: [LoadPoint] = []
@@ -271,7 +279,7 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
 
     // optimalZone is a range; it stays out of the wire format and is rebuilt server-side.
     private enum CodingKeys: String, CodingKey {
-        case day, trainingLoad, targetLoad, zoneMinutes, bbWake, bodyBattery
+        case day, trainingLoad, targetLoad, zoneMinutes, activeMinutes, distanceM, bbWake, bodyBattery
         case bmr, eActive, eTrain, eTrainPlan, eOutNow, activeForecast, eOutFull
         case eIn, balance, targetIn, nextMeal, protein, carb, fat
         case weightKg, fatKg, leanKg, fatSource

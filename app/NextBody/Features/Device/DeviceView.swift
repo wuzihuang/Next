@@ -337,7 +337,7 @@ struct DeviceView: View {
             Spacer(minLength: 0)
             Text("UPDATE")
                 .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                .foregroundStyle(connected ? NB.carbon : NB.text3)
+                .foregroundStyle(connected ? NB.carbon : NB.text3Prod)
                 .padding(.horizontal, 18).frame(height: 36)
                 .background(connected ? NB.lime1 : Color.clear, in: Capsule())
                 .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))

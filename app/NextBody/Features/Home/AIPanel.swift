@@ -3,6 +3,9 @@ import SwiftUI
 /// 04 + 07 · the panel. 358 × 470, the only place she speaks.
 /// One widget at a time; every widget is tappable and carries the page it lands on (F0 rule 06).
 struct AIPanel: View {
+    @ObservedObject private var consent = ConsentStore.shared
+    /// 补屏 · the NOT COLLECTING button. The panel does not own the router.
+    var onTurnOn: () -> Void = {}
     let m: DailyMetrics
     let band: BandState
     let lastSync: Date
@@ -58,6 +61,37 @@ struct AIPanel: View {
             } else if let widget {
                 PanelWidgetView(widget: widget, onTap: onWidget)
                     .transition(.opacity)
+            } else if !consent.granted {
+                // 补屏 edge 1 / 2 · NOT COLLECTING. 「—— 是沉默」 at its limit: the panel says what
+                // is not happening and offers the one way to change it. No widget, no readout.
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        Text("NOT COLLECTING")
+                            .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                            .foregroundStyle(NB.ember1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 22)
+                    Spacer(minLength: 0)
+                    VStack(spacing: 14) {
+                        Text("HOOP isn't reading anything yet.")
+                            .font(NBFont.brand(400, 18)).tracking(-0.01 * 18)
+                            .foregroundStyle(NB.white.opacity(0.88))
+                            .multilineTextAlignment(.center)
+                        Button(action: onTurnOn) {
+                            Text("Turn it on")
+                                .font(NBFont.ui(500, 13.5)).tracking(0.15 * 13.5)
+                                .foregroundStyle(NB.carbon)
+                                .frame(height: 44)
+                                .padding(.horizontal, 26)
+                                .background(NB.ember1, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens the consent screen")
+                    }
+                    .padding(.bottom, 30)
+                }
+                .padding(.vertical, 16)
             } else {
                 VStack(spacing: 0) {
                     header

@@ -223,7 +223,6 @@ final class VeepooBand: BandService, @unchecked Sendable {
             cal: raw["calValue"] as? Int,
             distance: raw["disValue"] as? Int,
             met: (raw["met"] as? NSNumber)?.doubleValue,
-            spo2: raw["spo2"] as? Int,
             temperature: (raw["temperature"] as? NSNumber)?.doubleValue,
             stress: raw["stressValue"] as? Int,
             sleepState: raw["sleepStatus"] as? Int)

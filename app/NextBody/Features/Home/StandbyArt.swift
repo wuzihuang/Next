@@ -4,6 +4,7 @@ import SwiftUI
 /// Two lime arcs sharing one centre, a violet orbit, one lime pip, six dust specks.
 /// All coordinates are the board's, in a 358 × 470 space.
 struct StandbyArt: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 0…1 — drives the long lime arc so it reads as a charge level, not a decoration.
     var charge: Double = 0.72
     var animate = true
@@ -65,7 +66,8 @@ struct StandbyArt: View {
             }
             .onAppear {
                 guard animate else { return }
-                withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
+                // F5 C11 · decorative; holds its pose under Reduce Motion.
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
                     pipPulse = true
                 }
             }

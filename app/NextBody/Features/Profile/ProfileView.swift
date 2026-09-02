@@ -4,6 +4,7 @@ import SwiftUI
 /// you, not a control panel. Reached only from the avatar; back goes to the root.
 /// The only second-level page in the product hangs off the DEVICE row.
 struct ProfileView: View {
+    @ObservedObject private var consent = ConsentStore.shared
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
@@ -54,6 +55,15 @@ struct ProfileView: View {
 
                 GroupLabel("DATA & LEGAL")
                 RowGroup {
+                    // 补屏 rule 06 · 「撤回 ≠ 删除，两个动作、两行入口、两条权利」. This row stops
+                    // collection; DELETE ACCOUNT, three rows down, is the other right.
+                    SettingRow(title: "COLLECTING HEALTH DATA", value: consent.granted ? "ON" : "OFF") {
+                        if consent.granted {
+                            Task { await ConsentStore.shared.record(.withdrawn, msOnScreen: nil) }
+                        } else {
+                            router.takeover = .consent
+                        }
+                    }
                     SettingRow(title: "EXPORT MY DATA", value: hasScans ? "ALL TIME" : "NOTHING YET") {
                         router.sheet = .export
                     }
@@ -165,7 +175,7 @@ struct ProfileView: View {
                 Spacer(minLength: 0)
                 Text(hasScans ? "RECOMP · 12 W" : "NO WEIGH-INS YET")
                     .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
-                    .foregroundStyle(hasScans ? NB.macroValue : NB.text3)
+                    .foregroundStyle(hasScans ? NB.macroValue : NB.text3Prod)
             }
             MonthAxis()
             DirectionHeatMap(history: data.history) { day in
@@ -198,9 +208,9 @@ struct ProfileView: View {
     private var statTiles: some View {
         HStack(spacing: 8) {
             NetTile(label: "FAT MASS", value: Fmt.signedKg(data.netFatMass12w, decimals: 1), unit: "KG",
-                    tint: data.netFatMass12w == nil ? NB.text3 : NB.lime1)
+                    tint: data.netFatMass12w == nil ? NB.text3Prod : NB.lime1)
             NetTile(label: "LEAN MASS", value: Fmt.signedKg(data.netLeanMass12w, decimals: 1), unit: "KG",
-                    tint: data.netLeanMass12w == nil ? NB.text3 : NB.lime1)
+                    tint: data.netLeanMass12w == nil ? NB.text3Prod : NB.lime1)
             NetTile(label: "BODY FAT", value: Fmt.kg(data.bodyFatPercent), unit: "%",
                     tint: NB.text1, isAbsolute: true)
         }

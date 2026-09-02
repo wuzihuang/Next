@@ -146,7 +146,7 @@ struct CompositionDetailView: View {
                     }
                     Text(m.confidence.rawValue)
                         .font(NBFont.dot(700, 11)).tracking(0.04 * 11)
-                        .foregroundStyle(hasCall ? NB.lime1 : NB.text3)
+                        .foregroundStyle(hasCall ? NB.lime1 : NB.text3Prod)
                 }
                 Spacer(minLength: 0)
                 // ⚠️ Never an unqualified fraction: the screen must say what it is counting.
@@ -358,7 +358,7 @@ struct CompositionDetailView: View {
             // ⚠️ RECOMP is inferred from body metrics: a direction, not a diagnosis.
             Text("RECOMP IS INFERRED FROM YOUR BODY METRICS — A DIRECTION, NOT A DIAGNOSIS.")
                 .font(NBFont.ui(400, 10.5)).tracking(0.06 * 10.5)
-                .foregroundStyle(NB.text3)
+                .foregroundStyle(NB.text3Prod)
         }
     }
 
@@ -653,7 +653,7 @@ private struct SignalRow: View {
                     Spacer(minLength: 0)
                     Text(value)
                         .font(NBFont.dot(700, 13))
-                        .foregroundStyle(lit ? NB.lime1 : NB.text3)
+                        .foregroundStyle(lit ? NB.lime1 : NB.text3Prod)
                 }
                 Text(note)
                     .font(NBFont.dot(500, 11)).tracking(0.02 * 11)

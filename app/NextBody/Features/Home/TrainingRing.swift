@@ -61,6 +61,8 @@ struct TrainingRing: View {
         .onChange(of: load) { _, v in
             withAnimation(.easeOut(duration: 0.6)) { shown = v ?? 0 }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(MetricNames.trainingLoad.capitalized) \(Fmt.load(load)) out of 21")   // F5 §09
     }
 }
 

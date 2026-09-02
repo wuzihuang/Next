@@ -46,10 +46,9 @@
 	<string>NextBody connects to your band to read heart rate, steps and sleep.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo of your meal so NextBody can log it.</string>
+	<!-- F5 §03 · the string is the board's own; its two "never"s are promises. Four read types, nothing written back. -->
 	<key>NSHealthShareUsageDescription</key>
-	<string>Read weight and body-fat from Apple Health.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Write weight entries back to Apple Health.</string>
+	<string>HOOP reads your sex, date of birth, height and weight from Health to set up your baseline. It never writes to Health, and never shares this data.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Talk to NextBody instead of typing.</string>
 	<key>NSMotionUsageDescription</key>

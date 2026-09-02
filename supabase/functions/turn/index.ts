@@ -23,6 +23,18 @@ Deno.serve(async (req) => {
   if (!userId) return json({ error: "UNAUTHENTICATED" }, 401);
 
   const db = userClient(req);
+
+  // 补屏 rule 06 · 「撤回后 /v1/turn 返 403 consent_withdrawn」. The newest answer decides. An
+  // account with no answer has not consented either. ⚠️ 42P01 is "the table does not exist":
+  // until migration 20260902030000 is applied, consent is recorded on the phone and not
+  // enforced here — enforcing against a missing table would refuse every turn.
+  const { data: consent, error: consentErr } = await db.from("consents")
+    .select("choice").eq("user_id", userId)
+    .order("decided_at", { ascending: false }).limit(1).maybeSingle();
+  if (!consentErr && consent?.choice !== "granted") {
+    return json({ error: "consent_withdrawn" }, 403);
+  }
+
   const body = await req.json().catch(() => ({}));
   const text: string = body.text ?? "";
   // ⚠️ The user's calendar, not the server's. See userDayKey.
@@ -181,7 +193,9 @@ Deno.serve(async (req) => {
     if (hit) {
       const fb = await fallback();
       await persist(db, userId, turnId, text, fb, trace, Date.now() - started);
-      send("error", { code: "E_SCHEMA", reason: "BANNED_PHRASE", fallback_frame: fb });
+      // F5 C7 · a banned phrase is E_CLAIM, not a schema error: the frame was well-formed and
+      // said something the product is not allowed to say.
+      send("error", { code: "E_CLAIM", reason: "BANNED_PHRASE", fallback_frame: fb });
       send("done", {});
       return;
     }

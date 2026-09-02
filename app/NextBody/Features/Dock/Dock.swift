@@ -91,7 +91,7 @@ struct Dock: View {
                 TextField("", text: $draft, prompt:
                     Text(placeholder.isEmpty ? "Ask about today" : placeholder)
                         .font(NBFont.ui(400, 14))
-                        .foregroundColor(NB.text3))
+                        .foregroundColor(NB.text3Prod))
                     .focused($focused)
                     .font(NBFont.ui(400, 14))
                     .foregroundStyle(NB.text1)
@@ -199,13 +199,15 @@ struct DotMatrix: View {
 /// While listening the same matrix becomes a level meter: columns rise and fall,
 /// the dots never move off their grid.
 struct ListeningWave: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: Double = 0
     private let cols = 14
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             Canvas { ctx, size in
-                let t = tl.date.timeIntervalSinceReferenceDate
+                // F5 C11 · a level meter that does not move is still a level meter.
+                let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
                 let sx = size.width / 96, sy = size.height / 32
                 let s = min(sx, sy)
                 let ox = (size.width - 96 * s) / 2, oy = (size.height - 32 * s) / 2

@@ -3,8 +3,12 @@
 //  1 open the ledger — recursively pull every numeric leaf out of each tool return,
 //    stored as a value-sorted array rather than a map, because auditing needs a tolerance
 //    and a hash table cannot answer "within 0.05". null never enters: it is not a number.
-//  2 four derivations are allowed — subtract, add, round to 0 or 1 decimal, and a
-//    percentage of two ledger values. Nothing else.
+//  2 rounding to 0 or 1 decimal is the only derivation. ⚠️ It used to add every pairwise
+//    sum, difference and percentage too. F7 §08 measured what that does: with forty numbers
+//    in the ledger, a randomly invented number passed the audit 60.7% of the time, and at
+//    N = 288 the validator rejected nothing at all — it was still running, and it no longer
+//    meant anything. 「她想说的差值，服务端必须提前替她算好」: a remainder or a delta the
+//    model may want to say is returned by the tool as its own field, or is not said.
 //  3 audit — strip the whitelisted shapes out of text slots first, then pull every
 //    \d+(\.\d+)? and binary-search the ledger with a 0.05 tolerance.
 //    ⚠️ Reverse those two steps and the whole screen gets rejected every day.
@@ -124,30 +128,18 @@ export class NumberLedger {
 
   private dirty = false;
 
-  /// Close the ledger, adding the four legal derivations of every pair.
-  ///
-  /// ⚠️ Not "idempotent" by refusing to run twice — that was the bug. The render tool seals
-  /// mid-turn and the caller seals again afterwards, and between those two moments more
-  /// tools can return. Refusing the second seal meant those later values never got their
-  /// derivations, and a legal subtraction read as an untraceable number. Deriving from the
-  /// deduped base each time is idempotent in the way that actually matters, and n is a few
-  /// dozen.
+  /// Close the ledger. Rounding is the only derivation; see the header.
   seal() {
     const base = [...new Set(this.values)];
     for (const v of base) {
       this.add(Math.round(v), `round(${v})`);
       this.add(Math.round(v * 10) / 10, `round1(${v})`);
     }
-    for (const a of base) {
-      for (const b of base) {
-        if (a === b) continue;
-        this.add(a - b, `${a}-${b}`);
-        this.add(a + b, `${a}+${b}`);
-        if (b !== 0) this.add(Math.round((a / b) * 1000) / 10, `pct(${a}/${b})`);
-      }
-    }
     this.dirty = true;
   }
+
+  /// Distinct entries. F7 rule 11 caps this at 60 — see `record` in tools.ts.
+  get size(): number { return new Set(this.values).size; }
 
   has(needle: number, tolerance = 0.05): boolean {
     if (this.dirty) {
@@ -191,12 +183,25 @@ const WHITELIST = [
 export function auditFrame(envelope: Record<string, unknown>, ledger: NumberLedger):
   { ok: true } | { ok: false; value: number } {
   const texts: string[] = [];
+  // ⚠️ Axis labels are not claims. 07's shapes are bins[[t, v]] and rows[{label, value}] —
+  // the first element of a pair and the label-ish keys of a row name a position on an
+  // axis, and "26" there is the 26th, not a reading. Auditing them rejected a correct
+  // weekly chart over the day of the month. Values, sentences and footers are still
+  // audited in full.
+  const AXIS_KEYS = new Set(["label", "dayKey", "t", "ts", "slot", "name", "day", "date", "unit", "mode", "k"]);
   const walk = (node: unknown) => {
     if (typeof node === "string") texts.push(node);
     else if (typeof node === "number") {
       // numbers inside data came straight from the tools; text is what needs auditing
-    } else if (Array.isArray(node)) node.forEach(walk);
-    else if (node && typeof node === "object") Object.values(node).forEach(walk);
+    } else if (Array.isArray(node)) {
+      const isPair = node.length === 2 && typeof node[0] === "string";
+      node.forEach((v, i) => { if (!(isPair && i === 0)) walk(v); });
+    } else if (node && typeof node === "object") {
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (AXIS_KEYS.has(k) && typeof v === "string") continue;
+        walk(v);
+      }
+    }
   };
   for (const key of ["title", "sentence", "footer", "action"]) {
     const v = (envelope as Record<string, unknown>)[key];

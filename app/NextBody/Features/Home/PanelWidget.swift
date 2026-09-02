@@ -97,6 +97,9 @@ struct PanelWidget: Identifiable, Hashable {
     /// per part and neither the targets nor the sign. When present this wins over the shape.
     var hero: String?
     var accentOverride: Color?
+    /// 13 col 01 · where the night ends and the day begins on a curve, and the day's colour.
+    var curveSplit: Int?
+    var curveSecondary: Color?
     /// F0 rule 06 · where a tap lands, as the envelope declared it.
     ///
     /// ⚠️ The server has always sent this — `contract.ts` marks the field "No target, no
@@ -317,7 +320,8 @@ struct PanelWidgetView: View {
                 EmptyView()
             case .curve:
                 if case .series(let s) = widget.data {
-                    CurveRenderer(values: s, accent: widget.accent).frame(height: h)
+                    CurveRenderer(values: s, accent: widget.accent,
+                                  splitAt: widget.curveSplit, accent2: widget.curveSecondary).frame(height: h)
                 }
             case .pair:
                 if case .pair(let hi, let lo) = widget.data {

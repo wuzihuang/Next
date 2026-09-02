@@ -156,7 +156,9 @@ struct OriginPoint {
     let cal: Int?
     let distance: Int?
     let met: Double?
-    let spo2: Int?
+    // F5 §07 / F7 rule 04 · no spo2 here. The whitelist is applied where the SDK's object is
+    // rebuilt, not downstream — a value that never crosses the bridge cannot reach a table,
+    // a screen, an export or a tool return.
     let temperature: Double?
     let stress: Int?
     let sleepState: Int?

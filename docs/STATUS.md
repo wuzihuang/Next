@@ -787,6 +787,89 @@ an open question about the bottom strip, so 13 stands — but one of the two boa
    anchors is not the same as being right about a real person. The board itself files this
    under 上线前必须成立, and it needs 20 people × 14 days.
 
+## Phase 3 · F5, F7, 补屏 and 13, built and walked
+
+The four boards the second audit pass had not reached — F5 compliance, F7 pipeline, the
+consent / NO TARGET 补屏 pair, and 13 Body Battery — are now mirrored under `docs/prd/` and
+built. Everything below was walked on the iPhone 16e simulator with the accessibility tree
+(exact geometry) and screenshots; the boards' copy was pulled verbatim through the Paper MCP.
+
+### What was built
+
+- **Consent (补屏 A)** — `ConsentScreen` + `ConsentStore`. Verbatim copy, `NOTHING READ YET`
+  eyebrow, 20 × 20 amber-outline checkbox that turns lime, a 342 × 52 Continue that is grey and
+  inert until the box is ticked. Consent is recorded on the phone (`nb.consent`) and inserted
+  into `consents` (migration 20260902030000) with the SHA-256 of exactly the words shown.
+  Entry points: onboarding step 0, the panel's `NOT COLLECTING → Turn it on`, and Settings ›
+  DATA & LEGAL › `COLLECTING HEALTH DATA ON/OFF` (rule 06: withdraw ≠ delete; two rows).
+  `/v1/turn` returns `403 consent_withdrawn` when the newest row is not `granted` — tolerant of
+  the table not existing yet. Without consent `startReadOriginData()` is never called and the
+  send path opens the consent screen instead of a turn.
+- **NO TARGET (补屏 B)** — `NoTargetFuel`, shown only to an account that has never had a
+  weight (rule 07: an old weight is still a denominator). Four blocks, one 298 × 52 action, the
+  bars disappear but the bare numbers stay (rule 08), every subtraction with a —— in it is ——
+  (rule 09), the last block is text only (rule 11). `active_minutes` (met ≥ 3 × 5) and
+  `distance_m` come from a BEFORE trigger on `daily_training` (migration 20260902040000) and
+  are asked for in a separate, failable select so a project without the columns still loads.
+- **13 col 01 · 昨夜** — `MorningWidget`. Once per 04:00 day (`nb.bb.morningShownDay` +
+  `daily_results.bb_morning_shown_at`, migration 20260902050000), only within six hours of the
+  curve's morning peak, never without a night. A `.line` frame whose curve is violet up to the
+  peak and lime after (`CurveRenderer.splitAt`), hero = current level, `TAP TO SEE WHY` →
+  Body Battery. Edge 2 (`MULTIPLIER 1.00 · NO HRV YET`) and edge 3 (`FIRST READING · LOW
+  CONFIDENCE`) titles are wired; the demo account has no HRV, so edge 2 is what it shows.
+  `SIMCTL_CHILD_NB_DEBUG_NOW=<ISO>` (DEBUG only) pretends it is that morning.
+- **F5 C4 · notification primer** — `NotificationPrimer`, the two-button screen with the
+  board's one sentence, shown after the first real morning widget and from the Notifications
+  sheet. `Turn on` is the only path to the system dialog; `Not now` asks again next morning;
+  a refused system dialog is never asked again (status ≠ notDetermined).
+- **F5 C5** — the 18 gate is judged on `Looks right`, not live on the birthday wheel.
+- **F5 C11** — Dynamic Type capped at xLarge; the macro readouts scale down instead of clipping.
+- **F5 §06 banned phrases** — 19 regex rows (migration 20260902010100); a hit is `E_CLAIM`
+  with `reason: BANNED_PHRASE`, not a schema error. `AIDebugTurn` mirrors the list.
+- **F7 ledger** — `NumberLedger.seal()` only rounds; `size` counts distinct values; `record()`
+  trims a `points` series from the front until the ledger fits N ≤ 60, and marks `trimmed`.
+  `range.get` returns `agg` and `dlt` precomputed on the server so the model never derives a
+  pairwise number. `raw_samples` loses its date columns and `spo2` (migrations
+  20260902010000 / 20260902020000); the band layer no longer writes `spo2`.
+- **A11y / motion** — the training rings carry labels; `ListeningWave`, `StandbyArt`,
+  `MeasureTakeover`, the renderers and the big ring honour Reduce Motion.
+
+### Walked on the simulator
+
+- Home with no consent → `NOT COLLECTING` panel (amber eyebrow, standby art, "HOOP isn't
+  reading anything yet.", amber `Turn it on`); the strip still shows the day.
+- `Turn it on` → consent screen at default and xLarge type (no clipping) → scroll → tick →
+  Continue goes lime → `STANDBY` returns. `nb.consent` = granted on disk.
+- Settings › `COLLECTING HEALTH DATA ON` → tap → `OFF` → relaunch → `NOT COLLECTING`.
+- `NB_DEBUG_NO_TARGET=1` → Fuel → the NO TARGET page: `——` target, 1,240 KCAL EATEN from 3
+  meals, 84 g / 132 g / 42 g with no bars, THE BAND COUNTED with `——` (columns not yet
+  migrated), the four bullets.
+- Morning clock 08:30 → `MULTIPLIER 1.00 · NO HRV YET`, hero 52, curve of 141 ticks, peak
+  06:25, `CHARGED +18 · ONE TIER DOWN`, `TAP TO SEE WHY` → then the primer. `Not now` →
+  relaunch → `ALREADY_SHOWN`, no primer.
+
+### Two mistakes caught on the way
+
+- Naming `active_minutes` in the main `daily_training` select was a 400 for the whole day
+  load, which sent the home screen to its offline frame with the band's mock numbers — it
+  looked like data and was not. Split into a failable second select.
+- A duplicated `NOT COLLECTING` branch in `AIPanel` pointed `Turn it on` at the profile page.
+
+### Waiting on you
+
+- `supabase db push` — five new migrations: raw_samples relax / no dates no spo2, banned
+  phrases, consents, training extras, bb_morning_shown_at. Until then: consent is enforced on
+  the phone only, THE BAND COUNTED shows `——`, and the morning stamp lives in UserDefaults.
+- Deploy `turn`, `meal`, `meal-commit`, `asr` (CLI login).
+- 13's four tier words: only `NORMAL CHARGE` and `BARELY CHARGED` are on any board. The two
+  upper tiers are left without a word rather than invented — see `MorningWidget` — and the
+  sentences for those cases are placeholders marked ⚠️ 待定.
+- OriginDataSync still writes `calendar_day` / `day_offset`; delete those two lines when
+  migration 20260902020000 is applied.
+- A second Claude session (`zephwu-d5`) is working in this same tree: the local function
+  host on :8001 and the proxy-bypass hunk in `Supabase.swift` are its, and were left
+  uncommitted here.
+
 ## Running it
 
 ```sh

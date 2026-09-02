@@ -1,7 +1,10 @@
 import { tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
-import type { NumberLedger } from "./ledger.ts";
+// ⚠️ A value import, not `import type`: record() constructs a trial ledger to measure a
+// return before harvesting it. As a type-only import the class was erased at runtime, `new`
+// threw, generateText caught it, and every turn came back MODEL_UNAVAILABLE.
+import { NumberLedger } from "./ledger.ts";
 
 /// F4 §03 · eight read tools. All read-only, all through the caller's JWT.
 /// Return values are three-state, never two: ok+data, ok+null, and not-ok.
@@ -12,9 +15,24 @@ type Err = { ok: false };
 type Res<T> = Ok<T> | Err;
 
 export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLedger) {
+  // F7 rule 11 · 「账本容量硬上限 N ≤ 60，服务端实时计数，超配按固定顺序降级并带 trimmed:true」.
+  // The series goes first, halved from the old end until the return fits; the model is told.
+  const CAP = 60;
   const record = <T>(name: string, value: Res<T>) => {
-    if (value.ok && value.data !== null) ledger.harvest(value.data, name);
-    return value;
+    if (!value.ok || value.data === null) return value;
+    const fits = (d: unknown) => {
+      const trial = new NumberLedger(); trial.harvest(d, name);
+      return ledger.size + trial.size <= CAP;
+    };
+    let data: unknown = value.data;
+    const d = data as Record<string, unknown>;
+    if (!fits(data) && Array.isArray(d?.points)) {
+      let pts = d.points as unknown[];
+      while (pts.length > 2 && !fits({ ...d, points: pts })) pts = pts.slice(Math.ceil(pts.length / 2));
+      data = { ...d, points: pts, trimmed: true };
+    }
+    ledger.harvest(data, name);
+    return { ok: true, data } as Res<T>;
   };
 
   return {
@@ -30,8 +48,11 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
         if (!data) return record("day.get", { ok: true, data: null });
 
         const { data: fuel } = await db.from("day_fuel")
-          .select("intake_state, kcal_in, kcal_out, slot_states")
+          .select("intake_state, kcal_in, kcal_out, slot_states, target_in")
           .eq("result_id", data.id).maybeSingle();
+        // F7 §08 · the numbers she will want to say are computed here, not derived by her.
+        const targetKcal = fuel?.target_in ?? null;
+        const remainingKcal = (targetKcal != null && fuel?.kcal_in != null) ? targetKcal - fuel.kcal_in : null;
 
         return record("day.get", {
           ok: true,
@@ -42,6 +63,8 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
               intakeKcal: fuel?.kcal_in ?? null,
               burnKcal: fuel?.kcal_out ?? null,
               deltaKcal: data.fuel_balance_kcal,
+              targetKcal,
+              remainingKcal,
               slotState: fuel?.slot_states ?? null,
             },
             dailyDirection: data.daily_direction,
@@ -84,11 +107,28 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
           .order("user_day").limit(90);
         if (error) return { ok: false } as Err;
         const rows = (data ?? []) as unknown as Record<string, unknown>[];
+        const points = rows.map((r) => ({ dayKey: r.user_day, value: (r[column] as number | null) ?? null }));
+        // F7 §08 · 「她想说的差值，服务端必须提前替她算好」. With pairwise derivation gone from the
+        // ledger, "today vs the seven-day mean" has to arrive as a number, or it is not said.
+        // null stays null: an absent day does not become 0 in a mean, and a delta against
+        // nothing is nothing (补屏 rule 09).
+        const vals = points.map((p) => p.value).filter((v): v is number => v != null);
+        const latest = points.length ? points[points.length - 1].value : null;
+        const mean = vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null;
+        const half = Math.floor(points.length / 2);
+        const meanOf = (ps: typeof points) => { const v = ps.map((p) => p.value).filter((x): x is number => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+        const prevMean = half ? meanOf(points.slice(0, half)) : null, thisMean = half ? meanOf(points.slice(half)) : null;
+        const r1 = (x: number | null) => (x == null ? null : Math.round(x * 10) / 10);
         return record("range.get", {
           ok: true,
           data: {
             // A missing day is a null point, never a 0, and never interpolated.
-            points: rows.map((r) => ({ dayKey: r.user_day, value: r[column] ?? null })),
+            points,
+            agg: { latest, mean, min: vals.length ? Math.min(...vals) : null, max: vals.length ? Math.max(...vals) : null, days: vals.length },
+            dlt: {
+              latestVsMean: latest != null && mean != null ? r1(latest - mean) : null,
+              thisHalfVsPrevHalf: thisMean != null && prevMean != null ? r1(thisMean - prevMean) : null,
+            },
             truncated: rows.length >= 90,
           },
         });

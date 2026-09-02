@@ -151,7 +151,7 @@ struct DetailHeader: View {
                     Text(trailing)
                         .font(NBFont.dot(500, 10))
                         .tracking(0.2 * 10)
-                        .foregroundStyle(NB.text3)
+                        .foregroundStyle(NB.text3Prod)
                 }
             }
             Text(eyebrow)

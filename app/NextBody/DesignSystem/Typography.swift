@@ -23,7 +23,11 @@ enum NBFont {
     }
 
     static func named(_ family: Family, _ weight: Int, _ size: CGFloat) -> Font {
-        .custom("\(family.rawValue)-\(style(weight, family: family))", fixedSize: size)
+        // F5 C11 · `size:` rather than `fixedSize:` so the type follows Dynamic Type up to the
+        // xLarge cap RootView sets. fixedSize froze every screen at 1.0×, which is stricter
+        // than the ruling — 「允许到 xLarge；再大冻结」 — and quietly stopped the largest
+        // standard size from being honoured at all.
+        .custom("\(family.rawValue)-\(style(weight, family: family))", size: size)
     }
 
     static func ui(_ weight: Int, _ size: CGFloat) -> Font { named(.ui, weight, size) }

@@ -45,7 +45,7 @@ struct TrainingCard: View {
                 Spacer(minLength: 0)
                 Text(toGo)
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                    .foregroundStyle(m.targetLoad == nil ? NB.text3 : NB.cyanPale)
+                    .foregroundStyle(m.targetLoad == nil ? NB.text3Prod : NB.cyanPale)
             }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
@@ -61,7 +61,7 @@ struct TrainingCard: View {
                             Text("FULL RING").font(NBFont.ui(500, 11)).tracking(0.06 * 11)
                                 .foregroundStyle(NB.text3Prod)
                             Text("21.0").font(NBFont.dot(700, 14)).tracking(0.02 * 14)
-                                .foregroundStyle(NB.text3)
+                                .foregroundStyle(NB.text3Prod)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 2) {
@@ -109,12 +109,12 @@ struct FuelCard: View {
                     Spacer(minLength: 0)
                     Text(headline)
                         .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                        .foregroundStyle(m.nextMeal == nil ? NB.text3 : NB.emberPale)
+                        .foregroundStyle(m.nextMeal == nil ? NB.text3Prod : NB.emberPale)
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(Fmt.kcal(m.eIn))
                         .font(NBFont.dot(700, 26)).tracking(-0.02 * 26)
-                        .foregroundStyle(m.eIn == nil ? NB.text3 : NB.ember1)
+                        .foregroundStyle(m.eIn == nil ? NB.text3Prod : NB.ember1)
                     Text("/\(Fmt.kcal(m.targetIn))")
                         .font(NBFont.dot(500, 11))
                         .foregroundStyle(NB.macroValue)
@@ -170,6 +170,8 @@ struct MacroBar: View {
             }
             .frame(height: 4)
             Text(value)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)   // F5 C11 · the card is a fixed 174; at xLarge the number gives a little rather than clip
                 .font(NBFont.dot(500, 11))
                 .foregroundStyle(NB.macroValue)
                 .frame(width: 48, alignment: .trailing)

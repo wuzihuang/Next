@@ -253,7 +253,7 @@ struct BodyBatteryDetailView: View {
         HStack {
             Text("SYNCED \(Fmt.clock(data.lastSync))")
                 .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                .foregroundStyle(NB.text3)
+                .foregroundStyle(NB.text3Prod)
             Spacer(minLength: 0)
             Button {
                 // A manual BATTERY CHECK is the only thing allowed to re-anchor the day.
@@ -283,7 +283,7 @@ struct BodyBatteryDetailView: View {
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 Text(Fmt.dash)
                     .font(NBFont.dot(800, 36))
-                    .foregroundStyle(NB.text3)
+                    .foregroundStyle(NB.text3Prod)
                 Text("OF 100")
                     .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
                     .foregroundStyle(NB.white.opacity(0.30))

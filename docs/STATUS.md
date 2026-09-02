@@ -1237,6 +1237,14 @@ The other board STATUS flagged as never read directly is 13's body-battery → t
 80–89 → 16.0 / 14.0–18.0 / 76%, 90–100 → 18.0 / 15.5–20.0 / 86%. Target, optimal range and ring
 percent are exact for every band. Both boards STATUS called least-verified now check out to the value.
 
+### The colour palette is 1:1 with the board tokens, all 51 of them
+Criterion 1 names 色彩 (colour) explicitly. The board's token table has 51 colour tokens;
+`DesignSystem/Tokens.swift` carries every one, each annotated with its board token name, and a
+programmatic cross-check found 0 hex mismatches and 0 tokens missing their board name — from
+`--carbon #0B0B0D` through `--lime-1 #EFF65A`, `--cyan-1 #22D3EE`, `--ember-1 #F6A41C`,
+`--violet-1 #A78BFA`, `--state-alert-2 #EF4444`, `--thermal-1 #E84393`. The palette was ported
+token for token, not eyeballed.
+
 ## Running it
 
 ```sh

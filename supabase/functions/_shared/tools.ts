@@ -212,6 +212,12 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
       },
     }),
 
+    // ⚠️ The one tool that deliberately does not go through `record`. Every other return is
+    // harvested into the ledger; this one must not be, or the previous frame's numbers become
+    // citable sources and a stale value can be carried forward for as long as the model keeps
+    // repeating it. Seen working: a turn tried to re-assert 13.1 after reading it out of the
+    // last frame's sentence, and rule 08 rejected the whole frame because it was never a
+    // number in anything fetched that turn. Wrapping this in `record` would silently undo that.
     "screen.last": tool({
       description: "上一帧说了什么，避免连着两轮说同一句。null 是正常的。",
       parameters: z.object({}),

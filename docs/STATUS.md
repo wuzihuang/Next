@@ -581,11 +581,15 @@ refused a number it could not trace to a tool return and threw away the **whole*
 than drawing part of it (rule 08), and the degraded frame it fell back to is a legal envelope
 carrying the real battery level and its own target — not the empty apology it used to be.
 
-⚠️ Worth a look rather than a claim: the number the ledger rejected was 13.1, the seven-day mean,
-which `range.get` had just returned in that same turn. If the ledger is not seeding from
-`range.get`'s payload then legitimate frames get refused too, and the failure is silent because
-refusing is the safe direction. It rejected correctly here; whether it should have had to is a
-separate question.
+I looked into the rejected 13.1, having first written it up as possibly a false positive. It is
+not — the refusal was right, and for a better reason than expected. `screen.last` is the only one
+of the eight tools that returns without going through `record`, so the previous frame never
+enters the ledger; and `harvest` walks numbers, arrays and objects but never strings. The model
+had read 「近7日均值 13.1」 out of the last frame's *sentence* and said it again. It was never a
+number in anything fetched that turn, so rule 08 threw the frame away. That is the ledger stopping
+a number being laundered out of prose, which is worth more than the frame it cost — and it is why
+`screen.last` must stay outside `record`. Nothing said so, and every other tool records, so it now
+carries a comment explaining why wrapping it would quietly undo this.
 
 ## Board conflicts left standing, not silently resolved
 

@@ -16,6 +16,22 @@ enum Destination: Hashable {
     case deviceAutoMonitor
 }
 
+extension Destination {
+    /// F0 rule 06 · the five values `TARGETS` allows on the wire. `device` and the two
+    /// device sheets are deliberately absent: they are reachable only from profile, and a
+    /// model that could name them could jump the one second level this product has.
+    init?(envelopeTarget raw: String) {
+        switch raw {
+        case "training":    self = .training
+        case "fuel":        self = .fuel
+        case "bodyBattery": self = .bodyBattery
+        case "composition": self = .composition(date: nil)
+        case "profile":     self = .profile
+        default:            return nil
+        }
+    }
+}
+
 /// Where a detail page was entered from. One layer only — no multi-level history stack.
 enum EntryPoint: Hashable { case home, profile }
 

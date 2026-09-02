@@ -445,6 +445,44 @@ would empty the menu on every cold start and fill it back in a second later.
 follow the SDK — but the firmware card only offers the update; no outcome is consumed yet, so
 there is no enum to correct. It becomes real when the update flow is built.
 
+## F0's ten laws, and the two the client was on the wrong side of
+
+| Law | State |
+|---|---|
+| 01 一个概念只准有一个名字 | held · no `RECOVERY` or `STRAIN` survives in Swift; 08 reads BODY BATTERY DECIDES IT |
+| 02 指标名做成 token (METRIC_NAMES) | **open** · names are string literals in the views; there is no one place to change |
+| 03 睡眠不上屏 | held · the render tool offers 24 types, not 27, and the decoder drops a sleep frame anyway |
+| 04 一本日历 04:00 | held · `Metrics.boundaryHour = 4` |
+| 05 每日方向与判定不共用颜色 | held · 11's legend is the three directions plus two greys |
+| 06 没有 target 的 widget 不许上屏 | **was wrong, fixed** |
+| 07 V1 只有 iOS | held |
+| 08 没有收费入口 | held · no purchase, subscription or upgrade copy |
+| 09 BIA 与秤都是 MEASURED，推算值 DERIVED | held · the evidence card tags every field |
+| 10 屏是版式的事实源 | held |
+
+**Law 06.** The server has always done its part: `contract.ts` marks the field 「F0 rule 06 ·
+every widget declares the page it lands on. No target, no screen」, `target` is a required enum on
+the Envelope, the render tool asks the model for one, and both fixed frames carry theirs. This
+side read every other field and dropped that one, deriving the destination from the widget's
+*type* instead — and that map ends in `default: .training`, so every shape it does not name landed
+on training no matter what the model said. A frame with no target rendered too, rather than being
+refused. `PanelWidget` carries the declared target now, the tap uses it, and a frame without one
+is dropped on this side as well as the far side.
+
+**A question is not a log.** Found by testing the above: typing 「今天吃了多少」 logged a meal —
+`LOGGED · 1 KCAL`, named after the question, intake ticking 1,007 → 1,008. `looksLikeFood` matches
+substrings, and 吃 sits inside 「今天吃了多少」 exactly as it sits inside 「吃了半碗面」. It is the
+same shape as the 吃药 hole fixed earlier the same day: the classifier decides which tool runs, so
+whatever it gets wrong is wrong before anything else gets a say. Questions now go to the turn
+path, and the same sentence answers 「已记 1007 kcal，晚餐还空着」 over 早餐 375 · 午餐 532 ·
+加餐 100 — which is the three rows the database holds, and the open dinner the fuel card's
+973 LEFT is computed from.
+
+⚠️ Law 02 is left open rather than quietly done. `METRIC_NAMES` does not exist; TRAINING,
+CALORIES, BODY BATTERY and the rest are literals at each use site. The law says renaming a metric
+must cost one line, and today it costs a grep. It is a real refactor across every view, not a
+patch, and it should be its own change.
+
 ## Board conflicts left standing, not silently resolved
 
 **The readout row's staleness rule.** 04's TPH names it as 「最后一次采样超过 60 分钟整行撤掉」;

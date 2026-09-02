@@ -136,9 +136,25 @@ struct HomeView: View {
 
     /// D05 · food goes entirely through the model — no food database, no barcodes,
     /// no portion calculator. This only decides which endpoint the sentence goes to.
+    ///
+    /// ⚠️ A question about food is not a food log. These markers are substrings, and 吃 sits
+    /// inside 「今天吃了多少」 exactly as it sits inside 「吃了半碗面」 — so asking how much you
+    /// had ate one kcal of itself, logged under the question's own text, before the model was
+    /// called at all. Same shape as the 吃药 hole: the classifier decides which tool runs, so
+    /// anything it gets wrong is wrong before anything else gets a say.
     private static func looksLikeFood(_ text: String) -> Bool {
+        guard !isQuestion(text) else { return false }
         let markers = ["吃", "喝", "早饭", "午饭", "晚饭", "夜宵", "加餐", "记一笔",
                        "ate", "had", "drank", "breakfast", "lunch", "dinner", "snack"]
+        return markers.contains { text.localizedCaseInsensitiveContains($0) }
+    }
+
+    /// Deliberately narrow. 「几」 is left out because 「吃了几个鸡蛋」 is as often a log as a
+    /// question, and reading a log as a question only costs a round trip — while reading a
+    /// question as a log writes a row the user then has to find and delete.
+    private static func isQuestion(_ text: String) -> Bool {
+        let markers = ["吗", "呢", "多少", "什么", "怎么", "?", "？",
+                       "how much", "how many", "what did", "what have"]
         return markers.contains { text.localizedCaseInsensitiveContains($0) }
     }
 

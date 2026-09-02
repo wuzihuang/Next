@@ -26,6 +26,6 @@ enum MedicalStop {
         PanelWidget(type: .text, title: "NOT A DOCTOR", tag: .alert,
                     sentence: "这类问题请找医生。这块屏只报告测量到的数字。",
                     footer: "NEXTBODY IS NOT A MEDICAL DEVICE",
-                    action: nil, data: .none, priority: .alert)
+                    action: nil, targetOverride: .profile, data: .none, priority: .alert)
     }
 }

@@ -63,7 +63,8 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
         }
     }
 
-    /// F0 rule 06 · every widget declares the page it lands on.
+    /// The fallback for frames the app builds itself. A frame off the wire uses the target
+    /// the envelope declared — see `PanelWidget.targetOverride`.
     var target: Destination {
         switch self {
         case .battery, .hypnogram, .o2night:                                   return .bodyBattery
@@ -96,6 +97,15 @@ struct PanelWidget: Identifiable, Hashable {
     /// per part and neither the targets nor the sign. When present this wins over the shape.
     var hero: String?
     var accentOverride: Color?
+    /// F0 rule 06 · where a tap lands, as the envelope declared it.
+    ///
+    /// ⚠️ The server has always sent this — `contract.ts` marks the field "No target, no
+    /// screen" and refuses its own frames without it — and this side threw it away, deriving
+    /// the destination from the widget's *type* instead. The type map ends in
+    /// `default: .training`, so every shape it does not name landed on training no matter what
+    /// the model said. Frames built in the app keep using the type map; anything off the wire
+    /// carries its own answer.
+    var targetOverride: Destination?
     var data: PanelData
     var ttlMinutes: Int = 20
     var priority: Priority = .normal
@@ -170,7 +180,7 @@ struct PanelWidgetView: View {
     }
 
     var body: some View {
-        Button { onTap(widget.type.target) } label: { canvas }
+        Button { onTap(widget.targetOverride ?? widget.type.target) } label: { canvas }
             .buttonStyle(.plain)
             .accessibilityLabel("\(widget.title) · \(widget.sentence)")
     }

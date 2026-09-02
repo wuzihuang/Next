@@ -113,6 +113,12 @@ final class AIService: ObservableObject {
         // than drawn — one lock on each side of the wire.
         guard !type.isSleepWidget else { return nil }
 
+        // F0 rule 06 · no target, no screen. The server states this on the Envelope schema and
+        // enforces it on its own fixed frames; enforcing it here too means a malformed frame is
+        // dropped rather than drawn with a destination this side invented.
+        guard let targetRaw = env["target"] as? String,
+              let target = Destination(envelopeTarget: targetRaw) else { return nil }
+
         var accent: Color?
         if let hex = env["accent"] as? String, hex.hasPrefix("#"),
            let v = UInt32(hex.dropFirst(), radix: 16) { accent = Color(hex: v) }
@@ -126,6 +132,7 @@ final class AIService: ObservableObject {
             action: (env["action"] as? String).map { String($0.prefix(32)) },
             hero: ((env["data"] as? [String: Any])?["hero"]).map { "\($0)" },
             accentOverride: accent,
+            targetOverride: target,
             data: Self.decodeData(env["data"] as? [String: Any] ?? [:], type: type),
             ttlMinutes: (env["ttl_min"] as? Int) ?? 20,
             priority: (env["priority"] as? String) == "alert" ? .alert : .normal)

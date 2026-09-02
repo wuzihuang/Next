@@ -163,6 +163,9 @@ final class DataStore: ObservableObject {
         let confirmed = meals.filter { $0.day == day && $0.status == .confirmed }
         today.eIn = confirmed.isEmpty ? nil : confirmed.reduce(0) { $0 + $1.kcal }
         if let eIn = today.eIn, let out = today.eOutNow { today.balance = eIn - out }
+        // What is left moves with the row, the same instant — the tile and the LOGGED frame
+        // both read it, and both used to wait for the next reload.
+        if let t = today.targetIn { today.nextMeal = max(0, t - (today.eIn ?? 0)) }
         let slots = Set(confirmed.map(\.slot)).count
         today.fuelState = confirmed.isEmpty ? .unlogged : (slots >= 4 ? .confirmed : .partial(slots: slots))
         // The macro rows are the day's own meals added up (same rule as Repository.load):

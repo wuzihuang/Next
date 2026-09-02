@@ -16,6 +16,9 @@ struct HomeView: View {
     @State private var draft = ""
     /// 09 edge 5 · the day a back-logged meal belongs to; nil means today.
     @State private var backlogDay: UserDay?
+    /// F4 §02 · the model cannot write. When her frame says 「确认记录」 the plate she drafted is
+    /// the sentence the user sent, and the tap is what commits it — through meal + meal-commit.
+    @State private var lastSent: (text: String, day: UserDay)?
     /// 05 edges · what the dock is saying instead of listening.
     @State private var dockNote: DockNote?
     @State private var rootShift: CGFloat = 0
@@ -271,7 +274,11 @@ struct HomeView: View {
                                            height: NB.Layout.panelHeight),
                        radius: firstRun.panelRadius) { target in
             // 06 · 17 · a fresh measurement answers a tap with a message, not a page.
-            if let q = widget?.replyPrompt { handleSend(q) } else { router.open(target, from: .home) }
+            if let q = widget?.replyPrompt { handleSend(q) }
+            else if let a = widget?.action, a.contains("确认记录") || a.localizedCaseInsensitiveContains("confirm"),
+                    let sent = lastSent {
+                confirmMeal(sent.text, day: sent.day)
+            } else { router.open(target, from: .home) }
         }
         .offset(x: full ? 0 : NB.Layout.gutter,
                 y: full ? 0 : Chrome.statusBarBlock + 12 + 30 + 12)
@@ -334,6 +341,27 @@ struct HomeView: View {
     }
 
     /// 05 edges · show the line, and clear it on its own when the board says so.
+    /// The draft she rendered becomes a row: the same path a food sentence takes directly.
+    private func confirmMeal(_ text: String, day: UserDay) {
+        lastSent = nil
+        withAnimation { widget = .thinking }
+        Task {
+            let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotForNow(),
+                                  status: .confirmed, text: text,
+                                  kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
+            data.logMeal(entry)
+            if let frame = await ai.estimate(entry: entry, into: data) {
+                withAnimation { widget = frame }
+            } else {
+                data.deleteMeal(entry.id)
+                withAnimation { widget = PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
+                                                     sentence: "这一餐没记上。再点一次确认。",
+                                                     footer: String(text.prefix(42)), action: "确认记录", data: .none) }
+                lastSent = (text, day)
+            }
+        }
+    }
+
     private func closePlus() {
         withAnimation(.easeIn(duration: 0.22)) { plusOpen = false }
     }
@@ -397,6 +425,7 @@ struct HomeView: View {
         let day = backlogDay ?? UserDay.containing(Date())
         let backlogging = backlogDay != nil
         backlogDay = nil
+        lastSent = (text, day)
         withAnimation { widget = .thinking }
 
         // 05 · C05 → C07 · photo and caption leave as one object and come back as one answer
@@ -452,7 +481,18 @@ struct HomeView: View {
         guard !isQuestion(text) else { return false }
         let markers = ["吃", "喝", "早饭", "午饭", "晚饭", "夜宵", "加餐", "记一笔",
                        "ate", "had", "drank", "breakfast", "lunch", "dinner", "snack"]
-        return markers.contains { text.localizedCaseInsensitiveContains($0) }
+        if markers.contains(where: { text.localizedCaseInsensitiveContains($0) }) { return true }
+        // A plate named without a verb — 「半碗面加一个鸡蛋」 — is a log in everyday Chinese.
+        // Both a food noun and a portion word are required, so 「面」 alone, or 「三个」 alone,
+        // still goes to her as a question. F4 §02: the model has no write tool, so a plate
+        // that reaches `turn` can only come back as a draft; this is the path that commits.
+        let foods = ["面", "饭", "蛋", "肉", "鸡", "鱼", "虾", "奶", "菜", "包子", "粥", "汤", "饼", "豆",
+                     "果", "茶", "咖啡", "面包", "沙拉", "三明治", "寿司", "饺子", "馒头", "酸奶", "燕麦",
+                     "薯", "米", "牛排", "披萨", "汉堡", "蛋糕", "饼干", "坚果", "香蕉", "苹果"]
+        let portions = ["碗", "份", "个", "杯", "片", "块", "根", "盘", "颗", "两", "克", "斤", "半", "一", "二", "三", "四", "五", "ml", "g "]
+        let hasFood = foods.contains { text.contains($0) }
+        let hasPortion = portions.contains { text.localizedCaseInsensitiveContains($0) }
+        return hasFood && hasPortion && text.count <= 40
     }
 
     /// Deliberately narrow. 「几」 is left out because 「吃了几个鸡蛋」 is as often a log as a

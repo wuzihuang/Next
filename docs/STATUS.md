@@ -1132,6 +1132,44 @@ SNACK); the board does not say which slot a late plate belongs to. ⚠️ Profil
 weigh-in entry (11 col 03) although 10S rule 07 says composition and NO TARGET only — left
 for a ruling since 11 draws it.
 
+## Phase 9 · the backend is live, and the app was walked against it
+
+### What happened
+With the CLI signed in as the project's owner: the remote had no migration history (the first nine
+were applied by hand), so those nine were marked applied with `supabase migration repair` and the
+remaining eight pushed through the session pooler (`--db-url`, the direct host is IPv6-only).
+Verified on the wire: `consents` and `audit_trails`' tables exist, `daily_training.active_minutes /
+distance_m` and `daily_results.bb_morning_shown_at` are there, `raw_samples.calendar_day /
+day_offset / spo2` are gone — and the client stopped writing the two dropped columns the same hour.
+All eight functions are deployed (turn, meal, meal-commit, day-settle, screen-current, asr,
+export, account-delete); `DASHSCOPE_API_KEY` and `SETTLE_SECRET` are set from an env file.
+
+### Walked against production, from the simulator (`NB_FUNCTIONS_BASE` commented out)
+| Path | Result |
+|---|---|
+| `meal` by curl | 200 in 14 s, `qwen3.8-flash/2026-09`, a real draft |
+| plate typed in the dock (`半碗面加一个鸡蛋`) | `LOGGED · 310 KCAL`, row in `meals` with `model_version qwen3.8-flash/2026-09` |
+| question typed in the dock (`今天该练吗`) | `今日状态 · 电量52，训练负荷5。`, row in `ai_turns`, outcome OK |
+| `asr` with a synthesised clip | `我今天吃了一碗牛肉面。` in 5.6 s |
+| `screen-current` | 200, a battery envelope |
+
+### Two things production showed that the local host had not
+- **The model claimed a write it cannot make.** `半碗面加一个鸡蛋` has none of the client's food
+  markers, so it went to `turn`; the model rendered 「…已记录」 with an empty tool trace — F4 §02
+  says the model has no write tool. Three fixes: the prompt gained S10 (write law: no logging
+  claims, a plate is a draft with action 「确认记录」), the banned-phrase table gained the Chinese
+  claims (`已记录 已记入 已保存 记好了`, plus `logged` / `saved`), and the client treats a plate named
+  without a verb (a food noun and a portion word, no question) as a meal, so it takes the path that
+  actually commits. Tapping a 「确认记录」 frame also commits, through the same path.
+- **Latency.** `turn` answered in 27–38 s on production against the board's P50 ≤ 1.2 s; the
+  model's own thinking dominates (three tool calls, then the render). Not tuned here — worth a
+  ruling on `enable_thinking` for the turn path.
+
+⚠️ `consents` has no row for the demo account although the app's consent screen was walked; the
+server's consent check evidently reads elsewhere (`turn` answered). Worth a look before the first
+real account. ⚠️ `app/Local.xcconfig` now points at production (the `:8001` override is commented
+out; the peer host was still listening).
+
 ## Running it
 
 ```sh

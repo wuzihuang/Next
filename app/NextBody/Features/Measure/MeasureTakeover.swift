@@ -17,6 +17,9 @@ struct MeasureTakeover: View {
     @State private var run: Task<Void, Never>?
 
     @EnvironmentObject private var data: DataStore
+    @EnvironmentObject private var router: Router
+    /// 06 · 19 · body composition has no waveform; progress is the fields themselves.
+    @State private var fields = 0
 
     enum Phase: Hashable {
         case opening, waiting, nudge, contact, counting, halfway, lost, computing, result, failed
@@ -86,10 +89,10 @@ struct MeasureTakeover: View {
     private var headlineText: String {
         switch phase {
         case .opening:   ""
-        case .waiting:   isBodyScan ? "Both hands on the frame." : "Index finger on the side key."
+        case .waiting:   isBodyScan ? "Two fingers on the side key." : "Index finger on the side key."
         case .nudge:     "Still nothing on the key."
         case .contact:   "Got it. Hold still."
-        case .counting:  "Reading you."
+        case .counting:  isBodyScan ? "Mapping you." : "Reading you."
         case .halfway:   "Halfway."
         case .lost:      "Put it back."
         case .computing: "Working it out."
@@ -158,8 +161,8 @@ struct MeasureTakeover: View {
         case .opening:   ""
         case .waiting:   "WAITING FOR YOUR FINGER"
         case .nudge:     "NO CONTACT · \(6)S"
-        case .contact:   "CONTACT · SIGNAL GOOD"
-        case .counting:  "MEASURING · KEEP THE FINGER THERE"
+        case .contact:   isBodyScan ? "BOTH CONTACTS · CIRCUIT CLOSED" : "CONTACT · SIGNAL GOOD"
+        case .counting:  isBodyScan ? "\(fields) / 14 FIELDS" : "MEASURING · KEEP THE FINGER THERE"
         case .halfway:   isBodyScan ? "SECOND CONTACT · KEEP GOING" : "HRV NEEDS THE FULL MINUTE"
         case .lost:      "PAUSED · \(Int(lostGrace.rounded()))S TO RESUME"
         case .computing: isBodyScan ? "COMPUTING 14 FIELDS" : "COMPUTING HRV · STRESS"
@@ -186,9 +189,9 @@ struct MeasureTakeover: View {
         case .opening:   ""
         case .waiting:   "Rest your hand on the table. Nothing to press."
         case .nudge:     "Skin, not a nail or a sleeve. Let it rest, don't press."
-        case .contact:   "Breathe normally. Talking is fine."
+        case .contact:   isBodyScan ? "A tiny current crosses your body. You won't feel it." : "Breathe normally. Talking is fine."
         // ⚠️ Body composition has no resume: lifting off restarts the whole 30 seconds.
-        case .counting:  isBodyScan ? "Lift off and the scan starts again."
+        case .counting:  isBodyScan ? "Lift a finger and the scan starts over."
                                     : "Lift early and it picks up where it stopped."
         case .halfway:   isBodyScan ? "Two contacts make one reading."
                                     : "Stress comes out of the same reading."
@@ -298,6 +301,7 @@ struct MeasureTakeover: View {
         case .measuring(let fraction, let partial):
             reading = partial
             remaining = max(0, total - Int((Double(total) * fraction).rounded()))
+            fields = min(14, Int((14 * fraction).rounded(.down)))
             // The first real number lands halfway; before that there is nothing to show.
             let next: Phase = partial == nil ? .counting : .halfway
             if phase != next { withAnimation { phase = next } }
@@ -306,7 +310,11 @@ struct MeasureTakeover: View {
             withAnimation { phase = .lost }
 
         case .finished(let result):
+            // 06 rule 09 · store, then the result folds back onto the panel as one widget —
+            // built before the store so the sentence can say what moved.
+            let widget = resultWidget(result)
             store(result)
+            router.measuredWidget = widget
             withAnimation { phase = .computing }
             Task {
                 try? await Task.sleep(for: .milliseconds(1400))
@@ -349,6 +357,56 @@ struct MeasureTakeover: View {
             }
         default:
             break
+        }
+    }
+
+    /// 06 · 16 / 20 · the result is not a report page: it is the panel's own widget, with the
+    /// number, the trace or the tiles, one sentence, the measured line, and one tap.
+    private func resultWidget(_ result: MeasurementResult) -> PanelWidget {
+        switch result {
+        case .heartRate(let hr, let hrv, let stress):
+            let bb = data.today.bodyBattery ?? data.today.bbWake ?? 0
+            let yesterday = data.history.last(where: { $0.day < data.today.day })?.bbWake
+            var w = PanelWidget(
+                type: .wave, title: "BODY BATTERY", tag: .recover,
+                sentence: bb < 60 ? "You're still carrying yesterday. Keep it easy today."
+                                  : "Charged and steady. Today can take the session.",
+                footer: "HR \(hr) · HRV \(hrv.map { "\($0) MS" } ?? "——") · STRESS \(stress.map { "\($0) / 100" } ?? "——")",
+                action: "TAP FOR THE FULL READING",
+                data: .trace(samples: Self.ecgTrace(hr: hr), hz: 50))
+            w.hero = "\(bb)"
+            w.photo = nil
+            // 06 · 17 · the tap turns the reading into a question for her.
+            w.replyPrompt = "刚测完：心率 \(hr)，HRV \(hrv.map(String.init) ?? "——") ms，压力 \(stress.map(String.init) ?? "——")"
+                + (yesterday.map { "，昨天电量 \($0)" } ?? "") + "。今天怎么安排？"
+            return w
+        case .bodyComposition(let r):
+            let fatDown = (data.today.fatKg).map { r.fatMassKg < $0 } ?? false
+            let leanHeld = (data.today.leanKg).map { abs(r.leanMassKg - $0) < 0.3 } ?? true
+            var w = PanelWidget(
+                type: .metric, title: "BODY COMPOSITION", tag: nil,
+                sentence: fatDown && leanHeld ? "Fat down, muscle held. That is the version you wanted."
+                        : "One reading, not a verdict. The trend is what counts.",
+                footer: [r.bmi.map { String(format: "BMI %.1f", $0) },
+                         String(format: "LEAN %.1f KG", r.leanMassKg),
+                         r.boneKg.map { String(format: "BONE %.1f KG", $0) }].compactMap { $0 }.joined(separator: " · "),
+                action: "TAP FOR ALL 14 FIELDS", data: .none)
+            w.hero = String(format: "%.1f%%", r.bodyFatPercent)
+            w.targetOverride = .composition(date: nil)
+            return w
+        }
+    }
+
+    /// A trace shaped by the measured rate: one PQRST every 60/hr seconds at 50 Hz, four
+    /// seconds of it. It is drawn from the number, not the ECG channel (see before-ship).
+    private static func ecgTrace(hr: Int, seconds: Double = 4, hz: Double = 50) -> [Double] {
+        let period = 60 / Double(max(hr, 30))
+        return (0..<Int(seconds * hz)).map { i in
+            let t = Double(i) / hz
+            let ph = t.truncatingRemainder(dividingBy: period) / period
+            func bump(_ c: Double, _ w: Double, _ a: Double) -> Double { a * exp(-pow((ph - c) / w, 2)) }
+            return bump(0.18, 0.05, 0.12) - bump(0.30, 0.012, 0.18) + bump(0.33, 0.015, 1.0)
+                 - bump(0.37, 0.014, 0.28) + bump(0.60, 0.06, 0.22)
         }
     }
 

@@ -74,6 +74,11 @@ struct HomeView: View {
         // still re-proposed this view 119 pt taller and 119 pt higher, whatever safe-area
         // modifier sat above it; every ignoresSafeArea(.keyboard) placement was tried. So the
         // page reads where the container put it and puts itself back: only the dock moves.
+        .onChange(of: router.measuredWidget) { _, w in
+            guard let w else { return }
+            withAnimation(.easeInOut(duration: 0.18)) { widget = w }
+            router.measuredWidget = nil
+        }
         .onChange(of: router.dockPrefill) { _, p in
             guard let p else { return }
             draft = p.text
@@ -265,7 +270,8 @@ struct HomeView: View {
                                   : CGSize(width: NB.Layout.contentWidth,
                                            height: NB.Layout.panelHeight),
                        radius: firstRun.panelRadius) { target in
-            router.open(target, from: .home)
+            // 06 · 17 · a fresh measurement answers a tap with a message, not a page.
+            if let q = widget?.replyPrompt { handleSend(q) } else { router.open(target, from: .home) }
         }
         .offset(x: full ? 0 : NB.Layout.gutter,
                 y: full ? 0 : Chrome.statusBarBlock + 12 + 30 + 12)

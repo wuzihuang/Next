@@ -75,6 +75,8 @@ final class Router: ObservableObject {
     /// day, and the meal lands on that day rather than today.
     struct DockPrefill: Equatable { let text: String; let day: UserDay }
     @Published var dockPrefill: DockPrefill?
+    /// 06 rule 09 · the measuring screen folds its result back onto the panel as one widget.
+    @Published var measuredWidget: PanelWidget?
 
     /// F0 rule 06: every widget on the panel is tappable and declares its target page.
     func open(_ d: Destination, from: EntryPoint = .home) {

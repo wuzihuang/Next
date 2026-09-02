@@ -1111,6 +1111,18 @@ standing over the dock with the plus turned 45° into a lime ×, the page behind
 ways out (×, the scrim, a pull-down) sharing one 0.22 s ease-in. Rebuilt that way and walked:
 open, close by ×, by scrim, and by a row into the measuring screen.
 
+06 · 16 / 17 / 20 were missing too: a finished measurement closed the screen and the panel went
+back to STANDBY. Now (rule 09) the result folds back onto the panel as one widget — BODY BATTERY
+with the number, a trace shaped by the measured rate, one sentence, `HR 62 · HRV 54 MS · STRESS
+34 / 100` and `TAP FOR THE FULL READING`; BODY COMPOSITION with `14.8%`, the sentence, `BMI · LEAN ·
+BONE` and `TAP FOR ALL 14 FIELDS`. Tapping the battery result turns it into a message (17): the
+reading goes to `turn` as a question and the answer replaces the panel. The body-scan screen now
+reads as drawn (18 / 19): "Two fingers on the side key.", `BOTH CONTACTS · CIRCUIT CLOSED`, "Mapping
+you.", `n / 14 FIELDS`. ⚠️ Three things are ours, not the board's: the trace is drawn from the rate
+(the ECG channel is a before-ship item), the second sentence of each result ("Charged and steady…",
+"One reading, not a verdict…") is placeholder copy for the case the board did not draw, and the
+target does not move with the reading (14.5 → 11.0 on the board) — the target is the server's.
+
 ⚠️ Back-logged meals take the slot of the current hour (a plate added to Aug 31 at 00:30 is a
 SNACK); the board does not say which slot a late plate belongs to. ⚠️ Profile still offers a
 weigh-in entry (11 col 03) although 10S rule 07 says composition and NO TARGET only — left

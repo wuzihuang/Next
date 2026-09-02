@@ -114,6 +114,9 @@ struct PanelWidget: Identifiable, Hashable {
     /// the source chip at the top (the thumbnail and `IMG · PLATE · PARSED OK`) and the
     /// 「已记入今天的 fuel」 line at the bottom. Optional blocks of one template, not a second screen.
     var photo: PhotoAnswer?
+    /// 06 · 17 · a measurement's result "becomes a message": tapping it asks her about the
+    /// numbers instead of opening a page. Only the frames the band just produced carry this.
+    var replyPrompt: String?
     var ttlMinutes: Int = 20
     var priority: Priority = .normal
 

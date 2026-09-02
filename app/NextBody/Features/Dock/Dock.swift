@@ -23,7 +23,8 @@ struct Dock: View {
         HStack(spacing: 14) {
             // Left slot · switches input mode. It never does anything else.
             DockCircleButton(ringed: mode == .keyboard, action: {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                // 05M · A · OPEN 0.38S, DISMISS 0.24S — the board's own numbers, not a house spring.
+                withAnimation(.spring(response: mode == .keyboard ? 0.24 : 0.38, dampingFraction: 0.82)) {
                     mode = (mode == .keyboard) ? .idle : .keyboard
                 }
                 focused = mode == .keyboard
@@ -116,7 +117,8 @@ struct Dock: View {
         guard !t.isEmpty else { return }
         draft = ""
         onSend(t)
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { mode = .idle }
+        // 05M · A · SEND 0.22S.
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) { mode = .idle }
         focused = false
     }
 }

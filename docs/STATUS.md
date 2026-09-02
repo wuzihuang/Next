@@ -936,6 +936,38 @@ the training ring a tint and halo, and the cumulative curve dashed gaps (08 rule
 - The thresholds the boards leave to 拍板: OUT-trust hours (09), 5/7 (10), disconnectAlert with
   no capability bit (12).
 
+## Phase 5 · boards 02 and 03 字对字, and their ten edge states
+
+The five Connect screens and six Onboarding screens were pulled as JSX and compared word by word
+with the app: every title, sub-line, CTA, footnote and counter matches. One line was missing —
+`LINK LOCKED · DOUBLE TAP` under CONNECTED — and it is there now. Both boards' rules and edges
+are mirrored in `docs/prd/02-connect.md` and `03-onboarding.md`.
+
+| Board | Edge | Built as (walked with `NB_DEBUG_STAGE=gateConnect/gateOnboarding` + `NB_DEBUG_EDGE`) |
+|---|---|---|
+| 02 | 1 NOTHING FOUND | 15 s scan timeout (rule 01): ripples freeze at 18%, the three checks, outlined Search again — still screen 02 |
+| 02 | 2 BLUETOOTH OFF | band at 20%, amber line, the sentence, 去打开蓝牙 → opens Settings. ⚠️ Detection is not wired: the band layer has no powered-off state, so only the debug switch reaches it |
+| 02 | 3 PERMISSION | not built — iOS does not show this card (the board says so) |
+| 02 | 4 CONNECT FAILED | arms stop, everything amber, `STOPPED` with the frozen percentage, the sentence, lime Try again; Search again appears on the second failure only |
+| 02 | 5 TAKEN | `BandError.rejected` → `TAKEN BY ANOTHER PHONE`, the sentence, the two steps |
+| 02 | rule 02 / 05 | four segments now 35 / 60 / 85 / 100; low battery → one amber line on the success screen (`BATTERY n%`, or `BATTERY LOW` for level-only firmware) |
+| 03 | 1 NOTHING SYNCED | values empty, `ADD` tags (amber), CTA "Save and continue" dead until all four are in; sources tracked per field (rule 02) |
+| 03 | 2 FINGERS LIFTED | wave amber and still, `HOLDING · 00:nn` holds the count, "Put your fingers back — we'll pick it up."; the second lift restarts from 30 with a line (⚠️ that line's copy is not on the board) |
+| 03 | 3 BAND DROPPED | `.state(.disconnected)` on the band stream → `BAND DISCONNECTED` card, 重新连接 → runs Connect again and resumes at BASELINE 01 |
+| 03 | 4 LOW BATTERY | `BATTERY 8%` card before the scan, CTA dead, 先跳过，稍后再测 → skips the run (rule 07) |
+| 03 | 5 OUT OF RANGE | 90–230 cm / 25–250 kg: amber 1.5 px border and "That's outside what we can measure. Check it?"; never blocks Looks right |
+
+Events from both boards now fire: PAIR_FAIL{REASON,STEP}, HEALTH_PROMPT{GRANTED_FIELDS}, SCAN_START,
+SCAN_DONE{MS,RESTARTS}, SCAN_SKIP{REASON}, ONBOARD_DONE.
+
+### Motion boards, checked against their own frames
+05M · A · KEYBOARD: the dock now opens in 0.38 s, sends in 0.22 s, dismisses in 0.24 s and the answer
+lands in 0.18 s — the board's numbers replaced a house spring. 05M · B says HOLD TO TALK (hold 0.20 s to
+arm, release 0.22 s, cancel when dragged above −56 px); the app's dock is tap-to-talk with the same key
+ending the take. ⚠️ That is an interaction-model difference, not a timing one, and it is left for a
+ruling rather than rebuilt in passing. 05M · C (photo + caption) is not built. 06M · D open/dismiss are
+system sheet timings; E OPEN 0.46 s and NUDGE 5 s, F 60 s / RESULT 0.5 s, G 30 s / fourteen fields match.
+
 ## Running it
 
 ```sh

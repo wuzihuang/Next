@@ -320,6 +320,10 @@ final class SessionStore: ObservableObject {
     init() {
         let raw = UserDefaults.standard.string(forKey: Self.key)
         stage = raw.flatMap(Stage.init(rawValue:)) ?? .gateSignIn
+        #if DEBUG
+        // `SIMCTL_CHILD_NB_DEBUG_STAGE=gateConnect` opens the app at that gate for a walk.
+        if let s = ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"], let st = Stage(rawValue: s) { stage = st }
+        #endif
     }
 
     func reset() { stage = .gateSignIn; isSignedIn = false; email = "" }

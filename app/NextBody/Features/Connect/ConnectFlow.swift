@@ -12,6 +12,14 @@ struct ConnectFlow: View {
     @State private var pairStage = 0
     @State private var found: DiscoveredBand?
     @State private var scanTask: Task<Void, Never>?
+    /// 02 edges · every failure degrades on the screen it happened on: colour and two lines.
+    enum ScanEdge { case nothingFound, bluetoothOff }
+    enum PairEdge { case stopped, taken }
+    @State private var scanEdge: ScanEdge?
+    @State private var pairEdge: PairEdge?
+    @State private var pairFailures = 0
+    /// 02 rule 05 · low battery never blocks pairing; one amber line on the success screen.
+    @State private var lowBatteryLine: String?
 
     /// 04 · the percentage maps to four real steps; never a fake tween.
     private static let stages = ["CONNECT", "AUTHORISE", "READ CAPABILITIES", "READ FIRMWARE"]
@@ -20,13 +28,15 @@ struct ConnectFlow: View {
         ZStack {
             switch step {
             case .turnOn:    TurnItOn { go(.searching) }
-            case .searching: Searching(onBack: { go(.turnOn) }, found: found) { go(.found) }
+            case .searching: Searching(onBack: { go(.turnOn) }, found: found, edge: scanEdge,
+                                       onSearchAgain: { go(.searching) }) { go(.found) }
             case .found:     FoundIt(band: found,
                                      onBack: { go(.searching) },
                                      onConnect: { go(.pairing) },
                                      onSearchAgain: { go(.searching) })
-            case .pairing:   Pairing(progress: progress, stage: pairStage)
-            case .connected: Connected { session.stage = .gateOnboarding }
+            case .pairing:   Pairing(progress: progress, stage: pairStage, edge: pairEdge, failures: pairFailures,
+                                     onRetry: { go(.pairing) }, onSearchAgain: { go(.searching) })
+            case .connected: Connected(lowBattery: lowBatteryLine) { session.stage = .gateOnboarding }
             }
         }
         .carbonPage()
@@ -46,17 +56,31 @@ struct ConnectFlow: View {
     /// would be a list of things you cannot choose between.
     private func runScan() {
         found = nil
+        scanEdge = nil
         scanTask?.cancel()
+        // DEBUG · 02 edges 1 and 2 on a simulator whose mock band always answers.
+        if DebugEdge.on("nothingfound") { scanEdge = .nothingFound; return }
+        if DebugEdge.on("btoff") { scanEdge = .bluetoothOff; return }
         scanTask = Task {
             await Band.live.startScan()
+            // 02 rule 01 · scan 15 s (provisional). Edge 1 · the ripples stop, the line changes,
+            // the screen stays: 「空态不是新页面，就是 02 屏本身」.
+            let timeout = Task {
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled, found == nil, step == .searching else { return }
+                await Band.live.stopScan()
+                scanEdge = .nothingFound
+                await Analytics.shared.track("PAIR_FAIL", ["REASON": "NOTHING_FOUND", "STEP": "SCAN"])
+            }
             for await event in Band.live.events {
                 if case .discovered(let device) = event {
+                    timeout.cancel()
                     found = device
                     await Band.live.stopScan()
                     go(.found)
                     return
                 }
-                if Task.isCancelled { return }
+                if Task.isCancelled { timeout.cancel(); return }
             }
         }
     }
@@ -65,24 +89,32 @@ struct ConnectFlow: View {
     /// capability table, read the firmware version. When it stalls it stalls on the number
     /// it reached: stopping is more honest than snapping back to zero.
     private func runPairing() {
-        progress = 0; pairStage = 0
+        progress = 0; pairStage = 0; pairEdge = nil
         Task {
             do {
                 guard let device = found else { throw BandError.notConnected }
 
-                await advance(to: 0.25, stage: 0)
+                // 02 rule 02 · four fixed segments: connect 0–35, authorise 35–60, capabilities
+                // 60–85, version and battery 85–100. Whichever does not return, the bar stops there.
+                await advance(to: 0.35, stage: 0)
+                if DebugEdge.on("stopped") { throw BandError.timeout("connect") }
+                if DebugEdge.on("taken") { throw BandError.rejected("paired elsewhere") }
                 try await Band.live.connect(device)
 
-                await advance(to: 0.50, stage: 1)
+                await advance(to: 0.60, stage: 1)
                 let identity = try await Band.live.readIdentity()
 
-                await advance(to: 0.75, stage: 2)
+                await advance(to: 0.85, stage: 2)
                 // The capability table decides which measurement entries exist at all,
                 // so it is read before the first screen that could offer one.
                 let caps = try await Band.live.readCapabilities()
 
                 await advance(to: 1.0, stage: 3)
                 let battery = try await Band.live.readBattery()
+                // 02 rule 05 · isPercent false → BATTERY LOW, never an invented percent.
+                if DebugEdge.on("lowbattery") { lowBatteryLine = "BATTERY 8%" }
+                else if !battery.isPercent { if (battery.level ?? 4) <= 1 { lowBatteryLine = "BATTERY LOW" } }
+                else if let p = battery.percent, p < 10 { lowBatteryLine = "BATTERY \(p)%" }
 
                 data.band = BandState(
                     connected: true, name: identity.name, mac: identity.bleIdentifier,
@@ -94,7 +126,11 @@ struct ConnectFlow: View {
                 // Every failure degrades in place, on the screen it happened on. That rule
                 // was set here in Connect, and this page is where it is enforced.
                 BandLog.shared.record("pairing", error: error)
-                step = .found
+                // 02 edge 4 / 5 · the arms stop, the number freezes where it was, and the two
+                // lines say what happened. TAKEN is the one failure with a named cause.
+                pairFailures += 1
+                if case BandError.rejected = error { pairEdge = .taken } else { pairEdge = .stopped }
+                await Analytics.shared.track("PAIR_FAIL", ["REASON": pairEdge == .taken ? "TAKEN" : "STOPPED", "STEP": Self.stages[min(pairStage, 3)]])
             }
         }
     }
@@ -304,6 +340,8 @@ struct BandPortrait: View {
 private struct Searching: View {
     var onBack: (() -> Void)? = nil
     var found: DiscoveredBand?
+    var edge: ConnectFlow.ScanEdge? = nil
+    var onSearchAgain: () -> Void = {}
     let onFound: () -> Void
 
     var body: some View {
@@ -313,12 +351,14 @@ private struct Searching: View {
             // The ripple is white and the screen has no green in it — success colour is
             // not allowed before there is a success.
             TimelineView(.animation) { tl in
-                let t = tl.date.timeIntervalSinceReferenceDate
+                // Edge 1 · the ripples stop and go white 18%; edge 2 · the band drops to 20%.
+                let t = edge == nil ? tl.date.timeIntervalSinceReferenceDate : 0
                 BandPortrait(scanRings: (0..<4).map { i in
                     let p = (t * 0.35 + Double(i) * 0.25).truncatingRemainder(dividingBy: 1)
                     return 60 + CGFloat(p) * 130
                 })
                 .frame(width: 390, height: 470)
+                .opacity(edge == nil ? 1 : edge == .bluetoothOff ? 0.2 : 0.18)
                 .offset(y: 252 - Chrome.statusBarBlock + Chrome.gateTopInset)
             }
 
@@ -331,17 +371,62 @@ private struct Searching: View {
                 Spacer(minLength: 0)
             }
 
-            Text("SCANNING")
-                .font(NBFont.dot(600, 12)).tracking(0.34 * 12)
-                .foregroundStyle(NB.white.opacity(0.42))
-                .frame(width: 390, alignment: .center)
-                .offset(y: 700 - Chrome.statusBarBlock + Chrome.gateTopInset)
+            switch edge {
+            case .none:
+                Text("SCANNING")
+                    .font(NBFont.dot(600, 12)).tracking(0.34 * 12)
+                    .foregroundStyle(NB.white.opacity(0.42))
+                    .frame(width: 390, alignment: .center)
+                    .offset(y: 700 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
-            Text("Keep it within arm's reach.")
-                .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
-                .foregroundStyle(NB.text3Prod)
-                .frame(width: 390, alignment: .center)
-                .offset(y: 750 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                Text("Keep it within arm's reach.")
+                    .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
+                    .foregroundStyle(NB.text3Prod)
+                    .frame(width: 390, alignment: .center)
+                    .offset(y: 750 - Chrome.statusBarBlock + Chrome.gateTopInset)
+
+            case .nothingFound:
+                // 02 edge 1 · NOTHING FOUND. Three checks in the most likely order, then the
+                // outlined key. Not a new page — this is screen 02 itself.
+                VStack(spacing: 14) {
+                    Text("NOTHING FOUND")
+                        .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
+                        .foregroundStyle(NB.white.opacity(0.48))
+                    Text("· 手环亮起来了吗\n· 是不是超过一臂远\n· 是不是还连在别的手机上")
+                        .font(NBFont.ui(300, 13)).lineSpacing(8)
+                        .foregroundStyle(NB.white.opacity(0.50))
+                        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+                    Button(action: onSearchAgain) {
+                        Text("Search again")
+                            .font(NBFont.ui(500, 14)).tracking(0.04 * 14)
+                            .foregroundStyle(NB.white)
+                            .frame(width: NB.Layout.contentWidth, height: 44)
+                            .overlay(Capsule().stroke(NB.white.opacity(0.16), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(width: 390)
+                .offset(y: 604 - Chrome.statusBarBlock + Chrome.gateTopInset)
+
+            case .bluetoothOff:
+                // 02 edge 2 · only the status line turns amber; Settings, then rescan by itself.
+                VStack(spacing: 14) {
+                    Text("BLUETOOTH IS OFF")
+                        .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
+                        .foregroundStyle(NB.ember1.opacity(0.85))
+                    Text("I can’t look for the band without it.")
+                        .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    } label: {
+                        Text("去打开蓝牙 →").font(NBFont.ui(500, 14)).tracking(0.04 * 14).foregroundStyle(NB.lime1)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+                }
+                .frame(width: 390)
+                .offset(y: 660 - Chrome.statusBarBlock + Chrome.gateTopInset)
+            }
 
         }
         .frame(width: 390, alignment: .topLeading)
@@ -468,6 +553,10 @@ struct SignalBars: View {
 private struct Pairing: View {
     let progress: Double
     let stage: Int
+    var edge: ConnectFlow.PairEdge? = nil
+    var failures = 0
+    var onRetry: () -> Void = {}
+    var onSearchAgain: () -> Void = {}
 
     private static let stages = ["CONNECT", "AUTHORISE", "READ CAPABILITIES", "READ FIRMWARE"]
 
@@ -477,8 +566,11 @@ private struct Pairing: View {
 
             // A collapse, not a supernova: five sparse arms, one event horizon, a black centre.
             TimelineView(.animation) { tl in
-                Collapse(t: tl.date.timeIntervalSinceReferenceDate, progress: progress)
+                // Edge 4 · the arms stop turning and the whole thing goes amber.
+                Collapse(t: edge == nil ? tl.date.timeIntervalSinceReferenceDate : 0, progress: progress)
                     .frame(width: 390, height: 400)
+                    .grayscale(edge == nil ? 0 : 1)
+                    .colorMultiply(edge == nil ? .white : NB.ember1)
                     .offset(y: 260 - Chrome.statusBarBlock + Chrome.gateTopInset)
             }
 
@@ -491,13 +583,14 @@ private struct Pairing: View {
             }
 
             HStack(alignment: .firstTextBaseline) {
-                Text("PAIRING")
+                Text(edge == nil ? "PAIRING" : "STOPPED")
                     .font(NBFont.dot(600, 11)).tracking(0.3 * 11)
-                    .foregroundStyle(NB.text3Prod)
+                    .foregroundStyle(edge == nil ? NB.text3Prod : NB.ember1.opacity(0.85))
                 Spacer(minLength: 0)
+                // The number freezes where it was — zero would look like 「白干了」.
                 Text("\(Int(progress * 100))%")
                     .font(NBFont.dot(700, 22)).tracking(0.02 * 22)
-                    .foregroundStyle(NB.lime1)
+                    .foregroundStyle(edge == nil ? NB.lime1 : NB.ember1)
                     .contentTransition(.numericText())
             }
             .frame(width: NB.Layout.contentWidth)
@@ -505,19 +598,60 @@ private struct Pairing: View {
 
             DottedProgress(progress: progress)
                 .frame(width: NB.Layout.contentWidth, height: 6)
+                .grayscale(edge == nil ? 0 : 1)
+                .colorMultiply(edge == nil ? .white : NB.ember1)
                 .offset(x: 16, y: 672 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
-            Text(Self.stages[min(stage, 3)])
-                .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
-                .foregroundStyle(NB.white.opacity(0.34))
+            if let edge {
+                VStack(alignment: .leading, spacing: 12) {
+                    if edge == .taken {
+                        // 02 edge 5 · the most common real reason an auth fails, named, with two steps.
+                        Text("TAKEN BY ANOTHER PHONE")
+                            .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
+                            .foregroundStyle(NB.ember1.opacity(0.85))
+                        Text("This band is still paired somewhere else.")
+                            .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
+                        Hairline()
+                        Text("1 · 在那部手机上断开连接\n2 · 或者长按侧键，把手环重启一次")
+                            .font(NBFont.ui(300, 13.5)).lineSpacing(8).foregroundStyle(NB.white.opacity(0.60))
+                    } else {
+                        Text("The band stopped answering. Nothing you did wrong.")
+                            .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
+                    }
+                    Button(action: onRetry) {
+                        Text("Try again")
+                            .font(NBFont.ui(500, 14)).tracking(0.06 * 14)
+                            .foregroundStyle(NB.carbon)
+                            .frame(width: NB.Layout.contentWidth, height: 44)
+                            .background(NB.lime1, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    // Only the second failure offers the way back to 02.
+                    if failures >= 2 {
+                        Button(action: onSearchAgain) {
+                            Text("Search again")
+                                .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
+                                .foregroundStyle(NB.text3Prod)
+                                .frame(width: NB.Layout.contentWidth)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
                 .offset(x: 16, y: 690 - Chrome.statusBarBlock + Chrome.gateTopInset)
+            } else {
+                Text(Self.stages[min(stage, 3)])
+                    .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
+                    .foregroundStyle(NB.white.opacity(0.34))
+                    .frame(width: NB.Layout.contentWidth, alignment: .leading)
+                    .offset(x: 16, y: 690 - Chrome.statusBarBlock + Chrome.gateTopInset)
 
-            Text("Keep it within arm's reach.")
-                .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
-                .foregroundStyle(NB.text3Prod)
-                .frame(width: 390, alignment: .center)
-                .offset(y: 730 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                Text("Keep it within arm's reach.")
+                    .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
+                    .foregroundStyle(NB.text3Prod)
+                    .frame(width: 390, alignment: .center)
+                    .offset(y: 730 - Chrome.statusBarBlock + Chrome.gateTopInset)
+            }
 
         }
         .frame(width: 390, alignment: .topLeading)
@@ -588,6 +722,7 @@ private struct Collapse: View {
 // MARK: 05 · 连上 Connected
 
 private struct Connected: View {
+    var lowBattery: String? = nil
     let onNext: () -> Void
     @State private var burst: Double = 0
 
@@ -604,6 +739,21 @@ private struct Connected: View {
                 .foregroundStyle(NB.lime1)
                 .frame(width: 390, alignment: .center)
                 .offset(y: 356 - Chrome.statusBarBlock + Chrome.gateTopInset)
+
+            Text("LINK LOCKED · DOUBLE TAP")
+                .font(NBFont.dot(500, 10.5)).tracking(0.24 * 10.5)
+                .foregroundStyle(NB.white.opacity(0.40))
+                .frame(width: 390, alignment: .center)
+                .offset(y: 390 - Chrome.statusBarBlock + Chrome.gateTopInset)
+
+            // 02 rule 05 · low battery does not block pairing; it gets one amber line here.
+            if let lowBattery {
+                Text(lowBattery)
+                    .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
+                    .foregroundStyle(NB.ember1)
+                    .frame(width: 390, alignment: .center)
+                    .offset(y: 414 - Chrome.statusBarBlock + Chrome.gateTopInset)
+            }
 
             // No header, no back key, one button — pairing to profile is a straight line.
             LimePillButton(title: "Now let me get to know you", action: onNext)

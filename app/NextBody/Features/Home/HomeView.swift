@@ -30,7 +30,8 @@ struct HomeView: View {
         // Any tap at all lands on ◇11 — there is no "skip?" to answer.
         .contentShape(Rectangle())
         .onTapGesture { firstRun.skip() }
-        .animation(.easeInOut(duration: 0.28), value: widget)
+        // 05M · ANSWER 0.18S — the frame arrives in the panel at the board's speed.
+        .animation(.easeInOut(duration: 0.18), value: widget)
         .task {
             firstRun.start(reduceMotion: reduceMotion,
                            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)

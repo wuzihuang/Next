@@ -39,19 +39,25 @@ struct TrainingDetailView: View {
                     gatesCard
                 }
 
-                // 09 · the one CTA. It stays live in the empty state — that is exactly
-                // when it should be tapped.
-                Button {
-                    // startSport(mode:) — the band has no on-wrist mode picker.
-                } label: {
+                // 09 · the one CTA.
+                //
+                // ⚠️ 10PV names three entry points on this board that "指向空气", and rules:
+                // "V1 要么补屏，要么把入口显式禁用——点了没反应比没有这个按钮更糟." The
+                // in-session screen is on 1EEU's not-in-V1 list, so this is the second
+                // branch: visibly disabled, with the reason on it. It was an empty closure —
+                // a button that looks live and does nothing, which is the exact thing that
+                // line forbids.
+                VStack(spacing: 8) {
                     Text("START A SESSION")
                         .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                        .foregroundStyle(NB.text1)
+                        .foregroundStyle(NB.text3)
                         .frame(width: NB.Layout.contentWidth, height: 48)
-                        .background(Color(hex: 0x141418), in: Capsule())
-                        .overlay(Capsule().stroke(NB.white.opacity(0.10), lineWidth: 1))
+                        .background(Color(hex: 0x101014), in: Capsule())
+                        .overlay(Capsule().stroke(NB.white.opacity(0.06), lineWidth: 1))
+                    Text("START IT ON THE BAND — THE IN-SESSION SCREEN IS NOT IN THIS BUILD")
+                        .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
+                        .foregroundStyle(NB.text3Prod)
                 }
-                .buttonStyle(.plain)
                 .padding(.top, 6)
             }
             .padding(.horizontal, 16)

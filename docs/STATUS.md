@@ -1204,9 +1204,20 @@ overwrite a real meal's slot. Ruled here under a stated assumption (`slotFor(day
 today still uses the clock; a closed day takes the first of BREAKFAST/LUNCH/DINNER it has open, and
 SNACK once the three are filled — a back-logged plate is an addition, never a re-write. The board
 only says "back-logging stays open", so this is a default to revisit if 09/13 settle it otherwise.
-The other conflicts (stress vs F5, 04/13 staleness, 08/13 zone, hold-to-talk vs tap, photo retry,
-the two upper tier words) are genuine product decisions left for you; Doto 13px is already resolved
-in favour of the board, since 1:1-with-the-board is the acceptance criterion.
+Two more of the "conflicts" turned out not to be product decisions at all — the board is explicit
+and the code just had to match it:
+- **hold-to-talk vs tap** — 05M Track B draws a press-and-hold (touch down → armed at 200ms →
+  recording → slide-up cancel → release send), and the dock's own edge copy already assumed it,
+  but the mic was wired as tap-to-toggle. Now it is the hold gesture the board draws (built,
+  simulator-verified: the hold arms and raises the mic-permission prompt). Ruled by fidelity.
+- **the two upper tier words** — the board leaves them blank on purpose, so 1:1 is blank, which
+  `MorningWidget` already does. Not an open decision.
+
+The conflicts that remain genuine product decisions for you: stress vs F5 (F5 does not mention
+stress, so the plain-number display is compliant as built — flag only if you want it framed
+differently), 04/13 staleness and 08/13 zone (the two design boards disagree with each other; the
+app follows 13 and 12.5–16.5, and one board needs editing), and photo retry (defaults to one retry
+per tap). Doto 13px is resolved in favour of the board, since 1:1-with-the-board is the criterion.
 
 ### 07's theme contract audited slot by slot
 Board 07's `08 · 全量模板` prints the full envelope schema with its `theme.text` table — the exact

@@ -12,9 +12,9 @@ from pathlib import Path
 HERE = Path(__file__).parent
 
 # Tokens.swift — the same hexes the app draws with.
-CARBON, CARD, HAIRLINE = "#0B0B0D", "#101014", "rgba(255,255,255,0.08)"
+CARBON, CARD, HAIRLINE = "#0B0B0D", "#101014", "#1F1F24"   # hairline = 8% white on carbon, flattened
 LIME, WHITE = "#EFF65A", "#FFFFFF"
-TEXT2, TEXT3 = "rgba(255,255,255,0.60)", "rgba(255,255,255,0.55)"
+TEXT2, TEXT3 = "#9B9BA1", "#8E8E95"                          # 60% / 55% white on carbon, flattened
 UI = "'Jost', 'Helvetica Neue', Helvetica, Arial, sans-serif"
 BRAND = "'Inter Tight', 'Helvetica Neue', Helvetica, Arial, sans-serif"
 DOT = "'Doto', Menlo, Consolas, 'Courier New', monospace"
@@ -29,22 +29,22 @@ FRAME = """<!doctype html>
 <title>{subject}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Doto:wght@600;700&family=Inter+Tight:wght@800&family=Jost:wght@300;400;500&display=swap');
-  body {{ margin:0; padding:0; background:{carbon}; -webkit-text-size-adjust:100%; }}
+  body {{ margin:0; padding:0; background-color:{carbon}; -webkit-text-size-adjust:100%; }}
   a {{ color:{lime}; text-decoration:none; }}
 </style>
 </head>
-<body style="margin:0;padding:0;background:{carbon};">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{carbon};">
-  <tr><td align="center" style="padding:40px 20px 48px;">
+<body bgcolor="{carbon}" style="margin:0;padding:0;background-color:{carbon};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{carbon}" style="background-color:{carbon};">
+  <tr><td align="center" bgcolor="{carbon}" style="background-color:{carbon};padding:40px 20px 48px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:390px;">
 
       <!-- wordmark · the gate's own -->
       <tr><td style="padding:0 0 26px;">
-        <span style="font-family:{brand};font-size:26px;font-weight:800;letter-spacing:-0.045em;color:{white};line-height:1;">NEXTBODY</span><span style="display:inline-block;width:7px;height:7px;background:{lime};border-radius:2px;margin:0 0 12px 7px;line-height:0;"></span>
+        <span style="font-family:{brand};font-size:26px;font-weight:800;letter-spacing:-0.045em;color:{white};line-height:1;">NEXTBODY</span><span style="display:inline-block;width:7px;height:7px;background-color:{lime};border-radius:2px;margin:0 0 12px 7px;line-height:0;font-size:0;">&nbsp;</span>
       </td></tr>
 
       <!-- card -->
-      <tr><td style="background:{card};border:1px solid {hairline};border-radius:18px;padding:26px 24px 24px;">
+      <tr><td bgcolor="{card}" style="background-color:{card};border:1px solid {hairline};border-radius:18px;padding:26px 24px 24px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           <tr><td style="font-family:{dot};font-size:11px;font-weight:600;letter-spacing:0.26em;color:{text3};padding:0 0 18px;">{label}</td></tr>
           <tr><td style="font-family:{ui};font-size:21px;font-weight:300;letter-spacing:0.02em;color:{white};line-height:1.3;padding:0 0 8px;">{headline}</td></tr>
@@ -66,7 +66,7 @@ FRAME = """<!doctype html>
 
 def code(token: str) -> str:
     """The highlight: six digits, big, tracked — the one bright thing on the screen."""
-    return (f'<tr><td align="center" style="background:{CARBON};border:1px solid {HAIRLINE};border-radius:14px;padding:22px 12px;">'
+    return (f'<tr><td align="center" bgcolor="{CARBON}" style="background-color:{CARBON};border:1px solid {HAIRLINE};border-radius:14px;padding:22px 12px;">'
             f'<span style="font-family:{DOT};font-size:38px;font-weight:700;letter-spacing:0.26em;color:{WHITE};line-height:1;">{token}</span>'
             f'</td></tr>')
 

@@ -24,8 +24,27 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
     /// Returns false when the microphone was refused *or* would not open. The caller stays idle
     /// on a false — a listening animation with nothing behind it is the bug this file exists
     /// to fix, and a recorder that failed to start is as empty as a denied permission.
+    /// 05 edge 1 · the second time iOS never asks again; the dock has to know it was refused.
+    static var permissionDenied: Bool {
+        if #available(iOS 17.0, *) { return AVAudioApplication.shared.recordPermission == .denied }
+        return AVAudioSession.sharedInstance().recordPermission == .denied
+    }
+    /// 05 edge 6 · a call or an alarm took the microphone. Set once per take, read by the dock.
+    @MainActor private(set) var interruptedAt: TimeInterval?
+    private var startedAt = Date()
+    private var interruptionObserver: NSObjectProtocol?
+
     func start() async -> Bool {
         guard await Self.permission() else { return false }
+        await MainActor.run { self.interruptedAt = nil }
+        startedAt = Date()
+        interruptionObserver.map { NotificationCenter.default.removeObserver($0) }
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
+            guard let self, (n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue else { return }
+            let t = Date().timeIntervalSince(self.startedAt)
+            Task { @MainActor in self.interruptedAt = t }
+        }
 
         let started: Bool = await withCheckedContinuation { c in
             queue.async { [weak self] in
@@ -64,7 +83,12 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
 
     /// Stops and hands back the clip. The caller owns the file and deletes it once the
     /// transcript is back — the audio never outlives the turn it belongs to.
+    /// Seconds recorded so far — 05 edge 2 treats anything under 0.6 s as a slip.
+    var elapsed: TimeInterval { Date().timeIntervalSince(startedAt) }
+
     func stop() async -> URL? {
+        interruptionObserver.map { NotificationCenter.default.removeObserver($0) }
+        interruptionObserver = nil
         let url: URL? = await withCheckedContinuation { c in
             queue.async { [weak self] in
                 guard let self, let rec = self.recorder else { return c.resume(returning: nil) }

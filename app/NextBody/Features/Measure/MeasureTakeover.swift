@@ -20,6 +20,8 @@ struct MeasureTakeover: View {
 
     enum Phase: Hashable {
         case opening, waiting, nudge, contact, counting, halfway, lost, computing, result, failed
+        // 06 edges · the four device-side states are 32% + a Doto line, never amber (rule 07).
+        case notWearing, busy, dropped, noReading
     }
 
     @State private var phase: Phase = .opening
@@ -93,6 +95,10 @@ struct MeasureTakeover: View {
         case .computing: "Working it out."
         case .result:    isBodyScan ? "Fourteen fields." : "Done."
         case .failed:    "That didn't take."
+        case .notWearing: "The band isn’t on your wrist."
+        case .busy:       "She's already measuring something."
+        case .dropped:    "Lost the band."
+        case .noReading:  "Couldn't get a clean read."
         }
     }
 
@@ -122,10 +128,13 @@ struct MeasureTakeover: View {
             FlatlineStage()
         case .result:
             CountdownStage(remaining: 0, total: total)
-        case .failed:
+        case .failed, .busy, .dropped, .noReading:
             // Nothing is drawn where the reading would have been: an empty frame in that
             // position would read as a number we could not print.
             Color.clear.frame(height: 300)
+        case .notWearing:
+            // 06 edge 1 · amber, because this one is the wearer's to fix.
+            ContactTarget(tint: NB.ember2, pulse: true)
         }
     }
 
@@ -152,17 +161,23 @@ struct MeasureTakeover: View {
         case .contact:   "CONTACT · SIGNAL GOOD"
         case .counting:  "MEASURING · KEEP THE FINGER THERE"
         case .halfway:   isBodyScan ? "SECOND CONTACT · KEEP GOING" : "HRV NEEDS THE FULL MINUTE"
-        case .lost:      "SIGNAL LOST · HOLDING \(Int(lostGrace.rounded()))S"
+        case .lost:      "PAUSED · \(Int(lostGrace.rounded()))S TO RESUME"
         case .computing: isBodyScan ? "COMPUTING 14 FIELDS" : "COMPUTING HRV · STRESS"
         case .result:    "SAVED"
         case .failed:    failure ?? "NOT MEASURED"
+        case .notWearing: "NOT WEARING · PUT IT BACK ON"
+        case .busy:       "MEASURING NOW · TRY IN A MOMENT"
+        case .dropped:    "DISCONNECTED · RECONNECTING"
+        case .noReading:  "NO READING · NOTHING KEPT"
         }
     }
     private var statusTint: Color {
         switch phase {
-        case .nudge, .lost: NB.ember2
+        case .nudge, .lost, .notWearing: NB.ember2
         case .failed: NB.ember2
         case .contact, .counting, .halfway: NB.lime1
+        // 06 rule 07 · device-side states are 32% grey, not amber and not red.
+        case .busy, .dropped, .noReading: NB.white.opacity(0.32)
         default: NB.white.opacity(0.40)
         }
     }
@@ -177,10 +192,15 @@ struct MeasureTakeover: View {
                                     : "Lift early and it picks up where it stopped."
         case .halfway:   isBodyScan ? "Two contacts make one reading."
                                     : "Stress comes out of the same reading."
-        case .lost:      isBodyScan ? "This one has to start over."
-                                    : "Come back within three seconds and nothing is lost."
+        // 06 edge 2 · the board's sentence for a lifted finger.
+        case .lost:      isBodyScan ? "Your finger came off the key. This one has to start over."
+                                    : "Your finger came off the key."
         case .computing: "You can lift your finger now."
         case .result:    "Folding it back onto the panel."
+        case .notWearing: "Not a failure — it slipped or came off. Put it back on and the count continues."
+        case .busy:       "One measurement at a time. It frees itself when the other one ends."
+        case .dropped:    "Nothing half-done is kept. Reconnecting — then put your finger back on."
+        case .noReading:  "This one didn't read cleanly. Nothing invented, nothing stored."
         case .failed:    "Close this and try again when you are ready."
         }
     }
@@ -202,6 +222,11 @@ struct MeasureTakeover: View {
     private func open() {
         remaining = total
         withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) { grown = true }
+        // DEBUG · 06 edges on the mock band, which never fails on its own.
+        if let forced: Phase = ["notwearing": .notWearing, "busy": .busy, "dropped": .dropped, "noreading": .noReading][DebugEdge.name ?? ""] {
+            run = Task { try? await Task.sleep(for: .milliseconds(700)); withAnimation { phase = forced } }
+            return
+        }
 
         run = Task {
             try? await Task.sleep(for: .milliseconds(460))
@@ -234,12 +259,28 @@ struct MeasureTakeover: View {
                     nudge.cancel()
                     apply(step)
                 }
+            } catch BandError.busy {
+                // 06 edge 3 · DEVICE BUSY: one start*Test at a time. Not amber — not the wearer's doing.
+                nudge.cancel()
+                withAnimation { phase = .busy }
+            } catch BandError.notConnected {
+                nudge.cancel()
+                await dropped()
             } catch {
                 nudge.cancel()
                 failure = (error as? BandError)?.errorDescription ?? "BAND OFFLINE"
                 withAnimation { phase = .failed }
             }
         }
+    }
+
+    /// 06 edge 4 · LINK DROPPED. Nothing half-done is kept; the screen stays, reconnects on its
+    /// own, and goes back to "put your finger on". ⚠️ The measurement is stopped explicitly
+    /// (the stream ends) so the band's slot is released before reconnecting.
+    private func dropped() async {
+        withAnimation { phase = .dropped }
+        await Band.live.reconnectIfBound()
+        if Band.live.state == .connected { open() }
     }
 
     private func apply(_ step: MeasurementProgress) {
@@ -275,8 +316,16 @@ struct MeasureTakeover: View {
             }
 
         case .failed(let reason):
-            failure = reason
-            withAnimation { phase = .failed }
+            // 06 edges 1 / 5 · the SDK's own words decide: notWear is the wearer's, anything
+            // else that ran and produced nothing is NO READING, never an invented number.
+            if reason.lowercased().contains("wear") || reason.lowercased().contains("worn") {
+                withAnimation { phase = .notWearing }
+            } else if reason == "BAND OFFLINE" {
+                Task { await dropped() }
+            } else {
+                failure = reason
+                withAnimation { phase = .noReading }
+            }
         }
     }
 

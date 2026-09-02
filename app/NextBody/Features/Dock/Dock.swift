@@ -8,6 +8,9 @@ struct Dock: View {
 
     @Binding var mode: Mode
     var placeholder: String = ""
+    /// 05 edges · the centre capsule says what can be done now, in an amber outline; the three
+    /// slots do not move, nothing pops, nothing toasts.
+    var note: DockNote? = nil
     @Binding var draft: String
     var onSend: (String) -> Void
     var onCamera: () -> Void
@@ -56,6 +59,21 @@ struct Dock: View {
     }
 
     @ViewBuilder private var centre: some View {
+        if let note, mode == .idle {
+            Button { onListen() } label: {
+                ZStack {
+                    Capsule().fill(NB.ember1.opacity(0.06))
+                    Capsule().stroke(NB.ember1.opacity(0.36), lineWidth: 1)
+                    Text(note.line)
+                        .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
+                        .foregroundStyle(NB.ember1.opacity(0.85))
+                }
+                .frame(height: NB.Layout.dockHeight)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(note.line)
+        } else {
         switch mode {
         case .idle:
             Button {
@@ -109,6 +127,7 @@ struct Dock: View {
             .background(NB.carbon4, in: Capsule())
             .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
             .onAppear { focused = true }
+        }
         }
     }
 
@@ -288,4 +307,13 @@ struct PlusGlyph: View {
         }
         .frame(width: 22, height: 22)
     }
+}
+
+
+/// 05 edges 1–6 · one amber line on the capsule, one sentence under the dock, at most one key.
+struct DockNote: Equatable {
+    let line: String
+    let text: String
+    var action: String? = nil
+    static func == (a: DockNote, b: DockNote) -> Bool { a.line == b.line }
 }

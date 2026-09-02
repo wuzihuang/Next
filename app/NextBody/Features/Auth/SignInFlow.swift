@@ -12,15 +12,24 @@ struct SignInFlow: View {
     @State private var resendIn = 60
     @State private var verifying = false
     @State private var playingWordmark = false
+    /// 01 edges · 「出错的时候，不清屏」. The email and the digits are never cleared by an error.
+    enum CodeError: Equatable { case wrong, locked, expired, rateLimited, noNetwork }
+    @State private var codeError: CodeError?
+    @State private var sending = false
+    @State private var wrongCount = 0
+    @State private var authFailed = false
 
     var body: some View {
         ZStack {
             switch step {
-            case .gate:  GateScreen(onEmail: { step = .email }, onApple: finish, onGoogle: finish)
-            case .email: EmailScreen(email: $email, onBack: { step = .gate }, onSend: sendCode)
+            case .gate:  GateScreen(failed: authFailed, onEmail: { step = .email },
+                                    onApple: { provider() }, onGoogle: { provider() })
+            case .email: EmailScreen(email: $email, sending: sending, error: codeError,
+                                     onBack: { step = .gate }, onSend: sendCode)
             case .code:  CodeScreen(email: email, code: $code, resendIn: $resendIn,
-                                    verifying: verifying,
-                                    onBack: { step = .email }, onVerify: verify)
+                                    verifying: verifying, error: codeError,
+                                    onBack: { step = .email }, onVerify: verify,
+                                    onNewCode: { codeError = nil; code = ""; sendCode() })
             }
 
             if playingWordmark {
@@ -31,17 +40,58 @@ struct SignInFlow: View {
         .carbonPage()
     }
 
+    /// 01 edge 5 · cancelled on the system sheet is silent; only a token failure says anything,
+    /// and then the email button moves up to second.
+    private func provider() {
+        if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
+        finish()
+    }
+
     private func sendCode() {
+        codeError = nil
+        // 01 edge 3 · five a hour per email; the sixth sends nothing and explains nothing more.
+        let key = "nb.auth.sends.\(email.lowercased())"
+        var sends = (UserDefaults.standard.array(forKey: key) as? [Double] ?? []).filter { Date().timeIntervalSince1970 - $0 < 3600 }
+        if sends.count >= 5 || DebugEdge.on("ratelimited") { withAnimation { codeError = .rateLimited }; return }
+        // 01 edge 4 · no network: the button turns to Sending in place, 8 s, then one line.
+        if !Reachability.shared.isOnline || DebugEdge.on("nonetwork") {
+            sending = true
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                sending = false
+                withAnimation { codeError = .noNetwork }
+            }
+            return
+        }
+        sends.append(Date().timeIntervalSince1970)
+        UserDefaults.standard.set(sends, forKey: key)
+        Task { await Analytics.shared.track("AUTH_CODE_SENT", [:]) }
         step = .code
         resendIn = 60
+        if DebugEdge.on("expired") { codeError = .expired }
     }
 
     /// The second the code checks out there is no toast and no tick — the pixels just fall.
+    /// ⚠️ The code is not verified against a server in this build (see STATUS); the edge states
+    /// are wired to what a real verify would return.
     private func verify() {
+        if DebugEdge.on("wrongcode") || codeError == .locked {
+            wrongCount += 1
+            // 01 edge 1 · red outline, a 6 px shake, one haptic, then back to the first cell.
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            withAnimation { codeError = wrongCount >= 5 ? .locked : .wrong }
+            Task {
+                await Analytics.shared.track("AUTH_CODE_ERROR", ["REASON": wrongCount >= 5 ? "LOCKED" : "WRONG"])
+                try? await Task.sleep(for: .milliseconds(420))
+                code = ""
+            }
+            return
+        }
         verifying = true
         Task {
             try? await Task.sleep(for: .milliseconds(450))
             verifying = false
+            await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": true])
             withAnimation { playingWordmark = true }
         }
     }
@@ -56,6 +106,7 @@ struct SignInFlow: View {
 // MARK: 01 · 授权入口 Gate
 
 private struct GateScreen: View {
+    var failed = false
     let onEmail: () -> Void
     let onApple: () -> Void
     let onGoogle: () -> Void
@@ -98,15 +149,35 @@ private struct GateScreen: View {
                             .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                             .foregroundStyle(NB.carbon)
                     }
+                    // 01 edge 5 · only a token that really failed says so, and then email moves
+                    // up to second. A cancel on the system sheet is silent.
+                    if failed {
+                        GateButton(style: .outline, action: onEmail) {
+                            EnvelopeGlyph(); Text("Continue with email")
+                                .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
+                                .foregroundStyle(NB.text1)
+                        }
+                    }
                     GateButton(style: .outline, action: onGoogle) {
                         GoogleGlyph(); Text("Continue with Google")
                             .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                             .foregroundStyle(NB.text1)
                     }
-                    GateButton(style: .outline, action: onEmail) {
-                        EnvelopeGlyph(); Text("Continue with email")
-                            .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
-                            .foregroundStyle(NB.text1)
+                    if !failed {
+                        GateButton(style: .outline, action: onEmail) {
+                            EnvelopeGlyph(); Text("Continue with email")
+                                .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
+                                .foregroundStyle(NB.text1)
+                        }
+                    }
+                    if failed {
+                        HStack(spacing: 10) {
+                            Circle().fill(NB.alert2).frame(width: 6, height: 6)
+                            Text("Sign-in failed. Try email instead.")
+                                .font(NBFont.ui(400, 14)).tracking(0.01 * 14)
+                                .foregroundStyle(NB.white.opacity(0.78))
+                        }
+                        .padding(.top, 4)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -198,6 +269,8 @@ private struct LegalLine: View {
 
 private struct EmailScreen: View {
     @Binding var email: String
+    var sending = false
+    var error: SignInFlow.CodeError? = nil
     let onBack: () -> Void
     let onSend: () -> Void
 
@@ -270,20 +343,49 @@ private struct EmailScreen: View {
             Spacer(minLength: 0)
 
             VStack(spacing: 18) {
+                // 01 edge 3 · the sixth send in an hour: one sentence, nothing about the address.
+                if error == .rateLimited {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 10) {
+                            Circle().fill(NB.caution2).frame(width: 6, height: 6)
+                            Text("5 SENT · 1H WINDOW").font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.caution2)
+                        }
+                        Text("You've hit the limit. Try again in an hour.")
+                            .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).foregroundStyle(NB.white.opacity(0.78))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                }
                 Button(action: onSend) {
                     HStack(spacing: 10) {
+                        if sending {
+                            // 01 edge 4 · Sending, in place, 8 s; the address is not touched.
+                            Circle().stroke(NB.carbon.opacity(0.55), lineWidth: 2).frame(width: 14, height: 14)
+                                .overlay(Circle().trim(from: 0, to: 0.25).stroke(NB.carbon, lineWidth: 2).rotationEffect(.degrees(-90)))
+                            Text("Sending")
+                                .font(NBFont.ui(500, 15)).tracking(0.01 * 15)
+                                .foregroundStyle(NB.carbon.opacity(0.6))
+                        } else {
                         Text("Send code")
                             .font(NBFont.ui(500, 15)).tracking(0.06 * 15)
                             .foregroundStyle(NB.carbon)
                         ArrowGlyph(color: NB.carbon)
+                        }
                     }
                     .frame(maxWidth: .infinity).frame(height: 56)
-                    .background(valid ? NB.lime1 : NB.carbon4, in: Capsule())
+                    .background(valid ? NB.lime1.opacity(sending ? 0.28 : 1) : NB.carbon4, in: Capsule())
                     .overlay(valid ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
                     .opacity(valid ? 1 : 0.55)
                 }
                 .buttonStyle(.plain)
-                .disabled(!valid)
+                .disabled(!valid || sending)
+                if error == .noNetwork {
+                    Text("No connection. Your code wasn't sent.")
+                        .font(NBFont.ui(400, 13.5)).tracking(0.01 * 13.5)
+                        .foregroundStyle(NB.alert1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8)
+                }
 
                 Text("Use Apple or Google instead")
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
@@ -329,8 +431,11 @@ private struct CodeScreen: View {
     @Binding var code: String
     @Binding var resendIn: Int
     let verifying: Bool
+    var error: SignInFlow.CodeError? = nil
     let onBack: () -> Void
     let onVerify: () -> Void
+    var onNewCode: () -> Void = {}
+    @State private var shake: CGFloat = 0
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -356,9 +461,28 @@ private struct CodeScreen: View {
             .padding(.horizontal, 24)
             .padding(.top, 44)
 
-            CodeBoxes(code: code)
+            CodeBoxes(code: code, error: error == .wrong || error == .locked)
                 .padding(.horizontal, 24)
                 .padding(.top, 40)
+                .offset(x: shake)
+                .onChange(of: error) { _, e in
+                    guard e == .wrong || e == .locked else { return }
+                    // 01 edge 1 · a 6 px horizontal shake, once.
+                    withAnimation(.linear(duration: 0.06).repeatCount(5, autoreverses: true)) { shake = 6 }
+                    Task { try? await Task.sleep(for: .milliseconds(320)); shake = 0 }
+                }
+
+            // 01 edges 1 / 2 · the line under the cells. Expired is not red — it is not an error.
+            if let error {
+                Text(error == .wrong ? "That code didn't work."
+                     : error == .locked ? "Too many tries. Try again in 15:00."
+                     : error == .expired ? "That code has expired." : "")
+                    .font(NBFont.ui(error == .expired ? 300 : 400, error == .expired ? 13.5 : 14)).tracking(0.01 * 14)
+                    .foregroundStyle(error == .expired ? NB.white.opacity(0.50) : NB.alert1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 14)
+            }
 
             HStack(spacing: 8) {
                 Text("Didn't get it?")
@@ -386,6 +510,17 @@ private struct CodeScreen: View {
             VStack(spacing: 18) {
                 // The button only reports state and catches the edge case — filling the
                 // sixth box submits on its own.
+                if error == .expired {
+                    // 01 edge 2 · the primary becomes the one step that fixes it; the address stays.
+                    Button(action: onNewCode) {
+                        Text("Get a new code")
+                            .font(NBFont.ui(500, 15)).tracking(0.01 * 15)
+                            .foregroundStyle(NB.carbon)
+                            .frame(maxWidth: .infinity).frame(height: 56)
+                            .background(NB.lime1, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                } else {
                 HStack(spacing: 10) {
                     Text(verifying ? "Verifying…" : "Verify and continue")
                         .font(NBFont.ui(500, 15)).tracking(0.06 * 15)
@@ -394,6 +529,7 @@ private struct CodeScreen: View {
                 .frame(maxWidth: .infinity).frame(height: 56)
                 .background(code.count == 6 ? NB.lime1 : NB.carbon4, in: Capsule())
                 .overlay(code.count == 6 ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+                }
 
                 Text("Use a different email")
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
@@ -420,6 +556,7 @@ private struct CodeScreen: View {
 
 private struct CodeBoxes: View {
     let code: String
+    var error = false
     var body: some View {
         HStack(spacing: 0) {
             ForEach(0..<6, id: \.self) { i in
@@ -428,9 +565,9 @@ private struct CodeBoxes: View {
                 let isCursor = i == chars.count
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(isCursor ? NB.lime1.opacity(0.07) : (i > chars.count ? NB.carbon2 : NB.carbon4))
+                        .fill(error ? NB.alert2.opacity(0.06) : isCursor ? NB.lime1.opacity(0.07) : (i > chars.count ? NB.carbon2 : NB.carbon4))
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isCursor ? NB.lime1.opacity(0.70) : NB.hairline, lineWidth: isCursor ? 1.5 : 1)
+                        .stroke(error ? NB.alert2 : isCursor ? NB.lime1.opacity(0.70) : NB.hairline, lineWidth: error || isCursor ? 1.5 : 1)
                     if filled {
                         Text(String(chars[i]))
                             .font(NBFont.dot(800, 32)).tracking(0.02 * 32)

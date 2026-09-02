@@ -33,10 +33,13 @@ struct PlusMenuSheet: View {
                 GroupHeader("MEASURE ON THE BAND")
                 // Pressing a row is the confirmation. "60 S" is already printed on it, so a
                 // second "are you sure, 60 seconds?" box would be asking a question already answered.
+                // 06 edge 6 · NO BAND: the two band rows are dimmed in the sheet with the reason;
+                // the measuring screen is never entered.
+                let offline: String? = data.band.connected ? nil : "The band isn't connected."
                 if canHeartRate {
                     MenuRow(icon: .pulse, title: "Battery check",
                             detail: "Heart rate, HRV and stress, in one.",
-                            duration: "60 S") {
+                            duration: "60 S", unavailable: offline) {
                         dismiss()
                         router.takeover = .measure(.heartRate)
                     }
@@ -44,7 +47,7 @@ struct PlusMenuSheet: View {
                 if canBodyScan {
                     MenuRow(icon: .body, title: "Body scan",
                             detail: "Fourteen fields — fat, muscle, water.",
-                            duration: "30 S") {
+                            duration: "30 S", unavailable: offline) {
                         dismiss()
                         router.takeover = .measure(.bodyComposition)
                     }

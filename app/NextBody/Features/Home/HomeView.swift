@@ -11,6 +11,9 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dockMode: Dock.Mode = .idle
     @State private var draft = ""
+    /// 05 edges · what the dock is saying instead of listening.
+    @State private var dockNote: DockNote?
+    @ObservedObject private var reachability = Reachability.shared
     @State private var widget: PanelWidget?
 
     var body: some View {
@@ -33,6 +36,15 @@ struct HomeView: View {
         // 05M · ANSWER 0.18S — the frame arrives in the panel at the board's speed.
         .animation(.easeInOut(duration: 0.18), value: widget)
         .task {
+            // DEBUG · 05 edges on a simulator with no microphone story of its own.
+            switch DebugEdge.name {
+            case "micdenied":   note(DockNote(line: "MICROPHONE OFF", text: "Typing still works.\nTurn the mic on in Settings.", action: "Open Settings"))
+            case "tooshort":    note(DockNote(line: "0.3S · TOO SHORT", text: "Hold, say it, then let go."))
+            case "nospeech":    note(DockNote(line: "NOTHING HEARD", text: "Say it again, or type it."))
+            case "offline":     note(DockNote(line: "NO CONNECTION", text: "It stays here. Send it when you're back."))
+            case "interrupted": note(DockNote(line: "INTERRUPTED AT 0:07", text: "Not saved. Say it again when you're free."))
+            default: break
+            }
             firstRun.start(reduceMotion: reduceMotion,
                            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
 
@@ -86,7 +98,7 @@ struct HomeView: View {
             // ◇10 · the three keys land together: it is one tool, not three.
             // ⚠️ Before that the dock is simply not there — never a greyed-out disabled state.
             if firstRun.dockVisible {
-                Dock(mode: $dockMode, draft: $draft,
+                Dock(mode: $dockMode, note: dockNote, draft: $draft,
                      onSend: handleSend,
                      onCamera: { router.sheet = .plusMenu },
                      onPlus: { router.sheet = .plusMenu },
@@ -95,6 +107,32 @@ struct HomeView: View {
                     .offset(y: -keyboard.height)
                     .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
                     .transition(.opacity)
+                    // 05 edges · the sentence and its one key sit above the dock; the slots never move.
+                    .overlay(alignment: .top) {
+                        if let dockNote {
+                            VStack(spacing: 10) {
+                                Text(dockNote.text)
+                                    .font(NBFont.brand(400, 13.5)).lineSpacing(4)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(NB.white.opacity(0.70))
+                                    .frame(width: 294)
+                                if let key = dockNote.action {
+                                    Button {
+                                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                                    } label: {
+                                        Text(key)
+                                            .font(NBFont.ui(500, 14)).tracking(0.04 * 14)
+                                            .foregroundStyle(NB.white)
+                                            .frame(width: 220, height: 40)
+                                            .overlay(Capsule().stroke(NB.white.opacity(0.16), lineWidth: 1))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .offset(y: dockNote.action == nil ? -52 : -104)
+                            .transition(.opacity)
+                        }
+                    }
             } else {
                 Color.clear.frame(height: NB.Layout.dockHeight)
             }
@@ -129,8 +167,26 @@ struct HomeView: View {
     /// which is what it did before there was a recorder at all.
     private func beginListening() {
         Task {
+            withAnimation { dockNote = nil }
+            // 05 edge 1 · MIC DENIED. iOS asks once; after that the dock says so and typing
+            // still works. No system prompt the second time.
+            if SpeechCapture.permissionDenied || DebugEdge.on("micdenied") {
+                note(DockNote(line: "MICROPHONE OFF", text: "Typing still works.\nTurn the mic on in Settings.", action: "Open Settings"))
+                return
+            }
             guard await SpeechCapture.shared.start() else { return }
             withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .listening }
+        }
+    }
+
+    /// 05 edges · show the line, and clear it on its own when the board says so.
+    private func note(_ n: DockNote, clearAfter seconds: Double? = nil) {
+        withAnimation { dockNote = n }
+        if let seconds {
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                if dockNote == n { withAnimation { dockNote = nil } }
+            }
         }
     }
 
@@ -140,14 +196,28 @@ struct HomeView: View {
     private func endListening() {
         withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .idle }
         Task {
+            let elapsed = SpeechCapture.shared.elapsed
             // stop() waits on the audio queue rather than the main one, for the same reason
             // start() does: tearing down a session that is not answering must not freeze a tap.
             guard let clip = await SpeechCapture.shared.stop() else { return }
+            // 05 edge 6 · INTERRUPTED. A call or an alarm took the mic: half a sentence is worse
+            // than none, so nothing is sent and the dock says it was not saved.
+            if let t = SpeechCapture.shared.interruptedAt {
+                note(DockNote(line: String(format: "INTERRUPTED AT %d:%02d", Int(t) / 60, Int(t) % 60),
+                              text: "Not saved. Say it again when you're free."), clearAfter: 4)
+                return
+            }
+            // 05 edge 2 · TOO SHORT. Under 0.6 s is a slip: no send, no error, 1.2 s on the capsule.
+            if elapsed < 0.6 {
+                note(DockNote(line: String(format: "%.1fS · TOO SHORT", elapsed), text: "Hold, say it, then let go."), clearAfter: 1.2)
+                return
+            }
             withAnimation { widget = .thinking }
             guard let said = await ai.transcribe(clip) else {
-                // 「DIDN'T CATCH THAT」 · nothing was heard, so nothing is asserted. The panel
-                // goes back to what it was showing rather than reporting a failure.
+                // 05 edge 3 · NO SPEECH. Recorded, transcribed to nothing: it stays in the dock
+                // for the next take rather than sending her an empty message.
                 withAnimation { widget = nil }
+                note(DockNote(line: "NOTHING HEARD", text: "Say it again, or type it."), clearAfter: 4)
                 return
             }
             handleSend(said)
@@ -159,6 +229,13 @@ struct HomeView: View {
         // this side does not ask. The panel is already NOT COLLECTING, and the way back is the
         // consent screen, not a turn.
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
+        // 05 edge 5 · OFFLINE. The message never leaves the dock: the draft is put back and the
+        // capsule says when to try.
+        if !reachability.isOnline || DebugEdge.on("offline") {
+            draft = text
+            note(DockNote(line: "NO CONNECTION", text: "It stays here. Send it when you're back."))
+            return
+        }
         let day = UserDay.containing(Date())
         withAnimation { widget = .thinking }
 

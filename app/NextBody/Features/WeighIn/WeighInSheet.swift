@@ -70,7 +70,7 @@ struct WeighInSheet: View {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(typed.isEmpty ? "—" : typed)
                     .font(NBFont.brand(700, 54)).tracking(-0.045 * 54)
-                    .foregroundStyle(NB.text1)
+                    .foregroundStyle(outOfRange ? NB.ember1 : NB.text1)
                     .contentTransition(.numericText())
                 Text(unit.lowercased())
                     .font(NBFont.ui(300, 16))
@@ -78,6 +78,22 @@ struct WeighInSheet: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 20)
+
+            if outOfRange {
+                VStack(spacing: 4) {
+                    Text("OUT OF RANGE").font(NBFont.dot(600, 12)).tracking(0.22 * 12).foregroundStyle(NB.ember1.opacity(0.85))
+                    Text(unit == "KG" ? "20–300 KG" : "44–661 LB").font(NBFont.brand(500, 13.5)).foregroundStyle(NB.white.opacity(0.70))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+            } else if let earlier = todaysEarlier, let kg = parsed {
+                VStack(spacing: 4) {
+                    Text("ALREADY ONE TODAY").font(NBFont.dot(600, 12)).tracking(0.22 * 12).foregroundStyle(NB.ember1.opacity(0.85))
+                    Text("\(Fmt.kg(kg)) REPLACES \(Fmt.kg(earlier.weightKg))").font(NBFont.brand(500, 13.5)).foregroundStyle(NB.white.opacity(0.70))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+            }
 
             HStack {
                 UnitToggle(options: ["KG", "LB"], selection: $unit)
@@ -111,8 +127,19 @@ struct WeighInSheet: View {
     }
 
     private var parsed: Double? {
-        guard let v = Double(typed), v > 20, v < 400 else { return nil }
+        guard let kg = typedKg, (20...300).contains(kg) else { return nil }
+        return kg
+    }
+    private var typedKg: Double? {
+        guard let v = Double(typed) else { return nil }
         return unit == "KG" ? v : v / 2.2046226
+    }
+    /// 10S rule 03 / edge 3 · 20–300 kg (44–661 lb), fixed: SAVE off, the number amber, the
+    /// range and nothing else. Never 「与上次相差过大」.
+    private var outOfRange: Bool { typedKg.map { !(20...300).contains($0) } ?? false }
+    /// 10S edge 2 · a second one today replaces the first in the calculation; the row stays.
+    private var todaysEarlier: WeighIn? {
+        data.weighIns.first { Calendar.current.isDate($0.date, inSameDayAs: Date()) }
     }
 
     private func save() {
@@ -141,10 +168,10 @@ struct WeighInSheet: View {
 
             if let c = healthCandidate {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(Fmt.kg(c.kg))
+                    Text(data.profile.usesMetric ? Fmt.kg(c.kg) : String(format: "%.1f", c.kg * 2.2046226))
                         .font(NBFont.brand(700, 54)).tracking(-0.045 * 54)
                         .foregroundStyle(NB.text1)
-                    Text("KG")
+                    Text(data.profile.usesMetric ? "KG" : "LB")
                         .font(NBFont.dot(500, 14))
                         .foregroundStyle(NB.white.opacity(0.34))
                 }

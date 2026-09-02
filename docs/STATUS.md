@@ -968,6 +968,40 @@ ending the take. ⚠️ That is an interaction-model difference, not a timing on
 ruling rather than rebuilt in passing. 05M · C (photo + caption) is not built. 06M · D open/dismiss are
 system sheet timings; E OPEN 0.46 s and NUDGE 5 s, F 60 s / RESULT 0.5 s, G 30 s / fourteen fields match.
 
+## Phase 6 · boards 05, 06, 01 and 10S read rule by rule, twenty-two edge states built
+
+The remaining screen boards' rules and edge fragments are mirrored (`05-dock.md`, `06-plus-measure.md`,
+`01-sign-in-rules.md`, `10S-weigh-in.md`) and their edges built. All walked on the simulator with
+`NB_DEBUG_EDGE` (and `NB_DEBUG_STAGE` for the gate).
+
+| Board | Edge | Built as |
+|---|---|---|
+| 05 | 1 MIC DENIED | `AVAudioApplication.recordPermission == .denied` → amber capsule `MICROPHONE OFF`, "Typing still works. / Turn the mic on in Settings.", outlined Open Settings. No second system prompt |
+| 05 | 2 TOO SHORT | a take under 0.6 s: `n.nS · TOO SHORT` for 1.2 s, "Hold, say it, then let go.", nothing sent |
+| 05 | 3 NO SPEECH | empty transcript: `NOTHING HEARD`, "Say it again, or type it." — it stays in the dock |
+| 05 | 4 UPLOAD FAILED | not built: the photo track (C) is not in this build |
+| 05 | 5 OFFLINE | `NWPathMonitor` (`Reachability`) — the draft goes back, `NO CONNECTION`, "It stays here. Send it when you're back." |
+| 05 | 6 INTERRUPTED | `AVAudioSession.interruptionNotification` mid-take → discarded, `INTERRUPTED AT m:ss`, "Not saved. Say it again when you're free." |
+| 06 | 1 NOT WEARING | amber target, "The band isn’t on your wrist.", `NOT WEARING · PUT IT BACK ON` (from the SDK's notWear reason) |
+| 06 | 2 FINGER OFF | the existing hold now reads `PAUSED · nS TO RESUME` with "Your finger came off the key." |
+| 06 | 3 DEVICE BUSY | `BandError.busy` → 32% `MEASURING NOW · TRY IN A MOMENT`, "She's already measuring something." |
+| 06 | 4 LINK DROPPED | `notConnected` → `DISCONNECTED · RECONNECTING`, "Lost the band.", reconnect in place, then back to the finger prompt |
+| 06 | 5 NO READING | any other failure → `NO READING · NOTHING KEPT`, "Couldn't get a clean read." |
+| 06 | 6 NO BAND | the two band rows dim in the plus sheet with "The band isn't connected." (`MenuRow.unavailable`) |
+| 01 | 1 WRONG CODE | red cells, 6 px shake, error haptic, cleared to the first cell; fifth → "Too many tries. Try again in 15:00." |
+| 01 | 2 EXPIRED | "That code has expired." (not red) and the primary becomes "Get a new code" |
+| 01 | 3 RATE LIMITED | five sends an hour per email (UserDefaults) → `5 SENT · 1H WINDOW`, "You've hit the limit. Try again in an hour." |
+| 01 | 4 NO NETWORK | button → "Sending" for 8 s, then "No connection. Your code wasn't sent." Nothing cleared |
+| 01 | 5 APPLE / GOOGLE | cancel is silent; a token failure shows "Sign-in failed. Try email instead." and email moves to second |
+| 10S | 2 ALREADY ONE TODAY | `ALREADY ONE TODAY` + "78.6 REPLACES 78.4" above SAVE, no confirm |
+| 10S | 3 OUT OF RANGE | 20–300 kg (44–661 lb): number amber, SAVE off, `OUT OF RANGE` + the range only |
+| 10S | 5 FROM HEALTH · LB | Health's reading renders in HOOP's unit preference, stored in kg |
+| 10S | 1 / 4 | 1 is the default (straight to the keypad); 4 OFFLINE is not built — saves are not queued |
+
+⚠️ Sign-in is still a mock: the code is not verified against a server, so the wrong/expired states
+fire from the debug switch, not from a real reply. The edge UI is wired to what a real verify would
+return.
+
 ## Running it
 
 ```sh

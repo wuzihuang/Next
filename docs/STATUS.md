@@ -1177,6 +1177,26 @@ a `line` frame). Six tools ran for 「我最近怎么样」, all reads, then the
 host was still listening). ⚠️ `turn` latency is 27–38 s on production; the model's thinking
 dominates and it is not tuned here.
 
+## Phase 10 · the five motion boards, checked against their own frames
+
+All five MOTION artboards were read frame by frame and matched to the code that plays them:
+- **01M / 02M · pixel fall → wordmark** (`WordmarkAnimation.swift`) — the five phases are the
+  board's five: 0–0.35 power-on flash, 0.35–1.10 linear-in fall at three speeds, 1.10–1.80
+  ease-out-back landing with a 4pt overshoot, 1.80–2.15 the word lights lime at once, 2.15–2.60
+  cross-dissolve to the solid Inter Tight wordmark. Played once after sign-in, then into Connect.
+- **01M · first run** (`FirstRun.swift`) — the panel is the whole screen and unfolds to 358×470
+  at the key beat; status bar and wordmark slide in from −8px, tiles and dock follow.
+- **05M · dock keyboard / voice** (`Dock.swift`, `HomeView.swift`) — open 0.38 / send 0.22 /
+  dismiss 0.24, hold-to-arm 0.20, the amber note above the slots, the photo tray.
+- **06M · plus snap / measure** (`PlusMenu.swift`, `MeasureTakeover.swift`) — the plus turns 45°
+  to a lime ×, the ripple ring that never times out, the result folding back onto the panel.
+- **02M · connect → CONNECTED** (`ConnectFlow.swift`) — the starburst and the handoff pill.
+
+Nothing in the motion boards is unbuilt; the animations run on the simulator and were walked
+in Phases 3–9. What is left across the whole PRD is the three items only you can unblock: an
+Apple ID in Xcode for the device build, the board-conflict rulings (including the two upper
+body-battery tier words the board leaves blank), and real-band pairing.
+
 ## Running it
 
 ```sh

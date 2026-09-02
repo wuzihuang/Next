@@ -10,6 +10,29 @@ struct FuelDetailView: View {
 
     private var m: DailyMetrics { data.today }
     private var logged: Bool { m.eIn != nil }
+    /// 09 edge 1 · PARTIAL: logged but not closed — a slot is still open.
+    private var closed: Bool { openSlots.isEmpty }
+    private var partialSummary: String {
+        let n = data.meals.filter { $0.status == .confirmed }.count
+        return "\(n) MEAL\(n == 1 ? "" : "S") · NOT CLOSED"
+    }
+    /// 09 edge 3 / rule 02 · over target is capped, not punished.
+    private var overBy: Double? {
+        guard let e = m.eIn, let t = m.targetIn, e > t else { return nil }
+        return e - t
+    }
+    /// 09 edge 2 · OUT is trusted only when the day's activity data covers the day so far.
+    /// ⚠️ The board leaves the threshold open (「门槛定几小时要拍板」); half of the elapsed day is
+    /// the working value until it is ruled.
+    private var coverageHours: Double {
+        let curve = data.history.first(where: { $0.day == m.day && !$0.loadCurve.isEmpty })?.loadCurve ?? m.loadCurve
+        return Double(curve.count) * 5 / 60
+    }
+    private var outUnknown: Bool {
+        if DebugEdge.on("outunknown") { return true }
+        let elapsed = Date().timeIntervalSince(m.day.start) / 3600
+        return logged && elapsed > 6 && coverageHours < elapsed * 0.5
+    }
     /// 补屏 B rule 07 · NO TARGET is for an account that has never had a weight — not one
     /// whose weight is old (edge 4: a 62-day-old weight is still a denominator).
     private var noTarget: Bool {
@@ -68,7 +91,8 @@ struct FuelDetailView: View {
                 Spacer(minLength: 0)
                 // Deliberately the same number as the one on the home card: you tap it
                 // in the upper half and it is still there when you have scrolled down.
-                Text(logged ? "\(Fmt.kcal(m.nextMeal)) LEFT" : "\(Fmt.kcal(m.targetIn)) TARGET")
+                Text(logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "\(Fmt.kcal(m.nextMeal)) LEFT")
+                            : "\(Fmt.kcal(m.targetIn)) TARGET")
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .foregroundStyle(NB.emberPale)
             }
@@ -88,9 +112,10 @@ struct FuelDetailView: View {
                     .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
-                Text(logged ? mealSummary : "NOTHING LOGGED YET")
-                    .font(NBFont.ui(500, 11)).tracking(0.06 * 11)
-                    .foregroundStyle(NB.text3Prod)
+                Text(logged ? (closed ? mealSummary : partialSummary) : "NOTHING LOGGED YET")
+                    .font(logged && !closed ? NBFont.dot(700, 12) : NBFont.ui(500, 11))
+                    .tracking(logged && !closed ? 0.04 * 12 : 0.06 * 11)
+                    .foregroundStyle(logged && !closed ? NB.ember1.opacity(0.85) : NB.text3Prod)
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(Fmt.kcal(m.eIn))
@@ -113,7 +138,8 @@ struct FuelDetailView: View {
                 HStack(alignment: .firstTextBaseline) {
                     // "an empty page" and "a broken page" must not look the same:
                     // NOTHING COUNTED YET — A BLANK, NOT A ZERO.
-                    Text(logged ? "\(Fmt.kcal(m.nextMeal)) LEFT — \(leftInWords)"
+                    Text(logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER — STILL A FINE DAY" }
+                                   ?? "\(Fmt.kcal(m.nextMeal)) LEFT — \(leftInWords)")
                                 : "NOTHING COUNTED YET — A BLANK, NOT A ZERO")
                         .font(NBFont.ui(500, 12)).tracking(0.04 * 12)
                         .foregroundStyle(NB.emberPale)
@@ -273,15 +299,27 @@ struct FuelDetailView: View {
     /// NOW = E_IN − E_OUT_NOW, both measured. The second row is a conditional, not an estimate.
     private var balanceCard: some View {
         CardBlock(title: "ENERGY BALANCE",
-                  trailing: logged ? "SO FAR TODAY" : "NEEDS A DAY OF WEAR") {
+                  trailing: outUnknown ? "\(Int(coverageHours))H OF DATA ONLY"
+                          : logged ? "SO FAR TODAY" : "NEEDS A DAY OF WEAR",
+                  trailingIsDot: outUnknown,
+                  trailingTint: outUnknown ? NB.ember1.opacity(0.85) : nil) {
             HStack(spacing: 10) {
                 BalanceStat(label: "IN", value: Fmt.kcal(m.eIn), tint: logged ? NB.ember1 : NB.text3Prod)
-                BalanceStat(label: "OUT", value: Fmt.kcal(m.eOutNow), tint: logged ? NB.cyan1 : NB.text3Prod)
-                BalanceStat(label: "BALANCE", value: Fmt.signedKcal(m.balance), tint: NB.text1)
+                // 09 edge 2 · half the equation missing: OUT and BALANCE go grey, IN stays.
+                // Never a BMR estimate dressed as a measurement.
+                BalanceStat(label: "OUT", value: outUnknown ? Fmt.dash : Fmt.kcal(m.eOutNow),
+                            tint: logged && !outUnknown ? NB.cyan1 : NB.text3Prod)
+                BalanceStat(label: "BALANCE", value: outUnknown ? Fmt.dash : Fmt.signedKcal(m.balance),
+                            tint: outUnknown ? NB.text3Prod : NB.text1)
+            }
+            if outUnknown {
+                Text("TODAY'S BURN NEEDS A FULL DAY OF WEAR. THE MEALS STILL COUNT.")
+                    .font(NBFont.ui(300, 11)).tracking(0.04 * 11)
+                    .foregroundStyle(NB.text3Prod)
             }
             BalanceAxis(now: m.balance,
                         ifBudget: (m.targetIn ?? 0) - (m.eOutFull ?? 0),
-                        enabled: logged)
+                        enabled: logged && !outUnknown)
                 .frame(height: 52)
             HStack(spacing: 4) {
                 ForEach(["−800", "−400", "0", "+400"], id: \.self) { t in

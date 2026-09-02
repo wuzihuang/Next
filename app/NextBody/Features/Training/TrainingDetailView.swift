@@ -10,6 +10,37 @@ struct TrainingDetailView: View {
     private var m: DailyMetrics { data.today }
     private var scaled: Bool { m.targetLoad != nil }
 
+    // 08 edge 1 · STALE is judged by the last successful sync, never by the connection —
+    // 「连着但没同步也算陈旧」.
+    private var staleMinutes: Int { Int(Date().timeIntervalSince(data.lastSync) / 60) }
+    private var isStale: Bool { DebugEdge.on("stale") || staleMinutes >= 60 }
+    private var staleAgo: String { staleMinutes >= 120 ? "\(staleMinutes / 60)H AGO" : "\(staleMinutes) MIN AGO" }
+    // 08 edge 2 · the whole page stands on auto heart rate (funType 0); off is 「残」, not empty.
+    private var autoHROff: Bool { DebugEdge.on("autohr") || data.capabilities.autoMeasure == .close }
+    // 08 edge 5 · the ring caps at 21 and turns amber. F2's curve is asymptotic to 21, so the
+    // cap is reached at the rounding limit, and there is no raw value to print beside it.
+    private var isOver: Bool { DebugEdge.on("over") || (m.trainingLoad ?? 0) >= 20.9 }
+    /// 08 rule 07 · a missing five-minute tick is a gap. Gaps are multiples of five minutes.
+    private var gaps: [(start: Date, end: Date)] {
+        if DebugEdge.on("notworn") {
+            let d = Calendar.current.startOfDay(for: m.day.date)
+            return [(d.addingTimeInterval(13 * 3600), d.addingTimeInterval(16 * 3600))]
+        }
+        let pts = data.history.first(where: { $0.day == m.day && !$0.loadCurve.isEmpty })?.loadCurve ?? m.loadCurve
+        guard pts.count > 1 else { return [] }
+        return zip(pts, pts.dropFirst()).compactMap { a, b in
+            b.ts.timeIntervalSince(a.ts) > 7.5 * 60 ? (a.ts, b.ts) : nil
+        }
+    }
+    private var gapMinutes: Int { Int(gaps.reduce(0) { $0 + $1.end.timeIntervalSince($1.start) } / 60) / 5 * 5 }
+    private var longestGap: (start: Date, end: Date)? {
+        gaps.max { $0.end.timeIntervalSince($0.start) < $1.end.timeIntervalSince($1.start) }
+    }
+    private var gapsInHours: [(Double, Double)] {
+        let midnight = Calendar.current.startOfDay(for: m.day.date)
+        return gaps.map { ($0.start.timeIntervalSince(midnight) / 3600, $0.end.timeIntervalSince(midnight) / 3600) }
+    }
+
     var body: some View {
         DetailScroll(glow: NB.cyan1) {
             VStack(alignment: .leading, spacing: 14) {
@@ -74,8 +105,9 @@ struct TrainingDetailView: View {
                     .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
                     .foregroundStyle(NB.text1)
                 Spacer(minLength: 0)
-                Text(scaled ? String(format: "%.1f TO GO", max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)))
-                            : "NO TARGET YET")
+                Text(isOver ? "RING FULL"
+                     : scaled ? String(format: "%.1f TO GO", max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)))
+                              : "NO TARGET YET")
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .foregroundStyle(scaled ? NB.cyanPale : NB.text3Prod)
             }
@@ -91,8 +123,30 @@ struct TrainingDetailView: View {
 
     private var ringCard: some View {
         VStack(spacing: 18) {
-            BigTrainingRing(load: m.trainingLoad, target: m.targetLoad, zone: m.optimalZone)
+            BigTrainingRing(load: m.trainingLoad, target: m.targetLoad, zone: m.optimalZone,
+                            tint: isOver ? NB.ember1 : isStale ? Color(hex: 0x2E6C7A) : NB.cyan1,
+                            heroTint: isStale ? Color(hex: 0x7FA8B0) : nil, over: isOver)
                 .frame(width: 200, height: 200)
+
+            // 08 edge cases · every degradation happens here, in place: one status line and its
+            // colour, at most a sentence. No modal, no full-page error, no bounce home.
+            if isStale {
+                EdgeNote(sub: "AS OF \(Fmt.clock(data.lastSync))", line: "LAST SYNC \(staleAgo)",
+                         text: "The band has been out of range since \(Fmt.clock(data.lastSync)). This is where you were, not where you are.")
+            } else if isOver {
+                EdgeNote(line: String(format: "RING FULL · %.1f OVER TARGET", 21 - (m.targetLoad ?? 21)),
+                         text: "Way past \(Fmt.load(m.targetLoad)). Tomorrow's target will already know about this.")
+            }
+            if autoHROff {
+                EdgeNote(line: "AUTO HR IS OFF",
+                         text: "Steps alone can't move the ring. Turn continuous heart rate back on and today rebuilds itself.",
+                         action: { router.open(.deviceAutoMonitor, from: .home) })
+            }
+            if gapMinutes >= 60, let g = longestGap {
+                let hours = Int((g.end.timeIntervalSince(g.start) / 3600).rounded())
+                EdgeNote(line: "NOT ON THE WRIST \(Fmt.clock(g.start))–\(Fmt.clock(g.end))",
+                         text: "The line goes flat, not up. Whatever happened in those \(hours == 1 ? "sixty minutes" : "\(hours) hours") isn't in today's number.")
+            }
 
             VStack(spacing: 11) {
                 Hairline()
@@ -259,7 +313,7 @@ struct TrainingDetailView: View {
     private var throughTheDayCard: some View {
         CardBlock(title: "THROUGH THE DAY", trailing: "CUMULATIVE · 0–21") {
             CumulativeCurve(target: m.targetLoad ?? 14.5, now: m.trainingLoad ?? 0,
-                            points: m.loadCurve, day: m.day)
+                            points: m.loadCurve, day: m.day, gaps: gapsInHours)
                 .frame(height: 120)
             HStack {
                 ForEach(["00", "06", "12", "NOW", "24"], id: \.self) { t in
@@ -440,9 +494,11 @@ struct SectionLabel: View {
 }
 
 struct CardBlock<Content: View>: View {
+    // 09 / 10 edges · the card head's qualifier turns amber when it names a degradation.
     let title: String
     var trailing: String? = nil
     var trailingIsDot = false
+    var trailingTint: Color? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -456,7 +512,7 @@ struct CardBlock<Content: View>: View {
                     Text(trailing)
                         .font(trailingIsDot ? NBFont.dot(700, 12) : NBFont.ui(500, 11))
                         .tracking((trailingIsDot ? 0.04 : 0.06) * (trailingIsDot ? 12 : 11))
-                        .foregroundStyle(trailingIsDot ? NB.macroValue : NB.text3Prod)
+                        .foregroundStyle(trailingTint ?? (trailingIsDot ? NB.macroValue : NB.text3Prod))
                 }
             }
             content
@@ -645,6 +701,10 @@ struct BigTrainingRing: View {
     let load: Double?
     let target: Double?
     let zone: ClosedRange<Double>?
+    /// 08 edges · stale desaturates, over the ring turns amber. The shape never changes.
+    var tint: Color = NB.cyan1
+    var heroTint: Color? = nil
+    var over = false
     @State private var shown: Double = 0
 
     var body: some View {
@@ -652,8 +712,13 @@ struct BigTrainingRing: View {
             Circle().strokeBorder(NB.ringTrack, lineWidth: 14)
                 .frame(width: 186, height: 186)
             RingArc(from: 0, to: shown / 21)
-                .stroke(NB.cyan1, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                .stroke(tint, style: StrokeStyle(lineWidth: 14, lineCap: .round))
                 .frame(width: 172, height: 172)
+            if over {
+                // 08 edge 5 · capped at 21 with a dotted halo, never a second lap.
+                Circle().stroke(NB.ember1.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [2, 6]))
+                    .frame(width: 200, height: 200)
+            }
             if let zone {
                 RingArc(from: zone.lowerBound / 21, to: zone.upperBound / 21)
                     .stroke(NB.cyan2, style: StrokeStyle(lineWidth: 5, lineCap: .round))
@@ -668,7 +733,7 @@ struct BigTrainingRing: View {
             VStack(spacing: 6) {
                 Text(Fmt.load(load))
                     .font(NBFont.dot(700, 46)).tracking(-0.02 * 46)
-                    .foregroundStyle(load == nil ? NB.text3Prod : NB.cyan1)
+                    .foregroundStyle(load == nil ? NB.text3Prod : (heroTint ?? tint))
                 Text("OF 21")
                     .font(NBFont.ui(500, 11)).tracking(0.22 * 11)
                     .foregroundStyle(NB.text3Prod)
@@ -691,6 +756,9 @@ struct CumulativeCurve: View {
     /// has settled, in which case the board's illustrative path stands in.
     var points: [LoadPoint] = []
     var day: UserDay = UserDay.containing(Date())
+    /// 08 rule 07 · gaps in hours since midnight. Dashed, amber, and the line inside them is
+    /// flat — interpolating would be inventing training.
+    var gaps: [(Double, Double)] = []
 
     private static let boardPath: [(Double, Double)] = [
         (0, 0), (5, 0.1), (6.25, 1.9), (7.5, 2.6), (10.1, 3.3),
@@ -753,6 +821,19 @@ struct CumulativeCurve: View {
                 // forecast — always lighter than the measured line
                 Path { p in p.move(to: nowPoint); p.addLine(to: pt(min(23.5, nowX + 2.1), target, size)) }
                     .stroke(NB.cyan2, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 5]))
+
+                ForEach(Array(gaps.enumerated()), id: \.offset) { _, g in
+                    let y = points.last(where: { $0.0 <= g.0 })?.1 ?? 0
+                    let a = pt(g.0, y, size), b = pt(g.1, y, size)
+                    Path { p in p.move(to: a); p.addLine(to: b) }
+                        .stroke(NB.ember1, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 7]))
+                    Circle().fill(NB.ember1).frame(width: 6.8, height: 6.8).position(a)
+                    Circle().fill(NB.ember1).frame(width: 6.8, height: 6.8).position(b)
+                    Text("\(Int((g.1 - g.0).rounded()))H GAP")
+                        .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+                        .foregroundStyle(NB.ember1.opacity(0.85))
+                        .position(x: (a.x + b.x) / 2, y: a.y + 16)
+                }
 
                 Circle().fill(NB.carbon2).frame(width: 8, height: 8)
                     .overlay(Circle().stroke(NB.cyan1, lineWidth: 2.5))

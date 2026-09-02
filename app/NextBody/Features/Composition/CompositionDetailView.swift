@@ -21,7 +21,54 @@ struct CompositionDetailView: View {
     }
     /// The Call needs 7-day EMA and at least five weigh-ins. Below that it is PENDING and
     /// the quadrant is not drawn at all.
-    private var hasCall: Bool { m.fatEmaDelta7d != nil && m.leanEmaDelta7d != nil && m.scans7d >= 5 }
+    private var hasCall: Bool { m.fatEmaDelta7d != nil && m.leanEmaDelta7d != nil && m.scans7d >= 5 && staleDays < 7 }
+
+    /// 10 edge 1 · a source that stopped: frozen at its last reading and dated, never
+    /// extrapolated. Confidence down a tier after three days, NO CALL on the seventh.
+    private var staleDays: Int {
+        if DebugEdge.on("frozen") { return 4 }
+        guard let last = data.weighIns.first?.date else { return 0 }
+        return Calendar.current.dateComponents([.day], from: last, to: Date()).day ?? 0
+    }
+    private var frozen: Bool { staleDays >= 3 }
+    private var lastReadLabel: String {
+        let f = DateFormatter(); f.dateFormat = "MMM d"
+        return f.string(from: data.weighIns.first?.date ?? Date()).uppercased()
+    }
+    /// 10 edge 3 · a day-over-day jump is shown, stored and marked — deleting it would be
+    /// editing the facts for the user.
+    private var weightDelta1d: Double? {
+        if DebugEdge.on("outlier") { return 1.4 }
+        guard let now = m.weightKg,
+              let then = data.history.first(where: { $0.day == m.day.adding(days: -1) })?.weightKg
+        else { return nil }
+        return now - then
+    }
+    private var spike: Bool { (weightDelta1d.map { abs($0) >= 1.0 }) ?? false }
+    /// 10 edge 2 · a real body-composition reading re-anchors the series from that day.
+    private var measuredComposition: Bool {
+        if DebugEdge.on("measured") { return true }
+        guard let w = data.weighIns.first else { return false }
+        return w.bodyFatPercent != nil && Calendar.current.isDate(w.date, inSameDayAs: Date())
+    }
+    private var previousFatKg: Double? {
+        data.history.first(where: { $0.day == m.day.adding(days: -1) })?.fatKg
+    }
+    /// 10 edge 4 · 「2/4 就写 2/4」, and say which two.
+    private var splitSentence: String? {
+        guard hasCall, !isWeek else { return nil }
+        let s = signals
+        guard s.filter(\.lit).count < 4 else { return nil }
+        func word(_ v: Double?) -> String {
+            guard let v else { return "FLAT" }
+            return abs(v) < 0.05 ? "FLAT" : v < 0 ? "DOWN" : "UP"
+        }
+        let fat = word(m.fatEmaDelta7d), lean = word(m.leanEmaDelta7d)
+        let trends = fat == lean ? "FAT IS \(fat), LEAN IS TOO." : "FAT IS \(fat), LEAN IS \(lean)."
+        let off = s.dropFirst(2).filter { !$0.lit }.map { $0.name == "PROTEIN INTAKE" ? "PROTEIN" : "BALANCE" }
+        guard !off.isEmpty else { return trends }
+        return "\(trends) \(off.joined(separator: " AND ")) \(off.count == 1 ? "DISAGREES" : "DISAGREE")."
+    }
 
     private var call: TheCall? {
         guard hasCall else { return nil }
@@ -154,6 +201,12 @@ struct CompositionDetailView: View {
                     .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
                     .foregroundStyle(Color(hex: 0x8A8A96))
             }
+            if let s = splitSentence {
+                Text(s)
+                    .font(NBFont.ui(300, 11)).tracking(0.04 * 11)
+                    .foregroundStyle(NB.text3Prod)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(16)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
@@ -188,7 +241,8 @@ struct CompositionDetailView: View {
         return xs.isEmpty ? nil : xs.reduce(0, +) / Double(xs.count)
     }
 
-    private var tierIndex: Int {
+    private var tierIndex: Int { max(0, baseTierIndex - (frozen ? 1 : 0)) }
+    private var baseTierIndex: Int {
         switch m.confidence { case .pending: 1; case .medium: 2; case .high: 3 }
     }
 
@@ -371,10 +425,14 @@ struct CompositionDetailView: View {
     /// device this product does not have — on the one page whose whole job is saying where each
     /// number came from.
     private var weighInCard: some View {
-        CardBlock(title: "WEIGH-IN", trailing: sourceLine, trailingIsDot: true) {
+        CardBlock(title: "WEIGH-IN",
+                  trailing: frozen ? "LAST READ \(lastReadLabel)" : spike ? "OUTLIER · KEPT" : sourceLine,
+                  trailingIsDot: true,
+                  trailingTint: (frozen || spike) ? NB.ember1.opacity(0.85) : nil) {
             HStack(spacing: 10) {
-                EvidenceStat(label: "WEIGHT", value: Fmt.kg(m.weightKg), unit: "KG",
-                             delta: "\(Fmt.signedKg(weightDelta7d)) VS 7D", deltaTint: NB.macroValue)
+                EvidenceStat(label: "WEIGHT", value: Fmt.kg(m.weightKg), unit: frozen ? "KG · FROZEN" : "KG",
+                             delta: spike ? "\(Fmt.signedKg(weightDelta1d)) IN A DAY" : "\(Fmt.signedKg(weightDelta7d)) VS 7D",
+                             deltaTint: spike ? NB.ember1.opacity(0.85) : NB.macroValue)
                 EvidenceStat(label: "FAT MASS", value: Fmt.kg(m.fatKg), unit: "KG",
                              delta: "\(Fmt.signedKg(m.fatEmaDelta7d)) VS 7D", deltaTint: NB.lime1)
             }
@@ -387,8 +445,23 @@ struct CompositionDetailView: View {
             }
             Rectangle().fill(NB.barTrack).frame(height: 1)
             VStack(alignment: .leading, spacing: 9) {
-                SourceLegend(measured: true, label: "MEASURED", fields: "WEIGHT · BODY FAT %")
-                SourceLegend(measured: false, label: "DERIVED", fields: "FAT MASS · LEAN MASS")
+                SourceLegend(measured: true, label: "MEASURED",
+                             fields: measuredComposition ? "WEIGHT · BODY FAT % · FAT MASS · LEAN MASS" : "WEIGHT · BODY FAT %")
+                SourceLegend(measured: false, label: "DERIVED",
+                             fields: measuredComposition ? "NOTHING TODAY" : "FAT MASS · LEAN MASS")
+                // 10 edges · the note under the legend is the receipt: what changed, and why.
+                if frozen {
+                    EvidenceNote("NOTHING NEW SINCE \(lastReadLabel).")
+                }
+                if spike {
+                    EvidenceNote((weightDelta7d.map { abs($0) < 0.5 }) ?? true
+                                 ? "THE 7-DAY AVERAGE BARELY MOVED."
+                                 : "THE 7-DAY AVERAGE MOVED \(Fmt.signedKg(weightDelta7d)) KG.")
+                }
+                if measuredComposition {
+                    EvidenceNote(previousFatKg.map { "ESTIMATE WAS \(Fmt.kg($0)) · THE SERIES RE-ANCHORS FROM HERE" }
+                                 ?? "MEASURED TODAY · THE SERIES RE-ANCHORS FROM HERE")
+                }
             }
         }
     }
@@ -742,5 +815,17 @@ private struct CompFoodRow: View {
             }
             .frame(width: 64, alignment: .trailing)
         }
+    }
+}
+
+
+/// 10 edges · one line under the legend, the board's 11 px Jost 300.
+private struct EvidenceNote: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text)
+            .font(NBFont.ui(300, 11)).tracking(0.04 * 11)
+            .foregroundStyle(NB.text3Prod)
     }
 }

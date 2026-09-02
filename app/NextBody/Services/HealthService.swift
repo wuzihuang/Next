@@ -62,6 +62,7 @@ final class HealthService {
             b.weightKg = w.quantity.doubleValue(for: .gramUnit(with: .kilo))
             b.weightAt = w.endDate
         }
+        if !b.isEmpty { UserDefaults.standard.set(Date(), forKey: "nb.health.lastRead") }
         return b
     }
 

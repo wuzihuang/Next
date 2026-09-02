@@ -35,6 +35,9 @@ protocol BandService: AnyObject {
     func measureBodyComposition() -> AsyncThrowingStream<MeasurementProgress, Error>
 
     func writeSetting(_ setting: BandSetting) async throws -> BandSetting
+    /// 12 rule 08 · OTA is three-state. `versionUnverified` is its own outcome — the DFU said
+    /// done and the version could not be read back — and is never folded into the other two.
+    func updateFirmware(to version: String) async throws -> FirmwareUpdateResult
     func readAutoMonitoring() async throws -> [AutoMonitorSlot]
     func writeAutoMonitoring(_ slot: AutoMonitorSlot) async throws
 }
@@ -261,4 +264,12 @@ enum BandError: LocalizedError {
         case .rejected(let r):     r.uppercased()
         }
     }
+}
+
+
+/// 12 rule 08 · completed / failed / versionUnverified.
+enum FirmwareUpdateResult: Equatable {
+    case completed(version: String)
+    case failed(reason: String)
+    case versionUnverified
 }

@@ -27,7 +27,10 @@ struct ProfileView: View {
                                value: "\(Int(data.profile.heightCm)) CM · \(Fmt.kg(data.today.weightKg)) KG") {
                         router.sheet = .weighIn
                     }
-                    SettingRow(title: "TRAINING GOAL", value: goalLabel) {
+                    // 11 edge 2 · the sheet closes and the value changes at once; today's target and
+                    // macros do not. The 「明天生效」 line lives on the row, not only in the sheet.
+                    SettingRow(title: "TRAINING GOAL", value: goalLabel,
+                               detail: goalChangedToday ? "FROM TOMORROW · TODAY IS UNCHANGED" : nil) {
                         router.sheet = .goal
                     }
                     // The only second level in the product — it really has a page of content.
@@ -45,9 +48,13 @@ struct ProfileView: View {
                     SettingRow(title: "UNITS", value: data.profile.usesMetric ? "METRIC · KG" : "IMPERIAL · LB") {
                         router.sheet = .units
                     }
+                    // 11 edge 1 · a source that stopped answering: the value goes amber and the row
+                    // carries the last read. ⚠️ Read permission cannot be probed, so the row says what
+                    // is known — when something last came back — never "you turned it off".
                     SettingRow(title: "APPLE HEALTH",
                                value: data.profile.appleHealthLinked ? "SYNCED" : "NOT CONNECTED",
-                               valueTint: data.profile.appleHealthLinked ? nil : NB.ember1) {
+                               valueTint: data.profile.appleHealthLinked ? nil : NB.ember1,
+                               detail: healthLastRead.map { "LAST READ \($0) · NOTHING NEW" }) {
                         router.sheet = .appleHealth
                     }
                     SettingRow(title: "LANGUAGE", value: "ENGLISH") { router.sheet = .language }
@@ -64,7 +71,12 @@ struct ProfileView: View {
                             router.takeover = .consent
                         }
                     }
-                    SettingRow(title: "EXPORT MY DATA", value: hasScans ? "ALL TIME" : "NOTHING YET") {
+                    // 11 edge 3 · export is async, not modal: the row says PREPARING… and the page can
+                    // be left.
+                    SettingRow(title: "EXPORT MY DATA",
+                               value: data.exportPreparing ? "PREPARING…" : hasScans ? "ALL TIME" : "NOTHING YET",
+                               valueTint: data.exportPreparing ? NB.ember1.opacity(0.85) : nil,
+                               detail: data.exportPreparing ? "YOU CAN LEAVE THIS PAGE" : nil) {
                         router.sheet = .export
                     }
                     SettingRow(title: "PRIVACY POLICY", value: "UPDATED JUN 24") { router.sheet = .privacy }
@@ -96,6 +108,19 @@ struct ProfileView: View {
         } onBack: {
             router.backToRoot()
         }
+    }
+
+    /// 11 rule 06 · true only on the day the goal was changed.
+    private var goalChangedToday: Bool {
+        UserDefaults.standard.string(forKey: "nb.goal.changedDay") == UserDay.containing(Date()).key
+    }
+    /// The day Health last answered with anything, or nil if it never has. Shown only while
+    /// the latest read came back empty.
+    private var healthLastRead: String? {
+        guard !data.profile.appleHealthLinked, HealthService.shared.asked,
+              let at = UserDefaults.standard.object(forKey: "nb.health.lastRead") as? Date else { return nil }
+        let f = DateFormatter(); f.dateFormat = "MMM d"
+        return f.string(from: at).uppercased()
     }
 
     private var goalLabel: String {
@@ -246,14 +271,23 @@ private struct SettingRow: View {
     var value: String? = nil
     var valueTint: Color? = nil
     var titleTint: Color? = nil
+    /// 11 edges · 「最多加一行副文案」. The row is the alarm; the sub-line is its reason.
+    var detail: String? = nil
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Text(title)
-                    .font(NBFont.ui(500, 13)).tracking(0.06 * 13)
-                    .foregroundStyle(titleTint ?? NB.text1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(NBFont.ui(500, 13)).tracking(0.06 * 13)
+                        .foregroundStyle(titleTint ?? NB.text1)
+                    if let detail {
+                        Text(detail)
+                            .font(NBFont.ui(300, 11)).tracking(0.04 * 11)
+                            .foregroundStyle(NB.text3Prod)
+                    }
+                }
                 Spacer(minLength: 0)
                 if let value {
                     Text(value)
@@ -263,7 +297,7 @@ private struct SettingRow: View {
                 Chevron()
             }
             .padding(.horizontal, 16)
-            .frame(height: 48)
+            .frame(height: detail == nil ? 48 : 60)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

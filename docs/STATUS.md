@@ -889,6 +889,53 @@ built. Everything below was walked on the iPhone 16e simulator with the accessib
   host on :8001 and the proxy-bypass hunk in `Supabase.swift` are its, and were left
   uncommitted here.
 
+## Phase 4 · boards 08–12 read rule by rule, and their twenty-five edge states built
+
+The resume list above said 08 / 09 / 10 / 11 / 12 were 「walked and arithmetically sound,
+spec-unread」. Paper is back, so each board's Head, Hard rules, Before-ship and the five Edge
+cases were pulled through the MCP and mirrored into `docs/prd/08-training.md` … `12-device.md`
+— the change the outage note asked for. Read against the app, the rules mostly held; the edge
+states almost entirely did not exist. They do now, each forced on the simulator with
+`SIMCTL_CHILD_NB_DEBUG_EDGE=<name>` (DEBUG only, `DebugEdge.swift`) and read back from the
+accessibility tree.
+
+| Board | Edge state | Built as |
+|---|---|---|
+| 08 | 1 STALE | ring desaturated, `AS OF HH:MM`, `LAST SYNC nH AGO`, the board's sentence; judged on `lastSync`, never on connection |
+| 08 | 2 NO HEART RATE | `AUTO HR IS OFF` + sentence, tappable → Automatic measurement sheet; from `capabilities.autoMeasure == .close` |
+| 08 | 3 NOT WORN | gaps between five-minute ticks drawn as dashed amber with `nH GAP`; ≥60 min → `NOT ON THE WRIST HH:MM–HH:MM` + sentence |
+| 08 | 4 IN SESSION | unchanged: START A SESSION is held (876d6ae) |
+| 08 | 5 OVER THE RING | ring amber with a dotted halo at ≥20.9, header `RING FULL`, `RING FULL · x OVER TARGET`, sentence. No RAW line — F2's curve is asymptotic and the server keeps no raw value |
+| 09 | 1 PARTIAL | `n MEALS · NOT CLOSED` (amber Doto) while a slot is open |
+| 09 | 2 OUT UNKNOWN | `nH OF DATA ONLY`, OUT and BALANCE ——, "TODAY'S BURN NEEDS A FULL DAY OF WEAR…"; threshold = half the elapsed day (⚠️ the board's own open 拍板) |
+| 09 | 3 OVER TARGET | header `+n OVER`, `+n OVER — STILL A FINE DAY`, bar capped, no colour change |
+| 09 | 4 NO TARGET | the full screen (Phase 3) |
+| 09 | 5 PAST DAY | not built — the fuel page has no past-day route; composition's day view mirrors it |
+| 10 | 1 SOURCE GONE | `LAST READ MMM D`, `KG · FROZEN`, "NOTHING NEW SINCE …"; confidence −1 tier at 3 days, NO CALL at 7 |
+| 10 | 2 MEASURED ARRIVES | legend moves FAT/LEAN MASS to MEASURED, "ESTIMATE WAS x · THE SERIES RE-ANCHORS FROM HERE" |
+| 10 | 3 WEIGHT SPIKE | `OUTLIER · KEPT`, `+1.4 IN A DAY`, "THE 7-DAY AVERAGE BARELY MOVED." — the "call did not flip" half is not claimed |
+| 10 | 4 SIGNALS SPLIT | under the confidence row: "FAT IS DOWN, LEAN IS TOO. PROTEIN AND BALANCE DISAGREE." built from the four signals |
+| 10 | 5 BACKFILL | not built — needs a server-side recalculation receipt |
+| 11 | 1 HEALTH REVOKED | row sub-line `LAST READ MMM D · NOTHING NEW` when a later read came back empty; value stays NOT CONNECTED (F5: permission cannot be probed) |
+| 11 | 2 GOAL SWITCHED | row sub-line `FROM TOMORROW · TODAY IS UNCHANGED` on the day the goal changed |
+| 11 | 3 EXPORT RUNNING | row value `PREPARING…` (amber) + `YOU CAN LEAVE THIS PAGE` while export_all runs |
+| 11 | 4 SIGN OUT | the board's two lines |
+| 11 | 5 DELETE FAILED | `DELETION FAILED` / the board's sentence / `REF XXXX-XX` derived from the error |
+| 12 | 1 LEVEL ONLY | four bars, `n OF 4 BARS`, "This firmware reports level, not percent."; days line not rendered |
+| 12 | 2 UNSUPPORTED | already: rows gated on the capability table |
+| 12 | 3 WRITE CLAMPED | readback compared to the ask; `45 MIN · YOU ASKED FOR 60 MIN` card |
+| 12 | 4 DEVICE BUSY | `BandError.busy` → amber card, switch springs back, write re-queued after 12 s |
+| 12 | 5 OTA UNVERIFIED | `Band.updateFirmware` is three-state (mock completes / debug unverified; the real SDK's DFU is not wired and says so); `VERSION UNCONFIRMED` card |
+
+Also from the rules: `SettingRow` gained a sub-line (11 rule 10), `CardBlock` an amber qualifier,
+the training ring a tint and halo, and the cumulative curve dashed gaps (08 rule 07).
+
+### Still open from these five boards
+- 09 PAST DAY and 10 BACKFILL receipts (server events). 12 "About 3 days of charge left" stays
+  on percent firmware because the main board draws it; the board itself says it has no basis.
+- The thresholds the boards leave to 拍板: OUT-trust hours (09), 5/7 (10), disconnectAlert with
+  no capability bit (12).
+
 ## Running it
 
 ```sh

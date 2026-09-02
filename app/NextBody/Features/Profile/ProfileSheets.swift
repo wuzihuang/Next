@@ -98,6 +98,9 @@ struct TrainingGoalSheet: View {
             VStack(spacing: 10) {
                 ForEach(Self.options, id: \.0) { g, title, sub in
                     Button {
+                        if data.profile.goal != g {
+                            UserDefaults.standard.set(UserDay.containing(Date()).key, forKey: "nb.goal.changedDay")
+                        }
                         data.profile.goal = g
                         let saved = data.profile
                         Task { await Repository.shared.saveProfile(saved, editedFields: ["goal"]) }
@@ -341,6 +344,7 @@ struct AppleHealthSheet: View {
 /// It used to route to the Terms of Service sheet, which is not a smaller version of this —
 /// it is a different screen under the wrong title.
 struct ExportSheet: View {
+    @EnvironmentObject private var data: DataStore
     @Environment(\.dismiss) private var dismiss
     @State private var counts: [(String, Int)] = []
     @State private var failed = false
@@ -387,6 +391,8 @@ struct ExportSheet: View {
         }
         .task {
             do {
+                data.exportPreparing = true
+                defer { data.exportPreparing = false }
                 let out = try await SupabaseClient.shared.rpc("export_all")
                 let row = (out as? [String: Any]) ?? [:]
                 counts = [("Settled days", (row["days"] as? [Any])?.count ?? 0),
@@ -500,7 +506,7 @@ struct DeleteAccountSheet: View {
             let row = (out as? [[String: Any]])?.first ?? (out as? [String: Any]) ?? [:]
             guard row["deleted"] as? Bool == true else {
                 // F5 C8 · the failure sentence is fixed, and the same whichever half failed.
-                failure = "Couldn't finish. Nothing was deleted."
+                failure = Self.failureCopy(ref: "\(row["error"] ?? "unknown")")
                 await Analytics.shared.track("ACCOUNT_DELETE_FAILED",
                                              ["ERROR": "\(row["error"] ?? "unknown")"])
                 return
@@ -508,9 +514,18 @@ struct DeleteAccountSheet: View {
             session.reset()
             dismiss()
         } catch {
-            failure = "Couldn't finish. Nothing was deleted."
+            failure = Self.failureCopy(ref: "\(error)")
             await Analytics.shared.track("ACCOUNT_DELETE_FAILED", ["ERROR": "\(error)"])
         }
+    }
+
+    /// 11 edge 5 · ALL OR NOTHING. The sentence is the board's, and the reference is something a
+    /// person can read out to support — derived from the error so the same failure gets the
+    /// same number.
+    static func failureCopy(ref: String) -> String {
+        var h: UInt32 = 2166136261
+        for b in ref.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
+        return String(format: "DELETION FAILED\nNothing was removed. Your account is exactly as it was. Try again, or write to us.\nREF %04X-%02X", h & 0xFFFF, (h >> 16) & 0xFF)
     }
 }
 
@@ -520,7 +535,8 @@ struct SignOutSheet: View {
 
     var body: some View {
         SheetFrame(title: "Sign out?") {
-            Text("Your data stays on this account. Signing back in on this phone brings it all back — the band stays paired.")
+            // 11 edge 4 · not the same as delete, and it has to say so on the spot.
+            Text("The HOOP stays paired and keeps recording.\nYour data comes back when you sign in.")
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(7)
                 .foregroundStyle(NB.text2)

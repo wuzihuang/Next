@@ -171,6 +171,13 @@ final class MockBand: BandService, @unchecked Sendable {
         }
     }
 
+    func updateFirmware(to version: String) async throws -> FirmwareUpdateResult {
+        try? await Task.sleep(for: .seconds(1.2))
+        // DEBUG · `NB_DEBUG_EDGE=otaunverified` walks 12 edge 5 on the mock.
+        if DebugEdge.on("otaunverified") { return .versionUnverified }
+        return .completed(version: version)
+    }
+
     func writeSetting(_ setting: BandSetting) async throws -> BandSetting {
         try await requireConnection()
         try? await Task.sleep(for: .milliseconds(180))

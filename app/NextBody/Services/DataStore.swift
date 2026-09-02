@@ -25,6 +25,8 @@ final class DataStore: ObservableObject {
     @Published var capabilities = BandCapabilities()
     @Published var capabilitiesReadAt: Date?
     @Published var isOffline = false
+    /// 11 edge 3 · the export row says PREPARING… while export_all runs; the page can be left.
+    @Published var exportPreparing = false
 
     // 11 · the three tiles. Two net changes over twelve weeks and one absolute value,
     // which is why the third one is labelled apart from the other two.

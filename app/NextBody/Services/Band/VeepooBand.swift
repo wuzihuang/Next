@@ -312,6 +312,12 @@ final class VeepooBand: BandService, @unchecked Sendable {
 
     // MARK: settings
 
+    /// ⚠️ The SDK's DFU flow is not wired in this build; the honest answer is a failure with
+    /// its reason, never a spinner and never a pretended success.
+    func updateFirmware(to version: String) async throws -> FirmwareUpdateResult {
+        .failed(reason: "Firmware update is not wired to the SDK in this build")
+    }
+
     func writeSetting(_ setting: BandSetting) async throws -> BandSetting {
         guard let peripheral else { throw BandError.notConnected }
         // F3 · the switch renders the value that came back. Optimistic UI here means the

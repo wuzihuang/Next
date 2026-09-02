@@ -19,6 +19,13 @@ struct DeviceView: View {
     @State private var wearDetection = true
     @State private var disconnectAlert = true
     @State private var lowPower = false
+    /// 12 edge 3 · the band clamped a write: what was asked, what it kept.
+    @State private var clamped: (name: String, asked: String, got: String)?
+    /// 12 edge 4 · a write answered DEVICE_BUSY and is queued behind the measurement.
+    @State private var busyQueued = false
+    /// 12 edge 5 · the OTA result, three-state.
+    @State private var ota: OTAState?
+    enum OTAState: Equatable { case running, completed, failed(String), unverified }
     @State private var writing: String?
 
     private var connected: Bool { data.band.connected }
@@ -30,6 +37,8 @@ struct DeviceView: View {
                 batteryCard
                 firmwareCard
                 if !connected { readOnlyNotice }
+                if busyQueued { busyCard }
+                if let clamped { clampCard(clamped) }
 
                 GroupLabel12("AUTOMATIC")
                 RowCard {
@@ -113,6 +122,11 @@ struct DeviceView: View {
             router.back()
         }
         .task {
+            // DEBUG · 12 edges on a simulator that would never produce them.
+            if DebugEdge.on("clamped") { clamped = ("Move reminder", "60 MIN", "45 MIN") }
+            if DebugEdge.on("busy") { busyQueued = true }
+            if DebugEdge.on("otaunverified") { ota = .unverified }
+            if DebugEdge.on("levelonly") { battery = BandBattery(isPercent: false, percent: nil, level: 3, chargeState: .unplugged) }
             // What was stored the last time this HOOP answered. The page is right from the
             // first frame, and stays right when the band is out of range — which is the
             // whole reason device_capabilities is a table rather than a local variable.
@@ -130,7 +144,7 @@ struct DeviceView: View {
                     await Repository.shared.saveCapabilities(fresh, deviceId: deviceId, userId: userId)
                 }
             }
-            battery = try? await Band.live.readBattery()
+            if !DebugEdge.on("levelonly") { battery = try? await Band.live.readBattery() }
             if let battery, let percent = battery.percent {
                 data.band.batteryPercent = percent
             }
@@ -161,10 +175,85 @@ struct DeviceView: View {
             do {
                 let back = try await Band.live.writeSetting(setting)
                 if case .heartRateAlarm(let on, _, _) = back { hrAlarm = on }
+                // 12 edge 3 · render the readback, and say when it differs from what was asked.
+                let asked = Self.label(setting), got = Self.label(back)
+                clamped = asked.value == got.value ? nil : (asked.name, asked.value, got.value)
+                if clamped != nil {
+                    await Analytics.shared.track("DEV_SETTING_WRITE", ["KEY": asked.name, "OK": true, "CLAMPED": true])
+                }
+            } catch BandError.busy {
+                // 12 edge 4 · queue, don't fail: the switch springs back with the reason, and
+                // the write goes again once the measurement has had its ~12 s.
+                if case .heartRateAlarm(let on, _, _) = setting { hrAlarm = !on }
+                busyQueued = true
+                try? await Task.sleep(for: .seconds(12))
+                busyQueued = false
+                if case .heartRateAlarm = setting { write(setting) }
             } catch {
                 BandLog.shared.record("writeSetting", error: error)
                 if case .heartRateAlarm(let on, _, _) = setting { hrAlarm = !on }
             }
+        }
+    }
+
+    /// One short label per setting, so a clamped write can be read as 「45 MIN · YOU ASKED FOR 60」.
+    private static func label(_ s: BandSetting) -> (name: String, value: String) {
+        switch s {
+        case .heartRateAlarm(let on, let low, let high): return ("Heart rate alarm", on ? "\(low)–\(high) BPM" : "OFF")
+        case .moveReminder(let on, let i, _, _):          return ("Move reminder", on ? "\(i) MIN" : "OFF")
+        case .drinkNudge(let on):                          return ("Drink & breathe nudges", on ? "ON" : "OFF")
+        case .wearDetection(let on):                       return ("Wear detection", on ? "ON" : "OFF")
+        case .disconnectAlert(let on):                     return ("Buzz if we lose each other", on ? "ON" : "OFF")
+        case .lowPower(let on):                            return ("Low power mode", on ? "ON" : "OFF")
+        case .alarms(let list):                            return ("Alarms", "\(list.count) SET")
+        }
+    }
+
+    /// 12 edge 3 · WRITE CLAMPED · RENDER THE READBACK.
+    private func clampCard(_ c: (name: String, asked: String, got: String)) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(c.name).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(c.got).font(NBFont.dot(700, 22)).tracking(0.02 * 22).foregroundStyle(NB.text1)
+                Text("YOU ASKED FOR \(c.asked)").font(NBFont.dot(500, 11)).tracking(0.06 * 11)
+                    .foregroundStyle(NB.ember1.opacity(0.85))
+            }
+            Text("THE BAND SET WHAT IT COULD. THIS IS ITS ANSWER, NOT OURS.")
+                .font(NBFont.ui(300, 11)).tracking(0.04 * 11).foregroundStyle(NB.text3Prod)
+        }
+        .padding(14)
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .cardSkin()
+    }
+
+    /// 12 edge 4 · DEVICE BUSY · QUEUE, DON'T FAIL.
+    private var busyCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("DEVICE BUSY").font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
+            Text("A measurement is running. Your change is queued and will go through when it finishes.")
+                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5).lineSpacing(5).foregroundStyle(NB.white.opacity(0.70))
+        }
+        .padding(14)
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.ember1.opacity(0.25), lineWidth: 1))
+    }
+
+    /// 12 rule 08 · the update runs, and the result is one of three.
+    private func runUpdate() {
+        Task {
+            ota = .running
+            await Analytics.shared.track("DEV_OTA_START", ["FROM": identity?.firmware ?? data.band.firmware, "TO": Self.availableFirmware])
+            let t0 = Date()
+            let result: FirmwareUpdateResult
+            do { result = try await Band.live.updateFirmware(to: Self.availableFirmware) }
+            catch { result = .failed(reason: "\(error)") }
+            switch result {
+            case .completed(let v):   ota = .completed; data.band.firmware = v
+            case .failed(let why):    ota = .failed(why)
+            case .versionUnverified:  ota = .unverified
+            }
+            await Analytics.shared.track("DEV_OTA_END", ["RESULT": "\(result)", "MS": Int(Date().timeIntervalSince(t0) * 1000)])
         }
     }
 
@@ -232,6 +321,24 @@ struct DeviceView: View {
     /// ⚠️ Days are our own estimate — the SDK gives percent / level / chargeState only.
     private var batteryCard: some View {
         VStack(spacing: 16) {
+            if let battery, !battery.isPercent {
+                // 12 edge 1 · LEVEL ONLY · NO PERCENT TO SHOW. Four bars, and the days line is
+                // not rendered — a bar count × 25 is a percentage nobody measured.
+                VStack(spacing: 12) {
+                    HStack(spacing: 5) {
+                        ForEach(0..<4, id: \.self) { i in
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(i < (battery.level ?? 0) ? NB.lime1 : Color(hex: 0x2A2A32))
+                                .frame(width: 22, height: 34)
+                        }
+                    }
+                    Text("\(battery.level ?? 0) OF 4 BARS")
+                        .font(NBFont.dot(700, 14)).tracking(0.14 * 14).foregroundStyle(Color(hex: 0xB0B0BA))
+                    Text("This firmware reports level, not percent.")
+                        .font(NBFont.ui(300, 11.5)).tracking(0.03 * 11.5).foregroundStyle(NB.text3Prod)
+                }
+                .frame(maxWidth: .infinity)
+            } else {
             HStack(spacing: 18) {
                 ZStack {
                     Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
@@ -264,6 +371,7 @@ struct DeviceView: View {
                         .foregroundStyle(connected ? NB.lime1 : NB.text2)
                 }
                 Spacer(minLength: 0)
+            }
             }
 
             Hairline()
@@ -311,6 +419,24 @@ struct DeviceView: View {
     /// Five reasons the button can be grey, and it always says which one.
     /// "Temporarily unavailable" is never allowed to stand in for all five.
     private var firmwareCard: some View {
+        Group {
+        if ota == .unverified {
+            // 12 edge 5 · OTA UNVERIFIED · NOT SUCCESS, NOT FAILURE.
+            VStack(alignment: .leading, spacing: 10) {
+                Text("VERSION UNCONFIRMED").font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(identity?.firmware ?? data.band.firmware).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
+                    Text("?").font(NBFont.dot(500, 14)).foregroundStyle(Color(hex: 0x8A8A96))
+                    Text(Self.availableFirmware).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
+                }
+                Text("The update finished but we could not read the new version back. Check the band before trying again.")
+                    .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5).lineSpacing(4).foregroundStyle(NB.white.opacity(0.70))
+            }
+            .padding(14)
+            .frame(width: NB.Layout.contentWidth, alignment: .leading)
+            .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.ember1.opacity(0.25), lineWidth: 1))
+        } else {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("FIRMWARE")
@@ -330,21 +456,36 @@ struct DeviceView: View {
                         .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
                         .foregroundStyle(NB.lime1)
                 }
-                Text(connected ? "Better sleep staging · about 4 min" : "Reconnect to install this update")
+                Text(otaLine)
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                    .foregroundStyle(NB.text3Prod)
+                    .foregroundStyle(ota == .completed ? NB.lime1 : NB.text3Prod)
             }
             Spacer(minLength: 0)
-            Text("UPDATE")
-                .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                .foregroundStyle(connected ? NB.carbon : NB.text3Prod)
-                .padding(.horizontal, 18).frame(height: 36)
-                .background(connected ? NB.lime1 : Color.clear, in: Capsule())
-                .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+            Button(action: runUpdate) {
+                Text(ota == .running ? "UPDATING…" : ota == .completed ? "DONE" : "UPDATE")
+                    .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
+                    .foregroundStyle(connected ? NB.carbon : NB.text3Prod)
+                    .padding(.horizontal, 18).frame(height: 36)
+                    .background(connected ? NB.lime1 : Color.clear, in: Capsule())
+                    .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .disabled(!connected || ota == .running || ota == .completed)
         }
         .padding(16)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
         .cardSkin()
+        }
+        }
+    }
+
+    private var otaLine: String {
+        switch ota {
+        case .running:          return "Installing · keep the band close"
+        case .completed:        return "Installed · \(Self.availableFirmware) is on the band"
+        case .failed(let why):  return why
+        default:                return connected ? "Better sleep staging · about 4 min" : "Reconnect to install this update"
+        }
     }
 
     /// One sentence with a padlock covers the whole read-only段. Switches are not hidden and

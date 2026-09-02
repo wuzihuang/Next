@@ -124,9 +124,11 @@ struct HomeView: View {
     /// asking a question already answered.
     private func endListening() {
         withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .idle }
-        guard let clip = SpeechCapture.shared.stop() else { return }
-        withAnimation { widget = .thinking }
         Task {
+            // stop() waits on the audio queue rather than the main one, for the same reason
+            // start() does: tearing down a session that is not answering must not freeze a tap.
+            guard let clip = await SpeechCapture.shared.stop() else { return }
+            withAnimation { widget = .thinking }
             guard let said = await ai.transcribe(clip) else {
                 // 「DIDN'T CATCH THAT」 · nothing was heard, so nothing is asserted. The panel
                 // goes back to what it was showing rather than reporting a failure.

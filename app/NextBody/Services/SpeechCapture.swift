@@ -5,66 +5,78 @@ import Foundation
 /// it — the wave animated, the tap ended, and nothing had been recorded. This is the missing
 /// half: it records while the key is lit and hands back one file.
 ///
-/// ⚠️ 16 kHz mono. `asr` caps the clip at 2 MB and qwen3-asr-flash wants speech, not fidelity;
-/// at this rate a minute of audio is well inside the ceiling, which is the same minute the
-/// board allows.
-@MainActor
-final class SpeechCapture: NSObject, ObservableObject {
+/// ⚠️ Not `@MainActor`, and that is the whole design of this file rather than a detail.
+/// `AVAudioSession.setActive` and `AVAudioRecorder.record()` are synchronous and they block for
+/// as long as CoreAudio takes to answer. The first version of this ran them on the main actor,
+/// and when the simulator's audio server refused to start — 0x10004003, then
+/// `kAudioDevicePropertyIOStoppedAbnormally` — the log read
+/// 「process main thread busy for 30.0s」: the whole UI frozen, on a tap, waiting for a
+/// microphone that was never going to open. The audio work happens on its own queue; only the
+/// published flag crosses back to main.
+final class SpeechCapture: @unchecked Sendable, ObservableObject {
     static let shared = SpeechCapture()
 
-    @Published private(set) var recording = false
-    private var recorder: AVAudioRecorder?
+    @MainActor @Published private(set) var recording = false
 
-    /// Returns false when the microphone was refused. The caller drops back to idle rather
-    /// than showing a wave over a microphone that is not on — a listening animation with
-    /// nothing behind it is the bug this file exists to fix.
+    private let queue = DispatchQueue(label: "nb.speech.capture")
+    private var recorder: AVAudioRecorder?      // touched only on `queue`
+
+    /// Returns false when the microphone was refused *or* would not open. The caller stays idle
+    /// on a false — a listening animation with nothing behind it is the bug this file exists
+    /// to fix, and a recorder that failed to start is as empty as a denied permission.
     func start() async -> Bool {
         guard await Self.permission() else { return false }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
 
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("nb-\(UUID().uuidString).m4a")
-            let rec = try AVAudioRecorder(url: url, settings: [
-                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: 16_000,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
-            ])
-            // ⚠️ `record()` returns a Bool and ignoring it was the very bug this file claims to
-            // fix. On the simulator CoreAudio refuses to start the input server — 0x10004003,
-            // then kAudioDevicePropertyIOStoppedAbnormally — and with the result thrown away the
-            // dock lit its wave over a microphone that never opened. A false here is the same
-            // answer as a refused permission: stay idle.
-            guard rec.record() else {
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-                try? FileManager.default.removeItem(at: url)
-                return false
+        let started: Bool = await withCheckedContinuation { c in
+            queue.async { [weak self] in
+                guard let self else { return c.resume(returning: false) }
+                let session = AVAudioSession.sharedInstance()
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("nb-\(UUID().uuidString).m4a")
+                do {
+                    try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+                    try session.setActive(true, options: .notifyOthersOnDeactivation)
+                    let rec = try AVAudioRecorder(url: url, settings: [
+                        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                        AVSampleRateKey: 16_000,
+                        AVNumberOfChannelsKey: 1,
+                        AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+                    ])
+                    // ⚠️ `record()` returns a Bool, and ignoring it was the same bug a second
+                    // time: the wave lit over a microphone that had refused to open.
+                    guard rec.record() else {
+                        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+                        try? FileManager.default.removeItem(at: url)
+                        return c.resume(returning: false)
+                    }
+                    self.recorder = rec
+                    c.resume(returning: true)
+                } catch {
+                    try? session.setActive(false, options: .notifyOthersOnDeactivation)
+                    try? FileManager.default.removeItem(at: url)
+                    c.resume(returning: false)
+                }
             }
-            recorder = rec
-            recording = true
-            return true
-        } catch {
-            recording = false
-            return false
         }
+        await MainActor.run { self.recording = started }
+        return started
     }
 
     /// Stops and hands back the clip. The caller owns the file and deletes it once the
     /// transcript is back — the audio never outlives the turn it belongs to.
-    func stop() -> URL? {
-        guard let rec = recorder else { return nil }
-        rec.stop()
-        recorder = nil
-        recording = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        return rec.url
-    }
-
-    func discard() {
-        if let url = stop() { try? FileManager.default.removeItem(at: url) }
+    func stop() async -> URL? {
+        let url: URL? = await withCheckedContinuation { c in
+            queue.async { [weak self] in
+                guard let self, let rec = self.recorder else { return c.resume(returning: nil) }
+                rec.stop()
+                self.recorder = nil
+                try? AVAudioSession.sharedInstance()
+                    .setActive(false, options: .notifyOthersOnDeactivation)
+                c.resume(returning: rec.url)
+            }
+        }
+        await MainActor.run { self.recording = false }
+        return url
     }
 
     private static func permission() async -> Bool {

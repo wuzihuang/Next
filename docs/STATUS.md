@@ -667,13 +667,23 @@ does — the medical stop, and the question test that keeps 「今天吃了多�
 `NO_SPEECH` is not an error: the panel returns to what it was showing, which is the board's
 「DIDN'T CATCH THAT」.
 
-⚠️ Two things this cost, both found by running it. The simulator has no working audio input here —
-CoreAudio answers `0x10004003` and fires `kAudioDevicePropertyIOStoppedAbnormally` — so the
-capture itself is proven only as far as "the recorder was constructed and asked to start". And
-`AVAudioRecorder.record()` returns a `Bool` that the first version of this ignored, which meant
-the wave lit over a microphone that had refused to open: the exact bug the file was written to
-prevent, reproduced inside the fix for it. It is checked now, and a false is treated like a
-refused permission — stay idle.
+⚠️ Three things this cost, all found by running it rather than reading it, and the third was the
+one that mattered.
+
+The simulator has no working audio input here — CoreAudio answers `0x10004003` and fires
+`kAudioDevicePropertyIOStoppedAbnormally` — so capture is proven only as far as "the recorder was
+constructed and asked to start". `AVAudioRecorder.record()` returns a `Bool` that the first
+version ignored, so the wave lit over a microphone that had refused to open: the bug the file was
+written to prevent, reproduced inside the fix for it.
+
+And the first version was `@MainActor`. `AVAudioSession.setActive` and `record()` are synchronous
+and block for as long as CoreAudio takes to answer, so when the audio server refused to start the
+app's own log read 「process main thread busy for 30.0s」 — the entire UI frozen on a tap, waiting
+for a microphone that was never going to open. That is also why the UI dumps kept timing out; it
+was not the automation bridge, it was this. The audio work runs on its own queue now and only the
+published flag crosses back to main. Re-tested: the accessibility tree answers instantly after
+the tap, and because `record()` fails on this simulator the dock correctly reads 说话 rather than
+正在听 — the failure path proving itself.
 
 ⚠️ Found while testing, and fixed: `client_op_id` is a uuid column, so a malformed
 `Idempotency-Key` came back as Postgres's own `invalid input syntax for type uuid: "…"` — a 400

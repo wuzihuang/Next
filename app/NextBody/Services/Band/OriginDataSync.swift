@@ -61,8 +61,6 @@ final class OriginDataSync {
                 // ⚠️ F7 rule 09 / F2 · both of these are on their way out. They are written only
                 // because the live table still has them NOT NULL; migration 20260902010000
                 // relaxes that, and 20260902020000 drops them. Delete these two lines when B ships.
-                "calendar_day": Self.dayString(ts),
-                "day_offset": wanted.first ?? 0,
                 "src": "band",
             ]
             if let v = point.heart { row["heart"] = v }

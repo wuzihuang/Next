@@ -1,0 +1,10 @@
+framework module VeepooBleSDK {
+  umbrella header "VeepooBleSDK.h"
+  export *
+
+  module * { export * }
+}
+
+module VeepooBleSDK.Swift {
+  header "VeepooBleSDK-Swift.h"
+}

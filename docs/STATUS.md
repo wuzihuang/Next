@@ -1280,6 +1280,43 @@ rendered sizes were confirmed against 07's `theme.text` (11.5 / 84 / 18 / 10.5 �
 design-system foundation — 51 colours, 12 radii, 3 font families as real TTFs, and the type
 sizes — is 1:1 with the board tokens, checked programmatically, not by eye.
 
+## Phase 11 · the band SDK is linked — the device stops using MockBand
+
+### The bug you hit
+On your phone the app still used mock data because `VeepooBleSDK.framework` was in the repo but
+never linked into the Xcode target. `Band.live` picks `VeepooBand` only under
+`#if canImport(VeepooBleSDK) && !targetEnvironment(simulator)`; with the framework unlinked,
+`canImport` was false even on device, so it fell back to `MockBand`.
+
+### What was done
+- **Linked the real SDK, device-only.** `VeepooBleSDK.framework` (arm64 device slice) plus its six
+  binary dependencies (ABParTool, DFUnits, GRDFUSDK, JLDialUnit, JL_BLEKit, ZipZap) are in
+  `app/Frameworks/`, linked via `OTHER_LDFLAGS[sdk=iphoneos*]` and embedded+signed by a device-only
+  run-script phase. The simulator never sees them, so `canImport` stays false there and the
+  simulator keeps running MockBand — the sim build is still green.
+- **Vendored the two CocoaPods the SDK needs from source** (`app/Vendor/FMDB`, `app/Vendor/MJExtension`,
+  compiled into the target, `-lsqlite3` linked) — they resolve the SDK's `FMDatabaseQueue`,
+  `JL_*`, `ParTool`, `DialManager` symbols.
+- **Reconciled `VeepooBand.swift` against the real 2.2.XX.15 headers.** The file had been written to
+  an assumed API; the real one differs: `VPBleCentralManage.sharedBleManager()` (not `.shared()`),
+  `VPDeviceConnectState.connectState*` cases, `veepooSDKTestHeartStart(_:testResult:)`, the
+  body-composition `progress:`/`testResult:` blocks, `VPDeviceChargeState` (`.normal/.charging/.full`),
+  `VPDeviceBodyCompositionState.complete`, `VPDeviceHeartAlarmModel.heartMaxValue/heartMinValue`,
+  `veepooSDKSetAutoMonitSwitch(with:result:)`, `.HRV`, and — the big one — every
+  `VPBodyCompositionValueModel` field is an `NSString`, so each is parsed to a number.
+
+### Verified
+Simulator build BUILD SUCCEEDED (MockBand). The device build now compiles and **links with no
+undefined symbols** — it reaches the embed/codesign step. ⚠️ It could not be fully finished from
+this headless session because code-signing the embedded frameworks needs the login keychain
+unlocked (`security: User interaction is not allowed` here); your interactive Xcode build signs them
+with your identity, the same way it signed the app you already installed. Build to the phone from
+Xcode and `Band.isReal` is true → the connect flow scans for and connects to your real HOOP.
+
+⚠️ Firmware update / dial features (GRDFUSDK / JLDialUnit / DFUnits) are linked but the app's OTA
+path is still the stub noted on 12; connect + HR/steps/sleep + body-composition read are the wired
+paths.
+
 ## Running it
 
 ```sh

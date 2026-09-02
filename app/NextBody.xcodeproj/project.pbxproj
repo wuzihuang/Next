@@ -6,14 +6,66 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		0D1FCD6270C9C1C526110940 /* MJExtensionConst.m in Sources */ = {isa = PBXBuildFile; fileRef = 648AC83D59627C7486653388 /* MJExtensionConst.m */; };
+		0E66FF9EC0F1E66CA80A4D7B /* NSString+MJExtension.m in Sources */ = {isa = PBXBuildFile; fileRef = 1059FE36AF595602600C3C50 /* NSString+MJExtension.m */; };
+		15130A75880238D6029964A6 /* MJProperty.m in Sources */ = {isa = PBXBuildFile; fileRef = ABFA363507FA938649765A0C /* MJProperty.m */; };
+		2455F8E1A8F19BFDBD0CBC26 /* FMDatabase.m in Sources */ = {isa = PBXBuildFile; fileRef = 126B3798591865520DC21E59 /* FMDatabase.m */; };
+		3EFCE7376796A974E1FCA53C /* FMDatabaseQueue.m in Sources */ = {isa = PBXBuildFile; fileRef = 4054FB1842CC7B2FA2711E4A /* FMDatabaseQueue.m */; };
+		4F918849DB868607775D7705 /* NSObject+MJCoding.m in Sources */ = {isa = PBXBuildFile; fileRef = 4A24B66B5C1DCAF03BAB32AB /* NSObject+MJCoding.m */; };
+		65934DD915B4E35D3C11A4D8 /* MJPropertyKey.m in Sources */ = {isa = PBXBuildFile; fileRef = 47DC8101F0A7DC092B13FF48 /* MJPropertyKey.m */; };
+		74128173F984778B853DD9B0 /* MJPropertyType.m in Sources */ = {isa = PBXBuildFile; fileRef = F4C2660BD56E9D70F3AC1E46 /* MJPropertyType.m */; };
+		815F86CF9C5BC1F4BAA3BB86 /* FMDatabaseAdditions.m in Sources */ = {isa = PBXBuildFile; fileRef = C56A9DACFB4985C83EF629A6 /* FMDatabaseAdditions.m */; };
+		AA5FF4AEFF975E525D67220C /* FMDatabasePool.m in Sources */ = {isa = PBXBuildFile; fileRef = 136A602C9C07535090BA5CCF /* FMDatabasePool.m */; };
+		AAA171ED5343D72EAA9E7A78 /* MJFoundation.m in Sources */ = {isa = PBXBuildFile; fileRef = 82934F9F067AE6B016187303 /* MJFoundation.m */; };
+		B7E63B6DA8052F4984CD23E6 /* NSObject+MJClass.m in Sources */ = {isa = PBXBuildFile; fileRef = E75E45F7EF629DF91B5C9ADA /* NSObject+MJClass.m */; };
+		B88AD7EFAF49FAFE1DDE98B5 /* FMResultSet.m in Sources */ = {isa = PBXBuildFile; fileRef = 556FA9FF86AF5F65FA78777E /* FMResultSet.m */; };
+		C2DD782C7B8BF8185A0546E9 /* NSObject+MJProperty.m in Sources */ = {isa = PBXBuildFile; fileRef = CBACF04D62E0A2A0CDE216BC /* NSObject+MJProperty.m */; };
+		ED485C1939AD04B9540CB23E /* NSObject+MJKeyValue.m in Sources */ = {isa = PBXBuildFile; fileRef = A71C111CB8E6EDB02CD2CE94 /* NSObject+MJKeyValue.m */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C6129A4EF2A29884924D1DAF /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		1059FE36AF595602600C3C50 /* NSString+MJExtension.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = "NSString+MJExtension.m"; path = "Vendor/MJExtension/MJExtension/NSString+MJExtension.m"; sourceTree = "<group>"; };
+		126B3798591865520DC21E59 /* FMDatabase.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = FMDatabase.m; path = Vendor/FMDB/src/fmdb/FMDatabase.m; sourceTree = "<group>"; };
+		136A602C9C07535090BA5CCF /* FMDatabasePool.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = FMDatabasePool.m; path = Vendor/FMDB/src/fmdb/FMDatabasePool.m; sourceTree = "<group>"; };
+		4054FB1842CC7B2FA2711E4A /* FMDatabaseQueue.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = FMDatabaseQueue.m; path = Vendor/FMDB/src/fmdb/FMDatabaseQueue.m; sourceTree = "<group>"; };
+		47DC8101F0A7DC092B13FF48 /* MJPropertyKey.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = MJPropertyKey.m; path = Vendor/MJExtension/MJExtension/MJPropertyKey.m; sourceTree = "<group>"; };
+		4A24B66B5C1DCAF03BAB32AB /* NSObject+MJCoding.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = "NSObject+MJCoding.m"; path = "Vendor/MJExtension/MJExtension/NSObject+MJCoding.m"; sourceTree = "<group>"; };
+		556FA9FF86AF5F65FA78777E /* FMResultSet.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = FMResultSet.m; path = Vendor/FMDB/src/fmdb/FMResultSet.m; sourceTree = "<group>"; };
+		648AC83D59627C7486653388 /* MJExtensionConst.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = MJExtensionConst.m; path = Vendor/MJExtension/MJExtension/MJExtensionConst.m; sourceTree = "<group>"; };
+		82934F9F067AE6B016187303 /* MJFoundation.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = MJFoundation.m; path = Vendor/MJExtension/MJExtension/MJFoundation.m; sourceTree = "<group>"; };
+		A71C111CB8E6EDB02CD2CE94 /* NSObject+MJKeyValue.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = "NSObject+MJKeyValue.m"; path = "Vendor/MJExtension/MJExtension/NSObject+MJKeyValue.m"; sourceTree = "<group>"; };
+		ABFA363507FA938649765A0C /* MJProperty.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = MJProperty.m; path = Vendor/MJExtension/MJExtension/MJProperty.m; sourceTree = "<group>"; };
+		C56A9DACFB4985C83EF629A6 /* FMDatabaseAdditions.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = FMDatabaseAdditions.m; path = Vendor/FMDB/src/fmdb/FMDatabaseAdditions.m; sourceTree = "<group>"; };
+		CBACF04D62E0A2A0CDE216BC /* NSObject+MJProperty.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = "NSObject+MJProperty.m"; path = "Vendor/MJExtension/MJExtension/NSObject+MJProperty.m"; sourceTree = "<group>"; };
+		E75E45F7EF629DF91B5C9ADA /* NSObject+MJClass.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = "NSObject+MJClass.m"; path = "Vendor/MJExtension/MJExtension/NSObject+MJClass.m"; sourceTree = "<group>"; };
+		F4C2660BD56E9D70F3AC1E46 /* MJPropertyType.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = MJPropertyType.m; path = Vendor/MJExtension/MJExtension/MJPropertyType.m; sourceTree = "<group>"; };
 		FE0000000000000000000001 /* NextBody.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NextBody.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE0000000000000000000002 /* NextBody-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "NextBody-Info.plist"; sourceTree = "<group>"; };
 		FE0000000000000000000003 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		FE0000000000000000000010 /* NextBody */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = NextBody; sourceTree = "<group>"; };
+		FE0000000000000000000010 /* NextBody */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = NextBody;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -27,6 +79,35 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		CD68A12E29B4C208C27736DD /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D2B0C378D2ED368E12A5D731 /* Vendor */ = {
+			isa = PBXGroup;
+			children = (
+				4054FB1842CC7B2FA2711E4A /* FMDatabaseQueue.m */,
+				C56A9DACFB4985C83EF629A6 /* FMDatabaseAdditions.m */,
+				126B3798591865520DC21E59 /* FMDatabase.m */,
+				136A602C9C07535090BA5CCF /* FMDatabasePool.m */,
+				556FA9FF86AF5F65FA78777E /* FMResultSet.m */,
+				F4C2660BD56E9D70F3AC1E46 /* MJPropertyType.m */,
+				A71C111CB8E6EDB02CD2CE94 /* NSObject+MJKeyValue.m */,
+				ABFA363507FA938649765A0C /* MJProperty.m */,
+				4A24B66B5C1DCAF03BAB32AB /* NSObject+MJCoding.m */,
+				648AC83D59627C7486653388 /* MJExtensionConst.m */,
+				CBACF04D62E0A2A0CDE216BC /* NSObject+MJProperty.m */,
+				E75E45F7EF629DF91B5C9ADA /* NSObject+MJClass.m */,
+				1059FE36AF595602600C3C50 /* NSString+MJExtension.m */,
+				47DC8101F0A7DC092B13FF48 /* MJPropertyKey.m */,
+				82934F9F067AE6B016187303 /* MJFoundation.m */,
+			);
+			name = Vendor;
+			sourceTree = "<group>";
+		};
 		FE0000000000000000000030 = {
 			isa = PBXGroup;
 			children = (
@@ -34,6 +115,8 @@
 				FE0000000000000000000002 /* NextBody-Info.plist */,
 				FE0000000000000000000003 /* Local.xcconfig */,
 				FE0000000000000000000031 /* Products */,
+				CD68A12E29B4C208C27736DD /* Frameworks */,
+				D2B0C378D2ED368E12A5D731 /* Vendor */,
 			);
 			sourceTree = "<group>";
 		};
@@ -55,6 +138,8 @@
 				FE0000000000000000000021 /* Sources */,
 				FE0000000000000000000020 /* Frameworks */,
 				FE0000000000000000000022 /* Resources */,
+				C6129A4EF2A29884924D1DAF /* Embed Frameworks */,
+				740129972202FAA10CA28326 /* Embed VeepooBleSDK (device only) */,
 			);
 			buildRules = (
 			);
@@ -64,8 +149,6 @@
 				FE0000000000000000000010 /* NextBody */,
 			);
 			name = NextBody;
-			packageProductDependencies = (
-			);
 			productName = NextBody;
 			productReference = FE0000000000000000000001 /* NextBody.app */;
 			productType = "com.apple.product-type.application";
@@ -114,11 +197,47 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		740129972202FAA10CA28326 /* Embed VeepooBleSDK (device only) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed VeepooBleSDK (device only)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"$PLATFORM_NAME\" != \"iphoneos\" ]; then echo \"skip on $PLATFORM_NAME\"; exit 0; fi\nDST=\"$BUILT_PRODUCTS_DIR/$FRAMEWORKS_FOLDER_PATH\"; mkdir -p \"$DST\"\nfor FW in \"$PROJECT_DIR\"/Frameworks/*.framework; do\n  rsync -a --delete \"$FW\" \"$DST/\"\n  if [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then\n    codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --timestamp=none \"$DST/$(basename \"$FW\")\"\n  fi\ndone\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		FE0000000000000000000021 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3EFCE7376796A974E1FCA53C /* FMDatabaseQueue.m in Sources */,
+				815F86CF9C5BC1F4BAA3BB86 /* FMDatabaseAdditions.m in Sources */,
+				2455F8E1A8F19BFDBD0CBC26 /* FMDatabase.m in Sources */,
+				AA5FF4AEFF975E525D67220C /* FMDatabasePool.m in Sources */,
+				B88AD7EFAF49FAFE1DDE98B5 /* FMResultSet.m in Sources */,
+				74128173F984778B853DD9B0 /* MJPropertyType.m in Sources */,
+				ED485C1939AD04B9540CB23E /* NSObject+MJKeyValue.m in Sources */,
+				15130A75880238D6029964A6 /* MJProperty.m in Sources */,
+				4F918849DB868607775D7705 /* NSObject+MJCoding.m in Sources */,
+				0D1FCD6270C9C1C526110940 /* MJExtensionConst.m in Sources */,
+				C2DD782C7B8BF8185A0546E9 /* NSObject+MJProperty.m in Sources */,
+				B7E63B6DA8052F4984CD23E6 /* NSObject+MJClass.m in Sources */,
+				0E66FF9EC0F1E66CA80A4D7B /* NSString+MJExtension.m in Sources */,
+				65934DD915B4E35D3C11A4D8 /* MJPropertyKey.m in Sources */,
+				AAA171ED5343D72EAA9E7A78 /* MJFoundation.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -179,20 +298,54 @@
 		FE0000000000000000000072 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = NextBody/NextBody.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = BP7F7PYU33;
 				ENABLE_PREVIEWS = YES;
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
+				GCC_WARN_INHIBIT_ALL_WARNINGS = NO;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/FMDB/src/fmdb",
+					"$(PROJECT_DIR)/Vendor/MJExtension/MJExtension",
+				);
 				INFOPLIST_FILE = "NextBody-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				CODE_SIGN_ENTITLEMENTS = NextBody/NextBody.entitlements;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-framework",
+					VeepooBleSDK,
+					"-framework",
+					ABParTool,
+					"-framework",
+					DFUnits,
+					"-framework",
+					GRDFUSDK,
+					"-framework",
+					JLDialUnit,
+					"-framework",
+					JL_BLEKit,
+					"-framework",
+					ZipZap,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.nextbody.hoop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -203,20 +356,54 @@
 		FE0000000000000000000073 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = NextBody/NextBody.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = BP7F7PYU33;
 				ENABLE_PREVIEWS = YES;
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
+				GCC_WARN_INHIBIT_ALL_WARNINGS = NO;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/FMDB/src/fmdb",
+					"$(PROJECT_DIR)/Vendor/MJExtension/MJExtension",
+				);
 				INFOPLIST_FILE = "NextBody-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				CODE_SIGN_ENTITLEMENTS = NextBody/NextBody.entitlements;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-framework",
+					VeepooBleSDK,
+					"-framework",
+					ABParTool,
+					"-framework",
+					DFUnits,
+					"-framework",
+					GRDFUSDK,
+					"-framework",
+					JLDialUnit,
+					"-framework",
+					JL_BLEKit,
+					"-framework",
+					ZipZap,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.nextbody.hoop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

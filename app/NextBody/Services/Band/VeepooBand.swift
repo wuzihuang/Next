@@ -15,7 +15,7 @@ import Foundation
 import VeepooBleSDK
 
 final class VeepooBand: BandService, @unchecked Sendable {
-    private let central = VPBleCentralManage.shared()
+    private let central: VPBleCentralManage = VPBleCentralManage.sharedBleManager()!
     private let queue = HoopQueue()
 
     private(set) var state: BandConnectionState = .idle {
@@ -36,11 +36,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
 
         central.vpBleConnectStateChangeBlock = { [weak self] deviceState in
             guard let self else { return }
+            // Real SDK enum is VPDeviceConnectState (imported without the prefix):
+            // .connect / .disConnect / .connecting / .verifyPasswordSuccess / .timeout …
             switch deviceState {
-            case .connected:    self.state = .connected
-            case .disconnect:   self.state = .disconnected
-            case .connecting:   self.state = .connecting
-            default:            break
+            case .connectStateConnect, .connectStateVerifyPasswordSuccess: self.state = .connected
+            case .connectStateDisConnect, .connectStateVerifyPasswordFailure, .connectStateTimeout: self.state = .disconnected
+            case .connectStateConnecting: self.state = .connecting
+            default: break
             }
         }
     }
@@ -147,8 +149,8 @@ final class VeepooBand: BandService, @unchecked Sendable {
                             switch charge {
                             case .charging: .charging
                             case .full:     .full
-                            case .noCharge: .unplugged
-                            default:        .unknown
+                            case .normal:   .unplugged
+                            default:                   .unknown
                             }
                         }()))
                 }
@@ -236,9 +238,9 @@ final class VeepooBand: BandService, @unchecked Sendable {
             c.yield(.waitingForContact)
             // F1 rule 05 · stop before the screen goes. `start(false)` is the SDK's stop, and
             // onTermination fires whether the stream ended on its own or the takeover was closed.
-            c.onTermination = { _ in peripheral.veepooSDKTestHeartStart(false) { _, _ in } }
+            c.onTermination = { _ in peripheral.veepooSDKTestHeartStart(false, testResult: { _, _ in }) }
             var started = false
-            peripheral.veepooSDKTestHeartStart(true) { testState, value in
+            peripheral.veepooSDKTestHeartStart(true, testResult: { testState, value in
                 switch testState {
                 case .testing:
                     // The first `testing` is the contact judgement — not the fact that we
@@ -246,17 +248,17 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     if !started { started = true; c.yield(.contact) }
                     c.yield(.measuring(fraction: 0.5,
                                        partial: PartialReading(heartRate: Int(value))))
-                case .testEnd:
+                case .over:
                     c.yield(.finished(.heartRate(hr: Int(value), hrv: nil, stress: nil)))
                     c.finish()
-                case .wearError, .notWear:
+                case .notWear:
                     c.yield(.lostContact)
-                case .busy:
+                case .deviceBusy:
                     c.finish(throwing: BandError.busy)
                 default:
                     break
                 }
-            }
+            })
         }
     }
 
@@ -273,40 +275,43 @@ final class VeepooBand: BandService, @unchecked Sendable {
             c.yield(.waitingForContact)
             // F1 rule 05 · see measureHeartRate. A body scan left running is worse: it holds
             // the electrodes and the queue for the full thirty seconds.
-            c.onTermination = { _ in peripheral.veepooSDKTestBodyCompositionStart(false) { _, _ in } }
+            c.onTermination = { _ in peripheral.veepooSDKTestBodyCompositionStart(false, progress: { _, _ in }, testResult: { _, _ in }) }
             var hadContact = false
-            peripheral.veepooSDKTestBodyCompositionStart(true) { lead, progress in
+            peripheral.veepooSDKTestBodyCompositionStart(true, progress: { lead, progress in
                 // lead == 0 means the hand is on the electrode.
                 if lead == 0 {
                     if !hadContact { hadContact = true; c.yield(.contact) }
-                    c.yield(.measuring(fraction: progress.fractionCompleted, partial: nil))
+                    c.yield(.measuring(fraction: progress?.fractionCompleted ?? 0, partial: nil))
                 } else if hadContact {
                     // ⚠️ Body composition has no resume: lifting off restarts the 30 seconds.
                     hadContact = false
                     c.yield(.lostContact)
                 }
-            } testResult: { state, model in
-                guard state == .success, let model else {
+            }, testResult: { state, model in
+                guard state == .complete, let model else {
                     c.yield(.failed(reason: "SCAN DID NOT COMPLETE")); c.finish(); return
                 }
+                // ⚠️ Every VPBodyCompositionValueModel field is an NSString, so each is
+                // parsed to a number here (nil when the firmware sent an empty string).
+                func num(_ s: String?) -> Double? { guard let s, let v = Double(s) else { return nil }; return v }
                 c.yield(.finished(.bodyComposition(BodyCompositionReading(
-                    bodyFatPercent: model.bodyFatRate,
-                    fatMassKg: model.bodyFatMass,
-                    leanMassKg: model.leanBodyMass,
-                    muscleKg: model.muscleMass,
-                    boneKg: model.boneMass,
-                    bodyWaterPercent: model.moistureRate,
-                    proteinPercent: model.proteinRate,
-                    subcutaneousFatPercent: model.subcutaneousFatRate,
-                    skeletalMusclePercent: model.skeletalMuscleRate,
+                    bodyFatPercent: num(model.bodyFatPercentage) ?? 0,
+                    fatMassKg: num(model.fatMass) ?? 0,
+                    leanMassKg: num(model.leanBodyMass) ?? 0,
+                    muscleKg: num(model.muscleMass),
+                    boneKg: num(model.boneMass),
+                    bodyWaterPercent: num(model.waterContent),
+                    proteinPercent: num(model.proportionOfProtein),
+                    subcutaneousFatPercent: num(model.subcutaneousFat),
+                    skeletalMusclePercent: num(model.skeletalMuscleRate),
                     // ⚠️ The BIA's own basalMetabolicRate is a MEASURED reference only.
                     // It never enters the budget — Mifflin does. Electrode contact can move
                     // it by tens of kcal, and a budget that shifts with grip is unfindable.
-                    bmrKcal: Int(model.basalMetabolicRate),
-                    bmi: model.bmi,
+                    bmrKcal: num(model.basalMetabolicRate).map { Int($0) },
+                    bmi: num(model.bmi),
                     inputWeightKg: weight))))
                 c.finish()
-            }
+            })
         }
     }
 
@@ -327,14 +332,14 @@ final class VeepooBand: BandService, @unchecked Sendable {
             case .heartRateAlarm(let on, let low, let high):
                 let model = VPDeviceHeartAlarmModel()
                 model.isOpen = on
-                model.heartAlarmHighValue = UInt(high)
-                model.heartAlarmLowValue = UInt(low)
+                model.heartMaxValue = UInt(high)
+                model.heartMinValue = UInt(low)
                 return try await withCheckedThrowingContinuation { c in
                     peripheral.veepooSDKSettingDeviceHeartAlarm(with: model, settingMode: 1) { back in
                         c.resume(returning: .heartRateAlarm(
                             on: back?.isOpen ?? on,
-                            low: Int(back?.heartAlarmLowValue ?? UInt(low)),
-                            high: Int(back?.heartAlarmHighValue ?? UInt(high))))
+                            low: Int(back?.heartMinValue ?? UInt(low)),
+                            high: Int(back?.heartMaxValue ?? UInt(high))))
                     } failureResult: {
                         c.resume(throwing: BandError.rejected("HEART RATE ALARM REFUSED"))
                     }
@@ -375,7 +380,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 m.startHour = UInt8(slot.startHour)
                 m.endHour = UInt8(slot.endHour)
                 m.timeInterval = UInt16(slot.intervalMinutes)
-                peripheral.veepooSDKSetAutoMonitSwitch(with: m) { _ in c.resume() }
+                peripheral.veepooSDKSetAutoMonitSwitch(with: m, result: { _, _ in c.resume() })
             }
         }
     }
@@ -389,7 +394,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         case .bloodOxygen:     .bloodOxygen
         case .bodyTemperature: .temperature
         case .lorentz:         .lorentz
-        case .hrv:             .hrv
+        case .HRV:             .hrv
         case .bloodComponents: .bloodComponents
         @unknown default:      nil
         }

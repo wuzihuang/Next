@@ -370,6 +370,30 @@ Composition, Device, Fuel, Profile, Shared and WeighIn — every one of them a b
 spec. Nothing animates that no board asked for, which is the half of this that is easy to get
 wrong by adding polish the design did not request.
 
+## Every table, counted again
+
+Read straight off the live project through the pooler, not inferred from the app:
+
+```
+   23 ai_turns          182 call_changes        1 devices           32 screen_frames
+    9 analytics_events  182 daily_results       567 meals           14 sleep_nights
+   24 banned_phrases    182 daily_training        1 profiles        34 sync_runs
+  111 body_composition  182 day_fuel         52257 raw_samples     151 weigh_ins
+                          1 device_capabilities   5 recompute_log
+                                                 14 reserve_daily
+                                               3885 reserve_samples
+
+20 tables, 0 empty
+```
+
+The five that the second pass found had never been written to — sync_runs, analytics_events,
+recompute_log, device_capabilities and ai_turns — all hold rows now, and ai_turns is growing as
+turns are made, which is the one that matters most because it is the record of what she was asked
+and what she answered.
+
+The four 182s line up: `daily_results`, `daily_training`, `day_fuel` and `call_changes` each hold
+one row per user day, and 182 is the width of board 11's heat map — 26 columns of seven.
+
 ## What this machine cannot reach, and why
 
 Three things are blocked by something outside the repo, and none of them is a decision:

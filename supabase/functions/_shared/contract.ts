@@ -93,7 +93,7 @@ export function tagSafe(s: unknown): string {
 // S7 · the one list. `turn` checks it before any tool call, and `meal` checks it too:
 // the dock's food classifier looks for 吃, which 吃药 contains, so a medication question
 // reaches /meal without ever passing through /turn.
-export const MEDICAL = /(诊断|症状|吃药|用药|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|diagnos|pregnan|symptom)/i;
+export const MEDICAL = /(诊断|症状|吃药|用药|停药|服药|药物|处方|剂量|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|medication|prescription|dosage|diagnos|pregnan|symptom)/i;
 
 export const MEDICAL_STOP: Envelope = {
   type: "text",

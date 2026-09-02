@@ -51,7 +51,14 @@ export class NumberLedger {
   /// Recursively harvest a tool return.
   harvest(node: unknown, path = "$") {
     if (node === null || node === undefined) return;      // null is not a number
-    if (typeof node === "number") return this.add(node, path);
+    if (typeof node === "number") {
+      this.add(node, path);
+      // A signed delta is the same number said either way round: the tool returned
+      // thisHalfVsPrevHalf = -3.7, the model wrote "少了 3.7", and the frame was thrown out
+      // for a sign it had put into the verb.
+      if (node < 0) this.add(-node, `${path}|abs`);
+      return;
+    }
     if (Array.isArray(node)) {
       node.forEach((v, i) => this.harvest(v, `${path}[${i}]`));
       // A series carries two facts beyond its values: how many points there are, and how

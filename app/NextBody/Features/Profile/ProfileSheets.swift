@@ -304,7 +304,10 @@ struct AppleHealthSheet: View {
                         .foregroundStyle(data.profile.appleHealthLinked ? NB.optimal2 : NB.ember1)
                     Spacer(minLength: 0)
                 }
-                Text("We read weight and body fat, and write back the weigh-ins you enter by hand. Nothing else moves in either direction.")
+                // ⚠️ Board 11 said "and write back the weigh-ins you enter by hand". The consent
+                // screen (later, and the legal one) says "We never write anything back to Apple
+                // Health", and the app does not — so this sentence follows the consent board.
+                Text("We read your sex, date of birth, height and weight. Nothing is ever written back.")
                     .font(NBFont.brand(400, 14))
                     .lineSpacing(7)
                     .foregroundStyle(NB.text2)
@@ -317,7 +320,11 @@ struct AppleHealthSheet: View {
             .cardSkin()
         } footer: {
             LimePillButton(title: data.profile.appleHealthLinked ? "Re-check now" : "Connect Apple Health") {
-                data.profile.appleHealthLinked = true
+                Task {
+                    await HealthService.shared.requestRead()
+                    // Linked means "asked and something came back" — the only thing we can know.
+                    data.profile.appleHealthLinked = !(await HealthService.shared.readBaseline()).isEmpty
+                }
             }
         }
     }

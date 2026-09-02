@@ -14,7 +14,7 @@ enum MedicalStop {
     /// side alone leaves a path open: the server never sees a turn the client routes to
     /// `meal`, and the client is not the place to trust a rule this one matters.
     private static let pattern = try! NSRegularExpression(
-        pattern: "(诊断|症状|吃药|用药|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|diagnos|pregnan|symptom)",
+        pattern: "(诊断|症状|吃药|用药|停药|服药|药物|处方|剂量|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|medication|prescription|dosage|diagnos|pregnan|symptom)",
         options: [.caseInsensitive])
 
     static func matches(_ text: String) -> Bool {

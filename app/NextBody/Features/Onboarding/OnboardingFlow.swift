@@ -18,10 +18,10 @@ struct OnboardingFlow: View {
     @State private var born = DateComponents(year: 1998, month: 6, day: 12)
     @State private var heightCm: Double = 172
     @State private var weightKg: Double = 63
-    @State private var heightFromHealth = true
-    @State private var weightFromHealth = true
-    @State private var bornFromHealth = true
-    @State private var sexFromHealth = true
+    @State private var heightFromHealth = false
+    @State private var weightFromHealth = false
+    @State private var bornFromHealth = false
+    @State private var sexFromHealth = false
     @State private var goal: Goal = .cut
 
     var body: some View {
@@ -32,7 +32,7 @@ struct OnboardingFlow: View {
                 // and nothing is ever read until the screen is answered again from Settings.
                 ConsentScreen(onContinue: { step = .healthSync }, onBack: { step = .healthSync })
             case .healthSync:
-                HealthSync(onSync: { step = .confirm }, onManual: { step = .confirm })
+                HealthSync(onSync: { Task { await syncFromHealth() } }, onManual: { step = .confirm })
             case .confirm:
                 ConfirmScreen(sex: $sex, born: born, heightCm: heightCm, weightKg: weightKg,
                               heightFromHealth: heightFromHealth, weightFromHealth: weightFromHealth,
@@ -81,6 +81,19 @@ struct OnboardingFlow: View {
     private func age(from c: DateComponents) -> Int {
         guard let d = Calendar.current.date(from: c) else { return 30 }
         return Calendar.current.dateComponents([.year], from: d, to: Date()).year ?? 30
+    }
+
+    /// 02 · the system sheet, then one read. Only the values that came back are marked as
+    /// Health's; the rest keep the defaults and the dot that says "tap to correct".
+    private func syncFromHealth() async {
+        await HealthService.shared.requestRead()
+        let b = await HealthService.shared.readBaseline()
+        if let m = b.sexIsMale { sex = m ? "Male" : "Female"; sexFromHealth = true }
+        if let d = b.born { born = d; bornFromHealth = true }
+        if let h = b.heightCm { heightCm = h; heightFromHealth = true }
+        if let w = b.weightKg { weightKg = w; weightFromHealth = true }
+        if !b.isEmpty { data.profile.appleHealthLinked = true }
+        step = .confirm
     }
 
     private func enter() {

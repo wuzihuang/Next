@@ -834,6 +834,19 @@ built. Everything below was walked on the iPhone 16e simulator with the accessib
 - **A11y / motion** — the training rings carry labels; `ListeningWave`, `StandbyArt`,
   `MeasureTakeover`, the renderers and the big ring honour Reduce Motion.
 
+- **Apple Health, read only** — `HealthService` (sex, date of birth, height, weight; `toShare`
+  is empty) with the `com.apple.developer.healthkit` entitlement the project never had.
+  Onboarding's `Sync from Apple Health` shows the system sheet and marks only the values that
+  came back as Health's; Settings › Apple Health's `Connect / Re-check now` asks and reads;
+  the weigh-in sheet offers Health's latest weight only when it is newer than HOOP's own.
+  Board 11's sentence "write back the weigh-ins you enter by hand" contradicts the consent
+  board's "We never write anything back" — the app follows the consent board.
+- **S7 widened** — 停药 / 服药 / 药物 / 处方 / 剂量 / medication / prescription / dosage join
+  the medical stop on both the server and the always-compiled client regex.
+- **Ledger · signed deltas** — a negative tool value is harvested with its absolute value too:
+  `thisHalfVsPrevHalf = -3.7` said as "低 3.7" is the same number, and the frame used to be
+  thrown out for a sign the model had put into the verb.
+
 ### Walked on the simulator
 
 - Home with no consent → `NOT COLLECTING` panel (amber eyebrow, standby art, "HOOP isn't
@@ -844,6 +857,11 @@ built. Everything below was walked on the iPhone 16e simulator with the accessib
 - `NB_DEBUG_NO_TARGET=1` → Fuel → the NO TARGET page: `——` target, 1,240 KCAL EATEN from 3
   meals, 84 g / 132 g / 42 g with no bars, THE BAND COUNTED with `——` (columns not yet
   migrated), the four bullets.
+- Settings › Apple Health › Connect → the system Health Access sheet (Date of Birth, Height,
+  Weight, Sex switches) → Turn On All → Allow.
+- Four prompts through the local host with the current code: 今天吃了多少 → `meal`;
+  今天还能练多少 → `gauge` (差 6.1 traced via |latestVsMean|); 这周练得怎么样 → `bars`
+  (低 3.7 traced); prompt injection + 停药 → `NOT A DOCTOR` before any tool, 1.7 s.
 - Morning clock 08:30 → `MULTIPLIER 1.00 · NO HRV YET`, hero 52, curve of 141 ticks, peak
   06:25, `CHARGED +18 · ONE TIER DOWN`, `TAP TO SEE WHY` → then the primer. `Not now` →
   relaunch → `ALREADY_SHOWN`, no primer.
@@ -857,7 +875,8 @@ built. Everything below was walked on the iPhone 16e simulator with the accessib
 
 ### Waiting on you
 
-- `supabase db push` — five new migrations: raw_samples relax / no dates no spo2, banned
+- `supabase db push` — applying DDL from here is blocked by the session's permission
+  classifier (tried through the pooler; refused). Five new migrations: raw_samples relax / no dates no spo2, banned
   phrases, consents, training extras, bb_morning_shown_at. Until then: consent is enforced on
   the phone only, THE BAND COUNTED shows `——`, and the morning stamp lives in UserDefaults.
 - Deploy `turn`, `meal`, `meal-commit`, `asr` (CLI login).

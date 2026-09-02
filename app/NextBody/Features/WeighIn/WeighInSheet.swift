@@ -23,7 +23,7 @@ struct WeighInSheet: View {
     /// sheet always opened claiming Health had a new weigh-in — on a build with no
     /// HealthKit entitlement at all, and over an account whose real last weight was 75.8.
     /// A prompt to confirm a number nobody measured is the worst thing this sheet can do.
-    var healthCandidate: (kg: Double, at: String)?
+    @State private var healthCandidate: (kg: Double, at: String)?
 
     var body: some View {
         Group {
@@ -33,8 +33,17 @@ struct WeighInSheet: View {
             }
         }
         .background(NB.carbon2)
+        .task {
+            // Only a weigh-in newer than HOOP's own last one is worth confirming.
+            if let w = await HealthService.shared.latestWeight(),
+               w.at > (data.weighIns.first?.date ?? .distantPast) {
+                let f = DateFormatter(); f.dateFormat = "HH:mm"
+                let day = Calendar.current.isDateInToday(w.at) ? "TODAY" : Calendar.current.isDateInYesterday(w.at) ? "YESTERDAY" : f.string(from: w.at)
+                healthCandidate = (w.kg, "\(day) \(f.string(from: w.at))")
+                mode = .fromHealth
+            }
+        }
         .onAppear {
-            if healthCandidate != nil { mode = .fromHealth }
             // The keypad opens on what they weigh now, not on an empty field: most entries
             // are a small correction to the last one.
             if typed.isEmpty { typed = Fmt.kg(data.today.weightKg) }

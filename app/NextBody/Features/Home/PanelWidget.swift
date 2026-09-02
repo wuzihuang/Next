@@ -117,6 +117,8 @@ struct PanelWidget: Identifiable, Hashable {
     /// 06 · 17 · a measurement's result "becomes a message": tapping it asks her about the
     /// numbers instead of opening a page. Only the frames the band just produced carry this.
     var replyPrompt: String?
+    /// 06 · 16 · the measured number is the hero of the frame even on a trace-shaped widget.
+    var heroLarge = false
     var ttlMinutes: Int = 20
     var priority: Priority = .normal
 
@@ -340,7 +342,7 @@ struct PanelWidgetView: View {
     // MARK: hero
 
     @ViewBuilder private var hero: some View {
-        switch widget.type.hero {
+        switch (widget.heroLarge ? HeroStyle.large : widget.type.hero) {
         case .large:
             Text(heroValue)
                 .font(NBFont.brand(700, 84)).tracking(-0.045 * 84)

@@ -101,9 +101,19 @@ struct AvatarButton: View {
 struct HomeHeader: View {
     let batteryPercent: Int
     let onAvatar: () -> Void
+    #if DEBUG
+    @State private var catalogue = false
+    #endif
     var body: some View {
         HStack(spacing: 0) {
             Wordmark()
+            #if DEBUG
+                // 07's catalogue is the one board that cannot be audited by using the app,
+                // because which widget appears is the model's choice. A long press opens
+                // every type at once. DEBUG only — it is not a product surface.
+                .onLongPressGesture(minimumDuration: 0.8) { catalogue = true }
+                .fullScreenCover(isPresented: $catalogue) { WidgetCatalogue() }
+            #endif
             Spacer(minLength: 0)
             HStack(spacing: 12) {
                 BandBatteryPip(percent: batteryPercent)

@@ -9,7 +9,7 @@ import { model, MODEL_VERSION } from "../_shared/model.ts";
 import { systemPrompt } from "../_shared/prompt.ts";
 import { buildTools } from "../_shared/tools.ts";
 import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
-import { Envelope, PANEL_TYPES, TARGETS, MEDICAL_STOP, batteryFallback } from "../_shared/contract.ts";
+import { Envelope, RENDERABLE_TYPES, TARGETS, MEDICAL_STOP, batteryFallback } from "../_shared/contract.ts";
 import { userClient, currentUserId, cors, json } from "../_shared/db.ts";
 
 const MEDICAL = /(诊断|症状|吃药|用药|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|diagnos|pregnan|symptom)/i;
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
         // The enums live in the tool schema, not only in the validator. A model given a
         // free string invents "day" and "dailyDirection"; given the 27 values it picks one.
         parameters: z.object({
-          type: z.enum(PANEL_TYPES),
+          type: z.enum(RENDERABLE_TYPES as unknown as [string, ...string[]]),
           title: z.string().describe("≤ 18 characters, upper-cased on screen"),
           tag: z.enum(["MOVE", "FUEL", "RECOVER", "ALERT"]).optional(),
           sentence: z.string().describe("≤ 48 characters, two lines at most"),

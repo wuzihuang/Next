@@ -10,6 +10,17 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
     case cells, hypnogram, zones, wave, table, workout, events, heat, o2night
     case food, meal, fuel, balance, recomp, delta, dual
 
+    /// ⚠️ 1EEU · the three sleep widgets are not in V1, and F0 rule 03 is the reason: the
+    /// night only ever reaches the screen as the Body Battery it produced. They stay in the
+    /// enum because the contract has 27 types, but a frame carrying one is dropped rather
+    /// than drawn — the server no longer offers them, and this is the second lock.
+    var isSleepWidget: Bool {
+        switch self {
+        case .hypnogram, .split, .o2night: true
+        default: false
+        }
+    }
+
     /// 09 · B — ten renderers over 27 types.
     var renderer: PanelRenderer {
         switch self {
@@ -78,6 +89,12 @@ struct PanelWidget: Identifiable, Hashable {
     var sentence: String              // ≤ 48, two lines max
     var footer: String?               // ≤ 42, segments joined by " · "
     var action: String?               // ≤ 32, upper-cased, takes the accent
+    /// 07's table gives some types an explicit `data.hero` rather than deriving one, and
+    /// they fall into two groups. `events`, `heat`, `meal` and `workout` have no sensible
+    /// first row to take. `fuel` and `balance` do, but their heroes are "biggest gap" and
+    /// "in − out" — derivations the stack shape cannot make, because it carries one number
+    /// per part and neither the targets nor the sign. When present this wins over the shape.
+    var hero: String?
     var accentOverride: Color?
     var data: PanelData
     var ttlMinutes: Int = 20
@@ -254,6 +271,7 @@ struct PanelWidgetView: View {
     }
 
     private var heroValue: String {
+        if let hero = widget.hero, !hero.isEmpty { return hero }
         switch widget.data {
         case .series(let s):                      return s.last.map { Fmt.kg($0) } ?? Fmt.dash
         case .ring(let v, let g, let u):          return u.isEmpty ? "\(Int(v))/\(Int(g))" : "\(Int(v))\(u)"

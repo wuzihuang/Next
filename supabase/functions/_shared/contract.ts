@@ -14,6 +14,19 @@ export const PANEL_TYPES = [
 
 export type PanelType = (typeof PANEL_TYPES)[number];
 
+/// ⚠️ What the model may actually choose — 24 of the 27.
+///
+/// 1EEU puts "睡眠分期与睡眠时长的任何渲染，含 07 板的 hypnogram / split / o2night 三个
+/// widget" on the not-in-V1 list, and F0 rule 03 bans sleep from the screen outright: the
+/// night only ever appears as the Body Battery it produced. The three stay in PANEL_TYPES
+/// because the contract has 27 and a later version will want them, but offering them in the
+/// render tool's enum is how a sleep-stage strip ends up on screen — the model picks what it
+/// is given.
+export const SLEEP_TYPES = ["hypnogram", "split", "o2night"] as const;
+export const RENDERABLE_TYPES = PANEL_TYPES.filter(
+  (t) => !(SLEEP_TYPES as readonly string[]).includes(t),
+);
+
 /// F0 rule 06 · every widget declares the page it lands on. There is no sixth destination.
 export const TARGETS = ["training", "fuel", "bodyBattery", "composition", "profile"] as const;
 

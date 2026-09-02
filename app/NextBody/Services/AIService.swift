@@ -82,6 +82,10 @@ final class AIService: ObservableObject {
               let type = PanelType(rawValue: typeRaw),
               let title = env["title"] as? String,
               let sentence = env["sentence"] as? String else { return nil }
+        // ⚠️ F0 rule 03 · sleep never reaches the screen. The render tool no longer offers
+        // the three sleep types, and a frame that carries one anyway is dropped here rather
+        // than drawn — one lock on each side of the wire.
+        guard !type.isSleepWidget else { return nil }
 
         var accent: Color?
         if let hex = env["accent"] as? String, hex.hasPrefix("#"),
@@ -94,6 +98,7 @@ final class AIService: ObservableObject {
             sentence: String(sentence.prefix(48)),
             footer: (env["footer"] as? String).map { String($0.prefix(42)) },
             action: (env["action"] as? String).map { String($0.prefix(32)) },
+            hero: ((env["data"] as? [String: Any])?["hero"]).map { "\($0)" },
             accentOverride: accent,
             data: Self.decodeData(env["data"] as? [String: Any] ?? [:], type: type),
             ttlMinutes: (env["ttl_min"] as? Int) ?? 20,

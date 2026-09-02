@@ -1313,6 +1313,14 @@ unlocked (`security: User interaction is not allowed` here); your interactive Xc
 with your identity, the same way it signed the app you already installed. Build to the phone from
 Xcode and `Band.isReal` is true → the connect flow scans for and connects to your real HOOP.
 
+**Proven headlessly with signing skipped.** `xcodebuild -destination id=<phone> CODE_SIGNING_ALLOWED=NO`
+gives BUILD SUCCEEDED: the whole device pipeline (compile + link + embed) works. `nm` on the
+built `NextBody.debug.dylib` lists `NextBody.VeepooBand.measureBodyComposition…` — the real band
+class compiled into the device binary, which only happens when `canImport(VeepooBleSDK) &&
+!simulator` is true, i.e. `Band.live` is `VeepooBand`, not `MockBand`. All seven frameworks are in
+the built `.app/Frameworks` (VeepooBleSDK arm64). The one step left is code-signing those frameworks,
+which your interactive Xcode build does with your identity.
+
 ⚠️ Firmware update / dial features (GRDFUSDK / JLDialUnit / DFUnits) are linked but the app's OTA
 path is still the stub noted on 12; connect + HR/steps/sleep + body-composition read are the wired
 paths.

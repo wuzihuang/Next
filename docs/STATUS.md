@@ -614,10 +614,31 @@ writing 0 means the parser failed, not that someone ate nothing. A real commit r
 05's unique index on `(user_id, client_op_id)` making a retry a no-op rather than a second dinner.
 The audit row was soft-deleted afterwards.
 
-**asr.** `401` without a session, `E_SCHEMA` with no `audio` part, `413 TOO_LARGE` past the 2 MB
-ceiling. The transcription itself needs real speech, which this machine cannot produce, so the
-`NO_SPEECH` and `confidence < 0.4` paths are still unproven — they are the two the client's
-「DIDN'T CATCH THAT」 degrade depends on.
+**asr.** `401` without a session, `E_SCHEMA` with no `audio` part, `413 TOO_LARGE` past 2 MB. I
+first wrote that the transcription itself could not be tested here for want of real speech; that
+was wrong — macOS has `say`, and `afconvert` turns its output into 16 kHz mono WAV. Testing it
+found the endpoint could never have worked.
+
+⚠️ **It was posting to a URL that does not exist.** The file sent a multipart clip to
+`/compatible-mode/v1/audio/transcriptions` with `paraformer-realtime-v2`. DashScope answers that
+path with **404** — the key is fine, the same key gets 200 from chat — so every request returned
+`MODEL_UNAVAILABLE` and voice input could never have worked at all. Nothing catches this but
+calling it: a typechecker sees a well-formed string, and the failure wears the costume of the
+model being down.
+
+What does work, found by trying: `qwen3-asr-flash` on
+`/api/v1/services/aigc/multimodal-generation/generation`, clip inline as a base64 data URI. Given
+a clip saying 「今天吃了半碗面加一个鸡蛋」 it returns exactly that.
+
+⚠️ **And two seconds of silence came back as 「嗯。」.** The model fills rather than returns
+nothing. This is the case F4's 「confidence < 0.4 → NO_SPEECH」 exists for, and this provider
+reports no confidence at all — so a transcript of pure filler is the only silence signal left,
+and it is now treated as one. `durationMs` and `confidence` are returned as `null` rather than
+invented: writing 1.0 would read as certain on every clip, and S4's absence law binds our own
+metadata too. Both stay null until a provider that reports them is chosen.
+
+Worth knowing separately: nothing in the app calls `asr` yet. The dock's listening state animates
+but records nothing, so the voice path is server-only either way.
 
 ⚠️ Found while testing, and fixed: `client_op_id` is a uuid column, so a malformed
 `Idempotency-Key` came back as Postgres's own `invalid input syntax for type uuid: "…"` — a 400

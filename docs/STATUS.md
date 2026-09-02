@@ -1414,6 +1414,13 @@ should never leave). No invite: the app has no invite flow, and that mail only g
 presses "Invite user" in the dashboard. `auth-config.sh` pushes the five subjects and bodies; a code mail sent after the roll-out carries the
 new frame. Config changes on the hosted project take one to three minutes to reach the mailer.
 
+Two mail-client facts the frame now survives, both seen in QQ Mail on a real inbox: it strips
+`<style>`, `rgba()` and the `background` shorthand (so every ground is a `bgcolor` attribute plus
+`background-color`, every colour a solid hex), and its dark mode inverts a mail wholesale, which
+turned the carbon white (so the head declares `light dark`, every ground is also a flat
+`linear-gradient` image, and a `prefers-color-scheme: dark` block pins each colour with
+`!important`). Confirmed carbon in both modes.
+
 ## Running it
 
 ```sh

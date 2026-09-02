@@ -203,11 +203,16 @@ private struct OnbPage<Content: View>: View {
             Spacer(minLength: 0)
             LimePillButton(title: cta, enabled: ctaEnabled, action: onCTA)
             if let footnote {
-                Text(footnote)
-                    .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
-                    .foregroundStyle(NB.white.opacity(0.42))
-                    .padding(.top, 16)
-                    .onTapGesture { onFootnote?() }
+                // Plain text on the board (no dot, no state) — but a real button underneath,
+                // so VoiceOver and the automation tree can find "Enter manually instead".
+                Button { onFootnote?() } label: {
+                    Text(footnote)
+                        .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
+                        .foregroundStyle(NB.white.opacity(0.42))
+                        .padding(.top, 16)
+                }
+                .buttonStyle(.plain)
+                .disabled(onFootnote == nil)
             }
             Color.clear.frame(height: 10)
         }

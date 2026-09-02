@@ -1253,6 +1253,15 @@ Doto` — and `Typography.swift` maps its three roles to exactly those (`ui = "J
 fallback; only the status-bar clock is deliberately SF. Colour and type — the two halves of the
 design-system foundation criterion 1 calls out — are both 1:1 with the board tokens.
 
+### Radii too: all 12 corner tokens match to the value
+`Tokens.R` carries the board's twelve radius tokens exactly — `--r-key 9`, `--r-tile 13`,
+`--r-inner 14`, `--r-chip 18`, `--r-spec 22`, `--r-mat 24`, `--r-card 26`, `--r-aura 28`,
+`--r-hero 30`, `--r-phone 34`, `--r-panel 40`, `--r-pill 999` — 0 mismatches, 0 missing. The
+`--fs-*` type scale is not a set of named constants (sizes are passed at each call site) but the
+rendered sizes were confirmed against 07's `theme.text` (11.5 / 84 / 18 / 10.5 …). So the whole
+design-system foundation — 51 colours, 12 radii, 3 font families as real TTFs, and the type
+sizes — is 1:1 with the board tokens, checked programmatically, not by eye.
+
 ## Running it
 
 ```sh

@@ -759,8 +759,12 @@ an open question about the bottom strip, so 13 stands — but one of the two boa
    | `account.delete` | `public.account_delete(confirm)` RPC |
    | `export` | `public.export_all()` RPC |
 
-   The CLI's login is a browser flow, so it could not be done from here. The four model-facing
-   functions are finished and proven — run these four lines with `!` in front and they are live:
+   The CLI's login is a browser flow, so it could not be done from here. ⚠️ Checked again on
+   2026-09-02: `~/.supabase/access-token` exists, but `supabase projects list` shows only an
+   org with a project named COREADING — that token belongs to an account that does not own
+   `gkgzwcxivnffsecshvfs`, so `link`, `db push` and `functions deploy` all need a fresh
+   `supabase login` as the project's owner first. The four model-facing functions are finished
+   and proven — run these four lines with `!` in front and they are live:
 
    ```sh
    supabase login

@@ -409,6 +409,19 @@ Three things are blocked by something outside the repo, and none of them is a de
   it while it was up, or against `docs/prd/`, which is the F-series only. Further 1:1 work on the
   screen boards needs it back.
 
+  ⚠️ I spent most of this pass calling it "down" and telling you to reconnect with `/mcp`. That
+  advice was wrong, and the diagnosis is worth writing down because it is not what it looks like.
+  The server is **local**: `~/.claude.json` has `paper -> http://127.0.0.1:29979/mcp`. Paper.app
+  is running (it holds the LISTEN socket on 29979, alongside several CLOSED ones from earlier
+  connections) and a `~/.paper/bin/paper mcp` relay is up and idle. But a connection to that port
+  now **accepts and then hangs** — `curl` sits until it times out rather than being refused. The
+  listener is wedged, not absent.
+
+  So `/mcp` reconnect on its own cannot fix it: the client is not the broken half. Paper.app has
+  to be restarted, and that is not something to do to someone's design tool from here — it may be
+  holding unsaved work. `~/.paper/bin/paper` offers only `mcp` (a stdio relay), with no status or
+  restart, so there is no lighter touch available. Restart Paper.app, then `/mcp`.
+
 ## F6 §05's seven rulings, checked against the app
 
 With the Paper file down, `docs/prd/F6-handoff.md` turned out to hold the part that mattered

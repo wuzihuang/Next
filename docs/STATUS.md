@@ -1387,7 +1387,11 @@ Hosted project: `supabase/scripts/auth-config.sh` PATCHes exactly these fields p
 provider through the Management API (`/v1/projects/<ref>/config/auth`) — not `supabase config push`,
 which would replace every auth setting with the local file's (site_url 127.0.0.1 included). It reads
 `SUPABASE_ACCESS_TOKEN` and `SUPABASE_AUTH_SMTP_PASS` from the environment; neither is in the repo.
-Before running it, `nextbody.ai` must be verified at Resend (its SPF/DKIM records added to DNS).
+Done 2026-09-02: `nextbody.ai` (Cloudflare zone, registered that day) carries Resend's DKIM, MX and
+SPF records and is verified; the script ran against the hosted project — SMTP is Resend, OTP 600 s,
+200 mails/hour, the `{{ .Token }}` template is live, and `/auth/v1/settings` lists `apple` and
+`email`. The Resend key is a sending-only key scoped to that domain. Not yet done: a real code sent
+to a real inbox through the new SMTP.
 
 ## Running it
 

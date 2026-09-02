@@ -201,9 +201,13 @@ S7 working: `NOT A DOCTOR · 这类问题请找医生。这块屏只报告测量
 
 ## What the audit could not reach
 
-- **Board 07's 27 widget types.** Ten renderers are built and two were exercised end to end
-  through the live model — a gauge and a stat frame, both with every number traceable. The
-  other 25 types need a turn that asks for them, and the model picks the type.
+- **Board 07's contract is audited now**, by a DEBUG-only catalogue behind a long press on
+  the wordmark: all 24 types the model may pick, rendered side by side with 07's own data
+  shapes, so the ten renderers, the accent map and the four hero styles read against the
+  board in three screenfuls. It found two things a screenshot of one widget never would —
+  the three sleep types were on offer to the model despite 1EEU and F0 rule 03, and the
+  envelope's `data.hero` was being dropped for the six types whose hero cannot be derived
+  from the shape.
 - **WEEK's empty state on 12**, which 1EL9 and 1ACQ say deliberately not to build: the first
   week has no previous week, and NO CALL holds that ground.
 - **Anything the band has to answer.** The mock answers on the real timings, but a HOOP on a

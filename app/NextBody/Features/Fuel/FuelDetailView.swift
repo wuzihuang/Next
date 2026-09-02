@@ -6,7 +6,6 @@ struct FuelDetailView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
-    @State private var range = "DAY"
     @State private var editing: MealEntry?
 
     private var m: DailyMetrics { data.today }
@@ -61,7 +60,9 @@ struct FuelDetailView: View {
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .foregroundStyle(NB.emberPale)
             }
-            SegmentedPills(options: ["DAY", "WEEK", "MONTH"], selection: $range)
+            // ⚠️ Absent on purpose — see 08. VAF · "留一个点了没反应的分段控件比没有更糟",
+            // and 1EIH rules delete for both pages. THIS WEEK at the foot of this page is
+            // what WEEK was for.
         }
         .padding(.top, 14)
     }

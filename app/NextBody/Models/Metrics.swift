@@ -235,7 +235,11 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var nextMeal: Double?
     /// What actually went in that day, and the weight its targets were set against.
     /// 12 averages the protein over seven days to score one of THE CALL's four signals.
-    var proteinIn: Int?              // NEXT_MEAL
+    var proteinIn: Int?
+    var carbIn: Int?
+    var fatIn: Int?
+    /// The day's steps, taken off the all-day segment rather than stored twice.
+    var steps: Int? { segments.first(where: \.allDay)?.steps }              // NEXT_MEAL
 
     // Composition
     var weightKg: Double?

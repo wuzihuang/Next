@@ -10,6 +10,8 @@ final class DataStore: ObservableObject {
     @Published var today: DailyMetrics
     @Published var history: [DailyMetrics] = []
     @Published var meals: [MealEntry] = []
+    /// The window 12's WEEK view reads. Today's list stays in `meals` so 09 is untouched.
+    @Published var recentMeals: [MealEntry] = []
     @Published var weighIns: [WeighIn] = []
     @Published var band: BandState = .mock
     @Published var profile: Profile = .mock

@@ -70,6 +70,21 @@ final class Repository {
         store.today.leanKg = number(latest["lean_body_mass_kg"])
         store.today.fatSource = (latest["measurement_source"] as? String) == "manual" ? .derived : .measured
 
+        // 12 · WEEK averages fat and lean across seven days and compares that to the seven
+        // before it. Holding the scan only on `today` left both weeks empty and the card
+        // said NO PREVIOUS WEEK on an account with 111 scans.
+        var byDay: [UserDay: (fat: Double?, lean: Double?)] = [:]
+        for row in rows {
+            guard let iso = row["measured_at"] as? String, let at = Self.timestamp(iso) else { continue }
+            byDay[UserDay.containing(at)] = (number(row["fat_mass_kg"]), number(row["lean_body_mass_kg"]))
+        }
+        for i in store.history.indices {
+            if let scan = byDay[store.history[i].day] {
+                store.history[i].fatKg = scan.fat
+                store.history[i].leanKg = scan.lean
+            }
+        }
+
         // ⚠️ Not ISO8601DateFormatter(): PostgREST returns measured_at with an offset the
         // plain parser will take but a fractional-second column will not, and every row
         // then fails its date test — scans7d came back 0 and board 12 sat in its empty
@@ -125,7 +140,7 @@ final class Repository {
             guard !rows.isEmpty else { return }
 
             let fuel = try await db.select("day_fuel", query: [
-                .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,protein_in_g,weight_kg"),
+                .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,protein_in_g,carb_in_g,fat_in_g,weight_kg"),
             ])
             let reserve = try await db.select("reserve_daily", query: [
                 .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs"),
@@ -234,6 +249,8 @@ final class Repository {
                     m.eIn = number(fu["kcal_in"])
                     m.eOutNow = number(fu["kcal_out"])
                     m.proteinIn = number(fu["protein_in_g"]).map { Int($0) }
+                    m.carbIn = number(fu["carb_in_g"]).map { Int($0) }
+                    m.fatIn = number(fu["fat_in_g"]).map { Int($0) }
                     m.weightKg = number(fu["weight_kg"]) ?? m.weightKg
                     m.bmr = number(fu["bmr_kcal"])
                     m.eActive = number(fu["active_kcal"])
@@ -271,6 +288,34 @@ final class Repository {
 
             // The meal list belongs to the same row of truth as the fuel state: if the
             // server says UNLOGGED, an old locally-seeded meal must not survive on screen.
+            // 12 · WEEK needs the week's meals, not just today's. Fetched once for the
+            // window; `store.meals` stays today's so 09 keeps reading exactly what it did.
+            let weekRows = try await db.select("meals", query: [
+                .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g"),
+                .init(name: "deleted_at", value: "is.null"),
+                .init(name: "user_day", value: "gte.\(f.string(from: day.adding(days: -6).start))"),
+                .init(name: "user_day", value: "lte.\(f.string(from: day.start))"),
+                .init(name: "order", value: "logged_at.asc"),
+            ])
+            store.recentMeals = weekRows.compactMap { row in
+                guard let slot = MealEntry.Slot(rawValue: row["slot"] as? String ?? ""),
+                      let iso = row["logged_at"] as? String,
+                      let at = Self.timestamp(iso),
+                      let dayString = row["user_day"] as? String,
+                      let date = f.date(from: String(dayString.prefix(10))) else { return nil }
+                let d = UserDay(date: Calendar.current.date(
+                    bySettingHour: UserDay.boundaryHour, minute: 0, second: 0, of: date) ?? date)
+                return MealEntry(
+                    id: UUID(uuidString: row["id"] as? String ?? "") ?? UUID(),
+                    day: d, at: at, slot: slot, status: .confirmed,
+                    text: row["text_input"] as? String ?? "",
+                    kcal: number(row["kcal"]) ?? 0,
+                    protein: Int(number(row["protein_g"]) ?? 0),
+                    carb: Int(number(row["carb_g"]) ?? 0),
+                    fat: Int(number(row["fat_g"]) ?? 0),
+                    source: .typed)
+            }
+
             let mealRows = try await db.select("meals", query: [
                 .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g"),
                 .init(name: "deleted_at", value: "is.null"),
@@ -396,6 +441,8 @@ final class Repository {
         m.activeForecast = server.activeForecast ?? local.activeForecast
         m.scans7d = server.scans7d > 0 ? server.scans7d : local.scans7d
         m.proteinIn = server.proteinIn
+        m.carbIn = server.carbIn
+        m.fatIn = server.fatIn
         m.serverCall = server.serverCall ?? local.serverCall
         m.logged7d = local.logged7d
         m.bandCoverage = local.bandCoverage

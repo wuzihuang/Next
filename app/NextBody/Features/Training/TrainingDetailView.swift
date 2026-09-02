@@ -6,8 +6,6 @@ struct TrainingDetailView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
-    enum Range: String, CaseIterable { case day = "DAY", week = "WEEK", month = "MONTH" }
-    @State private var range: Range = .day
 
     private var m: DailyMetrics { data.today }
     private var scaled: Bool { m.targetLoad != nil }
@@ -75,9 +73,12 @@ struct TrainingDetailView: View {
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .foregroundStyle(scaled ? NB.cyanPale : NB.text3Prod)
             }
-            SegmentedPills(options: Range.allCases.map(\.rawValue),
-                           selection: Binding(get: { range.rawValue },
-                                              set: { range = Range(rawValue: $0) ?? .day }))
+            // ⚠️ The DAY / WEEK / MONTH control is deliberately absent, not forgotten.
+            // ZUO · "留一个死控件比没有更糟", and 1EIH settles the disagreement between this
+            // board (which said build the screens or disable the control) and 09 (which said
+            // delete it) with "以删为准，两页保持一致". WEEK's job is already done by THIS
+            // WEEK at the foot of the page, and MONTH has no content on seven days of data.
+            // 1EEU lists the segmented control itself as out of V1 for both 08 and 09.
         }
         .padding(.top, 14)
     }

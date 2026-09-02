@@ -91,7 +91,9 @@ struct CompositionDetailView: View {
                     }
                 }
             }
-            SegmentedPills(options: ["DAY", "WEEK", "MONTH"], selection: $range)
+            // ⚠️ 18FW · "DAY 与 WEEK 都有真屏，MONTH 没有，别把它当已设计." Two segments,
+            // not three — this is the one page whose week view the boards actually drew.
+            SegmentedPills(options: ["DAY", "WEEK"], selection: $range)
         }
         .padding(.top, 14)
     }
@@ -158,13 +160,44 @@ struct CompositionDetailView: View {
         .cardSkin()
     }
 
+    // MARK: 19VV · the week window
+    //
+    // ⚠️ 19YC · "WEEK 不是另一个页面：卡片顺序、卡片标题、CTA 的位置全不变，只换数据窗口和
+    // 每张卡右上角那行限定词." The qualifier is a required field, not decoration: 2,240 as a
+    // daily average and 2,240 as a weekly total differ by seven, and a card that forgets to
+    // say which one it is, is simply wrong.
+
+    private var isWeek: Bool { range == "WEEK" }
+
+    /// The seven days ending on the shown day, or just that day.
+    private var window: [DailyMetrics] {
+        guard isWeek else { return [m] }
+        return weekDays.compactMap { d in
+            d == UserDay.containing(Date()) ? data.today : data.history.first { $0.day == d }
+        }
+    }
+
+    /// Days in the window with any food logged. 19YI · this coverage has to be visible:
+    /// a 6/7 week and a 7/7 week are not the same confidence.
+    private var loggedDays: Int {
+        window.filter { if case .unlogged = $0.fuelState { return false } else { return true } }.count
+    }
+
+    private func avg(_ pick: (DailyMetrics) -> Double?) -> Double? {
+        let xs = window.compactMap(pick)
+        return xs.isEmpty ? nil : xs.reduce(0, +) / Double(xs.count)
+    }
+
     private var tierIndex: Int {
         switch m.confidence { case .pending: 1; case .medium: 2; case .high: 3 }
     }
 
     /// F0 rule 05 · seven cells coloured by Daily Direction, not by the quadrant.
     private var thatWeekCard: some View {
-        CardBlock(title: "THAT WEEK", trailing: weekLabel, trailingIsDot: true) {
+        // 19YI · the same seven cells, renamed, with coverage in place of the date range.
+        CardBlock(title: isWeek ? "DAILY BREAKDOWN" : "THAT WEEK",
+                  trailing: isWeek ? "\(loggedDays) OF 7 LOGGED" : weekLabel,
+                  trailingIsDot: true) {
             HStack(spacing: 6) {
                 ForEach(weekDays, id: \.self) { d in
                     let metrics = data.history.first { $0.day == d }
@@ -211,7 +244,21 @@ struct CompositionDetailView: View {
     /// against. ⚠️ A row is lit only when its own number actually clears — the card used to
     /// light all four and print "CLEARS THE −0.15 KG THRESHOLD" beside a −0.05, which is
     /// the page telling the user their own arithmetic is wrong.
+    /// ⚠️ 19YF · DAY's four signals are measured against fixed thresholds; WEEK's are
+    /// measured against the week before. So the same "4/4 SIGNALS AGREE" says two different
+    /// things — DAY means "today's four all point at RECOMP", WEEK means "this week is more
+    /// RECOMP than last week" — and the qualifier on each row is what tells them apart.
+    private var previousWeek: [DailyMetrics] {
+        weekDays.compactMap { d in data.history.first { $0.day == d.adding(days: -7) } }
+    }
+
+    private func weekAvg(_ days: [DailyMetrics], _ pick: (DailyMetrics) -> Double?) -> Double? {
+        let xs = days.compactMap(pick)
+        return xs.isEmpty ? nil : xs.reduce(0, +) / Double(xs.count)
+    }
+
     private var signals: [(name: String, value: String, note: String, lit: Bool)] {
+        if isWeek { return weekSignals }
         let fat = m.fatEmaDelta7d
         let lean = m.leanEmaDelta7d
         let fatLit = (fat.map { abs($0) > TheCall.fatBand }) ?? false
@@ -243,6 +290,46 @@ struct CompositionDetailView: View {
             ("ENERGY BALANCE", Fmt.signedKcal(avgBalance) + " KCAL",
              inWindow ? "INSIDE THE −200 TO −500 RECOMP WINDOW"
                       : "OUTSIDE THE −200 TO −500 RECOMP WINDOW", inWindow),
+        ]
+    }
+
+    private var weekSignals: [(name: String, value: String, note: String, lit: Bool)] {
+        let prev = previousWeek
+        // ⚠️ The value on a week row is the *change*, not the level. Printing the level
+        // beside "VS LAST WEEK" gave "+64.56 KG" for lean mass, which reads as a week's gain
+        // and is actually the body. 19QO/19QW keep the delta on the left and the bar it has
+        // or has not cleared on the right.
+        func compare(_ label: String, _ pick: (DailyMetrics) -> Double?, bar: Double?,
+                     lowerIsBetter: Bool, format: (Double?) -> String)
+            -> (name: String, value: String, note: String, lit: Bool) {
+            let now = weekAvg(window, pick)
+            let then = weekAvg(prev, pick)
+            guard let now, let then else {
+                return (label, Fmt.dash, "NO PREVIOUS WEEK TO COMPARE", false)
+            }
+            let delta = now - then
+            let moved = lowerIsBetter ? delta < 0 : delta > 0
+            guard let bar else {
+                return (label, format(delta),
+                        "VS LAST WEEK · \(moved ? "MOVING THE RIGHT WAY" : "MOVING THE OTHER WAY")",
+                        moved)
+            }
+            let cleared = moved && abs(delta) > bar
+            return (label, format(delta),
+                    "VS LAST WEEK · \(cleared ? "CLEARS" : "INSIDE") THE ±\(String(format: "%.2f", bar)) BAR",
+                    cleared)
+        }
+        return [
+            compare("FAT MASS TREND", { $0.fatKg }, bar: TheCall.fatBand,
+                    lowerIsBetter: true) { "\(Fmt.signedKg($0)) KG" },
+            compare("LEAN MASS TREND", { $0.leanKg }, bar: TheCall.leanBand,
+                    lowerIsBetter: false) { "\(Fmt.signedKg($0)) KG" },
+            compare("PROTEIN INTAKE", { d in
+                guard let p = d.proteinIn, let kg = d.weightKg, kg > 0 else { return nil }
+                return Double(p) / kg
+            }, bar: nil, lowerIsBetter: false) { $0.map { String(format: "%+.1f G/KG", $0) } ?? Fmt.dash },
+            compare("ENERGY BALANCE", { $0.balance }, bar: nil,
+                    lowerIsBetter: true) { Fmt.signedKcal($0) + " KCAL" },
         ]
     }
 
@@ -281,7 +368,7 @@ struct CompositionDetailView: View {
         CardBlock(title: "SCALE", trailing: sourceLine, trailingIsDot: true) {
             HStack(spacing: 10) {
                 EvidenceStat(label: "WEIGHT", value: Fmt.kg(m.weightKg), unit: "KG",
-                             delta: "-0.30 VS 7D", deltaTint: NB.macroValue)
+                             delta: "\(Fmt.signedKg(weightDelta7d)) VS 7D", deltaTint: NB.macroValue)
                 EvidenceStat(label: "FAT MASS", value: Fmt.kg(m.fatKg), unit: "KG",
                              delta: "\(Fmt.signedKg(m.fatEmaDelta7d)) VS 7D", deltaTint: NB.lime1)
             }
@@ -290,7 +377,7 @@ struct CompositionDetailView: View {
                 EvidenceStat(label: "LEAN MASS", value: Fmt.kg(m.leanKg), unit: "KG",
                              delta: "\(Fmt.signedKg(m.leanEmaDelta7d)) VS 7D", deltaTint: NB.lime1)
                 EvidenceStat(label: "BODY FAT", value: bodyFatPercent, unit: "%",
-                             delta: "-0.50 VS 7D", deltaTint: NB.lime1)
+                             delta: "\(Fmt.signedKg(bodyFatDelta7d)) VS 7D", deltaTint: NB.lime1)
             }
             Rectangle().fill(NB.barTrack).frame(height: 1)
             VStack(alignment: .leading, spacing: 9) {
@@ -304,19 +391,36 @@ struct CompositionDetailView: View {
         guard let w = data.weighIns.first else { return "NO SOURCE CONNECTED" }
         return "\(w.origin.rawValue)  ·  \(Fmt.clock(w.date))"
     }
+    /// Both deltas are against the same seven-day window the two mass trends use, so the
+    /// four rows on this card are the same comparison read four ways.
+    private var weightDelta7d: Double? {
+        guard let now = m.weightKg,
+              let then = data.history.first(where: { $0.day == m.day.adding(days: -7) })?.weightKg
+        else { return nil }
+        return now - then
+    }
+    private var bodyFatDelta7d: Double? {
+        guard let f = m.fatEmaDelta7d, let w = m.weightKg, w > 0 else { return nil }
+        return f / w * 100
+    }
+
     private var bodyFatPercent: String {
         guard let f = m.fatKg, let w = m.weightKg, w > 0 else { return Fmt.dash }
         return String(format: "%.1f", f / w * 100)
     }
 
     private var energyCard: some View {
-        CardBlock(title: "ENERGY", trailing: "LOGGED 4 MEALS", trailingIsDot: true) {
+        let kIn = avg(\.eIn), kOut = avg(\.eOutNow), bal = avg(\.balance)
+        return CardBlock(title: "ENERGY",
+                         trailing: isWeek ? "DAILY AVERAGE · \(loggedDays) OF 7 LOGGED"
+                                          : "LOGGED \(windowMeals.count) MEALS",
+                         trailingIsDot: true) {
             HStack(spacing: 10) {
-                BalanceStat(label: "IN", value: "2,180", tint: NB.ember1)
-                BalanceStat(label: "OUT", value: "2,560", tint: NB.cyan1)
-                BalanceStat(label: "BALANCE", value: "−380", tint: NB.text1)
+                BalanceStat(label: "IN", value: Fmt.kcal(kIn), tint: NB.ember1)
+                BalanceStat(label: "OUT", value: Fmt.kcal(kOut), tint: NB.cyan1)
+                BalanceStat(label: "BALANCE", value: Fmt.signedKcal(bal), tint: NB.text1)
             }
-            BalanceAxis(now: -380, ifBudget: -380, enabled: true).frame(height: 52)
+            BalanceAxis(now: bal ?? 0, ifBudget: bal ?? 0, enabled: bal != nil).frame(height: 52)
             HStack(spacing: 7) {
                 Rectangle().fill(NB.limeMid.opacity(0.55)).frame(width: 14, height: 8)
                 Text("RECOMP WINDOW  −200 TO −500 KCAL")
@@ -328,41 +432,109 @@ struct CompositionDetailView: View {
     }
 
     private var macrosCard: some View {
-        CardBlock(title: "MACROS", trailing: "VS TARGET") {
+        func slot(_ eaten: (DailyMetrics) -> Int?, _ target: (DailyMetrics) -> MacroSlot?) -> MacroSlot? {
+            guard let t = target(m)?.target else { return nil }
+            let xs = window.compactMap(eaten)
+            guard !xs.isEmpty else { return MacroSlot(target: t, eaten: 0) }
+            return MacroSlot(target: t, eaten: xs.reduce(0, +) / xs.count)
+        }
+        let pro = slot({ $0.proteinIn }, { $0.protein })
+        let perKg = (pro.map(\.eaten)).flatMap { p in m.weightKg.map { Double(p) / $0 } }
+        return CardBlock(title: "MACROS",
+                         trailing: isWeek ? "DAILY AVERAGE · VS TARGET" : "VS TARGET") {
             VStack(spacing: 10) {
-                MacroDetailRow(name: "PRO", slot: MacroSlot(target: 165, eaten: 168), tint: NB.violet1, note: "2.3 G/KG")
-                MacroDetailRow(name: "CARB", slot: MacroSlot(target: 255, eaten: 245), tint: NB.optimal2, note: "")
-                MacroDetailRow(name: "FAT", slot: MacroSlot(target: 60, eaten: 52), tint: NB.run1, note: "")
+                MacroDetailRow(name: "PRO", slot: pro, tint: NB.violet1,
+                               note: perKg.map { String(format: "%.1f G/KG", $0) } ?? "")
+                MacroDetailRow(name: "CARB", slot: slot({ $0.carbIn }, { $0.carb }),
+                               tint: NB.optimal2, note: "")
+                MacroDetailRow(name: "FAT", slot: slot({ $0.fatIn }, { $0.fat }),
+                               tint: NB.run1, note: "")
             }
         }
     }
 
+    /// The meals inside the window — one day's, or the week's.
+    private var windowMeals: [MealEntry] {
+        let days = Set(window.map(\.day))
+        let source = isWeek ? data.recentMeals : (data.recentMeals.isEmpty ? data.meals : data.recentMeals)
+        return source.filter { days.contains($0.day) }.sorted { $0.at < $1.at }
+    }
+
+    /// ⚠️ 19YL · in the week view FOOD becomes TOP FOODS, the left column is the number of
+    /// days it appeared on, and the sort is by that count — not by kcal. A week's most
+    /// useful fact is the habit, and sorting by kcal puts Saturday's one big dinner at the
+    /// top, which has nothing to do with the call.
     private var foodCard: some View {
-        CardBlock(title: "FOOD", trailing: "2,180 KCAL · 168 G PRO") {
-            VStack(spacing: 10) {
-                CompFoodRow(time: "07:20", name: "BREAKFAST", detail: "OATS · WHEY · BLUEBERRIES", kcal: "520", pro: "42 G PRO")
-                Hairline()
-                CompFoodRow(time: "12:40", name: "LUNCH", detail: "CHICKEN · RICE · GREENS", kcal: "720", pro: "58 G PRO")
-                Hairline()
-                CompFoodRow(time: "16:10", name: "SNACK", detail: "GREEK YOGURT · ALMONDS", kcal: "260", pro: "22 G PRO")
-                Hairline()
-                CompFoodRow(time: "19:40", name: "DINNER", detail: "SALMON · POTATO · BROCCOLI", kcal: "680", pro: "46 G PRO")
+        let meals = windowMeals
+        let kcal = meals.reduce(0) { $0 + $1.kcal }
+        let pro = meals.reduce(0) { $0 + $1.protein }
+
+        var byName: [String: (days: Set<UserDay>, kcal: Double, pro: Int)] = [:]
+        for meal in meals {
+            let key = meal.text.isEmpty ? meal.slot.rawValue : meal.text
+            var e = byName[key] ?? (Set<UserDay>(), 0, 0)
+            e.days.insert(meal.day); e.kcal += meal.kcal; e.pro += meal.protein
+            byName[key] = e
+        }
+        let top = byName.map { (name: $0.key, days: $0.value.days.count,
+                                kcal: $0.value.kcal, pro: $0.value.pro) }
+            .sorted { ($0.days, $0.kcal) > ($1.days, $1.kcal) }
+            .prefix(5)
+
+        return CardBlock(title: isWeek ? "TOP FOODS" : "FOOD",
+                         trailing: "\(Fmt.kcal(kcal)) KCAL · \(pro) G PRO") {
+            if meals.isEmpty {
+                Text("NOTHING LOGGED IN THIS WINDOW")
+                    .font(NBFont.dot(500, 11)).tracking(0.14 * 11)
+                    .foregroundStyle(NB.text3Prod)
+            } else if isWeek {
+                VStack(spacing: 10) {
+                    ForEach(Array(top.enumerated()), id: \.offset) { i, f in
+                        if i > 0 { Hairline() }
+                        CompFoodRow(time: "\(f.days)D", name: String(f.name.prefix(28)),
+                                    detail: "\(Fmt.kcal(f.kcal / Double(max(1, f.days)))) KCAL A DAY",
+                                    kcal: Fmt.kcal(f.kcal), pro: "\(f.pro) G PRO")
+                    }
+                }
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(Array(meals.enumerated()), id: \.offset) { i, meal in
+                        if i > 0 { Hairline() }
+                        CompFoodRow(time: Fmt.clock(meal.at), name: meal.slot.rawValue,
+                                    detail: String(meal.text.prefix(34)),
+                                    kcal: Fmt.kcal(meal.kcal), pro: "\(meal.protein) G PRO")
+                    }
+                }
             }
         }
     }
 
     /// ⚠️ No sleep numbers here or anywhere (F0 rule 03) — the night only shows up as
     /// the Body Battery it produced.
+    /// 18SZ · four numbers only — load, steps, battery, hard minutes. No ring and no curve:
+    /// this page asks what state the body was in that day, not for a smaller training page.
     private var trainingCard: some View {
-        CardBlock(title: "TRAINING", trailing: "STRENGTH · 50 MIN") {
+        let load = avg { $0.trainingLoad }
+        let steps = avg { $0.steps.map(Double.init) }
+        let battery = avg { $0.bodyBattery.map(Double.init) }
+        let hard = avg { d in d.zoneMinutes.map { Double($0.dropFirst(3).reduce(0, +)) } }
+        let session = window.compactMap { $0.segments.first { !$0.allDay && $0.name == "HARD SESSION" } }.first
+        return CardBlock(title: "TRAINING",
+                         trailing: isWeek ? "DAILY AVERAGE"
+                                          : session.map { "HARD · \(Fmt.duration($0.minutes ?? 0))" }
+                                            ?? "NO SESSION") {
             HStack(spacing: 10) {
-                EvidenceStat(label: "TRAINING LOAD", value: "12.4", unit: nil, delta: nil, deltaTint: .clear)
-                EvidenceStat(label: "STEPS", value: "8,432", unit: nil, delta: nil, deltaTint: .clear)
+                EvidenceStat(label: "TRAINING LOAD", value: Fmt.load(load), unit: nil,
+                             delta: nil, deltaTint: .clear)
+                EvidenceStat(label: "STEPS", value: Fmt.kcal(steps), unit: nil,
+                             delta: nil, deltaTint: .clear)
             }
             Rectangle().fill(NB.barTrack).frame(height: 1)
             HStack(spacing: 10) {
-                EvidenceStat(label: "BODY BATTERY", value: "86", unit: "%", delta: nil, deltaTint: .clear)
-                EvidenceStat(label: "ZONE 4+", value: "23", unit: "MIN", delta: nil, deltaTint: .clear)
+                EvidenceStat(label: "BODY BATTERY", value: Fmt.kg(battery, decimals: 0), unit: "%",
+                             delta: nil, deltaTint: .clear)
+                EvidenceStat(label: "ZONE 4+", value: Fmt.kg(hard, decimals: 0), unit: "MIN",
+                             delta: nil, deltaTint: .clear)
             }
         }
     }

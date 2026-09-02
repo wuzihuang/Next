@@ -212,7 +212,6 @@ private struct OnbPage<Content: View>: View {
                         .padding(.top, 16)
                 }
                 .buttonStyle(.plain)
-                .disabled(onFootnote == nil)
             }
             Color.clear.frame(height: 10)
         }

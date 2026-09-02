@@ -1103,7 +1103,9 @@ board has one — the eyebrow is now the back mark; the mock band was `NEXT HOOP
 has none — closed days are now reached from THIS WEEK's day labels and from 10's EDIT THIS DAY,
 and the pager appears only there. The 11 heat map is DEFICIT / SURPLUS / LEVEL by F2 §11's
 ruling, not the four-call legend 11 drew; 08's DAY / WEEK / MONTH segments stay absent by the
-board's own note. Everything else read the same.
+board's own note. Everything else read the same. A second pass over 02 and 03 (pairing 01–05 walked to CONNECTED
+on the mock band, ABOUT YOU 01–02 with the NOTHING SYNCED edge) found nothing off the boards;
+the footnote links became real buttons so the accessibility tree can reach them.
 
 ⚠️ Back-logged meals take the slot of the current hour (a plate added to Aug 31 at 00:30 is a
 SNACK); the board does not say which slot a late plate belongs to. ⚠️ Profile still offers a

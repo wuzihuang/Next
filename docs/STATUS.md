@@ -232,9 +232,19 @@ S7 working: `NOT A DOCTOR · 这类问题请找医生。这块屏只报告测量
    `model()` now ignores a `vck_` key rather than sending a request that will be refused, and
    switches to the gateway the moment a real key is set.
 
-2. **Deployment needs one `supabase login`.** The CLI's login is a browser flow, so it could
-   not be done from here. The functions themselves are finished and proven — run these four
-   lines with `!` in front and they are live:
+2. **Deployment needs one `supabase login` — for four of the eight endpoints, not all of
+   them.** `turn`, `asr`, `meal` and `meal.commit` exist to reach the model and need Deno, so
+   they need the CLI. The other four were database work, and they are deployed and running:
+
+   | | |
+   |---|---|
+   | the settle job | `pg_cron`, hourly, per-user calendar, two days back |
+   | retention | `pg_cron` nightly · 400 / 90 / 180 days per 1DLA |
+   | `account.delete` | `public.account_delete(confirm)` RPC |
+   | `export` | `public.export_all()` RPC |
+
+   The CLI's login is a browser flow, so it could not be done from here. The four model-facing
+   functions are finished and proven — run these four lines with `!` in front and they are live:
 
    ```sh
    supabase login

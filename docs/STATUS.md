@@ -272,9 +272,33 @@ at 0.00 / 0.35 / 1.10 / 1.80 / 2.15 / 2.60 with `total = 2.60`, and the first ru
 at 0.00 → 7.40 including KEY at 5.20 doing 390×844 → 358×470, radius 44 → 30, spring(0.82/0.34)
 over 0.62s. The measurement takeover was run live and keeps the real timings.
 
-Not re-walked this pass, and still resting on the earlier passes: 02 Connect and 03 Onboarding
-(both need an unpaired or first-run account to reach), 05's typing and listening dock states, and
-10's composition detail.
+The gate flows were then reached by uninstalling to clear `nb.gate.stage`, and by writing that
+key straight into the app container's plist to land on `gateConnect` — the sign-in gate cannot be
+walked all the way through from here, because the six-digit code goes to an inbox this machine
+does not have.
+
+| Board | Checked | Result |
+|---|---|---|
+| 01 | gate, email screen | Apple first and the only solid white, 0 input on the gate, chevron and STEP 01 / 02 both on screen |
+| 02 | all five pairing screens | 01 Turn it on → 02 Found it → 04 Pairing 97% → 05 CONNECTED, on the mock's own timings |
+| 03 | all five onboarding screens | HEALTH provenance badges, three goals, baseline scan, 14 fields |
+| 05 | the typing state | dock lifts to 266, field and both keys keep their sizes |
+| 10 | composition detail | RECOMP · 4/4 SIGNALS AGREE, energy balance −316 inside the recomp window |
+
+⚠️ The three board-01 defects reported earlier this session — Apple demoted below email, a
+password affordance, and an input field on the gate — are **not in this build**. They came off the
+phone's `com.walnutechnology.nextbody.app`, which is a different and older bundle than the repo's
+`com.nextbody.hoop`. The gate here follows QNP exactly. Anything read off that phone build should
+be re-checked here before it is believed.
+
+Two numbers agree across boards that were written months apart: board 03's baseline prints two
+hero values over a twelve-field grid, and board 06 calls the same scan 「Fourteen fields」.
+
+The first run was watched rather than read: entering from onboarding plays it full-screen with no
+status bar, no wordmark, no tiles and no dock, types 「I DON'T COACH. / I READ YOU.」 in Doto a
+character at a time, then folds to 358 × 470 and hands the page the room it gave up.
+
+Not re-walked: 05's listening state.
 
 ## Board conflicts left standing, not silently resolved
 

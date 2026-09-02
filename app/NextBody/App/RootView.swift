@@ -35,6 +35,7 @@ struct RootView: View {
                     switch d {
                     case .training:               TrainingDetailView()
                     case .fuel:                   FuelDetailView()
+                    case .fuelDay(let d):         FuelDetailView(focus: d)
                     case .bodyBattery:            BodyBatteryDetailView()
                     case .composition(let date):  CompositionDetailView(focus: date)
                     case .profile:                ProfileView()

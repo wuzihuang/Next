@@ -3,6 +3,7 @@ import SwiftUI
 /// 09 · 燃料详情 Fuel. Six cards, one scroll. This page never grows an input field:
 /// logging always goes back to the dock.
 struct FuelDetailView: View {
+    init(focus: UserDay? = nil) { _day = State(initialValue: focus ?? UserDay.containing(Date())) }
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
@@ -145,11 +146,14 @@ struct FuelDetailView: View {
                         .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                         .foregroundStyle(NB.emberPale)
                 }
-                HStack(spacing: 6) {
-                    PagerButton(forward: false, enabled: day > today.adding(days: -6)) { withAnimation { day = day.adding(days: -1) } }
-                    PagerButton(forward: true, enabled: isPast) { withAnimation { day = day.adding(days: 1) } }
+                // The board's today header has no pager; a closed day gets one to walk the week.
+                if isPast {
+                    HStack(spacing: 6) {
+                        PagerButton(forward: false, enabled: day > today.adding(days: -6)) { withAnimation { day = day.adding(days: -1) } }
+                        PagerButton(forward: true, enabled: isPast) { withAnimation { day = day.adding(days: 1) } }
+                    }
+                    .padding(.leading, 10)
                 }
-                .padding(.leading, 10)
             }
             // ⚠️ Absent on purpose — see 08. VAF · "留一个点了没反应的分段控件比没有更糟",
             // and 1EIH rules delete for both pages. THIS WEEK at the foot of this page is
@@ -462,10 +466,18 @@ struct FuelDetailView: View {
                 .frame(height: 76)
             HStack {
                 ForEach(Array(labels.enumerated()), id: \.offset) { i, d in
-                    Text(d)
-                        .font(NBFont.dot(i == labels.count - 1 ? 700 : 500, 10))
-                        .foregroundStyle(i == labels.count - 1 ? NB.lime2 : Color(hex: 0x8A8A96))
-                        .frame(width: 34)
+                    // 09 edge 5 · a finished day opens as a closed page.
+                    Button {
+                        let target = week[i].day
+                        if target < today { withAnimation { day = target } }
+                    } label: {
+                        Text(d)
+                            .font(NBFont.dot(i == labels.count - 1 ? 700 : 500, 10))
+                            .foregroundStyle(i == labels.count - 1 ? NB.lime2 : Color(hex: 0x8A8A96))
+                            .frame(width: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(d)")
                     if i < labels.count - 1 { Spacer(minLength: 0) }
                 }
             }

@@ -8,6 +8,8 @@ import SwiftUI
 enum Destination: Hashable {
     case training
     case fuel
+    /// 09 edge 5 · a closed day, reached from THIS WEEK or from 10's EDIT THIS DAY.
+    case fuelDay(UserDay)
     case bodyBattery
     case composition(date: Date?)
     case profile

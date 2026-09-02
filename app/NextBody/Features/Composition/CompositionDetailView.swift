@@ -672,7 +672,8 @@ struct CompositionDetailView: View {
 
     private var editButton: some View {
         Button {
-            router.open(.fuel, from: .home)
+            // 10 rule 09 · editing a past day is 09's past-day route, not today's page.
+            router.open(day < UserDay.containing(Date()) ? .fuelDay(day) : .fuel, from: .home)
         } label: {
             Text("EDIT THIS DAY")
                 .font(NBFont.ui(500, 12)).tracking(0.2 * 12)

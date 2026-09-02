@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Every auth mail from one frame — the gate's own look: carbon ground, one lime pip,
+a Doto label, one highlight per screen. Run it after editing and the six files are rewritten.
+
+    python3 supabase/templates/build.py
+"""
+from pathlib import Path
+
+HERE = Path(__file__).parent
+
+# Tokens.swift — the same hexes the app draws with.
+CARBON, CARD, HAIRLINE = "#0B0B0D", "#101014", "rgba(255,255,255,0.08)"
+LIME, WHITE = "#EFF65A", "#FFFFFF"
+TEXT2, TEXT3 = "rgba(255,255,255,0.60)", "rgba(255,255,255,0.55)"
+UI = "'Jost', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+BRAND = "'Inter Tight', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+DOT = "'Doto', Menlo, Consolas, 'Courier New', monospace"
+
+FRAME = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<title>{subject}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Doto:wght@600;700&family=Inter+Tight:wght@800&family=Jost:wght@300;400;500&display=swap');
+  body {{ margin:0; padding:0; background:{carbon}; -webkit-text-size-adjust:100%; }}
+  a {{ color:{lime}; text-decoration:none; }}
+</style>
+</head>
+<body style="margin:0;padding:0;background:{carbon};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{carbon};">
+  <tr><td align="center" style="padding:40px 20px 48px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:390px;">
+
+      <!-- wordmark · the gate's own -->
+      <tr><td style="padding:0 0 26px;">
+        <span style="font-family:{brand};font-size:26px;font-weight:800;letter-spacing:-0.045em;color:{white};line-height:1;">NEXTBODY</span><span style="display:inline-block;width:7px;height:7px;background:{lime};border-radius:2px;margin:0 0 12px 7px;line-height:0;"></span>
+      </td></tr>
+
+      <!-- card -->
+      <tr><td style="background:{card};border:1px solid {hairline};border-radius:18px;padding:26px 24px 24px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr><td style="font-family:{dot};font-size:11px;font-weight:600;letter-spacing:0.26em;color:{text3};padding:0 0 18px;">{label}</td></tr>
+          <tr><td style="font-family:{ui};font-size:21px;font-weight:300;letter-spacing:0.02em;color:{white};line-height:1.3;padding:0 0 8px;">{headline}</td></tr>
+          <tr><td style="font-family:{ui};font-size:14px;font-weight:400;color:{text2};line-height:1.5;padding:0 0 22px;">{lede}</td></tr>
+          {highlight}
+          <tr><td style="font-family:{ui};font-size:13px;font-weight:400;color:{text2};line-height:1.5;padding:18px 0 0;border-top:1px solid {hairline};">{note}</td></tr>
+        </table>
+      </td></tr>
+
+      <!-- footer -->
+      <tr><td style="font-family:{dot};font-size:10px;font-weight:600;letter-spacing:0.24em;color:{text3};padding:22px 0 0;">TRAIN · RECOVER · REPEAT</td></tr>
+      <tr><td style="font-family:{ui};font-size:12px;color:{text3};line-height:1.5;padding:8px 0 0;">{footer}</td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>
+"""
+
+def code(token: str) -> str:
+    """The highlight: six digits, big, tracked — the one bright thing on the screen."""
+    return (f'<tr><td align="center" style="background:{CARBON};border:1px solid {HAIRLINE};border-radius:14px;padding:22px 12px;">'
+            f'<span style="font-family:{DOT};font-size:38px;font-weight:700;letter-spacing:0.26em;color:{WHITE};line-height:1;">{token}</span>'
+            f'</td></tr>')
+
+def button(url: str, text: str) -> str:
+    """The gate's only solid button, white on carbon."""
+    return (f'<tr><td align="center" style="padding:2px 0 4px;">'
+            f'<a href="{url}" style="display:block;background:{WHITE};color:{CARBON};font-family:{UI};font-size:15px;font-weight:500;letter-spacing:0.02em;text-align:center;padding:16px 20px;border-radius:999px;">{text}</a>'
+            f'</td></tr>')
+
+IGNORE = "If you didn't ask for this, ignore it. Nobody can get in without the code."
+TEN = "It works once and expires in 10 minutes."
+
+MAILS = {
+    # The gate · 01. A first-time address and a returning one get the same mail.
+    "magic_link": dict(
+        subject="Your NEXTBODY code",
+        label="SIGN IN · 6-DIGIT CODE",
+        headline="Enter the code.",
+        lede="Type these six digits into the app. No password to set.",
+        highlight=code("{{ .Token }}"),
+        note=TEN,
+        footer=IGNORE),
+    "confirmation": dict(
+        subject="Your NEXTBODY code",
+        label="SIGN IN · 6-DIGIT CODE",
+        headline="Enter the code.",
+        lede="Type these six digits into the app. No password to set.",
+        highlight=code("{{ .Token }}"),
+        note=TEN,
+        footer=IGNORE),
+    # 11 · Profile. A change of address is confirmed by code, at the new address.
+    "email_change": dict(
+        subject="Confirm your new email",
+        label="EMAIL CHANGE · 6-DIGIT CODE",
+        headline="Confirm the change.",
+        lede="Your NEXTBODY account is moving from {{ .Email }} to {{ .NewEmail }}. Enter this code to confirm.",
+        highlight=code("{{ .Token }}"),
+        note=TEN,
+        footer="If you didn't ask for this, ignore it and the address stays as it was."),
+    # 01 rule 05 · there is no password, so this mail should never leave — styled all the same.
+    "recovery": dict(
+        subject="Your NEXTBODY code",
+        label="ACCOUNT · 6-DIGIT CODE",
+        headline="Enter the code.",
+        lede="Type these six digits into the app to get back in.",
+        highlight=code("{{ .Token }}"),
+        note=TEN,
+        footer=IGNORE),
+    "reauthentication": dict(
+        subject="Confirm it's you",
+        label="CONFIRM · 6-DIGIT CODE",
+        headline="Confirm it's you.",
+        lede="A change to your account needs a second look. Enter this code in the app.",
+        highlight=code("{{ .Token }}"),
+        note=TEN,
+        footer=IGNORE),
+    "invite": dict(
+        subject="You're invited to NEXTBODY",
+        label="INVITE",
+        headline="Build your next body.",
+        lede="You've been invited to NEXTBODY. Open the app from this button and you're in.",
+        highlight=button("{{ .ConfirmationURL }}", "Accept the invite"),
+        note="The link works once. If you didn't expect an invite, ignore this mail.",
+        footer=""),
+}
+
+if __name__ == "__main__":
+    for name, m in MAILS.items():
+        html = FRAME.format(carbon=CARBON, card=CARD, hairline=HAIRLINE, lime=LIME, white=WHITE,
+                            text2=TEXT2, text3=TEXT3, ui=UI, brand=BRAND, dot=DOT, **m)
+        (HERE / f"{name}.html").write_text(html)
+        print(f"{name:18s} {m['subject']}")

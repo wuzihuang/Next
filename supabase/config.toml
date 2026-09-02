@@ -227,15 +227,31 @@ pass = "env(SUPABASE_AUTH_SMTP_PASS)"
 admin_email = "no-reply@nextbody.ai"
 sender_name = "NEXTBODY"
 
-# 01 · the gate's mail is a six-digit code, not a link: the template prints {{ .Token }}.
+# Every auth mail wears the gate's look — generated from supabase/templates/build.py, one frame,
+# six sets of words. The sign-in ones print {{ .Token }}: a code, never a link.
 [auth.email.template.magic_link]
 subject = "Your NEXTBODY code"
 content_path = "./supabase/templates/magic_link.html"
 
-# A first-time address gets the "confirmation" mail, not the magic-link one — same code, same look.
 [auth.email.template.confirmation]
 subject = "Your NEXTBODY code"
-content_path = "./supabase/templates/magic_link.html"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new email"
+content_path = "./supabase/templates/email_change.html"
+
+[auth.email.template.recovery]
+subject = "Your NEXTBODY code"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.reauthentication]
+subject = "Confirm it's you"
+content_path = "./supabase/templates/reauthentication.html"
+
+[auth.email.template.invite]
+subject = "You're invited to NEXTBODY"
+content_path = "./supabase/templates/invite.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

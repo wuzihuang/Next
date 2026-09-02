@@ -1398,6 +1398,14 @@ the mailer — four test mails, four links. `mailer_autoconfirm = true` is the f
 is the email check, and the app has no password sign-up path. After that a real code went to a real
 inbox through Resend — subject "Your NEXTBODY code", six digits in the body, no link.
 
+Every auth mail now wears the gate's look. `supabase/templates/build.py` is one frame — carbon
+ground, the wordmark with its lime pip, a Doto label, one white highlight, `TRAIN · RECOVER · REPEAT`
+under it — and six sets of words: magic_link and confirmation (the sign-in code), email_change
+(code, at the new address), recovery and reauthentication (code; the app has no password, so they
+should never leave), invite (the one mail that needs a link, drawn as the gate's white button).
+`auth-config.sh` pushes all six subjects and bodies; a code mail sent after the roll-out carries the
+new frame. Config changes on the hosted project take one to three minutes to reach the mailer.
+
 ## Running it
 
 ```sh

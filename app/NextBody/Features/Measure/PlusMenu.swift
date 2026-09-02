@@ -5,9 +5,18 @@ import SwiftUI
 /// is not an icon grid, because grouping here answers "who does the work":
 /// ADD is something you hand her, MEASURE is something the band goes and does.
 struct PlusMenuSheet: View {
+    /// 06 · 03 · on the home screen the menu is a panel standing over the dock, not a system
+    /// sheet: the dock stays, the plus has turned into the close mark, the page behind sits
+    /// at 30 %. `inline` drops the sheet chrome; `onClose` is how the panel is put away.
+    var inline = false
+    var onClose: (() -> Void)? = nil
+    var onCamera: (() -> Void)? = nil
+    var onLibrary: (() -> Void)? = nil
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var data: DataStore
     @Environment(\.dismiss) private var dismiss
+
+    private func close() { if let onClose { onClose() } else { dismiss() } }
 
     // F6 §05 · a measurement this HOOP cannot do is not offered at all, rather than offered
     // greyed out with the reason written in the row. A row you cannot press is still a row
@@ -19,11 +28,11 @@ struct PlusMenuSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             GroupHeader("ADD TO THE MESSAGE")
             MenuRow(icon: .camera, title: "Take a photo",
-                    detail: "Camera, straight into the message.") { dismiss() }
+                    detail: "Camera, straight into the message.") { close(); onCamera?() }
             MenuRow(icon: .library, title: "Photo library",
-                    detail: "Pick one you already have.") { dismiss() }
+                    detail: "Pick one you already have.") { close(); onLibrary?() }
             MenuRow(icon: .files, title: "Files",
-                    detail: "A lab PDF or an export.") { dismiss() }
+                    detail: "A lab PDF or an export.") { close() }
 
             // The header goes with the rows. A group heading standing over nothing reads as a
             // section that failed to load, which is the opposite of what an absent row means.
@@ -40,7 +49,7 @@ struct PlusMenuSheet: View {
                     MenuRow(icon: .pulse, title: "Battery check",
                             detail: "Heart rate, HRV and stress, in one.",
                             duration: "60 S", unavailable: offline) {
-                        dismiss()
+                        close()
                         router.takeover = .measure(.heartRate)
                     }
                 }
@@ -48,7 +57,7 @@ struct PlusMenuSheet: View {
                     MenuRow(icon: .body, title: "Body scan",
                             detail: "Fourteen fields — fat, muscle, water.",
                             duration: "30 S", unavailable: offline) {
-                        dismiss()
+                        close()
                         router.takeover = .measure(.bodyComposition)
                     }
                 }
@@ -56,8 +65,8 @@ struct PlusMenuSheet: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NB.carbon2)
+        .frame(maxWidth: .infinity, maxHeight: inline ? nil : .infinity, alignment: .top)
+        .background(inline ? Color.clear : NB.carbon2)
     }
 }
 

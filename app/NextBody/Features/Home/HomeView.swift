@@ -11,6 +11,8 @@ struct HomeView: View {
     @StateObject private var firstRun = FirstRun()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dockMode: Dock.Mode = .idle
+    /// 06 · the plus menu stands over the dock; the dock stays and the plus becomes ×.
+    @State private var plusOpen = false
     @State private var draft = ""
     /// 09 edge 5 · the day a back-logged meal belongs to; nil means today.
     @State private var backlogDay: UserDay?
@@ -41,6 +43,32 @@ struct HomeView: View {
             panel
                 // C01 · the panel dims behind the field while typing.
                 .overlay(Color(hex: 0x09090B).opacity(keyboard.height > 0 ? 0.55 : 0).allowsHitTesting(false))
+
+            // 06 · 02–06 · the page behind falls to 30 % while the menu is up; the dock row is
+            // left alone, because its right key is now the way out. Tap the scrim, tap ×, or
+            // pull the panel down — three routes, one 0.22 s ease-in.
+            if plusOpen {
+                Color(hex: 0x09090B).opacity(0.70)
+                    .padding(.bottom, NB.Layout.dockHeight + 42 + 8)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { closePlus() }
+                    .transition(.opacity)
+                    .zIndex(3)
+                PlusMenuSheet(inline: true, onClose: { closePlus() },
+                              onCamera: { showPicker = true }, onLibrary: { showPicker = true })
+                    .frame(width: NB.Layout.contentWidth)
+                    .background(NB.carbon2, in: RoundedRectangle(cornerRadius: NB.R.panel, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: NB.R.panel, style: .continuous).stroke(NB.hairline, lineWidth: 1))
+                    .overlay(alignment: .top) {
+                        Capsule().fill(NB.white.opacity(0.18)).frame(width: 36, height: 4).padding(.top, 8)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, NB.Layout.dockHeight + 42 + 12)
+                    .gesture(DragGesture(minimumDistance: 12).onEnded { v in if v.translation.height > 40 { closePlus() } })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(4)
+            }
         }
         // 05 · A·04 · 「键盘升起，版式一格都不动」. ⚠️ Inside the navigation stack the keyboard
         // still re-proposed this view 119 pt taller and 119 pt higher, whatever safe-area
@@ -156,7 +184,11 @@ struct HomeView: View {
                      draft: $draft,
                      onSend: handleSend,
                      onCamera: { showPicker = true },
-                     onPlus: { router.sheet = .plusMenu },
+                     onPlus: {
+                        if plusOpen { closePlus() }
+                        else { withAnimation(.easeOut(duration: 0.14)) { plusOpen = true } }
+                     },
+                     menuOpen: plusOpen,
                      onListen: beginListening,
                      onStopListening: endListening)
                     // 05 · C02–C04 · the tray hangs above the field: 100 × 100, radius 16, no card and
@@ -296,6 +328,10 @@ struct HomeView: View {
     }
 
     /// 05 edges · show the line, and clear it on its own when the board says so.
+    private func closePlus() {
+        withAnimation(.easeIn(duration: 0.22)) { plusOpen = false }
+    }
+
     private func note(_ n: DockNote, clearAfter seconds: Double? = nil) {
         withAnimation { dockNote = n }
         if let seconds {

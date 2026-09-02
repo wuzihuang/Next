@@ -1105,7 +1105,11 @@ and the pager appears only there. The 11 heat map is DEFICIT / SURPLUS / LEVEL b
 ruling, not the four-call legend 11 drew; 08's DAY / WEEK / MONTH segments stay absent by the
 board's own note. Everything else read the same. A second pass over 02 and 03 (pairing 01–05 walked to CONNECTED
 on the mock band, ABOUT YOU 01–02 with the NOTHING SYNCED edge) found nothing off the boards;
-the footnote links became real buttons so the accessibility tree can reach them.
+the footnote links became real buttons so the accessibility tree can reach them. 06 was off:
+the plus menu was a system sheet that covered the dock, where the board (06 · 02–06) has a panel
+standing over the dock with the plus turned 45° into a lime ×, the page behind at 30 %, and three
+ways out (×, the scrim, a pull-down) sharing one 0.22 s ease-in. Rebuilt that way and walked:
+open, close by ×, by scrim, and by a row into the measuring screen.
 
 ⚠️ Back-logged meals take the slot of the current hour (a plate added to Aug 31 at 00:30 is a
 SNACK); the board does not say which slot a late plate belongs to. ⚠️ Profile still offers a

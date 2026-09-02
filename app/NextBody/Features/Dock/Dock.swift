@@ -17,6 +17,8 @@ struct Dock: View {
     var onSend: (String) -> Void
     var onCamera: () -> Void
     var onPlus: () -> Void
+    /// 06 · 02 · while the menu is open the plus is the close mark: turned 45°, lime, dark ink.
+    var menuOpen = false
     /// 05 · the middle key's two edges. The dock does not own the microphone — it reports the
     /// press and lets the caller decide whether listening actually began.
     var onListen: () -> Void
@@ -54,7 +56,12 @@ struct Dock: View {
                 .disabled(!armed)
                 .transition(.scale.combined(with: .opacity))
             } else {
-                DockCircleButton(action: onPlus) { PlusGlyph() }
+                DockCircleButton(filled: menuOpen, action: onPlus) {
+                    PlusGlyph(tint: menuOpen ? NB.carbon : NB.iconInk)
+                        .rotationEffect(.degrees(menuOpen ? 45 : 0))
+                        .animation(.easeOut(duration: 0.14), value: menuOpen)
+                }
+                .accessibilityLabel(menuOpen ? "Close" : "Add")
             }
         }
         .frame(width: NB.Layout.contentWidth, height: NB.Layout.dockHeight)
@@ -150,14 +157,16 @@ struct Dock: View {
 
 struct DockCircleButton<Glyph: View>: View {
     var ringed = false
+    var filled = false
     let action: () -> Void
     @ViewBuilder let glyph: Glyph
 
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle().fill(NB.carbon4)
-                Circle().stroke(ringed ? NB.lime1.opacity(0.6) : NB.hairline,
+                Circle().fill(filled ? NB.lime1 : NB.carbon4)
+                    .animation(.easeOut(duration: 0.14), value: filled)
+                Circle().stroke(ringed ? NB.lime1.opacity(0.6) : filled ? Color.clear : NB.hairline,
                                 lineWidth: ringed ? 1.5 : 1)
                 glyph
             }
@@ -302,13 +311,14 @@ struct CameraGlyph: View {
 }
 
 struct PlusGlyph: View {
+    var tint: Color = NB.iconInk
     var body: some View {
         Canvas { ctx, size in
             let s = size.width / 24
             var p = Path()
             p.move(to: CGPoint(x: 12 * s, y: 5 * s)); p.addLine(to: CGPoint(x: 12 * s, y: 19 * s))
             p.move(to: CGPoint(x: 5 * s, y: 12 * s)); p.addLine(to: CGPoint(x: 19 * s, y: 12 * s))
-            ctx.stroke(p, with: .color(NB.iconInk),
+            ctx.stroke(p, with: .color(tint),
                        style: StrokeStyle(lineWidth: 1.8 * s, lineCap: .round))
         }
         .frame(width: 22, height: 22)

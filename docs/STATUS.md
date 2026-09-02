@@ -1208,6 +1208,16 @@ The other conflicts (stress vs F5, 04/13 staleness, 08/13 zone, hold-to-talk vs 
 the two upper tier words) are genuine product decisions left for you; Doto 13px is already resolved
 in favour of the board, since 1:1-with-the-board is the acceptance criterion.
 
+### 07's theme contract audited slot by slot
+Board 07's `08 · 全量模板` prints the full envelope schema with its `theme.text` table — the exact
+size, weight, tracking and colour of every text slot. Read against `PanelWidget`'s main render,
+all eight slots match to the value: title Inter Tight 11.5/500/0.08em in the accent; tag Doto
+10/600/0.24em at 30%; hero Inter Tight 84/700/−0.045em at 45%; sub Doto 10.5/500/0.20em at 42%;
+sentence Inter Tight 18/500 with line-height 25 (18px + 7pt lineSpacing) at full white, two lines;
+footer Inter Tight 11.5/400 at 50%; action Doto 10.5/500/0.16em in the accent; axis Doto 9/600.
+The panel is 1:1 with the board's own spec, not just visually close — this is the board STATUS
+flagged as least-verified, and its render contract holds.
+
 ## Running it
 
 ```sh

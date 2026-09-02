@@ -346,7 +346,7 @@ struct HomeView: View {
         lastSent = nil
         withAnimation { widget = .thinking }
         Task {
-            let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotForNow(),
+            let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotFor(day: day),
                                   status: .confirmed, text: text,
                                   kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
             data.logMeal(entry)
@@ -455,7 +455,7 @@ struct HomeView: View {
                 return
             }
             if backlogging || Self.looksLikeFood(text) {
-                let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotForNow(),
+                let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotFor(day: day),
                                       status: .confirmed, text: text,
                                       kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
                 data.logMeal(entry)
@@ -512,6 +512,19 @@ struct HomeView: View {
         case 15..<21: return .dinner
         default: return .snack
         }
+    }
+
+    /// 09 edge 5 · which slot a plate joins. On today it is the clock's slot. On a closed day
+    /// the clock is meaningless (a plate back-logged at 00:30 is not that day's SNACK), so it
+    /// takes the first slot the day still has open, and SNACK once the three meals are filled —
+    /// a back-logged plate is an addition, never a re-write of a meal already on the day.
+    /// ⚠️ Ruling made here under an explicit assumption: the board says only "back-logging stays
+    /// open", not which slot. Revisit if 09/13 settle it differently.
+    private func slotFor(day: UserDay) -> MealEntry.Slot {
+        guard day < UserDay.containing(Date()) else { return slotForNow() }
+        let taken = Set((data.meals + data.recentMeals)
+            .filter { $0.day == day && $0.status == .confirmed }.map(\.slot))
+        return [.breakfast, .lunch, .dinner].first { !taken.contains($0) } ?? .snack
     }
 }
 

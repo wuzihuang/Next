@@ -1197,6 +1197,17 @@ in Phases 3–9. What is left across the whole PRD is the three items only you c
 Apple ID in Xcode for the device build, the board-conflict rulings (including the two upper
 body-battery tier words the board leaves blank), and real-band pairing.
 
+### One board-conflict ruled and built: the back-log slot
+The open list included "which slot a back-logged plate joins" — a plate added to a closed day was
+taking the current clock's slot, so one back-logged at 00:30 became that day's SNACK, and could
+overwrite a real meal's slot. Ruled here under a stated assumption (`slotFor(day:)` in HomeView):
+today still uses the clock; a closed day takes the first of BREAKFAST/LUNCH/DINNER it has open, and
+SNACK once the three are filled — a back-logged plate is an addition, never a re-write. The board
+only says "back-logging stays open", so this is a default to revisit if 09/13 settle it otherwise.
+The other conflicts (stress vs F5, 04/13 staleness, 08/13 zone, hold-to-talk vs tap, photo retry,
+the two upper tier words) are genuine product decisions left for you; Doto 13px is already resolved
+in favour of the board, since 1:1-with-the-board is the acceptance criterion.
+
 ## Running it
 
 ```sh

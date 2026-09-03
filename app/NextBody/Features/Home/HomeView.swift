@@ -147,7 +147,11 @@ struct HomeView: View {
         // still re-proposed this view 119 pt taller and 119 pt higher, whatever safe-area
         // modifier sat above it; every ignoresSafeArea(.keyboard) placement was tried. So the
         // page reads where the container put it and puts itself back: only the dock moves.
-        .simultaneousGesture(pageGesture, including: pagingEnabled ? .all : .subviews)
+        // ADR-0001 · 手势所有权: high priority so a recognized drag cancels any control under it.
+        // As a simultaneous gesture the drag coexisted with the button's touch and lift-off
+        // landed as a tap (fuel card drag → fuel detail). The !swiping gate below stays: it
+        // still guards touches that BEGAN mid-swipe, which precedence does not cover.
+        .highPriorityGesture(pageGesture, including: pagingEnabled ? .all : .subviews)
         .onChange(of: homePage) { _, p in
             if p == 1 {
                 pageTwoSince = Date()

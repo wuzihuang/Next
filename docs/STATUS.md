@@ -65,10 +65,13 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 
 04B notes:
 
-- The swipe (`HomeView.pageGesture`) now locks direction on the first points of travel and,
-  once a horizontal drag owns the touch, both pages stop hit-testing until the finger lifts —
-  a slow drag that started on the SLEEP card no longer ends by opening 13. Page dots show on
-  the first screen too, in the seam above the dock.
+- The swipe (`HomeView.pageGesture`) locks direction on the first points of travel and OWNS
+  the touch once recognized (ADR-0001 · 手势所有权): the page drag is a `highPriorityGesture`,
+  so a drag that started on a card cancels the card instead of firing it on lift-off — a
+  swipe that ends on a card is a swipe, never a tap. The `!swiping` hit-test gate stays for
+  touches that begin mid-swipe. `NextBodyUITests/PagingCardDragTests` locks it: drag-left
+  from the CALORIES card turns the page (SLEEP, no Back), slow drag same, clean tap still
+  opens fuel detail. Page dots show on the first screen too, in the seam above the dock.
 - The panel's standby face carries no tap target. It was once a Button to `.bodyBattery` —
   an entrance no board drew, and F1 gives 13 exactly one (the morning widget) — so a
   tap-length swipe on the display opened a detail page from the display itself. The resting

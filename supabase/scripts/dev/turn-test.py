@@ -25,22 +25,33 @@ if time.time() > sess.get("expires_at", 0) - 300:
 base = sys.argv[1]
 for q in sys.argv[2:]:
     t0 = time.time()
-    r = subprocess.run(["curl", "-s", "-N", "--max-time", "120", "-X", "POST", f"{base}/turn",
-                        "-H", f"apikey: {ANON}", "-H", f"Authorization: Bearer {sess['access_token']}",
-                        "-H", "Content-Type: application/json", "-H", f"Idempotency-Key: {os.urandom(8).hex()}",
-                        "-d", json.dumps({"text": q} if not os.environ.get("NB_LOCALE") else {"text": q, "locale": os.environ["NB_LOCALE"]})], capture_output=True, text=True)
-    dt = time.time() - t0
-    print(f"\n=== {q}  ({dt:.1f}s, http-len {len(r.stdout)})")
-    ev = None; tools = []; env = None; errs = []
-    for line in r.stdout.splitlines():
+    p = subprocess.Popen(["curl", "-s", "-N", "--max-time", "120", "-X", "POST", f"{base}/turn",
+                          "-H", f"apikey: {ANON}", "-H", f"Authorization: Bearer {sess['access_token']}",
+                          "-H", "Content-Type: application/json", "-H", f"Idempotency-Key: {os.urandom(8).hex()}",
+                          "-d", json.dumps({"text": q} if not os.environ.get("NB_LOCALE") else {"text": q, "locale": os.environ["NB_LOCALE"]})],
+                         stdout=subprocess.PIPE, text=True, bufsize=1)
+    ev = None; tools = []; thoughts = []; env = None; errs = []
+    raw = []; first = {}
+    for line in p.stdout:
+        raw.append(line)
         if line.startswith("event:"): ev = line[6:].strip()
         elif line.startswith("data:"):
+            first.setdefault(ev, time.time() - t0)
             d = json.loads(line[5:].strip() or "{}")
             if ev == "tool": tools.append(d.get("name"))
+            elif ev == "thought": thoughts.append(d.get("text"))
             elif ev == "screen.render": env = d.get("envelope")
             elif ev == "error": errs.append(d); env = env or d.get("fallback_frame")
-    if not r.stdout.startswith("event:"): print("  raw:", r.stdout[:400])
+    p.wait()
+    dt = time.time() - t0
+    output = "".join(raw)
+    print(f"\n=== {q}  ({dt:.1f}s, http-len {len(output)})")
+    print("  latency:", " · ".join(f"{name} {first[name]:.2f}s" for name in
+          ["state", "thought", "tool", "screen.render", "error", "done"] if name in first))
+    if not output.startswith("event:"): print("  raw:", output[:400])
     print("  tools:", " → ".join(tools))
+    print(f"  thoughts ({len(thoughts)}):")
+    for t in thoughts: print("    ·", t)
     for e in errs: print("  ERROR:", {k: v for k, v in e.items() if k != "fallback_frame"})
     if env:
         data = env.get("data", {})

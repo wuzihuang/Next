@@ -26,6 +26,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
     private let hub = BandEventHub()
     var events: AsyncStream<BandEvent> { hub.stream() }
     private static let log = Logger(subsystem: "com.nextbody.hoop", category: "band")
+    /// Heart-rate tests share one SDK result block. A late `onTermination` stop from the
+    /// previous stream must not clear the block a newer stream just installed — otherwise
+    /// Battery Check sits on 「Still nothing on the key」 with a band that is measuring.
+    private var heartTestGeneration = 0
 
     /// What the last scan reported, by CoreBluetooth identifier. `connect` hands the SDK the
     /// very model it scanned; `central.peripheralModel` is only set once a device is connected,
@@ -243,11 +247,15 @@ final class VeepooBand: BandService, @unchecked Sendable {
             bleIdentifier: model.deviceAddress ?? "—",
             watchDataDayNumber: Int(model.saveDays),
             // VPPeripheralModel.runningSaveTimes / runningType: zero saved sessions means
-            // no sport mode at all; runningType 0 is the single generic mode, 1 the
-            // ten-sport set. The SDK cannot name which sports — the band's screen can.
+            // no sport mode at all. The header documents only runningType 0 (single
+            // generic mode) and 1 (the ten-sport set) — any other value is shown raw,
+            // because the SDK nowhere says what it counts. Which sports those are, only
+            // the band's own workout list can say.
             sportMode: model.runningSaveTimes == 0
                 ? "NONE"
-                : model.runningType == 0 ? "SINGLE" : "10 TYPES (T\(model.runningType))")
+                : model.runningType == 0 ? "SINGLE"
+                : model.runningType == 1 ? "10 TYPES"
+                : "T\(model.runningType) · UNDOCUMENTED")
     }
 
     func readCapabilities() async throws -> BandCapabilities {
@@ -272,7 +280,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
         caps.stress        = status(f1, byte: 0, shift: 2)
         caps.ecg           = status(f1, byte: 1, shift: 0)
         caps.bodyComponent = status(f3, byte: 0, shift: 0)
-        caps.autoMeasure   = status(f1, byte: 2, shift: 0)
+        // autoMonitSwitchType is the explicit capability for the auto-measure sheet's
+        // read/write APIs — the bit below it was a guessed position that read as
+        // unsupported on real firmware and greyed out a working row.
+        caps.autoMeasure   = model.autoMonitSwitchType == 0 ? .unsupported : .support
         caps.wearDetection = status(f1, byte: 2, shift: 2)
         // These are explicit post-verification capability fields. Temperature is not encoded
         // in the guessed bit positions above, and hrvType is authoritative when present.
@@ -625,30 +636,70 @@ final class VeepooBand: BandService, @unchecked Sendable {
         AsyncThrowingStream { c in
             guard let peripheral else { c.finish(throwing: BandError.notConnected); return }
             c.yield(.waitingForContact)
-            // F1 rule 05 · stop before the screen goes. `start(false)` is the SDK's stop, and
-            // onTermination fires whether the stream ended on its own or the takeover was closed.
-            c.onTermination = { _ in DispatchQueue.main.async { peripheral.veepooSDKTestHeartStart(false, testResult: { _, _ in }) } }
-            var started = false
-            DispatchQueue.main.async {
-            peripheral.veepooSDKTestHeartStart(true, testResult: { testState, value in
-                switch testState {
-                case .testing:
-                    // The first `testing` is the contact judgement — not the fact that we
-                    // sent `start`. Lighting up on `start` is a lie the user can feel.
-                    if !started { started = true; c.yield(.contact) }
-                    c.yield(.measuring(fraction: 0.5,
-                                       partial: PartialReading(heartRate: Int(value))))
-                case .over:
-                    c.yield(.finished(.heartRate(hr: Int(value), hrv: nil, stress: nil)))
-                    c.finish()
-                case .notWear:
-                    c.yield(.lostContact)
-                case .deviceBusy:
-                    c.finish(throwing: BandError.busy)
-                default:
-                    break
+            // Tracks whether this stream still owns the SDK slot. Assigned on the main
+            // queue with the start; a cancel that arrives before then flips `dead` so we
+            // never leave a heart test running with no listener.
+            final class Slot: @unchecked Sendable {
+                var generation = 0
+                var dead = false
+                var started = false
+            }
+            let slot = Slot()
+            // F1 rule 05 · stop before the screen goes. Only this generation may stop:
+            // LiveReadout's cancelled stream otherwise ends Battery Check with an empty
+            // result block, and the screen stays on 「Still nothing on the key」.
+            c.onTermination = { [weak self] _ in
+                DispatchQueue.main.async {
+                    slot.dead = true
+                    guard let self, slot.generation != 0,
+                          self.heartTestGeneration == slot.generation else { return }
+                    peripheral.veepooSDKTestHeartStart(false, testResult: { _, _ in })
                 }
-            })
+            }
+            DispatchQueue.main.async {
+                guard !slot.dead else { return }
+                self.heartTestGeneration += 1
+                slot.generation = self.heartTestGeneration
+                let gen = slot.generation
+                Self.log.notice("heart test start gen \(gen)")
+                // Clear any leftover LiveReadout test, then install our block. The stop's
+                // empty callback is replaced on the next line — same main-queue turn.
+                peripheral.veepooSDKTestHeartStart(false, testResult: { _, _ in })
+                guard !slot.dead, self.heartTestGeneration == gen else { return }
+                peripheral.veepooSDKTestHeartStart(true, testResult: { [weak self] testState, value in
+                    guard self?.heartTestGeneration == gen else { return }
+                    Self.log.notice("heart state \(testState.rawValue) value \(value)")
+                    switch testState {
+                    case .start:
+                        // VPTestHeartStateStart ·「开始检测心率，还没有测出结果」— the band's own
+                        // answer that the sensor is on. ⚠️ It used to fall into `default: break`,
+                        // and this HOOP can take ten seconds to produce a first rate: the screen
+                        // sat on 「waiting for your finger」, then went amber, for a measurement
+                        // that had already begun. This is the band answering, not the echo of our
+                        // own `start` — that distinction is what the judgement was ever about.
+                        if !slot.started { slot.started = true; c.yield(.contact) }
+                    case .testing:
+                        if !slot.started { slot.started = true; c.yield(.contact) }
+                        c.yield(.measuring(fraction: 0.5,
+                                           partial: PartialReading(heartRate: Int(value))))
+                    case .over:
+                        // 「测试正常结束，人为结束」· the test ending, which is not the same thing
+                        // as a reading. A zero here is the band saying it never got one, and a
+                        // stored 0 bpm is a number nobody measured.
+                        if value > 0 {
+                            c.yield(.finished(.heartRate(hr: Int(value), hrv: nil, stress: nil)))
+                        } else {
+                            c.yield(.failed(reason: "NO READING"))
+                        }
+                        c.finish()
+                    case .notWear:
+                        c.yield(.lostContact)
+                    case .deviceBusy:
+                        c.finish(throwing: BandError.busy)
+                    @unknown default:
+                        break
+                    }
+                })
             }
         }
     }
@@ -733,6 +784,53 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 c.finish()
             })
             }
+        }
+    }
+
+    /// 04 · the band's own stress test. Unlike heart rate it is a one-shot: the SDK reports
+    /// progress while it runs and a single value at the end, so only `complete` is a
+    /// reading — `over` is the test ending because we told it to, and carries nothing.
+    ///
+    /// ⚠️ Not on the queue, exactly like the two measurement streams above: it is opened
+    /// directly, and `LiveReadout` is what keeps it from overlapping a day pull.
+    func measureStress(progress: @escaping @MainActor (Int) -> Void) async throws -> Int {
+        guard let peripheral else { throw BandError.notConnected }
+        let stop = { DispatchQueue.main.async { peripheral.veepooSDK_stressTestStart(false, result: { _, _, _ in }) } }
+        return try await withTaskCancellationHandler {
+            // Measured on a real HOOP: 19 s, progress 0…100 at 6 a second. 90 s is the
+            // timeout — the ceiling for a band that stops answering, not the length.
+            try await sdk("stressTest", seconds: 90) { done in
+                peripheral.veepooSDK_stressTestStart(true) { state, done_progress, stress in
+                    Self.log.notice("stress state \(state.rawValue) progress \(done_progress) value \(stress)")
+                    // The SDK's callbacks arrive on the main thread — every entry point of this
+                    // framework does — so the drawn progress is handed over there, in order,
+                    // rather than hopping through a Task that could deliver 42 after 48.
+                    MainActor.assumeIsolated { progress(done_progress) }
+                    switch state {
+                    case .complete:
+                        // ⚠️ `complete` is NOT the end of the test. The SDK reports it on
+                        // every progress callback, from the first one, with value 0 while the
+                        // measurement is still running — device log, one session:
+                        //   stressTest → · 165 ms · state 5 progress 0 value 0
+                        //                          state 5 progress 6 value 0
+                        // Resuming on the first of those stopped the test a sixth of a second
+                        // in and answered 0, which is how STRESS stayed —— on a band that
+                        // measures it perfectly well. The value is the end; nothing else is.
+                        guard stress > 0 else { break }
+                        // F1 rule 05 · a test that answered is still a test that is open.
+                        stop()
+                        done(.success(Int(stress)))
+                    case .noFunction:   done(.failure(BandError.unsupported("STRESS")))
+                    case .deviceBusy:   done(.failure(BandError.busy))
+                    case .lowPower:     done(.failure(BandError.rejected("BAND BATTERY LOW")))
+                    case .notWear:      done(.failure(BandError.rejected("NOT ON THE WRIST")))
+                    // `over` is our own stop coming back. Nothing to resume with.
+                    default:            break
+                    }
+                }
+            }
+        } onCancel: {
+            stop()
         }
     }
 
@@ -843,49 +941,94 @@ final class VeepooBand: BandService, @unchecked Sendable {
         }
     }
 
-    func readAutoMonitoring() async throws -> [AutoMonitorSlot] {
+    /// The band's own list of what it can measure — `veepooSDK_readFuncAssessment`, one read,
+    /// no sensor time. Seventeen types, each with `support` and `open` straight from the band.
+    /// ⚠️ Use this, not `readCapabilities`, whenever the question is "does this HOOP do X".
+    /// The capability bits are partly guessed positions in `deviceFuctionData`; this is the
+    /// band answering in its own words.
+    func readHealthFunctions() async throws -> [BandHealthFunction] {
         guard let peripheral else { throw BandError.notConnected }
-        return try await queue.run("readAutoMonitoring", priority: .p1) {
-            try await self.sdk("readAutoMonitoring") { done in
-                peripheral.veepooSDKReadAutoMonitSwitchInfo { models in
-                    // ⚠️ One entry per measurement type, each with its own window and
-                    // interval. That is why 12's row leads to a sheet rather than a switch.
-                    done(.success((models ?? []).compactMap { m in
-                        guard let kind = Self.kind(m.type) else { return nil }
-                        return AutoMonitorSlot(
-                            kind: kind, on: m.on, supportsRange: m.supportRangeTime,
-                            startHour: Int(m.startHour), endHour: Int(m.endHour),
-                            intervalMinutes: Int(m.timeInterval),
-                            intervalStepMinutes: Int(m.minStepValue),
-                            intervalModifiable: kind != .lorentz)
-                    }))
+        return try await queue.run("readHealthFunctions", priority: .p1) {
+            // ⚠️ 5 s, not the usual 12: a HOOP on firmware that has no such command does
+            // not refuse it, it says nothing at all — and this read sits on the serial queue
+            // in front of the day pull. Measured on the wrist: no answer, ever.
+            try await self.sdk("readFuncAssessment", seconds: 5) { done in
+                peripheral.veepooSDK_readFuncAssessment { models in
+                    let rows = (models ?? []).map {
+                        BandHealthFunction(rawValue: $0.type.rawValue,
+                                           name: BandHealthFunction.name(forRawValue: $0.type.rawValue),
+                                           support: $0.support, open: $0.open)
+                    }
+                    // ⚠️ An empty array is not "supports nothing" — it is a firmware with no
+                    // such command, which answers by not answering. Drawn as a dash, never
+                    // as seventeen noes.
+                    Self.log.notice("health functions · \(rows.map { "\($0.name)=\($0.support ? ($0.open ? "open" : "support") : "no")" }.joined(separator: " "), privacy: .public)")
+                    done(.success(rows))
                 }
             }
         }
     }
 
+    func readAutoMonitoring() async throws -> AutoMonitoringRead {
+        guard let peripheral else { throw BandError.notConnected }
+        guard let model = central.peripheralModel else { throw BandError.notConnected }
+        return try await queue.run("readAutoMonitoring", priority: .p1) {
+            let intervalAPI = model.autoMonitSwitchType != 0
+            Self.log.notice("autoMonitSwitchType \(model.autoMonitSwitchType) · intervalAPI \(intervalAPI)")
+            if intervalAPI {
+                let models: [VPAutoMonitTestModel] = try await self.sdk("readAutoMonitoring") { done in
+                    peripheral.veepooSDKReadAutoMonitSwitchInfo { native in
+                        guard let native else {
+                            done(.failure(BandError.rejected("THIS HOOP DID NOT REPORT ITS AUTOMATIC MEASUREMENTS")))
+                            return
+                        }
+                        done(.success(native))
+                    }
+                }
+                // ⚠️ One entry per measurement type, each with its own window and
+                // interval. That is why 12's row leads to a sheet rather than a switch.
+                let slots = models.compactMap { m -> AutoMonitorSlot? in
+                    guard let kind = Self.kind(m.type) else { return nil }
+                    return AutoMonitorSlot(
+                        kind: kind, on: m.on, supportsRange: m.supportRangeTime,
+                        startHour: Int(m.startHour), endHour: Int(m.endHour),
+                        intervalMinutes: Int(m.timeInterval),
+                        intervalStepMinutes: Int(m.minStepValue),
+                        intervalModifiable: kind != .lorentz)
+                }
+                return .interval(slots)
+            }
+            return try await self.readSwitchFallback(from: model, peripheral: peripheral)
+        }
+    }
+
     func writeAutoMonitoring(_ slot: AutoMonitorSlot) async throws {
         guard let peripheral else { throw BandError.notConnected }
+        guard let model = central.peripheralModel else { throw BandError.notConnected }
         try await queue.run("writeAutoMonitoring", priority: .p0) {
+            if model.autoMonitSwitchType == 0 {
+                try await self.writeSwitchFallback(slot, peripheral: peripheral)
+                return
+            }
             let native: [VPAutoMonitTestModel] = try await self.sdk("readAutoMonitoringForWrite") { done in
                 peripheral.veepooSDKReadAutoMonitSwitchInfo { done(.success($0 ?? [])) }
             }
-            guard let model = native.first(where: { Self.kind($0.type) == slot.kind }) else {
+            guard let nativeModel = native.first(where: { Self.kind($0.type) == slot.kind }) else {
                 throw BandError.unsupported("automatic \(slot.kind.rawValue) monitoring")
             }
             let requested = slot.intervalMinutes
             guard (0...AutoMeasurementIntervalPolicy.maximumMinutes).contains(requested) else {
                 throw BandError.rejected("\(requested) minute interval is not supported")
             }
-            model.on = slot.on
-            model.startHour = UInt8(slot.startHour)
-            model.endHour = UInt8(slot.endHour)
+            nativeModel.on = slot.on
+            nativeModel.startHour = UInt8(slot.startHour)
+            nativeModel.endHour = UInt8(slot.endHour)
             guard let requestedInterval = UInt16(exactly: slot.intervalMinutes) else {
                 throw BandError.rejected("AUTO MONITORING INTERVAL IS OUT OF RANGE")
             }
-            model.timeInterval = requestedInterval
+            nativeModel.timeInterval = requestedInterval
             try await self.sdk("writeAutoMonitoring") { (done: @escaping (Result<Void, Error>) -> Void) in
-                peripheral.veepooSDKSetAutoMonitSwitch(with: model) { success, accepted in
+                peripheral.veepooSDKSetAutoMonitSwitch(with: nativeModel) { success, accepted in
                     guard success else {
                         done(.failure(BandError.rejected("AUTO MONITORING REFUSED")))
                         return
@@ -895,6 +1038,146 @@ final class VeepooBand: BandService, @unchecked Sendable {
                         return
                     }
                     done(.success(()))
+                }
+            }
+        }
+    }
+
+    private func readSwitchFallback(
+        from model: VPPeripheralModel,
+        peripheral: VPPeripheralBaseManage
+    ) async throws -> AutoMonitoringRead {
+        let switchData = Self.bytes(model.deviceSwitchData)
+        let switchTwoData = Self.bytes(model.deviceSwitchTwoData)
+        if AutoMeasurementSwitchFallback.hasSwitchTables(switchData: switchData, switchTwoData: switchTwoData) {
+            let readings = AutoMeasurementSwitchFallback.readings(
+                switchData: switchData,
+                switchTwoData: switchTwoData,
+                oxygenSupported: model.oxygenType != 0,
+                oxygenOn: model.oxygenAutoDetectType == 1)
+            return .switches(readings.map { Self.slot(from: $0) })
+        }
+        var slots: [AutoMonitorSlot] = []
+        for (kind, type) in Self.fallbackSwitchTypes {
+            do {
+                if let on = try await self.readBaseSwitch(type, peripheral: peripheral) {
+                    slots.append(.firmwareOwned(kind: kind, on: on))
+                }
+            } catch {
+                Self.log.error("fallback switch \(kind.rawValue, privacy: .public) ← \(String(describing: error), privacy: .public)")
+            }
+        }
+        return .switches(slots)
+    }
+
+    private func writeSwitchFallback(_ slot: AutoMonitorSlot, peripheral: VPPeripheralBaseManage) async throws {
+        guard let type = Self.fallbackSwitchTypes.first(where: { $0.kind == slot.kind })?.type else {
+            throw BandError.unsupported("automatic \(slot.kind.rawValue) monitoring")
+        }
+        let wantedOn = slot.on
+        try await sdk("writeAutoMonitoringSwitch") { done in
+            peripheral.veepooSDKSettingBaseFunctionType(
+                type,
+                settingState: wantedOn ? .settingFunctionOpen : .settingFunctionClose
+            ) { state in
+                switch state {
+                case .functionCompleteOpen:
+                    done(wantedOn ? .success(()) : .failure(BandError.rejected("AUTO MONITORING STAYED ON")))
+                case .functionCompleteClose:
+                    done(wantedOn ? .failure(BandError.rejected("AUTO MONITORING STAYED OFF")) : .success(()))
+                case .functionCompleteComplete:
+                    done(.success(()))
+                case .functionCompleteUnknown:
+                    done(.failure(BandError.unsupported("automatic \(slot.kind.rawValue) monitoring")))
+                default:
+                    done(.failure(BandError.rejected("AUTO MONITORING REFUSED")))
+                }
+            }
+        }
+    }
+
+    private func readBaseSwitch(
+        _ type: VPSettingBaseFunctionSwitchType,
+        peripheral: VPPeripheralBaseManage
+    ) async throws -> Bool? {
+        try await sdk("readAutoMonitoringSwitch.\(type.rawValue)", seconds: 8) { done in
+            peripheral.veepooSDKSettingBaseFunctionType(type, settingState: .readFunctionState) { state in
+                switch state {
+                case .functionCompleteOpen: done(.success(true))
+                case .functionCompleteClose: done(.success(false))
+                case .functionCompleteUnknown: done(.success(nil))
+                default: done(.failure(BandError.rejected("AUTO MONITORING SWITCH READ FAILED")))
+                }
+            }
+        }
+    }
+
+    private static let fallbackSwitchTypes: [(kind: AutoMonitorSlot.Kind, type: VPSettingBaseFunctionSwitchType)] = [
+        (.heartRate, .automaticHRTest),
+        (.bloodPressure, .automaticBPTest),
+        (.hrv, .automaticHRVTest),
+        (.bloodOxygen, .automaticOxygenTest),
+        (.temperature, .automaticTemperatureTest),
+        (.bloodGlucose, .automaticBloodGlucoseTest),
+        (.stress, .stress),
+        (.bloodComponents, .automaticBloodCompTest),
+    ]
+
+    private static func slot(from reading: AutoMeasurementSwitchFallback.Reading) -> AutoMonitorSlot {
+        let kind = AutoMonitorSlot.Kind(rawValue: reading.kind.rawValue) ?? .heartRate
+        return .firmwareOwned(kind: kind, on: reading.on)
+    }
+
+    private static func bytes(_ data: Data?) -> [UInt8] {
+        guard let data else { return [] }
+        return Array(data)
+    }
+
+    /// Open `mode`, let the band answer, close it again. `success` in the open callback is
+    /// the verdict — the band either took the mode (it exists on this firmware) or refused.
+    /// A failed close is logged only: the probe's mission is the answer, and a session left
+    /// running is better than a probe that never came back.
+    func probeSportMode(_ rawValue: Int) async throws -> Bool {
+        do {
+            try await startSportMode(rawValue)
+            try? await stopSportMode(rawValue)
+            return true
+        } catch let error as BandError {
+            switch error {
+            case .unsupported, .rejected: return false
+            default: throw error
+            }
+        }
+    }
+
+    func startSportMode(_ rawValue: Int) async throws {
+        guard let peripheral else { throw BandError.notConnected }
+        guard let mode = VPDeviceRuningMode(rawValue: rawValue) else {
+            throw BandError.unsupported("sport mode \(rawValue)")
+        }
+        try await queue.run("startSportMode", priority: .p0) {
+            try await self.sdk("startSportMode") { done in
+                peripheral.veepooSDKSettingDeviceRunning(1, run: mode) { _, success in
+                    if success { done(.success(())) }
+                    else { done(.failure(BandError.rejected("SPORT MODE REFUSED"))) }
+                }
+            }
+        }
+    }
+
+    func stopSportMode(_ rawValue: Int) async throws {
+        guard let peripheral else { throw BandError.notConnected }
+        guard let mode = VPDeviceRuningMode(rawValue: rawValue) else {
+            throw BandError.unsupported("sport mode \(rawValue)")
+        }
+        try await queue.run("stopSportMode", priority: .p0) {
+            try await self.sdk("stopSportMode") { done in
+                peripheral.veepooSDKSettingDeviceRunning(0, run: mode) { _, closed in
+                    if closed { done(.success(())) }
+                    else {
+                        Self.log.notice("sport stop failed for \(rawValue)")
+                        done(.failure(BandError.rejected("SPORT MODE DID NOT CLOSE")))
+                    }
                 }
             }
         }

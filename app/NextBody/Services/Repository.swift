@@ -241,13 +241,11 @@ final class Repository {
             #if DEBUG
             NSLog("Repository.load: %d daily_results rows", rows.count)
             #endif
-            guard !rows.isEmpty else { return }
 
-            // ⚠️ These eight were awaited one after another: nine round trips end to end, and
-            // the screen sat on all nine every time a band sync settled. Not one of them reads
-            // another's answer — only `daily_results` above had to come first, because an
-            // empty day means none of the rest is worth asking for. Fired together they cost
-            // one round trip's wall clock instead of eight.
+            // Raw samples are available before settle_now has produced daily_results. They
+            // must still load: otherwise a successful 12:45 band upload leaves an 08:00 curve
+            // on screen merely because the derived row is late. These independent requests
+            // run together so that correctness does not add serial round trips.
             let stamp = ISO8601DateFormatter()
             async let fuelRows = db.select("day_fuel", query: [
                 .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,protein_in_g,carb_in_g,fat_in_g,weight_kg"),
@@ -275,6 +273,8 @@ final class Repository {
             async let weekMealRows = db.select("meals", query: [
                 .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g"),
                 .init(name: "deleted_at", value: "is.null"),
+                // Dev seeds carry model_version = seed; they must not populate 09 or the dock.
+                .init(name: "model_version", value: "neq.seed"),
                 .init(name: "user_day", value: "gte.\(f.string(from: day.adding(days: -6).start))"),
                 .init(name: "user_day", value: "lte.\(f.string(from: day.start))"),
                 .init(name: "order", value: "logged_at.asc"),
@@ -292,9 +292,11 @@ final class Repository {
             // in the same 04:00 → 04:00 window as the reserve curve.
             // 04B · the second page draws the same ticks: skin temperature and the five
             // minutes' steps, kcal and metres ride along on the columns the sync already writes.
+            // Rolling traces need the preceding user day too; every sample is partitioned
+            // back into its own 04:00 window after the response arrives.
             async let vitalRowsAsync = db.select("raw_samples", query: [
                 .init(name: "select", value: "ts,heart,stress,temp,step,cal,dis,hrv"),
-                .init(name: "ts", value: "gte.\(stamp.string(from: day.start))"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -1).start))"),
                 .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
                 .init(name: "order", value: "ts.asc"),
             ])
@@ -363,10 +365,14 @@ final class Repository {
                 if let iso = row["computed_at"] as? String {
                     m.asOf = Self.timestamp(iso)
                 }
+                // A valid daytime-only score lives on daily_results even before a night can
+                // freeze BB_WAKE. reserve_daily normally carries the same current value, but
+                // its absence must not turn a measured reserve_score back into unknown.
+                m.bodyBattery = number(row["reserve_score"]).map { Int($0) }
 
                 if let r = reserveBy[id] {
                     m.bbWake = number(r["wake_value"]).map { Int($0) }
-                    m.bodyBattery = number(r["current_value"]).map { Int($0) }
+                    m.bodyBattery = number(r["current_value"]).map { Int($0) } ?? m.bodyBattery
                     if let d = r["drain_drivers"] as? [String: Any], !d.isEmpty {
                         m.reserveDrivers = ReserveDrivers(
                             lastNight: number(d["last_night"]) ?? 0,
@@ -454,6 +460,21 @@ final class Repository {
                 history.append(m)
             }
 
+            // A just-synced day can have raw_samples before it has a daily_results row.
+            // Preserve any local metrics for the two chart days and add only the missing
+            // shells; the raw response below will fill their curves.
+            for requiredDay in [day.adding(days: -1), day] where
+                !history.contains(where: { $0.day == requiredDay }) {
+                if let existing = store.history.first(where: { $0.day == requiredDay }) {
+                    history.append(existing)
+                } else if store.today.day == requiredDay {
+                    history.append(store.today)
+                } else {
+                    history.append(DailyMetrics(day: requiredDay))
+                }
+            }
+            history.sort { $0.day < $1.day }
+
             // The meal list belongs to the same row of truth as the fuel state: if the
             // server says UNLOGGED, an old locally-seeded meal must not survive on screen.
             // 12 · WEEK needs the week's meals, not just today's. Fetched once for the
@@ -514,14 +535,24 @@ final class Repository {
                                    dis: number(row["dis"]),
                                    hrv: hrv)
             }
-            if !history.isEmpty { history[history.count - 1].vitalsCurve = vitals }
+            for index in history.indices {
+                let remoteSamples = vitals.filter {
+                    $0.ts >= history[index].day.start && $0.ts < history[index].day.end
+                }
+                let localSamples = store.history.first(where: {
+                    $0.day == history[index].day
+                })?.vitalsCurve ?? (store.today.day == history[index].day
+                    ? store.today.vitalsCurve
+                    : [])
+                history[index].vitalsCurve = VitalSample.merging(remoteSamples, with: localSamples)
+            }
 
             // 04B · SLEEP card. The night OriginDataSync stored under this user day. Asked on
             // its own and swallowed on failure — a project without the table must still load,
             // and a night the band has not answered is a "——", not an error.
             if !history.isEmpty,
                let nightRows = try? await db.select("sleep_nights", query: [
-                   .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line"),
+                   .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line,sleep_start,wake_at"),
                    .init(name: "user_day", value: "eq.\(f.string(from: day.start))"),
                    .init(name: "limit", value: "1"),
                ]),
@@ -539,7 +570,11 @@ final class Repository {
                     deepMinutes: number(night["deep_minutes"]).map { Int($0) } ?? 0,
                     lightMinutes: number(night["light_minutes"]).map { Int($0) } ?? 0,
                     wakeCount: number(night["wake_count"]).map { Int($0) } ?? 0,
-                    line: line)
+                    line: line,
+                    // The window the band recorded. A row written before the two columns
+                    // existed has neither, and 02's clock line is simply not drawn.
+                    sleepStart: (night["sleep_start"] as? String).flatMap(Self.timestamp),
+                    wakeAt: (night["wake_at"] as? String).flatMap(Self.timestamp))
             }
 
             let liveRows = try await liveRowsAsync
@@ -572,6 +607,7 @@ final class Repository {
                 let settled = Set(store.meals.filter { $0.status != .open }.map(\.slot))
                 store.today = merge(last, into: store.today,
                                     openSlots: MealEntry.Slot.allCases.count - settled.count)
+                store.rebaseBodyBatteryPreview()
             }
 
             // The macro rows are the day's own meals added up. The targets are computed

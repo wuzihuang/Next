@@ -40,6 +40,51 @@ final class HomeDisplayTapTests: XCTestCase {
         XCTAssertTrue(hint.exists, "home is no longer frontmost")
     }
 
+    func testDismissingPersonalizedDisplayReturnsToStandby() {
+        let app = XCUIApplication()
+        app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
+        app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
+        app.launchEnvironment["NB_DEBUG_NOW"] = eveningISO()
+        app.launchEnvironment["NB_DEBUG_PANEL"] = "line"
+        app.launch()
+
+        let dismiss = app.buttons["panel-dismiss"]
+        XCTAssertTrue(dismiss.waitForExistence(timeout: 30),
+                      "personalized display never exposed its dismiss control")
+
+        dismiss.tap()
+
+        let hint = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "I'M UP")).firstMatch
+        XCTAssertTrue(hint.waitForExistence(timeout: 5),
+                      "dismissing the personalized display did not restore standby")
+        XCTAssertFalse(dismiss.exists, "dismiss control remained after returning to standby")
+    }
+
+    func testThinkingDisplayAlsoExposesDismissControl() {
+        let app = XCUIApplication()
+        app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
+        app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
+        app.launchEnvironment["NB_DEBUG_NOW"] = eveningISO()
+        app.launchEnvironment["NB_DEBUG_PANEL"] = "thinking"
+        app.launch()
+
+        // THINKING is a continuously animating TimelineView; on iOS 18.5 XCTest omits its
+        // overlay button from accessibility snapshots even though the control is visible and
+        // hit-testable. Exercise the actual top-right hit region instead.
+        Thread.sleep(forTimeInterval: 10)
+        app.windows.firstMatch
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.915, dy: 0.15))
+            .tap()
+
+        let hint = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "I'M UP")).firstMatch
+        XCTAssertTrue(hint.waitForExistence(timeout: 5),
+                      "dismissing THINKING did not restore standby")
+        XCTAssertFalse(app.buttons["panel-dismiss"].exists,
+                       "THINKING dismiss control remained on standby")
+    }
+
     private func eveningISO() -> String {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]

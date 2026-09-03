@@ -29,7 +29,8 @@ struct Dock: View {
     var onListen: () -> Void
     var onStopListening: () -> Void
     var onCancelListening: () -> Void = {}
-    @State private var pressT0: Date?
+    var onKeyboardTap: (() -> Void)? = nil
+    @State private var pressing = false
     @State private var armed = false
     @State private var cancelling = false
 
@@ -37,13 +38,17 @@ struct Dock: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            // Left slot · switches input mode. It never does anything else.
+            // Left slot · switches input mode or opens dedicated chat.
             DockCircleButton(ringed: mode == .keyboard, action: {
-                // 05M · A · OPEN 0.38S, DISMISS 0.24S — the board's own numbers, not a house spring.
-                withAnimation(.spring(response: mode == .keyboard ? 0.24 : 0.38, dampingFraction: 0.82)) {
-                    mode = (mode == .keyboard) ? .idle : .keyboard
+                if let onKeyboardTap {
+                    onKeyboardTap()
+                } else {
+                    // 05M · A · OPEN 0.38S, DISMISS 0.24S — the board's own numbers, not a house spring.
+                    withAnimation(.spring(response: mode == .keyboard ? 0.24 : 0.38, dampingFraction: 0.82)) {
+                        mode = (mode == .keyboard) ? .idle : .keyboard
+                    }
+                    focused = mode == .keyboard
                 }
-                focused = mode == .keyboard
             }) { KeyboardGlyph() }
             // 05M · B·03 · while the chamber owns the lane both side keys fade out and stop
             // taking hits; a recording has two gestures, and a third tappable thing is a leak.
@@ -72,7 +77,11 @@ struct Dock: View {
             } else {
                 DockCircleButton(filled: menuOpen, action: onPlus) {
                     ZStack {
-                        CameraGlyph()
+                        // The key at rest is the orb, not a camera outline: it opens 06's
+                        // sheet, where the photo rows are one option among the band's own.
+                        // It fills the key edge to edge — under about 40 pt the two shells
+                        // stop reading as shells and the ball is just texture.
+                        OrbGlyph(side: NB.Layout.dockSideButton)
                             .opacity(menuOpen ? 0 : 1)
                             .scaleEffect(menuOpen ? 0.6 : 1)
                         PlusGlyph(tint: NB.carbon)
@@ -137,6 +146,34 @@ struct Dock: View {
             .frame(width: listening ? width : nil,
                    height: listening ? RecordingChamber.height : NB.Layout.dockHeight)
             .frame(maxWidth: .infinity)
+            // ADR-0001 · the press is a UIKit recognizer (PressHold), not a SwiftUI drag: under
+            // the page drag's `highPriorityGesture` a child gesture hears nothing until the
+            // finger lifts, and this key has to arm 200 ms into the touch.
+            .overlay(
+                PressHold(
+                    onTouch: { down in pressing = down },
+                    // 05M · B·02 · the threshold is crossed → one haptic, mic up.
+                    onArm: {
+                        armed = true
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onListen()
+                    },
+                    // 05M · B·04 · slide up past −56 px arms the cancel; back down re-arms send.
+                    onMove: { t in
+                        let c = armed && t.height < -56
+                        if c != cancelling {
+                            cancelling = c
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+                    },
+                    onLift: { interrupted in
+                        let wasArmed = armed, wasCancelling = cancelling
+                        pressing = false; armed = false; cancelling = false
+                        guard wasArmed else { return }   // a slip under 200 ms: nothing began
+                        if wasCancelling || interrupted { onCancelListening() } else { onStopListening() }
+                    }
+                )
+            )
             // B·03 / B·04 · the cancel mark hangs 68 pt above the chamber's lip, on a dotted
             // line that says how far the finger has to travel.
             .overlay(alignment: .top) {
@@ -152,39 +189,11 @@ struct Dock: View {
             // the chamber grows upward out of the 56 pt row; the row itself never moves
             .frame(height: NB.Layout.dockHeight, alignment: .bottom)
             .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .scaleEffect(pressT0 != nil && !listening ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: pressT0 != nil)
+            .scaleEffect(pressing && !listening ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: pressing)
             .animation(.easeOut(duration: 0.16), value: cancel)
             .accessibilityLabel(listening ? (cancel ? "Release to cancel" : "Listening · release to send · slide up to cancel") : "Hold to talk")
             .accessibilityAddTraits(.startsMediaSession)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { v in
-                        if pressT0 == nil {
-                            pressT0 = Date()
-                            // 05M · B·02 · cross the 200 ms threshold → armed, one haptic, mic up.
-                            let t0 = Date()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-                                guard pressT0 == t0 || (pressT0 != nil && !armed) else { return }
-                                guard pressT0 != nil else { return }   // released before arming
-                                armed = true
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                onListen()
-                            }
-                        }
-                        // 05M · B·04 · slide up past −56 px arms the cancel; back down re-arms send.
-                        let c = armed && v.translation.height < -56
-                        if c != cancelling {
-                            cancelling = c
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        }
-                    }
-                    .onEnded { _ in
-                        let wasArmed = armed, wasCancelling = cancelling
-                        pressT0 = nil; armed = false; cancelling = false
-                        guard wasArmed else { return }         // a slip under 200 ms: nothing began
-                        if wasCancelling { onCancelListening() } else { onStopListening() }
-                    })
 
         case .keyboard, .plus:
             // The keyboard rises with the screen and the caret is already in the field —

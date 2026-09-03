@@ -17,6 +17,8 @@ struct OrbitField {
     var clock: Double
     /// 0…1 — how much of the ring the lime band covers. It is the charge level, not decoration.
     var charge: Double = 0.72
+    /// Unknown is not an empty battery: without a score the lime band is absent.
+    var chargeKnown = true
     /// 0…1 — ◇3's sweep. The idle panel passes 1 and never looks at it again.
     var arrival: Double = 1
     /// ◇2 — before the core is lit the whole plate sits at 20%: this screen comes up backlit.
@@ -144,7 +146,10 @@ struct OrbitField {
     }
 
     /// The band's length. It is the charge level, not decoration.
-    private var haloSpan: Double { 2 * .pi * (0.34 + 0.26 * min(1, max(0, charge))) }
+    private var haloSpan: Double {
+        guard chargeKnown else { return 0 }
+        return 2 * .pi * (0.34 + 0.26 * min(1, max(0, charge)))
+    }
 
     /// A point on the lime band's ring. The ring is *polar*: it stands up through the
     /// planet's poles rather than lying in the blue orbit's plane, so its narrow axis is
@@ -179,6 +184,7 @@ struct OrbitField {
     /// argmax here would step from sample to sample and the light would visibly stutter.
     private func haloLight(angle: Double, incl: Double, c: CGPoint, s: CGFloat)
         -> (angle: Double, strength: Double) {
+        guard chargeKnown else { return (0, 0) }
         let span = haloSpan
         let n = 24
         var vx = 0.0, vy = 0.0
@@ -463,6 +469,7 @@ struct StandbyArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 0…1 — drives the lime band's length so it reads as a charge level, not a decoration.
     var charge: Double = 0.72
+    var chargeKnown = true
     var animate = true
 
     /// Starts part-turned so the held pose is a composed one rather than the zero frame.
@@ -488,7 +495,8 @@ struct StandbyArt: View {
 
     private var canvas: some View {
         Canvas { ctx, size in
-            OrbitField(clock: clock, charge: charge).draw(in: &ctx, size: size)
+            OrbitField(clock: clock, charge: charge, chargeKnown: chargeKnown)
+                .draw(in: &ctx, size: size)
         }
     }
 }

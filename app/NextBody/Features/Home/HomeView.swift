@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 
 /// 04 · THE ROOT. The only root in the product; every detail page returns here.
 struct HomeView: View {
@@ -11,9 +12,15 @@ struct HomeView: View {
     @StateObject private var keyboard = KeyboardHeight()
     @StateObject private var firstRun = FirstRun()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 04 · a live readout is the band's sensor held open. Backgrounded, nobody is looking
+    /// at it and nothing is drawn — so the measurement stops with the scene, not with the view.
+    @Environment(\.scenePhase) private var scenePhase
     @State private var dockMode: Dock.Mode = .idle
+    @State private var asrStream: ASRStreamingSession?
     /// 06 · the plus menu stands over the dock; the dock stays and the plus becomes ×.
     @State private var plusOpen = false
+    /// How far the finger has pulled the sheet down. It follows 1:1 and springs back under 120 pt.
+    @State private var sheetDrag: CGFloat = 0
     @State private var draft = ""
     /// 09 edge 5 · the day a back-logged meal belongs to; nil means today.
     @State private var backlogDay: UserDay?
@@ -25,6 +32,7 @@ struct HomeView: View {
     @State private var rootShift: CGFloat = 0
     /// 05 · C · the photo waits for the caption; they leave as one message.
     @State private var photoItem: PhotosPickerItem?
+    @State private var showCamera = false
     @State private var attachment: Attachment?
     struct Attachment: Equatable {
         var image: UIImage
@@ -35,12 +43,18 @@ struct HomeView: View {
     }
     @ObservedObject private var reachability = Reachability.shared
     @State private var widget: PanelWidget?
+    /// Every asynchronous panel answer belongs to one request. Dismissing the panel rotates
+    /// this id, so a late network result cannot put a closed frame back over STANDBY.
+    @State private var panelRequestID = UUID()
     // 04B · page two. 0 is the root, 1 is the instruments. The header and the home indicator
     // stay; the panel, the strip and the dock slide out together, and the drag is a plain
     // offset so the first frame follows the finger 1:1.
-    // `SIMCTL_CHILD_NB_DEBUG_HOME_PAGE=1` opens the app on the second page for a screenshot.
-    @State private var homePage = ProcessInfo.processInfo.environment["NB_DEBUG_HOME_PAGE"] == "1" ? 1 : 0
     @State private var pageDrag: CGFloat = 0
+    #if DEBUG
+    /// `SIMCTL_CHILD_NB_DEBUG_HOME_DRAG=0.45` freezes a mid-swipe frame — page one 45 % out,
+    /// page two 45 % in, dots mid-handover — so the handover can be screenshotted.
+    private let debugDragFraction = Double(ProcessInfo.processInfo.environment["NB_DEBUG_HOME_DRAG"] ?? "")
+    #endif
     /// 04B col 02 · a confirmed horizontal drag owns every touch on both pages until the
     /// finger lifts — a swipe that ends on a card is a swipe, never a tap (「什么都不可点」).
     /// Without this gate a slow drag that started on the SLEEP card ended by opening 13.
@@ -58,22 +72,44 @@ struct HomeView: View {
     private var safe: UIEdgeInsets { ScreenMetrics.safeArea }
     private var columnWidth: CGFloat { screen.width - 2 * NB.Layout.gutter }
     private var panelTop: CGFloat { safe.top + HomeHeader.height + 12 }
-    /// the dock's foot, measured from the bottom edge of the screen
-    private var dockBottom: CGFloat { safe.bottom + 8 }
+    /// the dock's foot, measured from the bottom edge of the screen. 04B · it rides clear of
+    /// the page dots' lane (which sits on the home-indicator edge), so the voice key is not
+    /// crowded by the dots.
+    private var dockBottom: CGFloat { safe.bottom + 20 }
     /// On a short phone the panel is smaller than the board's canvas and the widget scales
     /// down inside it (AIPanel); on a tall one it grows. The strip and the dock never change.
     private var panelHeight: CGFloat {
         screen.height - panelTop - 12 - NB.Layout.stripHeight - 12 - NB.Layout.dockHeight - dockBottom
     }
-    private var pageShift: CGFloat { -CGFloat(homePage) * screen.width + pageDrag }
+    private var pageShift: CGFloat { -CGFloat(router.homePage) * screen.width + pageDrag }
+    /// 1 on the root, 0 on page two — continuous through the drag and the snap spring, so
+    /// the two dot sets crossfade in place instead of jumping when homePage flips.
+    private var pageFade: Double { 1 - min(1, abs(pageShift) / screen.width) }
     /// 04B right column · the swipe yields to every overlay: the plus menu, the keyboard, the
     /// listening chamber — and to the first-run ceremony, until the dock exists.
     private var pagingEnabled: Bool {
         firstRun.dockVisible && !plusOpen && keyboard.height == 0 && dockMode == .idle
     }
-    /// 04B · from the panel's top to just over the home indicator; the page's own foot
-    /// carries LAST TICK and the dots.
-    private var pageTwoHeight: CGFloat { screen.height - panelTop - safe.bottom - 6 }
+    /// 04 · when the panel's resting face gets to hold the band. On page one with nothing
+    /// over it, the readout runs and the HR / STRESS row is the wrist measuring now instead
+    /// of the last stored tick. Everything that covers that face ends it: a widget landing
+    /// on the panel, the plus menu, a takeover, a detail page, the keyboard, the listening
+    /// chamber, page two, the app going to the background.
+    /// ⚠️ Every one of those is a reason to stop measuring, not a style choice — a live
+    /// readout nobody is looking at is a band flat by lunchtime. And without consent the
+    /// band is not read at all (补屏 rule 01): pairing is not permission.
+    private var liveReadoutWanted: Bool {
+        firstRun.dockVisible && firstRun.playing == false
+            && router.homePage == 0 && router.path.isEmpty && router.takeover == nil
+            && widget == nil && !plusOpen && keyboard.height == 0 && dockMode == .idle
+            && scenePhase == .active
+            && data.band.connected && ConsentStore.shared.granted
+    }
+    /// 04B · from the panel's top to 12 pt over the dots' lane; the page's own foot carries
+    /// LAST TICK. The dots themselves are furniture, drawn by the root, not by the page.
+    /// Dots sit on the home-indicator lip (not above it), so the gap under the dock is real air.
+    private var pageDotsLane: CGFloat { max(4, safe.bottom - 2) }
+    private var pageTwoHeight: CGFloat { screen.height - panelTop - pageDotsLane - 12 }
 
     var body: some View {
         // The panel is one view for the whole ceremony: it starts as the entire screen and
@@ -96,50 +132,74 @@ struct HomeView: View {
             // another way.
             VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
                        syncedOnce: data.lastSync != nil,
-                       width: columnWidth,
-                       onSleep: { router.open(.bodyBattery, from: .home) },
-                       onHRV: {
-                           Task { await Analytics.shared.track("PAGE2_HRV_TAP") }
-                           router.open(.bodyBattery, from: .home)
+                       width: columnWidth, height: pageTwoHeight,
+                       onOpen: { metric in
+                           Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": metric.cardKey]) }
+                           router.open(.vitals(metric), from: .home)
                        })
                 .frame(width: columnWidth, height: pageTwoHeight, alignment: .top)
                 .offset(x: screen.width + NB.Layout.gutter + pageShift, y: panelTop)
                 .opacity(firstRun.dockVisible ? 1 : 0)
                 .allowsHitTesting(!swiping)
                 .zIndex(1)
-            // The root's own page dots, in the 12 pt seam between the strip and the dock —
-            // the only place the dock leaves for them (04B right column). They are furniture:
-            // they hold their lane through the drag and hand over to page two's own dots.
+            // 04B rule 02 · one lane for both pages' dots: on the home-indicator lip
+            // (bottom − max(4, safe.bottom − 2)). Furniture — the lane never moves and the
+            // dots never slide; the handover is the two sets crossfading in place, so a
+            // mid-drag frame never shows two pairs at two x positions.
             PageDots(current: 0)
                 .frame(width: screen.width)
-                .offset(y: panelTop + panelHeight + 12 + NB.Layout.stripHeight + 4)
-                .opacity(firstRun.dockVisible && homePage == 0 ? 1 : 0)
+                .offset(y: screen.height - pageDotsLane)
+                .opacity(firstRun.dockVisible ? pageFade : 0)
+                .allowsHitTesting(false)
+                .zIndex(1)
+            PageDots(current: 1)
+                .frame(width: screen.width)
+                .offset(y: screen.height - pageDotsLane)
+                .opacity(firstRun.dockVisible ? 1 - pageFade : 0)
                 .allowsHitTesting(false)
                 .zIndex(1)
 
-            // 06 · 02–06 · the page behind falls to 30 % while the menu is up; the dock row is
-            // left alone, because its right key is now the way out. Tap the scrim, tap ×, or
-            // pull the panel down — three routes, one 0.22 s ease-in.
+            // 06 · 02–06 · the menu is a bottom sheet: it rises from the bottom edge, over
+            // the dock, and nothing behind it is dimmed. A darkened page turns the menu into
+            // a modal interrogation; this is a drawer you pull open and push back down.
+            // Three routes out, one 0.22 s ease-in: swipe it down, tap above it, tap ×.
             if plusOpen {
-                Color(hex: 0x09090B).opacity(0.70)
-                    .padding(.bottom, NB.Layout.dockHeight + dockBottom + 8)
-                    .ignoresSafeArea()
+                Color.clear
                     .contentShape(Rectangle())
+                    .ignoresSafeArea()
                     .onTapGesture { closePlus() }
                     .transition(.opacity)
                     .zIndex(3)
                 PlusMenuSheet(inline: true, onClose: { closePlus() },
-                              onCamera: { showPicker = true }, onLibrary: { showPicker = true })
-                    .frame(width: columnWidth)
-                    .background(NB.carbon2, in: RoundedRectangle(cornerRadius: NB.R.panel, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: NB.R.panel, style: .continuous).stroke(NB.hairline, lineWidth: 1))
+                              onCamera: { openCamera(afterMenu: true) }, onLibrary: { showPicker = true })
+                    // The sheet keeps the dock's own gutters for its rows, and its ground runs
+                    // to the screen's edges — a bottom sheet that stops short of them is a card.
+                    .padding(.horizontal, NB.Layout.gutter - 8)
+                    .padding(.top, 10)
+                    .padding(.bottom, safe.bottom + 10)
+                    .frame(width: screen.width)
+                    .background {
+                        UnevenRoundedRectangle(topLeadingRadius: NB.R.panel, topTrailingRadius: NB.R.panel, style: .continuous)
+                            .fill(NB.carbon2)
+                            .overlay(
+                                UnevenRoundedRectangle(topLeadingRadius: NB.R.panel, topTrailingRadius: NB.R.panel, style: .continuous)
+                                    .stroke(NB.hairline, lineWidth: 1))
+                    }
                     .overlay(alignment: .top) {
                         Capsule().fill(NB.white.opacity(0.18)).frame(width: 36, height: 4).padding(.top, 8)
                     }
+                    // The finger takes it down 1:1 and it springs back if the pull was short.
+                    .offset(y: max(0, sheetDrag))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, NB.Layout.dockHeight + dockBottom + 12)
-                    .gesture(DragGesture(minimumDistance: 12).onEnded { v in if v.translation.height > 40 { closePlus() } })
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .ignoresSafeArea(edges: .bottom)
+                    .gesture(
+                        DragGesture(minimumDistance: 6)
+                            .onChanged { v in sheetDrag = max(0, v.translation.height) }
+                            .onEnded { v in
+                                if v.translation.height + v.predictedEndTranslation.height > 120 { closePlus() }
+                                else { withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { sheetDrag = 0 } }
+                            })
+                    .transition(.move(edge: .bottom))
                     .zIndex(4)
             }
         }
@@ -152,7 +212,7 @@ struct HomeView: View {
         // landed as a tap (fuel card drag → fuel detail). The !swiping gate below stays: it
         // still guards touches that BEGAN mid-swipe, which precedence does not cover.
         .highPriorityGesture(pageGesture, including: pagingEnabled ? .all : .subviews)
-        .onChange(of: homePage) { _, p in
+        .onChange(of: router.homePage) { _, p in
             if p == 1 {
                 pageTwoSince = Date()
                 trackPageTwoOpen()
@@ -192,7 +252,13 @@ struct HomeView: View {
         .photosPicker(isPresented: $showPicker, selection: $photoItem, matching: .images)
         .onChange(of: photoItem) { _, item in
             guard item != nil else { return }
-            Task { await attach(retry: false) }
+            Task { await attachFromPicker() }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCapture(
+                onCapture: { image in Task { await attach(image: image) } },
+                onCancel: { showCamera = false })
+            .ignoresSafeArea()
         }
         .statusBarHidden(firstRun.statusBarHidden)
         // Any tap at all lands on ◇11 — there is no "skip?" to answer.
@@ -200,6 +266,15 @@ struct HomeView: View {
         .onTapGesture { firstRun.skip() }
         // 05M · ANSWER 0.18S — the frame arrives in the panel at the board's speed.
         .animation(.easeInOut(duration: 0.18), value: widget)
+        // 04 · the live readout lasts exactly as long as the condition it is keyed on:
+        // `.task(id:)` starts it the moment the panel's resting face is what the user is
+        // looking at, and cancels it the moment it is not — which is also what a pushed
+        // detail page does to this view's tasks. Cancellation is how the band's test is
+        // stopped (F1 rule 05), so there is no stop call to forget.
+        .task(id: liveReadoutWanted) {
+            guard liveReadoutWanted else { return }
+            await LiveReadout.shared.run()
+        }
         .task {
             // DEBUG · 05 edges on a simulator with no microphone story of its own.
             switch DebugEdge.name {
@@ -214,6 +289,14 @@ struct HomeView: View {
             default: break
             }
             #if DEBUG
+            // `SIMCTL_CHILD_NB_DEBUG_HOME_DRAG=0.45` freezes a mid-swipe frame: the pages and
+            // both sets of dots hold exactly where a 45 % drag would leave them.
+            if ProcessInfo.processInfo.environment["NB_DEBUG_HOME_PAGE"] == "1" {
+                router.homePage = 1
+            }
+            if let f = debugDragFraction, router.homePage == 0, pageDrag == 0 {
+                pageDrag = -min(1, f) * screen.width
+            }
             // `SIMCTL_CHILD_NB_DEBUG_ASR_FILE=/path/clip.wav` · push one known clip through the
             // real transcribe path with the app's own session and log what asr answered.
             if let path = ProcessInfo.processInfo.environment["NB_DEBUG_ASR_FILE"] {
@@ -356,15 +439,24 @@ struct HomeView: View {
                      width: columnWidth,
                      draft: $draft,
                      onSend: handleSend,
-                     onCamera: { showPicker = true },
+                     onCamera: { openCamera() },
                      onPlus: {
                         if plusOpen { closePlus() }
-                        else { withAnimation(.easeOut(duration: 0.14)) { plusOpen = true } }
+                        else { sheetDrag = 0; withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { plusOpen = true } }
                      },
                      menuOpen: plusOpen,
                      onListen: beginListening,
                      onStopListening: endListening,
-                     onCancelListening: cancelListening)
+                     onCancelListening: cancelListening,
+                     onKeyboardTap: {
+                        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let initialQuery = text.isEmpty ? nil : text
+                        let initialAttachment = attachment?.dataURL
+                        draft = ""
+                        attachment = nil
+                        dockMode = .idle
+                        router.open(.chat(initialQuery: initialQuery, attachmentDataURL: initialAttachment), from: .home)
+                     })
                     // 05M · B·03 · while the chamber is open the page behind falls to 52 % and a
                     // carbon gradient rises 220 pt behind the dock. Neither takes a touch: the
                     // only gesture alive is the finger already on the key.
@@ -382,8 +474,8 @@ struct HomeView: View {
                     .overlay(alignment: .topLeading) {
                         if let a = attachment {
                             PhotoTray(attachment: a,
-                                      onRetry: { Task { await attach(retry: true) } },
-                                      onRemove: { withAnimation { attachment = nil; dockNote = nil } })
+                                      onRetry: { Task { await retryAttach() } },
+                                      onRemove: { withAnimation { attachment = nil; photoItem = nil; dockNote = nil } })
                                 .offset(x: 0, y: -116)
                                 .transition(.scale(scale: 0.94).combined(with: .opacity))
                         }
@@ -414,7 +506,7 @@ struct HomeView: View {
                                             .frame(width: 220, height: 40)
                                             .overlay(Capsule().stroke(NB.white.opacity(0.16), lineWidth: 1))
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(HotZoneTap(pressedScale: 1))
                                 }
                             }
                             // The board draws the sentence under the dock on a bare carbon ground.
@@ -441,8 +533,9 @@ struct HomeView: View {
                 Color.clear.frame(height: NB.Layout.dockHeight)
             }
 
-            // iOS draws the home indicator itself; the dock stops 8pt short of it.
-            Color.clear.frame(height: max(0, dockBottom - 12))
+            // iOS draws the home indicator itself; the dock stops above the page-dots lane
+            // (04B rule 02) with enough air that the voice key does not crowd the dots.
+            Color.clear.frame(height: dockBottom)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // 05 · A·04 · the container that holds the field is the one the keyboard would push;
@@ -455,11 +548,13 @@ struct HomeView: View {
     private var panel: some View {
         let full = firstRun.panelIsFullScreen
         return AIPanel(onTurnOn: { router.takeover = .consent },
-                       m: data.today, band: data.band, lastSync: data.lastSync, vitals: data.vitals,
+                       m: data.todayForDisplay, band: data.band,
+                       lastSync: data.lastSync, vitals: data.vitals,
                        widget: widget, firstRun: firstRun,
                        size: full ? screen
                                   : CGSize(width: columnWidth, height: panelHeight),
-                       radius: firstRun.panelRadius) { target in
+                       radius: firstRun.panelRadius,
+                       onDismissWidget: { dismissWidget() }) { target in
             // 06 · 17 · a fresh measurement answers a tap with a message, not a page.
             if let q = widget?.replyPrompt { handleSend(q) }
             else if let a = widget?.action, a.contains("确认记录") || a.localizedCaseInsensitiveContains("confirm"),
@@ -485,7 +580,7 @@ struct HomeView: View {
                 let dx = v.translation.width, dy = v.translation.height
                 if dragAxis == nil { dragAxis = abs(dx) >= abs(dy) ? .horizontal : .vertical }
                 guard dragAxis == .horizontal else { return }
-                pageDrag = homePage == 0 ? min(0, dx) : max(0, dx)
+                pageDrag = router.homePage == 0 ? min(0, dx) : max(0, dx)
                 swiping = true
             }
             .onEnded { v in
@@ -496,12 +591,12 @@ struct HomeView: View {
                 guard horizontal else { pageDrag = 0; return }
                 let far = abs(dx) > screen.width * 0.4
                 let fast = abs(v.velocity.width) > 300
-                var target = homePage
-                if homePage == 0, dx < 0, far || fast { target = 1 }
-                if homePage == 1, dx > 0, far || fast { target = 0 }
-                let turned = target != homePage
+                var target = router.homePage
+                if router.homePage == 0, dx < 0, far || fast { target = 1 }
+                if router.homePage == 1, dx > 0, far || fast { target = 0 }
+                let turned = target != router.homePage
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
-                    homePage = target
+                    router.homePage = target
                     pageDrag = 0
                 }
                 if turned {
@@ -522,26 +617,67 @@ struct HomeView: View {
                 note(DockNote(line: "MICROPHONE OFF", text: "Typing still works.\nTurn the mic on in Settings.", action: "Open Settings"))
                 return
             }
-            guard await SpeechCapture.shared.start() else { return }
+            // The recorder refused to open — no audio device (a simulator), or CoreAudio said
+            // no. The dock stays idle, and it says so: a key that answers a press with nothing
+            // at all is the same bug as a wave over a dead microphone.
+            let stream = reachability.isOnline ? await ai.beginStreamingTranscription() : nil
+            guard await SpeechCapture.shared.start(onPCMChunk: { pcm in stream?.append(pcm) }) else {
+                stream?.cancel()
+                note(DockNote(line: "MIC UNAVAILABLE", text: "The microphone would not open.\nTyping still works."), clearAfter: 4)
+                return
+            }
+            asrStream = stream
             withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .listening }
         }
     }
 
     @State private var showPicker = false
 
+    /// Plus · Take a photo opens the camera; the keyboard-field camera key does the same.
+    /// Simulator / no camera → say so, rather than silently opening the library.
+    /// `afterMenu` waits for the plus sheet's dismiss (0.22 s) so the camera cover is not fighting it.
+    private func openCamera(afterMenu: Bool = false) {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            note(DockNote(line: "CAMERA UNAVAILABLE", text: "Use Photo library from the plus menu."), clearAfter: 4)
+            return
+        }
+        if afterMenu {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) { showCamera = true }
+        } else {
+            showCamera = true
+        }
+    }
+
+    private func attachFromPicker() async {
+        do {
+            guard let item = photoItem,
+                  let data = try await item.loadTransferable(type: Data.self),
+                  let raw = UIImage(data: data) else { throw CocoaError(.fileReadCorruptFile) }
+            await attach(image: raw)
+        } catch {
+            note(DockNote(line: "UPLOAD FAILED", text: "Tap the photo to retry, or remove it."))
+            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": 0, "OK": false])
+        }
+    }
+
+    private func retryAttach() async {
+        if let image = attachment?.image {
+            await attach(image: image, clearingFirst: false)
+            return
+        }
+        await attachFromPicker()
+    }
+
     /// 05 · C02 → C04 · the thumbnail lands, the progress is drawn on the photo itself, and
     /// 100 % is the only completion signal. ⚠️ There is no storage bucket in this build: the
     /// bytes travel with the message, so "upload" is the read-and-resize that makes them ready.
-    private func attach(retry: Bool) async {
+    private func attach(image raw: UIImage, clearingFirst: Bool = true) async {
         withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { dockNote = nil }
-        if !retry { attachment = nil }
+        if clearingFirst { attachment = nil }
         do {
-            guard let item = photoItem, let data = try await item.loadTransferable(type: Data.self),
-                  let raw = UIImage(data: data) else { throw CocoaError(.fileReadCorruptFile) }
-            let image = raw.nb_resized(maxSide: 1024)
-            guard let jpeg = image.jpegData(compressionQuality: 0.72) else { throw CocoaError(.fileWriteUnknown) }
+            guard let payload = AIImagePayload.prepare(raw) else { throw CocoaError(.fileWriteUnknown) }
             if DebugEdge.on("uploadfailed") { throw CocoaError(.fileWriteUnknown) }
-            var a = Attachment(image: image, dataURL: "data:image/jpeg;base64," + jpeg.base64EncodedString(), progress: 0)
+            var a = Attachment(image: payload.preview, dataURL: payload.dataURL, progress: 0)
             withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { attachment = a }
             // the bar and the percentage climb on the photo; the field stays typeable throughout
             for step in 1...10 {
@@ -550,13 +686,13 @@ struct HomeView: View {
                 attachment = a
             }
             await Analytics.shared.track("PHOTO_ATTACH", [:])
-            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 600, "BYTES": jpeg.count, "OK": true])
+            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 600, "BYTES": payload.byteCount, "OK": true])
             if dockMode != .keyboard { withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { dockMode = .keyboard } }
         } catch {
             // 05 edge 4 · UPLOAD FAILED. The caption stays, the send stays dark, the photo says so.
             if var a = attachment { a.failed = true; attachment = a }
-            else if let raw = photoItem, let d = try? await raw.loadTransferable(type: Data.self), let img = UIImage(data: d) {
-                attachment = Attachment(image: img, dataURL: "", progress: 0, failed: true)
+            else {
+                attachment = Attachment(image: raw, dataURL: "", progress: 0, failed: true)
             }
             note(DockNote(line: "UPLOAD FAILED", text: "Tap the photo to retry, or remove it."))
             await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": 0, "OK": false])
@@ -566,6 +702,7 @@ struct HomeView: View {
     /// 05 edges · show the line, and clear it on its own when the board says so.
     /// The draft she rendered becomes a row: the same path a food sentence takes directly.
     private func confirmMeal(_ text: String, day: UserDay) {
+        let requestID = beginPanelRequest()
         lastSent = nil
         withAnimation { widget = .thinking(text) }
         Task {
@@ -574,9 +711,11 @@ struct HomeView: View {
                                   kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
             data.logMeal(entry)
             if let frame = await ai.estimate(entry: entry, into: data) {
+                guard panelRequestID == requestID else { return }
                 withAnimation { widget = frame }
             } else {
                 data.deleteMeal(entry.id)
+                guard panelRequestID == requestID else { return }
                 withAnimation { widget = PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
                                                      sentence: AppLanguage.isEnglish ? "That meal did not save. Tap confirm once more." : "这一餐没记上。再点一次确认。",
                                                      footer: String(text.prefix(42)), action: AppLanguage.isEnglish ? "CONFIRM" : "确认记录", data: .none) }
@@ -585,8 +724,24 @@ struct HomeView: View {
         }
     }
 
+    private func beginPanelRequest() -> UUID {
+        let requestID = UUID()
+        panelRequestID = requestID
+        return requestID
+    }
+
+    /// Every non-idle panel state is temporary. Rotating the request id invalidates any
+    /// answer still in flight before restoring STANDBY and its live wrist readout.
+    private func dismissWidget() {
+        guard widget != nil else { return }
+        panelRequestID = UUID()
+        lastSent = nil
+        withAnimation(.easeOut(duration: 0.18)) { widget = nil }
+    }
+
     private func closePlus() {
         withAnimation(.easeIn(duration: 0.22)) { plusOpen = false }
+        sheetDrag = 0
     }
 
     /// 04B 上线前 · 埋点在写卡之前先埋好. Every opening of page two reports what the cards
@@ -632,46 +787,66 @@ struct HomeView: View {
     private func cancelListening() {
         // 05M · B·04 → idle · the chamber goes back into the capsule the same way a send does.
         withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) { dockMode = .idle }
-        Task { _ = await SpeechCapture.shared.stop() }
+        let stream = asrStream
+        asrStream = nil
+        stream?.cancel()
+        Task {
+            if let clip = await SpeechCapture.shared.stop() {
+                try? FileManager.default.removeItem(at: clip)
+            }
+        }
         Task { await Analytics.shared.track("VOICE_CANCEL", ["REASON": "SLIDE_UP"]) }
     }
 
     private func endListening() {
         // 05M · B·05 · RELEASE 0.22S · EASE-OUT-BACK · the chamber collapses into the capsule.
         withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) { dockMode = .idle }
+        let stream = asrStream
+        asrStream = nil
         Task {
             let elapsed = SpeechCapture.shared.elapsed
             // stop() waits on the audio queue rather than the main one, for the same reason
             // start() does: tearing down a session that is not answering must not freeze a tap.
-            guard let clip = await SpeechCapture.shared.stop() else { return }
+            guard let clip = await SpeechCapture.shared.stop() else {
+                stream?.cancel()
+                return
+            }
+            defer { try? FileManager.default.removeItem(at: clip) }
             // 05 edge 6 · INTERRUPTED. A call or an alarm took the mic: half a sentence is worse
             // than none, so nothing is sent and the dock says it was not saved.
             if let t = SpeechCapture.shared.interruptedAt {
+                stream?.cancel()
                 note(DockNote(line: String(format: "INTERRUPTED AT %d:%02d", Int(t) / 60, Int(t) % 60),
                               text: "Not saved. Say it again when you're free."), clearAfter: 4)
                 return
             }
             // 05 edge 2 · TOO SHORT. Under 0.6 s is a slip: no send, no error, 1.2 s on the capsule.
             if elapsed < 0.6 {
+                stream?.cancel()
                 note(DockNote(line: String(format: "%.1fS · TOO SHORT", elapsed), text: "Hold, say it, then let go."), clearAfter: 1.2)
                 return
             }
             // 05 edge 5 · OFFLINE. A clip cannot wait in the dock the way a draft does, so the
             // capsule says when to say it again rather than pretending it heard nothing.
             if !reachability.isOnline || DebugEdge.on("offline") {
+                stream?.cancel()
                 note(DockNote(line: "NO CONNECTION", text: "Say it again when you're back."), clearAfter: 4)
                 return
             }
+            let requestID = beginPanelRequest()
             withAnimation { widget = .thinking }
-            switch await ai.transcribe(clip) {
+            switch await ai.transcribe(clip, stream: stream) {
             case .text(let said):
+                guard panelRequestID == requestID else { return }
                 handleSend(said)
             case .silence:
+                guard panelRequestID == requestID else { return }
                 // 05 edge 3 · NO SPEECH. Recorded, transcribed to nothing: it stays in the dock
                 // for the next take rather than sending her an empty message.
                 withAnimation { widget = nil }
                 note(DockNote(line: "NOTHING HEARD", text: "Say it again, or type it."), clearAfter: 4)
             case .failed:
+                guard panelRequestID == requestID else { return }
                 // Not on the board's list of six, because the board assumed the server answers.
                 // A 401, a 503 or a dropped upload is not silence, and telling her to speak up
                 // for it would be a lie; the line names the step that failed.
@@ -697,6 +872,7 @@ struct HomeView: View {
         let backlogging = backlogDay != nil
         backlogDay = nil
         lastSent = (text, day)
+        let requestID = beginPanelRequest()
         withAnimation { widget = .thinking(text) }
 
         // 05 · C05 → C07 · photo and caption leave as one object and come back as one answer
@@ -706,10 +882,15 @@ struct HomeView: View {
             withAnimation(.spring(response: 0.26, dampingFraction: 0.74)) { attachment = nil }
             photoItem = nil
             Task {
-                if MedicalStop.matches(text) { withAnimation { widget = MedicalStop.frame }; return }
+                if MedicalStop.matches(text) {
+                    guard panelRequestID == requestID else { return }
+                    withAnimation { widget = MedicalStop.frame }
+                    return
+                }
                 let frame = await ai.photoMeal(image: sent.image, dataURL: sent.dataURL, caption: text,
                                                slot: slotForNow(), into: data)
                 await Analytics.shared.track("MSG_SEND", ["TYPE": "PHOTO", "CHARS": text.count, "HAS_PHOTO": true])
+                guard panelRequestID == requestID else { return }
                 withAnimation { widget = frame ?? PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
                                                               sentence: AppLanguage.isEnglish ? "Could not read that plate. Your words are kept; send it again." : "这张盘子没读出来。字先留着，再发一次。",
                                                               footer: String(text.prefix(42)), action: nil, data: .none) }
@@ -722,6 +903,7 @@ struct HomeView: View {
             // question about medication otherwise routes to the meal path — and that path
             // writes the row before the model is called.
             if MedicalStop.matches(text) {
+                guard panelRequestID == requestID else { return }
                 withAnimation { widget = MedicalStop.frame }
                 return
             }
@@ -731,12 +913,14 @@ struct HomeView: View {
                                       kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
                 data.logMeal(entry)
                 if let frame = await ai.estimate(entry: entry, into: data) {
+                    guard panelRequestID == requestID else { return }
                     withAnimation { widget = frame }
                     return
                 }
+                guard panelRequestID == requestID else { return }
             }
-            let frame = await ai.turn(text, day: day, store: data)
-            withAnimation { widget = frame ?? .thinking(text) }
+            // 05B · dedicated full-screen chat exploration interface for multi-turn questions
+            router.open(.chat(initialQuery: text), from: .home)
         }
     }
 

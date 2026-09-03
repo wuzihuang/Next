@@ -373,6 +373,10 @@ struct DetailScroll<Trailing: View, Content: View>: View {
         .ignoresSafeArea(.container, edges: .bottom)
         .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
+        // Custom chrome hides the system back button, which also disables the edge-swipe
+        // pop. A left-edge pan here calls the same `onBack` as the chevron — including
+        // `backToRoot()` — so page-two vitals land back on page two, not a half-popped stack.
+        .detailEdgeBack(onBack)
     }
 
     /// The sticky title. One word, interpolating from the large-left slot into the bar's
@@ -547,6 +551,39 @@ private struct TitleCenterKey: PreferenceKey {
     static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) { value = nextValue() }
 }
 
+/// Left-edge swipe → same `onBack` as the chevron. A fixed leading strip takes the
+/// drag; the scroll and the rest of the page stay untouched. Prefer this over re-wiring
+/// `interactivePopGestureRecognizer` from a background VC: that VC often has a nil
+/// `navigationController`, and becoming the gesture's delegate while returning `false`
+/// from `shouldBegin` silently kills the system swipe.
+extension View {
+    /// Leading-edge swipe that fires the same action as the page's back chevron.
+    func detailEdgeBack(_ action: @escaping () -> Void) -> some View {
+        // Pure SwiftUI — UIKit's screen-edge pan fights ScrollView inside NavigationStack
+        // and the old background-VC enabler often never found the nav controller at all.
+        overlay(alignment: .leading) {
+            Color.clear
+                .frame(width: 32)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 12, coordinateSpace: .global)
+                        .onEnded { v in
+                            let dx = v.translation.width
+                            let dy = v.translation.height
+                            // Rightward and mostly horizontal — a vertical flick on the
+                            // strip is still a scroll, not a back.
+                            guard dx > 0, abs(dx) >= abs(dy) else { return }
+                            let predicted = v.predictedEndTranslation.width
+                            if dx > 56 || predicted > 120 { action() }
+                        }
+                )
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 /// The back chevron. The 8 × 13 mark the boards drew, scaled. 19pt tall beside the
 /// large headline; it lifts with that row and is gone once the title has docked.
 struct BackChevron: View {
@@ -579,6 +616,36 @@ struct CloseMark: View {
             .frame(width: 26, height: 26)
         }
         .frame(width: 36, height: 36)
+    }
+}
+
+/// The AI display's small mosaic exit: five square pixels per diagonal, printed directly
+/// onto the panel with no surrounding key. Its caller supplies the invisible 44pt hit target.
+struct PixelCloseMark: View {
+    private static let cells = [
+        (0, 0), (0, 4),
+        (1, 1), (1, 3),
+        (2, 2),
+        (3, 1), (3, 3),
+        (4, 0), (4, 4),
+    ]
+
+    var body: some View {
+        Canvas { context, _ in
+            let pixel: CGFloat = 3
+            let step: CGFloat = 4
+            for (row, column) in Self.cells {
+                let rect = CGRect(
+                    x: CGFloat(column) * step,
+                    y: CGFloat(row) * step,
+                    width: pixel,
+                    height: pixel
+                )
+                context.fill(Path(rect), with: .color(NB.iconInk))
+            }
+        }
+        .frame(width: 19, height: 19)
+        .accessibilityHidden(true)
     }
 }
 

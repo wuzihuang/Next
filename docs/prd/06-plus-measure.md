@@ -4,8 +4,9 @@ Sections: 01 the plus and its sheet (OPEN 0.34S · ROW PRESS 0.12S · DISMISS 0.
 RESULT 0.5S) · 04 body composition (30S TOTAL · TWO CONTACTS · 14 FIELDS · NO RESUME). Motion: 06M.
 
 ## Hard rules
-01 Behind the plus there are two groups only: for her (photo / library / file) and for the band
-   (recovery check / body composition). Nothing else joins the plus.
+01 Behind the plus there are three groups: for her (photo / library / file), Sport Mode
+   (start a session → detail page of catalogued modes), and for the band (recovery check /
+   body composition). Nothing else joins the plus.
 02 One start*Test at a time. A second entry degrades to MEASURING NOW in the sheet and sends nothing;
    it recovers on TestState 'over' / 'error' without a refresh.
 03 The capability table decides a row's state, not its existence: unsupported → 32%, no duration, the

@@ -118,17 +118,34 @@ final class MockBand: BandService, @unchecked Sendable {
                     ? Double(asleep ? 52 + Int.random(in: 0...18) : 32 + Int.random(in: 0...16))
                     : nil,
                 stress: asleep ? nil : 20 + Int.random(in: 0...30),
-                sleepState: asleep ? 2 : 0)
+                // HOOP's original-data dictionary has no sleep stage. Accurate stages come
+                // from SleepNight.line, exactly as they do on the real SDK.
+                sleepState: nil)
         }
     }
 
     func readSleep(dayOffset: Int) async throws -> SleepNight? {
         try await requireConnection()
         // 6H 50M as the band's own line: light → deep → light → one wake → deep → light.
-        return SleepNight(totalMinutes: 410, deepMinutes: 98, lightMinutes: 306, wakeCount: 1,
-                          line: [SleepStageRun(stage: 1, minutes: 70), SleepStageRun(stage: 0, minutes: 55),
-                                 SleepStageRun(stage: 1, minutes: 92), SleepStageRun(stage: 4, minutes: 6),
-                                 SleepStageRun(stage: 0, minutes: 43), SleepStageRun(stage: 1, minutes: 144)])
+        let calendar = Calendar.current
+        let day = calendar.date(byAdding: .day, value: -dayOffset,
+                                to: calendar.startOfDay(for: Date())) ?? Date()
+        let wake = calendar.date(byAdding: .hour, value: 7, to: day)
+        let start = wake?.addingTimeInterval(-410 * 60)
+        var night = SleepNight(
+            totalMinutes: 410, deepMinutes: 98, lightMinutes: 306, wakeCount: 1,
+            line: [
+                SleepStageRun(stage: 1, minutes: 70),
+                SleepStageRun(stage: 0, minutes: 55),
+                SleepStageRun(stage: 1, minutes: 92),
+                SleepStageRun(stage: 4, minutes: 6),
+                SleepStageRun(stage: 0, minutes: 43),
+                SleepStageRun(stage: 1, minutes: 144),
+            ]
+        )
+        night.sleepStart = start
+        night.wakeAt = wake
+        return night
     }
 
     func readHealthData(dayOffset: Int) async throws -> BandHealthData {
@@ -178,6 +195,26 @@ final class MockBand: BandService, @unchecked Sendable {
             r.proteinKg = pushedWeightKg * 0.176
             return .bodyComposition(r)
         }
+    }
+
+    /// 04 · the inserted stress test. It really does take half a minute and it really does
+    /// hold the sensor for all of it, so the panel's live heart rate goes quiet while it
+    /// runs — which is the whole behaviour `LiveReadout` exists to get right.
+    func measureStress(progress: @escaping @MainActor (Int) -> Void) async throws -> Int {
+        try await requireConnection()
+        // DEBUG · `NB_DEBUG_EDGE=nostress` walks the firmware that has no stress test.
+        if DebugEdge.on("nostress") { throw BandError.unsupported("STRESS") }
+        // The real band's own shape, measured on the wrist: 0…100 in steps of 6, one a
+        // second, and the value only on the last callback. 19 s, and it really does hold the
+        // sensor for all of it — which is the behaviour `LiveReadout` exists to get right.
+        var done = 0
+        while done < 100 {
+            try Task.checkCancellation()
+            try? await Task.sleep(for: .seconds(1))
+            done = min(100, done + 6)
+            await MainActor.run { progress(done) }
+        }
+        return 24 + Int.random(in: 0...22)
     }
 
     private func stream(total: Int,
@@ -238,24 +275,94 @@ final class MockBand: BandService, @unchecked Sendable {
         return setting
     }
 
-    func readAutoMonitoring() async throws -> [AutoMonitorSlot] {
+    func readAutoMonitoring() async throws -> AutoMonitoringRead {
         try await requireConnection()
         return try await queue.run("mock.readAutoMonitoring", priority: .p1) {
-            self.autoMonitoringSlots
+            if DebugEdge.on("autorefuse") {
+                throw BandError.timeout("readAutoMonitoring")
+            }
+            if DebugEdge.on("autonone") {
+                return .switches([])
+            }
+            if DebugEdge.on("autoempty") {
+                return .interval([])
+            }
+            if DebugEdge.on("autoswitch") {
+                return .switches([
+                    .firmwareOwned(kind: .heartRate, on: true),
+                    .firmwareOwned(kind: .bloodOxygen, on: true),
+                    .firmwareOwned(kind: .hrv, on: false),
+                    .firmwareOwned(kind: .stress, on: true),
+                ])
+            }
+            return .interval(self.autoMonitoringSlots)
         }
     }
 
     func writeAutoMonitoring(_ slot: AutoMonitorSlot) async throws {
         try await requireConnection()
         try await queue.run("mock.writeAutoMonitoring", priority: .p0) {
-            guard slot.allowedIntervals.contains(slot.intervalMinutes) else {
-                throw BandError.rejected("\(slot.intervalMinutes) minute interval is not supported")
+            if slot.intervalModifiable {
+                guard slot.allowedIntervals.contains(slot.intervalMinutes) else {
+                    throw BandError.rejected("\(slot.intervalMinutes) minute interval is not supported")
+                }
             }
             try? await Task.sleep(for: .milliseconds(160))
-            self.autoMonitoringSlots = self.autoMonitoringSlots.map {
-                $0.id == slot.id ? slot : $0
+            if let index = self.autoMonitoringSlots.firstIndex(where: { $0.id == slot.id }) {
+                self.autoMonitoringSlots[index] = slot
+            } else {
+                self.autoMonitoringSlots.append(slot)
             }
         }
+    }
+
+    /// The simulator stands in for a multi-mode firmware. Raw values are
+    /// VPDeviceRuningMode ordinals. Every catalogued mode is accepted so the plus-menu
+    /// flow can be walked end to end on a simulator.
+    func probeSportMode(_ rawValue: Int) async throws -> Bool {
+        try await requireConnection()
+        return try await queue.run("mock.probeSportMode", priority: .p0) {
+            try? await Task.sleep(for: .milliseconds(220))
+            return SportModeCatalog.modes.contains(where: { $0.rawValue == rawValue })
+        }
+    }
+
+    func startSportMode(_ rawValue: Int) async throws {
+        try await requireConnection()
+        try await queue.run("mock.startSportMode", priority: .p0) {
+            try? await Task.sleep(for: .milliseconds(220))
+            guard SportModeCatalog.modes.contains(where: { $0.rawValue == rawValue }) else {
+                throw BandError.unsupported("sport mode \(rawValue)")
+            }
+        }
+    }
+
+    func stopSportMode(_ rawValue: Int) async throws {
+        try await requireConnection()
+        try await queue.run("mock.stopSportMode", priority: .p0) {
+            try? await Task.sleep(for: .milliseconds(160))
+            _ = rawValue
+        }
+    }
+
+    /// The simulator stands in for a firmware that carries most of the list. `nuclear
+    /// radiation` and the two AI rows are off, as they are on a band without them.
+    func readHealthFunctions() async throws -> [BandHealthFunction] {
+        try await requireConnection()
+        try? await Task.sleep(for: .milliseconds(180))
+        let supported: Set<Int> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        var list: [BandHealthFunction] = []
+        for raw in 0...16 {
+            let isSup = supported.contains(raw)
+            let item = BandHealthFunction(
+                rawValue: raw,
+                name: BandHealthFunction.name(forRawValue: raw),
+                support: isSup,
+                open: isSup && raw != 6
+            )
+            list.append(item)
+        }
+        return list
     }
 
     private func requireConnection() async throws {

@@ -6,6 +6,10 @@ struct AIPanel: View {
     @ObservedObject private var consent = ConsentStore.shared
     /// 07 · 16 · she names the tool she is on while the singularity turns.
     @ObservedObject private var ai = AIService.shared
+    /// 04 · the band measuring right now. While this resting face is what the user is
+    /// looking at, HomeView keeps the session open (`liveReadoutWanted`) and HR / STRESS are
+    /// the wrist, not the library. The tick is what they fall back to the moment it closes.
+    @ObservedObject private var live = LiveReadout.shared
     /// 补屏 · the NOT COLLECTING button. The panel does not own the router.
     var onTurnOn: () -> Void = {}
     let m: DailyMetrics
@@ -20,6 +24,7 @@ struct AIPanel: View {
     var firstRun: FirstRun?
     var size: CGSize = CGSize(width: NB.Layout.contentWidth, height: NB.Layout.panelHeight)
     var radius: CGFloat = NB.R.hero
+    var onDismissWidget: () -> Void = {}
     let onWidget: (Destination) -> Void
 
     private var ceremony: Bool { firstRun?.playing == true }
@@ -50,7 +55,12 @@ struct AIPanel: View {
                 // A composition result draws its own LED ground and fills the panel.
                 // Standby art behind a 358×470 card is what made the reading look like
                 // a tile sitting in the middle of the display.
-                HalftoneScreen { StandbyArt(charge: Double(m.bodyBattery ?? 0) / 100) }
+                HalftoneScreen {
+                    StandbyArt(
+                        charge: m.bodyBattery.map { Double($0) / 100 } ?? 0,
+                        chargeKnown: m.bodyBattery != nil
+                    )
+                }
             }
 
             if let firstRun, ceremony {
@@ -73,7 +83,7 @@ struct AIPanel: View {
             if let widget, widget.title == "THINKING" {
                 // 07 · 16 · 02 · the singularity owns the whole panel: its own header, the
                 // question echoed at the top, what she is reading at the foot.
-                ThinkingStage(question: widget.sentence, reading: ai.reading, startedAt: widget.startedAt)
+                ThinkingStage(question: widget.sentence, reading: ai.reading, thoughts: ai.thoughts, startedAt: widget.startedAt)
             } else if let widget {
                 // 07 · the widget is drawn on the board's 358 × 470 canvas with absolute slots.
                 // Scale to fill the panel the phone actually left — up or down — so a taller
@@ -104,7 +114,7 @@ struct AIPanel: View {
                                 .padding(.horizontal, 26)
                                 .background(NB.ember1, in: Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(HotZoneTap(pressedScale: 1))
                         .accessibilityHint("Opens the consent screen")
                     }
                     .padding(.bottom, 30)
@@ -117,6 +127,24 @@ struct AIPanel: View {
                     standbyReadout
                 }
                 .padding(.vertical, 16)
+            }
+
+            if widget != nil, !ceremony {
+                Button(action: onDismissWidget) {
+                    PixelCloseMark()
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Return to standby")
+                .accessibilityIdentifier("panel-dismiss")
+                .accessibilitySortPriority(100)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, 8)
+                .padding(.trailing, 2)
+                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                .zIndex(10)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -139,7 +167,7 @@ struct AIPanel: View {
         let bw = NB.Layout.boardContentWidth
         let bh = NB.Layout.panelHeight
         let scale = min(size.width / bw, size.height / bh)
-        return PanelWidgetView(widget: widget, onTap: onWidget, layer: layer)
+        return PanelWidgetView(widget: widget, onTap: onWidget, layer: layer, showsCloseControl: true)
             .frame(width: bw, height: bh)
             .scaleEffect(scale)
             .frame(width: size.width, height: size.height)
@@ -148,9 +176,9 @@ struct AIPanel: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            Text(band.connected ? "STANDBY" : "OFFLINE")
+            Text(headerLine)
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
-                .foregroundStyle(NB.white.opacity(0.55))
+                .foregroundStyle(headerTint)
             Spacer(minLength: 0)
             Text(Fmt.clock(Date()))
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
@@ -193,12 +221,16 @@ struct AIPanel: View {
             }
 
             HStack(spacing: 40) {
-                vitalsColumn(Fmt.int(readout.hr), label: "HR")
-                vitalsColumn(Fmt.int(readout.stress), label: "STRESS")
+                // 04 · the pip beats at the rate that was just measured, and only when the
+                // number under it came off the wrist seconds ago. It is the number told
+                // again — the one animation here that is not decoration.
+                vitalsColumn(Fmt.int(readout.hr), label: "HR", beat: live.liveHR)
+                vitalsColumn(Fmt.int(readout.stress), label: "STRESS",
+                             live: live.liveStress != nil, working: live.phase == .stress)
             }
             .padding(.top, 12)
 
-            Text("\(agoText) · TAP OR TALK — I'M UP")
+            Text("\(sourceLine) · TAP OR TALK — I'M UP")
                 .font(NBFont.dot(500, 10.5)).tracking(0.18 * 10.5)
                 .foregroundStyle(NB.white.opacity(0.42))
                 .padding(.top, 10)
@@ -206,20 +238,72 @@ struct AIPanel: View {
     }
 
     /// 04 · one vitals slot: the reading above its label, centred in a fixed column so
-    /// HR and STRESS stay put as the numbers change width.
-    private func vitalsColumn(_ value: String, label: String) -> some View {
-        VStack(spacing: 4) {
+    /// HR and STRESS stay put as the numbers change width. A number measured this second is
+    /// lime and carries a pip; a number read out of the library is white, as it always was.
+    /// `working` is the stress test running — the value under it is the previous one, ageing.
+    private func vitalsColumn(_ value: String, label: String,
+                              live isLive: Bool = false, beat: Int? = nil,
+                              working: Bool = false) -> some View {
+        let lit = isLive || beat != nil
+        return VStack(spacing: 4) {
             Text(value).font(NBFont.dot(700, 28)).tracking(0.04 * 28)
-                .foregroundStyle(NB.white.opacity(0.9))
-            Text(label).font(NBFont.dot(600, 10.5)).tracking(0.2 * 10.5)
-                .foregroundStyle(NB.white.opacity(0.5))
+                .foregroundStyle(lit ? NB.lime1 : NB.white.opacity(working ? 0.55 : 0.9))
+                .contentTransition(.numericText())
+            HStack(spacing: 5) {
+                if let beat { BeatPip(bpm: beat) }
+                Text(label).font(NBFont.dot(600, 10.5)).tracking(0.2 * 10.5)
+                    .foregroundStyle(NB.white.opacity(lit ? 0.72 : 0.5))
+            }
         }
         .frame(width: 96)
+        .animation(.easeInOut(duration: 0.2), value: value)
     }
 
-    /// 13 · past six hours the numbers are gone, not dimmed and not carried forward.
+    /// 13 · past six hours the tick's numbers are gone, not dimmed and not carried forward.
+    /// 04 · a live reading outranks the tick, and each half falls back on its own: the stress
+    /// test runs on a cadence, so a live HR beside a stored STRESS is the normal case.
     private var readout: (hr: Int?, stress: Int?) {
-        vitals.freshness == .gone ? (nil, nil) : (vitals.hr, vitals.stress)
+        let tick: (hr: Int?, stress: Int?) = vitals.freshness == .gone ? (nil, nil)
+                                                                       : (vitals.hr, vitals.stress)
+        return (live.liveHR ?? tick.hr, live.liveStress ?? tick.stress)
+    }
+
+    /// 04 · the state word. OFFLINE is the link, NO CONTACT is the wrist, and LIVE is only
+    /// said while the band is actually answering — never as a label for a stored number.
+    private var headerLine: String {
+        guard band.connected else { return "OFFLINE" }
+        switch live.phase {
+        case .live where live.liveHR != nil, .stress: return "LIVE"
+        case .reaching, .live:                        return "REACHING"
+        case .noContact:                              return "NO CONTACT"
+        case .off, .offline:                          return "STANDBY"
+        }
+    }
+
+    private var headerTint: Color {
+        guard band.connected else { return NB.white.opacity(0.55) }
+        switch live.phase {
+        case .live where live.liveHR != nil, .stress: return NB.lime1
+        case .noContact:                              return NB.ember1
+        default:                                      return NB.white.opacity(0.55)
+        }
+    }
+
+    /// 04 · where the two numbers come from, said in three words. The moment the session
+    /// closes this goes back to the age of the tick, which is the only other thing they
+    /// could be — nothing here ever calls a stored number "now".
+    private var sourceLine: String {
+        guard band.connected else { return agoText }
+        switch live.phase {
+        case .live where live.liveHR != nil: return "LIVE"
+        // 04 · the stress test holds the sensor for 19 s. The percentage is the band's own
+        // count, not a tween over an expected duration — it stops when the band stops.
+        case .stress:                        return live.stressProgress.map { "MEASURING STRESS · \($0)%" }
+                                                 ?? "MEASURING STRESS"
+        case .reaching, .live:               return "REACHING FOR A BEAT"
+        case .noContact:                     return "PUT THE HOOP BACK ON"
+        case .off, .offline:                 return agoText
+        }
     }
 
     /// ⚠️ 1CVO · the only prediction on the product, and it renders only when all four of
@@ -242,26 +326,69 @@ struct AIPanel: View {
     }
 }
 
+/// 04 · THE PIP. It blinks at the rate the band just reported: 68 BPM is one blink every
+/// 0.88 s. Nothing here is invented — the period is the number — which is why it is a pip
+/// and not a spinner: a spinner would turn at the same speed for a resting wrist and a
+/// sprint. Reduce Motion gets a steady dot, because the fact it carries is "this is live"
+/// and that fact does not need to move.
+private struct BeatPip: View {
+    let bpm: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        // Clamped to what a wrist can report; a garbled value must not stall or strobe it.
+        let period = 60 / Double(min(220, max(35, bpm)))
+        TimelineView(.animation(paused: reduceMotion)) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            let phase = t.truncatingRemainder(dividingBy: period) / period
+            // A beat, not a fade: bright on the upstroke, decaying across the rest of it.
+            let glow = pow(1 - phase, 2.2)
+            Circle()
+                .fill(NB.lime1)
+                .frame(width: 6, height: 6)
+                .opacity(reduceMotion ? 0.9 : 0.22 + 0.78 * glow)
+        }
+        .frame(width: 6, height: 6)
+        .accessibilityHidden(true)
+    }
+}
+
 /// 07 · 16 · 02 · THINKING — the singularity.
 ///
 /// The board reuses Connect 04's gravitational collapse on purpose: idle → thinking has to
 /// read as one planet being pulled in, not as a page change, or the user thinks they left
-/// the screen. Five arms, a black core, no white-hot flare. No spinner, no skeleton, no
-/// fake progress bar — the panel says what it is reading instead.
+/// the screen. Five arms, a black core, no spinner, no skeleton, no fake progress bar.
+///
+/// The foot of the panel is her own reasoning. The server cuts the model's reasoning stream
+/// into lines and each one lands here the moment it is whole: typed out behind a lime
+/// cursor, the line above lifting a step and dropping a grey, four kept, the fifth pushing
+/// the oldest off. No status label stands in for her — a turn that streams no thoughts
+/// names the tool it is reading, and nothing pretends to be a thought.
+///
+/// The disk answers the stream: every thought that lands sends one ring out from the core.
 struct ThinkingStage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The question, echoed at the top: an LED has no input field, and without the echo
     /// nobody remembers what they just asked.
     var question: String = ""
-    /// What she is reading right now, named as she reads it.
+    /// What she is reading right now, named as she reads it — the fallback line.
     var reading: String?
+    /// Her reasoning, oldest first, as the server streamed it.
+    var thoughts: [AIService.Thought] = []
     var startedAt: Date = Date()
 
     private static let arms = 5
+    /// Lines the foot holds. A fifth arrival pushes the first off.
+    private static let shown = 4
+    /// Characters a second while a line types out. Faster than reading, slower than a paste.
+    private static let typeRate = 46.0
+    /// How long the ring a thought sends out lives.
+    private static let pulseLife = 1.4
 
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { tl in
-            let t = tl.date.timeIntervalSince(startedAt)
+            let now = tl.date
+            let t = now.timeIntervalSince(startedAt)
             VStack(spacing: 0) {
                 header(elapsed: t)
                 if !question.isEmpty {
@@ -272,18 +399,13 @@ struct ThinkingStage: View {
                         .padding(.horizontal, 22)
                         .padding(.top, 26)
                 }
-                Spacer(minLength: 0)
-                Canvas { ctx, size in draw(&ctx, size: size, t: reduceMotion ? 0 : t) }
-                    .frame(height: 260)
-                Spacer(minLength: 0)
-                Text(readingLine)
-                    .font(NBFont.dot(600, 13)).tracking(0.20 * 13)
-                    .foregroundStyle(NB.white.opacity(0.78))
-                Text(sourceLine)
-                    .font(NBFont.dot(500, 9)).tracking(0.14 * 9)
-                    .foregroundStyle(NB.white.opacity(0.34))
-                    .padding(.top, 8)
-                    .padding(.bottom, 30)
+                let pulses = reduceMotion ? [] : thoughts.map { now.timeIntervalSince($0.at) }
+                    .filter { $0 >= 0 && $0 < Self.pulseLife }
+                // The disk takes whatever height the header and the four lines leave — a
+                // fixed 260 pushed the header off the top of a shorter phone's panel.
+                Canvas { ctx, size in draw(&ctx, size: size, t: reduceMotion ? 0 : t, pulses: pulses) }
+                    .frame(maxHeight: .infinity)
+                stream(now: now)
             }
         }
     }
@@ -299,8 +421,74 @@ struct ThinkingStage: View {
                 .foregroundStyle(NB.white.opacity(0.30))
                 .monospacedDigit()
         }
-        .padding(.horizontal, 22)
+        .padding(.leading, 22)
+        .padding(.trailing, 64)
         .padding(.top, 16)
+    }
+
+    // MARK: the thought stream
+
+    private static let lineH: CGFloat = 14, lineGap: CGFloat = 7
+    /// Seconds the stack takes to settle after a line lands.
+    private static let lift = 0.4
+
+    /// The foot holds four lines. A new line lands one step below the frame and the whole
+    /// stack slides up to make room, the oldest line leaving through the top as it goes. The
+    /// slide is a function of the newest line's age, not a SwiftUI transition: the timeline
+    /// redraws every frame, and a transition's ghost rows were stacking up under the panel.
+    private func stream(now: Date) -> some View {
+        // Nothing streamed yet: the tool she is on, dimmed so it does not pass for a thought,
+        // with the cursor waiting behind it.
+        let rows: [(text: String, at: Date, dim: Double)] = thoughts.isEmpty
+            ? [(readingLine, startedAt, 0.55)]
+            : thoughts.suffix(Self.shown + 1).map { ($0.text, $0.at, 1) }
+        let age = reduceMotion ? Self.lift : max(0, now.timeIntervalSince(rows[rows.count - 1].at))
+        let settle = min(1, age / Self.lift)
+        let eased = 1 - pow(1 - settle, 3)
+        let step = Self.lineH + Self.lineGap
+        // Five rows means the top one is on its way out.
+        let leaving = rows.count > Self.shown
+        return VStack(alignment: .leading, spacing: Self.lineGap) {
+            ForEach(rows.indices, id: \.self) { i in
+                let rank = rows.count - 1 - i
+                let out = leaving && i == 0
+                line(rows[i].text, live: rank == 0, rank: rank, at: rows[i].at, now: now,
+                     dim: rows[i].dim * (out ? 1 - eased : rank == 0 ? eased : 1))
+            }
+        }
+        .offset(y: CGFloat(1 - eased) * step)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: CGFloat(Self.shown) * Self.lineH + CGFloat(Self.shown - 1) * Self.lineGap,
+               alignment: .bottom)
+        .clipped()
+        .padding(.horizontal, 22)
+        .padding(.bottom, 22)
+    }
+
+    /// One line at the foot. `rank` is its distance from the live line: each step up drops a grey.
+    private func line(_ text: String, live: Bool, rank: Int, at: Date, now: Date, dim: Double = 1) -> some View {
+        let upper = text.uppercased()
+        let typed = reduceMotion ? upper.count
+            : min(upper.count, Int(max(0, now.timeIntervalSince(at)) * Self.typeRate))
+        let shown = live ? String(upper.prefix(typed)) : upper
+        let ladder: [Double] = [0.95, 0.55, 0.32, 0.18]
+        let alpha = ladder[min(rank, ladder.count - 1)] * dim
+        // Solid while a line types, blinking once it is out and she is on the next one.
+        let typing = live && typed < upper.count
+        let blink = Int(now.timeIntervalSinceReferenceDate * 2.4) % 2 == 0
+        return HStack(spacing: 6) {
+            Text(shown)
+                .font(live ? NBFont.dot(600, 12) : NBFont.dot(500, 11))
+                .tracking((live ? 0.16 : 0.14) * (live ? 12 : 11))
+                .foregroundStyle(NB.white.opacity(alpha))
+                .lineLimit(1).truncationMode(.tail)
+            if live {
+                Rectangle().fill(NB.lime1)
+                    .frame(width: 6, height: 12)
+                    .opacity(typing || blink || reduceMotion ? 1 : 0.15)
+            }
+        }
+        .frame(height: Self.lineH)
     }
 
     /// The tool she is on, in the board's words rather than the wire's.
@@ -317,42 +505,107 @@ struct ThinkingStage: View {
         case .some:                                           return "PULLING YOUR WEEK IN"
         }
     }
-    private var sourceLine: String { "SLEEP · HRV · STRESS · 7 DAYS" }
 
-    /// Five arms of dots on a logarithmic spiral, wound inward. Every arm shares the core's
-    /// rotation, so the whole field turns as one body rather than as five loops.
-    private func draw(_ ctx: inout GraphicsContext, size: CGSize, t: Double) {
-        let c = CGPoint(x: size.width / 2, y: size.height / 2)
-        let rMax = min(size.width, size.height) * 0.46
+    // MARK: the singularity
+
+    /// A black hole seen from a little above its disk. Five arms of matter slide down a
+    /// logarithmic spiral into the core and are replaced at the rim; the side of the disk
+    /// coming toward us runs hotter (Doppler); the light from the far side is bent over
+    /// and under the hole as two thin arcs; a photon ring hugs the horizon with a wave of
+    /// brightness running round it. Behind all of it, a still field of faint stars.
+    /// One colour, lime, at many brightnesses — the pale lime is the hottest point only.
+    private func draw(_ ctx: inout GraphicsContext, size: CGSize, t: Double, pulses: [Double]) {
+        let c = CGPoint(x: size.width / 2, y: size.height / 2 + 4)
+        // The board's disk is r150 on a 358-wide panel; a taller panel does not grow it past that.
+        let rMax = min(150, min(size.width, size.height) * 0.55)
         let core = rMax * 0.19
+        // The disk is seen from above at a lean — flattened, and turned a little off the
+        // horizontal so it never reads as an eye. The hole and the bent light stay upright.
+        let tilt: CGFloat = 0.68
+        let lean = -16.0 * .pi / 180
+        let (lc, ls) = (CGFloat(cos(lean)), CGFloat(sin(lean)))
+        func onDisk(_ a: Double, _ r: CGFloat) -> CGPoint {
+            let x = CGFloat(cos(a)) * r, y = CGFloat(sin(a)) * r * tilt
+            return CGPoint(x: c.x + x * lc - y * ls, y: c.y + x * ls + y * lc)
+        }
         let spin = t * 0.42
 
-        for arm in 0..<Self.arms {
-            let phase = Double(arm) * (.pi * 2 / Double(Self.arms))
-            // 26 dots an arm, packed tighter as they near the core — matter piling up.
-            for i in 0..<26 {
-                let u = Double(i) / 25.0
-                let r = core + (rMax - core) * pow(1 - u, 1.7)
-                let a = phase + spin + u * 2.4
-                let x = c.x + CGFloat(cos(a)) * CGFloat(r)
-                let y = c.y + CGFloat(sin(a)) * CGFloat(r) * 0.86
-                // Bright at the rim of the core, fading out at the far end of the arm.
-                let alpha = 0.10 + 0.70 * pow(1 - u, 1.6)
-                let d: CGFloat = u < 0.25 ? 4 : 3
-                ctx.fill(Path(ellipseIn: CGRect(x: x - d / 2, y: y - d / 2, width: d, height: d)),
-                         with: .color(NB.lime1.opacity(alpha)))
+        func dot(_ x: CGFloat, _ y: CGFloat, _ d: CGFloat, _ alpha: Double, _ color: Color = NB.lime1) {
+            ctx.fill(Path(ellipseIn: CGRect(x: x - d / 2, y: y - d / 2, width: d, height: d)),
+                     with: .color(color.opacity(max(0, min(1, alpha)))))
+        }
+
+        // Stars. Fixed positions from the index, each breathing at its own slow rate.
+        for i in 0..<64 {
+            let h = Self.scatter(i)
+            let breathe = 0.65 + 0.35 * sin(t * (0.5 + h.2 * 1.3) + h.3 * .pi * 2)
+            dot(CGFloat(h.0) * size.width, CGFloat(h.1) * size.height, 1.5, (0.04 + 0.11 * h.3) * breathe)
+        }
+
+        // The far side's light, bent over the top of the hole and under it.
+        for (over, base) in [(true, 0.34), (false, 0.16)] {
+            let rr = core * 1.78
+            for i in 0..<34 {
+                let f = Double(i) / 33.0
+                let a = (over ? .pi : 0) + 0.32 + f * (.pi - 0.64)
+                let envelope = sin(f * .pi)
+                let glide = 0.75 + 0.25 * sin(a * 2 + t * 1.4)
+                dot(c.x + CGFloat(cos(a)) * rr, c.y + CGFloat(sin(a)) * rr * 0.92, 2.6, base * envelope * glide)
             }
         }
-        // The core: a lime ring of dots around a hole the panel shows through.
+
+        // The disk. Two passes so the near half crosses in front of the hole.
+        struct Grain { let x: CGFloat; let y: CGFloat; let d: CGFloat; let alpha: Double; let near: Bool }
+        var grains: [Grain] = []
+        grains.reserveCapacity(Self.arms * 30)
+        for arm in 0..<Self.arms {
+            let phase = Double(arm) * (.pi * 2 / Double(Self.arms))
+            for i in 0..<30 {
+                // Matter slides down the arm: u runs 0 (rim) → 1 (core) and wraps.
+                let u = (Double(i) / 30.0 + t * 0.045).truncatingRemainder(dividingBy: 1)
+                let r = core * 1.22 + (rMax - core * 1.22) * pow(1 - u, 1.7)
+                let a = phase + spin + u * 2.6
+                let ca = cos(a), sa = sin(a)
+                // Hotter toward the core; hotter on the side coming toward us.
+                var alpha = (0.06 + 0.70 * pow(u, 1.4)) * (1 + 0.42 * ca)
+                // Born dim at the rim, gone dim at the horizon, so the wrap is never seen.
+                alpha *= min(1, u * 9, (1 - u) * 9)
+                let p = onDisk(a, CGFloat(r))
+                grains.append(Grain(x: p.x, y: p.y, d: u > 0.72 ? 3.6 : 2.8, alpha: alpha, near: sa > 0))
+            }
+        }
+        for g in grains where !g.near { dot(g.x, g.y, g.d, g.alpha) }
+
+        // The hole, and the photon ring around it with a wave of heat running round.
+        ctx.fill(Path(ellipseIn: CGRect(x: c.x - core, y: c.y - core * 0.96, width: core * 2, height: core * 1.92)),
+                 with: .color(NB.panelInk))
         for i in 0..<40 {
             let a = spin * 1.6 + Double(i) * (.pi * 2 / 40)
-            let x = c.x + CGFloat(cos(a)) * CGFloat(core)
-            let y = c.y + CGFloat(sin(a)) * CGFloat(core) * 0.94
-            ctx.fill(Path(ellipseIn: CGRect(x: x - 2.4, y: y - 2.4, width: 4.8, height: 4.8)),
-                     with: .color(NB.lime1.opacity(0.92)))
+            let heat = 0.5 + 0.5 * sin(a * 3 - t * 3.2)
+            let x = c.x + CGFloat(cos(a)) * core, y = c.y + CGFloat(sin(a)) * core * 0.96
+            dot(x, y, 4.6, 0.55 + 0.4 * heat, heat > 0.92 ? NB.limePale : NB.lime1)
         }
-        ctx.fill(Path(ellipseIn: CGRect(x: c.x - core + 3, y: c.y - core * 0.94 + 3,
-                                        width: (core - 3) * 2, height: (core * 0.94 - 3) * 2)),
-                 with: .color(NB.panelInk))
+
+        for g in grains where g.near { dot(g.x, g.y, g.d, g.alpha) }
+
+        // A thought landed: one ring leaves the core along the disk and fades.
+        for age in pulses {
+            let f = age / Self.pulseLife
+            let rr = core * 1.3 + CGFloat(f) * (rMax - core * 1.3) * 1.05
+            let alpha = 0.6 * pow(1 - f, 1.6)
+            for i in 0..<48 {
+                let p = onDisk(Double(i) * (.pi * 2 / 48) + spin, rr)
+                dot(p.x, p.y, 2.6, alpha)
+            }
+        }
+    }
+
+    /// Four fixed pseudo-random numbers in 0…1 for star `i` — the same sky every frame.
+    private static func scatter(_ i: Int) -> (Double, Double, Double, Double) {
+        func f(_ k: Double) -> Double {
+            let v = sin(Double(i) * 12.9898 + k * 78.233) * 43758.5453
+            return v - floor(v)
+        }
+        return (f(1), f(2), f(3), f(4))
     }
 }

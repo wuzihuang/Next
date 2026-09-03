@@ -26,6 +26,11 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
     private let queue = DispatchQueue(label: "nb.speech.capture")
     private var recorder: AVAudioRecorder?      // touched only on `queue`
     private var meter: DispatchSourceTimer?     // touched only on `queue`
+    private var pcmReader: FileHandle?           // touched only on `queue`
+    private var pcmOffset: UInt64?
+    private var streamTick = 0
+    private var streamedBytes = 0
+    private var onPCMChunk: (@Sendable (Data) -> Void)?
 
     /// Returns false when the microphone was refused *or* would not open. The caller stays idle
     /// on a false — a listening animation with nothing behind it is the bug this file exists
@@ -40,7 +45,7 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
     private var startedAt = Date()
     private var interruptionObserver: NSObjectProtocol?
 
-    func start() async -> Bool {
+    func start(onPCMChunk: (@Sendable (Data) -> Void)? = nil) async -> Bool {
         guard await Self.permission() else { return false }
         await MainActor.run { self.interruptedAt = nil }
         startedAt = Date()
@@ -83,6 +88,11 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
                         return c.resume(returning: false)
                     }
                     self.recorder = rec
+                    self.pcmReader = try? FileHandle(forReadingFrom: url)
+                    self.pcmOffset = nil
+                    self.streamTick = 0
+                    self.streamedBytes = 0
+                    self.onPCMChunk = onPCMChunk
                     self.startMeter(rec)
                     c.resume(returning: true)
                 } catch {
@@ -109,6 +119,14 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
                 guard let self, let rec = self.recorder else { return c.resume(returning: nil) }
                 self.meter?.cancel(); self.meter = nil
                 rec.stop()
+                self.drainPCM()
+                #if DEBUG
+                NSLog("NB latency · asr stream pcm_bytes=\(self.streamedBytes)")
+                #endif
+                try? self.pcmReader?.close()
+                self.pcmReader = nil
+                self.pcmOffset = nil
+                self.onPCMChunk = nil
                 self.recorder = nil
                 try? AVAudioSession.sharedInstance()
                     .setActive(false, options: .notifyOthersOnDeactivation)
@@ -134,6 +152,11 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
             rec.updateMeters()
             let db = Double(rec.averagePower(forChannel: 0))
             let level = min(1, max(0, (db + 50) / 50))
+            self.streamTick += 1
+            if self.streamTick >= 3 {
+                self.streamTick = 0
+                self.drainPCM()
+            }
             Task { @MainActor in
                 var l = self.levels
                 l.removeFirst()
@@ -143,6 +166,41 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
         }
         t.resume()
         meter = t
+    }
+
+    /// AVAudioRecorder keeps writing the fallback WAV while the same PCM frames are tailed to
+    /// the realtime socket. The RIFF header is skipped, and only complete Int16 samples leave.
+    private func drainPCM() {
+        guard let reader = pcmReader, let onPCMChunk else { return }
+        do {
+            if pcmOffset == nil {
+                try reader.seek(toOffset: 0)
+                let header = try reader.read(upToCount: 4_096) ?? Data()
+                let marker = Data("data".utf8)
+                guard let range = header.range(of: marker), range.upperBound + 4 <= header.endIndex else {
+                    return
+                }
+                pcmOffset = UInt64(range.upperBound + 4)
+            }
+            guard let offset = pcmOffset else { return }
+            try reader.seek(toOffset: offset)
+            let available = try reader.readToEnd() ?? Data()
+            let completeCount = available.count - available.count % MemoryLayout<Int16>.size
+            guard completeCount > 0 else { return }
+            let pcm = available.prefix(completeCount)
+            pcmOffset = offset + UInt64(completeCount)
+            #if DEBUG
+            if streamedBytes == 0 {
+                let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
+                NSLog("NB latency · asr stream first_pcm ms=\(elapsedMs)")
+            }
+            #endif
+            streamedBytes += completeCount
+            onPCMChunk(Data(pcm))
+        } catch {
+            // The WAV remains complete and will be uploaded after release. Streaming is an
+            // acceleration rail, so a transient file-tail error must never stop recording.
+        }
     }
 
     private static func permission() async -> Bool {

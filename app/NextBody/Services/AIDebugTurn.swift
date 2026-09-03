@@ -159,7 +159,7 @@ extension AIService {
             type: .battery, title: MetricNames.bodyBattery, tag: .recover,
             sentence: m.bodyBattery.map { "现在 \($0)。" } ?? "还没有可用的夜间数据。",
             footer: nil, action: nil,
-            data: .ring(value: Double(m.bodyBattery ?? 0), goal: 100, unit: "%"),
+            data: m.bodyBattery.map { .ring(value: Double($0), goal: 100, unit: "%") } ?? .none,
             priority: .normal)
     }
 

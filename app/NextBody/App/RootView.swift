@@ -40,22 +40,35 @@ struct RootView: View {
                     case .bodyBattery:            BodyBatteryDetailView()
                     case .composition(let date):  CompositionDetailView(focus: date)
                     case .profile:                ProfileView()
+                    // 04 · one of page two's eight instruments, opened from its own card.
+                    case .vitals(let metric):     VitalsDetailView(metric: metric)
                     case .device:                 DeviceView()
                     // F1 · D — the band's alarms and auto-measurement are sheets on the
                     // device page, not third-level pages.
                     case .deviceAlarms:           DeviceView()
                     case .deviceAutoMonitor:      DeviceView()
+                    case .sportMode:             SportModeView()
+                    case .chat(let sessionID, let initialQuery, let attachmentDataURL):
+                        ChatDetailView(sessionID: sessionID, initialQuery: initialQuery, initialAttachmentDataURL: attachmentDataURL)
                     }
                 }
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Any path clear — chevron, edge swipe, or a binding write — restores the home
+        // pager page that was showing when the root was left.
+        .onChange(of: router.path) { was, now in
+            if !was.isEmpty && now.isEmpty { router.restoreHomePageIfRoot() }
+        }
         #if DEBUG
         // `SIMCTL_CHILD_NB_DEBUG_ROUTE=composition` opens straight onto a detail page for a walk.
         .onAppear {
             os.Logger(subsystem: "com.nextbody.hoop", category: "debug")
                 .notice("root appeared, NB_DEBUG_ROUTE=\(ProcessInfo.processInfo.environment["NB_DEBUG_ROUTE"] ?? "nil", privacy: .public) path=\(router.path.count)")
             if let r = ProcessInfo.processInfo.environment["NB_DEBUG_ROUTE"],
-               let d = Destination(envelopeTarget: r) ?? (r == "device" ? .device : nil), router.path.isEmpty {
+               let d = Destination(envelopeTarget: r)
+                ?? (r == "device" ? .device : nil)
+                ?? (r == "sportMode" || r == "sport" ? .sportMode : nil),
+               router.path.isEmpty {
                 // A push landing while the stack is still settling is dropped on a device,
                 // so it is retried until it sticks.
                 for delay in [1.5, 3.5, 6.0, 9.0] {

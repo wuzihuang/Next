@@ -205,22 +205,6 @@ struct ReserveSample: Codable, Hashable {
 /// One five-minute tick as the band recorded it: what the heart was doing and what the
 /// stress index read. Both are optional and neither is ever filled in — a tick taken off
 /// the wrist has no heart and no stress, and that absence is the whole point of the row.
-struct VitalSample: Codable, Hashable {
-    let ts: Date
-    let hr: Int?
-    let stress: Int?
-    /// 04B · the rest of the tick, as the band filed it. Skin temperature in °C, and the
-    /// five minutes' steps, kcal and metres — the second page's instruments. All optional
-    /// for the same reason as the two above: an absent reading is absent, never zero.
-    var temp: Double? = nil
-    var steps: Int? = nil
-    var cal: Double? = nil
-    var dis: Double? = nil
-    /// 04B · RMSSD in ms for this tick. The band measures it every ten minutes, all day, so
-    /// most ticks carry nothing and the ones that do are the HRV card's curve.
-    var hrv: Double? = nil
-}
-
 /// 04B · SLEEP card. The night OriginDataSync stored under this user day — what the band
 /// reported, unscored: 「不算分、不评价」. The whole reason it is a struct of its own is
 /// that 13 板 forbids sleep on the battery page while 04B prints it first; both read one row.
@@ -233,6 +217,16 @@ struct SleepSummary: Codable, Hashable {
     /// light half, awake a short mark — never re-segmented by the app. Empty on nights
     /// stored before the line was kept; the strip falls back to proportions for those.
     var line: [SleepStageRun] = []
+    /// The band's own window for the night. nil on rows stored before the two columns
+    /// existed — the hypnogram then runs on the line's own minutes and prints no clock,
+    /// because a bed time inferred from a duration is a bed time nobody measured.
+    var sleepStart: Date?
+    var wakeAt: Date?
+
+    /// The night's REM and awake minutes, which only the line can answer: the row stores
+    /// deep and light, and the remainder is not one stage. Zero when there is no line.
+    var remMinutes: Int { line.filter { $0.stage == 2 }.reduce(0) { $0 + $1.minutes } }
+    var awakeMinutes: Int { line.filter { $0.stage >= 3 }.reduce(0) { $0 + $1.minutes } }
 }
 
 /// F2 §02 · one row of daily_metrics. Everything is computed server-side; the app only lays it out.

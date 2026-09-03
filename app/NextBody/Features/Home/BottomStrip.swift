@@ -11,21 +11,14 @@ struct BottomStrip: View {
 
     var body: some View {
         HStack(spacing: NB.Layout.cardGap) {
+            // ADR-0001 · the card is a hot zone: it fires on a tap and never on a touch
+            // that travelled (HotZoneTap), so a page drag that starts here turns the page.
             Button(action: onTraining) { TrainingCard(m: m) }
-                .buttonStyle(StripCardStyle())
+                .buttonStyle(HotZoneTap())
             Button(action: onFuel) { FuelCard(m: m) }
-                .buttonStyle(StripCardStyle())
+                .buttonStyle(HotZoneTap())
         }
         .frame(width: width, height: NB.Layout.stripHeight)
-    }
-}
-
-private struct StripCardStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.72 : 1)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

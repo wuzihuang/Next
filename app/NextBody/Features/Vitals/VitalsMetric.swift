@@ -1,0 +1,119 @@
+import SwiftUI
+
+/// 04 · 8 大指标二级页 · which of page two's eight instruments a second-level page is showing.
+///
+/// The board (`04 · 8 大指标二级页全览`) draws all eight against **one** anatomy — a hero, a
+/// 24-hour chart, a distribution and two stat tiles — so this is an identity, not eight
+/// pages: the metric names itself and the one page renders it.
+///
+/// ⚠️ The tint is the home card's tint, not the board's swatch. The overview board draws
+/// several of the eight in cyan; 04B gives each card its own colour and F0 rule 01 has one
+/// concept carrying one name and one accent. A card that turns from lime to cyan as it opens
+/// reads as a different object, which is the one thing a tap-through must not do.
+enum VitalsMetric: String, Hashable, CaseIterable {
+    case heart, sleep, hrv, stress, temp, steps, distance, active
+
+    /// What `DetailScroll` prints — the board's own `‹ VITALS · HEART`.
+    var title: String { "VITALS · \(shortName)" }
+
+    /// The card's label on page two, which is also the board's nav word.
+    var shortName: String {
+        switch self {
+        case .heart:    "HEART"
+        case .sleep:    "SLEEP"
+        case .hrv:      "HRV"
+        case .stress:   "STRESS"
+        case .temp:     "TEMP"
+        case .steps:    "STEPS"
+        case .distance: "DIST"
+        case .active:   "CALS"
+        }
+    }
+
+    /// The key `VitalsPage.cardStates` files this instrument under, so an analytics event
+    /// from the page and one from the card are joinable.
+    var cardKey: String {
+        switch self {
+        case .distance: "DISTANCE"
+        case .active:   "ACTIVE"
+        default:        shortName
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .heart:    NB.lime1
+        case .sleep:    NB.violet1
+        case .hrv:      NB.blue1
+        case .stress:   NB.ember1
+        case .temp:     NB.cyan1
+        case .steps:    NB.optimal2
+        case .distance: NB.violetPink
+        case .active:   NB.run1
+        }
+    }
+
+    /// The board's hero eyebrow: what the number was measured by, not what it means.
+    var sensor: String {
+        switch self {
+        case .heart:    "OPTICAL PPG SENSOR"
+        case .sleep:    "OVERNIGHT STAGING"
+        case .hrv:      "RMSSD AUTONOMIC TONE"
+        case .stress:   "PHYSIOLOGICAL STRAIN"
+        case .temp:     "SKIN BASELINE OFFSET"
+        case .steps:    "DAILY CADENCE ACCUMULATED"
+        case .distance: "SPATIAL DISPLACEMENT"
+        case .active:   "DAILY METABOLIC BURN"
+        }
+    }
+
+    /// The board's chart-card head, and the note at its right — the fixed ruler the curve is
+    /// drawn against, named so a flat line cannot be mistaken for a rescaled one.
+    var chartTitle: String {
+        switch self {
+        case .heart:    "LAST 24H TELEMETRY"
+        case .sleep:    "STAGES HYPNOGRAM"
+        case .hrv:      "LAST 24H RMSSD SCATTER"
+        case .stress:   "LAST 24H AUTONOMIC LOAD"
+        case .temp:     "LAST 24H BASELINE DEVIATION"
+        case .steps:    "TODAY'S CADENCE HISTOGRAM"
+        case .distance: "TODAY'S DISTANCE CLIMB"
+        case .active:   "TODAY'S METABOLIC BURN"
+        }
+    }
+
+    /// Trace values need enough context to expose gaps and trends. Accumulated values keep
+    /// the product's 04:00 user-day boundary so their totals and their charts describe the
+    /// same ledger. Sleep alone belongs to one completed night.
+    var timeline: VitalsTimelineKind {
+        switch self {
+        case .sleep:
+            .lastNight
+        case .heart, .hrv, .stress, .temp:
+            .rolling24Hours
+        case .steps, .distance, .active:
+            .userDayToNow
+        }
+    }
+
+    var periodLabel: String {
+        switch timeline {
+        case .lastNight:
+            "LAST NIGHT"
+        case .rolling24Hours:
+            "LAST 24H"
+        case .userDayToNow:
+            "TODAY · 04→NOW"
+        }
+    }
+
+    var isNightly: Bool {
+        timeline == .lastNight
+    }
+}
+
+enum VitalsTimelineKind {
+    case lastNight
+    case rolling24Hours
+    case userDayToNow
+}

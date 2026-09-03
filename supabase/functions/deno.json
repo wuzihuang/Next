@@ -4,5 +4,10 @@
     "zod": "npm:zod@3.25.76",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.45.4",
     "@ai-sdk/openai-compatible": "npm:@ai-sdk/openai-compatible@0.2.14"
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["no-import-prefix"]
+    }
   }
 }

@@ -7,7 +7,8 @@
 //
 // null means "no data": the panel writes —— and the model picks another chart. Never 0.
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
+import { SEED_MEAL_VERSION } from "./db.ts";
 
 export type Point = [string, number];
 
@@ -465,7 +466,8 @@ export const SOURCES: Source[] = [
     id: "meals.today", kind: "rows", says: "今天记了哪几餐，各多少 kcal",
     async fetch(ctx) {
       const { data, error } = await ctx.db.from("meals").select("slot, logged_at, text_input, kcal, protein_g")
-        .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).is("deleted_at", null).order("logged_at");
+        .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).is("deleted_at", null)
+        .neq("model_version", SEED_MEAL_VERSION).order("logged_at");
       if (error || !data?.length) return null;
       const rows = data.slice(0, 5).map((m) => ({ label: `${m.slot} · ${m.text_input ?? ""}`.slice(0, 28), value: m.kcal == null ? "——" : `${m.kcal}` }));
       const total = data.reduce((a, m) => a + (m.kcal ?? 0), 0);
@@ -478,7 +480,8 @@ export const SOURCES: Source[] = [
     id: "mealsBySlot.today", kind: "column", says: "今天每一餐的 kcal 柱（没记的餐不画）",
     async fetch(ctx) {
       const { data, error } = await ctx.db.from("meals").select("slot, kcal")
-        .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).is("deleted_at", null);
+        .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).is("deleted_at", null)
+        .neq("model_version", SEED_MEAL_VERSION);
       if (error || !data?.length) return null;
       const order = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"];
       const by = new Map<string, number>();
@@ -538,7 +541,9 @@ export const SOURCES: Source[] = [
     id: "mealsLogged.7d", kind: "grid", says: "最近 7 天哪几天记了餐",
     async fetch(ctx) {
       const days = window(ctx, 7);
-      const { data, error } = await ctx.db.from("meals").select("user_day").eq("user_id", ctx.userId).is("deleted_at", null).gte("user_day", days[0]).lte("user_day", ctx.dayKey);
+      const { data, error } = await ctx.db.from("meals").select("user_day")
+        .eq("user_id", ctx.userId).is("deleted_at", null).neq("model_version", SEED_MEAL_VERSION)
+        .gte("user_day", days[0]).lte("user_day", ctx.dayKey);
       if (error) return null;
       const have = new Set((data ?? []).map((m) => m.user_day));
       const cells: number[][] = [days.map((d) => (have.has(d) ? 1 : 0))];
@@ -683,7 +688,7 @@ export const SOURCES: Source[] = [
       const { start, end } = dayBounds(ctx.dayKey, ctx.tz);
       const lo = start.toISOString(), hi = end.toISOString();
       const [meals, days, weighs, comps] = await Promise.all([
-        ctx.db.from("meals").select("slot, logged_at, kcal").eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).is("deleted_at", null),
+        ctx.db.from("meals").select("slot, logged_at, kcal").eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).is("deleted_at", null).neq("model_version", SEED_MEAL_VERSION),
         dayRows(ctx, ctx.dayKey, ctx.dayKey),
         ctx.db.from("weigh_ins").select("measured_at, weight_kg").eq("user_id", ctx.userId).gte("measured_at", lo).lt("measured_at", hi),
         ctx.db.from("body_composition").select("measured_at, body_fat_pct").eq("user_id", ctx.userId).gte("measured_at", lo).lt("measured_at", hi),

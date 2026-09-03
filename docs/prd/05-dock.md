@@ -4,7 +4,8 @@ ARM · RELEASE 0.22S · CANCEL Y < −56PX · ANSWER 0.18S) · C photo + text (A
 BACKGROUND · SEND ARMS AT 100% · ANSWER 0.18S). Motion frames: 05M.
 
 ## Hard rules
-01 Three slots, fixed: row 358 wide, space-between + gap 14, 42 px above the bottom; side keys 54 × 54
+01 Three slots, fixed: row 358 wide, space-between + gap 14, 48 px above the bottom
+   (safe.bottom + 14 — the 10 px below it are the page-dots lane, 04B rule 02); side keys 54 × 54
    (carbon-4 + 1 px hairline); centre flex-grow, 56 high, radius 999. Left = mode, right = secondary
    action (camera at rest / send while typing). No third function on the right.
 02 The centre has three shapes only: resting capsule (dot matrix breathing at 0.4 Hz), text field,

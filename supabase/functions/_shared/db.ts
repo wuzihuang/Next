@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 
 /// F4 §01 · the tool bodies build their client from this turn's JWT, so RLS applies and
 /// the agent never holds a service_role key.
@@ -11,6 +11,10 @@ export function userClient(req: Request): SupabaseClient {
   );
 }
 
+/// Dev seeds (`supabase/seed/dev-*.sql`, `demo.sql`) tag rows so cleanup can find them.
+/// Product reads must never treat these as the user's own log.
+export const SEED_MEAL_VERSION = "seed";
+
 /// Only the settle job and the retention prune use this.
 /// ⚠️ service_role bypasses RLS: every statement must carry its own `where user_id = $1`.
 export function serviceClient(): SupabaseClient {
@@ -22,9 +26,12 @@ export function serviceClient(): SupabaseClient {
 }
 
 export async function currentUserId(req: Request): Promise<string | null> {
+  const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!token) return null;
   const db = userClient(req);
-  const { data } = await db.auth.getUser();
-  return data.user?.id ?? null;
+  const { data, error } = await db.auth.getClaims(token);
+  if (error || typeof data?.claims?.sub !== "string") return null;
+  return data.claims.sub;
 }
 
 export const cors = {

@@ -54,9 +54,9 @@
 		E75E45F7EF629DF91B5C9ADA /* NSObject+MJClass.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = "NSObject+MJClass.m"; path = "Vendor/MJExtension/MJExtension/NSObject+MJClass.m"; sourceTree = "<group>"; };
 		F4C2660BD56E9D70F3AC1E46 /* MJPropertyType.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = MJPropertyType.m; path = Vendor/MJExtension/MJExtension/MJPropertyType.m; sourceTree = "<group>"; };
 		FE0000000000000000000001 /* NextBody.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NextBody.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		FE0000000000000000000101 /* NextBodyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NextBodyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE0000000000000000000002 /* NextBody-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "NextBody-Info.plist"; sourceTree = "<group>"; };
 		FE0000000000000000000003 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
+		FE0000000000000000000101 /* NextBodyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NextBodyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -498,20 +498,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		FE0000000000000000000150 /* Build configuration list for PBXNativeTarget "NextBodyUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				FE0000000000000000000172 /* Debug */,
-				FE0000000000000000000173 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		FE0000000000000000000051 /* Build configuration list for PBXProject "NextBody" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				FE0000000000000000000070 /* Debug */,
 				FE0000000000000000000071 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FE0000000000000000000150 /* Build configuration list for PBXNativeTarget "NextBodyUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FE0000000000000000000172 /* Debug */,
+				FE0000000000000000000173 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

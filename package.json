@@ -1,0 +1,8 @@
+{
+  "name": "nextbody",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "deno lint --config supabase/functions/deno.json supabase/functions"
+  }
+}

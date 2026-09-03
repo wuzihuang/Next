@@ -74,18 +74,31 @@ struct WidgetCatalogue: View {
         case .battery:
             return w(type, MetricNames.bodyBattery, "64 right now.", .ring(value: 64, goal: 100, unit: "%"))
         case .metric:
-            return w(type, "HEART RATE", "68 bpm · +4 vs RHR 52",
-                     .rows([.init(label: "HEART RATE", value: "68"),
-                            .init(label: "RHR", value: "52")]))
+            var m = w(type, "HEART RATE", "Calm pulse — right where it should be", .none)
+            m.hero = "68 bpm"
+            m.heroSub = "+4 VS RHR 52 · MEASURED 14:20"
+            m.footer = "RANGE TODAY 52–172 · BASELINE STEADY"
+            return m
         case .text:
-            return w(type, "STEADY WEEK", "Nothing is drifting.", .none)
+            // 07 · rule 6 · the board's own text screen, its three lines and no sentence slot.
+            var t = w(type, "TODAY'S CALL", "4 days since your last lift · legs are fresh",
+                      .none)
+            t.tag = .move
+            t.headline = HeadlineBlock(eyebrow: "BATTERY 86% · TARGET 14.5",
+                                       headline: "LIFT TODAY", sub: "STRENGTH · 45 MIN")
+            t.action = "PRIME WINDOW 17:00 → 20:00"
+            t.footer = "8,432 STEPS · 7H12M IN BED"
+            return t
         case .line:
-            return w(type, "HRV", "62 ms over twelve nights", .series(series))
+            var l = w(type, "HRV · 12 NIGHTS", "62 ms over twelve nights", .series(series))
+            l.hero = "62 ms"
+            return l
         case .band:
             return w(type, "BLOOD PRESSURE", "118 / 76 · in range", .pair(hi: series.map { $0 + 50 }, lo: series))
         case .bars:
-            return w(type, "STEPS", "8,432 today", .bins([("M", 6.2), ("T", 8.4), ("W", 4.1),
-                                                          ("T", 9.0), ("F", 7.3), ("S", 3.2), ("S", 8.4)]))
+            return w(type, "STEPS · 30-MIN", "The evening walk carried the day",
+                     .bins([("06:00", 120), ("08:00", 340), ("10:00", 260), ("12:00", 410),
+                            ("14:00", 300), ("16:00", 620), ("18:00", 1904), ("20:00", 480)]))
         case .days:
             return w(type, "LOAD", "7d avg 13.1", .bins([("M", 15), ("T", 9.3), ("W", 16),
                                                          ("T", 11.5), ("F", 6.9), ("S", 13.9), ("S", 12.4)]))
@@ -143,8 +156,13 @@ struct WidgetCatalogue: View {
                      .cells(rows: 7, cols: 12,
                             values: (0..<84).map { ($0 * 7) % 4 }, levels: 4))
         case .food:
-            return w(type, "LOGGED", "532 kcal · MEDIUM",
-                     .rows([.init(label: "CHICKEN · RICE · GREENS", value: "532")]))
+            // 07 · 20 · the plate: name, kcal as the hero, three macro rows.
+            var f = w(type, "LOGGED · 12:42", "Good pick — 48 g protein still to place",
+                      .rows([.init(label: "CHICKEN SALAD", value: "420")]))
+            f.plate = PlateBlock(name: "Chicken salad", portion: "1 bowl", kcal: 420,
+                                 protein: 32, carb: 18, fat: 22, pctOfBudget: 31)
+            f.footer = "660 KCAL LEFT · KITCHEN CLOSES 21:00"
+            return f
         case .meal:
             return w(type, "LUNCH", "532 kcal · 50 g protein", hero: "532",
                      .rows([.init(label: "CHICKEN", value: "310"),
@@ -162,7 +180,8 @@ struct WidgetCatalogue: View {
             return w(type, "ENERGY", "907 in · 1,578 out", hero: "−671",
                      .parts([("IN", 907, NB.ember1), ("OUT", 1578, NB.cyan1)]))
         case .recomp:
-            return w(type, "12 WEEKS", "Nine of twelve moved fat down",
+            return w(type, "COMPOSITION · 12 W", "Nine of the last twelve weeks moved fat down",
+                     hero: "−3.1 % FAT",
                      .cells(rows: 7, cols: 12, values: (0..<84).map { $0 % 5 }, levels: 5))
         case .delta:
             return w(type, "NET CHANGE", "−0.5 kg fat, +2.0 kg lean",

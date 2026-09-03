@@ -1,4 +1,6 @@
 import Foundation
+import os
+import os
 
 /// The band's own facts on the home screen: whether it is linked, what its battery says,
 /// what firmware it runs. On a device none of this was ever written after the gate — the
@@ -58,5 +60,19 @@ final class BandPresence {
                                                           holdsDays: identity?.watchDataDayNumber)
             }
         }
+
+        #if DEBUG
+        // The band's own answer to "what can this HOOP measure" — one read, no sensor time.
+        // Logged, not stored: nothing on screen reads it yet, and a capability that decides
+        // what the plus menu offers has to be a deliberate change, not a side effect of a probe.
+        // ⚠️ The guessed bits above have twice removed a working feature. When this list is
+        // trusted enough to drive a menu, it should replace them — see readHealthFunctions.
+        if let functions = try? await Band.live.readHealthFunctions(), !functions.isEmpty {
+            let yes = functions.filter(\.support).map(\.name).joined(separator: ", ")
+            let no = functions.filter { !$0.support }.map(\.name).joined(separator: ", ")
+            Logger(subsystem: "com.nextbody.hoop", category: "band")
+                .notice("this HOOP measures: \(yes, privacy: .public) · not: \(no, privacy: .public)")
+        }
+        #endif
     }
 }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 04B · PAGE TWO · 往右一滑是仪表，不是判断. Eight of the strip's own 174 × 136 cards, two
+/// 04B · PAGE TWO · 往右一滑是仪表，不是判断. Eight of the strip's own 174-wide cards, two
 /// columns by four rows, one colour each: SLEEP · HEART / HRV · STRESS / TEMP · STEPS /
 /// DISTANCE · ACTIVE. No dock, no buttons, no adjectives — and not one read of the band:
 /// every number here is a tick Body Battery already pulled (04B rule 09).
@@ -14,9 +14,18 @@ struct VitalsPage: View {
     /// the library say 「还没同步」 instead of printing an empty baseline.
     var syncedOnce: Bool = true
     var width: CGFloat = NB.Layout.contentWidth
-    /// 04B rule 08 · the two hot zones. SLEEP and HRV are the same night's two numbers.
-    let onSleep: () -> Void
-    let onHRV: () -> Void
+    /// The height the root frames the page to (panel top → over the dots' lane). The cards
+    /// grow into it: row gaps stay a constant 10 and the card height takes the rest, the way
+    /// the panel takes the rest on page one — a tall phone gets taller cards, not air.
+    var height: CGFloat = 585
+    /// 04 · every card is a hot zone now, each opening its own second level. The comment
+    /// that used to sit here said a press state promises a page — the eight pages exist, so
+    /// all eight cards press.
+    let onOpen: (VitalsMetric) -> Void
+
+    /// 04B rule 01 · the card is a fixed 174 wide; its height is whatever the phone leaves
+    /// after the foot (12 + 12) and three row gaps of 10.
+    private var cardHeight: CGFloat { (height - 12 - 12 - 3 * NB.Layout.cardGap) / 4 }
 
     private var freshness: TickFreshness { vitals.freshness }
     /// 04B rule 05 · one source for "now": the last tick. 90 minutes on it dims to 45 %,
@@ -28,38 +37,56 @@ struct VitalsPage: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // 04B rule 01 · the row gaps are a constant 10 on every phone; the cards take
+            // whatever height is left (cardHeight), so a tall phone grows the cards and a
+            // short one still fits — no space-between band, no overflow.
             VStack(spacing: NB.Layout.cardGap) {
                 HStack(spacing: NB.Layout.cardGap) {
-                    Button(action: onSleep) { sleepCard }.buttonStyle(InstrumentTap())
-                    heartCard
+                    zone(.sleep) { sleepCard }
+                    zone(.heart) { heartCard }
                 }
                 HStack(spacing: NB.Layout.cardGap) {
-                    Button(action: onHRV) { hrvCard }.buttonStyle(InstrumentTap())
-                    stressCard
+                    zone(.hrv) { hrvCard }
+                    zone(.stress) { stressCard }
                 }
-                HStack(spacing: NB.Layout.cardGap) { tempCard; stepsCard }
-                HStack(spacing: NB.Layout.cardGap) { distanceCard; activeCard }
+                HStack(spacing: NB.Layout.cardGap) {
+                    zone(.temp) { tempCard }
+                    zone(.steps) { stepsCard }
+                }
+                HStack(spacing: NB.Layout.cardGap) {
+                    zone(.distance) { distanceCard }
+                    zone(.active) { activeCard }
+                }
             }
-            Spacer(minLength: 12)
-            // 04B · LAST TICK 22:29 · 12 MIN AGO · 1H 05M OFF WRIST — and the page dots,
-            // both pushed to the foot of the page, just over the home indicator.
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.bottom, 12)
+            // 04B · LAST TICK 22:29 · 12 MIN AGO · 1H 05M OFF WRIST, pinned to the foot. The
+            // page dots are not the page's: they are the root's furniture, crossfading in
+            // the lane below this line (04B rule 02).
             Text(footLine)
                 .font(NBFont.dot(500, 9.5)).tracking(0.12 * 9.5)
                 .lineLimit(1).minimumScaleFactor(0.85)
                 .foregroundStyle(NB.white.opacity(0.38))
                 .frame(width: width)
-            PageDots(current: 1)
-                .padding(.top, 12)
         }
         .frame(width: width)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Vitals, page two")
     }
 
+    /// ADR-0001 · a card presses like the strip's do: `HotZoneTap` retires the tap the moment
+    /// the finger passes the slop, so the page drag underneath always wins a swipe.
+    private func zone<Card: View>(_ metric: VitalsMetric,
+                                  @ViewBuilder card: () -> Card) -> some View {
+        Button { onOpen(metric) } label: { card() }
+            .buttonStyle(HotZoneTap())
+    }
+
     // MARK: cards
 
     private var sleepCard: some View {
         InstrumentCard(label: "SLEEP", tag: "LAST NIGHT", tint: NB.violet1,
+                       height: cardHeight,
                        value: m.sleep.map { Fmt.duration($0.totalMinutes) }, unit: nil,
                        foot: m.sleep.map { "DEEP \(Fmt.duration($0.deepMinutes)) · \($0.wakeCount) WAKES" } ?? "NO NIGHT YET") {
             if let s = m.sleep { SleepStrip(sleep: s, tint: NB.violet1) }
@@ -73,6 +100,7 @@ struct VitalsPage: View {
         // drawn, and the card says so in words — an empty page, not a zeroed one.
         let dayOne = vitals.at == nil && ticks.isEmpty
         return InstrumentCard(label: "HEART", tag: "NOW", tint: NB.lime1,
+                              height: cardHeight,
                               value: gone ? nil : vitals.hr.map(String.init), unit: "BPM",
                               foot: "RESTING \(Fmt.int(resting)) · PEAK \(Fmt.int(peak))",
                               dim: dim,
@@ -104,6 +132,7 @@ struct VitalsPage: View {
         // band's battery.
         let notSynced = !syncedOnce && n == nil
         return InstrumentCard(label: "HRV", tag: "LAST NIGHT", tint: NB.blue1,
+                              height: cardHeight,
                               value: n?.hrv.map { String(Int($0.rounded())) }, unit: "MS",
                               foot: values.isEmpty
                                   ? "BASE \(base.map { String(Int($0.rounded())) } ?? Fmt.dash) · \(n?.hrvNights ?? 0)/14 NIGHTS"
@@ -118,6 +147,7 @@ struct VitalsPage: View {
         let bins = VitalsMath.halfHourMean(ticks, day: day, value: { $0.stress.map(Double.init) })
         let peak = VitalsMath.peak(bins)
         return InstrumentCard(label: "STRESS", tag: "TODAY", tint: NB.ember1,
+                              height: cardHeight,
                               value: gone ? nil : vitals.stress.map(String.init), unit: "/100 NOW",
                               foot: peak.map { "PEAK \(Int($0.value.rounded())) AT \(VitalsMath.clock(day: day, minute: $0.index * 30))" } ?? "NO TICKS YET",
                               dim: dim, unitWhenEmpty: gone) {
@@ -129,6 +159,7 @@ struct VitalsPage: View {
         let temps = ticks.compactMap(\.temp)
         let last = gone ? nil : ticks.last(where: { $0.temp != nil })?.temp
         return InstrumentCard(label: "TEMP", tag: "NOW", tint: NB.cyan1,
+                              height: cardHeight,
                               value: last.map { String(format: "%.1f", $0) }, unit: "°C SKIN",
                               foot: temps.isEmpty ? "NO TICKS YET"
                                   : String(format: "LOW %.1f · HIGH %.1f", temps.min()!, temps.max()!),
@@ -142,6 +173,7 @@ struct VitalsPage: View {
         let total = m.steps.map(Double.init) ?? VitalsMath.total(bins)
         let peak = VitalsMath.peak(bins)
         return InstrumentCard(label: "STEPS", tag: "TODAY", tint: NB.optimal2,
+                              height: cardHeight,
                               value: total.map { Fmt.kcal($0) }, unit: nil,
                               foot: peak.map { "PEAK \(Fmt.kcal($0.value)) AT \(VitalsMath.clock(day: day, minute: $0.index * 60))" } ?? "NO TICKS YET") {
             HourBars(values: bins, tint: NB.optimal2)
@@ -153,6 +185,7 @@ struct VitalsPage: View {
         let metres = m.distanceM.map(Double.init) ?? VitalsMath.total(bins)
         let peak = VitalsMath.peak(bins)
         return InstrumentCard(label: "DISTANCE", tag: "TODAY", tint: NB.violetPink,
+                              height: cardHeight,
                               value: metres.map { String(format: "%.1f", $0 / 1000) }, unit: "KM",
                               foot: peak.map { String(format: "%.1f KM AT %@", $0.value / 1000, VitalsMath.clock(day: day, minute: $0.index * 60)) } ?? "NO TICKS YET") {
             HourBars(values: bins, tint: NB.violetPink)
@@ -164,6 +197,7 @@ struct VitalsPage: View {
         let kcal = m.eActive ?? VitalsMath.total(bins)
         let peak = VitalsMath.peak(bins)
         return InstrumentCard(label: "ACTIVE", tag: "TODAY", tint: NB.run1,
+                              height: cardHeight,
                               value: kcal.map { Fmt.kcal($0) }, unit: "KCAL",
                               foot: peak.map { "PEAK \(VitalsMath.clock(day: day, minute: $0.index * 60)) · \(Fmt.kcal($0.value)) KCAL" } ?? "NO TICKS YET") {
             HourBars(values: bins, tint: NB.run1)
@@ -224,6 +258,9 @@ struct InstrumentCard<Chart: View>: View {
     let unit: String?
     let foot: String
     var dim: Double = 1
+    /// 04B rule 01 · the strip's cards are the fixed 136; page two's cards grow into
+    /// whatever height the phone leaves (VitalsPage.cardHeight).
+    var height: CGFloat = NB.Layout.stripHeight
     /// 04B F3 · GONE: the number is —— but the unit stays, greyed with it. F1/F5 (never had
     /// data) hide the unit — there is nothing for it to measure yet.
     var unitWhenEmpty = false
@@ -231,6 +268,25 @@ struct InstrumentCard<Chart: View>: View {
     /// the first line names the state, the second says what happens next.
     var status: (line: String, sub: String)? = nil
     @ViewBuilder let chart: () -> Chart
+
+    /// The page-two cards pass `height` right after `tint`, ahead of `value` — an explicit
+    /// init keeps their call order while the stored order stays what the body reads.
+    init(label: String, tag: String, tint: Color, height: CGFloat = NB.Layout.stripHeight,
+         value: String?, unit: String?, foot: String, dim: Double = 1,
+         unitWhenEmpty: Bool = false, status: (line: String, sub: String)? = nil,
+         @ViewBuilder chart: @escaping () -> Chart) {
+        self.label = label
+        self.tag = tag
+        self.tint = tint
+        self.value = value
+        self.unit = unit
+        self.foot = foot
+        self.dim = dim
+        self.height = height
+        self.unitWhenEmpty = unitWhenEmpty
+        self.status = status
+        self.chart = chart
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -284,7 +340,7 @@ struct InstrumentCard<Chart: View>: View {
             }
         }
         .padding(12)
-        .frame(width: NB.Layout.cardWidth, height: NB.Layout.stripHeight, alignment: .topLeading)
+        .frame(width: NB.Layout.cardWidth, height: height, alignment: .topLeading)
         .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.hairline, lineWidth: 1))
         .accessibilityElement(children: .ignore)
@@ -294,16 +350,8 @@ struct InstrumentCard<Chart: View>: View {
     }
 }
 
-/// The two hot zones press like the strip's cards; the other six have no press state at
-/// all — 「做一个按压态等于承诺一个不存在的页面」.
-private struct InstrumentTap: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.72 : 1)
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
+// The two hot zones press like the strip's cards (HotZoneTap, ADR-0001); the other six have
+// no press state at all — 「做一个按压态等于承诺一个不存在的页面」.
 
 /// 04 · 04B · the two 4 pt page dots. The current page is the bright one.
 struct PageDots: View {
@@ -516,6 +564,21 @@ enum VitalsMath {
             let i = Int(s.ts.timeIntervalSince(day.start) / 3600)
             guard (0..<24).contains(i) else { continue }
             bins[i] = (bins[i] ?? 0) + v
+        }
+        return bins
+    }
+
+    /// Sum into only the hours actually visible on a detail ruler. A current user day may be
+    /// nine hours old, not 24; keeping 24 columns would put its newest bar under a future time.
+    static func hourSum(_ samples: [VitalSample], range: VitalsTimelineRange,
+                        value: (VitalSample) -> Double?) -> [Double?] {
+        let count = max(1, Int(ceil(range.span / 3600)))
+        var bins = [Double?](repeating: nil, count: count)
+        for sample in samples {
+            guard range.contains(sample.ts), let measured = value(sample) else { continue }
+            let elapsed = max(0, sample.ts.timeIntervalSince(range.start))
+            let index = min(count - 1, Int(elapsed / 3600))
+            bins[index] = (bins[index] ?? 0) + measured
         }
         return bins
     }

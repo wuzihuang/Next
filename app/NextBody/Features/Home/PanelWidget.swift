@@ -128,6 +128,12 @@ struct PanelWidget: Identifiable, Hashable {
     /// percent as the hero with the last reading under it, four fields in tiles, the
     /// sentence, then the spine. An optional block of the one template, like `photo`.
     var composition: CompositionAnswer?
+    /// 07 · rule 6 · `text` is the one type with no sentence slot on screen: an eyebrow, one
+    /// lime headline — the only highlight on the panel — and a sub. Its own skeleton, like
+    /// `photo` and `composition`.
+    var headline: HeadlineBlock?
+    /// 07 · 20 · `food` is the plate: name, the kcal as the hero, three macro rows.
+    var plate: PlateBlock?
     /// 06 · 17 · a measurement's result "becomes a message": tapping it asks her about the
     /// numbers instead of opening a page. Only the frames the band just produced carry this.
     var replyPrompt: String?
@@ -207,6 +213,9 @@ struct PanelWidgetView: View {
     /// crisp. `.all` is the flat rendering the catalogue and the photo / composition
     /// canvases keep.
     var layer: Layer = .all
+    /// AIPanel reserves the top-right lane for its dismiss key. Flat catalogue renders do
+    /// not show that control, so they keep the board's original full-width tag lane.
+    var showsCloseControl = false
     enum Layer { case all, chart, text }
 
     private enum Slot {
@@ -224,6 +233,10 @@ struct PanelWidgetView: View {
         static let actionY: CGFloat = 434
     }
 
+    private var topRowWidth: CGFloat {
+        358 - Slot.safeX * 2 - (showsCloseControl ? 42 : 0)
+    }
+
     var body: some View {
         // 06 · 20 · a composition result is the reading. Tapping the numbers must not
         // leave the panel — only TAP FOR ALL 14 FIELDS does that. Other widgets stay
@@ -235,8 +248,10 @@ struct PanelWidgetView: View {
             } else if widget.composition != nil {
                 canvas
             } else {
+                // ADR-0001 · a hot zone: a touch that travels past the slop is the page drag's,
+                // never this tap — the system button let a drag from the panel open the page.
                 Button { go() } label: { canvas }
-                    .buttonStyle(.plain)
+                    .buttonStyle(HotZoneTap(pressedScale: 1))
             }
         }
         .accessibilityLabel("\(widget.title) · \(widget.sentence)")
@@ -252,6 +267,10 @@ struct PanelWidgetView: View {
                 photoCanvas(photo)
             } else if let composition = widget.composition {
                 compositionCanvas(composition)
+            } else if let h = widget.headline {
+                headlineCanvas(h)
+            } else if let plate = widget.plate {
+                plateCanvas(plate)
             } else {
             if layer != .chart {
             // Slot 1 · title
@@ -265,7 +284,7 @@ struct PanelWidgetView: View {
                 Text(tag.rawValue)
                     .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                     .foregroundStyle(NB.white.opacity(0.30))
-                    .frame(width: 358 - Slot.safeX * 2, alignment: .trailing)
+                    .frame(width: topRowWidth, alignment: .trailing)
                     .offset(x: Slot.safeX, y: Slot.topY)
             }
 
@@ -312,6 +331,148 @@ struct PanelWidgetView: View {
         .frame(width: 358, height: 470, alignment: .topLeading)
     }
 
+    // MARK: 07 · rule 6 · TEXT — the one big word
+
+    /// eyebrow y128 · headline y168 (Doto 800 · 44, lime, the only highlight) · sub y232,
+    /// then the facts line at y352, the action at y380 and a dim footnote at y434.
+    /// ⚠️ No sentence slot: `sentence` is drawn as the facts line, which is where the
+    /// board puts the words on this type.
+    @ViewBuilder private func headlineCanvas(_ h: HeadlineBlock) -> some View {
+        if layer != .chart {
+            Text(widget.title.uppercased())
+                .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                .foregroundStyle(widget.accent)
+                .offset(x: Slot.safeX, y: Slot.topY)
+            if let tag = widget.tag {
+                Text(tag.rawValue)
+                    .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+                    .foregroundStyle(NB.white.opacity(0.30))
+                    .frame(width: topRowWidth, alignment: .trailing)
+                    .offset(x: Slot.safeX, y: Slot.topY)
+            }
+            if let eyebrow = h.eyebrow {
+                Text(eyebrow.uppercased())
+                    .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
+                    .foregroundStyle(NB.white.opacity(0.45))
+                    .frame(width: 358, alignment: .center)
+                    .offset(y: 128)
+            }
+            Text(h.headline.uppercased())
+                .font(NBFont.dot(800, 44)).tracking(0.02 * 44)
+                .foregroundStyle(NB.lime1)
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(width: 358 - Slot.safeX * 2, alignment: .center)
+                .offset(x: Slot.safeX, y: 168)
+            if let sub = h.sub {
+                Text(sub.uppercased())
+                    .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
+                    .foregroundStyle(NB.white.opacity(0.55))
+                    .frame(width: 358, alignment: .center)
+                    .offset(y: 232)
+            }
+            Text(widget.sentence)
+                .font(NBFont.brand(400, 13))
+                .foregroundStyle(NB.white.opacity(0.72))
+                .multilineTextAlignment(.center)
+                .frame(width: Slot.sentence.width, alignment: .center)
+                .offset(x: Slot.sentence.minX, y: 352)
+            if let action = widget.action {
+                Text(action.uppercased())
+                    .font(NBFont.dot(500, 10.5)).tracking(0.16 * 10.5)
+                    .foregroundStyle(widget.accent)
+                    .frame(width: 358, alignment: .center)
+                    .offset(y: 388)
+            }
+            if let footer = widget.footer {
+                Text(footer.uppercased())
+                    .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
+                    .foregroundStyle(NB.white.opacity(0.32))
+                    .frame(width: 358, alignment: .center)
+                    .offset(y: Slot.actionY)
+            }
+        }
+    }
+
+    // MARK: 07 · 20 · FOOD — one plate
+
+    /// name y118 (32) · kcal y168 (64, the hero) · the budget line y246 · three macro rows
+    /// from y300 with their own bars · sentence y352 · footer y434.
+    @ViewBuilder private func plateCanvas(_ plate: PlateBlock) -> some View {
+        let macros: [(String, Double?, Color)] = [
+            ("PROTEIN", plate.protein, NB.cyan1),
+            ("CARBS", plate.carb, NB.blue1),
+            ("FAT", plate.fat, NB.run1),
+        ]
+        let present = macros.filter { $0.1 != nil && $0.1! > 0 }
+        let mx = max(present.compactMap { $0.1 }.max() ?? 1, 1)
+        if layer != .chart {
+            Text(widget.title.uppercased())
+                .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                .foregroundStyle(widget.accent)
+                .offset(x: Slot.safeX, y: Slot.topY)
+            Text((plate.portion ?? widget.tag?.rawValue ?? "").uppercased())
+                .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+                .foregroundStyle(NB.white.opacity(0.30))
+                .frame(width: topRowWidth, alignment: .trailing)
+                .offset(x: Slot.safeX, y: Slot.topY)
+            Text(plate.name)
+                .font(NBFont.brand(700, 30)).tracking(-0.02 * 30)
+                .foregroundStyle(NB.white)
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(width: 358 - Slot.safeX * 2, alignment: .center)
+                .offset(x: Slot.safeX, y: 104)
+            // ⚠️ No kcal unless a tool returned one: S3, and 07's own rule that an absent
+            // number is a long dash rather than a guess.
+            Text(plate.kcal.map { "\(Int($0)) kcal" } ?? Fmt.dash)
+                .font(NBFont.brand(700, 62)).tracking(-0.045 * 62)
+                .foregroundStyle(NB.white.opacity(0.45))
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(width: 358 - Slot.safeX * 2, alignment: .center)
+                .offset(x: Slot.safeX, y: 150)
+            if let pct = plate.pctOfBudget {
+                Text("\(pct)% OF TODAY'S BUDGET")
+                    .font(NBFont.dot(500, 10.5)).tracking(0.16 * 10.5)
+                    .foregroundStyle(NB.white.opacity(0.42))
+                    .frame(width: 358, alignment: .center)
+                    .offset(y: 228)
+            }
+            ForEach(present.indices, id: \.self) { i in
+                let row = present[i]
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 0) {
+                        Text(row.0)
+                            .font(NBFont.dot(600, 10)).tracking(0.14 * 10)
+                            .foregroundStyle(row.2)
+                        Spacer(minLength: 0)
+                        Text("\(Int(row.1!)) g")
+                            .font(NBFont.dot(600, 10.5))
+                            .foregroundStyle(NB.white.opacity(0.60))
+                    }
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(NB.barTrack).frame(height: 5)
+                        Capsule().fill(row.2)
+                            .frame(width: (358 - Slot.safeX * 2) * CGFloat(row.1! / mx), height: 5)
+                    }
+                }
+                .frame(width: 358 - Slot.safeX * 2)
+                .offset(x: Slot.safeX, y: 262 + CGFloat(i) * 44)
+            }
+            Text(widget.sentence)
+                .font(NBFont.brand(500, 16)).lineSpacing(5)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(NB.white)
+                .frame(width: Slot.sentence.width, alignment: .center)
+                .offset(x: Slot.sentence.minX, y: 396)
+            if let footer = widget.footer {
+                Text(footer.uppercased())
+                    .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
+                    .foregroundStyle(NB.white.opacity(0.34))
+                    .frame(width: 358, alignment: .center)
+                    .offset(y: Slot.actionY)
+            }
+        }
+    }
+
     // MARK: 06 · 20 · BODY COMPOSITION · JUST NOW
 
     /// The board's frame to the pixel: 358 × 470, its own LED ground (a reading is not drawn
@@ -348,7 +509,7 @@ struct PanelWidgetView: View {
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                 .foregroundStyle(NB.white.opacity(0.30))
         }
-        .frame(width: 318, height: 14)
+        .frame(width: 318 - (showsCloseControl ? 42 : 0), height: 14)
         .offset(x: 20, y: 16)
 
         // hero · the number the scan settled, and where it stood last time
@@ -408,7 +569,7 @@ struct PanelWidgetView: View {
                         .frame(width: 318, height: 28)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(HotZoneTap(pressedScale: 1))
             }
         }
         .frame(width: 318)
@@ -426,7 +587,7 @@ struct PanelWidgetView: View {
         Text("PHOTO + TEXT")
             .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
             .foregroundStyle(NB.white.opacity(0.40))
-            .frame(width: 358 - Slot.safeX * 2, alignment: .trailing)
+            .frame(width: topRowWidth, alignment: .trailing)
             .offset(x: Slot.safeX, y: Slot.topY)
         // the source chip · 310 × 42 at y44
         HStack(spacing: 12) {
@@ -504,7 +665,17 @@ struct PanelWidgetView: View {
                 .font(NBFont.brand(700, 84)).tracking(-0.045 * 84)
                 .foregroundStyle(NB.white.opacity(0.45))
                 .frame(width: 358, alignment: .center)
+                .lineLimit(1).minimumScaleFactor(0.5)
                 .offset(y: Slot.heroLargeY)
+
+            // 01 · metric · the reference line under the giant number, in Doto.
+            if let ref = widget.heroSub {
+                Text(ref.uppercased())
+                    .font(NBFont.dot(500, 10.5)).tracking(0.20 * 10.5)
+                    .foregroundStyle(NB.white.opacity(0.42))
+                    .frame(width: 358, alignment: .center)
+                    .offset(y: Slot.subY)
+            }
 
             if let sub = subText {
                 Text(sub)
@@ -545,15 +716,32 @@ struct PanelWidgetView: View {
                     .foregroundStyle(NB.white.opacity(0.45))
                     .frame(width: Slot.heroRing.width, height: Slot.heroRing.height)
                     .offset(x: Slot.heroRing.minX, y: Slot.heroRing.minY)
+                // 08 · under the ring: the value, then what it is out of.
+                if case .ring(let v, let g, let u) = widget.data, g > 0 {
+                    VStack(spacing: 2) {
+                        Text(Fmt.kg(v, decimals: 0))
+                            .font(NBFont.dot(600, 12)).tracking(0.08 * 12)
+                            .foregroundStyle(NB.white.opacity(0.55))
+                        Text("OF \(Fmt.kg(g, decimals: 0))\(u)".uppercased())
+                            .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+                            .foregroundStyle(NB.white.opacity(0.34))
+                    }
+                    .frame(width: 358, alignment: .center)
+                    .offset(y: Slot.heroRing.maxY - 34)
+                }
             }
         case .own, .none:
             EmptyView()
         }
     }
 
+    /// 08 · a ring's centre is the percentage; a gauge's and the battery's is the reading.
     private var arcLabel: String {
         switch widget.data {
-        case .ring(let v, _, _): return Fmt.kg(v, decimals: 0)
+        case .ring(let v, let g, let u) where widget.type == .ring && g > 0:
+            return "\(Int((v / g * 100).rounded()))%"
+        case .ring(let v, _, let u):
+            return u == "%" ? "\(Fmt.kg(v, decimals: 0))%" : Fmt.kg(v, decimals: 0)
         case .gauge(let v, _):   return Fmt.kg(v, decimals: 0)
         default:                 return ""
         }
@@ -569,12 +757,28 @@ struct PanelWidgetView: View {
         case .series(let s):                      return s.last.map { Fmt.kg($0) } ?? Fmt.dash
         case .ring(let v, let g, let u):          return u.isEmpty ? "\(Int(v))/\(Int(g))" : "\(Int(v))\(u)"
         case .gauge(let v, _):                    return Fmt.kg(v)
+        // 09 · HERO by type: bars is the total, days is the average of the days, delta is
+        // the signed net. One shape, three different questions.
+        case .bins(let b) where widget.type == .days:
+            let vals = b.map { $0.1 }
+            return vals.isEmpty ? Fmt.dash : "\(Fmt.kg(vals.reduce(0, +) / Double(vals.count), decimals: 1)) AVG"
+        case .bins(let b) where widget.type == .delta:
+            let net = b.reduce(0) { $0 + $1.1 }
+            return "\(net > 0 ? "+" : "")\(Fmt.kg(net, decimals: 1))"
         case .bins(let b):                        return Fmt.kcal(b.reduce(0) { $0 + $1.1 })
         case .parts(let p):                       return p.first.map { Fmt.kcal($0.1) } ?? Fmt.dash
-        case .cells(_, _, let v, _):              return "\(v.filter { $0 > 0 }.count)"
+        // 09 · cells' HERO is "filled of total".
+        case .cells(_, _, let v, _):              return "\(v.filter { $0 > 0 }.count) OF \(v.count)"
         case .rows(let r):                        return r.first?.value ?? Fmt.dash
+        // 09 · band's HERO is the day's hi/lo pair; dual's is series a's last point.
+        case .pair(let hi, let lo) where widget.type == .band:
+            // 04 · the board writes the pair high first — "118/76", systolic over diastolic.
+            guard let h = hi.last, let l = lo.last else { return Fmt.dash }
+            return "\(Fmt.kg(h, decimals: 0))/\(Fmt.kg(l, decimals: 0))"
         case .pair(let hi, _):                    return hi.last.map { Fmt.kg($0) } ?? Fmt.dash
-        case .trace(let s, _):                    return s.isEmpty ? Fmt.dash : "\(Int(s.reduce(0, +) / Double(s.count)))"
+        // 09 · wave's HERO is the strip's average heart rate, with its unit.
+        case .trace(let s, _):
+            return s.isEmpty ? Fmt.dash : "\(Int((s.reduce(0, +) / Double(s.count)).rounded())) BPM AVG"
         case .strip(let s):                       return "\(s.count)"
         case .lanes(let runs, _, _):
             let total = runs.reduce(0) { $0 + $1.1 }
@@ -680,6 +884,24 @@ struct PanelWidgetView: View {
     }
 }
 
+
+/// 07 · rule 6 · text's own three lines.
+struct HeadlineBlock: Hashable {
+    var eyebrow: String?
+    var headline: String       // ≤ 12
+    var sub: String?
+}
+
+/// 07 · 20 · the plate, as the board lays it out.
+struct PlateBlock: Hashable {
+    var name: String
+    var portion: String?
+    var kcal: Double?
+    var protein: Double?
+    var carb: Double?
+    var fat: Double?
+    var pctOfBudget: Int?
+}
 
 /// 05 · C·07 · what the photo answer adds to the panel.
 /// 06 · 20 · what the body scan's frame carries beyond the template: the line under the hero

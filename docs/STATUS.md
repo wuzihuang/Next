@@ -19,7 +19,8 @@ from it, so one build lays out the same anatomy on every iPhone from the SE to t
   (62) exists only to convert a board Y; `Chrome.boardY(_:)` does that conversion and compresses
   the column on a phone whose safe area is shorter than the board's (the SE).
 - Home is iOS anatomy: a 44pt avatar-and-name header under the status bar, the dock
-  (keyboard · voice · camera) 8pt over the home indicator, the strip above it, and the panel
+  (keyboard · voice · camera) 14pt over the home indicator's safe area — the page dots sit
+  in that lane, one slot for both home pages — the strip above it, and the panel
   taking the rest. The panel's 358 × 470 widget canvas is centred and scales down as one piece
   when the panel is shorter than the board's.
 - Nothing draws a fake status bar or home indicator; iOS paints both.
@@ -36,6 +37,8 @@ Checked on four simulators at once — iPhone SE 3 (375 × 667, iOS 18.5), 16e (
 Air (420 × 912), 16 Pro Max (440 × 956) — every gate screen, home, the dock edge state and
 the five detail pages. DEBUG launch hooks make that a script: `NB_DEBUG_STAGE`,
 `NB_DEBUG_ROUTE`, `NB_DEBUG_CONNECT_STEP`, `NB_DEBUG_EDGE` (all via `SIMCTL_CHILD_`).
+`NB_DEBUG_HOME_PAGE=1` opens on page two; `NB_DEBUG_HOME_DRAG=0.82` freezes a mid-swipe
+frame so the dots' crossfade can be screenshotted.
 
 ## What runs today
 
@@ -71,7 +74,18 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
   swipe that ends on a card is a swipe, never a tap. The `!swiping` hit-test gate stays for
   touches that begin mid-swipe. `NextBodyUITests/PagingCardDragTests` locks it: drag-left
   from the CALORIES card turns the page (SLEEP, no Back), slow drag same, clean tap still
-  opens fuel detail. Page dots show on the first screen too, in the seam above the dock.
+  opens fuel detail. Page dots are the root's furniture: both pages' sets sit in one lane
+  just over the home indicator (bottom − safe.bottom − 6) and crossfade in place through
+  the drag — no sliding dots, no doubled pair mid-swipe. On page two the row gaps stay a
+  constant 10 and the cards grow into whatever height the phone leaves (`VitalsPage.cardHeight`),
+  so 375 × 667 and 440 × 956 both fill exactly.
+- ⚠️ The `highPriorityGesture` alone held in XCUITest but not under a finger: on the device
+  a drag that started on the panel still opened the detail page on lift-off. So the tap rule
+  now lives in the hot zone itself — `HotZoneTap` (`Features/Shared/HotZoneTap.swift`, a
+  `PrimitiveButtonStyle` on every hot zone of both home pages): a touch that travels past
+  10 pt in any direction retires its tap for good, and only a touch that never left the dead
+  zone fires on lift-off. The page drag recognises at 12 pt, so whatever the arbitration
+  above does, a touch it can own has no tap left. ADR-0001 补充裁决.
 - The panel's standby face carries no tap target. It was once a Button to `.bodyBattery` —
   an entrance no board drew, and F1 gives 13 exactly one (the morning widget) — so a
   tap-length swipe on the display opened a detail page from the display itself. The resting
@@ -89,6 +103,17 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
   `SleepSummary.line`; nights without a line fall back to the proportions.
 - Events added per the board's ship-list: `PAGE2_HRV_TAP`, `PAGE2_CARD_STATE{CARD,STATE}` on
   every page-two open, `PAGE2_NOT_SYNCED{PLATFORM}`, `PAGE2_OFF_WRIST{MIN}` once per user day.
+- The eight detail rulers now name one honest window: SLEEP is the recorded completed night;
+  HEART / HRV / STRESS / TEMP are rolling 24 hours; STEPS / DISTANCE / ACTIVE run from the
+  04:00 user-day boundary to now. Current-day charts end at NOW rather than drawing empty
+  future hours, and hourly bars use that same partial-day geometry.
+- A band pull updates the raw in-memory curve before upload and settlement. `Repository.load`
+  independently loads 48 hours of `raw_samples`, does not return early when `daily_results`
+  has not settled yet, and merges server fields without replacing a fresher local tick.
+  Late temperature history can only fill null values on the authenticated user's own rows
+  through `fill_temp`; the RPC revokes public/anon execution. The migration passed an
+  isolated Postgres behavior/permission test; live application is pending because the
+  linked database connection currently fails before migration discovery.
 
 ### The band · `app/NextBody/Services/Band/`
 
@@ -790,14 +815,13 @@ an open question about the bottom strip, so 13 stands — but one of the two boa
 
 ## Open, and why
 
-0. **Board 13's Body Battery model has no fixed point, and it is implemented as written.**
-   Charge and drain are two independent sums, so a day whose sums do not cancel walks the level
-   until a clamp catches it — the board's own printed day is +12 (+38 −14 −9 −3), which reaches
-   100 in eight days. There is no restoring term anywhere in 1COD or 1COH. The demo bounds the
-   chain to fourteen nights off the cold-start 20 rather than pretending to a stability the
-   formula does not have. Related: F2 §02 says BODY_BATTERY(t) is 清醒时段单调不增, which 13's
-   `charge_rest` contradicts outright — a resting waking tick nets +0.10. 13 wins, because F2
-   itself says 系数与式子在 13 板首发. Both need a ruling before launch.
+0. **Resolved 2026-09-03 · Body Battery v2 has a fixed point and uses the SDK's real stages.**
+   `sleepLine` is expanded with Veepoo's 0 deep / 1 light / 2 REM / 3 insomnia / 4 awake ids;
+   the empty `raw_samples.sleep_states` column no longer turns a deep night into waking drain.
+   Recovery now shrinks exponentially toward 95, off-wrist ticks hold, movement fuses HRR / MET /
+   steps without triple-counting, and stress plus RMSSD form the autonomic term. Verified quiet
+   waking can restore at most 5 points/day below 80. The coefficients remain calibration values,
+   not clinical constants; that validation is still required before launch.
 
 1. **The `vck_…` key is a Vercel access token, not an AI Gateway API key.** It is valid —
    `GET api.vercel.com/v2/user` returns the account and team — but the gateway refuses it,
@@ -1110,6 +1134,22 @@ frame because the overlay was added after the keyboard `.offset` (the lift now c
 mandated qwen3.8-flash — that model has no image input. `qwen-vl-plus` looped on the JSON schema;
 the flash model answers a relaxed schema which the function coerces to integers and a tier.
 Photo retry policy is still the board's open question; the client retries once per tap.
+
+### 2026-09-03 · chat attachments now reach vision
+
+The dedicated Chat UI was staging a thumbnail and Base64 data URL, then calling
+`AIService.turn` without either one. The apparent upload could therefore finish while the AI
+received text only. Chat now forwards the request-scoped image to `/turn`; the Edge Function
+runs `image.inspect` with `qwen3-vl-flash`, harvests visible numeric facts into the ledger, and
+lets the still-enabled Thinking turn render the answer. No image bytes enter `ai_turns`,
+Postgres, or Storage.
+
+`AIImagePayload` is shared by Home and Chat: longest side ≤ 640 px, adaptive JPEG quality,
+96 KiB soft ceiling with a 512 px / 0.32 quality floor. After the response, Chat clears both
+the preview image and Base64 payload from its in-memory message. The sending row says
+`Sending compressed image`, then changes to `Image received · analyzing` when the server's
+`image.inspect` event arrives. Production verification used a 35,239-byte JPEG / 47,097-byte
+JSON request; the model returned the exact visible text `BANANA 42` in 8.24 s.
 
 ## Phase 8 · the writes the app was not making, and five edge states that needed them
 
@@ -1500,10 +1540,9 @@ write skills that say which chart fits which question, and to prove it on the us
   ever allowed rounding — the first local run wrote 「完成度约63%」 and rule 06 threw the frame
   away. Now: numbers come from tool returns as they are, and every ratio a sentence might
   want is a field the source already computed.
-- **Thinking off by default.** `providerOptions.dashscope.enable_thinking` is `false` unless
-  the secret `TURN_THINKING=on` is set. Phase 9 measured 27–38 s per turn with it on; with it
-  off the same questions answer in 6–20 s and the tool choice held on every question tried.
-  That is the ruling Phase 9 asked for; flip the secret to undo it without a release.
+- **Thinking stays on.** `providerOptions.dashscope.enable_thinking` is fixed to `true`;
+  `TURN_THINKING_BUDGET` tunes only its per-step ceiling. The default is 200 tokens, down from
+  400, so the model still exposes real reasoning without spending an unbounded turn on it.
 
 ### App
 - `dual` had no second line: the type mapped to the curve renderer, which eats one series.
@@ -1692,3 +1731,93 @@ Body Battery page, the back-logged plate's date format, and the offline seed's t
 What is left in Chinese is deliberate and not display text: the food classifier's Chinese nouns,
 the medical-stop pattern, the `简体中文` option label, the stored-value comparison, and the
 Chinese branch of each `AppLanguage.isEnglish ?` pair.
+
+### The 1:1 pass, widget by widget
+Every one of the 27 plus the thinking state was pinned with `NB_DEBUG_PANEL`, photographed on
+the phone and read against its own screen on board 07. Nine corrections came out of it:
+- **`text` had no skeleton of its own.** Board rule 6: text is the one type with no sentence
+  slot — an eyebrow, one headline in Doto 800 · 44 lime (the only highlight on the panel), a
+  sub, then facts / action / a dim footnote. It was being drawn through the generic template
+  with the sentence in the middle and nothing else. The tool takes `headline` / `eyebrow` /
+  `sub` now and the panel draws the board's layout.
+- **`food` had no skeleton either.** 07 · 20 is the plate: the dish at 30, the kcal at 62 as
+  the hero, the budget share, and three macro rows with their own bars. The tool takes
+  `kcal` / `protein_g` / `carb_g` / `fat_g` / `pct_of_budget`, all optional, and an absent kcal
+  draws —— rather than a guess (S3).
+- **Derived heroes matched 07 · 09's HERO column**: `days` is the average of the days, not the
+  total; `delta` is the signed net; `cells` is "N OF M"; `band` is the day's pair high first
+  ("118/76"); `wave` is the strip's average with its unit; `zones` names the zone
+  ("Z2 · 30 MIN"); `o2night` is the night's average with a percent.
+- **A ring's centre is its percentage**, with the value and "OF N" under it (08). The gauge and
+  the battery keep the reading in the middle.
+- **`metric` prints its reference line** under the giant number, in Doto (01).
+- **The sleep split wears the night's colours** — violet, mid violet, grey — instead of the
+  macro cycle, and its legend counts minutes ("3H45 · 55%").
+- **Stray markup is stripped from the four word slots.** A title came back as
+  `READINESS</title>`; nothing asks the model for markup and the panel would have printed it.
+- **`day.get` counts the open meal slots.** "All 4 meals open" was rejected as untraceable
+  because the count lived only in the shape of a jsonb object (F7 §08 again).
+
+## The thought stream · the THINKING screen shows her reasoning, not a label
+
+The foot of the singularity used to print `PULLING YOUR WEEK IN` — a status label the server
+chose, which is the app speaking on her behalf. It now prints her reasoning as she has it.
+
+- **Server** (`turn/index.ts`): `generateText` → `streamText`. DashScope's `enable_thinking` is
+  fixed on (it refuses thinking on a non-streaming call, which is why the switch), with
+  `thinking_budget` 200 tokens a step so a turn does not spend its 50 s reasoning — unbounded
+  thinking was the 27–38 s turn recorded earlier. The model's `reasoning_content` deltas are
+  cut into lines by `_shared/thoughts.ts` (one sentence, or the last comma before ~34 columns;
+  markdown, bullets and fragments stripped; duplicates dropped) and streamed as SSE
+  `thought {text}` events between `state` and `screen.render`. F5 C7 applies to every line:
+  the banned list is loaded before the model runs and a thought that trips it is dropped, not
+  printed. `TURN_THINKING_BUDGET` tunes the cap; there is no silent-turn switch.
+  `deno test _shared/thoughts.test.ts` — seven cases, chunk-boundary independence included.
+- **App** (`AIService`, `ThinkingStage`): `thoughts` holds the last six lines; the screen shows
+  four, oldest dimmest, the newest typed out at 46 chars/s behind a lime cursor that blinks
+  once the line is out. A turn that streams no thoughts falls back to naming the tool, dimmed
+  so it does not pass for a thought. The canvas is a black hole seen from above its disk:
+  still stars, five arms sliding matter into the core and respawning at the rim, Doppler
+  brightening on the approaching side, two lensing arcs over and under the hole, a heat wave
+  round the photon ring — and one ring rippling out along the disk each time a thought lands,
+  so the picture answers the reasoning rather than decorating it. `reduceMotion` freezes all
+  of it. `NB_DEBUG_PANEL=thinking` now also plays a scripted stream so the state can be
+  photographed. `turn-test.py` prints the thoughts a turn streamed.
+- **Board** 07 · 16 · 02 on Paper carries the same screen and the rules above in its caption.
+
+Production latency was split at the wire on 2026-09-03 with a synthesized clip: offline ASR
+took 6.98 s before optimization; `/turn` reached `state` at 1.53 s, its first real thought at
+4.40 s, and rendered at 8.25 s. Thinking remains fixed on. The shipped voice path now opens an
+authenticated `/asr` WebSocket before `AVAudioRecorder` starts, tails complete 16 kHz mono
+Int16 frames out of the WAV while it is still being written, and manually commits
+`qwen3-asr-flash-realtime` on release. The WAV remains the fallback for any socket, provider,
+or eight-second finish failure. A production run with 3.38 s of Chinese speech transcribed
+exactly and returned 1.73 s after release, down from the offline path's 4.85 s.
+
+Clear single-domain turns now use a conservative deterministic source scope. The server
+prefetches the ranked source candidates concurrently, records that read in the number ledger
+and trace, then gives the thinking model only compatible source schemas, renderers, and chart
+guidance. Ambiguous questions retain the full catalogue; an explicit comparison among heart
+rate, stress, and steps deterministically uses the existing `vitals.7d` multi-metric source.
+Production examples: current stress rendered in 5.69 s (previously 8.54 s), last-night sleep
+rendered in 5.93 s (previously 13.65 s because the model spent a second planning round finding
+the fallback source), and heart-rate-versus-stress rendered in 6.51 s (previously 10.68 s).
+Their first thoughts still stream at 3.22–4.03 s; the speedup comes from eliminating the
+redundant model tool-planning round, not from hiding or disabling reasoning.
+
+## Every non-idle panel state has an explicit return to STANDBY
+
+THINKING and every completed `PanelWidget` carry a small mosaic-pixel × in the panel's
+top-right corner. It is nine bare 3 pt pixels with no surrounding frame, aligned just below
+the title's top edge; the invisible hit target remains 44 pt. The widget tag and THINKING
+timer reserve the same lane, so the control never covers frame metadata.
+
+Tapping it clears Home's optional widget, restores the actual STANDBY face, and lets the live
+wrist readout resume. Each asynchronous answer carries a request ID; dismissing the panel
+invalidates it, so a late transcription, meal estimate, photo result, or turn result cannot
+put the closed special screen back.
+
+Covered by completed-frame and THINKING dismissal cases in `HomeDisplayTapTests`. The
+completed-frame case passed on iPhone 16 Pro Max (iOS 18.5), and THINKING was photographed
+with its bare pixel ×. The final THINKING automated rerun is currently blocked before launch
+by unrelated `DeviceView` auto-monitor type errors.

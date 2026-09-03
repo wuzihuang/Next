@@ -37,6 +37,12 @@ struct DeviceView: View {
     /// How often this phone asks the band for the day. Mirrors SyncCadence so the row
     /// re-renders when the sheet changes it.
     @State private var cadence = SyncCadence.minutes
+    /// What Automatic measurement actually read — not a guess from capability bits.
+    @State private var autoRead: AutoMonitoringRead?
+    #if DEBUG
+    /// The sport-mode probe sheet. Release builds carry neither the button nor the code.
+    @State private var sportProbe = false
+    #endif
 
     private var connected: Bool { data.band.connected }
 
@@ -64,10 +70,11 @@ struct DeviceView: View {
                 RowCard {
                     NavRow(title: "Automatic measurement",
                            detail: autoDetail,
-                           value: "\(autoCount)",
-                           // A capability the band does not have keeps its row and states
-                           // the reason — hiding it makes the user think it does not exist.
-                           enabled: connected && capabilities.autoMeasure != .unsupported) {
+                           value: autoValue,
+                           // The sheet itself states the verdict: empty, switch-only, or
+                           // a read that never came back. The row stays tappable while
+                           // connected so that explanation is one tap away.
+                           enabled: connected) {
                         sheet = .bandAutoMonitor
                     }
                     // One switch with one range is enough; a range needs no second toggle.
@@ -123,8 +130,9 @@ struct DeviceView: View {
                     IdentityRow(name: "DEVICE NO.", value: identity?.deviceNumber ?? "HB-0042")
                     #if DEBUG
                     // A diagnostic, not product copy: the band's sport-mode tier, straight
-                    // from the SDK's model. Which sports those are, only the band's own
-                    // workout list can say — there is no query for the list itself.
+                    // from the SDK's model. The row below the card opens the probe, because
+                    // the SDK has no query for the list itself — and a screenless band has
+                    // no workout list to read either.
                     IdentityRow(name: "SPORT MODE", value: identity?.sportMode ?? "—")
                     #endif
                     // ⚠️ On iOS this is a CoreBluetooth UUID. The label says BLUETOOTH, not
@@ -133,6 +141,15 @@ struct DeviceView: View {
                                 value: identity?.bleIdentifier ?? data.band.mac, last: true)
                 }
                 .frame(width: NB.Layout.contentWidth)
+
+                #if DEBUG
+                GroupLabel12("DEBUG")
+                RowCard {
+                    NavRow(title: "Sport mode probe",
+                           detail: "TAP A TYPE · THE BAND OPENS IT, THEN CLOSES IT",
+                           value: identity?.sportMode ?? "—", last: true) { sportProbe = true }
+                }
+                #endif
 
                 GroupLabel12("CONNECTION")
                 RowCard {
@@ -190,33 +207,48 @@ struct DeviceView: View {
             // shared with the home screen's pull: opening this page a second time inside a
             // tick reads nothing off the band.
             await OriginDataSync.refreshNow(into: data)
+            if connected {
+                do { autoRead = try await Band.live.readAutoMonitoring() }
+                catch { autoRead = .failed(error) }
+            }
         }
         // The band came back while the page was open (a reconnect, or the page was opened
         // before the link was up): read what the task above could not, and ask the server.
         .onChange(of: connected) { _, on in
-            guard on, check == .idle else { return }
+            guard on else { autoRead = nil; return }
             Task {
                 if identity == nil, let fresh = try? await Band.live.readIdentity() {
                     identity = fresh; data.band.firmware = fresh.firmware
                 }
-                await checkForUpdate()
+                if check == .idle { await checkForUpdate() }
+                do { autoRead = try await Band.live.readAutoMonitoring() }
+                catch { autoRead = .failed(error) }
             }
         }
         .sheet(item: $sheet) { r in
             Group {
                 switch r {
-                case .bandAutoMonitor: AutoMeasurementSheet()
+                case .bandAutoMonitor: AutoMeasurementSheet(initial: autoRead) { autoRead = $0 }
                 case .bandAlarm:       AlarmsSheet()
                 case .syncCadence:     SyncCadenceSheet(minutes: $cadence)
                 case .unbind:          ForgetHoopSheet()
                 default:               WhyWontItConnectSheet()
                 }
             }
-            .presentationDetents([.fraction(0.62)])
+            .presentationDetents([r == .bandAutoMonitor ? .fraction(0.78) : .fraction(0.62)])
             .presentationDragIndicator(.visible)
             .presentationBackground(NB.carbon2)
             .presentationCornerRadius(NB.R.panel)
         }
+        #if DEBUG
+        .sheet(isPresented: $sportProbe) {
+            SportProbeSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(NB.carbon2)
+                .presentationCornerRadius(NB.R.panel)
+        }
+        #endif
     }
 
     /// Every write goes through the queue at P0 and the switch is re-rendered from the
@@ -357,17 +389,40 @@ struct DeviceView: View {
         }
     }
 
-    /// Only what this HOOP can measure is listed.
+    /// Only what this HOOP actually reported for automatic measurement.
     private var autoDetail: String {
-        var kinds: [String] = []
-        if capabilities.hrv != .unsupported { kinds.append("HR") }
-        if capabilities.functions["spo2"] != .unsupported { kinds.append("SPO2") }
-        if capabilities.hrv == .support { kinds.append("HRV") }
-        if capabilities.stress != .unsupported { kinds.append("STRESS") }
-        return kinds.isEmpty ? "NOTHING THIS HOOP MEASURES ON ITS OWN" : kinds.joined(separator: " · ")
+        guard connected else { return "CONNECT TO READ" }
+        guard let autoRead else { return "ASKING THIS HOOP" }
+        let slots = autoRead.slots
+        if !slots.isEmpty {
+            return slots.map { Self.autoShort($0.kind) }.joined(separator: " · ")
+        }
+        switch autoRead {
+        case .interval:
+            return "NOT REPORTED"
+        case .switches:
+            return "INTERVAL IS FIRMWARE-OWNED"
+        case .failed:
+            return "COULD NOT READ"
+        }
     }
-    private var autoCount: Int {
-        autoDetail.contains("·") ? autoDetail.components(separatedBy: " · ").count : 0
+    private var autoValue: String {
+        guard let autoRead else { return "—" }
+        let n = autoRead.slots.count
+        return n == 0 ? "—" : "\(n)"
+    }
+    private static func autoShort(_ kind: AutoMonitorSlot.Kind) -> String {
+        switch kind {
+        case .heartRate:       "HR"
+        case .bloodPressure:   "BP"
+        case .bloodGlucose:    "GLU"
+        case .stress:          "STRESS"
+        case .bloodOxygen:     "SPO2"
+        case .temperature:     "TEMP"
+        case .lorentz:         "LORENTZ"
+        case .hrv:             "HRV"
+        case .bloodComponents: "BLOOD"
+        }
     }
 
     /// The ring and the sentence answer two different questions: 82 is a number, and
@@ -829,85 +884,144 @@ private struct DestructiveRow: View {
 // MARK: 12S · the two device sheets
 
 /// One row per thing the band can measure — only what this HOOP reports is listed.
-/// The list is the band's own answer to readAutoMonitSwitchInfo, not a fixed menu: a HOOP
-/// that cannot take a temperature simply has no temperature row.
+/// Interval firmware answers `readAutoMonitSwitchInfo`. Older firmware answers the
+/// base-function switches, with no interval to set.
 struct AutoMeasurementSheet: View {
-    @State private var slots: [AutoMonitorSlot] = []
+    let initial: AutoMonitoringRead?
+    let onRead: (AutoMonitoringRead) -> Void
+
+    @State private var read: AutoMonitoringRead?
     @State private var loading = true
     @State private var writeError: String?
     @State private var writingKinds: Set<AutoMonitorSlot.Kind> = []
 
+    init(initial: AutoMonitoringRead?, onRead: @escaping (AutoMonitoringRead) -> Void) {
+        self.initial = initial
+        self.onRead = onRead
+        _read = State(initialValue: initial)
+        _loading = State(initialValue: initial == nil)
+    }
+
+    private var slots: [AutoMonitorSlot] { read?.slots ?? [] }
+    private var firmwareOwnsInterval: Bool {
+        if case .switches = read { return true }
+        return false
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Automatic measurement")
-                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
-                .foregroundStyle(NB.text1)
-            Text("Choose each sensor's own interval. Shorter intervals use more battery.")
-                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
-                .foregroundStyle(NB.white.opacity(0.38))
-                .padding(.top, 6)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Automatic measurement")
+                    .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
+                    .foregroundStyle(NB.text1)
+                Text(subtitle)
+                    .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                    .foregroundStyle(NB.white.opacity(0.38))
+                    .padding(.top, 6)
 
-            if !slots.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
-                        MeasureToggle(
-                            title: Self.title(slot.kind),
-                            detail: Self.detail(slot),
-                            // 12S decision 2 · isSlotModify / isIntervalModify: a chip the firmware
-                            // will not let you change is not rendered — a read-only grey chip gets
-                            // tapped over and over. Both false leaves only the switch.
-                            chips: slot.supportsRange && slot.slotModifiable
-                                ? [String(format: "%02d:00 – %02d:00", slot.startHour, slot.endHour)]
-                                : [],
-                            selectedInterval: slot.intervalModifiable ? slot.intervalMinutes : nil,
-                            intervalOptions: slot.intervalModifiable ? slot.allowedIntervals : [],
-                            onIntervalSelected: { interval in
-                                update(slot, interval: interval)
-                            },
-                            isWriting: writingKinds.contains(slot.kind),
-                            detailIsLime: slot.on && slot.supportsRange && slot.slotModifiable && slot.intervalModifiable,
-                            isOn: Binding(
-                                get: { slots.first(where: { $0.id == slot.id })?.on ?? slot.on },
-                                set: { on in
-                                    update(slot, on: on)
-                                }),
-                            last: index == slots.count - 1)
+                if loading && slots.isEmpty {
+                    Text("ASKING THIS HOOP…")
+                        .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                        .foregroundStyle(NB.white.opacity(0.38))
+                        .padding(.top, 24)
+                }
+
+                if !slots.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
+                            MeasureToggle(
+                                title: Self.title(slot.kind),
+                                detail: Self.detail(slot, firmwareOwnsInterval: firmwareOwnsInterval),
+                                // 12S decision 2 · isSlotModify / isIntervalModify: a chip the firmware
+                                // will not let you change is not rendered — a read-only grey chip gets
+                                // tapped over and over. Both false leaves only the switch.
+                                chips: slot.supportsRange && slot.slotModifiable
+                                    ? [String(format: "%02d:00 – %02d:00", slot.startHour, slot.endHour)]
+                                    : [],
+                                selectedInterval: slot.intervalModifiable ? slot.intervalMinutes : nil,
+                                intervalOptions: slot.intervalModifiable ? slot.allowedIntervals : [],
+                                onIntervalSelected: { interval in
+                                    update(slot, interval: interval)
+                                },
+                                isWriting: writingKinds.contains(slot.kind),
+                                detailIsLime: firmwareOwnsInterval
+                                    ? slot.on
+                                    : slot.on && slot.supportsRange && slot.slotModifiable && slot.intervalModifiable,
+                                isOn: Binding(
+                                    get: { slots.first(where: { $0.id == slot.id })?.on ?? slot.on },
+                                    set: { on in
+                                        update(slot, on: on)
+                                    }),
+                                last: index == slots.count - 1)
+                        }
                     }
-                }
-                .frame(width: NB.Layout.contentWidth)
-                .cardSkin()
-                .padding(.top, 16)
+                    .frame(width: NB.Layout.contentWidth)
+                    .cardSkin()
+                    .padding(.top, 16)
 
-                Text("Only what this HOOP can measure is listed")
-                    .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
-                    .foregroundStyle(NB.white.opacity(0.30))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 14)
-                if let writeError {
-                    Text(writeError)
-                        .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
-                        .foregroundStyle(NB.ember1)
+                    Text(footer)
+                        .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
+                        .foregroundStyle(NB.white.opacity(0.30))
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 10)
+                        .padding(.top, 14)
+                    if let writeError {
+                        Text(writeError)
+                            .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
+                            .foregroundStyle(NB.ember1)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 10)
+                    }
+                } else if !loading {
+                    emptyState.padding(.top, 24)
                 }
-            } else if !loading {
-                // ⚠️ An empty answer means the band told us nothing, which is not the same
-                // as the band having nothing. The screen says which one it is.
-                Text("THIS HOOP DID NOT REPORT ITS AUTOMATIC MEASUREMENTS")
-                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(NB.ember1)
-                    .padding(.top, 24)
             }
-
-            Spacer(minLength: 0)
+            .padding(.horizontal, 16)
+            .padding(.top, 24)
+            .padding(.bottom, 28)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(NB.carbon2)
-        .task {
-            slots = (try? await Band.live.readAutoMonitoring()) ?? []
-            loading = false
+        .task { await refresh() }
+    }
+
+    private var subtitle: String {
+        firmwareOwnsInterval
+            ? "This HOOP only lets you turn each sensor on or off. How often it measures is decided by the firmware."
+            : "Choose each sensor's own interval. Shorter intervals use more battery."
+    }
+
+    private var footer: String {
+        firmwareOwnsInterval
+            ? "The interval itself is not a setting on this firmware."
+            : "Only what this HOOP can measure is listed"
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        switch read {
+        case .failed(let headline, let sentence):
+            EdgeNote(line: headline, text: sentence)
+        case .switches:
+            EdgeNote(
+                line: "THIS FIRMWARE HAS NO AUTOMATIC-MEASUREMENT SWITCHES",
+                text: "How often it measures is decided on the band. This app cannot change that interval.")
+        case .interval, .none:
+            EdgeNote(
+                line: "THIS HOOP DID NOT REPORT ITS AUTOMATIC MEASUREMENTS",
+                text: "The interval API is on this firmware, but the band sent no rows. Try again while it is on your wrist.")
+        }
+    }
+
+    private func refresh() async {
+        defer { loading = false }
+        do {
+            let result = try await Band.live.readAutoMonitoring()
+            read = result
+            onRead(result)
+        } catch {
+            let result = AutoMonitoringRead.failed(error)
+            read = result
+            onRead(result)
         }
     }
 
@@ -920,18 +1034,29 @@ struct AutoMeasurementSheet: View {
             updated.intervalMinutes = interval
             updated.on = true
         }
-        slots = slots.map { $0.id == updated.id ? updated : $0 }
+        apply(updated)
         writeError = nil
         writingKinds = writingKinds.union([updated.kind])
         Task {
             defer { writingKinds = writingKinds.subtracting([updated.kind]) }
             do {
                 try await Band.live.writeAutoMonitoring(updated)
-                slots = (try? await Band.live.readAutoMonitoring()) ?? slots
+                await refresh()
             } catch {
-                slots = slots.map { $0.id == original.id ? original : $0 }
+                apply(original)
                 writeError = error.localizedDescription
             }
+        }
+    }
+
+    private func apply(_ slot: AutoMonitorSlot) {
+        switch read {
+        case .interval(let slots):
+            read = .interval(slots.map { $0.id == slot.id ? slot : $0 })
+        case .switches(let slots):
+            read = .switches(slots.map { $0.id == slot.id ? slot : $0 })
+        case .failed, nil:
+            break
         }
     }
 
@@ -949,10 +1074,10 @@ struct AutoMeasurementSheet: View {
         }
     }
 
-    private static func detail(_ slot: AutoMonitorSlot) -> String {
+    private static func detail(_ slot: AutoMonitorSlot, firmwareOwnsInterval: Bool) -> String {
         guard slot.on else { return "OFF" }
+        if firmwareOwnsInterval { return "FIRMWARE INTERVAL" }
         if slot.supportsRange {
-            // The board's line for a row whose window and interval are both editable.
             if slot.slotModifiable && slot.intervalModifiable { return "WINDOW AND INTERVAL, BOTH YOURS" }
             return String(format: "%02d:00 – %02d:00 · %@",
                           slot.startHour, slot.endHour, intervalLabel(slot.intervalMinutes))
@@ -1345,3 +1470,81 @@ private struct ReasonItem: View {
         .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
     }
 }
+
+#if DEBUG
+/// One type per row. Tap one: the band opens that sport and closes it again — a success
+/// means this firmware carries it. The SDK has no query for its own list, and a screenless
+/// band has no workout menu either, so the probe is the only way to enumerate it.
+/// Names and ordinals come from `SportModeCatalog`.
+private struct SportProbeSheet: View {
+    @State private var results: [Int: Bool] = [:]
+    @State private var probing: Int?
+    @State private var probeError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("SPORT MODE PROBE")
+                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
+                .foregroundStyle(NB.text1)
+            Text("Each tap opens the sport on the band and closes it again. A check means this firmware carries it. The SDK cannot query its own list, so this is the only way to enumerate it.")
+                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                .foregroundStyle(NB.white.opacity(0.38))
+                .padding(.top, 6)
+            if let probeError {
+                Text(probeError)
+                    .font(NBFont.dot(600, 10.5)).tracking(0.12 * 10.5)
+                    .foregroundStyle(NB.ember1)
+                    .padding(.top, 8)
+            }
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(SportModeCatalog.modes.enumerated()), id: \.element.id) { index, mode in
+                        Button { probe(mode.rawValue) } label: {
+                            HStack(spacing: 10) {
+                                Text(mode.name)
+                                    .font(NBFont.dot(500, 12)).tracking(0.1 * 12)
+                                    .foregroundStyle(NB.text1)
+                                Text("#\(mode.rawValue)")
+                                    .font(NBFont.dot(400, 10)).tracking(0.1 * 10)
+                                    .foregroundStyle(NB.white.opacity(0.3))
+                                Spacer(minLength: 0)
+                                if probing == mode.rawValue {
+                                    ProgressView().tint(NB.lime1)
+                                } else {
+                                    Text(results[mode.rawValue] == true ? "YES"
+                                        : results[mode.rawValue] == false ? "NO" : "TAP")
+                                        .font(NBFont.dot(600, 10.5)).tracking(0.12 * 10.5)
+                                        .foregroundStyle(results[mode.rawValue] == true ? NB.lime1
+                                            : results[mode.rawValue] == false ? NB.ember1
+                                            : NB.white.opacity(0.3))
+                                }
+                            }
+                            .padding(.horizontal, 16).frame(height: 46)
+                        }
+                        .disabled(probing != nil)
+                        .buttonStyle(.plain)
+                        if index < SportModeCatalog.modes.count - 1 {
+                            Hairline().padding(.leading, 16)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .cardSkin()
+                .padding(.top, 16)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+    }
+
+    private func probe(_ raw: Int) {
+        probing = raw
+        probeError = nil
+        Task {
+            defer { probing = nil }
+            do { results[raw] = try await Band.live.probeSportMode(raw) }
+            catch { probeError = error.localizedDescription }
+        }
+    }
+}
+#endif

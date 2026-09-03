@@ -7,8 +7,9 @@ struct BodyBatteryDetailView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
-    private var m: DailyMetrics { data.today }
+    private var m: DailyMetrics { data.todayForDisplay }
     private var hasNight: Bool { m.bbWake != nil }
+    private var hasScore: Bool { m.bodyBattery != nil }
 
     /// ⚠️ 1CUP · the four rows are only ever present when they close within 0.5 of
     /// BB(now) − BB(anchor). The server drops them when they do not, and there is no OTHER
@@ -34,11 +35,15 @@ struct BodyBatteryDetailView: View {
                 // only measured thing on the page, and on any other day it is what the
                 // battery was computed from. Never hidden behind the night.
                 vitalsCard
-                if hasNight {
+                if hasScore {
                     heroCard
                     if drivers != nil { whyCard }
-                    inputsCard
-                    targetCard
+                    if hasNight {
+                        inputsCard
+                        targetCard
+                    } else {
+                        daytimeAnchorCard
+                    }
                     confidenceCard
                     footer
                 } else {
@@ -171,12 +176,14 @@ struct BodyBatteryDetailView: View {
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text("PEAK \(peakTime)")
+                    Text(hasNight ? "PEAK \(peakTime)" : "LIVE ESTIMATE")
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.white.opacity(0.42))
-                    Text("\(Fmt.signed(drivers?.lastNight ?? 0)) LAST NIGHT")
+                    Text(hasNight
+                         ? "\(Fmt.signed(drivers?.lastNight ?? 0)) LAST NIGHT"
+                         : "FROM WRIST DATA")
                         .font(NBFont.dot(700, 12)).tracking(0.12 * 12)
-                        .foregroundStyle(NB.violet1)
+                        .foregroundStyle(hasNight ? NB.violet1 : NB.lime1)
                 }
             }
             BatteryCurve(samples: m.reserveCurve).frame(width: 318, height: 120)
@@ -203,7 +210,8 @@ struct BodyBatteryDetailView: View {
         let scale = max(1, max(abs(d.lastNight), max(abs(d.awake), max(abs(d.movement), abs(d.stress)))))
         CardBlock(title: "WHY \(Fmt.int(m.bodyBattery))", trailing: "FROM \(d.anchor) AT 04:00") {
             VStack(spacing: 11) {
-                ContribRow(label: "Last night", value: d.lastNight, maxAbs: scale, tint: NB.violet1)
+                ContribRow(label: hasNight ? "Last night" : "Recovery",
+                           value: d.lastNight, maxAbs: scale, tint: NB.violet1)
                 ContribRow(label: "Just being awake", value: d.awake, maxAbs: scale, tint: NB.white.opacity(0.35))
                 ContribRow(label: "Moving around", value: d.movement, maxAbs: scale, tint: NB.white.opacity(0.35))
                 ContribRow(label: "Stress", value: d.stress, maxAbs: scale, tint: NB.white.opacity(0.35))
@@ -221,7 +229,9 @@ struct BodyBatteryDetailView: View {
             // ⚠️ 1CK4 · the first night has no yesterday to start from, so it starts from an
             // assumption. Say it in words; never let 20 read as something we measured.
             if d.assumedAnchor {
-                Text("There was no yesterday to start from, so this day begins at an assumed 20. It stops being an assumption tomorrow.")
+                Text(hasNight
+                     ? "There was no yesterday to start from, so the first night began at an assumed 20. It stops being an assumption tomorrow."
+                     : "There was no previous day or recorded night, so this daytime estimate begins at a neutral 50. Live wrist data moves it from there.")
                     .font(NBFont.brand(400, 13))
                     .lineSpacing(6)
                     .foregroundStyle(NB.white.opacity(0.62))
@@ -314,6 +324,15 @@ struct BodyBatteryDetailView: View {
         }
     }
 
+    private var daytimeAnchorCard: some View {
+        CardBlock(title: "DAYTIME ESTIMATE", trailing: "NO NIGHT REQUIRED") {
+            Text("Heart rate, HRV, stress and movement update this score now. A recorded night improves tomorrow's recovery and freezes its training target.")
+                .font(NBFont.brand(400, 14))
+                .lineSpacing(8)
+                .foregroundStyle(NB.white.opacity(0.70))
+        }
+    }
+
     private var tierIndex: Int {
         switch m.confidence { case .pending: 1; case .medium: 2; case .high: 3 }
     }
@@ -324,23 +343,25 @@ struct BodyBatteryDetailView: View {
                 .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
                 .foregroundStyle(NB.text3Prod)
             Spacer(minLength: 0)
-            Button {
-                // A manual BATTERY CHECK is the only thing allowed to re-anchor the day.
-                let from = data.today.bodyBattery
-                data.today.bodyBattery = m.bbWake
-                Task {
-                    await Analytics.shared.track("BB_TARGET_REANCHORED",
-                                                 ["FROM": from as Any, "TO": m.bbWake as Any,
-                                                  "SOURCE": "battery_check"])
+            if let wake = m.bbWake {
+                Button {
+                    // A manual BATTERY CHECK is the only thing allowed to re-anchor the day.
+                    let from = data.today.bodyBattery
+                    data.today.bodyBattery = wake
+                    Task {
+                        await Analytics.shared.track("BB_TARGET_REANCHORED",
+                                                     ["FROM": from as Any, "TO": wake,
+                                                      "SOURCE": "battery_check"])
+                    }
+                } label: {
+                    Text("BATTERY CHECK")
+                        .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                        .foregroundStyle(NB.text2)
+                        .padding(.horizontal, 16).frame(height: 34)
+                        .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
                 }
-            } label: {
-                Text("BATTERY CHECK")
-                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(NB.text2)
-                    .padding(.horizontal, 16).frame(height: 34)
-                    .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.top, 6)
     }
@@ -458,27 +479,20 @@ private struct InputRow: View {
 struct BatteryCurve: View {
     var samples: [ReserveSample] = []
 
-    private static let boardCharge: [CGPoint] = [
-        .init(x: 4, y: 96), .init(x: 28, y: 92), .init(x: 52, y: 74),
-        .init(x: 76, y: 50), .init(x: 96, y: 34), .init(x: 108, y: 30),
-    ]
-    private static let boardDrain: [CGPoint] = [
-        .init(x: 108, y: 30), .init(x: 132, y: 40), .init(x: 158, y: 52),
-        .init(x: 184, y: 48), .init(x: 210, y: 60), .init(x: 236, y: 56), .init(x: 258, y: 66),
-    ]
-
     /// The 318 × 120 box the board draws in. x is the 24 hours from the 04:00 cut,
     /// y is 0–100 of battery; the two are split at the peak, which is when you woke.
     private func path() -> (charge: [CGPoint], drain: [CGPoint]) {
-        guard samples.count > 1,
-              let first = samples.first,
-              let peak = samples.enumerated().max(by: { $0.element.value < $1.element.value })
-        else { return (Self.boardCharge, Self.boardDrain) }
-
+        guard let first = samples.first else { return ([], []) }
         let day = UserDay.containing(first.ts)
         func point(_ s: ReserveSample) -> CGPoint {
             let t = min(1, max(0, s.ts.timeIntervalSince(day.start) / 86_400))
             return CGPoint(x: 4 + t * 310, y: 112 - Double(s.value) / 100 * 104)
+        }
+        guard samples.count > 1,
+              let peak = samples.enumerated().max(by: { $0.element.value < $1.element.value })
+        else {
+            let only = point(first)
+            return ([only], [only])
         }
         let all = samples.map(point)
         return (Array(all[...peak.offset]), Array(all[peak.offset...]))

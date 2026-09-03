@@ -1,10 +1,11 @@
 import { tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 // ⚠️ A value import, not `import type`: record() constructs a trial ledger to measure a
 // return before harvesting it. As a type-only import the class was erased at runtime, `new`
 // threw, generateText caught it, and every turn came back MODEL_UNAVAILABLE.
 import { NumberLedger } from "./ledger.ts";
+import { SEED_MEAL_VERSION } from "./db.ts";
 import { fetchAs, sourceList, SOURCE_BY_ID, SOURCE_IDS, type Ctx } from "./sources.ts";
 
 /// F4 §03 · eight read tools. All read-only, all through the caller's JWT.
@@ -15,9 +16,29 @@ type Ok<T> = { ok: true; data: T | null };
 type Err = { ok: false };
 type Res<T> = Ok<T> | Err;
 
+export async function readSeriesSource(source: string, ctx: Ctx): Promise<Record<string, unknown> | null> {
+  const src = SOURCE_BY_ID.get(source);
+  if (!src) return null;
+  const result = await fetchAs(source, src.kind, ctx);
+  if (!result) return null;
+  const data = result.data as Record<string, unknown>;
+  const tail = (value: unknown) => (Array.isArray(value) ? value.slice(-8) : undefined);
+  return {
+    agg: result.agg,
+    hero: result.hero ?? null,
+    unit: result.unit ?? null,
+    window: result.window,
+    points: tail(data.series) ?? tail(data.bins) ?? tail(data.parts) ?? tail(data.rows)
+      ?? tail(data.lanes) ?? tail(data.minutes) ?? tail(data.cells) ?? null,
+  };
+}
+
 export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLedger,
-                           cal: { dayKey: string; tz: string } = { dayKey: new Date().toISOString().slice(0, 10), tz: "UTC" }) {
+                           cal: { dayKey: string; tz: string } = { dayKey: new Date().toISOString().slice(0, 10), tz: "UTC" },
+                           sourceScope?: string[]) {
   const ctx: Ctx = { db, userId, dayKey: cal.dayKey, tz: cal.tz };
+  const requestedSourceIDs = sourceScope?.filter((id) => SOURCE_BY_ID.has(id)) ?? [];
+  const scopedSourceIDs = (requestedSourceIDs.length ? requestedSourceIDs : SOURCE_IDS) as [string, ...string[]];
   // F7 rule 11 · 「账本容量硬上限 N ≤ 60，服务端实时计数，超配按固定顺序降级并带 trimmed:true」.
   // The series goes first, halved from the old end until the return fits; the model is told.
   const CAP = 60;
@@ -69,6 +90,15 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
               targetKcal,
               remainingKcal,
               slotState: fuel?.slot_states ?? null,
+              // F7 §08 · a number the sentence will want has to arrive as a number. "All 4
+              // meals still open" was rejected as untraceable because the count of open
+              // slots lived only in the shape of a jsonb object.
+              openSlots: fuel?.slot_states
+                ? Object.values(fuel.slot_states as Record<string, unknown>).filter((v) => v === "OPEN" || v === null).length
+                : 4,
+              loggedSlots: fuel?.slot_states
+                ? Object.values(fuel.slot_states as Record<string, unknown>).filter((v) => v !== "OPEN" && v !== null).length
+                : 0,
             },
             dailyDirection: data.daily_direction,
             composition: { call: data.the_call, confidence: data.the_call_confidence },
@@ -196,7 +226,7 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
       execute: async ({ dayKey }) => {
         const { data, error } = await db.from("meals")
           .select("slot, kcal, confidence").eq("user_id", userId)
-          .eq("user_day", dayKey).is("deleted_at", null);
+          .eq("user_day", dayKey).is("deleted_at", null).neq("model_version", SEED_MEAL_VERSION);
         if (error) return { ok: false } as Err;
         const all = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"];
         const logged = data ?? [];
@@ -219,7 +249,7 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
         const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
         const { data, error } = await db.from("meals")
           .select("logged_at, text_input, kcal, protein_g, carb_g, fat_g")
-          .eq("user_id", userId).is("deleted_at", null)
+          .eq("user_id", userId).is("deleted_at", null).neq("model_version", SEED_MEAL_VERSION)
           .gte("user_day", since).ilike("text_input", `%${query}%`).limit(limit);
         if (error) return { ok: false } as Err;
         return record("meals.search", {
@@ -260,25 +290,14 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
     // is drawn by screen.render.<type> naming the same source — the series never has to
     // be copied through the model.
     "series.get": tool({
-      description: "按数据源读一组数：agg 里的 latest/mean/min/max/count 用来写字，points 是最后几个点。要画图时把同一个 source 交给 screen.render.*。数据源：\n" + sourceList(),
-      parameters: z.object({ source: z.enum(SOURCE_IDS) }),
+      description: "按数据源读一组数：agg 里的 latest/mean/min/max/count 用来写字，points 是最后几个点。要画图时把同一个 source 交给 screen.render.*。数据源：\n" + sourceList(scopedSourceIDs),
+      parameters: z.object({ source: z.enum(scopedSourceIDs) }),
       execute: async ({ source }) => {
-        const src = SOURCE_BY_ID.get(source);
-        if (!src) return { ok: false } as Err;
-        const r = await fetchAs(source, src.kind, ctx);
-        if (!r) return record("series.get", { ok: true, data: null });
-        const d = r.data as Record<string, unknown>;
-        const tail = (xs: unknown) => (Array.isArray(xs) ? xs.slice(-8) : undefined);
+        const data = await readSeriesSource(source, ctx);
+        if (!data) return record("series.get", { ok: true, data: null });
         return record("series.get", {
           ok: true,
-          data: {
-            agg: r.agg, hero: r.hero ?? null, unit: r.unit ?? null, window: r.window,
-            // ⚠️ Every shape a source can return has to be listed here. `lanes` was not,
-            // so a hypnogram came back with `points: null` and a full `agg`, and the model
-            // read the null as "no night" and rendered a text frame saying so.
-            points: tail(d.series) ?? tail(d.bins) ?? tail(d.parts) ?? tail(d.rows)
-              ?? tail(d.lanes) ?? tail(d.minutes) ?? tail(d.cells) ?? null,
-          },
+          data,
         });
       },
     }),

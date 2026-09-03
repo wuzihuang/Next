@@ -43,12 +43,17 @@ final class OriginDataSync {
         // A tick is five minutes wide. Asking twice inside one is asking for the same answer.
         if let last = lastAttempt, Date().timeIntervalSince(last) < minimumInterval { return }
         lastAttempt = Date()
-        let task = Task { @MainActor in
-            _ = await OriginDataSync().sync(day: UserDay.containing(Date()), into: store)
+        // 04 · the panel's live readout holds the same command channel while someone is
+        // watching it. The pull is the one that must not be dropped — it is the day itself —
+        // so the readout is stopped first and let back in when this returns.
+        await LiveReadout.shared.standDown {
+            let task = Task { @MainActor in
+                _ = await OriginDataSync().sync(day: UserDay.containing(Date()), into: store)
+            }
+            inFlight = task
+            await task.value
+            inFlight = nil
         }
-        inFlight = task
-        await task.value
-        inFlight = nil
     }
 
     /// Whether a full cadence has passed since the band was last asked. The home screen's
@@ -99,6 +104,7 @@ final class OriginDataSync {
         /// Every measured HRV tick of this user day, by instant. Both a column on the rows
         /// this sync inserts and the payload that fills the rows earlier syncs already stored.
         var hrvTicks: [Date: Double] = [:]
+        var temperatureTicks: [Date: Double] = [:]
         var auxiliaryUploaded = true
         var pagesReturned = 0
         let wanted = Self.pages(for: day)
@@ -163,6 +169,8 @@ final class OriginDataSync {
         // is off the band rather than after the server has settled the day (12 · LIVE).
         var newest: Date?
         var latest: LiveVitals?
+        var latestBatteryTick: (ts: Date, point: OriginPoint)?
+        var localSamples: [VitalSample] = []
         // Ticks already past the watermark cannot be inserted again; fill_dis writes metres
         // into the zeros Int(km) left behind. Collected here, before the mark drops them.
         var distanceTicks: [(ts: Date, metres: Int)] = []
@@ -179,9 +187,25 @@ final class OriginDataSync {
             if let metres = point.distance, metres > 0 {
                 distanceTicks.append((ts, metres))
             }
-            if let mark, ts <= mark { return nil }
+            if let temperature = point.temperature {
+                temperatureTicks[ts] = temperature
+            }
+            let localSample = VitalSample(
+                ts: ts,
+                hr: point.heart,
+                stress: point.stress,
+                temp: point.temperature,
+                steps: point.step,
+                cal: point.cal.map(Double.init),
+                dis: point.distance.map(Double.init),
+                hrv: point.hrv
+            )
+            if localSample.hasReading {
+                localSamples.append(localSample)
+            }
             if newest == nil || ts > newest! {
                 newest = ts
+                latestBatteryTick = (ts, point)
                 // ⚠️ A tick the band recorded off the wrist has no heart and no stress. That
                 // is not a zero and not the previous tick's number — it is the absence the
                 // readout draws as ——, so it is carried through exactly as it came.
@@ -189,6 +213,7 @@ final class OriginDataSync {
                     latest = LiveVitals(hr: point.heart, stress: point.stress, at: ts)
                 }
             }
+            if let mark, ts <= mark { return nil }
             var row: [String: Any] = [
                 "user_id": userId,
                 "ts": iso.string(from: ts),
@@ -221,6 +246,23 @@ final class OriginDataSync {
         guard pagesReturned > 0 else {
             await record(run, outcome: "failed", requested: wanted.count, returned: pagesReturned)
             return 0
+        }
+
+        // The band is the immediate source for raw curves. Do not hold its 12:45 tick behind
+        // settle_now: derived daily values remain server-authoritative, while measured points
+        // can be shown as soon as they leave the wrist. The timestamp merge also preserves
+        // HRV or temperature already loaded from their auxiliary SDK streams.
+        Self.apply(localSamples, for: day, to: store)
+        Self.apply(latest, to: store)
+        if let tick = latestBatteryTick {
+            store.applyLiveBodyBattery(
+                heartRate: tick.point.heart,
+                hrvMS: tick.point.hrv,
+                stress: tick.point.stress,
+                steps: tick.point.step,
+                met: tick.point.met,
+                at: tick.ts
+            )
         }
 
         // ⚠️ The night's own HRV is not computed here and never was computable here. A night
@@ -291,6 +333,24 @@ final class OriginDataSync {
             }
         }
 
+        // Temperature comes from the same auxiliary health-history read as HRV. If that read
+        // lagged behind an already stored origin row, complete only its null temperature.
+        if !temperatureTicks.isEmpty {
+            do {
+                let payload = temperatureTicks.sorted { $0.key < $1.key }.map { tick in
+                    ["ts": iso.string(from: tick.key),
+                     "temp": (tick.value * 10).rounded() / 10] as [String: Any]
+                }
+                let answer = try await db.rpc("fill_temp", args: ["p_samples": payload])
+                let filled = ((answer as? [String: Any])?["filled"] as? NSNumber)?.intValue
+                Self.log.notice("fill_temp \(Self.dayString(day.start), privacy: .public): \(temperatureTicks.count) offered, \(filled.map(String.init) ?? "?", privacy: .public) filled")
+            } catch {
+                // Backward compatible with a backend that has not deployed fill_temp yet.
+                // Current rows already carry temperature; this RPC only repairs older nulls.
+                BandLog.shared.record("fill_temp", error: error)
+            }
+        }
+
         // ⚠️ disValue was kilometres truncated to 0. New ticks insert metres; these are the
         // ticks already stored. fill_dis only overwrites null/zero, so a still hour stays 0.
         if !distanceTicks.isEmpty {
@@ -315,7 +375,6 @@ final class OriginDataSync {
             if let first = points.first {
                 Self.log.notice("sync \(Self.dayString(day.start), privacy: .public): \(points.count) points read, none new · first \(first.point.time, privacy: .public) · mark \(mark.map { iso.string(from: $0) } ?? "none", privacy: .public)")
             }
-            Self.apply(latest, to: store)
             let outcome = pagesReturned == wanted.count && auxiliaryUploaded ? "success" : "partial"
             await record(run, outcome: outcome, requested: wanted.count, returned: pagesReturned)
             if outcome == "success" {
@@ -357,10 +416,9 @@ final class OriginDataSync {
         }
         // Only a clean upload moves the mark. A chunk that failed must be sent again by the
         // next sync, and it will be, because the day is still unmarked behind it.
-        if uploaded, pagesReturned == wanted.count, let newest {
+        if uploaded, auxiliaryUploaded, pagesReturned == wanted.count, let newest {
             Self.setWatermark(newest, for: day, userId: userId)
         }
-        Self.apply(latest, to: store)
         Self.log.notice("sync \(Self.dayString(day.start), privacy: .public): \(rows.count) new ticks, upload \(uploaded ? "ok" : "FAILED", privacy: .public)")
         // A day read off the band and refused by the server is not a sync. The row says
         // so, so the device page cannot print SYNCED over an empty table.
@@ -404,20 +462,26 @@ final class OriginDataSync {
         // ⚠️ "v5": origin disValue is km; those days stored 0 m. fill_dis repairs them.
         let key = "nb.band.backfilled.v5.\(userId).\(bound)"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
-        let identity = try? await band.readIdentity()
-        // saveDays of 0 is the band not having said; asking for the SDK's usual seven costs
-        // nothing, because a page the band does not hold answers empty.
-        let held = (identity?.watchDataDayNumber).flatMap { $0 > 0 ? $0 : nil } ?? 7
-        let today = UserDay.containing(Date())
-        let days = max(0, min(held, 14) - 1)
-        var everyDayAnswered = true
-        if days > 0 {
-            for back in 1...days {
-                await sync(day: today.adding(days: -back), into: store, settle: false)
-                if lastOutcome != "success" { everyDayAnswered = false }
+        // 04 · the panel's live readout steps aside for the whole backfill. It is minutes of
+        // pages coming off the band, it happens once per band, and a live test opened in the
+        // middle of it corrupts the page being read.
+        let everyDayAnswered = await LiveReadout.shared.standDown { () -> Bool in
+            let identity = try? await band.readIdentity()
+            // saveDays of 0 is the band not having said; asking for the SDK's usual seven costs
+            // nothing, because a page the band does not hold answers empty.
+            let held = (identity?.watchDataDayNumber).flatMap { $0 > 0 ? $0 : nil } ?? 7
+            let today = UserDay.containing(Date())
+            let days = max(0, min(held, 14) - 1)
+            var everyDayAnswered = true
+            if days > 0 {
+                for back in 1...days {
+                    await sync(day: today.adding(days: -back), into: store, settle: false)
+                    if lastOutcome != "success" { everyDayAnswered = false }
+                }
+                await Repository.shared.settleNow(days: days)
+                await Repository.shared.load(days: days, endingAt: today, into: store)
             }
-            await Repository.shared.settleNow(days: days)
-            await Repository.shared.load(days: days, endingAt: today, into: store)
+            return everyDayAnswered
         }
         // Only a backfill in which every day answered is over. A day the band did not
         // answer is asked again on the next launch — the mark is not a record of trying.
@@ -434,6 +498,27 @@ final class OriginDataSync {
 
     private static func dayString(_ date: Date) -> String {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: date)
+    }
+
+    /// Keep the raw curve live even while its upload and server settlement are still running.
+    /// Backfill days are merged into history; the active day is also merged into `today`.
+    private static func apply(_ fresh: [VitalSample], for day: UserDay, to store: DataStore) {
+        guard !fresh.isEmpty else { return }
+
+        if store.today.day == day {
+            store.today.vitalsCurve = VitalSample.merging(store.today.vitalsCurve, with: fresh)
+        }
+        if let index = store.history.firstIndex(where: { $0.day == day }) {
+            store.history[index].vitalsCurve = VitalSample.merging(
+                store.history[index].vitalsCurve,
+                with: fresh
+            )
+        } else {
+            var metrics = DailyMetrics(day: day)
+            metrics.vitalsCurve = fresh.sorted { $0.ts < $1.ts }
+            store.history.append(metrics)
+            store.history.sort { $0.day < $1.day }
+        }
     }
 
     /// ⚠️ Forwards only. The backfill syncs last week one day at a time, and each of those days

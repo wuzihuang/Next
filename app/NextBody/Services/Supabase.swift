@@ -540,6 +540,13 @@ actor SupabaseClient {
         return (try? JSONSerialization.jsonObject(with: out) as? [String: Any]) ?? [:]
     }
 
+    /// Opens the authenticated push-to-talk socket before recording begins. Unlike browser
+    /// WebSockets, URLSession can carry the normal Authorization header through the upgrade.
+    func asrStreamingSession() throws -> ASRStreamingSession {
+        let request = try request("asr", method: "GET", body: nil, isFunction: true)
+        return ASRStreamingSession(request: request)
+    }
+
     /// Streams an Edge Function's SSE response line by line.
     /// nonisolated because the stream is consumed on the caller's side: the actor's job is
     /// to build the request, not to hold the connection open for the length of a turn.

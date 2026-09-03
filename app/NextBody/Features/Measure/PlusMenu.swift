@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// 06 · 加号与那张单子. One key, two groups, and there is never a third.
-/// The camera moved out of the dock's right slot and became the plus; the menu that opens
-/// is not an icon grid, because grouping here answers "who does the work":
-/// ADD is something you hand her, MEASURE is something the band goes and does.
+/// 06 · 加号与那张单子. Three groups: ADD (you hand her something), SPORT MODE (the band
+/// runs a session), MEASURE (the band takes a reading). The camera moved out of the dock's
+/// right slot and became the plus; the menu is not an icon grid because grouping answers
+/// "who does the work".
 struct PlusMenuSheet: View {
     /// 06 · 03 · on the home screen the menu is a panel standing over the dock, not a system
     /// sheet: the dock stays, the plus has turned into the close mark, the page behind sits
@@ -31,8 +31,16 @@ struct PlusMenuSheet: View {
                     detail: "Camera, straight into the message.") { close(); onCamera?() }
             MenuRow(icon: .library, title: "Photo library",
                     detail: "Pick one you already have.") { close(); onLibrary?() }
-            MenuRow(icon: .files, title: "Files",
-                    detail: "A lab PDF or an export.") { close() }
+
+            Hairline().padding(.vertical, 8)
+            GroupHeader("SPORT MODE")
+            let sportOffline: String? = data.band.connected ? nil : "The band isn't connected."
+            MenuRow(icon: .sport, title: "Start a session",
+                    detail: "Pick a mode · the band runs it.",
+                    unavailable: sportOffline) {
+                close()
+                router.open(.sportMode, from: .home)
+            }
 
             // The header goes with the rows. A group heading standing over nothing reads as a
             // section that failed to load, which is the opposite of what an absent row means.
@@ -90,7 +98,7 @@ private struct GroupHeader: View {
 }
 
 private struct MenuRow: View {
-    enum Icon { case camera, library, files, pulse, body }
+    enum Icon { case camera, library, sport, pulse, body }
     let icon: Icon
     let title: String
     let detail: String
@@ -163,16 +171,15 @@ private struct MenuIcon: View {
                 hill.addLine(to: CGPoint(x: 14 * s, y: 15 * s)); hill.addLine(to: CGPoint(x: 16.5 * s, y: 12.5 * s))
                 hill.addLine(to: CGPoint(x: 19 * s, y: 15.5 * s))
                 ctx.stroke(hill, with: ink, style: stroke)
-            case .files:
-                var doc = Path()
-                doc.move(to: CGPoint(x: 6 * s, y: 3.5 * s)); doc.addLine(to: CGPoint(x: 14 * s, y: 3.5 * s))
-                doc.addLine(to: CGPoint(x: 18.5 * s, y: 8 * s)); doc.addLine(to: CGPoint(x: 18.5 * s, y: 20.5 * s))
-                doc.addLine(to: CGPoint(x: 6 * s, y: 20.5 * s)); doc.closeSubpath()
-                ctx.stroke(doc, with: ink, style: stroke)
-                var fold = Path()
-                fold.move(to: CGPoint(x: 14 * s, y: 3.5 * s)); fold.addLine(to: CGPoint(x: 14 * s, y: 8 * s))
-                fold.addLine(to: CGPoint(x: 18.5 * s, y: 8 * s))
-                ctx.stroke(fold, with: ink, style: stroke)
+            case .sport:
+                ctx.stroke(Path(ellipseIn: CGRect(x: 4 * s, y: 4 * s, width: 16 * s, height: 16 * s)),
+                           with: ink, style: stroke)
+                var tick = Path()
+                tick.move(to: CGPoint(x: 12 * s, y: 12 * s))
+                tick.addLine(to: CGPoint(x: 12 * s, y: 7 * s))
+                tick.move(to: CGPoint(x: 12 * s, y: 12 * s))
+                tick.addLine(to: CGPoint(x: 16 * s, y: 14 * s))
+                ctx.stroke(tick, with: ink, style: stroke)
             case .pulse:
                 var p = Path()
                 p.move(to: CGPoint(x: 2.5 * s, y: 12 * s)); p.addLine(to: CGPoint(x: 7 * s, y: 12 * s))

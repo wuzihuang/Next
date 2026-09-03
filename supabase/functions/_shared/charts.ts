@@ -12,7 +12,7 @@
 
 import { tool, type Tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
-import { CHART_SKILLS, toolDescription, type ChartSkill } from "./skills.ts";
+import { chartSkillsForScope, toolDescription, type ChartSkill } from "./skills.ts";
 import { TARGETS, type Envelope } from "./contract.ts";
 import { fetchAs, sourceList, type ChartData, type Ctx, type Kind, type SourceResult } from "./sources.ts";
 import type { NumberLedger } from "./ledger.ts";
@@ -48,15 +48,21 @@ function wordsFor(locale: string) {
 
 export type Rendered = { rendered: true; type: string; hero?: string } | { rendered: false; error: "NO_DATA"; say: string };
 
-export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: Envelope) => void, locale = "en-US") {
+export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: Envelope) => void,
+                                locale = "en-US", sourceScope?: string[]) {
   const tools: Record<string, Tool> = {};
   const words = wordsFor(locale);
   const en = locale.startsWith("en");
+  const allowedSources = sourceScope ? new Set(sourceScope) : null;
 
-  for (const skill of CHART_SKILLS) {
+  for (const skill of chartSkillsForScope(sourceScope)) {
+    const skillSources = allowedSources
+      ? skill.sources.filter((source) => allowedSources.has(source))
+      : skill.sources;
+    if (skill.sources.length && !skillSources.length) continue;
     const kind = FAMILY_KIND[skill.family];
-    const params = skill.sources.length
-      ? z.object({ ...words, source: z.string().describe(`${en ? "Data source, one of:" : "数据源，只取下面之一："}\n${sourceList(skill.sources)}`) })
+    const params = skillSources.length
+      ? z.object({ ...words, source: z.string().describe(`${en ? "Data source, one of:" : "数据源，只取下面之一："}\n${sourceList(skillSources)}`) })
       : literalSchema(skill, words);
 
     tools[`screen.render.${skill.type}`] = tool({
@@ -66,9 +72,9 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
       execute: async (args: any): Promise<Rendered> => {
         let data: Record<string, unknown>;
         let hero: string | undefined = args.hero;
-        if (skill.sources.length) {
-          if (!skill.sources.includes(String(args.source))) {
-            return { rendered: false, error: "NO_DATA", say: `${args.source} is not a source for this chart. Use one of: ${skill.sources.join(", ")}.` };
+        if (skillSources.length) {
+          if (!skillSources.includes(String(args.source))) {
+            return { rendered: false, error: "NO_DATA", say: `${args.source} is not a source for this chart. Use one of: ${skillSources.join(", ")}.` };
           }
           const r = await fetchAs(args.source, kind, ctx);
           if (!r) {
@@ -98,7 +104,8 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
         const target = (TARGETS as readonly string[]).includes(String(args.target)) ? args.target as (typeof TARGETS)[number] : skill.target;
         onRender({
           type: skill.type,
-          title: String(args.title ?? ""), tag, sentence: String(args.sentence ?? ""), footer: args.footer, action: args.action,
+          title: words_(args.title) ?? "", tag, sentence: words_(args.sentence) ?? "",
+          footer: words_(args.footer), action: words_(args.action),
           target,
           data, ttl_min: 20, priority: "normal", locale: en ? "en-US" : "zh-CN",
         });
@@ -112,6 +119,29 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
 /// Charts that carry no series: the model writes the value it read.
 function literalSchema(skill: ChartSkill, words: ReturnType<typeof wordsFor>) {
   switch (skill.type) {
+    // 07 · rule 6 · text has its own skeleton and no sentence slot on screen: an eyebrow,
+    // one lime headline (the only highlight on the panel) and a sub under it. `sentence` is
+    // still required by the envelope, and the panel uses it for the facts line.
+    case "text":
+      return z.object({
+        ...words,
+        headline: z.string().describe("≤ 12 characters, the one big word on the panel"),
+        eyebrow: z.string().optional().describe("the line above the headline, e.g. 'BATTERY 86% · TARGET 14.5'"),
+        sub: z.string().optional().describe("the line under the headline, e.g. 'STRENGTH · 45 MIN'"),
+      });
+    // 07 · 20 · food is the plate: its name, the kcal as the hero, and the three macros
+    // as their own rows. Never invent a number here — kcal and grams come from a tool.
+    case "food":
+      return z.object({
+        ...words,
+        name: z.string().describe("The dish"),
+        portion: z.string().optional().describe("Portion, e.g. 'one bowl'"),
+        kcal: z.number().optional().describe("kcal, only if a tool returned it"),
+        protein_g: z.number().optional(),
+        carb_g: z.number().optional(),
+        fat_g: z.number().optional(),
+        pct_of_budget: z.number().optional().describe("share of today's target, only if computed"),
+      });
     case "metric":
       return z.object({
         ...words,
@@ -119,12 +149,6 @@ function literalSchema(skill: ChartSkill, words: ReturnType<typeof wordsFor>) {
         unit: z.string().optional().describe("Unit, e.g. 'bpm'"),
         label: z.string().optional().describe("Metric name; overrides title"),
         ref: z.string().optional().describe("Reference, e.g. '+4 VS RHR 52'"),
-      });
-    case "food":
-      return z.object({
-        ...words,
-        name: z.string().describe("The dish"),
-        portion: z.string().optional().describe("Portion, e.g. 'half a bowl'"),
       });
     default:
       return z.object({ ...words });
@@ -136,8 +160,15 @@ function literalData(skill: ChartSkill, a: any): Record<string, unknown> {
   switch (skill.type) {
     case "metric":
       return { hero: [a.value, a.unit].filter(Boolean).join(" "), value: a.value, unit: a.unit, label: a.label, ref: a.ref };
+    case "text":
+      return { headline: a.headline, eyebrow: a.eyebrow, sub: a.sub };
     case "food":
-      return { rows: [{ label: [a.name, a.portion].filter(Boolean).join(" · "), value: "" }], name: a.name, portion: a.portion };
+      return {
+        name: a.name, portion: a.portion, kcal: a.kcal,
+        macros: { p: a.protein_g, c: a.carb_g, f: a.fat_g },
+        pct_of_budget: a.pct_of_budget,
+        rows: [{ label: [a.name, a.portion].filter(Boolean).join(" · "), value: a.kcal != null ? String(a.kcal) : "" }],
+      };
     default:
       return {};
   }
@@ -168,6 +199,16 @@ function axisNumbers(d: ChartData): number[] {
   if (d.kind === "grid") { d.colLabels?.forEach((l) => labels.push(l)); d.rowLabels?.forEach((l) => labels.push(l)); }
   if (d.kind === "rows") d.rows.forEach((r) => labels.push(r.label));
   return labels.flatMap((l) => numbersIn(l));
+}
+
+/// ⚠️ Seen on production: a title came back as "READINESS</title>". Nothing in the prompt
+/// asks for markup, and the tag-safe wrapper only guards the two prompt tags — a stray
+/// closing tag in a text slot is just noise the model shed, and it would be printed on the
+/// panel verbatim. Anything that looks like a tag is dropped from the four word slots.
+function words_(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  const out = String(v).replace(/<\/?[a-zA-Z][^>]*>/g, "").trim();
+  return out.length ? out : undefined;
 }
 
 function numbersIn(s: string | undefined): number[] {

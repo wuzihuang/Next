@@ -11,11 +11,18 @@ enum Destination: Hashable {
     /// 09 edge 5 · a closed day, reached from THIS WEEK or from 10's EDIT THIS DAY.
     case fuelDay(UserDay)
     case bodyBattery
+    /// 04 · one of page two's eight instruments, opened from its own card. One case, not
+    /// eight: the board draws all eight against a single anatomy.
+    case vitals(VitalsMetric)
     case composition(date: Date?)
     case profile
     case device            // THE ONLY SECOND LEVEL, reached from profile
     case deviceAlarms      // second-level-of-second-level, see F6 dead-control ruling
     case deviceAutoMonitor
+    /// Plus menu · Sport Mode. Pick one of the catalogued modes and open it on the band.
+    case sportMode
+    /// 05B · dedicated full-screen chat exploration interface
+    case chat(sessionID: String? = nil, initialQuery: String? = nil, attachmentDataURL: String? = nil)
 }
 
 extension Destination {
@@ -29,7 +36,14 @@ extension Destination {
         case "bodyBattery": self = .bodyBattery
         case "composition": self = .composition(date: nil)
         case "profile":     self = .profile
-        default:            return nil
+        case "chat":        self = .chat()
+        // 04's eight are addressable by name: `vitals.heart`, `vitals.sleep`. They are
+        // pages the model may legitimately point at — unlike `device`, which stays absent.
+        default:
+            guard raw.hasPrefix("vitals."),
+                  let metric = VitalsMetric(rawValue: String(raw.dropFirst("vitals.".count)))
+            else { return nil }
+            self = .vitals(metric)
         }
     }
 }
@@ -77,15 +91,38 @@ final class Router: ObservableObject {
     @Published var dockPrefill: DockPrefill?
     /// 06 rule 09 · the measuring screen folds its result back onto the panel as one widget.
     @Published var measuredWidget: PanelWidget?
+    /// 04B · which home pager page is showing. 0 = panel + strip, 1 = vitals. Lives on the
+    /// router (not on `HomeView` `@State`) so a NavigationStack push/pop cannot wipe it —
+    /// page two's eight cards must return to those cards, not bounce back to the panel strip.
+    @Published var homePage = 0
+    /// Taken the moment the root is left. Every dismiss path restores this, so a stray
+    /// mutation while a detail is up cannot strand the user on the wrong home page.
+    private var homePageOnLeave = 0
 
     /// F0 rule 06: every widget on the panel is tappable and declares its target page.
     func open(_ d: Destination, from: EntryPoint = .home) {
+        // Snapshot once when leaving the root; nested pushes (profile → device) keep it.
+        if path.isEmpty { homePageOnLeave = homePage }
         entry = from
         path.append(d)
     }
 
-    /// All detail pages return to the root — not to the previous screen, not to a scroll position.
-    func backToRoot() { path.removeAll() }
+    /// All detail pages return to the root — not to a nested previous screen. The home
+    /// pager page is restored so leaving a vitals board lands back on page two.
+    func backToRoot() {
+        path.removeAll()
+        homePage = homePageOnLeave
+    }
 
-    func back() { if !path.isEmpty { path.removeLast() } }
+    func back() {
+        guard !path.isEmpty else { return }
+        path.removeLast()
+        if path.isEmpty { homePage = homePageOnLeave }
+    }
+
+    /// Safety net for any path clear that did not go through `backToRoot` / `back`.
+    func restoreHomePageIfRoot() {
+        guard path.isEmpty else { return }
+        homePage = homePageOnLeave
+    }
 }

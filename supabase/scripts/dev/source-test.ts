@@ -1,5 +1,5 @@
 // Every source, straight against the hosted DB with the user's own JWT.
-import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { SOURCES, fetchAs } from "../../functions/_shared/sources.ts";
 import { userDayKey } from "../../functions/_shared/db.ts";
 

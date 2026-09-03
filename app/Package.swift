@@ -11,9 +11,17 @@ let package = Package(
             path: "NextBody/Services/Band",
             exclude: [
                 "BandPresence.swift", "BandService.swift", "BluetoothState.swift",
-                "HoopQueue.swift", "MockBand.swift", "OriginDataSync.swift", "VeepooBand.swift",
+                "HoopQueue.swift", "LiveReadout.swift", "MockBand.swift",
+                "OriginDataSync.swift", "VeepooBand.swift",
             ],
-            sources: ["AutoMeasurementIntervalPolicy.swift", "HealthSampleMapping.swift"]
+            sources: [
+                "AutoMeasurementIntervalPolicy.swift",
+                "AutoMeasurementSwitchFallback.swift",
+                "BodyBatteryEngine.swift",
+                "HealthSampleMapping.swift",
+                "VitalSample.swift",
+                "VitalsTimelinePolicy.swift",
+            ]
         ),
         .testTarget(
             name: "NextBodySyncCoreTests",

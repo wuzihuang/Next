@@ -22,6 +22,9 @@ final class DataStore: ObservableObject {
     /// 04 · the HR / STRESS row under the readout, and the tick it came from. 13 · the age
     /// of that tick is what decides whether the numbers are shown, dimmed, or dashed.
     @Published var vitals: LiveVitals = Band.allowsSeed ? .mock : LiveVitals()
+    /// A short-lived estimate between two five-minute server settlements. It is rebased from
+    /// the server whenever a stored tick lands; it never becomes a second historical curve.
+    @Published private(set) var bodyBatteryPreview: Int?
     /// 12 · what this HOOP reports it can do, as last stored. The device page and 07's
     /// capabilities() gate read this so they are right before the band answers, and still
     /// right when it is out of range.
@@ -36,6 +39,18 @@ final class DataStore: ObservableObject {
     @Published var netFatMass12w: Double?
     @Published var netLeanMass12w: Double?
     @Published var bodyFatPercent: Double?
+
+    private var bodyBatteryPreviewAnchor: Double?
+    private var bodyBatteryPreviewAt: Date?
+    private var bodyBatteryPreviewTicks: [BodyBatteryEngine.Tick] = []
+
+    var bodyBatteryNow: Int? { bodyBatteryPreview ?? today.bodyBattery }
+
+    var todayForDisplay: DailyMetrics {
+        var metrics = today
+        metrics.bodyBattery = bodyBatteryNow
+        return metrics
+    }
 
     private init() {
         // The seeded demo account is a returning user: the gate was walked, the band is
@@ -75,12 +90,64 @@ final class DataStore: ObservableObject {
         profile = .blank
         lastSync = nil
         vitals = LiveVitals()
+        bodyBatteryPreview = nil
+        bodyBatteryPreviewAnchor = nil
+        bodyBatteryPreviewAt = nil
+        bodyBatteryPreviewTicks = []
         capabilities = BandCapabilities()
         capabilitiesReadAt = nil
         exportPreparing = false
         netFatMass12w = nil
         netLeanMass12w = nil
         bodyFatPercent = nil
+    }
+
+    /// The server replay is authoritative. Every successful load replaces the preview's
+    /// anchor so live sensor callbacks can only estimate the unsynced minutes after it.
+    func rebaseBodyBatteryPreview(at date: Date = Date()) {
+        bodyBatteryPreview = nil
+        bodyBatteryPreviewAnchor = today.bodyBattery.map(Double.init)
+        bodyBatteryPreviewAt = today.bodyBattery == nil ? nil : date
+        bodyBatteryPreviewTicks = []
+    }
+
+    /// Heart callbacks arrive every second or two, but reserve is a slow physiological
+    /// estimate. One update a minute feels live without charging the same minute repeatedly.
+    func applyLiveBodyBattery(heartRate: Int?, hrvMS: Double? = nil,
+                              stress: Int?, steps: Int? = nil, met: Double? = nil,
+                              at date: Date = Date()) {
+        guard let anchor = bodyBatteryPreviewAnchor ?? today.bodyBattery.map(Double.init) else { return }
+        let previous = bodyBatteryPreviewAt ?? date
+        let elapsedMinutes = date.timeIntervalSince(previous) / 60
+        guard elapsedMinutes >= 1 else { return }
+
+        let recent = today.vitalsCurve.last.flatMap {
+            date.timeIntervalSince($0.ts) <= 15 * 60 ? $0 : nil
+        }
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: today.nightInputs?.rhr ?? 55,
+            maximumHeartRate: Double(profile.hrMax),
+            hrvMS: today.nightInputs?.hrvBase,
+            recoveryMultiplier: today.nightInputs?.multiplier ?? 1
+        )
+        let tick = BodyBatteryEngine.Tick(
+            durationMinutes: min(5, elapsedMinutes),
+            heartRate: heartRate,
+            hrvMS: hrvMS ?? recent?.hrv,
+            stress: stress ?? recent?.stress,
+            steps: steps,
+            met: met
+        )
+        bodyBatteryPreviewTicks.append(tick)
+        // Preserve the quiet run and rest budget across live callbacks. A server reload clears
+        // this list, so under normal cadence it contains only the unsynced interval.
+        let result = BodyBatteryEngine.replay(
+            anchor: anchor,
+            ticks: bodyBatteryPreviewTicks,
+            baseline: baseline
+        )
+        bodyBatteryPreview = Int(result.value.rounded())
+        bodyBatteryPreviewAt = date
     }
 
     /// Board 04 · 01 默认 — the screen the whole product is measured against.

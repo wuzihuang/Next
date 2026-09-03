@@ -48,33 +48,33 @@ struct MeasureTakeover: View {
         ZStack {
             NB.panelInk.ignoresSafeArea()
 
-            // 06 · the takeover is the same screen as 03's Scanning, in the same order:
-            // eyebrow, left-aligned title and its sentence, the figure, the Doto label, the
-            // count. Two screens that do the same measurement have no business looking like
-            // two products.
+            // 06 · E/F · the board's column, centred: the eyebrow and the close mark, one
+            // sentence, the band, the count, and the two lines at the foot. Nothing here is
+            // left-aligned — the instruction is about the band, and the band is the middle.
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)
                 header
-                title
-                    .padding(.top, 24)
-                stage
-                    .frame(height: 280)
-                    .padding(.top, 24)
-                Text(statusLine)
-                    .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
-                    .foregroundStyle(statusTint)
-                    .padding(.top, 28)
-                count
-                    .padding(.top, 12)
+                instruction
+                    .padding(.top, 32)
                 settled
+                stage
+                    .frame(maxHeight: .infinity)
+                count
                 Spacer(minLength: 0)
+                // The Doto line is the state, not a command.
+                Text(statusLine)
+                    .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(statusTint)
+                    .frame(width: NB.Layout.contentWidth)
                 // Grey, in front — what to do if it breaks, said before it breaks.
                 Text(helpLine)
-                    .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
+                    .font(NBFont.ui(300, 12.5))
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(NB.white.opacity(0.45))
-                    .frame(width: 320)
-                Color.clear.frame(height: 20)
+                    .foregroundStyle(NB.white.opacity(0.42))
+                    .frame(width: 318)
+                    .padding(.top, 18)
+                Color.clear.frame(height: 26)
             }
             .animation(.easeInOut(duration: 0.24), value: phase)
             .opacity(grown ? 1 : 0)
@@ -87,54 +87,45 @@ struct MeasureTakeover: View {
         .statusBarHidden(false)
     }
 
-    /// 03's header, mirrored: its counter sits right, so the eyebrow does. The close mark
-    /// keeps the left slot 03 gives the back key — it is still the only way out.
+    /// The board's header: what is being measured, in lime, on the left; the only way out on
+    /// the right. 06 · the close mark is the sole exit — nothing on this screen times out.
     private var header: some View {
-        HStack {
+        HStack(spacing: 0) {
+            Text(eyebrow)
+                .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
+                .foregroundStyle(NB.lime1)
+            Spacer(minLength: 0)
             Button(action: leave) { CloseMark() }
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(width: 44, height: 34)
                 .opacity(phase == .opening ? 0 : 1)
-            Spacer(minLength: 0)
-            Text(eyebrow)
-                .font(NBFont.dot(600, 11)).tracking(0.3 * 11)
-                .foregroundStyle(NB.text3Prod)
         }
-        .frame(width: NB.Layout.contentWidth, height: 44)
+        .frame(width: NB.Layout.contentWidth, height: 34)
     }
 
-    private var title: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(headlineText)
-                .font(NBFont.ui(500, 32)).tracking(0.01 * 32)
-                .foregroundStyle(NB.text1)
-                .contentTransition(.opacity)
-            Text(subText)
-                .font(NBFont.ui(300, 15)).tracking(0.02 * 15)
-                .lineSpacing(24 - 15)
-                .foregroundStyle(NB.text2)
-                .frame(width: 320, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 24)
+    /// One sentence, centred, in the panel voice. The board carries no paragraph under it:
+    /// a second block of prose under the instruction is a thing to read, and the user is
+    /// meant to be looking at their wrist.
+    private var instruction: some View {
+        Text(headlineText)
+            .font(NBFont.brand(500, 20)).tracking(-0.01 * 20)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(NB.text1)
+            .contentTransition(.opacity)
+            .frame(width: 318)
     }
 
-    /// 03's counter, to the digit: lime while it runs, amber and small while a finger is off,
-    /// and it holds where it was rather than falling to zero.
+    /// The count is the board's own: Doto, big, white while it runs, amber the moment a
+    /// finger comes off — and it holds where it stopped rather than falling to zero.
     @ViewBuilder private var count: some View {
         switch phase {
         case .opening, .waiting, .nudge, .contact, .failed, .busy, .dropped, .noReading, .notWearing:
-            Color.clear.frame(height: 26)
-        case .lost:
-            Text(String(format: "HOLDING · 00:%02d", max(0, remaining)))
-                .font(NBFont.dot(600, 12)).tracking(0.2 * 12)
-                .foregroundStyle(NB.ember1)
-                .frame(height: 26)
+            Color.clear.frame(height: 0)
         default:
             Text(String(format: "00:%02d", max(0, remaining)))
-                .font(NBFont.dot(700, 26)).tracking(0.14 * 26)
-                .foregroundStyle(NB.lime1)
-                .frame(height: 26)
+                .font(NBFont.dot(700, 52)).tracking(0.04 * 52)
+                .foregroundStyle(phase == .lost ? NB.ember1 : NB.text1)
+                .frame(height: 56)
                 .contentTransition(.numericText(countsDown: true))
         }
     }
@@ -156,7 +147,7 @@ struct MeasureTakeover: View {
                     .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.white.opacity(phase == .lost ? 0.20 : 0.34))
             }
-            .padding(.top, 34)
+            .padding(.top, 22)
             .transition(.opacity)
         }
     }
@@ -168,8 +159,10 @@ struct MeasureTakeover: View {
         switch phase {
         // Opening borrows waiting's words: a sentence under an empty line reads as a screen
         // that failed to draw, and this phase is 460 ms of exactly that.
-        case .opening, .waiting: "Finger on the key."
-        case .nudge:     "Still nothing there."
+        // The board's own words: which finger, and which key. 「Finger on the key」 with a ring
+        // around the display was an instruction to press the screen.
+        case .opening, .waiting: "Index finger on the side key."
+        case .nudge:     "Still nothing on the key."
         case .contact:   "Got it. Hold still."
         case .counting:  isBodyScan ? "Mapping you." : "Reading you."
         case .halfway:   "Halfway."
@@ -184,42 +177,49 @@ struct MeasureTakeover: View {
         }
     }
 
-    /// 03's sentence: what the current is doing, said once, and it does not move with the phase.
-    private var subText: String {
-        isBodyScan ? "A tiny current maps your body — you won't feel a thing. Keep your finger on the key."
-                   : "Sixty seconds of heartbeats — rate, HRV and stress out of one reading. Keep your finger on the key."
-    }
-
-    /// The figure is 03's figure at 03's size. A body scan has no waveform, so the current
-    /// walks the body; a battery check really does read the heart, so it keeps the trace.
+    /// The figure is the band itself, at the board's size. A body scan has no waveform, so
+    /// the current walks the body; a battery check really does read the heart, so it keeps
+    /// the trace — over the band, dimmed to 14 %, the way E05 draws it.
     @ViewBuilder private var stage: some View {
         switch phase {
         case .opening, .waiting:
-            ContactTarget(tint: NB.lime1, pulse: true)
+            BandFigure(tint: NB.lime1, mode: .ripple)
         case .nudge, .notWearing:
             // Amber is the first time this flow uses colour: it means "we need you to move",
-            // never "you failed".
-            ContactTarget(tint: NB.ember2, pulse: true)
+            // never "you failed". Only the key and its ripples change — the layout does not.
+            BandFigure(tint: NB.ember1, mode: .ripple)
         case .contact:
-            ContactGlow()
+            BandFigure(tint: NB.lime1, mode: .contact)
         case .failed, .busy, .dropped, .noReading:
             // Nothing is drawn where the reading would have been: an empty frame in that
             // position would read as a number we could not print.
             Color.clear
         default:
             if isBodyScan {
-                // 06 edge 2 · a lifted finger freezes the figure where it was and turns it amber.
-                // Computing and the result hold the whole body lit: it has been read, and
-                // draining it at the end would say the reading went away.
+                // ⚠️ No band behind the body. Once the current is running it is inside the
+                // user, not on the wrist — and a band still lit in the background is a second
+                // subject on a screen that has one. G·02 draws the scan and nothing else.
+                //
+                // 06 edge 2 · a lifted finger freezes the figure where it was and turns it
+                // amber. Computing and the result hold the whole body lit: it has been read,
+                // and draining it at the end would say the reading went away.
                 BodyFill(beat: phase == .computing || phase == .result ? total : total - remaining,
                          total: total, beatAt: beatAt, held: phase == .lost)
+                    // The figure is drawn to the height it is given, so the height is the size:
+                    // 03 · Scanning's own 280, not whatever room the page happens to have left.
+                    .frame(height: 280)
             } else {
-                // The trace beats at the rate the band is reporting right now; before the
-                // first value it sweeps flat. Computing flattens it: the reading is over.
-                LiveECG(bpm: reading?.heartRate,
-                        tint: phase == .lost ? NB.ember2 : NB.lime1,
-                        amplitude: phase == .computing ? 0 : 1)
-                    .frame(height: 140)
+                ZStack {
+                    // E05 · the band stays for the recovery check — the reading is happening
+                    // at the wrist, and the trace is written over it at 14 %.
+                    BandFigure(tint: NB.lime1, mode: .lit).opacity(0.14)
+                    // The trace beats at the rate the band is reporting right now; before the
+                    // first value it sweeps flat. Computing flattens it: the reading is over.
+                    LiveECG(bpm: reading?.heartRate,
+                            tint: phase == .lost ? NB.ember2 : NB.lime1,
+                            amplitude: phase == .computing ? 0 : 1)
+                        .frame(height: 96)
+                }
             }
         }
     }
@@ -251,6 +251,8 @@ struct MeasureTakeover: View {
     }
     private var statusTint: Color {
         switch phase {
+        // E02 · the waiting line is lime: it is the screen saying it is ready, not a warning.
+        case .waiting: NB.lime1.opacity(0.85)
         case .nudge, .lost, .notWearing: NB.ember2
         case .failed: NB.ember2
         case .contact, .counting, .halfway: NB.lime1
@@ -303,7 +305,9 @@ struct MeasureTakeover: View {
         reading = nil
         withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) { grown = true }
         // DEBUG · 06 edges on the mock band, which never fails on its own.
-        if let forced: Phase = ["notwearing": .notWearing, "busy": .busy, "dropped": .dropped, "noreading": .noReading][DebugEdge.name ?? ""] {
+        if let forced: Phase = ["notwearing": .notWearing, "busy": .busy, "dropped": .dropped, "noreading": .noReading,
+                                    // E01–E04 · the two frames a mock band passes through too fast to look at.
+                                    "waiting": .waiting, "contact": .contact][DebugEdge.name ?? ""] {
             run = Task { try? await Task.sleep(for: .milliseconds(700)); withAnimation { phase = forced } }
             return
         }
@@ -314,11 +318,34 @@ struct MeasureTakeover: View {
 
             // The nudge lands at 5s and the screen never times out on its own:
             // the only exit is the close mark.
+            // ⚠️ `try?` swallows CancellationError — without the isCancelled guard, cancelling
+            // this task on the stream's first `.waitingForContact` immediately painted
+            // 「Still nothing on the key」 while the band had not even been asked yet.
+            // Onboarding's scan arm does the same guard; keep them the same shape.
             let nudge = Task {
                 try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { return }
                 if phase == .waiting { withAnimation { phase = .nudge } }
             }
 
+            // ⚠️ THE BAND HAS ONE COMMAND CHANNEL AND THE SDK KEEPS ONE RESULT BLOCK PER TEST.
+            // The panel's live readout is holding an open heart-rate test when the plus key is
+            // pressed, and its stop — `veepooSDKTestHeartStart(false)` — is a command going out
+            // on the main queue, not an instant. Started over the top of that, this screen's own
+            // test was the one the stale stop ended: the band went quiet, no callback ever came,
+            // and 「Index finger on the side key」 stood there for the whole minute on a band that
+            // was perfectly willing to measure. So the readout is stood down and awaited first,
+            // and the band gets the same settling second the inserted stress test gets.
+            await LiveReadout.shared.standDown {
+                try? await Task.sleep(for: .seconds(LiveReadout.Cadence.settle))
+                await measure(nudge: nudge)
+            }
+        }
+    }
+
+    /// One measurement, from the first command to the stream ending. Runs inside the readout's
+    /// `standDown`, so nothing else is talking to the band for as long as it lasts.
+    private func measure(nudge: Task<Void, Never>) async {
             do {
                 // ⚠️ The plus key can be pressed a second after a launch or a transient drop,
                 // while the link is still coming back. Sending the first command into that gap
@@ -342,8 +369,16 @@ struct MeasureTakeover: View {
                     : Band.live.measureHeartRate()
 
                 for try await step in stream {
-                    nudge.cancel()
-                    apply(step)
+                    // 06 · nudge at 5s if contact never arrives. `.waitingForContact` is the
+                    // stream opening, not the finger — cancelling here used to trip the amber
+                    // line the instant the command went out. Disarm only once the band answers.
+                    switch step {
+                    case .waitingForContact:
+                        apply(step)
+                    default:
+                        nudge.cancel()
+                        apply(step)
+                    }
                 }
             } catch BandError.busy {
                 // 06 edge 3 · DEVICE BUSY: one start*Test at a time. Not amber — not the wearer's doing.
@@ -357,7 +392,6 @@ struct MeasureTakeover: View {
                 failure = (error as? BandError)?.errorDescription ?? "BAND OFFLINE"
                 withAnimation { phase = .failed }
             }
-        }
     }
 
     /// 06 edge 4 · LINK DROPPED. Nothing half-done is kept; the screen stays, reconnects on its
@@ -463,7 +497,7 @@ struct MeasureTakeover: View {
     private func resultWidget(_ result: MeasurementResult) -> PanelWidget {
         switch result {
         case .heartRate(let hr, let hrv, let stress):
-            let bb = data.today.bodyBattery ?? data.today.bbWake ?? 0
+            let bb = data.bodyBatteryNow ?? data.today.bbWake ?? 0
             let yesterday = data.history.last(where: { $0.day < data.today.day })?.bbWake
             var w = PanelWidget(
                 type: .wave, title: "BODY BATTERY", tag: .recover,
@@ -579,68 +613,133 @@ struct MeasureTakeover: View {
     }
 }
 
-/// The band seen through a ring of ripples that never stop and never time out.
-private struct ContactTarget: View {
+/// 06 · E · the band, drawn as the board draws it: the strap fading into the ground at both
+/// ends, the case, the dot-matrix screen, and the side key on the right edge.
+///
+/// ⚠️ The ripples come out of the KEY, not out of the middle of the face. Rings centred on
+/// the screen are an instruction to press the display — which is not where the sensor is, and
+/// not what the user is being asked to do. The one action this screen asks for is a fingertip
+/// resting on the side key, so that is the only place anything moves.
+private struct BandFigure: View {
+    enum Mode {
+        /// Waiting for a finger: rings walk out of the key on one 1.6 s loop.
+        case ripple
+        /// Skin has closed the circuit: the rings stop, the surface lights, the fingertip is drawn.
+        case contact
+        /// Lit but quiet — the ghost the trace is written over while the count runs.
+        case lit
+    }
+    var tint: Color = NB.lime1
+    var mode: Mode = .ripple
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let tint: Color
-    let pulse: Bool
+
+    /// The board's own geometry, in its 390 × 470 space.
+    private static let W: CGFloat = 390, H: CGFloat = 470
+    private static let keyCentre = CGPoint(x: 255, y: 210)
+    private static let bandCentre = CGPoint(x: 195, y: 210)
 
     var body: some View {
         TimelineView(.animation) { tl in
-            let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
-            ZStack {
-                ForEach(0..<3, id: \.self) { i in
-                    // one 1.6s loop, three phases apart
-                    let p = ((t / 1.6) + Double(i) / 3).truncatingRemainder(dividingBy: 1)
-                    Circle()
-                        .stroke(tint.opacity((1 - p) * 0.55), lineWidth: 2)
-                        .frame(width: 90 + CGFloat(p) * 170, height: 90 + CGFloat(p) * 170)
-                }
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(Color(hex: 0x17181C))
-                    .frame(width: 96, height: 152)
-                    .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(NB.white.opacity(0.07), lineWidth: 1))
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(tint)
-                    .frame(width: 7, height: 42)
+            Canvas { ctx, size in
+                let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
+                let s = min(size.width / Self.W, size.height / Self.H)
+                ctx.translateBy(x: (size.width - Self.W * s) / 2, y: (size.height - Self.H * s) / 2)
+                ctx.scaleBy(x: s, y: s)
+                draw(&ctx, t)
             }
-            .frame(height: 300)
         }
+        .frame(maxWidth: Self.W)
+        .aspectRatio(Self.W / Self.H, contentMode: .fit)
+        .accessibilityHidden(true)
     }
-}
 
-/// The band's own face lights up. The judgement comes from the first `testing` state
-/// coming back, not from having sent `start` — showing it early is a lie the user can feel.
-private struct ContactGlow: View {
-    @State private var lit = false
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(NB.lime1.opacity(0.6), lineWidth: 2)
-                .frame(width: 250, height: 250)
-                .shadow(color: NB.lime1.opacity(0.35), radius: 30)
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(NB.lime1.opacity(lit ? 0.85 : 0.2))
-                .frame(width: 84, height: 150)
-                .overlay(
-                    Canvas { ctx, size in
-                        var dots = Path()
-                        var y: CGFloat = 4
-                        while y < size.height {
-                            var x: CGFloat = 4
-                            while x < size.width {
-                                dots.addEllipse(in: CGRect(x: x, y: y, width: 1.6, height: 1.6))
-                                x += 5
-                            }
-                            y += 5
-                        }
-                        ctx.fill(dots, with: .color(NB.limeMid.opacity(0.5)))
-                    })
-            Circle().fill(NB.lime1).frame(width: 12, height: 12).offset(x: 62)
+    private func circle(_ c: CGPoint, _ r: CGFloat) -> Path {
+        Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+    }
+
+    private func draw(_ ctx: inout GraphicsContext, _ t: Double) {
+        let lit = mode != .ripple
+
+        // The halo the contact frame puts behind the whole band: one ring at 152, and the
+        // glow it sits in. This is the only burst of colour in the flow.
+        if mode == .contact {
+            ctx.fill(Path(ellipseIn: CGRect(x: 10, y: 35, width: 370, height: 350)),
+                     with: .radialGradient(Gradient(colors: [tint.opacity(0.20), tint.opacity(0)]),
+                                           center: Self.bandCentre, startRadius: 0, endRadius: 185))
+            ctx.stroke(circle(Self.bandCentre, 152), with: .color(tint.opacity(0.30)), lineWidth: 3)
         }
-        .frame(height: 300)
-        .onAppear { withAnimation(.easeOut(duration: 0.35)) { lit = true } }
+
+        // The strap, fading out top and bottom so the band is a band and not a phone.
+        let strapInk = Color(hex: lit ? 0x191A1F : 0x15161A)
+        ctx.fill(Path(roundedRect: CGRect(x: 161, y: 0, width: 68, height: 118), cornerRadius: 14),
+                 with: .linearGradient(Gradient(stops: [.init(color: strapInk.opacity(0), location: 0),
+                                                        .init(color: strapInk, location: 0.6)]),
+                                       startPoint: CGPoint(x: 195, y: 0), endPoint: CGPoint(x: 195, y: 118)))
+        ctx.fill(Path(roundedRect: CGRect(x: 161, y: 302, width: 68, height: 168), cornerRadius: 14),
+                 with: .linearGradient(Gradient(stops: [.init(color: strapInk, location: 0.4),
+                                                        .init(color: strapInk.opacity(0), location: 1)]),
+                                       startPoint: CGPoint(x: 195, y: 302), endPoint: CGPoint(x: 195, y: 470)))
+
+        // The case, and the screen printed in the house dot matrix at a 4 pt pitch.
+        let shell = Path(roundedRect: CGRect(x: 139, y: 112, width: 112, height: 196), cornerRadius: 36)
+        ctx.fill(shell, with: .color(Color(hex: lit ? 0x1B1C21 : 0x17181C)))
+        ctx.stroke(shell, with: .color(lit ? tint.opacity(0.35) : NB.white.opacity(0.07)),
+                   lineWidth: lit ? 1.5 : 1)
+
+        let face = Path(roundedRect: CGRect(x: 153, y: 126, width: 84, height: 168), cornerRadius: 26)
+        ctx.fill(face, with: .color(Color(hex: lit ? 0x0C0D08 : 0x0A0A0D)))
+        ctx.drawLayer { layer in
+            layer.clip(to: face)
+            var dots = Path()
+            var y: CGFloat = 127
+            while y < 294 {
+                var x: CGFloat = 154
+                while x < 237 {
+                    dots.addRoundedRect(in: CGRect(x: x, y: y, width: 3.2, height: 3.2),
+                                        cornerSize: CGSize(width: 0.8, height: 0.8))
+                    x += 4
+                }
+                y += 4
+            }
+            layer.fill(dots, with: .color(Color(hex: lit ? 0x9BA23C : 0x24252C)))
+        }
+
+        // Eight cells alight while the circuit is closed — the band answering, not a spinner.
+        if lit {
+            let cells = [(169.0, 158.0), (197, 146), (213, 182), (181, 206),
+                         (205, 234), (173, 258), (217, 270), (189, 278)]
+            for (i, c) in cells.enumerated() {
+                let p = (t * 0.6 + Double(i) / Double(cells.count)).truncatingRemainder(dividingBy: 1)
+                let a = 0.45 + 0.55 * (0.5 + 0.5 * cos(p * 2 * .pi))
+                ctx.fill(Path(roundedRect: CGRect(x: c.0, y: c.1, width: 3.2, height: 3.2), cornerRadius: 0.8),
+                         with: .color(tint.opacity(a)))
+            }
+        }
+
+        // The side key: the one place on the hardware this screen is talking about.
+        ctx.fill(Path(roundedRect: CGRect(x: 251, y: 186, width: 8, height: 48), cornerRadius: 4),
+                 with: .color(tint))
+
+        // Three rings out of the key on one 1.6 s loop, a third of a turn apart. They never
+        // stop and they never time out: the way out of this screen is the close mark.
+        if mode == .ripple {
+            for i in 0..<3 {
+                let p = reduceMotion
+                    ? Double(i) / 3
+                    : ((t / 1.6) + Double(i) / 3).truncatingRemainder(dividingBy: 1)
+                ctx.stroke(circle(Self.keyCentre, 34 + CGFloat(p) * 72),
+                           with: .color(tint.opacity((1 - p) * 0.42)), lineWidth: 3)
+            }
+        }
+
+        // The fingertip, resting on the key — drawn only once contact is real.
+        if mode == .contact {
+            let c = CGPoint(x: 272, y: 210)
+            ctx.stroke(circle(c, 18), with: .color(NB.limePale.opacity(0.16)), lineWidth: 1)
+            ctx.fill(circle(c, 11), with: .color(NB.carbon))
+            ctx.stroke(circle(c, 11), with: .color(NB.limePale.opacity(0.95)), lineWidth: 1.4)
+            ctx.fill(circle(c, 3.6), with: .color(tint))
+        }
     }
 }
 

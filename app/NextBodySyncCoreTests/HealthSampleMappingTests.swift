@@ -35,6 +35,41 @@ final class HealthSampleMappingTests: XCTestCase {
         XCTAssertFalse(AutoMeasurementIntervalPolicy.isValid(181, minimumStepMinutes: 0))
     }
 
+    func testSwitchFallbackReadsVendorByteTablesAndSkipsAbsentFlags() {
+        var switchData = [UInt8](repeating: 0, count: 20)
+        switchData[4] = 1
+        switchData[5] = 2
+        switchData[12] = 1
+        var switchTwoData = [UInt8](repeating: 0, count: 20)
+        switchTwoData[4] = 2
+        switchTwoData[9] = 1
+
+        let readings = AutoMeasurementSwitchFallback.readings(
+            switchData: switchData,
+            switchTwoData: switchTwoData,
+            oxygenSupported: true,
+            oxygenOn: false)
+
+        XCTAssertEqual(readings.map(\.kind), [
+            .heartRate, .bloodPressure, .hrv, .bloodOxygen, .temperature, .stress
+        ])
+        XCTAssertEqual(readings.map(\.on), [true, false, true, false, false, true])
+    }
+
+    func testSwitchFallbackTreatsShortBlobsAsMissingTables() {
+        XCTAssertFalse(AutoMeasurementSwitchFallback.hasSwitchTables(switchData: [0, 1], switchTwoData: []))
+        XCTAssertTrue(AutoMeasurementSwitchFallback.hasSwitchTables(
+            switchData: [UInt8](repeating: 0, count: 13),
+            switchTwoData: []))
+        XCTAssertEqual(
+            AutoMeasurementSwitchFallback.readings(
+                switchData: [0, 1, 2],
+                switchTwoData: [],
+                oxygenSupported: false,
+                oxygenOn: false),
+            [])
+    }
+
     func testHistoricalUserDayReadsItsCalendarDayAndTheFollowingCalendarDay() {
         XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(daysBack: 1, straddles: true), [1, 0])
         XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(daysBack: 2, straddles: true), [2, 1])
@@ -154,5 +189,299 @@ final class HealthSampleMappingTests: XCTestCase {
         XCTAssertNil(HealthSampleMapping.distanceMeters(from: nil))
         XCTAssertNil(HealthSampleMapping.distanceMeters(from: -0.1))
         XCTAssertNil(HealthSampleMapping.distanceMeters(from: "nope"))
+    }
+
+    func testBodyBatteryTreatsSDKStageZeroAsDeepSleepAndRecovers() {
+        let tick = BodyBatteryEngine.Tick(
+            heartRate: 50, hrvMS: 58, stress: 18, steps: 0, met: 0.9,
+            sleepStage: 0
+        )
+        let result = BodyBatteryEngine.replay(
+            anchor: 20,
+            ticks: Array(repeating: tick, count: 67),
+            baseline: .init(restingHeartRate: 52, maximumHeartRate: 190,
+                            hrvMS: 50, recoveryMultiplier: 1)
+        )
+
+        XCTAssertGreaterThan(result.value, 20)
+        XCTAssertGreaterThan(result.drivers.recovery, 0)
+        XCTAssertEqual(result.drivers.awake, 0, accuracy: 0.001)
+    }
+
+    func testServerReplayUsesVeepooStageZeroMapping() throws {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let migration = repository
+            .appending(path: "supabase/migrations/20260903140000_body_battery_realtime.sql")
+        let sql = try String(contentsOf: migration, encoding: .utf8)
+
+        XCTAssertTrue(sql.contains("when 0 then 1.25"))
+        XCTAssertFalse(sql.contains("stage <> 0 as asleep"))
+        XCTAssertTrue(sql.contains("nullif(n.sleep_line, '')"))
+        XCTAssertTrue(sql.contains("between p_user_day and p_user_day + 1"))
+        XCTAssertTrue(sql.contains("count(*) filter (where m.stage <> 4)"))
+        XCTAssertTrue(sql.contains("fallback_minute as"))
+        XCTAssertTrue(sql.contains("interval '1 minute'"))
+        XCTAssertTrue(sql.contains("where r.n > 0 and r.observed"))
+    }
+
+    func testServerReserveCanStartFromDaytimeSignalsWithoutSleep() throws {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let migration = repository
+            .appending(path: "supabase/migrations/20260903140000_body_battery_realtime.sql")
+        let sql = try String(contentsOf: migration, encoding: .utf8)
+        let client = repository
+            .appending(path: "app/NextBody/Services/Repository.swift")
+        let clientSource = try String(contentsOf: client, encoding: .utf8)
+
+        XCTAssertTrue(sql.contains("else 50::numeric"))
+        XCTAssertTrue(sql.contains("and s.sleep_start is not null and s.wake_at is not null"))
+        XCTAssertTrue(sql.contains("create or replace function nb.compute_reserve"))
+        XCTAssertFalse(sql.contains("if v_sleep is null"))
+        XCTAssertTrue(sql.contains("if v_reserve.current_value is not null then"))
+        XCTAssertTrue(clientSource.contains("number(row[\"reserve_score\"])"))
+    }
+
+    func testBodyBatteryCorrectionMigrationRebasesAndCleansStaleZeroes() throws {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let migration = repository
+            .appending(path: "supabase/migrations/20260903150000_recompute_body_battery_v2.sql")
+        let sql = try String(contentsOf: migration, encoding: .utf8)
+
+        XCTAssertTrue(sql.contains("dr.algo_version like '%bb-2.0%'"))
+        XCTAssertTrue(sql.contains("from public.reserve_samples rs"))
+        XCTAssertTrue(sql.contains("create or replace function nb.clear_unknown_reserve_artifacts()"))
+        XCTAssertTrue(sql.contains("when (new.reserve_score is null)"))
+        XCTAssertTrue(sql.contains("delete from public.reserve_daily rd"))
+        XCTAssertTrue(sql.contains("delete from public.reserve_samples rs"))
+        XCTAssertTrue(sql.contains("v_today,\n      v_today,"))
+        XCTAssertTrue(sql.contains("'bb-2.0 migration'"))
+    }
+
+    func testBodyBatteryUsesHeartHRVStressAndMovementTogether() {
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: 55, maximumHeartRate: 190,
+            hrvMS: 52, recoveryMultiplier: 1
+        )
+        let quiet = BodyBatteryEngine.Tick(
+            heartRate: 60, hrvMS: 58, stress: 25, steps: 0, met: 1.0
+        )
+        let strained = BodyBatteryEngine.Tick(
+            heartRate: 145, hrvMS: 24, stress: 82, steps: 620, met: 6.0
+        )
+
+        let quietResult = BodyBatteryEngine.replay(anchor: 70, ticks: [quiet], baseline: baseline)
+        let strainedResult = BodyBatteryEngine.replay(anchor: 70, ticks: [strained], baseline: baseline)
+
+        XCTAssertLessThan(strainedResult.value, quietResult.value)
+        XCTAssertGreaterThan(strainedResult.drivers.movement, quietResult.drivers.movement)
+        XCTAssertGreaterThan(strainedResult.drivers.stress, quietResult.drivers.stress)
+    }
+
+    func testBodyBatteryDoesNotDrainWhenBandIsOffWrist() {
+        let result = BodyBatteryEngine.replay(
+            anchor: 64,
+            ticks: [.init()],
+            baseline: .init(restingHeartRate: 55, maximumHeartRate: 190,
+                            hrvMS: 50, recoveryMultiplier: 1)
+        )
+
+        XCTAssertEqual(result.value, 64, accuracy: 0.001)
+        XCTAssertEqual(result.wornMinutes, 0)
+    }
+
+    func testBodyBatterySleepRecoverySaturatesInsteadOfDriftingToOneHundred() {
+        let tick = BodyBatteryEngine.Tick(
+            heartRate: 48, hrvMS: 55, stress: 15, steps: 0, met: 0.9,
+            sleepStage: 0
+        )
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: 52, maximumHeartRate: 190,
+            hrvMS: 50, recoveryMultiplier: 1
+        )
+
+        let fromLow = BodyBatteryEngine.replay(
+            anchor: 20, ticks: Array(repeating: tick, count: 96), baseline: baseline
+        )
+        let fromHigh = BodyBatteryEngine.replay(
+            anchor: 90, ticks: Array(repeating: tick, count: 96), baseline: baseline
+        )
+
+        XCTAssertLessThan(fromLow.value, 96)
+        XCTAssertLessThan(fromHigh.value, 96)
+        XCTAssertGreaterThan(fromLow.drivers.recovery, fromHigh.drivers.recovery)
+    }
+
+    func testBodyBatteryOneMinutePreviewMatchesOneFiveMinuteTick() {
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: 55, maximumHeartRate: 190,
+            hrvMS: 52, recoveryMultiplier: 1
+        )
+        let full = BodyBatteryEngine.Tick(
+            durationMinutes: 5, heartRate: 145, hrvMS: 24,
+            stress: 82, steps: 620, met: 6
+        )
+        let minute = BodyBatteryEngine.Tick(
+            durationMinutes: 1, heartRate: 145, hrvMS: 24,
+            stress: 82, steps: 124, met: 6
+        )
+
+        let oneTick = BodyBatteryEngine.replay(anchor: 70, ticks: [full], baseline: baseline)
+        let fiveMinutes = BodyBatteryEngine.replay(
+            anchor: 70, ticks: Array(repeating: minute, count: 5), baseline: baseline
+        )
+
+        XCTAssertEqual(oneTick.value, fiveMinutes.value, accuracy: 0.001)
+        XCTAssertEqual(oneTick.drivers.stress, fiveMinutes.drivers.stress, accuracy: 0.001)
+    }
+
+    func testBodyBatteryStageFourIsAwakeRatherThanFrozenSleep() {
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: 55, maximumHeartRate: 190,
+            hrvMS: 52, recoveryMultiplier: 1
+        )
+        let awakeInBed = BodyBatteryEngine.Tick(
+            heartRate: 62, hrvMS: 48, stress: 30, steps: 0, met: 1,
+            sleepStage: 4
+        )
+        let result = BodyBatteryEngine.replay(anchor: 70, ticks: [awakeInBed], baseline: baseline)
+
+        XCTAssertLessThan(result.value, 70)
+        XCTAssertGreaterThan(result.drivers.awake, 0)
+        XCTAssertEqual(result.drivers.recovery, 0)
+    }
+
+    func testBodyBatteryCarriesQuietRunAcrossOneMinutePreviewTicks() {
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: 55, maximumHeartRate: 190,
+            hrvMS: 52, recoveryMultiplier: 1
+        )
+        let quietMinute = BodyBatteryEngine.Tick(
+            durationMinutes: 1, heartRate: 58, hrvMS: 55,
+            stress: 20, steps: 0, met: 1
+        )
+        let result = BodyBatteryEngine.replay(
+            anchor: 60,
+            ticks: Array(repeating: quietMinute, count: 20),
+            baseline: baseline
+        )
+
+        XCTAssertGreaterThan(result.drivers.restorativeRest, 0)
+    }
+
+    func testBodyBatteryQuietThresholdIsIndependentOfTickDuration() {
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: 55, maximumHeartRate: 190,
+            hrvMS: 52, recoveryMultiplier: 1
+        )
+        let minute = BodyBatteryEngine.Tick(
+            durationMinutes: 1, heartRate: 58, hrvMS: 55,
+            stress: 20, steps: 0, met: 1.5
+        )
+        let fiveMinutes = BodyBatteryEngine.Tick(
+            durationMinutes: 5, heartRate: 58, hrvMS: 55,
+            stress: 20, steps: 0, met: 1.5
+        )
+
+        let minuteResult = BodyBatteryEngine.replay(
+            anchor: 60, ticks: Array(repeating: minute, count: 20), baseline: baseline
+        )
+        let fiveMinuteResult = BodyBatteryEngine.replay(
+            anchor: 60, ticks: Array(repeating: fiveMinutes, count: 4), baseline: baseline
+        )
+
+        XCTAssertEqual(minuteResult.drivers.restorativeRest, 0)
+        XCTAssertEqual(minuteResult.value, fiveMinuteResult.value, accuracy: 0.001)
+    }
+
+    func testFreshBandTickAdvancesAStaleEightAMCurveImmediately() throws {
+        let eightAM = Date(timeIntervalSince1970: 1_788_436_800)
+        let twelveFortyFive = eightAM.addingTimeInterval(4.75 * 60 * 60)
+        let stored = [VitalSample(ts: eightAM, hr: 61, stress: 18)]
+        let fresh = [VitalSample(ts: twelveFortyFive, hr: 78, stress: 31)]
+
+        let merged = VitalSample.merging(stored, with: fresh)
+
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(try XCTUnwrap(merged.last).ts, twelveFortyFive)
+        XCTAssertEqual(merged.last?.hr, 78)
+    }
+
+    func testFreshPartialTickKeepsFieldsAlreadyLoadedFromServer() throws {
+        let timestamp = Date(timeIntervalSince1970: 1_788_453_900)
+        let stored = VitalSample(
+            ts: timestamp, hr: 62, stress: 17,
+            temp: 33.8, steps: 24, cal: 1.2, dis: 18, hrv: 51
+        )
+        let fresh = VitalSample(ts: timestamp, hr: 64, stress: nil)
+
+        let merged = try XCTUnwrap(VitalSample.merging([stored], with: [fresh]).first)
+
+        XCTAssertEqual(merged.hr, 64)
+        XCTAssertEqual(merged.stress, 17)
+        XCTAssertEqual(merged.temp, 33.8)
+        XCTAssertEqual(merged.hrv, 51)
+    }
+
+    func testRollingVitalsWindowIsExactlyThePastTwentyFourHours() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let window = VitalsTimelinePolicy.rolling24Hours(endingAt: now)
+
+        XCTAssertEqual(window.start, now.addingTimeInterval(-24 * 60 * 60))
+        XCTAssertEqual(window.end, now)
+        XCTAssertTrue(window.contains(now.addingTimeInterval(-23 * 60 * 60)))
+        XCTAssertFalse(window.contains(now.addingTimeInterval(-25 * 60 * 60)))
+        XCTAssertFalse(window.contains(now.addingTimeInterval(1)))
+    }
+
+    func testCurrentUserDayWindowStopsAtNowInsteadOfDrawingFutureHours() {
+        let start = Date(timeIntervalSince1970: 1_788_422_400)
+        let end = start.addingTimeInterval(24 * 60 * 60)
+        let now = start.addingTimeInterval(8.75 * 60 * 60)
+
+        let window = VitalsTimelinePolicy.userDay(start: start, end: end, now: now)
+
+        XCTAssertEqual(window.start, start)
+        XCTAssertEqual(window.end, now)
+        XCTAssertFalse(window.contains(now.addingTimeInterval(60)))
+    }
+
+    func testRawVitalsLoadIsNotGatedByDailyResultsSettlement() throws {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repository.appending(path: "app/NextBody/Services/Repository.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(source.contains("guard !rows.isEmpty else { return }"))
+        XCTAssertTrue(source.contains("day.adding(days: -1).start"))
+        XCTAssertTrue(source.contains("VitalSample.merging(remoteSamples, with: localSamples)"))
+    }
+
+    func testTemperatureRepairFunctionCanOnlyFillNullOwnedRows() throws {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let migration = repository.appending(
+            path: "supabase/migrations/20260903171349_fill_temperature.sql"
+        )
+        let sql = try String(contentsOf: migration, encoding: .utf8)
+
+        XCTAssertTrue(sql.contains("r.user_id = v_user"))
+        XCTAssertTrue(sql.contains("r.temp is null"))
+        XCTAssertTrue(sql.contains("s.temp between 20 and 45"))
+        XCTAssertTrue(sql.contains("revoke execute on function public.fill_temp(jsonb)"))
     }
 }

@@ -26,15 +26,70 @@ final class AIService: ObservableObject {
     /// it is doing instead of showing a spinner over an empty box.
     @Published var reading: String?
 
+    /// 07 · 16 · 02 · her own reasoning, a line at a time, as the server cuts it from the
+    /// model's reasoning stream. The THINKING screen prints these at its foot and nothing
+    /// else; `reading` is what it falls back to on a turn that streamed no thoughts.
+    @Published var thoughts: [Thought] = []
+    struct Thought: Identifiable, Equatable {
+        let id = UUID()
+        let text: String
+        /// When it landed — the screen types it out from this instant.
+        let at: Date
+    }
+    /// The screen shows four; a fifth pushes the oldest off. Six kept so the exit has a frame.
+    private static let thoughtsKept = 6
+
+    init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["NB_DEBUG_PANEL"] == "thinking" { debugPlayThoughts() }
+        #endif
+    }
+
+    #if DEBUG
+    /// `NB_DEBUG_PANEL=thinking` pins the singularity with no turn running, so nothing would
+    /// ever stream. This plays a scripted reasoning at the wire's pace — one line every
+    /// 1.7 s, looping — so the stream and its ripples can be photographed against the board.
+    /// The text is the board's own sample, not a claim about anyone's night.
+    func debugPlayThoughts() {
+        let script = [
+            "Slept 5h12 · 1h40 under your week",
+            "HRV 38 → 31 · two nights down",
+            "Stress peaked 22:40 · still up at 1am",
+            "So it is the sleep, not the strain",
+            "Checking whether strain adds to it",
+            "Training load was light all week",
+        ]
+        Task { @MainActor in
+            var i = 0
+            while !Task.isCancelled {
+                thoughts.append(Thought(text: script[i % script.count], at: Date()))
+                if thoughts.count > Self.thoughtsKept { thoughts.removeFirst(thoughts.count - Self.thoughtsKept) }
+                i += 1
+                try? await Task.sleep(nanoseconds: 1_700_000_000)
+            }
+        }
+    }
+    #endif
+
     // MARK: a conversational turn
 
-    func turn(_ text: String, day: UserDay, store: DataStore) async -> PanelWidget? {
+    func turn(_ text: String, day: UserDay, store: DataStore,
+              imageDataURL: String? = nil) async -> PanelWidget? {
         guard dailyCallsUsed < dailyCap else {
             lastError = AppLanguage.isEnglish ? "That was today’s last turn. It resets at 04:00." : "今天的对话次数用完了，明天 04:00 重置。"
             return nil
         }
+        #if DEBUG
+        let latencyStarted = Date()
+        var loggedFirstEvent = false
+        var loggedFirstThought = false
+        var loggedFirstTool = false
+        os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+            .notice("NB latency · turn start")
+        #endif
         dailyCallsUsed += 1
         thinking = true
+        thoughts = []
         defer { thinking = false }
 
         let dayKey = Self.dayFormatter.string(from: day.start)
@@ -45,21 +100,53 @@ final class AIService: ObservableObject {
             // including the ones the server logged as OK — fell through to the offline
             // frame. The DEBUG path masked it by answering in its place.
             var frame: [String: Any]?
-            for try await chunk in SupabaseClient.shared.streamFunction("turn", payload: [
+            var payload: [String: Any] = [
                 "text": text, "dayKey": dayKey, "locale": AppLanguage.locale,
-            ]) {
+            ]
+            if let imageDataURL { payload["image"] = imageDataURL }
+            for try await chunk in SupabaseClient.shared.streamFunction("turn", payload: payload) {
                 let parts = chunk.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parts.count == 2,
                       let data = parts[1].data(using: .utf8),
                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 else { continue }
 
+                #if DEBUG
+                let event = String(parts[0])
+                let elapsedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
+                if !loggedFirstEvent {
+                    loggedFirstEvent = true
+                    os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                        .notice("NB latency · turn first_event=\(event, privacy: .public) ms=\(elapsedMs, privacy: .public)")
+                }
+                if event == "thought", !loggedFirstThought {
+                    loggedFirstThought = true
+                    os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                        .notice("NB latency · turn first_thought ms=\(elapsedMs, privacy: .public)")
+                }
+                if event == "tool", !loggedFirstTool {
+                    loggedFirstTool = true
+                    os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                        .notice("NB latency · turn first_tool ms=\(elapsedMs, privacy: .public)")
+                }
+                #endif
+
                 switch String(parts[0]) {
                 case "tool":
                     // 07 · 16 · she names what she is reading while she reads it.
                     if let name = obj["name"] as? String { reading = name }
+                case "thought":
+                    // 07 · 16 · 02 · one line of her reasoning, whole, in the moment it was.
+                    if let t = obj["text"] as? String, !t.isEmpty {
+                        thoughts.append(Thought(text: t, at: Date()))
+                        if thoughts.count > Self.thoughtsKept { thoughts.removeFirst(thoughts.count - Self.thoughtsKept) }
+                    }
                 case "screen.render":
                     frame = obj["envelope"] as? [String: Any]
+                    #if DEBUG
+                    os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                        .notice("NB latency · turn render ms=\(elapsedMs, privacy: .public)")
+                    #endif
                 case "error":
                     // A degraded frame is still a frame — S4's absence law, not a failure.
                     if let fb = obj["fallback_frame"] as? [String: Any], frame == nil { frame = fb }
@@ -69,6 +156,11 @@ final class AIService: ObservableObject {
                 }
             }
             reading = nil
+            #if DEBUG
+            let completedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
+            os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                .notice("NB latency · turn done ms=\(completedMs, privacy: .public)")
+            #endif
             if let frame {
                 let w = widget(from: frame)
                 #if DEBUG
@@ -79,8 +171,11 @@ final class AIService: ObservableObject {
             }
         } catch {
             reading = nil
+            // ⚠️ DEBUG path is simulator-only. On a real phone a failed /turn must not
+            // answer from whatever happens to sit in the store — that is how seed rows
+            // outlive a DB cleanup and keep showing up in the panel.
             #if DEBUG
-            if let local = await debugTurn(text, day: day, store: store) { return local }
+            if Band.allowsSeed, let local = await debugTurn(text, day: day, store: store) { return local }
             #endif
             lastError = error.localizedDescription
         }
@@ -133,7 +228,7 @@ final class AIService: ObservableObject {
             }
         } catch {
             #if DEBUG
-            if let local = await debugEstimate(entry: entry, into: store) { return local }
+            if Band.allowsSeed, let local = await debugEstimate(entry: entry, into: store) { return local }
             #endif
             lastError = error.localizedDescription
         }
@@ -196,11 +291,52 @@ final class AIService: ObservableObject {
         case failed(String)
     }
 
+    func beginStreamingTranscription() async -> ASRStreamingSession? {
+        try? await SupabaseClient.shared.asrStreamingSession()
+    }
+
+    func transcribe(_ clip: URL, stream: ASRStreamingSession?) async -> Transcript {
+        guard let stream else { return await transcribe(clip) }
+        #if DEBUG
+        let latencyStarted = Date()
+        #endif
+        switch await stream.finish() {
+        case .text(let text):
+            try? FileManager.default.removeItem(at: clip)
+            #if DEBUG
+            let elapsedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
+            os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                .notice("NB latency · asr stream response ms=\(elapsedMs, privacy: .public)")
+            #endif
+            return .text(text)
+        case .silence:
+            try? FileManager.default.removeItem(at: clip)
+            return .silence
+        case .failed(let reason):
+            #if DEBUG
+            os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                .error("NB latency · asr stream fallback reason=\(reason, privacy: .public)")
+            #endif
+            return await transcribe(clip)
+        }
+    }
+
     func transcribe(_ clip: URL) async -> Transcript {
+        #if DEBUG
+        let latencyStarted = Date()
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: clip.path)[.size] as? NSNumber)?.intValue ?? 0
+        os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+            .notice("NB latency · asr start bytes=\(bytes, privacy: .public)")
+        #endif
         defer { try? FileManager.default.removeItem(at: clip) }
         do {
             let out = try await SupabaseClient.shared.uploadFunction(
                 "asr", fileURL: clip, field: "audio", filename: "clip.wav", mime: "audio/wav")
+            #if DEBUG
+            let elapsedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
+            os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                .notice("NB latency · asr response ms=\(elapsedMs, privacy: .public)")
+            #endif
             if let err = out["error"] as? String {
                 #if DEBUG
                 NSLog("NB asr · \(err)")
@@ -212,6 +348,9 @@ final class AIService: ObservableObject {
         } catch {
             lastError = error.localizedDescription
             #if DEBUG
+            let elapsedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
+            os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                .error("NB latency · asr failed ms=\(elapsedMs, privacy: .public)")
             NSLog("NB asr · upload failed: \(error)")
             #endif
             return .failed(error.localizedDescription)
@@ -245,6 +384,27 @@ final class AIService: ObservableObject {
         // 13 col 01 · a curve that arrives with a split is night then day: violet, then lime.
         let split = data["split"] as? Int
 
+        // 07 · rule 6 and 07 · 20 · the two types that carry their own skeleton.
+        var headline: HeadlineBlock?
+        if type == .text, let h = (data["headline"] as? String), !h.isEmpty {
+            headline = HeadlineBlock(eyebrow: (data["eyebrow"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                                     headline: String(h.prefix(14)),
+                                     sub: (data["sub"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+        }
+        var plate: PlateBlock?
+        if type == .food, let name = (data["name"] as? String), !name.isEmpty {
+            let m = data["macros"] as? [String: Any] ?? [:]
+            let num = { (any: Any?) -> Double? in (any as? Double) ?? (any as? Int).map(Double.init) }
+            plate = PlateBlock(name: name,
+                               portion: (data["portion"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                               kcal: num(data["kcal"]),
+                               protein: num(m["p"] ?? data["protein_g"]),
+                               carb: num(m["c"] ?? data["carb_g"]),
+                               fat: num(m["f"] ?? data["fat_g"]),
+                               pctOfBudget: (data["pct_of_budget"] as? Int)
+                                 ?? (data["pct_of_budget"] as? Double).map { Int($0) })
+        }
+
         return PanelWidget(
             type: type,
             title: String(titled.prefix(18)),
@@ -258,6 +418,8 @@ final class AIService: ObservableObject {
             curveSecondary: split != nil ? NB.lime1 : nil,
             targetOverride: target,
             data: Self.decodeData(data, type: type),
+            headline: headline,
+            plate: plate,
             ttlMinutes: (env["ttl_min"] as? Int) ?? 20,
             priority: (env["priority"] as? String) == "alert" ? .alert : .normal)
     }
@@ -335,8 +497,16 @@ final class AIService: ObservableObject {
             return .ring(value: v, goal: goal, unit: (d["unit"] as? String) ?? "")
         case .stack:
             let source = d["parts"] ?? d["macros"] ?? d["rows"]
+            // 10 · the night's three segments are the violet family with grey for awake;
+            // 22 / 23 · macros and energy cycle the domain colours. The label decides,
+            // because the server may send the three in any order.
+            let sleepTint: [String: Color] = ["DEEP": NB.violet1,
+                                              "LIGHT": NB.violet1.opacity(0.55),
+                                              "AWAKE": NB.white.opacity(0.45)]
             let parts = labelled(source).enumerated().map { i, p in
-                (p.0, p.1, [NB.cyan1, NB.violet1, NB.optimal2, NB.ember1][i % 4])
+                (p.0, p.1, type == .split
+                    ? (sleepTint[p.0.uppercased()] ?? NB.violet1.opacity(0.35))
+                    : [NB.cyan1, NB.violet1, NB.optimal2, NB.ember1][i % 4])
             }
             return .parts(parts)
         case .grid:

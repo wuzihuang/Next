@@ -1,0 +1,151 @@
+import SwiftUI
+
+struct ChatHistorySheet: View {
+    @ObservedObject var chatStore: ChatStore
+    let onSelect: (String) -> Void
+    let onNewChat: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Capsule()
+                .fill(NB.white.opacity(0.2))
+                .frame(width: 36, height: 4)
+                .padding(.top, 10)
+
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(AppLanguage.isEnglish ? "CONSULTATION ARCHIVE" : "会话归档历史")
+                        .font(NBFont.dot(700, 14))
+                        .tracking(0.04 * 14)
+                        .foregroundStyle(NB.text1)
+                    Text("\(chatStore.sessions.count) " + (AppLanguage.isEnglish ? "SESSIONS RECORDED · TELEMETRY LOGS" : "条历史记录 · 生理遥测"))
+                        .font(NBFont.ui(400, 12))
+                        .foregroundStyle(NB.lime1)
+                }
+
+                Spacer()
+
+                Button(action: onNewChat) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(NB.carbon)
+                        Text(AppLanguage.isEnglish ? "NEW CHAT" : "新对话")
+                            .font(NBFont.dot(700, 11))
+                            .foregroundStyle(NB.carbon)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(NB.lime1, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 4)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 10) {
+                    ForEach(chatStore.sessions) { session in
+                        let isActive = session.id == chatStore.currentSessionID
+                        Button {
+                            onSelect(session.id)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(session.title)
+                                        .font(NBFont.brand(600, 14))
+                                        .foregroundStyle(NB.text1)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    if isActive {
+                                        Text(AppLanguage.isEnglish ? "ACTIVE" : "当前")
+                                            .font(NBFont.dot(600, 10))
+                                            .foregroundStyle(NB.lime1)
+                                            .padding(.horizontal, 7)
+                                            .padding(.vertical, 3)
+                                            .background(NB.lime1.opacity(0.15), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                    } else if session.photosCount > 0 {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "photo")
+                                                .font(.system(size: 10))
+                                            Text("\(session.photosCount) " + (AppLanguage.isEnglish ? "PHOTOS" : "张照片"))
+                                                .font(NBFont.dot(500, 10))
+                                        }
+                                        .foregroundStyle(NB.cyan1)
+                                    }
+                                }
+
+                                if !session.subtitle.isEmpty {
+                                    Text(session.subtitle)
+                                        .font(NBFont.ui(400, 13))
+                                        .foregroundStyle(NB.text2)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                }
+
+                                HStack {
+                                    Text(formattedTime(session.updatedAt))
+                                        .font(NBFont.dot(400, 10))
+                                        .foregroundStyle(NB.text3Prod)
+                                    Spacer()
+                                    ForEach(session.tags, id: \.self) { tag in
+                                        Text(tag)
+                                            .font(NBFont.dot(500, 10))
+                                            .foregroundStyle(isActive ? NB.lime1 : NB.text3Prod)
+                                    }
+                                }
+                                .padding(.top, 2)
+                            }
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(isActive ? NB.lime1.opacity(0.06) : Color(hex: 0x111116))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(isActive ? NB.lime1.opacity(0.4) : NB.hairline, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            HStack {
+                Text(AppLanguage.isEnglish ? "AUTO-SAVED TO NEXTBODY CLOUD" : "已自动同步至 NEXTBODY CLOUD")
+                    .font(NBFont.dot(400, 10))
+                    .foregroundStyle(NB.text3Prod)
+                Spacer()
+                Button {
+                    chatStore.clearAll()
+                    onDismiss()
+                } label: {
+                    Text(AppLanguage.isEnglish ? "CLEAR ALL" : "清空历史")
+                        .font(NBFont.dot(600, 11))
+                        .foregroundStyle(NB.alert2)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 4)
+            .padding(.bottom, 12)
+        }
+        .padding(.horizontal, 18)
+        .background(Color(hex: 0x0D0D11).ignoresSafeArea())
+    }
+
+    private func formattedTime(_ date: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) {
+            let f = DateFormatter()
+            f.dateFormat = "HH:mm"
+            return (AppLanguage.isEnglish ? "TODAY " : "今天 ") + f.string(from: date)
+        } else if cal.isDateInYesterday(date) {
+            return AppLanguage.isEnglish ? "YESTERDAY" : "昨天"
+        } else {
+            let f = DateFormatter()
+            f.dateFormat = AppLanguage.isEnglish ? "MMM d" : "M月d日"
+            return f.string(from: date)
+        }
+    }
+}

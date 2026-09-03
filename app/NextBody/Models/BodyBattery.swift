@@ -53,29 +53,6 @@ enum BodyBattery {
         }
     }
 
-    /// 13 · Sec 02 — discharge is three independent terms added together, never a product.
-    /// The detail page has to list those three lines separately; a multiplicative model
-    /// cannot be taken apart, and if it cannot be taken apart the page has no reason to exist.
-    struct Tick {
-        var awakeBase: Double = 0.30       // per tick
-        var activity: Double = 0            // 0.22 × Δmet above 1
-        var stress: Double = 0              // 0.25 × (stress − 40), only above 40
-        var sleepCharge: Double = 0         // 0.75 × q × M while asleep
-    }
-
-    /// Clamps: awake recharge tops out at 95, the daily rest budget is 25,
-    /// M sits between 0.65 and 1.30, and a cold-start first night begins at 20.
-    enum Clamp {
-        static let awakeRechargeCeiling = 95.0
-        static let dailyRestBudget = 25.0
-        static let mRange = 0.65...1.30
-        static let coldStartFloor = 20.0
-    }
-
-    static func apply(_ t: Tick, to level: Double, asleep: Bool) -> Double {
-        let delta = asleep ? t.sleepCharge : -(t.awakeBase + t.activity + t.stress)
-        return min(100, max(0, level + delta))
-    }
 }
 
 // MARK: - 04 · the one prediction on the whole product

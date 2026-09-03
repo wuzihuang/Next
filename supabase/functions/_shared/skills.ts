@@ -43,7 +43,7 @@ export const CHART_SKILLS: ChartSkill[] = [
     use: "没有任何一张图配得上这个问题：一句判断、一个方向、或者数据是空的（写 ——）。",
     avoid: "手里有一串数据就别用 text，把它画出来。",
     sources: [],
-    copy: "sentence 是唯一的主角，≤ 48 字；footer 放依据，action 放下一步（可省）。",
+    copy: "headline 是屏内唯一高光（≤ 12 字，柠檬绿大字）；eyebrow 写依据，sub 写补充；sentence 写在 facts 行。",
     target: "profile",
   },
   {
@@ -187,7 +187,7 @@ export const CHART_SKILLS: ChartSkill[] = [
     use: "用户报了一顿吃的（S10）：渲染草稿帧，action 固定「确认记录」，由屏幕那一侧提交。",
     avoid: "用户问的是今天吃了多少（不是在报餐）时用 meal 或 balance。",
     sources: [],
-    copy: "name 写菜名，portion 写份量；不写没有依据的 kcal；sentence 说这一餐大致是什么。",
+    copy: "name 写菜名，portion 写份量；kcal 与三个宏量只在工具给过时才写，绝不估；sentence 说这一餐大致是什么。",
     target: "fuel",
   },
   {
@@ -242,6 +242,20 @@ export const CHART_SKILLS: ChartSkill[] = [
 
 export const SKILL_BY_TYPE = new Map(CHART_SKILLS.map((s) => [s.type, s]));
 
+export function chartSkillsForScope(sourceScope?: string[]): ChartSkill[] {
+  if (!sourceScope) return CHART_SKILLS;
+  const allowed = new Set(sourceScope);
+  const foodQuestion = sourceScope.some((source) =>
+    /^(protein|kcal|meals|mealsBySlot|mealsLogged|macros|balance|deltaKcal)\./.test(source)
+  );
+  return CHART_SKILLS.filter((skill) =>
+    skill.sources.some((source) => allowed.has(source)) ||
+    skill.type === "text" ||
+    skill.type === "metric" ||
+    (skill.type === "food" && foodQuestion)
+  );
+}
+
 /// The tool description: what it shows, when, when not. The source list is on the
 /// parameter, so it is not repeated here.
 export function toolDescription(s: ChartSkill): string {
@@ -250,7 +264,17 @@ export function toolDescription(s: ChartSkill): string {
 
 /// S11 · the router. Compact on purpose: one line per group of charts, so the whole
 /// section reads in a glance and a wrong line can be rolled back on its own.
-export function chartChoicePrompt(): string {
+export function chartChoicePrompt(sourceScope?: string[]): string {
+  if (sourceScope) {
+    const choices = chartSkillsForScope(sourceScope)
+      .map((skill) => `· ${skill.type} → ${skill.use}`);
+    return [
+      "S11 CHART CHOICE",
+      "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再从本轮提供的图里选：",
+      ...choices,
+      "序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换图或用 text 写 ——。一轮只渲染一次。",
+    ].join("\n");
+  }
   return [
     "S11 CHART CHOICE",
     "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再按问题的形状选图：",

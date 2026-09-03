@@ -22,14 +22,31 @@ drop the term, no re-weighting, no downgrade) · sport sessions (annotation only
 · wear (heartValue empty ≥ 3 ticks).
 
 ## Sec 02 · The math
-`drain(t) = k_b + k_a·max(0, met−1) + k_s·max(0, stress−40)` — three additive independent terms.
-`charge(t) = k_c · q(t) · M` per sleep tick; `charge_rest` for resting waking ticks. Anchor A:
-`BB_wake = min(20 + charge_night, 95)` on the first night; Anchor B: manual BATTERY CHECK re-anchors
-once a day. Otherwise never re-anchor — replay must converge.
+Five-minute pure replay, from the previous day's close. Veepoo's authoritative sleep stages come
+from `VPAccurateSleepModel.sleepLine`: deep 0 / light 1 / REM 2 / insomnia 3 / awake 4. The
+original-data dictionary's absent `sleep_states` is never treated as awake.
+
+Sleep recovery is saturating rather than a linear deposit:
+`gain(t) = (95 − BB(t)) · (1 − exp(−0.011 · q(t) · M))`, where q is deep 1.25 / light 0.85 /
+REM 1.00 / insomnia 0.15 / awake 0. M is the clamped HRV × RHR multiplier.
+
+Awake drain is additive and independently attributable:
+`drain(t) = 0.12 + movement(HRR, MET, steps) + autonomic(stress, RMSSD) − restorative_rest`.
+HRR, MET and steps observe the same movement, so their maximum wins rather than charging one
+workout three times. Stress above 40 and RMSSD below the personal baseline form the autonomic
+term, attenuated during exercise. Twenty quiet minutes can restore a small amount, capped at
+5 points/day and below 80. No wear evidence holds the previous value; it never spends battery.
+The first valid night starts from an explicitly assumed 20. Replay converges because recovery
+shrinks as BB approaches 95.
+
+Sleep is recovery input, not a scoring gate. With no previous close and no placeable sleep
+window, the first worn daytime tick starts from an explicitly assumed neutral 50; `BB_WAKE` and
+the training target stay unset until a real `sleep_start`→`wake_at` window exists.
 
 ## Sec 03 · Missing
 HRV empty → m=1.00, HRV row not rendered, −1 tier · value-only HRV → LOW, never label MS · not
-worn (<4h & no HR) → no score, BB ——, TARGET NOT SET · worn but <4h → count as it came, SHORT
+worn (<4h & no HR) → no score, BB ——, TARGET NOT SET · an off-wrist tick after a score exists
+holds that score rather than draining it · worn but <4h → count as it came, SHORT
 NIGHT, −1 tier · stress missing → drop term, no downgrade · met all 0 → `1.0 + steps/45`, −1 tier
 · HRV baseline <5 nights → LOW, BASELINE n/14 · last tick >90 min → dim + SYNCED HH:MM · >6h → ——.
 
@@ -64,10 +81,12 @@ today's target down.* · ONE RE-ANCHOR PER DAY.
 two changes a day at most · 04 the four attribution rows must close (±0.5) · 05 sleep duration
 fields never on screen · 06 `sleepQuality` banned · 07 HRV = own RMSSD · 08 unworn = HR empty ≥3
 ticks · 09 the morning widget once a day, `bb_morning_shown_at` on the 04:00 day, written to the
-cloud · 10 >90 min dim + SYNCED; >6h —— · 11 waking recharge ≤ 25/day, waking cap 95.
+ cloud · 10 >90 min dim + SYNCED; >6h —— · 11 waking recharge ≤ 5/day and only after a verified
+ quiet run; sleep recovery cap 95.
 
 ## 上线前 (selected)
-k_b/k_a/k_s/k_c are all 拍的 · 1.25/0.85 from literature, not KR96 · Body Battery is Garmin's
+0.011/0.12 and the movement/autonomic weights are initial calibration values, not clinical
+constants · stage weights are product heuristics, not KR96 validation · Body Battery is Garmin's
 mark — METRIC_NAMES exists for this · 「CHARGING WHILE YOU WIND DOWN · FULL 06:40」 is the
 product's only prediction · confidence words must share 10's tokens · DST days are 23/25 h.
 Events: `BB_MORNING_SHOWN{SCORE,DELTA,BAND}` · `BB_MORNING_SUPPRESSED{REASON}` · …

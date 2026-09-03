@@ -36,6 +36,15 @@ protocol BandService: AnyObject {
 
     func measureHeartRate() -> AsyncThrowingStream<MeasurementProgress, Error>
     func measureBodyComposition() -> AsyncThrowingStream<MeasurementProgress, Error>
+    /// 04 · one stress reading, the band's own 压力 test. One value at the end and no partials,
+    /// so this is an awaited call rather than a stream like the two above — but it is not
+    /// quick: a real HOOP takes 19 s, reporting `progress` 0…100 in steps of 6 a second, and
+    /// only the last callback carries the number.
+    /// ⚠️ It holds the sensor for all of that, which is why `LiveReadout` stops the heart-rate
+    /// stream around it instead of running the two together — and why the progress is passed
+    /// back rather than swallowed: nineteen seconds of an unchanging label is a screen that
+    /// looks stuck.
+    func measureStress(progress: @escaping @MainActor (Int) -> Void) async throws -> Int
 
     func writeSetting(_ setting: BandSetting) async throws -> BandSetting
     /// Ask the update server whether this band has newer firmware. `nil` is "up to date";
@@ -45,8 +54,66 @@ protocol BandService: AnyObject {
     /// done and the version could not be read back — and is never folded into the other two.
     /// `progress` is 0…1 while the file crosses; it is a number, never a tween.
     func updateFirmware(to version: String, progress: @escaping @Sendable (Double) -> Void) async throws -> FirmwareUpdateResult
-    func readAutoMonitoring() async throws -> [AutoMonitorSlot]
+    func readAutoMonitoring() async throws -> AutoMonitoringRead
     func writeAutoMonitoring(_ slot: AutoMonitorSlot) async throws
+    /// DEBUG · the SDK cannot say which sports a firmware carries, so the probe asks by
+    /// opening one and closing it again. `rawValue` is a VPDeviceRuningMode ordinal; true
+    /// means the band took that mode, false means it does not exist on this firmware.
+    /// ⚠️ Opens and immediately closes a real workout session on the band.
+    func probeSportMode(_ rawValue: Int) async throws -> Bool
+    /// Open a sport mode and leave it running. `rawValue` is a VPDeviceRuningMode ordinal.
+    /// A refusal means this firmware does not carry that mode.
+    func startSportMode(_ rawValue: Int) async throws
+    /// Close the sport mode previously opened with `startSportMode`.
+    func stopSportMode(_ rawValue: Int) async throws
+    /// What this HOOP says it can measure, in its own words.
+    /// ⚠️ This is the honest answer to "what does this band do", and the reason it exists is
+    /// that `readCapabilities` is partly guessed bit positions in `deviceFuctionData`. A guess
+    /// that reads `.unsupported` on a working firmware silently removes a feature — it has
+    /// already happened twice here (the auto-measure row, and the stress test's own gate).
+    /// This is a plain read: no measurement, no sensor time.
+    func readHealthFunctions() async throws -> [BandHealthFunction]
+}
+
+extension BandService {
+    /// For callers that only want the number.
+    func measureStress() async throws -> Int { try await measureStress(progress: { _ in }) }
+}
+
+/// One row of the band's own health-function list (VPHealthFunctionModel): what it is,
+/// whether this firmware carries it, and whether it is switched on.
+/// ⚠️ `support == false` is the band saying no. `open` is a setting, not a capability —
+/// a supported function that is closed can be opened; an unsupported one cannot.
+struct BandHealthFunction: Hashable {
+    /// VPHealthFunctionType, carried through verbatim so an unknown future kind still prints.
+    let rawValue: Int
+    let name: String
+    let support: Bool
+    let open: Bool
+
+    /// The seventeen VPHealthFunctionType values, in the SDK's own order.
+    static func name(forRawValue raw: Int) -> String {
+        switch raw {
+        case 0:  "blood glucose"
+        case 1:  "blood pressure"
+        case 2:  "blood oxygen"
+        case 3:  "body temperature"
+        case 4:  "HRV"
+        case 5:  "stress"
+        case 6:  "MET"
+        case 7:  "blood components"
+        case 8:  "body composition"
+        case 9:  "health glance"
+        case 10: "emotion"
+        case 11: "fatigue"
+        case 12: "nuclear radiation"
+        case 13: "fall detection"
+        case 14: "AI chat"
+        case 15: "AI dial"
+        case 16: "skin conductance"
+        default: "type \(raw)"
+        }
+    }
 }
 
 enum BandConnectionState: Equatable {
@@ -327,6 +394,58 @@ struct AutoMonitorSlot: Identifiable, Hashable {
     var allowedIntervals: [Int] {
         AutoMeasurementIntervalPolicy.options(minimumStepMinutes: intervalStepMinutes)
     }
+
+    /// Firmware that only exposes the older on/off switches. The interval is not a setting.
+    static func firmwareOwned(kind: Kind, on: Bool) -> AutoMonitorSlot {
+        AutoMonitorSlot(
+            kind: kind, on: on, supportsRange: false,
+            startHour: 0, endHour: 24, intervalMinutes: 0,
+            intervalStepMinutes: 0, slotModifiable: false, intervalModifiable: false)
+    }
+}
+
+/// What `readAutoMonitoring()` actually found. The sheet used to treat "no rows" as a blank
+/// page, which hid three different answers: interval API empty, switch-only firmware, and a
+/// read that never came back.
+enum AutoMonitoringRead: Equatable {
+    /// `autoMonitSwitchType != 0`. Each row can carry its own interval.
+    case interval([AutoMonitorSlot])
+    /// `autoMonitSwitchType == 0`. Only the older base-function switches exist.
+    case switches([AutoMonitorSlot])
+    case failed(headline: String, sentence: String)
+
+    var slots: [AutoMonitorSlot] {
+        switch self {
+        case .interval(let slots), .switches(let slots): return slots
+        case .failed: return []
+        }
+    }
+
+    static func failed(_ error: Error) -> AutoMonitoringRead {
+        if let error = error as? BandError {
+            switch error {
+            case .notConnected:
+                return .failed(
+                    headline: "BAND OFFLINE",
+                    sentence: "Connect this HOOP, then open Automatic measurement again.")
+            case .timeout:
+                return .failed(
+                    headline: "THE BAND DID NOT ANSWER",
+                    sentence: "The automatic-measurement read timed out. Keep it on your wrist and try again.")
+            case .unsupported:
+                return .failed(
+                    headline: "THIS HOOP DOES NOT EXPOSE AUTOMATIC MEASUREMENT",
+                    sentence: "The firmware has no interval API and no automatic-measurement switches to turn.")
+            default:
+                return .failed(
+                    headline: error.localizedDescription,
+                    sentence: "This HOOP refused the automatic-measurement read.")
+            }
+        }
+        return .failed(
+            headline: "THE BAND DID NOT ANSWER",
+            sentence: error.localizedDescription)
+    }
 }
 
 enum BandError: LocalizedError {
@@ -388,11 +507,16 @@ final class DisconnectedBand: BandService, @unchecked Sendable {
     func measureBodyComposition() -> AsyncThrowingStream<MeasurementProgress, Error> {
         AsyncThrowingStream { $0.finish(throwing: BandError.notConnected) }
     }
+    func measureStress(progress _: @escaping @MainActor (Int) -> Void) async throws -> Int { throw BandError.notConnected }
     func writeSetting(_: BandSetting) async throws -> BandSetting { throw BandError.notConnected }
     func checkFirmwareUpdate() async throws -> FirmwareOffer? { throw BandError.notConnected }
     func updateFirmware(to _: String, progress _: @escaping @Sendable (Double) -> Void) async throws -> FirmwareUpdateResult {
         throw BandError.notConnected
     }
-    func readAutoMonitoring() async throws -> [AutoMonitorSlot] { throw BandError.notConnected }
+    func readAutoMonitoring() async throws -> AutoMonitoringRead { throw BandError.notConnected }
     func writeAutoMonitoring(_: AutoMonitorSlot) async throws { throw BandError.notConnected }
+    func probeSportMode(_ rawValue: Int) async throws -> Bool { throw BandError.notConnected }
+    func startSportMode(_ rawValue: Int) async throws { throw BandError.notConnected }
+    func stopSportMode(_ rawValue: Int) async throws { throw BandError.notConnected }
+    func readHealthFunctions() async throws -> [BandHealthFunction] { throw BandError.notConnected }
 }

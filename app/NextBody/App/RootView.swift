@@ -43,9 +43,8 @@ struct RootView: View {
                     // 04 · one of page two's eight instruments, opened from its own card.
                     case .vitals(let metric):     VitalsDetailView(metric: metric)
                     case .device:                 DeviceView()
-                    // F1 · D — the band's alarms and auto-measurement are sheets on the
-                    // device page, not third-level pages.
-                    case .deviceAlarms:           DeviceView()
+                    // F1 · D — automatic measurement is a sheet on the device page,
+                    // not a third-level page.
                     case .deviceAutoMonitor:      DeviceView()
                     case .sportMode:             SportModeView()
                     case .chat(let sessionID, let initialQuery, let attachmentDataURL):
@@ -75,6 +74,15 @@ struct RootView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                         if router.path.isEmpty { router.open(d, from: .home) }
                     }
+                }
+            }
+            // `SIMCTL_CHILD_NB_DEBUG_MEASURE=ecg` opens a measurement takeover straight
+            // away — the plus menu is two taps no harness can make, and the ECG strip is
+            // forty seconds of drawing that has to be watched to be checked.
+            if let m = ProcessInfo.processInfo.environment["NB_DEBUG_MEASURE"],
+               let kind = MeasureKind(rawValue: m) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                    if router.takeover == nil { router.takeover = .measure(kind) }
                 }
             }
             // `SIMCTL_CHILD_NB_DEBUG_SHEET=export` lifts one of profile's sheets on top of

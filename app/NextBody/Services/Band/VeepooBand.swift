@@ -300,7 +300,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 peripheral.veepooSDKReadDeviceBatteryAndChargeInfo { isPercent, charge, isLow, value in
                     // ⚠️ Firmware with isPercent = false gives 0–4 bars. Those are stored in a
                     // different column and never rendered with a % sign.
-                    done(.success(BandBattery(
+                    // The SDK keeps this block and fires it again when charge changes —
+                    // 12 rule 07 · bind the event, do not poll. Later fires still publish
+                    // even though `done` only completes the first readBattery().
+                    let battery = BandBattery(
                         isPercent: isPercent,
                         percent: isPercent ? Int(value) : nil,
                         level: isPercent ? nil : Int(value),
@@ -309,9 +312,11 @@ final class VeepooBand: BandService, @unchecked Sendable {
                             case .charging: .charging
                             case .full:     .full
                             case .normal:   .unplugged
-                            default:                   .unknown
+                            default:        .unknown
                             }
-                        }())))
+                        }())
+                    self.hub.send(.battery(battery))
+                    done(.success(battery))
                 }
             }
         }
@@ -680,8 +685,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
                         if !slot.started { slot.started = true; c.yield(.contact) }
                     case .testing:
                         if !slot.started { slot.started = true; c.yield(.contact) }
-                        c.yield(.measuring(fraction: 0.5,
-                                           partial: PartialReading(heartRate: Int(value))))
+                        // ⚠️ No progress fraction. The SDK only reports a rate — inventing
+                        // 0.5 here used to pin Battery Check's countdown at 30 forever,
+                        // because every callback rewrote `remaining` from that fake half.
+                        // The phone's clock owns the minute; partial carries the beat.
+                        let beat = Int(value)
+                        c.yield(.measuring(fraction: 0,
+                                           partial: beat > 0 ? PartialReading(heartRate: beat) : nil))
                     case .over:
                         // 「测试正常结束，人为结束」· the test ending, which is not the same thing
                         // as a reading. A zero here is the band saying it never got one, and a
@@ -693,7 +703,11 @@ final class VeepooBand: BandService, @unchecked Sendable {
                         }
                         c.finish()
                     case .notWear:
+                        // 「佩戴检测没有通过，测试已经结束」— the test is dead. Yield the
+                        // lift, then finish so Battery Check can reopen after the 3 s grace
+                        // instead of hanging forever on a stream that will never speak again.
                         c.yield(.lostContact)
+                        c.finish()
                     case .deviceBusy:
                         c.finish(throwing: BandError.busy)
                     @unknown default:
@@ -797,9 +811,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
         guard let peripheral else { throw BandError.notConnected }
         let stop = { DispatchQueue.main.async { peripheral.veepooSDK_stressTestStart(false, result: { _, _, _ in }) } }
         return try await withTaskCancellationHandler {
+            // ⚠️ `stop` on the way out of EVERY path, not just the happy one. A test left
+            // running because the band stopped answering holds the sensor and the queue for
+            // as long as the app is alive — the timeout is the app giving up, not the band.
+            do {
             // Measured on a real HOOP: 19 s, progress 0…100 at 6 a second. 90 s is the
             // timeout — the ceiling for a band that stops answering, not the length.
-            try await sdk("stressTest", seconds: 90) { done in
+            return try await sdk("stressTest", seconds: 90) { done in
                 peripheral.veepooSDK_stressTestStart(true) { state, done_progress, stress in
                     Self.log.notice("stress state \(state.rawValue) progress \(done_progress) value \(stress)")
                     // The SDK's callbacks arrive on the main thread — every entry point of this
@@ -826,6 +844,40 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     case .notWear:      done(.failure(BandError.rejected("NOT ON THE WRIST")))
                     // `over` is our own stop coming back. Nothing to resume with.
                     default:            break
+                    }
+                }
+            }
+            } catch {
+                stop()
+                throw error
+            }
+        } onCancel: {
+            stop()
+        }
+    }
+
+    /// 06 · Battery Check's HRV leg. Demo holds ~60 s then stops; we take the first
+    /// positive value, or time out with no reading rather than inventing one.
+    func measureHRV(timeout: TimeInterval) async throws -> Int {
+        guard let peripheral else { throw BandError.notConnected }
+        let stop = { DispatchQueue.main.async { peripheral.veepooSDK_HRVTest(false, callBack: { _, _, _ in }) } }
+        return try await withTaskCancellationHandler {
+            try await sdk("hrvTest", seconds: timeout) { done in
+                peripheral.veepooSDK_HRVTest(true) { con, ack, hrvValue in
+                    Self.log.notice("hrv con \(con) ack \(ack.rawValue) value \(hrvValue)")
+                    switch ack {
+                    case .testing:
+                        guard hrvValue > 0 else { break }
+                        stop()
+                        done(.success(Int(hrvValue)))
+                    case .alreadyStarted, .deviceBusy:
+                        done(.failure(BandError.busy))
+                    case .lowPower:
+                        done(.failure(BandError.rejected("BAND BATTERY LOW")))
+                    case .notWear:
+                        done(.failure(BandError.rejected("NOT ON THE WRIST")))
+                    @unknown default:
+                        break
                     }
                 }
             }
@@ -935,10 +987,261 @@ final class VeepooBand: BandService, @unchecked Sendable {
                         done(.failure(BandError.rejected("HEART RATE ALARM REFUSED")))
                     }
                 }
-            default:
-                throw BandError.unsupported("that setting")
             }
         }
+    }
+
+    /// 06 · the pulse study. The SDK command is its single-lead start — the only path to
+    /// beat-to-beat timing on this hardware — and the waveform it streams is deliberately
+    /// dropped on the floor here rather than carried up. See `measurePulseStudy`.
+    func measurePulseStudy() -> AsyncThrowingStream<PulseStudyStep, Error> {
+        AsyncThrowingStream { c in
+            guard let peripheral else { c.finish(throwing: BandError.notConnected); return }
+            c.yield(.waitingForContact)
+            // F1 rule 05 · stop before the screen goes, however it goes.
+            c.onTermination = { _ in
+                DispatchQueue.main.async { peripheral.veepooSDKTestECGStart(false, testResult: { _, _, _ in }) }
+            }
+            var contacted = false
+            var logged = 0
+            DispatchQueue.main.async {
+                peripheral.veepooSDKTestECGStart(true) { state, progress, model in
+                    switch state {
+                    case .start:
+                        break
+                    case .testing:
+                        // The first `testing` is the band judging the circuit closed, not the
+                        // echo of our start — the same rule the heart test follows.
+                        if !contacted { contacted = true; c.yield(.contact) }
+                        // ⚠️ muHearts is an NSMutableArray: bridge before reaching for the
+                        // last value, which is the one the SDK says to display right now.
+                        let live = ((model?.muHearts as? [NSNumber])?.last)?.intValue
+                        // Which of these arrive DURING the run decides whether the field can
+                        // beat with the wearer or has to hold a resting tempo, so the first
+                        // few callbacks say what was in them.
+                        if logged < 3 {
+                            logged += 1
+                            Self.log.notice("pulse study · progress \(progress) · muHearts \((model?.muHearts as? [NSNumber])?.count ?? -1) · hearts \((model?.hearts as? [NSNumber])?.count ?? -1) · rrs \((model?.rrs as? [NSNumber])?.count ?? -1) · live \(live ?? -1)")
+                        }
+                        c.yield(.measuring(percent: Int(progress),
+                                           heartRate: live.flatMap { $0 > 0 ? $0 : nil }))
+                    case .notLead:
+                        c.yield(.lostContact)
+                    case .complete:
+                        // ⚠️ Only a model is the end. A terminal state on its own is what the
+                        // stress test taught: `complete` arrives with nothing in it too.
+                        guard let model else { break }
+                        c.yield(.finished(Self.study(from: model)))
+                        c.finish()
+                    case .deviceBusy:
+                        c.finish(throwing: BandError.busy)
+                    case .noFunction:
+                        c.finish(throwing: BandError.unsupported("PULSE STUDY"))
+                    case .failure:
+                        c.yield(.failed(reason: "NO READING"))
+                        c.finish()
+                    // `over` is our own stop coming back.
+                    default:
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    /// The finished model, reduced to the interval series and the rate. The waveform arrays
+    /// are not read at all — not converted, not copied, not carried.
+    private static func study(from m: VPECGTestDataModel) -> PulseStudy {
+        func int(_ s: String?) -> Int? { s.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) } }
+        // ⚠️ `rrs` is 「App手动测试每秒的rr值」 — the SDK samples it once a second rather than
+        // once a beat, so forty seconds gives about forty numbers. Zeros are the seconds it
+        // had nothing, and they are dropped rather than plotted as an interval of zero.
+        let rr = ((m.rrs as? [NSNumber])?.map(\.doubleValue) ?? []).filter { $0 > 0 }
+        let beats = ((m.hearts as? [NSNumber])?.map(\.intValue) ?? []).filter { $0 > 0 }
+        log.notice("pulse study finished · \(rr.count) interval(s) · \(beats.count) beat rate(s) · type \(m.ecgType ?? "-", privacy: .public)")
+        return PulseStudy(
+            heartRate: int(m.aveHeart).flatMap { $0 > 0 ? $0 : nil },
+            intervals: rr,
+            durationSeconds: int(m.duration),
+            vendorHRV: int(m.aveHrv))
+    }
+
+    /// DEBUG · what the watch itself has stored. One read, thirteen kinds.
+    /// ⚠️ Nothing is measured here: this is the band handing back what the user already
+    /// pressed for on the watch, which is the only full set available on a firmware that
+    /// ignores the app's own measurement commands.
+    func readManualTestData(since: Date) async throws -> [String] {
+        guard let peripheral else { throw BandError.notConnected }
+        let from = UInt32(max(0, since.timeIntervalSince1970))
+        return try await queue.run("readManualTestData", priority: .p1) {
+            try await self.sdk("manualTestData", seconds: 20) { done in
+                peripheral.readManualTestData(withTimestamp: from,
+                                              dataType: VPManualTestDataType(rawValue: 0xFFFF_FFFF)) { model in
+                    // ⚠️ The block's model is nullable in Swift's eyes even though the header
+                    // does not say so. A firmware with nothing stored answers with nothing,
+                    // and that is an empty list, not a crash and not a failure.
+                    guard let model else { done(.success([])); return }
+                    var lines: [String] = []
+                    func stamp(_ t: UInt32) -> String {
+                        ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: TimeInterval(t)))
+                    }
+                    for r in model.heartRateArr { lines.append("heart rate \(stamp(r.timestamp)) · \(r.heartArray)") }
+                    for r in model.bloodOxygenArr { lines.append("blood oxygen \(stamp(r.timestamp)) · \(r.bloodOxygenArray)") }
+                    for r in model.stressArr { lines.append("stress \(stamp(r.timestamp)) · \(r.value)") }
+                    for r in model.bodyTempArr { lines.append("temperature \(stamp(r.timestamp)) · \(r.bodyTemp) skin \(r.origTemp)") }
+                    for r in model.bloodPressureArr { lines.append("blood pressure \(stamp(r.timestamp))") }
+                    for r in model.bloodSugarArr { lines.append("blood sugar \(stamp(r.timestamp))") }
+                    for r in model.bloodCompArr { lines.append("blood components \(stamp(r.timestamp))") }
+                    for r in model.hrvArr { lines.append("HRV \(stamp(r.timestamp))") }
+                    for r in model.gsrArr { lines.append("skin conductance \(stamp(r.timestamp))") }
+                    for r in model.emotionArr { lines.append("emotion \(stamp(r.timestamp))") }
+                    for r in model.fatigueLevelArr { lines.append("fatigue \(stamp(r.timestamp))") }
+                    // The one that carries a whole set at once.
+                    for r in model.healthGlanceArr {
+                        lines.append("health glance \(stamp(r.timestamp)) · hr \(r.heartRate) spo2 \(r.bloodOxygen) stress \(r.stress) fatigue \(r.fatigueLevel) temp \(r.bodyTemperature) skin \(r.orgTemperature) bp \(r.h_bp)/\(r.l_bp) hrv \(r.hrv) sugar \(r.bloodSugar) emotion \(r.emotionLevel) protocol \(r.protocol) support \(r.functionSupport)")
+                    }
+                    Self.log.notice("manual test data · \(lines.count) record(s)")
+                    done(.success(lines))
+                }
+            }
+        }
+    }
+
+    /// DEBUG · 微体检 (定制项目). A different opcode from the 公版 one; some firmware carries
+    /// one, some the other, and the only way to know which is to ask.
+    /// ⚠️ A real measurement on the wrist.
+    func probeMicroTest(progress: @escaping @MainActor (Int) -> Void) async throws -> [(name: String, value: Double)] {
+        guard let peripheral else { throw BandError.notConnected }
+        let stop = { DispatchQueue.main.async { peripheral.veepooSDKMicroTestOpenState(false, andProgress: nil, andFail: nil, andSuccess: nil, andHeartRate: nil, andPPG: nil) } }
+        return try await withTaskCancellationHandler {
+            do {
+            return try await sdk("microTest", seconds: 180) { done in
+                peripheral.veepooSDKMicroTestOpenState(true, andProgress: { p in
+                    Self.log.notice("micro test progress \(p)")
+                    MainActor.assumeIsolated { progress(Int(p)) }
+                }, andFail: { error in
+                    Self.log.error("micro test failed · \(String(describing: error), privacy: .public)")
+                    done(.failure(BandError.rejected("MICRO TEST FAILED")))
+                }, andSuccess: { endState, model in
+                    Self.log.notice("micro test success endState \(endState) model \(model == nil ? "nil" : "yes")")
+                    guard let model else { return }
+                    stop()
+                    done(.success([
+                        ("heart rate", Double(model.heartRate)),
+                        ("blood oxygen", Double(model.bloodOxygen)),
+                        ("stress", Double(model.pressure)),
+                        ("blood sugar", Double(model.bloodSugar)),
+                        ("body temperature", Double(model.bodyTemperature)),
+                        ("systolic", Double(model.systolicBloodPressure)),
+                        ("diastolic", Double(model.diastolicBloodPressure)),
+                        ("HRV", Double(model.hrv)),
+                    ]))
+                }, andHeartRate: { hr in
+                    Self.log.notice("micro test heart \(hr)")
+                }, andPPG: { _ in })
+            }
+            } catch {
+                stop()
+                throw error
+            }
+        } onCancel: {
+            stop()
+        }
+    }
+
+    /// DEBUG · 微体检 (公版), `veepooSDK_healthGlanceTestStart`. One measurement, one model.
+    /// ⚠️ A real measurement on the wrist, holding the sensor for its whole length.
+    /// ⚠️ Only `complete` WITH a model is the end. The stress test taught this the hard way:
+    /// that SDK reports its terminal state on every progress callback, and resuming on the
+    /// first one stopped the measurement a sixth of a second in and answered zero.
+    func probeHealthGlance(progress: @escaping @MainActor (Int) -> Void) async throws -> BandHealthGlance {
+        guard let peripheral else { throw BandError.notConnected }
+        let stop = { DispatchQueue.main.async { peripheral.veepooSDK_healthGlanceTestStart(false, andProgress: { _ in }, andResult: { _, _ in }) } }
+        return try await withTaskCancellationHandler {
+            // ⚠️ Same as the stress test: stop on the way out of every path.
+            do {
+            // No documented length for this one — the stress test is 19 s and a body scan 30 s,
+            // so three minutes is a ceiling wide enough to learn the real number from the log.
+            return try await sdk("healthGlance", seconds: 180) { done in
+                peripheral.veepooSDK_healthGlanceTestStart(true, andProgress: { p in
+                    Self.log.notice("health glance progress \(p)")
+                    MainActor.assumeIsolated { progress(Int(p)) }
+                }, andResult: { state, model in
+                    Self.log.notice("health glance state \(state.rawValue) model \(model == nil ? "nil" : "yes")")
+                    switch state {
+                    case .complete:
+                        guard let model else { break }
+                        stop()
+                        done(.success(Self.glance(from: model)))
+                    case .noFunction:   done(.failure(BandError.unsupported("HEALTH GLANCE")))
+                    case .deviceBusy:   done(.failure(BandError.busy))
+                    case .lowPower:     done(.failure(BandError.rejected("BAND BATTERY LOW")))
+                    case .notWear:      done(.failure(BandError.rejected("NOT ON THE WRIST")))
+                    case .notLead:      done(.failure(BandError.rejected("FINGER OFF THE ELECTRODE")))
+                    case .failure:      done(.failure(BandError.rejected("MEASUREMENT FAILED")))
+                    // `over` is our own stop coming back.
+                    default:            break
+                    }
+                })
+            }
+            } catch {
+                stop()
+                throw error
+            }
+        } onCancel: {
+            stop()
+        }
+    }
+
+    /// Every field of the SDK's model, in its own order, zeros included.
+    private static func glance(from m: VPHealthGlanceTestModel) -> BandHealthGlance {
+        let values: [(name: String, value: Double)] = [
+            ("heart rate", Double(m.heartRate)),
+            ("blood oxygen", Double(m.bloodOxygen)),
+            ("stress", Double(m.stress)),
+            ("fatigue level", Double(m.fatigueLevel)),
+            ("blood sugar", m.bloodSugar),
+            ("blood sugar type", Double(m.bloodSugarType)),
+            ("blood sugar level", Double(m.bloodSugarLevel)),
+            ("body temperature", m.bodyTemperature),
+            ("original temperature", m.orgTemperature),
+            ("systolic", Double(m.systolicBloodPressure)),
+            ("diastolic", Double(m.diastolicBloodPressure)),
+            ("HRV", Double(m.hrv)),
+            ("PPG BP high", Double(m.ppgBloodPressureHigh)),
+            ("PPG BP low", Double(m.ppgBloodPressureLow)),
+            ("cuff BP high", Double(m.cuffBloodPressureHigh)),
+            ("cuff BP low", Double(m.cuffBloodPressureLow)),
+            ("total cholesterol", m.totalCholesterol),
+            ("triglyceride", m.triglyceride),
+            ("HDL", m.highDensityLipoprotein),
+            ("LDL", m.lowDensityLipoprotein),
+            ("uric acid", m.uricAcid),
+            ("weight", Double(m.weight)),
+            ("height", Double(m.height)),
+            ("age", Double(m.age)),
+            ("gender", Double(m.gender)),
+            ("BMI", m.bmi),
+            ("body fat %", m.bodyFatPercentage),
+            ("fat mass", m.fatMass),
+            ("lean body mass", m.leanBodyMass),
+            ("muscle rate", m.muscleRate),
+            ("muscle mass", m.muscleMass),
+            ("subcutaneous fat", m.subcutaneousFat),
+            ("body moisture", m.bodyMoisture),
+            ("water content", m.waterContent),
+            ("skeletal muscle rate", m.skeletalMuscleRate),
+            ("bone mass", m.boneMass),
+            ("protein %", m.proportionOfProtein),
+            ("protein amount", m.proteinAmount),
+            ("BMR", m.basalMetabolicRate),
+            ("emotion level", Double(m.emotionLevel)),
+            ("skin moisture", Double(m.skinMoisture)),
+            ("depression risk", Double(m.depressionRisk)),
+            ("SNS activation", Double(m.snsActivation)),
+            ("cortisol", Double(m.cortisolValue)),
+        ]
+        return BandHealthGlance(values: values, functionSupport: UInt(m.functionSupport))
     }
 
     /// The band's own list of what it can measure — `veepooSDK_readFuncAssessment`, one read,
@@ -1170,15 +1473,78 @@ final class VeepooBand: BandService, @unchecked Sendable {
         guard let mode = VPDeviceRuningMode(rawValue: rawValue) else {
             throw BandError.unsupported("sport mode \(rawValue)")
         }
-        try await queue.run("stopSportMode", priority: .p0) {
-            try await self.sdk("stopSportMode") { done in
-                peripheral.veepooSDKSettingDeviceRunning(0, run: mode) { _, closed in
-                    if closed { done(.success(())) }
-                    else {
-                        Self.log.notice("sport stop failed for \(rawValue)")
-                        done(.failure(BandError.rejected("SPORT MODE DID NOT CLOSE")))
+        do {
+            try await queue.run("stopSportMode", priority: .p0) {
+                try await self.sdk("stopSportMode") { done in
+                    peripheral.veepooSDKSettingDeviceRunning(0, run: mode) { _, closed in
+                        if closed { done(.success(())) }
+                        else {
+                            Self.log.notice("sport stop failed for \(rawValue)")
+                            done(.failure(BandError.rejected("SPORT MODE DID NOT CLOSE")))
+                        }
                     }
                 }
+            }
+        } catch BandError.rejected {
+            // 14 · the legacy close refused — a session opened on the band itself, or under
+            // another mode, answers no here. The sport-control protocol's stop is the other
+            // door: fire it, then ask the band where it stands. Only a `not started` answer
+            // counts as closed.
+            Self.log.notice("sport stop · trying the control protocol")
+            await MainActor.run { peripheral.veepooSDK_deviceSportControl(with: .stop, type: mode) }
+            try? await Task.sleep(for: .milliseconds(1200))
+            let state = await sportRunState()
+            Self.log.notice("sport stop · state after control stop \(state.map(String.init) ?? "none", privacy: .public)")
+            guard state == 0 else { throw BandError.rejected("SPORT MODE DID NOT CLOSE") }
+        }
+    }
+
+    /// 14 · the firmware's own sport report. Subscribing installs one block on the SDK;
+    /// the SDK keeps only the latest, so cancelling replaces it with an empty one rather
+    /// than leaving a dead continuation to be called. A device log showed this HOOP answers
+    /// a state read at once and then says nothing on its own, so the read is repeated every
+    /// two seconds for as long as the stream is open — and the stream closes itself when
+    /// three reads in a row go unanswered, so a reader waiting on it is never left hanging.
+    func sportLiveInfo() -> AsyncStream<SportLiveInfo> {
+        AsyncStream { c in
+            guard let peripheral else { c.finish(); return }
+            final class Pulse: @unchecked Sendable { var lastAt = Date(); var misses = 0 }
+            let pulse = Pulse()
+            let poll = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { break }
+                    if Date().timeIntervalSince(pulse.lastAt) > 2.5 {
+                        pulse.misses += 1
+                        if pulse.misses >= 3 {
+                            Self.log.notice("sport info · no answer to three reads, closing")
+                            c.finish()
+                            break
+                        }
+                    }
+                    await MainActor.run { peripheral.veepooSDK_readDeviceSportState() }
+                }
+            }
+            c.onTermination = { _ in
+                poll.cancel()
+                DispatchQueue.main.async { peripheral.veepooSDK_deviceSportInfoSubscribe(nil) }
+            }
+            DispatchQueue.main.async {
+                Self.log.notice("sport info subscribe")
+                peripheral.veepooSDK_deviceSportInfoSubscribe { model in
+                    guard let model else { return }
+                    pulse.lastAt = Date()
+                    pulse.misses = 0
+                    let hr = Int(model.heartRate)
+                    Self.log.notice("sport info ← hr \(hr) kcal \(model.calories) dur \(model.duration) state \(model.runState.rawValue) mode \(model.sportMode.rawValue)")
+                    c.yield(SportLiveInfo(
+                        heartRate: hr > 0 ? hr : nil,
+                        calories: model.calories > 0 ? Int(model.calories) : nil,
+                        distanceM: model.distance > 0 ? Int(model.distance) : nil,
+                        durationSec: model.duration > 0 ? Int(model.duration) : nil,
+                        runState: model.runState.rawValue))
+                }
+                peripheral.veepooSDK_readDeviceSportState()
             }
         }
     }

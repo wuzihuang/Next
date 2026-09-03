@@ -8,17 +8,11 @@ struct DeviceView: View {
 
     @State private var sheet: SheetRoute?
     @State private var identity: BandIdentity?
-    @State private var capabilities = BandCapabilities()
     @State private var battery: BandBattery?
 
     // F3 · a switch shows the value that came back, never the value we sent. Optimistic UI
     // here means the firmware wins a second later and the toggle flips under a finger.
     @State private var hrAlarm = true
-    @State private var moveReminder = true
-    @State private var drinkNudge = false
-    @State private var wearDetection = true
-    @State private var disconnectAlert = true
-    @State private var lowPower = false
     /// 12 edge 3 · the band clamped a write: what was asked, what it kept.
     @State private var clamped: (name: String, asked: String, got: String)?
     /// 12 edge 4 · a write answered DEVICE_BUSY and is queued behind the measurement.
@@ -95,29 +89,6 @@ struct DeviceView: View {
                            value: SyncCadence.label(cadence), last: true) { sheet = .syncCadence }
                 }
 
-                GroupLabel12("REMINDERS · VIBRATION ONLY")
-                RowCard {
-                    ToggleRow(title: "Move reminder", detail: "EVERY 60 MIN · 09:00 – 18:00",
-                              isOn: $moveReminder, enabled: connected)
-                    ToggleRow(title: "Drink & breathe nudges", detail: drinkNudge ? "ON" : "OFF",
-                              isOn: $drinkNudge, enabled: connected)
-                    NavRow(title: "Alarms", detail: "07:30 MON–FRI · 08:45 SAT",
-                           value: "2", enabled: connected, last: true) { sheet = .bandAlarm }
-                }
-
-                GroupLabel12("HOW IT BEHAVES")
-                RowCard {
-                    ToggleRow(title: "Wear detection", detail: "Stops reading when it is off your wrist",
-                              detailIsSentence: true, isOn: $wearDetection,
-                              enabled: connected && capabilities.wearDetection != .unsupported)
-                    ToggleRow(title: "Buzz if we lose each other",
-                              detail: "A short pulse when your phone walks away",
-                              detailIsSentence: true, isOn: $disconnectAlert, enabled: connected)
-                    ToggleRow(title: "Low power mode",
-                              detail: "Fewer readings. Roughly twice the battery.",
-                              detailIsSentence: true, isOn: $lowPower, enabled: connected, last: true)
-                }
-
                 GroupLabel12("IDENTITY")
                 // Five dead facts, no box: they are not settings.
                 // ⚠️ DEVICE NO. is DeviceVersion.deviceNumber — the SDK has no serial number.
@@ -175,31 +146,27 @@ struct DeviceView: View {
         }
         .task {
             // DEBUG · 12 edges on a simulator that would never produce them.
-            if DebugEdge.on("clamped") { clamped = ("Move reminder", "60 MIN", "45 MIN") }
+            if DebugEdge.on("clamped") { clamped = ("Heart rate alarm", "50–140 BPM", "50–130 BPM") }
             if DebugEdge.on("busy") { busyQueued = true }
             if DebugEdge.on("otaunverified") { ota = .unverified }
             if DebugEdge.on("levelonly") { battery = BandBattery(isPercent: false, percent: nil, level: 3, chargeState: .unplugged) }
-            // What was stored the last time this HOOP answered. The page is right from the
-            // first frame, and stays right when the band is out of range — which is the
-            // whole reason device_capabilities is a table rather than a local variable.
-            capabilities = data.capabilities
             await Analytics.shared.track("DEVICE_PAGE_OPEN", ["CONNECTED": connected])
             guard connected else { return }
-            // P1 · a page opened. These three reads are what the whole screen is made of,
-            // so nothing below renders a guess while they are in flight.
+            // Battery first: POWER used to wait behind identity and capabilities, so a
+            // known charging band flashed UNKNOWN for a second. The store already holds
+            // the last charge state; this write refreshes it without wiping the card.
+            if !DebugEdge.on("levelonly"), let fresh = try? await Band.live.readBattery() {
+                battery = fresh
+                data.band.applyBattery(fresh)
+            }
             identity = try? await Band.live.readIdentity()
             if let fresh = try? await Band.live.readCapabilities() {
-                capabilities = fresh
                 data.capabilities = fresh
                 if let deviceId = Repository.shared.deviceId,
                    let userId = await SupabaseClient.shared.currentUserId {
                     await Repository.shared.saveCapabilities(fresh, deviceId: deviceId, userId: userId,
                                                              holdsDays: identity?.watchDataDayNumber)
                 }
-            }
-            if !DebugEdge.on("levelonly") { battery = try? await Band.live.readBattery() }
-            if let battery, let percent = battery.percent {
-                data.band.batteryPercent = percent
             }
             if let identity { data.band.firmware = identity.firmware }
             await checkForUpdate()
@@ -217,6 +184,10 @@ struct DeviceView: View {
         .onChange(of: connected) { _, on in
             guard on else { autoRead = nil; return }
             Task {
+                if !DebugEdge.on("levelonly"), let fresh = try? await Band.live.readBattery() {
+                    battery = fresh
+                    data.band.applyBattery(fresh)
+                }
                 if identity == nil, let fresh = try? await Band.live.readIdentity() {
                     identity = fresh; data.band.firmware = fresh.firmware
                 }
@@ -229,7 +200,6 @@ struct DeviceView: View {
             Group {
                 switch r {
                 case .bandAutoMonitor: AutoMeasurementSheet(initial: autoRead) { autoRead = $0 }
-                case .bandAlarm:       AlarmsSheet()
                 case .syncCadence:     SyncCadenceSheet(minutes: $cadence)
                 case .unbind:          ForgetHoopSheet()
                 default:               WhyWontItConnectSheet()
@@ -284,13 +254,8 @@ struct DeviceView: View {
     /// One short label per setting, so a clamped write can be read as 「45 MIN · YOU ASKED FOR 60」.
     private static func label(_ s: BandSetting) -> (name: String, value: String) {
         switch s {
-        case .heartRateAlarm(let on, let low, let high): return ("Heart rate alarm", on ? "\(low)–\(high) BPM" : "OFF")
-        case .moveReminder(let on, let i, _, _):          return ("Move reminder", on ? "\(i) MIN" : "OFF")
-        case .drinkNudge(let on):                          return ("Drink & breathe nudges", on ? "ON" : "OFF")
-        case .wearDetection(let on):                       return ("Wear detection", on ? "ON" : "OFF")
-        case .disconnectAlert(let on):                     return ("Buzz if we lose each other", on ? "ON" : "OFF")
-        case .lowPower(let on):                            return ("Low power mode", on ? "ON" : "OFF")
-        case .alarms(let list):                            return ("Alarms", "\(list.count) SET")
+        case .heartRateAlarm(let on, let low, let high):
+            return ("Heart rate alarm", on ? "\(low)–\(high) BPM" : "OFF")
         }
     }
 
@@ -378,14 +343,29 @@ struct DeviceView: View {
         return battery.isPercent ? "PERCENT" : "BARS"
     }
 
+    /// Last fact the band reported, including the one already sitting on `data.band`
+    /// from BandPresence — so opening this page does not start from UNKNOWN.
+    private var displayedCharge: BandBattery.ChargeState {
+        if data.band.chargeState != .unknown { return data.band.chargeState }
+        return battery?.chargeState ?? .unknown
+    }
+
     private var chargeLine: String {
         guard connected else { return "Still recording on your wrist" }
-        switch battery?.chargeState {
-        // POWER goes UNKNOWN rather than keeping a stale value: charge state changes any
-        // second, and battery level cannot appear out of nowhere.
+        switch displayedCharge {
         case .charging: return "Charging"
         case .full:     return "Charged"
         default:        return "About 3 days of charge left"
+        }
+    }
+
+    private var powerValue: String {
+        guard connected else { return "UNKNOWN" }
+        switch displayedCharge {
+        case .charging:  return "CHARGING"
+        case .full:      return "FULL"
+        case .unplugged: return "UNPLUGGED"
+        case .unknown:   return Fmt.dash
         }
     }
 
@@ -486,13 +466,11 @@ struct DeviceView: View {
             Hairline()
 
             HStack(spacing: 0) {
-                // POWER goes UNKNOWN rather than keeping a stale value: charge state changes
-                // any second, and battery level cannot appear out of nowhere. The two expire
-                // at different speeds, which is why they are three columns and not one.
+                // POWER holds the last charge the band reported. UNKNOWN is only for a
+                // disconnected band — a connected band that has not answered yet is a dash,
+                // never a flash of UNKNOWN over a known CHARGING.
                 DeviceFact(label: "POWER",
-                           value: connected
-                                ? (battery?.chargeState.rawValue.uppercased() ?? "UNKNOWN")
-                                : "UNKNOWN")
+                           value: powerValue)
                 // ⚠️ F3 rule 11 · 「代码里出现字面量 7 即为 bug」. This fell back to "7 DAYS"
                 // when identity had not been read, so the page stated how much the band holds
                 // using a number the app made up — and 7 is exactly the value rule 11 names,
@@ -1166,9 +1144,6 @@ private struct MeasureToggle: View {
     }
 }
 
-/// One table. Every save rewrites all of it — the band replaces the whole alarm set at once,
-/// and its capacity is 3 / 10 / 20 depending on firmware, so a failure is a rollback,
-/// never an optimistic success.
 /// 12 · how often the phone reads the band. One row per cadence, the current one marked.
 /// The choice is written the moment it is tapped — there is nothing to confirm, and the
 /// home screen's loop picks it up within thirty seconds.
@@ -1216,116 +1191,6 @@ struct SyncCadenceSheet: View {
             .padding(.top, 16)
 
             Text("Some stored history, including temperature, still arrives in five-minute points. Faster reads do not create extra samples.")
-                .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
-                .foregroundStyle(NB.white.opacity(0.30))
-                .frame(maxWidth: .infinity)
-                .padding(.top, 14)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NB.carbon2)
-    }
-}
-
-struct AlarmsSheet: View {
-    @State private var alarms: [(String, String, Bool)] = [
-        ("07:30", "MON TUE WED THU FRI", true),
-        ("08:45", "SAT", true),
-    ]
-    /// 12S decision 1 · the table is written whole and the capacity (3 / 10 / 20) is only learnt
-    /// from the first refused write. That refusal is silent — the row turns amber and says the
-    /// limit; deleting one turns it back to lime.
-    @State private var full = false
-    @State private var capacity: Int?
-
-    private func add() {
-        let candidate = alarms + [("07:00", "MON TUE WED THU FRI SAT SUN", true)]
-        Task {
-            if DebugEdge.on("alarmfull") { capacity = 10; withAnimation { full = true }; return }
-            let table = candidate.map { BandAlarm(hour: Int($0.0.prefix(2)) ?? 7, minute: Int($0.0.suffix(2)) ?? 0, weekdays: [1, 2, 3, 4, 5, 6, 7], on: $0.2) }
-            do {
-                _ = try await Band.live.writeSetting(.alarms(table))
-                alarms = candidate
-                full = false
-            } catch {
-                // Rolled back whole; the user sees the limit, not an error.
-                capacity = alarms.count
-                withAnimation { full = true }
-                BandLog.shared.record("alarms", error: error)
-            }
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Alarms")
-                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
-                .foregroundStyle(NB.text1)
-            Text("The HOOP buzzes. There is no screen to snooze on.")
-                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
-                .foregroundStyle(NB.white.opacity(0.38))
-                .padding(.top, 6)
-
-            VStack(spacing: 0) {
-                ForEach(alarms.indices, id: \.self) { i in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(alarms[i].0)
-                                .font(NBFont.dot(700, 22)).tracking(0.06 * 22)
-                                .foregroundStyle(NB.text1)
-                            Text(alarms[i].1)
-                                .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                                .foregroundStyle(NB.white.opacity(0.34))
-                        }
-                        Spacer(minLength: 0)
-                        Toggle("", isOn: Binding(get: { alarms[i].2 },
-                                                 set: { alarms[i].2 = $0 }))
-                            .labelsHidden().tint(NB.lime1)
-                    }
-                    .padding(.horizontal, 16)
-                    .frame(height: 74)
-                    .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
-                }
-                if full {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 12) {
-                            Text("\(capacity ?? alarms.count) alarms is all this HOOP holds")
-                                .font(NBFont.ui(500, 14.5)).tracking(0.01 * 14.5)
-                                .foregroundStyle(NB.ember1)
-                            Spacer(minLength: 0)
-                            Text("FULL").font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
-                        }
-                        Text("Delete one and this row goes back to lime")
-                            .font(NBFont.ui(300, 12.5)).foregroundStyle(NB.white.opacity(0.42))
-                    }
-                    .padding(.horizontal, 16)
-                    .frame(height: 64)
-                } else {
-                    Button(action: add) {
-                        HStack {
-                            Text("Add an alarm")
-                                .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
-                                .foregroundStyle(NB.lime1)
-                            Spacer(minLength: 0)
-                            Text("\(alarms.count) SAVED")
-                                .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                                .foregroundStyle(NB.white.opacity(0.34))
-                        }
-                        .padding(.horizontal, 16)
-                        .frame(height: 56)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .frame(width: NB.Layout.contentWidth)
-            .cardSkin()
-            .padding(.top, 16)
-
-            Text("Saved to the band the moment you close this")
                 .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
                 .foregroundStyle(NB.white.opacity(0.30))
                 .frame(maxWidth: .infinity)

@@ -54,8 +54,7 @@ final class MockBand: BandService, @unchecked Sendable {
         state = .connecting
         try? await Task.sleep(for: .milliseconds(700))
         state = .connected
-        hub.send(.battery(BandBattery(
-            isPercent: true, percent: 82, level: nil, chargeState: .unplugged)))
+        _ = try? await readBattery()
         _ = bound
     }
 
@@ -85,7 +84,16 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func readBattery() async throws -> BandBattery {
         try await requireConnection()
-        return BandBattery(isPercent: true, percent: 82, level: nil, chargeState: .unplugged)
+        let battery: BandBattery
+        if DebugEdge.on("charging") {
+            battery = BandBattery(isPercent: true, percent: 64, level: nil, chargeState: .charging)
+        } else if DebugEdge.on("charged") {
+            battery = BandBattery(isPercent: true, percent: 100, level: nil, chargeState: .full)
+        } else {
+            battery = BandBattery(isPercent: true, percent: 82, level: nil, chargeState: .unplugged)
+        }
+        hub.send(.battery(battery))
+        return battery
     }
 
     func syncPersonalInfo(_ info: PersonalInfo) async throws {
@@ -217,6 +225,19 @@ final class MockBand: BandService, @unchecked Sendable {
         return 24 + Int.random(in: 0...22)
     }
 
+    /// Simulator stand-in for the SDK's HRV test: settles after a few seconds with a
+    /// plausible resting value. Real firmware may hold the full minute.
+    func measureHRV(timeout: TimeInterval) async throws -> Int {
+        try await requireConnection()
+        if DebugEdge.on("nohrv") { throw BandError.unsupported("HRV") }
+        let steps = min(8, max(2, Int(timeout / 3)))
+        for _ in 0..<steps {
+            try Task.checkCancellation()
+            try? await Task.sleep(for: .seconds(1))
+        }
+        return 48 + Int.random(in: 0...16)
+    }
+
     private func stream(total: Int,
                         progress: @escaping (Double) -> MeasurementProgress,
                         finish: @escaping () -> MeasurementResult)
@@ -345,6 +366,29 @@ final class MockBand: BandService, @unchecked Sendable {
         }
     }
 
+    /// 14 · a wrist that climbs from a warm-up to a working rate, once a second, with the
+    /// band's own calorie count ticking beside it — the shape a real report has.
+    func sportLiveInfo() -> AsyncStream<SportLiveInfo> {
+        AsyncStream { c in
+            let task = Task {
+                let start = Date()
+                var beat = 96.0
+                var kcal = 0.0
+                while !Task.isCancelled {
+                    let t = Date().timeIntervalSince(start)
+                    let target = 118 + 26 * (1 - exp(-t / 90)) + 6 * sin(t / 11)
+                    beat += (target - beat) * 0.3 + Double.random(in: -1.5...1.5)
+                    kcal += beat / 60 * 0.09
+                    c.yield(SportLiveInfo(heartRate: Int(beat.rounded()), calories: Int(kcal),
+                                          distanceM: Int(t * 2.6), durationSec: Int(t), runState: 1))
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                c.finish()
+            }
+            c.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// The simulator stands in for a firmware that carries most of the list. `nuclear
     /// radiation` and the two AI rows are off, as they are on a band without them.
     func readHealthFunctions() async throws -> [BandHealthFunction] {
@@ -363,6 +407,86 @@ final class MockBand: BandService, @unchecked Sendable {
             list.append(item)
         }
         return list
+    }
+
+    /// The simulator's 微体检: a firmware that carries the optical half and none of the
+    /// electrode half, so the walk shows what a partial answer looks like.
+    func probeHealthGlance(progress: @escaping @MainActor (Int) -> Void) async throws -> BandHealthGlance {
+        try await requireConnection()
+        var done = 0
+        while done < 100 {
+            try Task.checkCancellation()
+            try? await Task.sleep(for: .milliseconds(700))
+            done = min(100, done + 5)
+            await MainActor.run { progress(done) }
+        }
+        let support: UInt = (1 << 0) | (1 << 1) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 9)
+        let values: [(name: String, value: Double)] = [
+            ("heart rate", 71), ("blood oxygen", 97), ("stress", 28), ("fatigue level", 2),
+            ("body temperature", 36.4), ("HRV", 46),
+        ]
+        return BandHealthGlance(values: values, functionSupport: support)
+    }
+
+    /// The simulator's pulse study, on the real band's timings: 40 s, progress about 3 % a
+    /// second, a rate that arrives a few seconds in. The intervals it finishes with carry a
+    /// respiratory wobble, so the balance readout has something with real structure to chew
+    /// on rather than a straight line.
+    func measurePulseStudy() -> AsyncThrowingStream<PulseStudyStep, Error> {
+        AsyncThrowingStream { c in
+            let work = Task {
+                guard state == .connected else {
+                    c.finish(throwing: BandError.notConnected); return
+                }
+                c.yield(.waitingForContact)
+                try? await Task.sleep(for: .milliseconds(1200))
+                guard !Task.isCancelled else { return }
+                c.yield(.contact)
+                var intervals: [Double] = []
+                let seconds = 40
+                for second in 0...seconds {
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { return }
+                    // Sinus arrhythmia: the interval breathes with the wearer at about
+                    // 0.25 Hz, plus a little beat-to-beat scatter.
+                    let base = 880.0
+                    let rr = base
+                        + 34 * sin(Double(second) * 2 * .pi * 0.25)
+                        + Double.random(in: -12...12)
+                    intervals.append(rr)
+                    let percent = min(100, Int(Double(second) / Double(seconds) * 100))
+                    c.yield(.measuring(percent: percent,
+                                       heartRate: second > 3 ? Int((60_000 / rr).rounded()) : nil))
+                }
+                let mean = intervals.reduce(0, +) / Double(intervals.count)
+                c.yield(.finished(PulseStudy(heartRate: Int((60_000 / mean).rounded()),
+                                             intervals: intervals,
+                                             durationSeconds: seconds,
+                                             vendorHRV: 47)))
+                c.finish()
+            }
+            c.onTermination = { _ in work.cancel() }
+        }
+    }
+
+    func readManualTestData(since: Date) async throws -> [String] {
+        try await requireConnection()
+        try? await Task.sleep(for: .milliseconds(300))
+        let t = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3600))
+        return ["health glance \(t) · hr 71 spo2 97 stress 28 fatigue 2 temp 36.4 bp 118/76 hrv 46"]
+    }
+
+    func probeMicroTest(progress: @escaping @MainActor (Int) -> Void) async throws -> [(name: String, value: Double)] {
+        try await requireConnection()
+        var done = 0
+        while done < 100 {
+            try Task.checkCancellation()
+            try? await Task.sleep(for: .milliseconds(600))
+            done = min(100, done + 5)
+            await MainActor.run { progress(done) }
+        }
+        return [("heart rate", 71), ("blood oxygen", 97), ("stress", 28), ("blood sugar", 5.4),
+                ("body temperature", 36.4), ("systolic", 118), ("diastolic", 76), ("HRV", 46)]
     }
 
     private func requireConnection() async throws {

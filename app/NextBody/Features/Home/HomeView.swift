@@ -42,6 +42,10 @@ struct HomeView: View {
         static func == (a: Attachment, b: Attachment) -> Bool { a.dataURL == b.dataURL && a.progress == b.progress && a.failed == b.failed }
     }
     @ObservedObject private var reachability = Reachability.shared
+    /// 14 · the sport session the band is running. While one is on, the panel is the whole
+    /// screen (`LiveSessionTakeover`), the page does not turn, and the resting readout is
+    /// stood down — the session reads the wrist itself.
+    @ObservedObject private var liveSession = LiveSessionStore.shared
     @State private var widget: PanelWidget?
     /// Every asynchronous panel answer belongs to one request. Dismissing the panel rotates
     /// this id, so a late network result cannot put a closed frame back over STANDBY.
@@ -89,6 +93,7 @@ struct HomeView: View {
     /// listening chamber — and to the first-run ceremony, until the dock exists.
     private var pagingEnabled: Bool {
         firstRun.dockVisible && !plusOpen && keyboard.height == 0 && dockMode == .idle
+            && liveSession.session == nil
     }
     /// 04 · when the panel's resting face gets to hold the band. On page one with nothing
     /// over it, the readout runs and the HR / STRESS row is the wrist measuring now instead
@@ -102,7 +107,7 @@ struct HomeView: View {
         firstRun.dockVisible && firstRun.playing == false
             && router.homePage == 0 && router.path.isEmpty && router.takeover == nil
             && widget == nil && !plusOpen && keyboard.height == 0 && dockMode == .idle
-            && scenePhase == .active
+            && scenePhase == .active && liveSession.session == nil
             && data.band.connected && ConsentStore.shared.granted
     }
     /// 04B · from the panel's top to 12 pt over the dots' lane; the page's own foot carries
@@ -201,6 +206,22 @@ struct HomeView: View {
                             })
                     .transition(.move(edge: .bottom))
                     .zIndex(4)
+            }
+
+            // 14 · LIVE SESSION · the panel grown over everything for as long as the band
+            // runs a sport mode. It grows from the panel's own frame and folds back into it,
+            // and what it folds back with lands on the panel as one widget (06 rule 09).
+            if liveSession.session != nil {
+                LiveSessionTakeover(
+                    panelFrame: CGRect(x: NB.Layout.gutter, y: panelTop, width: columnWidth, height: panelHeight),
+                    screen: screen,
+                    onFolded: { summary in
+                        liveSession.end()
+                        if let summary {
+                            withAnimation(.spring(response: 0.50, dampingFraction: 0.80)) { widget = summary }
+                        }
+                    })
+                    .zIndex(6)
             }
         }
         // 05 · A·04 · 「键盘升起，版式一格都不动」. ⚠️ Inside the navigation stack the keyboard
@@ -356,6 +377,13 @@ struct HomeView: View {
             // enough to see and too short to check. `=<type>` pins one catalogue sample of
             // that widget instead, which is the only way to reach a chart whose data the
             // account does not have today.
+            // `NB_DEBUG_SESSION=1` · a sport session on home with no band, wrist played.
+            if LiveSessionStore.debugFakeWrist {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(3))
+                    liveSession.debugAutoStart(profile: data.profile, weightKg: data.today.weightKg)
+                }
+            }
             if let want = ProcessInfo.processInfo.environment["NB_DEBUG_PANEL"], !want.isEmpty {
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(4))
@@ -401,7 +429,8 @@ struct HomeView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 guard !Task.isCancelled else { break }
-                guard OriginDataSync.isDue else { continue }
+                // 14 · a running session holds the band's sensor; the day pull waits for it.
+                guard OriginDataSync.isDue, liveSession.session == nil else { continue }
                 await OriginDataSync.refreshNow(into: store)
             }
         }
@@ -415,6 +444,7 @@ struct HomeView: View {
             // ◇8 · the top bar slides in from −8px as the card lands.
             HomeHeader(name: data.profile.displayName, initials: data.profile.initials,
                        batteryPercent: data.band.batteryPercent,
+                       chargeState: data.band.connected ? data.band.chargeState : .unknown,
                        width: columnWidth,
                        onProfile: { router.open(.profile, from: .home) },
                        onDevice: { router.open(.device, from: .home) })
@@ -919,8 +949,12 @@ struct HomeView: View {
                 }
                 guard panelRequestID == requestID else { return }
             }
-            // 05B · dedicated full-screen chat exploration interface for multi-turn questions
-            router.open(.chat(initialQuery: text), from: .home)
+            // 05 · a sentence sent from the dock — typed or spoken — is answered on the panel,
+            // where it always was. The full-screen chat is reached only by the keyboard key
+            // (`onKeyboardTap`); the dock never navigates on its own.
+            let frame = await ai.turn(text, day: day, store: data)
+            guard panelRequestID == requestID else { return }
+            withAnimation { widget = frame ?? .thinking(text) }
         }
     }
 

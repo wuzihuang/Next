@@ -18,83 +18,86 @@ struct ChatDetailView: View {
     @State private var showPhotoPicker: Bool = false
     @State private var showHistorySheet: Bool = false
     @FocusState private var isInputFocused: Bool
-
     var body: some View {
-        VStack(spacing: 0) {
-            ChatTopBarView(
-                onBack: {
-                    isInputFocused = false
-                    router.back()
-                },
-                onHistory: {
-                    isInputFocused = false
-                    showHistorySheet = true
-                }
-            )
-
-            messageScrollView
-
-            ChatBottomDockView(
-                inputText: $inputText,
-                isInputFocused: $isInputFocused,
-                attachedImage: $attachedImage,
-                canSend: canSend,
-                onPickPhoto: { showPhotoPicker = true },
-                onRemovePhoto: {
-                    attachedImage = nil
-                    attachedDataURL = nil
-                    selectedPhotoItem = nil
-                },
-                onQuickPrompt: { prompt in
-                    sendDirect(prompt)
-                },
-                onSubmit: {
-                    submitMessage()
-                }
-            )
-        }
-        .carbonPage()
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden()
-        .detailEdgeBack {
-            isInputFocused = false
-            router.back()
-        }
-        .sheet(isPresented: $showHistorySheet) {
-            ChatHistorySheet(
-                chatStore: chatStore,
-                onSelect: { id in
-                    chatStore.selectSession(id)
-                    showHistorySheet = false
-                },
-                onNewChat: {
+        // ⚠️ The scroll view is the root, not a middle row of a VStack: inside NavigationStack
+        // a column only claims its content's height, which strands the dock under the header
+        // with dead space beneath it. As insets, the bar and the dock hug the page's edges and
+        // the message lane takes everything between them.
+        messageScrollView
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ChatTopBarView(
+                    onBack: {
+                        isInputFocused = false
+                        router.back()
+                    },
+                    onHistory: {
+                        isInputFocused = false
+                        showHistorySheet = true
+                    }
+                )
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                ChatBottomDockView(
+                    inputText: $inputText,
+                    isInputFocused: $isInputFocused,
+                    attachedImage: $attachedImage,
+                    canSend: canSend,
+                    onPickPhoto: { showPhotoPicker = true },
+                    onRemovePhoto: {
+                        attachedImage = nil
+                        attachedDataURL = nil
+                        selectedPhotoItem = nil
+                    },
+                    onQuickPrompt: { prompt in
+                        sendDirect(prompt)
+                    },
+                    onSubmit: {
+                        submitMessage()
+                    }
+                )
+            }
+            .carbonPage()
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationBarBackButtonHidden()
+            .detailEdgeBack {
+                isInputFocused = false
+                router.back()
+            }
+            .sheet(isPresented: $showHistorySheet) {
+                ChatHistorySheet(
+                    chatStore: chatStore,
+                    onSelect: { id in
+                        chatStore.selectSession(id)
+                        showHistorySheet = false
+                    },
+                    onNewChat: {
+                        chatStore.startNewSession()
+                        showHistorySheet = false
+                    },
+                    onDismiss: {
+                        showHistorySheet = false
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
+            .onChange(of: selectedPhotoItem) { _, item in
+                handlePhotoSelection(item)
+            }
+            .task {
+                if let sessionID {
+                    chatStore.selectSession(sessionID)
+                } else if chatStore.sessions.isEmpty {
                     chatStore.startNewSession()
-                    showHistorySheet = false
-                },
-                onDismiss: {
-                    showHistorySheet = false
                 }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
-        .onChange(of: selectedPhotoItem) { _, item in
-            handlePhotoSelection(item)
-        }
-        .task {
-            if let sessionID {
-                chatStore.selectSession(sessionID)
-            } else if chatStore.sessions.isEmpty {
-                chatStore.startNewSession()
+                if let initialQuery, !initialQuery.isEmpty {
+                    await chatStore.send(text: initialQuery, dataURL: initialAttachmentDataURL, dataStore: dataStore)
+                } else {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    isInputFocused = true
+                }
             }
-            if let initialQuery, !initialQuery.isEmpty {
-                await chatStore.send(text: initialQuery, dataURL: initialAttachmentDataURL, dataStore: dataStore)
-            } else {
-                try? await Task.sleep(for: .milliseconds(350))
-                isInputFocused = true
-            }
-        }
     }
 
     private var messageScrollView: some View {
@@ -121,8 +124,8 @@ struct ChatDetailView: View {
                     Color.clear.frame(height: 4)
                 }
                 .padding(.horizontal, NB.Layout.gutter)
-                .padding(.top, 16)
-                .padding(.bottom, 20)
+                .padding(.top, 6)
+                .padding(.bottom, 10)
                 .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
@@ -145,6 +148,7 @@ struct ChatDetailView: View {
                 }
             }
         }
+        .frame(maxHeight: .infinity)
     }
 
     private var canSend: Bool {
@@ -243,11 +247,8 @@ private struct ChatTopBarView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, NB.Layout.gutter)
-        .padding(.top, ScreenMetrics.safeArea.top + 10)
-        .padding(.bottom, 14)
-        .background(Color(hex: 0x070709).overlay(alignment: .bottom) {
-            Rectangle().fill(NB.hairline).frame(height: 1)
-        })
+        .padding(.top, 8)
+        .padding(.bottom, 12)
     }
 }
 
@@ -468,11 +469,8 @@ private struct ChatBottomDockView: View {
             inputRow
         }
         .padding(.horizontal, NB.Layout.gutter)
-        .padding(.top, 12)
-        .padding(.bottom, max(ScreenMetrics.safeArea.bottom, 10) + 6)
-        .background(Color(hex: 0x070709).overlay(alignment: .top) {
-            Rectangle().fill(NB.hairline).frame(height: 1)
-        })
+        .padding(.top, 10)
+        .padding(.bottom, 8)
     }
 
     private var quickCommandScrollView: some View {

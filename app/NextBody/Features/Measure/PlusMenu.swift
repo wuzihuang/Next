@@ -54,11 +54,19 @@ struct PlusMenuSheet: View {
                 // the measuring screen is never entered.
                 let offline: String? = data.band.connected ? nil : "The band isn't connected."
                 if canHeartRate {
-                    MenuRow(icon: .pulse, title: "Battery check",
-                            detail: "Heart rate, HRV and stress, in one.",
-                            duration: "60 S", unavailable: offline) {
+                    // 06 · the balance check replaced the battery check. The old one could
+                    // only ever produce a heart rate — the firmware refused its stress and HRV
+                    // legs — where this reads forty seconds of beat-to-beat timing and turns
+                    // it into the one thing that series actually supports: which half of the
+                    // nervous system is doing more of the talking.
+                    // ⚠️ Nothing in this row, or anywhere the user reads, names the SDK
+                    // command underneath. A product that presents a heart trace or reads one
+                    // for the user is regulated in the US; this deliberately does neither.
+                    MenuRow(icon: .pulse, title: "Balance check",
+                            detail: "40 s of your pulse rhythm — rest against drive.",
+                            duration: "40 S", unavailable: offline) {
                         close()
-                        router.takeover = .measure(.heartRate)
+                        router.takeover = .measure(.ecg)
                     }
                 }
                 if canBodyScan {

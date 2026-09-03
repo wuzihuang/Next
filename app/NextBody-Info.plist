@@ -57,6 +57,10 @@
 	<string>Pick a photo of your meal so NextBody can log it.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Turn what you say into a logged meal.</string>
+	<!-- 14 · the session on the Dynamic Island and the Lock Screen. The activity carries
+	     three numbers and no identity; it ends with the session. -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Doto-Black.ttf</string>

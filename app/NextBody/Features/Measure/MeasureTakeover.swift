@@ -38,9 +38,20 @@ struct MeasureTakeover: View {
     @State private var bandClock = false
     /// When `remaining` last moved — the body figure hops from this instant.
     @State private var beatAt = Date()
+    /// Beats the band reported during this Battery Check. The number on screen is the
+    /// median of a short window of these — never a single spike from a settling sensor.
+    @State private var hrSamples: [Int] = []
+
+    /// 06 · how far into the balance check, 0…1. The field's brightness and travel follow it,
+    /// so the screen visibly gathers instead of looping at one intensity for forty seconds.
+    @State private var studyProgress: Double = 0
 
     private var isBodyScan: Bool { kind == .bodyComposition }
-    private var total: Int { isBodyScan ? 30 : 60 }
+    /// 06 · the balance check. ⚠️ The kind is still `.ecg` because that is the SDK command
+    /// underneath; nothing the user reads ever says so — see `measurePulseStudy`.
+    private var isBalance: Bool { kind == .ecg }
+    /// Measured on a real HOOP: the balance check runs 40 s, the body scan 30, the heart leg 60.
+    private var total: Int { isBodyScan ? 30 : isBalance ? 40 : 60 }
 
     private let secondHand = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -143,7 +154,8 @@ struct MeasureTakeover: View {
                         .font(NBFont.dot(500, 12))
                         .foregroundStyle(NB.white.opacity(phase == .lost ? 0.20 : 0.42))
                 }
-                Text(isBodyScan ? "BODY FAT · SETTLED" : "HEART RATE · SETTLED")
+                Text(isBodyScan ? "BODY FAT · SETTLED"
+                     : isBalance ? "HEART RATE · MEASURING" : "HEART RATE · SETTLED")
                     .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.white.opacity(phase == .lost ? 0.20 : 0.34))
             }
@@ -153,7 +165,9 @@ struct MeasureTakeover: View {
     }
 
     /// The eyebrow: what is being measured and how long it takes, in 03's own words.
-    private var eyebrow: String { isBodyScan ? "BODY SCAN · 30S" : "BATTERY CHECK · 60S" }
+    private var eyebrow: String {
+        isBodyScan ? "BODY SCAN · 30S" : isBalance ? "BALANCE CHECK · 40S" : "BATTERY CHECK · 60S"
+    }
 
     private var headlineText: String {
         switch phase {
@@ -164,11 +178,11 @@ struct MeasureTakeover: View {
         case .opening, .waiting: "Index finger on the side key."
         case .nudge:     "Still nothing on the key."
         case .contact:   "Got it. Hold still."
-        case .counting:  isBodyScan ? "Mapping you." : "Reading you."
+        case .counting:  isBodyScan ? "Mapping you." : isBalance ? "Listening to your rhythm." : "Reading you."
         case .halfway:   "Halfway."
         case .lost:      "Put it back."
         case .computing: "Working it out."
-        case .result:    isBodyScan ? "Fourteen fields." : "Done."
+        case .result:    isBodyScan ? "Fourteen fields." : isBalance ? "Rest and drive." : "Done."
         case .failed:    "That didn't take."
         case .notWearing: "The band isn't on your wrist."
         case .busy:       "She's already measuring something."
@@ -189,7 +203,21 @@ struct MeasureTakeover: View {
             // never "you failed". Only the key and its ripples change — the layout does not.
             BandFigure(tint: NB.ember1, mode: .ripple)
         case .contact:
-            BandFigure(tint: NB.lime1, mode: .contact)
+            if isBodyScan {
+                BandFigure(tint: NB.lime1, mode: .contact)
+            } else if isBalance {
+                balanceStage
+            } else {
+                // Pulse monitor from the moment contact lands — flat until the first rate,
+                // so the wait is not a second screen that only appears once a number exists.
+                ZStack {
+                    BandFigure(tint: NB.lime1, mode: .lit).opacity(0.14)
+                    LiveECG(bpm: reading?.heartRate,
+                            tint: NB.lime1,
+                            amplitude: 1)
+                        .frame(height: 96)
+                }
+            }
         case .failed, .busy, .dropped, .noReading:
             // Nothing is drawn where the reading would have been: an empty frame in that
             // position would read as a number we could not print.
@@ -208,19 +236,47 @@ struct MeasureTakeover: View {
                     // The figure is drawn to the height it is given, so the height is the size:
                     // 03 · Scanning's own 280, not whatever room the page happens to have left.
                     .frame(height: 280)
+            } else if isBalance {
+                balanceStage
             } else {
                 ZStack {
                     // E05 · the band stays for the recovery check — the reading is happening
-                    // at the wrist, and the trace is written over it at 14 %.
+                    // at the wrist, and the pulse trace is written over it at 14 %.
+                    // ⚠️ Not an ECG channel: this HOOP's Battery Check is PPG heart rate
+                    // (F5), shaped into a monitor sweep from the measured BPM.
                     BandFigure(tint: NB.lime1, mode: .lit).opacity(0.14)
-                    // The trace beats at the rate the band is reporting right now; before the
-                    // first value it sweeps flat. Computing flattens it: the reading is over.
                     LiveECG(bpm: reading?.heartRate,
                             tint: phase == .lost ? NB.ember2 : NB.lime1,
                             amplitude: phase == .computing ? 0 : 1)
                         .frame(height: 96)
                 }
             }
+        }
+    }
+
+    /// 06 · THE FIELD. What the wearer looks at for forty seconds.
+    ///
+    /// ⚠️ Deliberately NOT a heart trace. Drawing one would make this a different kind of
+    /// product in the United States, so the measurement's own signal drives an abstract field
+    /// instead: the dots breathe once per measured beat, and brighten as the run gathers.
+    /// The rate is the band's — when it stops reporting, the field holds a resting tempo and
+    /// dims rather than inventing a pulse.
+    private var balanceStage: some View {
+        VStack(spacing: 12) {
+            BreathingDots(bpm: reading?.heartRate,
+                          intensity: 0.25 + 0.75 * studyProgress,
+                          held: phase == .lost)
+                .frame(height: 240)
+                // The field has no edge of its own — it is a window onto something larger —
+                // so a hard rectangular cut would read as a component that failed to fill.
+                .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
+                                             .init(color: .black, location: 0.14),
+                                             .init(color: .black, location: 0.86),
+                                             .init(color: .clear, location: 1)],
+                                     startPoint: .top, endPoint: .bottom))
+            Text(reading?.heartRate.map { "\($0) BPM · FROM YOUR WRIST" } ?? "FINDING YOUR PULSE")
+                .font(NBFont.dot(500, 9.5)).tracking(0.18 * 9.5)
+                .foregroundStyle(NB.white.opacity(0.34))
         }
     }
 
@@ -236,12 +292,16 @@ struct MeasureTakeover: View {
         case .opening:   ""
         case .waiting:   "WAITING FOR YOUR FINGER"
         case .nudge:     "NO CONTACT · \(6)S"
-        case .contact:   isBodyScan ? "CONTACT · CIRCUIT CLOSED" : "CONTACT · SIGNAL GOOD"
-        case .counting:  isBodyScan ? "\(fields) / 14 FIELDS" : "MEASURING · KEEP THE FINGER THERE"
-        case .halfway:   isBodyScan ? "HALFWAY · KEEP THE FINGER THERE" : "HRV NEEDS THE FULL MINUTE"
+        case .contact:   isBodyScan ? "CONTACT · CIRCUIT CLOSED" : "CONTACT · PULSE LOCK"
+        case .counting:  isBodyScan ? "\(fields) / 14 FIELDS" : "MEASURING · KEEP STILL"
+        case .halfway:   isBodyScan ? "HALFWAY · KEEP THE FINGER THERE"
+                         : isBalance ? "HALFWAY · KEEP THE FINGER THERE" : "KEEP STILL · STRESS NEXT"
         case .lost:      "PAUSED · \(Int(lostGrace.rounded()))S TO RESUME"
-        case .computing: isBodyScan ? "COMPUTING 14 FIELDS" : "COMPUTING HRV · STRESS"
-        case .result:    "SAVED"
+        case .computing: isBodyScan ? "COMPUTING 14 FIELDS"
+                         : isBalance ? "WORKING OUT THE BALANCE" : "MEASURING STRESS · HRV"
+        // ⚠️ The ECG is not written to any table — 20 000 points have nowhere to go — so
+        // this one says what actually happened instead of borrowing "SAVED".
+        case .result:    isBalance ? "ON THE PANEL" : "SAVED"
         case .failed:    failure ?? "NOT MEASURED"
         case .notWearing: "NOT WEARING · PUT IT BACK ON"
         case .busy:       "MEASURING NOW · TRY IN A MOMENT"
@@ -266,16 +326,24 @@ struct MeasureTakeover: View {
         case .opening:   ""
         case .waiting:   "Rest your hand on the table. Nothing to press."
         case .nudge:     "Skin, not a nail or a sleeve. Let it rest, don't press."
-        case .contact:   isBodyScan ? "A tiny current crosses your body. You won't feel it." : "Breathe normally. Talking is fine."
+        case .contact:   isBodyScan ? "A tiny current crosses your body. You won't feel it."
+                                    : isBalance ? "Keep the finger on the key. The field breathes with your pulse."
+                                    : "Breathe normally. Talking is fine."
         // ⚠️ Body composition has no resume: lifting off restarts the whole 30 seconds.
         case .counting:  isBodyScan ? "Lift a finger and the scan starts over."
-                                    : "Lift early and it picks up where it stopped."
+                                    // ⚠️ Not the battery check's sentence, and not a trace:
+                                    // the field's tempo IS the rate the band is reporting.
+                                    : isBalance ? "One breath of the field for every beat it reads."
+                                    : "Heart rate from the band — the sweep follows that beat."
         case .halfway:   isBodyScan ? "One steady contact makes one reading."
-                                    : "Stress comes out of the same reading."
+                                    : isBalance ? "Halfway. Keep the finger where it is."
+                                    : "Almost there. Stress and HRV come after the minute."
         // 06 edge 2 · the board's sentence for a lifted finger.
         case .lost:      isBodyScan ? "Your finger came off the key. This one has to start over."
                                     : "Your finger came off the key."
-        case .computing: "You can lift your finger now."
+        case .computing: isBodyScan ? "You can lift your finger now."
+                                    : isBalance ? "You can lift your finger now."
+                                    : "Stress on the band now. HRV if this firmware has it."
         case .result:    "Folding it back onto the panel."
         case .notWearing: "Not a failure — it slipped or came off. Put it back on and the count continues."
         case .busy:       "One measurement at a time. It frees itself when the other one ends."
@@ -303,6 +371,7 @@ struct MeasureTakeover: View {
         remaining = total
         bandClock = false
         reading = nil
+        hrSamples = []
         withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) { grown = true }
         // DEBUG · 06 edges on the mock band, which never fails on its own.
         if let forced: Phase = ["notwearing": .notWearing, "busy": .busy, "dropped": .dropped, "noreading": .noReading,
@@ -353,32 +422,26 @@ struct MeasureTakeover: View {
                 // that never failed, reported as a failure. 03 restores the link first; so does this.
                 if Band.live.state != .connected { await Band.live.reconnectIfBound() }
 
-                // F2 §05 · the band's BIA multiplies by the weight we push down, so the
-                // weight goes first and a scan without it is refused rather than stored.
                 if isBodyScan {
+                    // F2 §05 · the band's BIA multiplies by the weight we push down, so the
+                    // weight goes first and a scan without it is refused rather than stored.
                     try await Band.live.syncPersonalInfo(PersonalInfo(
                         heightCm: Int(data.profile.heightCm),
                         weightKg: Int((data.today.weightKg ?? 70).rounded()),
                         birthYear: Calendar.current.component(.year, from: data.profile.birthdate),
                         sexIsMale: data.profile.sexIsMale,
                         targetStep: 8000))
-                }
-
-                let stream = isBodyScan
-                    ? Band.live.measureBodyComposition()
-                    : Band.live.measureHeartRate()
-
-                for try await step in stream {
-                    // 06 · nudge at 5s if contact never arrives. `.waitingForContact` is the
-                    // stream opening, not the finger — cancelling here used to trip the amber
-                    // line the instant the command went out. Disarm only once the band answers.
-                    switch step {
-                    case .waitingForContact:
-                        apply(step)
-                    default:
-                        nudge.cancel()
-                        apply(step)
+                    let stream = Band.live.measureBodyComposition()
+                    for try await step in stream {
+                        switch step {
+                        case .waitingForContact: apply(step)
+                        default: nudge.cancel(); apply(step)
+                        }
                     }
+                } else if isBalance {
+                    try await measureBalanceCheck(nudge: nudge)
+                } else {
+                    await measureBatteryCheck(nudge: nudge)
                 }
             } catch BandError.busy {
                 // 06 edge 3 · DEVICE BUSY: one start*Test at a time. Not amber — not the wearer's doing.
@@ -392,6 +455,250 @@ struct MeasureTakeover: View {
                 failure = (error as? BandError)?.errorDescription ?? "BAND OFFLINE"
                 withAnimation { phase = .failed }
             }
+    }
+
+    /// 06 · Balance Check: the band's own forty seconds.
+    ///
+    /// ⚠️ The count comes from the BAND's percentage, not the phone's clock. The heart leg
+    /// owns its minute on the phone because the SDK ends that test early; this one does not —
+    /// it reports 0…100 as it goes, and a countdown that kept ticking after the band had
+    /// stopped would be the screen lying about a measurement that had already ended.
+    private func measureBalanceCheck(nudge: Task<Void, Never>) async throws {
+        for try await step in Band.live.measurePulseStudy() {
+            try Task.checkCancellation()
+            switch step {
+            case .waitingForContact:
+                apply(.waitingForContact)
+            case .contact:
+                nudge.cancel()
+                apply(.contact)
+            case .measuring(let percent, let heartRate):
+                nudge.cancel()
+                // ⚠️ Only a rate the band actually reported. Without one the field keeps its
+                // resting tempo — it never fills the gap with the last number it saw.
+                if let heartRate { reading = PartialReading(heartRate: heartRate) }
+                studyProgress = min(1, Double(percent) / 100)
+                remaining = max(0, total - Int((Double(total) * Double(percent) / 100).rounded()))
+                let next: Phase = percent >= 50 ? .halfway : .counting
+                if phase != next { withAnimation { phase = next } }
+            case .lostContact:
+                apply(.lostContact)
+            case .finished(let study):
+                apply(.finished(.pulseStudy(study)))
+            case .failed(let reason):
+                apply(.failed(reason: reason))
+            }
+        }
+    }
+
+    /// 06 · Battery Check: 60 s of PPG heart rate on the phone's clock, then stress (and
+    /// HRV when the firmware answers) during computing. The menu promises all three; the
+    /// heart stream alone used to invent a half-done fraction, never stop itself, and leave
+    /// HRV / stress as nil forever.
+    private func measureBatteryCheck(nudge: Task<Void, Never>) async {
+        let box = HeartAccumulator()
+
+        // Collect until the phone clock hits 0. The SDK may end early (or on lift-off); the
+        // minute is still ours, and a lift past grace restarts the heart test in place.
+        while !Task.isCancelled {
+            let outcome = await collectHeartLeg(into: box, nudge: nudge)
+            switch outcome {
+            case .clockDone:
+                break
+            case .restartAfterLift:
+                continue
+            case .aborted:
+                return
+            }
+            break
+        }
+        guard !Task.isCancelled else { return }
+
+        if phase == .failed || phase == .busy || phase == .dropped
+            || phase == .noReading || phase == .notWearing { return }
+
+        nudge.cancel()
+        // One settling spike is not a reading — need a short run of plausible beats.
+        guard box.snapshot().count >= 3, let hr = Self.stableHeartRate(box.snapshot()) else {
+            failure = "NO READING"
+            withAnimation { phase = .noReading }
+            return
+        }
+
+        reading = PartialReading(heartRate: hr)
+        withAnimation { phase = .computing }
+
+        try? await Task.sleep(for: .seconds(LiveReadout.Cadence.settle))
+        guard !Task.isCancelled else { return }
+
+        var stress: Int?
+        var hrv: Int?
+        do {
+            stress = try await Band.live.measureStress { _ in }
+        } catch is CancellationError {
+            return
+        } catch BandError.unsupported {
+            stress = nil
+        } catch {
+            BandLog.shared.record("batteryCheck.stress", error: error)
+        }
+        guard !Task.isCancelled else { return }
+
+        try? await Task.sleep(for: .seconds(LiveReadout.Cadence.settle))
+        guard !Task.isCancelled else { return }
+
+        do {
+            // Firmware often needs a long hold; twenty seconds is a try, not a promise.
+            // A miss stays —— (rule 04) rather than a number we did not measure.
+            hrv = try await Band.live.measureHRV(timeout: 20)
+        } catch is CancellationError {
+            return
+        } catch BandError.unsupported {
+            hrv = nil
+        } catch {
+            BandLog.shared.record("batteryCheck.hrv", error: error)
+        }
+        guard !Task.isCancelled else { return }
+
+        apply(.finished(.heartRate(hr: hr, hrv: hrv, stress: stress)))
+    }
+
+    private enum HeartLegOutcome {
+        /// Phone clock hit 0 — move on to stress / HRV.
+        case clockDone
+        /// Lift past the 3 s grace; SDK test is dead — open a new heart stream.
+        case restartAfterLift
+        /// Terminal UI state or the takeover was closed.
+        case aborted
+    }
+
+    /// One heart-rate stream, until the minute ends, the user lifts past grace, or the
+    /// screen fails. The phone clock is the authority: an early SDK `.over` does not
+    /// shorten the minute.
+    private func collectHeartLeg(into box: HeartAccumulator, nudge: Task<Void, Never>) async -> HeartLegOutcome {
+        let lift = LiftFlag()
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                do {
+                    let stream = Band.live.measureHeartRate()
+                    for try await step in stream {
+                        try Task.checkCancellation()
+                        switch step {
+                        case .waitingForContact:
+                            apply(step)
+                        case .contact:
+                            nudge.cancel()
+                            apply(step)
+                        case .measuring(_, let partial, _):
+                            nudge.cancel()
+                            if let hr = partial?.heartRate, Self.isPlausibleHeartRate(hr) {
+                                box.add(hr)
+                                hrSamples = box.snapshot()
+                                reading = PartialReading(heartRate: Self.stableHeartRate(hrSamples))
+                            }
+                            // Phone clock owns `remaining` — never rewrite it from a fraction.
+                            let next: Phase = remaining <= total / 2 ? .halfway : .counting
+                            if phase != next { withAnimation { phase = next } }
+                        case .lostContact:
+                            lift.mark()
+                            nudge.cancel()
+                            apply(step)
+                            // Do not return here — winning the task group would cancel the
+                            // grace watcher while phase is still `.lost` and remaining is
+                            // frozen, hanging the minute. Wait for the stream to finish
+                            // (notWear ends it) or for tick to resume counting.
+                        case .finished(let result):
+                            if case .heartRate(let h, _, _) = result, Self.isPlausibleHeartRate(h) {
+                                box.add(h)
+                            }
+                            // Stream over early — stay alive until the phone clock says so.
+                            while !Task.isCancelled, remaining > 0,
+                                  phase == .counting || phase == .halfway || phase == .lost {
+                                try? await Task.sleep(for: .milliseconds(100))
+                            }
+                            return
+                        case .failed(let reason):
+                            nudge.cancel()
+                            apply(.failed(reason: reason))
+                            return
+                        }
+                        if remaining == 0, phase == .counting || phase == .halfway { return }
+                    }
+                    // Stream ended without `.finished` (cancel, or notWear → finish).
+                    // If we are in lift-off grace, wait it out so tick can resume counting.
+                    while !Task.isCancelled, phase == .lost {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                } catch is CancellationError {
+                    // Countdown or leave() ended the heart stream on purpose.
+                } catch BandError.busy {
+                    nudge.cancel()
+                    withAnimation { phase = .busy }
+                } catch BandError.notConnected {
+                    nudge.cancel()
+                    await dropped()
+                } catch {
+                    nudge.cancel()
+                    failure = (error as? BandError)?.errorDescription ?? "BAND OFFLINE"
+                    withAnimation { phase = .failed }
+                }
+            }
+            group.addTask { @MainActor in
+                while !Task.isCancelled {
+                    if remaining == 0, phase == .counting || phase == .halfway { return }
+                    if phase == .failed || phase == .busy || phase == .dropped
+                        || phase == .noReading || phase == .notWearing { return }
+                    // After grace, tick puts us back on counting with a dead SDK test —
+                    // the outer loop must open a fresh stream.
+                    if lift.raised, phase == .counting || phase == .halfway, remaining > 0 {
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            }
+            _ = await group.next()
+            group.cancelAll()
+            await group.waitForAll()
+        }
+
+        if Task.isCancelled { return .aborted }
+        if phase == .failed || phase == .busy || phase == .dropped
+            || phase == .noReading || phase == .notWearing { return .aborted }
+        if remaining == 0 { return .clockDone }
+        // Grace may still be running if the deadline lost the race; wait it out.
+        while !Task.isCancelled, phase == .lost {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if Task.isCancelled { return .aborted }
+        if lift.raised, phase == .counting || phase == .halfway, remaining > 0 {
+            return .restartAfterLift
+        }
+        // Stream died early but clock still running and no lift — wait out the minute.
+        while !Task.isCancelled, remaining > 0 {
+            if phase == .failed || phase == .busy || phase == .dropped
+                || phase == .noReading || phase == .notWearing { return .aborted }
+            if phase == .lost {
+                try? await Task.sleep(for: .milliseconds(100))
+                continue
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return Task.isCancelled ? .aborted : .clockDone
+    }
+
+    /// Physiological gate for a live PPG sample. Settling spikes and zeros never reach the
+    /// number or the sweep.
+    private static func isPlausibleHeartRate(_ hr: Int) -> Bool { (40...180).contains(hr) }
+
+    /// Median of the recent window so one 120 from a settling sensor cannot own the screen.
+    private static func stableHeartRate(_ samples: [Int]) -> Int? {
+        let window = Array(samples.suffix(7))
+        guard window.count >= 1 else { return nil }
+        // Prefer a settled window; a lone beat is allowed only when the minute produced
+        // nothing else (caller still requires ≥3 samples before accepting a finish).
+        let sorted = window.sorted()
+        return sorted[sorted.count / 2]
     }
 
     /// 06 edge 4 · LINK DROPPED. Nothing half-done is kept; the screen stays, reconnects on its
@@ -409,20 +716,26 @@ struct MeasureTakeover: View {
             if phase == .opening { withAnimation { phase = .waiting } }
 
         case .contact:
-            // The only haptic in the flow, fired on the first `testing` state that comes
-            // back — never on the fact that we sent `start`.
+            // The only haptic in the flow, fired on the first `testing`/`start` state that
+            // comes back — never on the fact that we sent `start`.
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            withAnimation(.easeInOut(duration: 0.3)) { phase = .contact }
+            // After a lift-off restart the stream yields contact again; do not wipe the
+            // minute back to the pre-count contact frame (that hides 00:XX and feels broken).
+            if phase != .counting && phase != .halfway {
+                withAnimation(.easeInOut(duration: 0.3)) { phase = .contact }
+            }
             lostGrace = 3
 
         case .measuring(let fraction, let partial, let secondsLeft):
             reading = partial
-            if let secondsLeft { bandClock = true; remaining = secondsLeft }
-            else { remaining = max(0, total - Int((Double(total) * fraction).rounded())) }
-            fields = min(14, Int((14 * fraction).rounded(.down)))
-            // Halfway is the clock's, not the value's: a heart-rate read reports a rate from
-            // its first callback, and calling that 「Halfway」 at second one was a lie. The body
-            // scan's clock is the band's; the heart-rate read is timed here.
+            // Body scan: the band's own seconds (or its fraction). Battery Check never
+            // enters here — its path owns remaining on the phone clock so a fake 0.5
+            // fraction cannot pin the count at 30.
+            if isBodyScan {
+                if let secondsLeft { bandClock = true; remaining = secondsLeft }
+                else { remaining = max(0, total - Int((Double(total) * fraction).rounded())) }
+                fields = min(14, Int((14 * fraction).rounded(.down)))
+            }
             let half = isBodyScan ? fraction >= 0.5 : remaining <= total / 2
             let next: Phase = half ? .halfway : .counting
             if phase != next { withAnimation { phase = next } }
@@ -446,13 +759,19 @@ struct MeasureTakeover: View {
                 withTransaction(cut) { done() }
                 return
             }
-            withAnimation { phase = .computing }
-            Task {
-                try? await Task.sleep(for: .milliseconds(1400))
+            // Battery Check already spent computing on the real stress/HRV legs.
+            if phase != .computing { withAnimation { phase = .computing } }
+            // Stay on `run` so leave() cancels the fold-back; an unstructured Task used to
+            // call done() after the user had already closed the screen.
+            let fold = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
                 withAnimation { phase = .result }
                 try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
                 done()
             }
+            run = fold
 
         case .failed(let reason):
             // 06 edges 1 / 5 · the SDK's own words decide: notWear is the wearer's, anything
@@ -516,6 +835,42 @@ struct MeasureTakeover: View {
                 : "刚测完：心率 \(hr)，HRV \(hrv.map(String.init) ?? "——") ms，压力 \(stress.map(String.init) ?? "——")"
                 + (yesterday.map { AppLanguage.isEnglish ? ", battery \($0) yesterday" : "，昨天电量 \($0)" } ?? "")
                 + (AppLanguage.isEnglish ? ". What should today look like?" : "。今天怎么安排？")
+            return w
+        case .pulseStudy(let study):
+            // ⚠️ Nothing here is drawn unless the band actually reported enough beats.
+            // `AutonomicBalance` returns nil below twelve intervals, and a split computed
+            // from six of them would swing on one swallow — so the frame says it could not
+            // read rather than printing a confident percentage.
+            guard let balance = AutonomicBalance(intervals: study.intervals) else {
+                var w = PanelWidget(
+                    type: .metric, title: "BALANCE", tag: nil,
+                    sentence: "The band didn't send enough beats to read the balance. Nothing was made up to fill it.",
+                    footer: study.heartRate.map { "HEART RATE \($0) BPM" } ?? "NO READING",
+                    action: "TRY IT AGAIN WHEN YOU'RE STILL", data: .none)
+                w.hero = Fmt.dash
+                w.accentOverride = NB.lime1
+                return w
+            }
+            var w = PanelWidget(
+                type: .metric, title: "BALANCE", tag: nil,
+                sentence: balance.note,
+                footer: "",
+                action: "TAP TO ASK ABOUT IT", data: .none)
+            w.accentOverride = NB.lime1
+            w.balance = BalanceAnswer(
+                headline: balance.headline,
+                note: balance.note,
+                restShare: balance.parasympatheticShare,
+                // The band's own average rate when it has one — it saw every beat, and this
+                // series is a sample of them.
+                footer: [(study.heartRate ?? balance.beatsPerMinute).description + " BPM",
+                         "SD1 \(Int(balance.sd1.rounded())) MS",
+                         "SD2 \(Int(balance.sd2.rounded())) MS",
+                         "\(balance.points.count) BEATS"].joined(separator: " · "),
+                points: balance.points.map { CGPoint(x: $0.x, y: $0.y) })
+            w.replyPrompt = AppLanguage.isEnglish
+                ? "Just did a balance check: rest \(balance.split.rest)%, drive \(balance.split.drive)%, SD1 \(Int(balance.sd1.rounded())) ms, SD2 \(Int(balance.sd2.rounded())) ms. What does that suggest for today?"
+                : "刚做完平衡检查：休息 \(balance.split.rest)%、驱动 \(balance.split.drive)%，SD1 \(Int(balance.sd1.rounded())) ms，SD2 \(Int(balance.sd2.rounded())) ms。今天该怎么安排？"
             return w
         case .bodyComposition(let r):
             let fatDown = (data.today.fatKg).map { r.fatMassKg < $0 } ?? false
@@ -594,8 +949,15 @@ struct MeasureTakeover: View {
     private func store(_ result: MeasurementResult) {
         switch result {
         case .heartRate(let hr, _, _):
-            data.today.bodyBattery = data.today.bbWake
+            // ⚠️ Do not copy bbWake into bodyBattery — that pretended the check rewrote
+            // the day's reserve. The reading on screen is HR / HRV / stress; Body Battery
+            // settlement still owns the score (06 before-ship).
             reading = PartialReading(heartRate: hr)
+        case .pulseStudy(let study):
+            // Nothing is written. There is no table for a beat-to-beat series, the band keeps
+            // its own copy, and inventing a schema inside a measurement screen is how one gets
+            // decided by accident. The reading lives on the panel for as long as it is there.
+            if let hr = study.heartRate { reading = PartialReading(heartRate: hr) }
         case .bodyComposition(let r):
             // F0 rule 09 · a band BIA reading is MEASURED and re-anchors the EMA.
             data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: r.inputWeightKg,
@@ -610,6 +972,32 @@ struct MeasureTakeover: View {
             // scan that only ever lived in memory would be replaced by the seed by then.
             Task { await Repository.shared.recordBodyComposition(r) }
         }
+    }
+}
+
+/// Samples collected off the heart stream during Battery Check.
+private final class HeartAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Int] = []
+    func add(_ hr: Int) {
+        lock.lock(); values.append(hr); lock.unlock()
+    }
+    func snapshot() -> [Int] {
+        lock.lock(); defer { lock.unlock() }
+        return values
+    }
+}
+
+/// Lift-off flag shared by the heart-stream consumer and the deadline watcher.
+private final class LiftFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var raised: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+    func mark() {
+        lock.lock(); value = true; lock.unlock()
     }
 }
 
@@ -743,12 +1131,12 @@ private struct BandFigure: View {
     }
 }
 
-/// A monitor, not a loop. The trace is written left to right at 200 Hz from a running beat
-/// phase that advances at the band's own rate: `bpm` is the value the SDK reported last, so
-/// when the rate changes, the rhythm on screen changes with it, and until the first value
-/// lands the sweep is flat — a beating wave with nothing being read is a picture of a
-/// measurement that is not happening. The complex is drawn from the number (this band has no
-/// ECG channel on a heart-rate read); the timing is the measurement's.
+/// A monitor, not a medical ECG. The sweep is written left to right at 200 Hz from a running
+/// beat phase that advances at the band's own PPG rate: `bpm` is the value the SDK reported
+/// last, so when the rate changes, the rhythm on screen changes with it, and until the first
+/// value lands the sweep is flat — a beating wave with nothing being read is a picture of a
+/// measurement that is not happening. The complex is drawn from the number (Battery Check
+/// does not open the ECG channel; F5); the timing is the measurement's.
 struct LiveECG: View {
     /// The band's latest rate. nil: nothing read yet, flat sweep, no invented beats.
     var bpm: Int?

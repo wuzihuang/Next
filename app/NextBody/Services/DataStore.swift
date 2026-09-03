@@ -485,9 +485,21 @@ struct BandState: Hashable {
     /// nil until the band has answered readBattery — the pip draws an empty shell and a
     /// dash, never 82% (02 rule 05 · an invented percent is the one thing it must not show).
     var batteryPercent: Int?
+    /// Last charge state the band reported. The header pip and the device page read this
+    /// so a known CHARGING is not wiped to UNKNOWN while another read is in flight.
+    var chargeState: BandBattery.ChargeState
     var firmware: String
     var lastSync: Date
     var capabilities: Set<Capability>
+
+    mutating func applyBattery(_ battery: BandBattery) {
+        if let p = battery.percent { batteryPercent = p }
+        // An unknown read is "we did not hear", not "unplugged". Keep the last
+        // real state so Device and the pip do not flicker UNKNOWN → CHARGING.
+        if battery.chargeState != .unknown {
+            chargeState = battery.chargeState
+        }
+    }
 
     enum Capability: String, Hashable, CaseIterable {
         case heartRate, bloodOxygen, bloodPressure, ecg, temperature, bodyComponent, wearDetection, alarms
@@ -496,11 +508,11 @@ struct BandState: Hashable {
     /// A real phone before the band has answered anything. Every field fills in from the
     /// band itself (BandPresence) or from the devices row; none of them is guessed.
     static let unknown = BandState(connected: false, name: "HOOP", mac: "",
-                                   batteryPercent: nil, firmware: "",
+                                   batteryPercent: nil, chargeState: .unknown, firmware: "",
                                    lastSync: .distantPast, capabilities: [])
 
     static let mock = BandState(connected: true, name: "NEXTBODY HOOP", mac: "C4:2E:8F:1A:73:9D",
-                                batteryPercent: 82, firmware: "1.4.7",
+                                batteryPercent: 82, chargeState: .unplugged, firmware: "1.4.7",
                                 lastSync: Date().addingTimeInterval(-12 * 60),
                                 capabilities: Set(Capability.allCases))
 }

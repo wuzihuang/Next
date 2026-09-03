@@ -104,8 +104,8 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
-- `Router`: one-level detail navigation; `backToRoot()` clears the path and preserves `homePage` (page two stays on page two). Destinations include `sportMode`.
-- `HomeView`: owns the current optional `PanelWidget`, dock state, home paging, and panel callbacks.
+- `Router`: one-level detail navigation; leaving the root snapshots `homePage`, and every dismiss restores it so page-two vitals return to page two. Destinations include `sportMode`.
+- `HomeView`: owns the current optional `PanelWidget`, dock state, and panel callbacks; the pager index lives on `Router.homePage` so NavigationStack push/pop cannot wipe it.
 - `AIPanel`: renders STANDBY when no widget exists, THINKING during a request, and a completed personalized widget frame.
 - `PanelWidgetView`: renders the server-declared widget envelope on the fixed 358 × 470 panel canvas.
 - `Chrome`: shared page geometry and reusable navigation/close controls.
@@ -117,6 +117,14 @@ model credentials and tool execution server-side.
 - `_shared/tool-routing.ts`: conservatively scopes explicit single-domain turns; unclear and
   multi-domain questions keep the full source and renderer catalogue.
 - `PlusMenuSheet`: three groups — ADD, SPORT MODE (`Start a session` → `SportModeView`), MEASURE.
+- `DeviceView`: band identity, battery, firmware, automatic measurement, heart-rate
+  alarm, and sync cadence. POWER and the charge line read `BandState.chargeState` so a
+  known charging band does not flash UNKNOWN while `readBattery` is in flight.
+  Reminder / raise-to-wake / alarm / low-power rows are omitted until they have a real
+  SDK write path; a switch that only flips local `@State` is not shown.
+- `BandBatteryPip`: 12×7 header cell. Charging / full draw a pixel bolt and pulse the
+  fill; `BandPresence` stores `chargeState` from battery events so the pip updates
+  without opening Device.
 - `SportModeView` / `SportModeCatalog`: catalogued modes (raw 0…47); start/stop via `BandService.startSportMode` / `stopSportMode`. Firmware refusals stay greyed for the page life.
 - `VitalsTimelinePolicy` + `VitalsDetailView`: sleep uses its recorded night; heart, HRV,
   stress, and skin temperature use a rolling 24-hour window; steps, distance, and active
@@ -147,10 +155,14 @@ model credentials and tool execution server-side.
   server-authoritative. Merge raw ticks by timestamp and preserve non-nil auxiliary fields.
 - Never draw future hours on a current-day chart. A ruler's endpoint, sample filter, and
   hourly-bin geometry must all use the same concrete time range.
-- Battery Check nudge: `try? await Task.sleep` must `guard !Task.isCancelled` (same as
-  onboarding). Do not disarm the 5 s nudge on `.waitingForContact` — only when the band
-  reports contact or later. Heart-rate streams use a generation slot so a late LiveReadout
-  `onTermination` stop cannot clear Battery Check's SDK result block.
+- Battery Check: 60 s PPG on the phone clock (never a fake 0.5 fraction), median of
+  recent plausible beats (≥3 samples), then real stress (+ HRV try). Lift past 3 s
+  grace restarts the heart stream; close cancels stress/HRV/fold-back. The sweep is a
+  pulse monitor from BPM — not ECG (F5). Missing HRV/stress stay ——.
+- Meals are logged by speaking through the dock. Fuel has no LOG A MEAL / ADD TO THAT DAY
+  button; Composition has no EDIT THIS DAY. Closed fuel days stay reachable from THIS WEEK
+  labels. Week bars stay inside the card: Fuel caps |balance| at 800 kcal with 0 at the
+  bottom; Training caps load at 21.
 
 ## Verification
 - Swift package logic: `cd app && swift test`.

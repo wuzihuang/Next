@@ -45,6 +45,9 @@ protocol BandService: AnyObject {
     /// back rather than swallowed: nineteen seconds of an unchanging label is a screen that
     /// looks stuck.
     func measureStress(progress: @escaping @MainActor (Int) -> Void) async throws -> Int
+    /// 06 · Battery Check's HRV leg. The SDK may not stop itself — Demo holds ~60 s then
+    /// `false`. Callers pass a timeout; a value of 0 before then is not a reading.
+    func measureHRV(timeout: TimeInterval) async throws -> Int
 
     func writeSetting(_ setting: BandSetting) async throws -> BandSetting
     /// Ask the update server whether this band has newer firmware. `nil` is "up to date";
@@ -66,6 +69,50 @@ protocol BandService: AnyObject {
     func startSportMode(_ rawValue: Int) async throws
     /// Close the sport mode previously opened with `startSportMode`.
     func stopSportMode(_ rawValue: Int) async throws
+    /// 14 · the band's own report while a sport mode runs: heart rate, calories, distance
+    /// and its clock, pushed by the firmware every second or so. This is the wrist during a
+    /// session — the heart test is refused as busy while a mode is open. The stream stays
+    /// open until cancelled; a firmware without the report simply never yields.
+    func sportLiveInfo() -> AsyncStream<SportLiveInfo>
+    /// 06 · THE PULSE STUDY. Forty seconds of the band's own beat-to-beat timing.
+    ///
+    /// ⚠️ The command underneath is the SDK's single-lead ECG start — that is the only way to
+    /// get beat-to-beat intervals out of this hardware — but NOTHING about a waveform crosses
+    /// this boundary. The app never receives, holds, or draws a trace: it takes the interval
+    /// series and the rate, which is what an autonomic-balance readout is computed from, and
+    /// leaves the diagnostic surface the SDK offers (and its paid interpretation) alone.
+    /// A product that draws a heart trace is a different regulatory animal in the US, and
+    /// this one deliberately is not that animal.
+    ///
+    /// Measured on a real HOOP: 40 s, progress climbing about 3 % a second.
+    /// The finger has to stay on the electrode for the whole run; `lostContact` is the SDK's
+    /// `notLead` and is its own outcome, never folded into a failure.
+    func measurePulseStudy() -> AsyncThrowingStream<PulseStudyStep, Error>
+
+    /// DEBUG · everything the band has stored from measurements started ON THE WATCH itself:
+    /// thirteen kinds in one call, newest first, from `since` onwards.
+    /// ⚠️ A read. No measurement, no sensor time, nothing lights up on the wrist — which is
+    /// what makes it the one way to get a full set out of a firmware that will not take the
+    /// measurement commands the app sends.
+    /// Returns one formatted line per stored record: this is a probe, and inventing thirteen
+    /// structs before knowing which of them this band ever fills would be inventing.
+    func readManualTestData(since: Date) async throws -> [String]
+
+    /// DEBUG · 微体检 (定制项目), a different command from the 公版 one below and answered by
+    /// different firmware. One measurement → heart rate, blood oxygen, stress, blood sugar,
+    /// temperature, systolic, diastolic, HRV.
+    /// ⚠️ A real measurement on the wrist.
+    func probeMicroTest(progress: @escaping @MainActor (Int) -> Void) async throws -> [(name: String, value: Double)]
+
+    /// DEBUG · 微体检 (公版). One measurement, one model: the SDK's health glance carries a
+    /// field per metric for a whole product family, and `functionSupport` is the band saying
+    /// which of them it actually filled.
+    /// ⚠️ Starts a real measurement on the wrist and holds the sensor for its whole length.
+    /// ⚠️ 0 in a field is ambiguous — "this band does not have it" and "it did not read this
+    /// time" look identical — which is why the bitmask is carried through beside the numbers
+    /// and never collapsed into them.
+    func probeHealthGlance(progress: @escaping @MainActor (Int) -> Void) async throws -> BandHealthGlance
+
     /// What this HOOP says it can measure, in its own words.
     /// ⚠️ This is the honest answer to "what does this band do", and the reason it exists is
     /// that `readCapabilities` is partly guessed bit positions in `deviceFuctionData`. A guess
@@ -76,8 +123,75 @@ protocol BandService: AnyObject {
 }
 
 extension BandService {
+    /// 14 · one answer from the band about its sport state: 0 not started, 1 running,
+    /// 2 paused; nil if it says nothing within three seconds.
+    func sportRunState() async -> Int? {
+        let stream = sportLiveInfo()
+        let read = Task { () -> Int? in
+            for await info in stream { if let state = info.runState { return state } }
+            return nil
+        }
+        let clock = Task { try? await Task.sleep(for: .seconds(3)); read.cancel() }
+        let state = await read.value
+        clock.cancel()
+        return state
+    }
     /// For callers that only want the number.
     func measureStress() async throws -> Int { try await measureStress(progress: { _ in }) }
+    func measureHRV() async throws -> Int { try await measureHRV(timeout: 60) }
+}
+
+/// One step of a running pulse study.
+enum PulseStudyStep {
+    case waitingForContact
+    case contact
+    /// `percent` is the band's own count, 0…100. `heartRate` is what it is reporting right
+    /// now — nil until it has one, and the screen shows a resting tempo rather than a guess.
+    case measuring(percent: Int, heartRate: Int?)
+    /// SDK `notLead`: the finger left the electrode. The run is over.
+    case lostContact
+    case finished(PulseStudy)
+    case failed(reason: String)
+}
+
+/// What a completed pulse study carries. No waveform, by design — see `measurePulseStudy`.
+struct PulseStudy {
+    /// The band's own average over the run.
+    let heartRate: Int?
+    /// Beat-to-beat intervals in milliseconds, in the order they were measured. This is the
+    /// whole input to the balance readout: every number on the result screen is derived from
+    /// this series and nothing else.
+    /// ⚠️ May be empty. A firmware that reports no intervals gets a result screen that says
+    /// so — an autonomic split computed from nothing is the worst thing this screen could do.
+    let intervals: [Double]
+    /// Seconds the band actually ran, from the SDK.
+    let durationSeconds: Int?
+    /// The SDK's own HRV figure, kept for the log only.
+    /// ⚠️ Never drawn: it came back 12 on a wrist whose HRV history sits at 40–70 ms, with no
+    /// unit documented anywhere. 「说不出出处的数字不上屏」.
+    let vendorHRV: Int?
+}
+
+/// What one 微体检 came back with: every field of VPHealthGlanceTestModel in the SDK's own
+/// order, and the band's own bitmask of which metrics this firmware carries.
+struct BandHealthGlance {
+    /// name → the number the band put in the field. Every field, zeros included: a zero is
+    /// evidence too, and dropping it here would hide which fields the band left alone.
+    let values: [(name: String, value: Double)]
+    /// VPHealthGlanceType, verbatim.
+    let functionSupport: UInt
+
+    /// The fifteen bits of VPHealthGlanceType, in the SDK's own order.
+    static let supportBits: [(bit: UInt, name: String)] = [
+        (1 << 0,  "heart rate"), (1 << 1,  "blood oxygen"), (1 << 2,  "PPG blood pressure"),
+        (1 << 3,  "cuff blood pressure"), (1 << 4, "blood glucose"), (1 << 5, "body temperature"),
+        (1 << 6,  "stress"), (1 << 7,  "emotion"), (1 << 8,  "fatigue"), (1 << 9, "HRV"),
+        (1 << 10, "skin conductance"), (1 << 11, "blood components"), (1 << 12, "body composition"),
+        (1 << 13, "ECG single"), (1 << 14, "ECG multi"),
+    ]
+
+    var supported: [String] { Self.supportBits.filter { functionSupport & $0.bit != 0 }.map(\.name) }
+    var unsupported: [String] { Self.supportBits.filter { functionSupport & $0.bit == 0 }.map(\.name) }
 }
 
 /// One row of the band's own health-function list (VPHealthFunctionModel): what it is,
@@ -306,6 +420,17 @@ struct SleepNight {
 
 /// The states the measurement takeover renders. `lead == false` is the amber nudge:
 /// it means "we need you to move", never "you failed".
+/// 14 · one report from the band during a sport mode (`VPDeviceSportControlModel`). Zero
+/// in a field is the band not having it yet, so every field is optional and 0 is nil.
+struct SportLiveInfo: Hashable {
+    var heartRate: Int?
+    var calories: Int?
+    var distanceM: Int?
+    var durationSec: Int?
+    /// 0 not started · 1 running · 2 paused
+    var runState: Int?
+}
+
 enum MeasurementProgress {
     case waitingForContact
     case contact
@@ -324,6 +449,8 @@ struct PartialReading {
 
 enum MeasurementResult {
     case heartRate(hr: Int, hrv: Int?, stress: Int?)
+    /// 06 · one pulse study: the rate, and the beat-to-beat intervals behind it.
+    case pulseStudy(PulseStudy)
     /// ⚠️ There is no weight in BodyCompositionTestResult: these come from the weight we
     /// pushed down with syncPersonalInfo, which is why fat and lean are not two independent
     /// measurements and Δfat + Δlean always equals Δweight.
@@ -353,22 +480,6 @@ struct BodyCompositionReading {
 
 enum BandSetting {
     case heartRateAlarm(on: Bool, low: Int, high: Int)
-    case moveReminder(on: Bool, intervalMinutes: Int, startHour: Int, endHour: Int)
-    case drinkNudge(on: Bool)
-    case wearDetection(on: Bool)
-    case disconnectAlert(on: Bool)
-    case lowPower(on: Bool)
-    /// ⚠️ Alarms are replaced as a whole set, and the band's capacity is 3, 10 or 20
-    /// depending on firmware — you only find out you exceeded it from the failure.
-    case alarms([BandAlarm])
-}
-
-struct BandAlarm: Hashable {
-    var hour: Int
-    var minute: Int
-    /// 1 = Monday … 7 = Sunday
-    var weekdays: Set<Int>
-    var on: Bool
 }
 
 struct AutoMonitorSlot: Identifiable, Hashable {
@@ -508,6 +619,7 @@ final class DisconnectedBand: BandService, @unchecked Sendable {
         AsyncThrowingStream { $0.finish(throwing: BandError.notConnected) }
     }
     func measureStress(progress _: @escaping @MainActor (Int) -> Void) async throws -> Int { throw BandError.notConnected }
+    func measureHRV(timeout _: TimeInterval) async throws -> Int { throw BandError.notConnected }
     func writeSetting(_: BandSetting) async throws -> BandSetting { throw BandError.notConnected }
     func checkFirmwareUpdate() async throws -> FirmwareOffer? { throw BandError.notConnected }
     func updateFirmware(to _: String, progress _: @escaping @Sendable (Double) -> Void) async throws -> FirmwareUpdateResult {
@@ -518,5 +630,13 @@ final class DisconnectedBand: BandService, @unchecked Sendable {
     func probeSportMode(_ rawValue: Int) async throws -> Bool { throw BandError.notConnected }
     func startSportMode(_ rawValue: Int) async throws { throw BandError.notConnected }
     func stopSportMode(_ rawValue: Int) async throws { throw BandError.notConnected }
+    /// No SDK, so no wrist to report from: the stream closes rather than hanging a reader.
+    func sportLiveInfo() -> AsyncStream<SportLiveInfo> { AsyncStream { $0.finish() } }
     func readHealthFunctions() async throws -> [BandHealthFunction] { throw BandError.notConnected }
+    func probeHealthGlance(progress _: @escaping @MainActor (Int) -> Void) async throws -> BandHealthGlance { throw BandError.notConnected }
+    func readManualTestData(since _: Date) async throws -> [String] { throw BandError.notConnected }
+    func measurePulseStudy() -> AsyncThrowingStream<PulseStudyStep, Error> {
+        AsyncThrowingStream { $0.finish(throwing: BandError.notConnected) }
+    }
+    func probeMicroTest(progress _: @escaping @MainActor (Int) -> Void) async throws -> [(name: String, value: Double)] { throw BandError.notConnected }
 }

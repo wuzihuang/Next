@@ -25,7 +25,7 @@ final class BandPresence {
                 case .state(let s):
                     store.band.connected = (s == .connected)
                 case .battery(let b):
-                    if let p = b.percent { store.band.batteryPercent = p }
+                    store.band.applyBattery(b)
                 default:
                     break
                 }
@@ -46,7 +46,7 @@ final class BandPresence {
             store.band.mac = identity.bleIdentifier
             store.band.firmware = identity.firmware
         }
-        if let battery, let p = battery.percent { store.band.batteryPercent = p }
+        if let battery { store.band.applyBattery(battery) }
         await Repository.shared.registerDevice(identity: identity, battery: battery)
 
         // 07 · the plus menu is gated on what this HOOP says it can do, read from the band
@@ -62,6 +62,66 @@ final class BandPresence {
         }
 
         #if DEBUG
+        // `DEVICECTL_CHILD_NB_DEBUG_PROBE=healthglance` · run one 微体检 and print everything
+        // that came back. ⚠️ A REAL measurement on the wrist, which is why it is behind a
+        // launch flag and never runs on its own. `standDown` takes the band off the panel's
+        // live readout first — the two cannot share the sensor.
+        // `DEVICECTL_CHILD_NB_DEBUG_PROBE=manualdata` · what the watch itself has stored.
+        // ⚠️ A read: nothing is measured, nothing lights up. The band hands back what the
+        // user already pressed for on the watch.
+        if ProcessInfo.processInfo.environment["NB_DEBUG_PROBE"] == "manualdata" {
+            let log = Logger(subsystem: "com.nextbody.hoop", category: "probe")
+            let since = Date().addingTimeInterval(-30 * 24 * 3600)
+            log.notice("manual data probe · reading everything stored since \(since, privacy: .public)")
+            await LiveReadout.shared.standDown {
+                do {
+                    let lines = try await Band.live.readManualTestData(since: since)
+                    log.notice("manual data · \(lines.count) record(s)")
+                    for line in lines { log.notice("manual data · \(line, privacy: .public)") }
+                } catch {
+                    log.error("manual data · \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+
+        // `DEVICECTL_CHILD_NB_DEBUG_PROBE=microtest` · 微体检 (定制项目), the other opcode.
+        // ⚠️ A REAL measurement on the wrist.
+        if ProcessInfo.processInfo.environment["NB_DEBUG_PROBE"] == "microtest" {
+            let log = Logger(subsystem: "com.nextbody.hoop", category: "probe")
+            log.notice("micro test probe · starting a real measurement")
+            await LiveReadout.shared.standDown {
+                do {
+                    let values = try await Band.live.probeMicroTest { p in log.notice("micro test \(p)%") }
+                    for (name, value) in values {
+                        log.notice("micro test · \(name, privacy: .public) = \(value, privacy: .public)")
+                    }
+                } catch {
+                    log.error("micro test · \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+
+        if ProcessInfo.processInfo.environment["NB_DEBUG_PROBE"] == "healthglance" {
+            let log = Logger(subsystem: "com.nextbody.hoop", category: "probe")
+            log.notice("health glance probe · starting a real measurement")
+            await LiveReadout.shared.standDown {
+                do {
+                    let glance = try await Band.live.probeHealthGlance { p in
+                        log.notice("health glance \(p)%")
+                    }
+                    log.notice("health glance · this band carries: \(glance.supported.joined(separator: ", "), privacy: .public)")
+                    log.notice("health glance · not carried: \(glance.unsupported.joined(separator: ", "), privacy: .public)")
+                    // Every field, zeros included: which ones the band left alone is half
+                    // the answer, and a filtered list would hide it.
+                    for (name, value) in glance.values {
+                        log.notice("health glance · \(name, privacy: .public) = \(value, privacy: .public)")
+                    }
+                } catch {
+                    log.error("health glance · \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+
         // The band's own answer to "what can this HOOP measure" — one read, no sensor time.
         // Logged, not stored: nothing on screen reads it yet, and a capability that decides
         // what the plus menu offers has to be a deliberate change, not a side effect of a probe.

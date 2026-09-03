@@ -8,7 +8,7 @@ import SwiftUI
 enum Destination: Hashable {
     case training
     case fuel
-    /// 09 edge 5 · a closed day, reached from THIS WEEK or from 10's EDIT THIS DAY.
+    /// 09 edge 5 · a closed day, reached from THIS WEEK's day labels.
     case fuelDay(UserDay)
     case bodyBattery
     /// 04 · one of page two's eight instruments, opened from its own card. One case, not
@@ -17,7 +17,6 @@ enum Destination: Hashable {
     case composition(date: Date?)
     case profile
     case device            // THE ONLY SECOND LEVEL, reached from profile
-    case deviceAlarms      // second-level-of-second-level, see F6 dead-control ruling
     case deviceAutoMonitor
     /// Plus menu · Sport Mode. Pick one of the catalogued modes and open it on the band.
     case sportMode
@@ -73,7 +72,7 @@ enum SheetRoute: Hashable, Identifiable {
     // 11 · profile
     case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, export, deleteAccount, signOut
     // 12S · device
-    case bandAlarm, bandAutoMonitor, findBand, unbind, firmware, syncCadence
+    case bandAutoMonitor, findBand, unbind, firmware, syncCadence
     // dock
     case plusMenu
     var id: String { String(describing: self) }

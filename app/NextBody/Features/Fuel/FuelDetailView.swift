@@ -121,7 +121,6 @@ struct FuelDetailView: View {
                     .padding(.horizontal, 14)
                     .frame(width: NB.Layout.contentWidth)
                 }
-                logButton
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 30)
@@ -473,28 +472,6 @@ struct FuelDetailView: View {
         if gap >= 3 { return "STRENGTH 30 MIN" }
         return "EASY WALK 20 MIN"
     }
-
-    /// A9 · not a form entry point: it opens the dock with "log a meal · dinner · 660 left"
-    /// prefilled. Lime and solid in the empty state, dark and outlined once there is data.
-    private var logButton: some View {
-        Button {
-            if isPast {
-                // 09 edge 5 · back-logging stays open: the dock, prefilled with the day.
-                let f = DateFormatter(); f.dateFormat = AppLanguage.isEnglish ? "MMM d" : "M月d日"
-                router.dockPrefill = .init(text: "\(f.string(from: day.start)) ", day: day)
-            }
-            router.backToRoot()
-        } label: {
-            Text(isPast ? "ADD TO THAT DAY" : "LOG A MEAL")
-                .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                .foregroundStyle(logged ? NB.text1 : NB.carbon)
-                .frame(width: NB.Layout.contentWidth, height: logged ? 48 : 56)
-                .background(logged ? Color(hex: 0x141418) : NB.lime1, in: Capsule())
-                .overlay(logged ? Capsule().stroke(NB.white.opacity(0.10), lineWidth: 1) : nil)
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 6)
-    }
 }
 
 // MARK: rows
@@ -721,30 +698,33 @@ struct BalanceWeek: View {
             let h = geo.size.height
             let maxAbs: Double = 800
             ZStack(alignment: .topLeading) {
-                // the −200 … −500 band, absolute and never rescaled
+                // 0 sits at the bottom, same as the bars. −200 / −500 are absolute and
+                // never rescaled; a day past ±800 fills the chart instead of leaving it.
                 Rectangle().fill(NB.limeMid.opacity(0.18))
                     .frame(height: h * CGFloat(300 / maxAbs))
-                    .offset(y: h * CGFloat(200 / maxAbs))
+                    .offset(y: h * CGFloat((maxAbs - 500) / maxAbs))
                 HStack(spacing: 0) {
                     ForEach(values.indices, id: \.self) { i in
                         let inWindow = values[i] <= -200 && values[i] >= -500
                         let isToday = i == values.count - 1
+                        let fraction = min(1, abs(values[i]) / maxAbs)
                         RoundedRectangle(cornerRadius: 4, style: .continuous)
                             .fill(isToday && !todayClosed ? NB.lime2
                                   : (inWindow ? NB.limeMid : Color(hex: 0x3A3A44)))
-                            .frame(width: 34, height: max(4, h * CGFloat(abs(values[i]) / maxAbs)))
+                            .frame(width: 34, height: max(4, h * CGFloat(fraction)))
                             .frame(height: h, alignment: .bottom)
                         if i < values.count - 1 { Spacer(minLength: 0) }
                     }
                 }
                 Path { p in
-                    for y in [200.0, 500.0] {
-                        let yy = h * CGFloat(y / maxAbs)
+                    for kcal in [200.0, 500.0] {
+                        let yy = h * CGFloat(1 - kcal / maxAbs)
                         p.move(to: CGPoint(x: 0, y: yy)); p.addLine(to: CGPoint(x: geo.size.width, y: yy))
                     }
                 }
                 .stroke(NB.lime2.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
             }
+            .clipped()
         }
     }
 }

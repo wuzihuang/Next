@@ -1,16 +1,14 @@
 import SwiftUI
 
-/// Sport Mode · pick one of the catalogued modes, open it on the band, keep it open until
-/// Stop. Entered from the plus menu (and from Training's START A SESSION once that CTA is live).
-/// Back always stops a running session first — leaving one open would drain the band.
+/// Sport Mode · pick one of the catalogued modes and open it on the band. The moment the
+/// band takes it this page is done: it returns to the root, and the session lives on the
+/// home screen as the panel grown full size (`LiveSessionTakeover`) until STOP is held there.
+/// Entered from the plus menu and from Training's START A SESSION.
 struct SportModeView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
-    @State private var active: SportModeOption?
-    @State private var startedAt: Date?
     @State private var starting: Int?
-    @State private var stopping = false
     @State private var errorLine: String?
     /// Modes this firmware refused. Kept for the page's life so a dead row is not offered twice.
     @State private var refused: Set<Int> = []
@@ -29,17 +27,11 @@ struct SportModeView: View {
             .padding(.horizontal, 10).frame(height: 24)
             .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
         }) {
-            VStack(alignment: .leading, spacing: 14) {
-                if let active, let startedAt {
-                    sessionCard(active, startedAt: startedAt)
-                } else {
-                    picker
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 30)
+            picker
+                .padding(.horizontal, 16)
+                .padding(.bottom, 30)
         } onBack: {
-            Task { await leave() }
+            router.backToRoot()
         }
         .task {
             await Analytics.shared.track("SPORT_MODE_OPEN", ["CONNECTED": connected])
@@ -50,7 +42,7 @@ struct SportModeView: View {
 
     private var picker: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Pick a mode. The band opens it and keeps it open until you stop.")
+            Text("Pick a mode. The band opens it, and home turns into the session until you stop.")
                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .foregroundStyle(NB.white.opacity(0.42))
 
@@ -104,107 +96,14 @@ struct SportModeView: View {
         }
     }
 
-    private func sessionCard(_ mode: SportModeOption, startedAt: Date) -> some View {
-        VStack(spacing: 22) {
-            Text(mode.name.uppercased())
-                .font(NBFont.dot(700, 14)).tracking(0.18 * 14)
-                .foregroundStyle(NB.cyanPale)
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(elapsed(from: startedAt, to: context.date))
-                    .font(NBFont.dot(700, 48)).tracking(0.02 * 48)
-                    .foregroundStyle(NB.text1)
-                    .monospacedDigit()
-            }
-            Text("SESSION RUNNING · #\(mode.rawValue)")
-                .font(NBFont.dot(600, 10.5)).tracking(0.14 * 10.5)
-                .foregroundStyle(NB.white.opacity(0.38))
-
-            if let errorLine {
-                Text(errorLine)
-                    .font(NBFont.dot(600, 10.5)).tracking(0.12 * 10.5)
-                    .foregroundStyle(NB.ember1)
-            }
-
-            Button {
-                Task { await stop(thenLeave: false) }
-            } label: {
-                Text(stopping ? "STOPPING…" : "STOP SESSION")
-                    .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                    .foregroundStyle(NB.carbon)
-                    .frame(width: NB.Layout.contentWidth, height: 48)
-                    .background(NB.lime1, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(stopping)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 36)
-        .cardSkin()
-    }
-
+    /// The tap is the start. The session is handed to the store and the page leaves at
+    /// once; the takeover grows out of home's panel while the band is still being asked,
+    /// and folds back on its own if the band says no.
     private func start(_ mode: SportModeOption) {
-        guard connected, starting == nil, active == nil else { return }
-        starting = mode.rawValue
+        guard connected, starting == nil, LiveSessionStore.shared.session == nil else { return }
         errorLine = nil
-        Task {
-            defer { starting = nil }
-            do {
-                try await Band.live.startSportMode(mode.rawValue)
-                active = mode
-                startedAt = Date()
-                await Analytics.shared.track("SESSION_START", [
-                    "MODE": mode.rawValue, "NAME": mode.name,
-                ])
-            } catch {
-                if case BandError.unsupported = error {
-                    refused.insert(mode.rawValue)
-                } else if case BandError.rejected = error {
-                    refused.insert(mode.rawValue)
-                }
-                errorLine = error.localizedDescription
-            }
-        }
-    }
-
-    private func stop(thenLeave: Bool) async {
-        guard let active else {
-            if thenLeave { await MainActor.run { router.backToRoot() } }
-            return
-        }
-        stopping = true
-        errorLine = nil
-        let mode = active
-        let started = startedAt ?? Date()
-        defer { stopping = false }
-        do {
-            try await Band.live.stopSportMode(mode.rawValue)
-            let sec = Int(Date().timeIntervalSince(started))
-            await Analytics.shared.track("SESSION_END", [
-                "MODE": mode.rawValue, "SEC": sec,
-            ])
-            self.active = nil
-            startedAt = nil
-            if thenLeave { await MainActor.run { router.backToRoot() } }
-        } catch {
-            errorLine = error.localizedDescription
-            // A failed stop still leaves the page when the user pressed Back — better to
-            // surface the error on Home than trap them on a stuck session screen.
-            if thenLeave {
-                self.active = nil
-                startedAt = nil
-                await MainActor.run { router.backToRoot() }
-            }
-        }
-    }
-
-    private func leave() async {
-        await stop(thenLeave: true)
-    }
-
-    private func elapsed(from start: Date, to now: Date) -> String {
-        let sec = max(0, Int(now.timeIntervalSince(start)))
-        let m = sec / 60
-        let s = sec % 60
-        return String(format: "%d:%02d", m, s)
+        LiveSessionStore.shared.begin(mode, profile: data.profile,
+                                      weightKg: data.today.weightKg ?? data.weighIns.first?.weightKg)
+        router.backToRoot()
     }
 }

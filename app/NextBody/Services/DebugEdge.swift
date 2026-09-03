@@ -1,9 +1,9 @@
 import Foundation
 
 /// DEBUG only · `SIMCTL_CHILD_NB_DEBUG_EDGE=stale` (or autohr · notworn · over · outunknown ·
-/// frozen · outlier · measured · clamped · busy · otaunverified · levelonly · autoswitch ·
-/// autoempty · autonone · autorefuse) forces one board edge state on a simulator whose data
-/// would never produce it, so each can be walked 1:1.
+/// frozen · outlier · measured · clamped · busy · otaunverified · levelonly · charging ·
+/// charged · autoswitch · autoempty · autonone · autorefuse) forces one board edge state
+/// on a simulator whose data would never produce it, so each can be walked 1:1.
 enum DebugEdge {
     static var name: String? {
         #if DEBUG

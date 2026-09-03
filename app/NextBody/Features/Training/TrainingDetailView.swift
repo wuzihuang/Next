@@ -804,18 +804,19 @@ struct WeekBars: View {
                                 .fill(Color(hex: 0x16161B))
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(i == values.count - 1 ? NB.cyan1 : NB.cyan3)
-                                .frame(height: h * CGFloat(values[i] / 21))
+                                .frame(height: h * CGFloat(min(1, values[i] / 21)))
                         }
                         .frame(width: 34, height: h)
                         if i < values.count - 1 { Spacer(minLength: 0) }
                     }
                 }
                 Path { p in
-                    let y = h - h * CGFloat(average / 21)
+                    let y = h - h * CGFloat(min(1, average / 21))
                     p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: geo.size.width, y: y))
                 }
                 .stroke(NB.cyanPale.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
             }
+            .clipped()
         }
     }
 }

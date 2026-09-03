@@ -102,7 +102,6 @@ struct CompositionDetailView: View {
                     macrosCard
                     foodCard
                     trainingCard
-                    editButton
                 } else {
                     gates
                     LimePillButton(title: "Add a weigh-in") { router.sheet = .weighIn }
@@ -650,22 +649,6 @@ struct CompositionDetailView: View {
                              delta: nil, deltaTint: .clear)
             }
         }
-    }
-
-    private var editButton: some View {
-        Button {
-            // 10 rule 09 · editing a past day is 09's past-day route, not today's page.
-            router.open(day < UserDay.containing(Date()) ? .fuelDay(day) : .fuel, from: .home)
-        } label: {
-            Text("EDIT THIS DAY")
-                .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                .foregroundStyle(NB.text1)
-                .frame(width: NB.Layout.contentWidth, height: 48)
-                .background(Color(hex: 0x141418), in: Capsule())
-                .overlay(Capsule().stroke(NB.white.opacity(0.10), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .padding(.top, 6)
     }
 
     private var gates: some View {

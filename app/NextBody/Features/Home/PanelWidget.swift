@@ -128,6 +128,9 @@ struct PanelWidget: Identifiable, Hashable {
     /// percent as the hero with the last reading under it, four fields in tiles, the
     /// sentence, then the spine. An optional block of the one template, like `photo`.
     var composition: CompositionAnswer?
+    /// 06 · the balance check's own frame: the Poincaré cloud, the two shares and the line
+    /// under them. Like `composition`, it owns the whole panel rather than filling slots.
+    var balance: BalanceAnswer?
     /// 07 · rule 6 · `text` is the one type with no sentence slot on screen: an eyebrow, one
     /// lime headline — the only highlight on the panel — and a sub. Its own skeleton, like
     /// `photo` and `composition`.
@@ -245,7 +248,7 @@ struct PanelWidgetView: View {
             if layer == .chart {
                 // The LEDs do not take taps; the text layer above them does.
                 canvas.allowsHitTesting(false)
-            } else if widget.composition != nil {
+            } else if widget.composition != nil || widget.balance != nil {
                 canvas
             } else {
                 // ADR-0001 · a hot zone: a touch that travels past the slop is the page drag's,
@@ -267,6 +270,8 @@ struct PanelWidgetView: View {
                 photoCanvas(photo)
             } else if let composition = widget.composition {
                 compositionCanvas(composition)
+            } else if let balance = widget.balance {
+                balanceCanvas(balance)
             } else if let h = widget.headline {
                 headlineCanvas(h)
             } else if let plate = widget.plate {
@@ -478,6 +483,102 @@ struct PanelWidgetView: View {
     /// The board's frame to the pixel: 358 × 470, its own LED ground (a reading is not drawn
     /// over the standby art), the lime hairline that marks a frame the band just produced,
     /// header at y16, hero at y70, the four tiles at y206, the sentence at y300, the spine at y378.
+    /// 06 · THE BALANCE FRAME. A Poincaré plot of the beat-to-beat intervals, the two shares
+    /// under it, and one sentence.
+    ///
+    /// ⚠️ Every dot is a pair of consecutive intervals the band measured. The diagonal is the
+    /// line where a beat lasts exactly as long as the one before it, so the cloud's width
+    /// ACROSS it is beat-to-beat change and its length ALONG it is the slow drift — which is
+    /// exactly what the two bars below are the ratio of. Nothing is smoothed, nothing is
+    /// fitted; a short run simply makes a small cloud.
+    @ViewBuilder private func balanceCanvas(_ b: BalanceAnswer) -> some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous).fill(NB.panelInk)
+            Canvas { ctx, size in
+                var grid = Path()
+                var y: CGFloat = 1.4
+                while y < size.height {
+                    var x: CGFloat = 1.4
+                    while x < size.width {
+                        grid.addRoundedRect(in: CGRect(x: x, y: y, width: 3.2, height: 3.2),
+                                            cornerSize: CGSize(width: 0.8, height: 0.8))
+                        x += 4
+                    }
+                    y += 4
+                }
+                ctx.fill(grid, with: .color(Color(hex: 0x131318)))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous))
+        }
+        .frame(width: 358, height: 470)
+
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(widget.title.uppercased())
+                    .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                    .foregroundStyle(NB.lime1)
+                Spacer(minLength: 0)
+                Text("JUST NOW")
+                    .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+                    .foregroundStyle(NB.white.opacity(0.30))
+                    // The panel's own close mark sits in this corner, drawn over the widget
+                    // by AIPanel — without the gap the two overlap and both read as broken.
+                    .padding(.trailing, 30)
+            }
+
+            Text(b.headline)
+                .font(NBFont.brand(500, 21)).tracking(-0.01 * 21)
+                .foregroundStyle(NB.text1)
+                .padding(.top, 14)
+
+            PoincarePlot(points: b.points, accent: NB.lime1)
+                .frame(width: 214, height: 214)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 12)
+
+            // The two shares, as one split bar. Rest takes the accent; drive takes the
+            // amber the rest of the product uses for "something is being asked of you".
+            VStack(alignment: .leading, spacing: 7) {
+                GeometryReader { geo in
+                    HStack(spacing: 2) {
+                        Rectangle().fill(NB.lime1)
+                            .frame(width: max(2, geo.size.width * b.restShare))
+                        Rectangle().fill(NB.ember1.opacity(0.85))
+                    }
+                    .clipShape(Capsule())
+                }
+                .frame(height: 10)
+
+                HStack(spacing: 0) {
+                    Text("REST \(Int(b.restShare * 100))%")
+                        .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
+                        .foregroundStyle(NB.lime1)
+                    Spacer(minLength: 0)
+                    Text("DRIVE \(100 - Int(b.restShare * 100))%")
+                        .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
+                        .foregroundStyle(NB.ember1.opacity(0.9))
+                }
+            }
+            .padding(.top, 16)
+
+            Text(b.note)
+                .font(NBFont.ui(300, 13)).tracking(0.01 * 13)
+                .lineSpacing(20 - 13)
+                .foregroundStyle(NB.text2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 12)
+
+            Spacer(minLength: 0)
+
+            Text(b.footer)
+                .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+                .foregroundStyle(NB.white.opacity(0.34))
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+        .frame(width: 358, height: 470, alignment: .topLeading)
+    }
+
     @ViewBuilder private func compositionCanvas(_ c: CompositionAnswer) -> some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous).fill(NB.panelInk)
@@ -907,6 +1008,70 @@ struct PlateBlock: Hashable {
 /// 06 · 20 · what the body scan's frame carries beyond the template: the line under the hero
 /// and the four tiles. Everything in it came off the band or out of the store — never a
 /// placeholder (a printed 34.2 no band produced is a number the user will believe).
+/// 06 · what the balance check puts on the panel. Everything here was computed from the
+/// interval series the band reported — see `AutonomicBalance`.
+struct BalanceAnswer: Hashable {
+    var headline: String
+    var note: String
+    /// 0…1 · the beat-to-beat half's share of the cloud.
+    var restShare: Double
+    var footer: String
+    /// Consecutive interval pairs in milliseconds, already paired: (this beat, the next).
+    var points: [CGPoint]
+}
+
+/// The plot itself. Axes are not labelled with numbers on purpose — the shape and the spread
+/// are the reading, and a millisecond grid on a 214 pt square invites measuring off the screen.
+struct PoincarePlot: View {
+    var points: [CGPoint]
+    var accent: Color
+
+    var body: some View {
+        Canvas(rendersAsynchronously: false) { ctx, size in
+            // The frame, in the panel's own hairline.
+            let frame = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 10)
+            ctx.stroke(frame, with: .color(NB.white.opacity(0.10)), lineWidth: 1)
+
+            guard points.count > 1 else {
+                ctx.draw(Text("NOT ENOUGH BEATS")
+                    .font(NBFont.dot(500, 9.5))
+                    .foregroundStyle(NB.white.opacity(0.30)),
+                         at: CGPoint(x: size.width / 2, y: size.height / 2))
+                return
+            }
+
+            // One square window around the cloud, padded, so the diagonal stays at 45° —
+            // scaling the two axes independently would stretch the ellipse and turn the
+            // ratio the bars report into something the picture disagrees with.
+            let xs = points.map(\.x), ys = points.map(\.y)
+            let lo = min(xs.min()!, ys.min()!), hi = max(xs.max()!, ys.max()!)
+            let pad = max(20, (hi - lo) * 0.18)
+            let a = lo - pad, b = hi + pad
+            let span = max(1, b - a)
+            func place(_ p: CGPoint) -> CGPoint {
+                CGPoint(x: (p.x - a) / span * size.width,
+                        // y up: a longer next-interval sits higher, the way the plot is read.
+                        y: size.height - (p.y - a) / span * size.height)
+            }
+
+            // The identity line. Every dot on it is a beat that lasted exactly as long as
+            // the one before it; the cloud's width across it is the reading.
+            var diagonal = Path()
+            diagonal.move(to: place(CGPoint(x: a, y: a)))
+            diagonal.addLine(to: place(CGPoint(x: b, y: b)))
+            ctx.stroke(diagonal, with: .color(NB.white.opacity(0.16)),
+                       style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+
+            var dots = Path()
+            for p in points {
+                let q = place(p)
+                dots.addEllipse(in: CGRect(x: q.x - 2.2, y: q.y - 2.2, width: 4.4, height: 4.4))
+            }
+            ctx.fill(dots, with: .color(accent.opacity(0.9)))
+        }
+    }
+}
+
 struct CompositionAnswer: Hashable {
     struct Field: Hashable {
         var label: String

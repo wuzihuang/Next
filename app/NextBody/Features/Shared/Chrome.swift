@@ -67,32 +67,58 @@ struct Wordmark: View {
 }
 
 /// The band's own battery, as the header draws it — a 12×7 dot-matrix cell scaled to
-/// 22×13, plus a Doto percentage.
+/// 22×13, plus a Doto percentage. Charging adds a pixel bolt and a live fill pulse.
 struct BandBatteryPip: View {
     /// nil = the band has not said. The shell is drawn empty and the label is a dash; a
     /// percentage is printed only once one has actually been read.
     let percent: Int?
+    var chargeState: BandBattery.ChargeState = .unknown
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var isCharging: Bool { chargeState == .charging }
+    private var showBolt: Bool { chargeState == .charging || chargeState == .full }
+
     var body: some View {
         HStack(spacing: 6) {
-            Canvas { ctx, size in
-                let s = size.width / 12                       // viewBox is 12 × 7
-                func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ c: Color) {
-                    ctx.fill(Path(CGRect(x: x * s, y: y * s, width: w * s, height: h * s)), with: .color(c))
+            TimelineView(.animation(paused: reduceMotion || !isCharging)) { timeline in
+                let pulse: CGFloat = isCharging && !reduceMotion
+                    ? CGFloat((sin(timeline.date.timeIntervalSinceReferenceDate * 2.6) + 1) / 2)
+                    : 1
+                Canvas { ctx, size in
+                    let s = size.width / 12                       // viewBox is 12 × 7
+                    func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ c: Color) {
+                        ctx.fill(Path(CGRect(x: x * s, y: y * s, width: w * s, height: h * s)), with: .color(c))
+                    }
+                    let shell = showBolt ? NB.lime3 : Color(hex: 0x3A3A44)
+                    rect(0, 0, 10, 1, shell)
+                    rect(0, 6, 10, 1, shell)
+                    rect(0, 1, 1, 5, shell)
+                    rect(9, 1, 1, 5, shell)
+                    rect(10, 2, 2, 3, shell)
+                    let fillWidth = percent.map { 8 * CGFloat($0) / 100 } ?? 0
+                    if fillWidth > 0 {
+                        let fill = showBolt
+                            ? NB.lime1.opacity(0.55 + 0.45 * pulse)
+                            : NB.lime2
+                        rect(1, 1, fillWidth, 5, fill)
+                    }
+                    if showBolt {
+                        // Pixel lightning on the cell. A pixel over the fill is punched
+                        // out; a pixel over empty interior stays lime so a low charge
+                        // still reads as charging.
+                        for (x, y) in [(5, 1), (4, 2), (5, 2), (3, 3), (4, 3), (5, 3), (6, 3), (5, 4), (6, 4), (5, 5)] {
+                            let overFill = CGFloat(x) + 1 <= 1 + fillWidth
+                            rect(CGFloat(x), CGFloat(y), 1, 1, overFill ? NB.carbon : NB.lime1)
+                        }
+                    }
                 }
-                let shell = Color(hex: 0x3A3A44)
-                rect(0, 0, 10, 1, shell)
-                rect(0, 6, 10, 1, shell)
-                rect(0, 1, 1, 5, shell)
-                rect(9, 1, 1, 5, shell)
-                rect(10, 2, 2, 3, shell)
-                if let percent { rect(1, 1, 8 * CGFloat(percent) / 100, 5, NB.lime2) }
             }
             .frame(width: 22, height: 13)
 
             Text(percent.map { "\($0)%" } ?? Fmt.dash)
                 .font(NBFont.dot(700, 11))
                 .tracking(0.06 * 11)
-                .foregroundStyle(NB.limePale)
+                .foregroundStyle(showBolt ? NB.lime1 : NB.limePale)
         }
     }
 }
@@ -144,6 +170,7 @@ struct HomeHeader: View {
     let name: String
     let initials: String
     let batteryPercent: Int?
+    var chargeState: BandBattery.ChargeState = .unknown
     var width: CGFloat = NB.Layout.contentWidth
     let onProfile: () -> Void
     /// 12 · the band battery is the way into the device page.
@@ -164,6 +191,15 @@ struct HomeHeader: View {
         return f
     }()
     private var dayLine: String { Self.dayFormatter.string(from: Date()).uppercased() }
+
+    private var pipLabel: String {
+        let level = batteryPercent.map { "Band · battery \($0)%" } ?? "Band · battery not read"
+        switch chargeState {
+        case .charging: return "\(level) · charging"
+        case .full:     return "\(level) · charged"
+        default:        return level
+        }
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -197,13 +233,13 @@ struct HomeHeader: View {
 
             Spacer(minLength: 0)
             Button(action: onDevice) {
-                BandBatteryPip(percent: batteryPercent)
+                BandBatteryPip(percent: batteryPercent, chargeState: chargeState)
                     .frame(height: Self.height)
                     .padding(.leading, 12)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(batteryPercent.map { "Band · battery \($0)%" } ?? "Band · battery not read")
+            .accessibilityLabel(pipLabel)
         }
         .frame(width: width, height: Self.height)
     }

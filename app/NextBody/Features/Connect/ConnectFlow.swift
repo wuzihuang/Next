@@ -144,7 +144,8 @@ struct ConnectFlow: View {
 
                 data.band = BandState(
                     connected: true, name: identity.name, mac: identity.bleIdentifier,
-                    batteryPercent: battery.percent, firmware: identity.firmware,
+                    batteryPercent: battery.percent, chargeState: battery.chargeState,
+                    firmware: identity.firmware,
                     lastSync: Date(),
                     capabilities: Self.capabilitySet(caps))
                 step = .connected

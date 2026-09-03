@@ -13,6 +13,8 @@ struct Dock: View {
     var note: DockNote? = nil
     /// 05 rule 06 · with a photo attached the send key lights only at 100 % and ≥ 1 character.
     var attachmentReady: Bool? = nil
+    /// the column the row fills; 358 on the board, the device's own width minus the gutters on a phone
+    var width: CGFloat = NB.Layout.contentWidth
     @Binding var draft: String
     var onSend: (String) -> Void
     var onCamera: () -> Void
@@ -43,12 +45,17 @@ struct Dock: View {
                 }
                 focused = mode == .keyboard
             }) { KeyboardGlyph() }
+            // 05M · B·03 · while the chamber owns the lane both side keys fade out and stop
+            // taking hits; a recording has two gestures, and a third tappable thing is a leak.
+            .opacity(mode == .listening ? 0 : 1)
+            .allowsHitTesting(mode != .listening)
 
             centre
 
-            // Right slot · asks for an action. 06 · 01: it is a plus, not a camera —
-            // the camera is only one of the five things behind it, and naming the entry
-            // after one item hides the other four. Composing turns it into send.
+            // Right slot · asks for an action. At rest it is the camera, as boards 04 / 05
+            // draw the row (keyboard · voice · camera); pressing it opens 06's sheet, where
+            // the photo rows come first and the band measurements sit under them. While the
+            // sheet is up the key is the close mark. Composing turns it into send.
             if mode == .keyboard {
                 let armed = !draft.trimmingCharacters(in: .whitespaces).isEmpty && (attachmentReady ?? true)
                 Button(action: send) {
@@ -64,14 +71,23 @@ struct Dock: View {
                 .transition(.scale.combined(with: .opacity))
             } else {
                 DockCircleButton(filled: menuOpen, action: onPlus) {
-                    PlusGlyph(tint: menuOpen ? NB.carbon : NB.iconInk)
-                        .rotationEffect(.degrees(menuOpen ? 45 : 0))
-                        .animation(.easeOut(duration: 0.14), value: menuOpen)
+                    ZStack {
+                        CameraGlyph()
+                            .opacity(menuOpen ? 0 : 1)
+                            .scaleEffect(menuOpen ? 0.6 : 1)
+                        PlusGlyph(tint: NB.carbon)
+                            .rotationEffect(.degrees(45))
+                            .opacity(menuOpen ? 1 : 0)
+                            .scaleEffect(menuOpen ? 1 : 0.6)
+                    }
+                    .animation(.easeOut(duration: 0.14), value: menuOpen)
                 }
-                .accessibilityLabel(menuOpen ? "Close" : "Add")
+                .accessibilityLabel(menuOpen ? "Close" : "Camera")
+                .opacity(mode == .listening ? 0 : 1)
+                .allowsHitTesting(mode != .listening)
             }
         }
-        .frame(width: NB.Layout.contentWidth, height: NB.Layout.dockHeight)
+        .frame(width: width, height: NB.Layout.dockHeight)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: draft.isEmpty)
     }
 
@@ -96,16 +112,50 @@ struct Dock: View {
             // 05M · B · one continuous press: down → armed at 200 ms → recording → release sends,
             // slide up past −56 px cancels. Not a tap: the board's key has this one gesture, and
             // the edge copy ("Hold, say it, then let go" · slide to cancel) presupposes it.
+            //
+            // ⚠️ One view for the capsule and the chamber. The finger that started the gesture
+            // is still down when the mode flips, and a gesture belongs to the view it was
+            // attached to: swapping views here would end the press the moment listening began.
+            // So the capsule itself grows — 56 → 138 tall, its slot → the whole lane — and only
+            // the face inside it is exchanged.
+            let listening = mode == .listening
+            let cancel = listening && (cancelling || DebugEdge.on("cancelling"))
             ZStack {
-                Capsule().fill(cancelling ? NB.ember1.opacity(0.85) : NB.lime1)
-                if mode == .listening { ListeningWave() } else { DotMatrix() }
+                RoundedRectangle(cornerRadius: listening ? 30 : NB.Layout.dockHeight / 2, style: .continuous)
+                    .fill(cancel ? Color(hex: 0x141418) : NB.lime1)
+                if cancel {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .stroke(NB.alert2.opacity(0.52), lineWidth: 1.5)
+                        .transition(.opacity)
+                }
+                if listening {
+                    RecordingChamber(cancelling: cancel).transition(.opacity)
+                } else {
+                    DotMatrix().transition(.opacity)
+                }
             }
-            .frame(height: NB.Layout.dockHeight)
+            .frame(width: listening ? width : nil,
+                   height: listening ? RecordingChamber.height : NB.Layout.dockHeight)
             .frame(maxWidth: .infinity)
-            .contentShape(Capsule())
-            .scaleEffect(pressT0 != nil ? 0.98 : 1)
+            // B·03 / B·04 · the cancel mark hangs 68 pt above the chamber's lip, on a dotted
+            // line that says how far the finger has to travel.
+            .overlay(alignment: .top) {
+                if listening {
+                    // the 112 pt drawing's top edge sits 108 pt above the lip: ring centre
+                    // at −68, the dotted line from −42 down to −6, as the board places them
+                    CancelMark(armed: cancel)
+                        .offset(y: -108)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            // the chamber grows upward out of the 56 pt row; the row itself never moves
+            .frame(height: NB.Layout.dockHeight, alignment: .bottom)
+            .contentShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .scaleEffect(pressT0 != nil && !listening ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: pressT0 != nil)
-            .accessibilityLabel(mode == .listening ? "正在听 · 松手发送 · 上滑取消" : "按住说话")
+            .animation(.easeOut(duration: 0.16), value: cancel)
+            .accessibilityLabel(listening ? (cancel ? "松手取消" : "正在听 · 松手发送 · 上滑取消") : "按住说话")
             .accessibilityAddTraits(.startsMediaSession)
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -123,7 +173,11 @@ struct Dock: View {
                             }
                         }
                         // 05M · B·04 · slide up past −56 px arms the cancel; back down re-arms send.
-                        cancelling = armed && v.translation.height < -56
+                        let c = armed && v.translation.height < -56
+                        if c != cancelling {
+                            cancelling = c
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
                     }
                     .onEnded { _ in
                         let wasArmed = armed, wasCancelling = cancelling
@@ -251,38 +305,146 @@ struct DotMatrix: View {
     }
 }
 
-/// While listening the same matrix becomes a level meter: columns rise and fall,
-/// the dots never move off their grid.
-struct ListeningWave: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: Double = 0
-    private let cols = 14
+/// 05M · B·03 · the chamber. 358 × 138, radius 30, padding 18 / 22 / 16: a status line with the
+/// timer, the level history as 34 bars, and the one instruction at the foot. B·04 turns the same
+/// box carbon behind a red hairline, freezes the bars and changes both lines — nothing moves.
+struct RecordingChamber: View {
+    static let height: CGFloat = 138
+    var cancelling: Bool
+    @ObservedObject private var mic = SpeechCapture.shared
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
-            Canvas { ctx, size in
-                // F5 C11 · a level meter that does not move is still a level meter.
-                let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
-                let sx = size.width / 96, sy = size.height / 32
-                let s = min(sx, sy)
-                let ox = (size.width - 96 * s) / 2, oy = (size.height - 32 * s) / 2
-                for col in 0..<cols {
-                    let amp = 0.5 + 0.5 * sin(t * 6 + Double(col) * 0.55)
-                    let lit = Int((amp * 2.4).rounded()) + 1        // 1…3 rows out from the middle
-                    for row in 0..<5 {
-                        let d = abs(row - 2)
-                        let on = d <= lit
-                        let x = ox + (3.2 + 6.4 * CGFloat(col)) * s
-                        let y = oy + (3.2 + 6.4 * CGFloat(row)) * s
-                        let r = 1.3 * s
-                        ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
-                                 with: .color(.black.opacity(on ? 0.78 : 0.14)))
-                    }
+        VStack(spacing: 0) {
+            HStack {
+                HStack(spacing: 8) {
+                    Circle().fill(cancelling ? NB.alert2 : NB.carbon).frame(width: 7, height: 7)
+                    Text(cancelling ? "RELEASE TO CANCEL" : "RECORDING")
+                        .font(NBFont.dot(600, 10)).tracking(0.28 * 10)
+                        .foregroundStyle(cancelling ? NB.alert1 : NB.carbon.opacity(0.66))
+                }
+                Spacer(minLength: 0)
+                // B·04 · the timer keeps running while the cancel is armed; the take is still alive.
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(Self.clock(mic.elapsed))
+                        .font(NBFont.dot(600, 16)).tracking(0.06 * 16)
+                        .foregroundStyle(cancelling ? NB.white.opacity(0.30) : NB.carbon)
                 }
             }
-            .frame(width: 96, height: 32)
+            .frame(height: 20)
+            Spacer(minLength: 0)
+            LevelBars(levels: Self.debugLevels ?? mic.levels, frozen: cancelling)
+                .frame(height: 52)
+            Spacer(minLength: 0)
+            HStack(spacing: 7) {
+                if !cancelling {
+                    Triangle().fill(NB.carbon.opacity(0.46)).frame(width: 9, height: 7)
+                }
+                Text(cancelling ? "SLIDE BACK DOWN TO KEEP" : "SLIDE UP TO CANCEL")
+                    .font(NBFont.dot(600, 10)).tracking(0.26 * 10)
+                    .foregroundStyle(cancelling ? NB.white.opacity(0.30) : NB.carbon.opacity(0.50))
+            }
+            .frame(height: 12)
         }
+        .padding(.top, 18)
+        .padding(.horizontal, 22)
+        .padding(.bottom, 16)
+        .frame(width: NB.Layout.contentWidth, height: Self.height)
+    }
+
+    static func clock(_ t: TimeInterval) -> String {
+        let s = max(0, Int(t))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// DEBUG · `NB_DEBUG_EDGE=recording` / `cancelling` on a simulator with no microphone:
+    /// the board's own 34 bars, so the chamber can be checked against B·03 pixel for pixel.
+    private static var debugLevels: [Double]? {
+        guard DebugEdge.on("recording") || DebugEdge.on("cancelling") else { return nil }
+        let h: [Double] = [6, 10, 16, 26, 38, 30, 20, 12, 18, 28, 44, 52, 40, 24, 14, 10, 16, 24,
+                           34, 46, 36, 22, 12, 8, 14, 22, 32, 42, 30, 18, 10, 14, 20, 10]
+        return h.map { ($0 - 6) / 46 }
+    }
+}
+
+/// The waveform: 34 bars 3 pt wide on a 9.3 pt pitch, 6 → 52 pt tall, rounded 1.5. Newest
+/// level on the right at full ink, the history fading to 40 % on the left. B·04 freezes the
+/// last picture and greys it to 17 % white — the bars are a record, not a decoration.
+struct LevelBars: View {
+    var levels: [Double]
+    var frozen: Bool
+    @State private var snapshot: [Double] = []
+
+    var body: some View {
+        let shown = frozen && !snapshot.isEmpty ? snapshot : levels
+        Canvas { ctx, size in
+            let n = shown.count
+            let pitch: CGFloat = 9.3
+            let x0 = (size.width - (pitch * CGFloat(n - 1) + 3)) / 2
+            for (i, level) in shown.enumerated() {
+                let h = 6 + CGFloat(max(0, min(1, level))) * 46
+                let rect = CGRect(x: x0 + pitch * CGFloat(i), y: (size.height - h) / 2, width: 3, height: h)
+                let alpha = frozen ? 0.17 : min(1, 0.4 + 0.6 * Double(i) / 23)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5),
+                         with: .color((frozen ? NB.white : NB.carbon).opacity(alpha)))
+            }
+        }
+        .onChange(of: frozen) { _, f in snapshot = f ? levels : [] }
         .allowsHitTesting(false)
+    }
+}
+
+/// B·03 · the ring the finger is sliding toward: a 44 pt circle with an ×, and a dotted 36 pt
+/// line down to the chamber. B·04 · past −56 px it goes red and the × turns pale.
+struct CancelMark: View {
+    var armed: Bool
+    var body: some View {
+        Canvas { ctx, size in
+            // the board's 112 × 112 drawing, unscaled
+            let circle = Path(ellipseIn: CGRect(x: 56 - 22.5, y: 40 - 22.5, width: 45, height: 45))
+            ctx.fill(circle, with: .color(armed ? NB.alert2.opacity(0.12) : NB.carbon.opacity(0.86)))
+            ctx.stroke(circle, with: .color(armed ? NB.alert2.opacity(0.62) : NB.white.opacity(0.30)),
+                       lineWidth: armed ? 1.5 : 1.4)
+            var x = Path()
+            let r: CGFloat = armed ? 7 : 6.5
+            x.move(to: CGPoint(x: 56 - r, y: 40 - r)); x.addLine(to: CGPoint(x: 56 + r, y: 40 + r))
+            x.move(to: CGPoint(x: 56 + r, y: 40 - r)); x.addLine(to: CGPoint(x: 56 - r, y: 40 + r))
+            ctx.stroke(x, with: .color(armed ? NB.alert1 : NB.white.opacity(0.62)),
+                       style: StrokeStyle(lineWidth: armed ? 1.8 : 1.7, lineCap: .round))
+            var line = Path()
+            line.move(to: CGPoint(x: 56, y: 66)); line.addLine(to: CGPoint(x: 56, y: 104))
+            ctx.stroke(line, with: .color(armed ? NB.alert2.opacity(0.48) : NB.white.opacity(0.22)),
+                       style: StrokeStyle(lineWidth: armed ? 1.6 : 1.5, lineCap: .round, dash: [3, 7]))
+        }
+        .frame(width: 112, height: 112)
+        .animation(.easeOut(duration: 0.16), value: armed)
+    }
+}
+
+struct Triangle: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.midX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// B·03 · behind the chamber: the page at 52 % and a 220 pt carbon gradient rising from the
+/// dock — the board's two rectangles, drawn once.
+struct ListeningScrim: View {
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color(hex: 0x09090B).opacity(0.52)
+            LinearGradient(stops: [
+                .init(color: NB.carbon.opacity(0), location: 0),
+                .init(color: NB.carbon.opacity(0.74), location: 0.5),
+                .init(color: NB.carbon.opacity(0.96), location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            .frame(height: 220)
+        }
+        .ignoresSafeArea()
     }
 }
 

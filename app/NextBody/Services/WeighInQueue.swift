@@ -15,6 +15,9 @@ final class WeighInQueue: ObservableObject {
         let kg: Double
         let source: String      // 'manual' | 'health' | 'band'
         let healthUUID: String?
+        /// The account that created this operation. A queued health row is never reassigned
+        /// to whoever happens to sign in next.
+        let ownerUserId: String?
     }
 
     @Published private(set) var pending: [Pending] = []
@@ -24,18 +27,32 @@ final class WeighInQueue: ObservableObject {
 
     private init() {
         if let d = UserDefaults.standard.data(forKey: key),
-           let rows = try? JSONDecoder().decode([Pending].self, from: d) { pending = rows }
+           let rows = try? JSONDecoder().decode([Pending].self, from: d) {
+            pending = rows.filter { $0.ownerUserId != nil }
+            if pending.count != rows.count { persist() }
+        }
         reach = Reachability.shared.$isOnline.removeDuplicates().sink { [weak self] online in
             if online { Task { await self?.flush() } }
         }
     }
 
+    /// 11 · DELETE EVERYTHING. ⚠️ The queue outlives a sign-out on purpose, and that is
+    /// exactly what makes it dangerous here: rows left on the phone are flushed by whoever
+    /// signs in next, so a deleted account's weights would land in a stranger's history
+    /// under a fresh client_op_id the server has no reason to refuse. In memory first —
+    /// clearing only the stored copy would let the next persist() write the array back.
+    func purge() {
+        pending = []
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
     func isPending(_ id: UUID) -> Bool { pending.contains { $0.id == id } }
 
-    func enqueue(_ w: WeighIn) {
+    func enqueue(_ w: WeighIn, ownerUserId: String) {
         let source: String = switch w.origin { case .health: "health"; case .band: "band"; case .manual: "manual" }
         pending.append(Pending(id: w.id, measuredAt: w.date, tz: TimeZone.current.identifier,
-                               kg: w.weightKg, source: source, healthUUID: w.healthUUID))
+                               kg: w.weightKg, source: source, healthUUID: w.healthUUID,
+                               ownerUserId: ownerUserId))
         persist()
         Task { await flush() }
     }
@@ -49,7 +66,7 @@ final class WeighInQueue: ObservableObject {
         flushing = true; defer { flushing = false }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        for row in pending {
+        for row in pending where row.ownerUserId == userId {
             do {
                 _ = try await SupabaseClient.shared.insert("weigh_ins", rows: [[
                     "user_id": userId,

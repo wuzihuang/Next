@@ -11,16 +11,15 @@ struct ProfileView: View {
     private var hasScans: Bool { !data.weighIns.isEmpty }
 
     var body: some View {
-        DetailScroll(glow: NB.lime1) {
+        DetailScroll(glow: NB.lime1, title: "PROFILE", headline: "ME") {
             VStack(alignment: .leading, spacing: 14) {
-                header
                 identityCard
                 heatMapCard
                 statTiles
 
                 GroupLabel("ACCOUNT")
                 RowGroup {
-                    SettingRow(title: "PERSONAL INFO", value: data.profile.name.uppercased()) {
+                    SettingRow(title: "PERSONAL INFO", value: data.profile.displayName.uppercased()) {
                         router.sheet = .profileEdit
                     }
                     SettingRow(title: "BODY METRICS",
@@ -36,7 +35,7 @@ struct ProfileView: View {
                     // The only second level in the product — it really has a page of content.
                     SettingRow(title: "DEVICE",
                                value: data.band.connected
-                                    ? "HOOP · \(data.band.batteryPercent)%"
+                                    ? "HOOP · \(data.band.batteryPercent.map { "\($0)%" } ?? Fmt.dash)"
                                     : "HOOP · DAY 1") {
                         router.open(.device, from: .profile)
                     }
@@ -129,36 +128,18 @@ struct ProfileView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("PROFILE")
-                .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-                .foregroundStyle(NB.text3Prod)
-            Text("ME")
-                .font(NBFont.brand(700, 34)).tracking(-0.02 * 34)
-                .foregroundStyle(NB.text1)
-        }
-        .padding(.top, 14)
-    }
-
     /// Name, email and the three numbers that barely move — a card, not a settings row.
     /// Tapping it goes to PERSONAL INFO, the same place as the row below.
     private var identityCard: some View {
         VStack(spacing: 0) {
             Button { router.sheet = .profileEdit } label: {
                 HStack(spacing: 14) {
-                    ZStack {
-                        Circle().fill(Color(hex: 0x1B1B20))
-                        Circle().stroke(NB.hairline, lineWidth: 1)
-                        Text(initials)
-                            .font(NBFont.ui(600, 14)).tracking(0.06 * 14)
-                            .foregroundStyle(NB.text1)
-                    }
-                    .frame(width: 44, height: 44)
+                    Avatar(size: 44, initials: data.profile.initials)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(data.profile.name.uppercased())
+                        Text(data.profile.displayName.uppercased())
                             .font(NBFont.ui(600, 16)).tracking(0.04 * 16)
                             .foregroundStyle(NB.text1)
+                            .lineLimit(1)
                         Text(data.profile.email)
                             .font(NBFont.dot(500, 11)).tracking(0.02 * 11)
                             .foregroundStyle(NB.white.opacity(0.34))
@@ -184,9 +165,6 @@ struct ProfileView: View {
         .cardSkin()
     }
 
-    private var initials: String {
-        data.profile.name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined()
-    }
 
     /// A2 · the only "one year" view in the product, so it earns half the first screen and
     /// sits above every setting. One cell is one day, and the colour is Daily Direction —
@@ -403,29 +381,33 @@ struct DirectionHeatMap: View {
 
     private let rows = 7
     private let weeks = 26
+    private let gap: CGFloat = 3
+
+    /// The card hands it `contentWidth` minus its own 14pt padding on each side. The cell
+    /// size and the view's height must come from the same arithmetic: the old code measured
+    /// the width in a GeometryReader but hardcoded the height to `7 * 9 + 6 * 3`, a 9pt cell
+    /// no real phone has — so the grid overflowed its frame and landed on the legend.
+    private var cell: CGFloat {
+        (NB.Layout.contentWidth - 28 - gap * CGFloat(weeks - 1)) / CGFloat(weeks)
+    }
 
     var body: some View {
-        GeometryReader { geo in
-            let gap: CGFloat = 3
-            let cell = (geo.size.width - gap * CGFloat(weeks - 1)) / CGFloat(weeks)
-            HStack(spacing: gap) {
-                ForEach(0..<weeks, id: \.self) { w in
-                    VStack(spacing: gap) {
-                        ForEach(0..<rows, id: \.self) { r in
-                            let day = dayFor(week: w, row: r)
-                            let metrics = history.first { $0.day == day }
-                            Button { onDay(day) } label: {
-                                DirectionCell(direction: metrics?.direction ?? .greyNothing,
-                                              height: cell, radius: 2)
-                                    .frame(width: cell, height: cell)
-                            }
-                            .buttonStyle(.plain)
+        HStack(spacing: gap) {
+            ForEach(0..<weeks, id: \.self) { w in
+                VStack(spacing: gap) {
+                    ForEach(0..<rows, id: \.self) { r in
+                        let day = dayFor(week: w, row: r)
+                        let metrics = history.first { $0.day == day }
+                        Button { onDay(day) } label: {
+                            DirectionCell(direction: metrics?.direction ?? .greyNothing,
+                                          height: cell, radius: 2)
+                                .frame(width: cell, height: cell)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
-        .frame(height: 7 * 9 + 6 * 3)
     }
 
     private func dayFor(week: Int, row: Int) -> UserDay {

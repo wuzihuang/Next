@@ -163,80 +163,36 @@ final class FirstRun: ObservableObject {
 
 /// ◇2–◇4 · the core, the orbit and the planet, as one layer that is never rebuilt.
 /// After the fold this same view is what the panel draws — it is not replaced, so the
-/// planet does not restart and does not blink.
+/// field does not restart and does not blink.
 struct FirstRunArt: View {
     var coreLit: Bool
     var orbitFraction: Double
     var spinning: Bool
 
-    /// Angle survives across beats and across the fold; it only advances while on screen,
-    /// so going to the background pauses it and coming back continues from where it stopped.
-    @State private var angle: Double = 0
+    /// The clock survives across beats and across the fold; it only advances while the
+    /// field is turning, so going to the background pauses it rather than skipping it.
+    @State private var clock: Double = 0
+    /// ◇3 · 0…1 over 0.8s. The sweep is drawn, not faded, so it needs its own progress —
+    /// a Canvas has no implicit animation to inherit from the beat changing under it.
+    @State private var sweep: Double = 0
     @State private var lastTick: Date?
 
     var body: some View {
-        GeometryReader { geo in
-            let sx = geo.size.width / 358, sy = geo.size.height / 470
-            let s = min(sx, sy)
-            let c = CGPoint(x: geo.size.width / 2, y: 196 * sy)
-
-            TimelineView(.animation) { tl in
-                Canvas { ctx, size in
-                    // ◇2 · the backplate lifts to 20%. It is lit, not moved.
-                    ctx.fill(Path(CGRect(origin: .zero, size: size)),
-                             with: .color(NB.panelWash.opacity(coreLit ? 1 : 0.2)))
-
-                    // ◇3 · the orbit draws from the right rather than fading in.
-                    if orbitFraction > 0 {
-                        var orbit = Path()
-                        orbit.addArc(center: c, radius: 126 * s,
-                                     startAngle: .degrees(0),
-                                     endAngle: .degrees(360 * orbitFraction),
-                                     clockwise: false)
-                        ctx.scaleBy(x: 1, y: 0.27)
-                        ctx.translateBy(x: 0, y: c.y * (1 / 0.27 - 1))
-                        ctx.stroke(orbit, with: .color(NB.violet2.opacity(0.5)),
-                                   lineWidth: 3 * s / 0.27 * 0.27)
-                        ctx.transform = .identity
-                    }
-
-                    // ◇1 · one lime pixel, then the core it bursts into.
-                    let coreR = coreLit ? 6 * s : 1.5 * s
-                    ctx.fill(Path(ellipseIn: CGRect(x: c.x - coreR, y: c.y - coreR,
-                                                    width: coreR * 2, height: coreR * 2)),
-                             with: .color(NB.lime1))
-
-                    // ◇3 · the lime crescent grows alongside the orbit, to half.
-                    if orbitFraction > 0 {
-                        var crescent = Path()
-                        crescent.addArc(center: c, radius: 74 * s,
-                                        startAngle: .degrees(-55),
-                                        endAngle: .degrees(-55 + 140 * orbitFraction),
-                                        clockwise: false)
-                        ctx.stroke(crescent, with: .color(NB.lime1),
-                                   style: StrokeStyle(lineWidth: 7 * s, lineCap: .round))
-                    }
-
-                    // ◇4 · from here the planet never stops. 90 seconds a revolution.
-                    if spinning {
-                        let a = angle * .pi / 180
-                        let planet = CGPoint(x: c.x + 126 * s * cos(a),
-                                             y: c.y + 34 * s * sin(a))
-                        ctx.fill(Path(ellipseIn: CGRect(x: planet.x - 6 * s, y: planet.y - 6 * s,
-                                                        width: 12 * s, height: 12 * s)),
-                                 with: .color(NB.lime1))
-                    }
-
-                    _ = tl.date
-                }
-                .onChange(of: tl.date) { _, now in
-                    guard spinning else { lastTick = now; return }
-                    let previous = lastTick ?? now
-                    lastTick = now
-                    // 360° in 90s. Driven by elapsed on-screen time, so a trip to the
-                    // background pauses it instead of skipping it forward.
-                    angle += now.timeIntervalSince(previous) * 4
-                }
+        TimelineView(.animation) { tl in
+            Canvas { ctx, size in
+                OrbitField(clock: clock,
+                           arrival: 1 - pow(1 - sweep, 2),   // ease-out
+                           coreLit: coreLit,
+                           moving: spinning)
+                    .draw(in: &ctx, size: size)
+            }
+            .onChange(of: tl.date) { _, now in
+                let previous = lastTick ?? now
+                lastTick = now
+                let dt = min(now.timeIntervalSince(previous), 1.0 / 20)
+                if orbitFraction > 0 { sweep = min(1, sweep + dt / 0.8) }
+                // ◇4 · from here the field never stops. 90 seconds a revolution.
+                if spinning { clock += dt }
             }
         }
     }

@@ -21,9 +21,10 @@ Deno.serve(async (req) => {
     .update({ deletion_requested_at: new Date().toISOString() })
     .eq("user_id", userId);
 
-  for (const table of ["screen_frames", "ai_turns", "analytics_events", "meals",
+  for (const table of ["screen_frames", "ai_turns", "analytics_events", "call_changes", "meals",
                        "weigh_ins", "body_composition", "raw_samples", "reserve_samples",
-                       "sleep_nights", "daily_results", "sync_runs", "devices"]) {
+                       "sleep_nights", "night_hrv", "daily_results", "sync_runs",
+                       "device_capabilities", "devices"]) {
     await db.from(table).delete().eq("user_id", userId);
   }
 

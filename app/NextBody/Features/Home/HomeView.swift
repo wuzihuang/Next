@@ -5,6 +5,7 @@ import PhotosUI
 struct HomeView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var session: SessionStore
 
     @StateObject private var ai = AIService.shared
     @StateObject private var keyboard = KeyboardHeight()
@@ -34,6 +35,45 @@ struct HomeView: View {
     }
     @ObservedObject private var reachability = Reachability.shared
     @State private var widget: PanelWidget?
+    // 04B · page two. 0 is the root, 1 is the instruments. The header and the home indicator
+    // stay; the panel, the strip and the dock slide out together, and the drag is a plain
+    // offset so the first frame follows the finger 1:1.
+    // `SIMCTL_CHILD_NB_DEBUG_HOME_PAGE=1` opens the app on the second page for a screenshot.
+    @State private var homePage = ProcessInfo.processInfo.environment["NB_DEBUG_HOME_PAGE"] == "1" ? 1 : 0
+    @State private var pageDrag: CGFloat = 0
+    /// 04B col 02 · a confirmed horizontal drag owns every touch on both pages until the
+    /// finger lifts — a swipe that ends on a card is a swipe, never a tap (「什么都不可点」).
+    /// Without this gate a slow drag that started on the SLEEP card ended by opening 13.
+    @State private var swiping = false
+    /// Direction lock, SpringBoard-style: the first points of travel decide the axis for the
+    /// whole touch, so a mostly-vertical flick never becomes a page turn halfway through.
+    @State private var dragAxis: Axis?
+    @State private var pageTwoSince: Date?
+
+    // MARK: geometry · the page is laid out against the device, not against the board's
+    // 390 × 844. Header under the status bar, dock over the home indicator, the strip above
+    // the dock, and the panel takes whatever is left — on a 390 × 844 phone that is the
+    // board's own 470; on a taller one the panel simply grows.
+    private var screen: CGSize { ScreenMetrics.size }
+    private var safe: UIEdgeInsets { ScreenMetrics.safeArea }
+    private var columnWidth: CGFloat { screen.width - 2 * NB.Layout.gutter }
+    private var panelTop: CGFloat { safe.top + HomeHeader.height + 12 }
+    /// the dock's foot, measured from the bottom edge of the screen
+    private var dockBottom: CGFloat { safe.bottom + 8 }
+    /// On a short phone the panel is smaller than the board's canvas and the widget scales
+    /// down inside it (AIPanel); on a tall one it grows. The strip and the dock never change.
+    private var panelHeight: CGFloat {
+        screen.height - panelTop - 12 - NB.Layout.stripHeight - 12 - NB.Layout.dockHeight - dockBottom
+    }
+    private var pageShift: CGFloat { -CGFloat(homePage) * screen.width + pageDrag }
+    /// 04B right column · the swipe yields to every overlay: the plus menu, the keyboard, the
+    /// listening chamber — and to the first-run ceremony, until the dock exists.
+    private var pagingEnabled: Bool {
+        firstRun.dockVisible && !plusOpen && keyboard.height == 0 && dockMode == .idle
+    }
+    /// 04B · from the panel's top to just over the home indicator; the page's own foot
+    /// carries LAST TICK and the dots.
+    private var pageTwoHeight: CGFloat { screen.height - panelTop - safe.bottom - 6 }
 
     var body: some View {
         // The panel is one view for the whole ceremony: it starts as the entire screen and
@@ -42,17 +82,47 @@ struct HomeView: View {
             page
                 // 05 · A · with the keyboard up the dock rides over the panel's foot, so the page
                 // draws above the panel for exactly as long as the keyboard is there.
-                .zIndex(keyboard.height > 0 ? 2 : 0)
+                // 05M · B·03 · and for as long as the chamber is open: its scrim has to fall
+                // over the panel too, and the scrim is drawn behind the dock, inside the page.
+                .zIndex(keyboard.height > 0 || dockMode == .listening ? 2 : 0)
+                .allowsHitTesting(!swiping)
             panel
                 // C01 · the panel dims behind the field while typing.
                 .overlay(Color(hex: 0x09090B).opacity(keyboard.height > 0 ? 0.55 : 0).allowsHitTesting(false))
+                .allowsHitTesting(!swiping)
+
+            // 04B · the second page rides in from the right, one column wide, at the panel's
+            // top. Eight cards and not one read of the band — it is the same ticks laid out
+            // another way.
+            VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
+                       syncedOnce: data.lastSync != nil,
+                       width: columnWidth,
+                       onSleep: { router.open(.bodyBattery, from: .home) },
+                       onHRV: {
+                           Task { await Analytics.shared.track("PAGE2_HRV_TAP") }
+                           router.open(.bodyBattery, from: .home)
+                       })
+                .frame(width: columnWidth, height: pageTwoHeight, alignment: .top)
+                .offset(x: screen.width + NB.Layout.gutter + pageShift, y: panelTop)
+                .opacity(firstRun.dockVisible ? 1 : 0)
+                .allowsHitTesting(!swiping)
+                .zIndex(1)
+            // The root's own page dots, in the 12 pt seam between the strip and the dock —
+            // the only place the dock leaves for them (04B right column). They are furniture:
+            // they hold their lane through the drag and hand over to page two's own dots.
+            PageDots(current: 0)
+                .frame(width: screen.width)
+                .offset(y: panelTop + panelHeight + 12 + NB.Layout.stripHeight + 4)
+                .opacity(firstRun.dockVisible && homePage == 0 ? 1 : 0)
+                .allowsHitTesting(false)
+                .zIndex(1)
 
             // 06 · 02–06 · the page behind falls to 30 % while the menu is up; the dock row is
             // left alone, because its right key is now the way out. Tap the scrim, tap ×, or
             // pull the panel down — three routes, one 0.22 s ease-in.
             if plusOpen {
                 Color(hex: 0x09090B).opacity(0.70)
-                    .padding(.bottom, NB.Layout.dockHeight + 42 + 8)
+                    .padding(.bottom, NB.Layout.dockHeight + dockBottom + 8)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { closePlus() }
@@ -60,14 +130,14 @@ struct HomeView: View {
                     .zIndex(3)
                 PlusMenuSheet(inline: true, onClose: { closePlus() },
                               onCamera: { showPicker = true }, onLibrary: { showPicker = true })
-                    .frame(width: NB.Layout.contentWidth)
+                    .frame(width: columnWidth)
                     .background(NB.carbon2, in: RoundedRectangle(cornerRadius: NB.R.panel, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: NB.R.panel, style: .continuous).stroke(NB.hairline, lineWidth: 1))
                     .overlay(alignment: .top) {
                         Capsule().fill(NB.white.opacity(0.18)).frame(width: 36, height: 4).padding(.top, 8)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, NB.Layout.dockHeight + 42 + 12)
+                    .padding(.bottom, NB.Layout.dockHeight + dockBottom + 12)
                     .gesture(DragGesture(minimumDistance: 12).onEnded { v in if v.translation.height > 40 { closePlus() } })
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(4)
@@ -77,9 +147,21 @@ struct HomeView: View {
         // still re-proposed this view 119 pt taller and 119 pt higher, whatever safe-area
         // modifier sat above it; every ignoresSafeArea(.keyboard) placement was tried. So the
         // page reads where the container put it and puts itself back: only the dock moves.
+        .simultaneousGesture(pageGesture, including: pagingEnabled ? .all : .subviews)
+        .onChange(of: homePage) { _, p in
+            if p == 1 {
+                pageTwoSince = Date()
+                trackPageTwoOpen()
+            } else if let since = pageTwoSince {
+                pageTwoSince = nil
+                let ms = Int(Date().timeIntervalSince(since) * 1000)
+                Task { await Analytics.shared.track("HOME_PAGE2_DWELL", ["MS": ms]) }
+            }
+        }
         .onChange(of: router.measuredWidget) { _, w in
             guard let w else { return }
-            withAnimation(.easeInOut(duration: 0.18)) { widget = w }
+            // 06 · G·03 / F05 · 0.5S · SPRING 0.80 — the reading lands in the panel it grew from.
+            withAnimation(.spring(response: 0.50, dampingFraction: 0.80)) { widget = w }
             router.measuredWidget = nil
         }
         .onChange(of: router.dockPrefill) { _, p in
@@ -122,8 +204,25 @@ struct HomeView: View {
             case "nospeech":    note(DockNote(line: "NOTHING HEARD", text: "Say it again, or type it."))
             case "offline":     note(DockNote(line: "NO CONNECTION", text: "It stays here. Send it when you're back."))
             case "interrupted": note(DockNote(line: "INTERRUPTED AT 0:07", text: "Not saved. Say it again when you're free."))
+            // 05M · B·03 / B·04 · the chamber and its cancel state, on a simulator that has no
+            // microphone to hold; the waveform shows the board's own bars.
+            case "recording", "cancelling": dockMode = .listening
             default: break
             }
+            #if DEBUG
+            // `SIMCTL_CHILD_NB_DEBUG_ASR_FILE=/path/clip.wav` · push one known clip through the
+            // real transcribe path with the app's own session and log what asr answered.
+            if let path = ProcessInfo.processInfo.environment["NB_DEBUG_ASR_FILE"] {
+                Task {
+                    try? await Task.sleep(for: .seconds(6))     // after the session is restored
+                    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("nb-debug.wav")
+                    try? FileManager.default.removeItem(at: tmp)
+                    try? FileManager.default.copyItem(atPath: path, toPath: tmp.path)
+                    let r = await ai.transcribe(tmp)
+                    NSLog("NB asr debug · \(r)")
+                }
+            }
+            #endif
             firstRun.start(reduceMotion: reduceMotion,
                            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
 
@@ -138,6 +237,16 @@ struct HomeView: View {
             }
             await load.value
 
+            // A device with no session is not a home screen, it is a gate that was skipped.
+            // Every read above came back empty under the anon key and every write would be
+            // dropped in silence — the phone sat on "——" with the band paired and no account
+            // behind it. Back to the gate; the band stays bound, the history stays on the
+            // server. (The simulator keeps its seeded walk-through.)
+            if Band.isReal, await SupabaseClient.shared.currentUserId == nil {
+                session.stage = .gateSignIn
+                return
+            }
+
             // 13 col 01 · 昨夜, once a day, within six hours of waking. F5 C4 · the notification
             // primer follows the first real morning and nothing else.
             if widget == nil, let morning = MorningWidget.frame(today: data.today, history: data.history) {
@@ -146,10 +255,27 @@ struct HomeView: View {
                 if await NotificationPrimer.shouldOffer() { router.takeover = .notificationPrimer }
             }
 
+            #if DEBUG
+            // `NB_DEBUG_TURN=今天心率怎么样` · one question through the real dock path, on a
+            // device no harness can type into. Exactly the path a typed message takes.
+            if let q = ProcessInfo.processInfo.environment["NB_DEBUG_TURN"], !q.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(8))
+                    handleSend(q)
+                }
+            }
+            #endif
+
             // F1 · A · the gate was walked once. Every launch after that reconnects on its
             // own; being asked to pair again is how a user learns their history is gone.
             await Band.live.reconnectIfBound()
             data.band.connected = Band.live.state == .connected
+            // The band's own facts — link, battery, firmware, what it can do — on the header
+            // and in the store, off the band, for the life of the process. Until now nothing
+            // wrote them after the gate, and a device kept the simulator's 82%.
+            BandPresence.shared.start(store: store)
+            let presence = Task { @MainActor in await BandPresence.shared.refresh(store: store) }
+            await presence.value
 
             // P2 · background. Pulling the band's day is the lowest priority in the queue:
             // anything the user presses jumps in front of it.
@@ -158,37 +284,57 @@ struct HomeView: View {
             guard data.band.connected, ConsentStore.shared.granted else { return }
             // Same reason as the load above: the pull must outlive this view's `.task`.
             let sync = Task { @MainActor in
-                await OriginDataSync().sync(day: UserDay.containing(Date()), into: store)
+                await OriginDataSync.refreshNow(into: store, minimumInterval: 0)
+                // First time on this phone: the days the band still holds, behind today's.
+                await OriginDataSync().backfillIfNeeded(into: store)
             }
             _ = await sync.value
+
+            // A tick is five minutes wide, so that is the fastest the day can change; the
+            // device page can stretch the cadence up to an hour. Under the view's own task,
+            // so leaving the screen ends it.
+            // ⚠️ Not a poll of the server: it asks the band, and a pull that finds no new tick
+            // stops there — no upload, no settle, no reload. The half-minute check is what
+            // lets a cadence changed on the device page apply without a relaunch.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { break }
+                guard OriginDataSync.isDue else { continue }
+                await OriginDataSync.refreshNow(into: store)
+            }
         }
     }
 
     private var page: some View {
         VStack(spacing: 12) {
-            Color.clear.frame(height: Chrome.statusBarBlock - 12)
+            // the status bar; iOS paints into it
+            Color.clear.frame(height: max(0, safe.top - 12))
 
             // ◇8 · the top bar slides in from −8px as the card lands.
-            HomeHeader(batteryPercent: data.band.batteryPercent) {
-                router.open(.profile, from: .home)
-            }
+            HomeHeader(name: data.profile.displayName, initials: data.profile.initials,
+                       batteryPercent: data.band.batteryPercent,
+                       width: columnWidth,
+                       onProfile: { router.open(.profile, from: .home) },
+                       onDevice: { router.open(.device, from: .home) })
             .opacity(firstRun.chromeVisible ? 1 : 0)
             .offset(y: firstRun.chromeVisible ? 0 : -8)
 
             // the room the panel occupies once it has folded
-            Color.clear.frame(width: NB.Layout.contentWidth, height: NB.Layout.panelHeight)
+            Color.clear.frame(width: columnWidth, height: panelHeight)
 
             // ◇9 · the two tiles rise from +16px, left before right by 80ms.
-            BottomStrip(m: data.today,
+            BottomStrip(m: data.today, width: columnWidth,
                         onTraining: { router.open(.training, from: .home) },
                         onFuel: { router.open(.fuel, from: .home) })
                 .opacity(firstRun.tilesVisible ? 1 : 0)
                 .offset(y: firstRun.tilesVisible ? 0 : 16)
+                .offset(x: pageShift)
 
             // ◇10 · the three keys land together: it is one tool, not three.
             // ⚠️ Before that the dock is simply not there — never a greyed-out disabled state.
             if firstRun.dockVisible {
                 Dock(mode: $dockMode, note: dockNote, attachmentReady: attachment.map { $0.progress >= 1 && !$0.failed },
+                     width: columnWidth,
                      draft: $draft,
                      onSend: handleSend,
                      onCamera: { showPicker = true },
@@ -200,6 +346,18 @@ struct HomeView: View {
                      onListen: beginListening,
                      onStopListening: endListening,
                      onCancelListening: cancelListening)
+                    // 05M · B·03 · while the chamber is open the page behind falls to 52 % and a
+                    // carbon gradient rises 220 pt behind the dock. Neither takes a touch: the
+                    // only gesture alive is the finger already on the key.
+                    .background(alignment: .bottom) {
+                        if dockMode == .listening {
+                            ListeningScrim()
+                                .frame(width: screen.width, height: screen.height)
+                                .offset(y: dockBottom)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
                     // 05 · C02–C04 · the tray hangs above the field: 100 × 100, radius 16, no card and
                     // no background — it reads as "attached to this message", not as a message.
                     .overlay(alignment: .topLeading) {
@@ -240,8 +398,15 @@ struct HomeView: View {
                                     .buttonStyle(.plain)
                                 }
                             }
+                            // The board draws the sentence under the dock on a bare carbon ground.
+                            // On device the dock sits on the home indicator, so the sentence stands
+                            // over the strip instead — on its own ground, never printed across the cards.
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 18)
+                            .background(NB.carbon2, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.hairline, lineWidth: 1))
                             // above the tray when a photo is attached (05 · C edge 4)
-                            .offset(y: (dockNote.action == nil ? -52 : -104) - (attachment == nil ? 0 : 118))
+                            .offset(y: (dockNote.action == nil ? -70 : -122) - (attachment == nil ? 0 : 118))
                             .transition(.opacity)
                         }
                     }
@@ -250,12 +415,15 @@ struct HomeView: View {
                     .ignoresSafeArea(.keyboard, edges: .bottom)
                     .offset(y: -keyboard.height)
                     .animation(.spring(response: 0.34, dampingFraction: 0.9), value: keyboard.height)
+                    // 04B · the dock belongs to the root and leaves with it.
+                    .offset(x: pageShift)
                     .transition(.opacity)
             } else {
                 Color.clear.frame(height: NB.Layout.dockHeight)
             }
 
-            HomeIndicator().opacity(firstRun.indicatorVisible ? 1 : 0)
+            // iOS draws the home indicator itself; the dock stops 8pt short of it.
+            Color.clear.frame(height: max(0, dockBottom - 12))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // 05 · A·04 · the container that holds the field is the one the keyboard would push;
@@ -270,9 +438,8 @@ struct HomeView: View {
         return AIPanel(onTurnOn: { router.takeover = .consent },
                        m: data.today, band: data.band, lastSync: data.lastSync, vitals: data.vitals,
                        widget: widget, firstRun: firstRun,
-                       size: full ? CGSize(width: 390, height: 844)
-                                  : CGSize(width: NB.Layout.contentWidth,
-                                           height: NB.Layout.panelHeight),
+                       size: full ? screen
+                                  : CGSize(width: columnWidth, height: panelHeight),
                        radius: firstRun.panelRadius) { target in
             // 06 · 17 · a fresh measurement answers a tap with a message, not a page.
             if let q = widget?.replyPrompt { handleSend(q) }
@@ -281,11 +448,47 @@ struct HomeView: View {
                 confirmMeal(sent.text, day: sent.day)
             } else { router.open(target, from: .home) }
         }
-        .offset(x: full ? 0 : NB.Layout.gutter,
-                y: full ? 0 : Chrome.statusBarBlock + 12 + 30 + 12)
+        .offset(x: full ? 0 : NB.Layout.gutter + pageShift,
+                y: full ? 0 : panelTop)
             // F5 §09 · 「整屏接管」in the accessibility layer: while a frame is up, VoiceOver's
             // focus stays inside the panel, the way the eye does.
             .accessibilityAddTraits(widget == nil ? [] : .isModal)
+    }
+
+    /// 04B col 02 · the swipe. Horizontal only, two pages, no overscroll. Past 40 % of the
+    /// width or faster than 300 pt/s it turns the page; otherwise it springs back. Both
+    /// directions share one spring, and nothing on the page animates once it has landed.
+    /// While the finger is down and moving sideways nothing else on either page is tappable
+    /// (`swiping`), and a touch that started out vertical never turns a page (`dragAxis`).
+    private var pageGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { v in
+                let dx = v.translation.width, dy = v.translation.height
+                if dragAxis == nil { dragAxis = abs(dx) >= abs(dy) ? .horizontal : .vertical }
+                guard dragAxis == .horizontal else { return }
+                pageDrag = homePage == 0 ? min(0, dx) : max(0, dx)
+                swiping = true
+            }
+            .onEnded { v in
+                let dx = v.translation.width
+                let horizontal = dragAxis != .vertical
+                swiping = false
+                dragAxis = nil
+                guard horizontal else { pageDrag = 0; return }
+                let far = abs(dx) > screen.width * 0.4
+                let fast = abs(v.velocity.width) > 300
+                var target = homePage
+                if homePage == 0, dx < 0, far || fast { target = 1 }
+                if homePage == 1, dx > 0, far || fast { target = 0 }
+                let turned = target != homePage
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                    homePage = target
+                    pageDrag = 0
+                }
+                if turned {
+                    Task { await Analytics.shared.track("HOME_PAGE_SWIPE", ["DIR": target == 1 ? "right" : "left", "MS": 350]) }
+                }
+            }
     }
 
     /// 05 · the wave only plays once the microphone is running. If the permission is refused or
@@ -367,6 +570,31 @@ struct HomeView: View {
         withAnimation(.easeIn(duration: 0.22)) { plusOpen = false }
     }
 
+    /// 04B 上线前 · 埋点在写卡之前先埋好. Every opening of page two reports what the cards
+    /// actually showed — FRESH / STALE / GONE / EMPTY per card — plus the two states that
+    /// otherwise leave no trace: never synced, and an off-wrist gap of an hour or more
+    /// (the same one the foot line prints, once per user day).
+    private func trackPageTwoOpen() {
+        let m = data.today, vitals = data.vitals, lastSync = data.lastSync
+        let states = VitalsPage.cardStates(m: m, vitals: vitals)
+        let gap = VitalsMath.offWrist(m.vitalsCurve)
+        Task {
+            for card in ["SLEEP", "HEART", "HRV", "STRESS", "TEMP", "STEPS", "DISTANCE", "ACTIVE"] {
+                await Analytics.shared.track("PAGE2_CARD_STATE", ["CARD": card, "STATE": states[card] ?? "EMPTY"])
+            }
+            if lastSync == nil {
+                await Analytics.shared.track("PAGE2_NOT_SYNCED", ["PLATFORM": "ios"])
+            }
+            if let gap, gap.minutes >= 60 {
+                let key = "nb.page2.offwrist.\(m.day.key)"
+                if !UserDefaults.standard.bool(forKey: key) {
+                    UserDefaults.standard.set(true, forKey: key)
+                    await Analytics.shared.track("PAGE2_OFF_WRIST", ["MIN": gap.minutes])
+                }
+            }
+        }
+    }
+
     private func note(_ n: DockNote, clearAfter seconds: Double? = nil) {
         withAnimation { dockNote = n }
         if let seconds {
@@ -383,13 +611,15 @@ struct HomeView: View {
     /// 05M · B·04 / 05 rule 05 · slide-up cancel: the mic stops, nothing is transcribed or sent,
     /// the dock writes nothing. Reversible by design.
     private func cancelListening() {
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .idle }
+        // 05M · B·04 → idle · the chamber goes back into the capsule the same way a send does.
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) { dockMode = .idle }
         Task { _ = await SpeechCapture.shared.stop() }
         Task { await Analytics.shared.track("VOICE_CANCEL", ["REASON": "SLIDE_UP"]) }
     }
 
     private func endListening() {
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { dockMode = .idle }
+        // 05M · B·05 · RELEASE 0.22S · EASE-OUT-BACK · the chamber collapses into the capsule.
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) { dockMode = .idle }
         Task {
             let elapsed = SpeechCapture.shared.elapsed
             // stop() waits on the audio queue rather than the main one, for the same reason
@@ -407,15 +637,28 @@ struct HomeView: View {
                 note(DockNote(line: String(format: "%.1fS · TOO SHORT", elapsed), text: "Hold, say it, then let go."), clearAfter: 1.2)
                 return
             }
+            // 05 edge 5 · OFFLINE. A clip cannot wait in the dock the way a draft does, so the
+            // capsule says when to say it again rather than pretending it heard nothing.
+            if !reachability.isOnline || DebugEdge.on("offline") {
+                note(DockNote(line: "NO CONNECTION", text: "Say it again when you're back."), clearAfter: 4)
+                return
+            }
             withAnimation { widget = .thinking }
-            guard let said = await ai.transcribe(clip) else {
+            switch await ai.transcribe(clip) {
+            case .text(let said):
+                handleSend(said)
+            case .silence:
                 // 05 edge 3 · NO SPEECH. Recorded, transcribed to nothing: it stays in the dock
                 // for the next take rather than sending her an empty message.
                 withAnimation { widget = nil }
                 note(DockNote(line: "NOTHING HEARD", text: "Say it again, or type it."), clearAfter: 4)
-                return
+            case .failed:
+                // Not on the board's list of six, because the board assumed the server answers.
+                // A 401, a 503 or a dropped upload is not silence, and telling her to speak up
+                // for it would be a lie; the line names the step that failed.
+                withAnimation { widget = nil }
+                note(DockNote(line: "COULDN'T TRANSCRIBE", text: "Say it again, or type it."), clearAfter: 4)
             }
-            handleSend(said)
         }
     }
 

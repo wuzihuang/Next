@@ -19,7 +19,7 @@ struct OnboardingFlow: View {
         }
         if DebugEdge.on("nothingsynced") || DebugEdge.on("outofrange") { return .confirm }
         if DebugEdge.on("lowbattery") { return .fingersOn }
-        if DebugEdge.on("lifted") || DebugEdge.on("banddropped") { return .scanning }
+        if DebugEdge.on("lifted") || DebugEdge.on("banddropped") || DebugEdge.on("nocontact") { return .scanning }
         return ConsentStore.shared.decided ? .healthSync : .consent
     }()
     /// 03 rule 02 · which of the four fields has a value at all, and where each came from.
@@ -39,6 +39,31 @@ struct OnboardingFlow: View {
     @State private var bornFromHealth = false
     @State private var sexFromHealth = false
     @State private var goal: Goal = .cut
+    /// 03 · what the band returned on the scanning screen; the baseline screen prints it.
+    @State private var baseline: BodyCompositionReading?
+
+    /// F2 §05 · the band's BIA multiplies by the weight we push down, so the weight the user
+    /// just confirmed goes to the band before the scan — never the profile's old one.
+    private var personalInfo: PersonalInfo {
+        PersonalInfo(heightCm: Int(heightCm.rounded()),
+                     weightKg: Int(weightKg.rounded()),
+                     birthYear: born.year ?? 1990,
+                     sexIsMale: sex == "Male",
+                     targetStep: 8000)
+    }
+
+    /// 06 rule 09 · the baseline is stored like any other scan — a weigh-in that re-anchors
+    /// the EMA, today's fat and lean, and a body_composition row on the server.
+    private func store(_ r: BodyCompositionReading) {
+        data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: r.inputWeightKg,
+                                bodyFatPercent: r.bodyFatPercent, source: .measured, origin: .band))
+        data.today.fatKg = r.fatMassKg
+        data.today.leanKg = r.leanMassKg
+        data.today.fatSource = .measured
+        data.bodyFatPercent = r.bodyFatPercent
+        data.today.scans7d += 1
+        Task { await Repository.shared.recordBodyComposition(r) }
+    }
 
     var body: some View {
         ZStack {
@@ -68,13 +93,20 @@ struct OnboardingFlow: View {
                     enter()
                 })
             case .scanning:
-                ScanningScreen(onDone: { step = .baseline }, onReconnect: {
+                ScanningScreen(info: personalInfo, onDone: { r in
+                    baseline = r
+                    store(r)
+                    step = .baseline
+                }, onSkip: {
+                    Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "FAILED"]) }
+                    enter()
+                }, onReconnect: {
                     // 03 edge 3 · reuse the whole pairing chain, then come back to BASELINE 01.
                     UserDefaults.standard.set(true, forKey: "nb.onboarding.resumeAtBaseline")
                     session.stage = .gateConnect
                 })
             case .baseline:
-                BaselineScreen(onEnter: enter)
+                BaselineScreen(reading: baseline, onEnter: enter)
             }
 
             // F5 · D08 — the 18 gate is caught on the birthday screen, not buried in the terms.
@@ -132,6 +164,23 @@ struct OnboardingFlow: View {
         data.profile.sexIsMale = (sex == "Male")
         if let d = Calendar.current.date(from: born) { data.profile.birthdate = d }
         data.today.weightKg = weightKg
+        // ⚠️ These four numbers only ever lived in memory. The server reads them off the
+        // profiles row before it computes a single figure, so without this write a real
+        // account stayed at "——" on every tile for as long as it existed. What the user
+        // typed is marked `edit`; what Health gave is not, so a later Health sync may
+        // still refresh it (F3 §02.3).
+        var edited: [String] = []
+        if !sexFromHealth { edited.append("sex") }
+        if !bornFromHealth { edited.append("birth_date") }
+        if !heightFromHealth { edited.append("height_cm") }
+        let saved = data.profile
+        Task { await Repository.shared.saveProfile(saved, editedFields: edited) }
+        // The confirmed weight is the day's weigh-in when the scan was skipped; a scan
+        // already recorded its own (input_weight_kg) on the way to the baseline screen.
+        if baseline == nil {
+            data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: weightKg, bodyFatPercent: nil,
+                                    source: .measured, origin: weightFromHealth ? .health : .manual))
+        }
         session.stage = .root
     }
 }
@@ -559,28 +608,81 @@ private struct BandOutline: View {
 // MARK: 05 · 测量 Scanning
 
 private struct ScanningScreen: View {
-    let onDone: () -> Void
+    /// Pushed to the band before the scan starts (F2 §05).
+    let info: PersonalInfo
+    let onDone: (BodyCompositionReading) -> Void
+    var onSkip: () -> Void = {}
     var onReconnect: () -> Void = {}
+    /// The band's own seconds. Nothing on this screen is timed by the phone: the count is
+    /// whatever the SDK's progress says, and it holds while the fingers are off.
     @State private var remaining = 30
-    /// 03 edge 2 · a lifted finger pauses the count; the second lift in one attempt restarts it.
+    /// 03 edge 2 · a lifted finger holds the count on screen; the band itself starts over.
     @State private var holding = false
     @State private var restarts = 0
     /// 03 edge 3 · the one edge this screen cannot fix itself.
     @State private var dropped = false
+    /// The SDK ran and said no — its reason, in its words. Retry or skip; never a number.
+    @State private var failure: String?
+    @State private var attempt = 0
+    /// True only while the band is actually measuring. Before contact, and whenever the
+    /// fingers are off, the trace is a flat line: a beating wave with nothing being read is
+    /// a picture of a measurement that is not happening.
+    @State private var measuring = false
     @State private var startedAt = Date()
-
-    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    /// When the band's count last moved — the figure hops from this instant, never from a timer.
+    @State private var beatAt = Date()
+    /// Edge 1 · NO CONTACT. Rises after 4 s without contact (3 s after a lift), and drops the
+    /// instant the band reports the fingers.
+    @State private var nudge = false
+    @State private var nudgeTask: Task<Void, Never>?
 
     var body: some View {
+        ZStack(alignment: .bottom) {
+            content
+            if nudge {
+                ContactNudgeSheet(lifted: holding)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: nudge)
+        // Leaving the screen cancels this task, which ends the stream, which stops the
+        // band's test (F1 rule 05). `attempt` re-runs it from the failure card.
+        .task(id: attempt) { await scanTask() }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: Chrome.gateTopInset)
             // Once the scan starts the back key is gone — you cannot half-measure a body.
             OnbHeader(counter: "BASELINE 02 / 03")
             OnbTitle(title: "Scanning",
-                     sub: "A tiny current maps your body — you won't feel a thing. Keep your fingers on the frame.")
+                     sub: "A tiny current maps your body — you won't feel a thing. Keep your finger on the key.")
                 .padding(.top, 24)
 
-            if dropped {
+            if let failure {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(failure)
+                        .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
+                    Text("The band ran the scan and could not finish it.\nNothing you filled in is lost.")
+                        .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
+                        .foregroundStyle(NB.white.opacity(0.80))
+                    HStack(spacing: 24) {
+                        Button(action: { attempt += 1 }) {
+                            Text("再试一次 →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                        }
+                        .buttonStyle(.plain)
+                        Button(action: onSkip) {
+                            Text("Skip for now").font(NBFont.ui(400, 14)).tracking(0.02 * 14).foregroundStyle(NB.white.opacity(0.42))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .frame(width: NB.Layout.contentWidth, height: 176, alignment: .leading)
+                .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous).stroke(NB.hairline, lineWidth: 1))
+                .padding(.top, 60)
+            } else if dropped {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("BAND DISCONNECTED")
                         .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
@@ -598,15 +700,12 @@ private struct ScanningScreen: View {
                 .overlay(RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous).stroke(NB.hairline, lineWidth: 1))
                 .padding(.top, 60)
             } else {
-            TimelineView(.animation) { tl in
-                // Edge 2 · the wave fades to amber and stops moving while the finger is off.
-                ECGTrace(t: holding ? 0 : tl.date.timeIntervalSinceReferenceDate)
-                    .grayscale(holding ? 1 : 0)
-                    .colorMultiply(holding ? NB.ember1 : .white)
-                    .opacity(holding ? 0.5 : 1)
-            }
-            .frame(height: 190)
-            .padding(.top, 40)
+            // BIA has no waveform. The current walks the body, one beat per band second;
+            // edge 2 · a lifted finger freezes the figure where it was and turns it amber.
+            BodyFill(beat: 30 - remaining, beatAt: beatAt, active: measuring, held: holding)
+                .frame(height: 280)
+                .padding(.top, 24)
+                .onChange(of: remaining) { beatAt = Date() }
 
             Text("BODY COMPOSITION")
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
@@ -625,70 +724,111 @@ private struct ScanningScreen: View {
             Spacer(minLength: 0)
 
             // Grey, in front — what to do if it breaks, said before it breaks.
-            Text(holding ? "Put your fingers back — we'll pick it up."
+            Text(holding ? "Put your finger back — we'll pick it up."
                  : restarts > 0 ? "Second lift — starting over from 30."
-                 : "Lift your fingers and the scan restarts.")
+                 : "Lift your finger and the scan restarts.")
                 .font(holding ? NBFont.ui(400, 14.5) : NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .foregroundStyle(holding ? NB.emberPale : NB.white.opacity(0.42))
 
             Color.clear.frame(height: 20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onReceive(tick) { _ in
-            guard !holding, !dropped else { return }
-            if remaining > 0 { withAnimation { remaining -= 1 } } else {
-                Task { await Analytics.shared.track("SCAN_DONE", ["MS": Int(Date().timeIntervalSince(startedAt) * 1000), "RESTARTS": restarts]) }
-                onDone()
-            }
-        }
-        .onAppear { remaining = 6; startedAt = Date() }   // mock: the real scan is 30s of SDK time
-        .task {
-            // ⚠️ The mock scan has no wear events; the real one arrives as TestState=notWear on the
-            // measurement stream. DEBUG walks: `lifted` pauses at 3 s and lifts again at 9 s;
+    }
+
+    private func scanTask() async {
+            // DEBUG walks on the mock: `lifted` pauses at 3 s and lifts again at 9 s;
             // `banddropped` loses the band at 2 s.
             if DebugEdge.on("lifted") {
-                remaining = 30
-                try? await Task.sleep(for: .seconds(3)); withAnimation { holding = true }
+                remaining = 30; measuring = true
+                for _ in 0..<3 { try? await Task.sleep(for: .seconds(1)); withAnimation { remaining -= 1 } }
+                withAnimation { holding = true }
                 try? await Task.sleep(for: .seconds(3)); withAnimation { holding = false }
-                try? await Task.sleep(for: .seconds(3)); withAnimation { holding = true }
+                for _ in 0..<3 { try? await Task.sleep(for: .seconds(1)); withAnimation { remaining -= 1 } }
+                withAnimation { holding = true }
                 try? await Task.sleep(for: .seconds(2)); withAnimation { holding = false; restarts += 1; remaining = 30 }
-            } else if DebugEdge.on("banddropped") {
+                while remaining > 0 { try? await Task.sleep(for: .seconds(1)); withAnimation { remaining -= 1 } }
+                return
+            }
+            if DebugEdge.on("banddropped") {
                 try? await Task.sleep(for: .seconds(2)); withAnimation { dropped = true }
-            } else {
+                return
+            }
+            let watch = Task {
                 for await event in Band.live.events {
-                    if case .state(.disconnected) = event { withAnimation { dropped = true }; return }
+                    if case .state(.disconnected) = event {
+                        await MainActor.run { withAnimation { dropped = true } }
+                        return
+                    }
                 }
             }
+            defer { watch.cancel() }
+            await runScan()
+    }
+
+    /// Start (or restart) the no-contact clock: the sheet rises if nothing has changed by then.
+    private func armNudge(after seconds: Double) {
+        nudgeTask?.cancel()
+        nudgeTask = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, failure == nil, !dropped else { return }
+            if !measuring || holding { nudge = true }
         }
     }
-}
 
-private struct ECGTrace: View {
-    let t: TimeInterval
-    var body: some View {
-        Canvas { ctx, size in
-            let mid = size.height / 2
-            var p = Path()
-            let n = 220
-            for i in 0..<n {
-                let x = size.width * CGFloat(i) / CGFloat(n - 1)
-                let phase = Double(i) / Double(n) * 4 - t * 0.9
-                let beat = phase - phase.rounded(.down)   // wrap to [0,1); a negative phase must not skip the beat
-                var v: Double = 0
-                if beat > 0.30 && beat < 0.36 { v = -0.18 }
-                else if beat > 0.36 && beat < 0.42 { v = 1.0 }
-                else if beat > 0.42 && beat < 0.48 { v = -0.55 }
-                else if beat > 0.55 && beat < 0.68 { v = 0.22 }
-                else { v = sin(phase * 12) * 0.03 }
-                let pt = CGPoint(x: x, y: mid - CGFloat(v) * mid * 0.82)
-                i == 0 ? p.move(to: pt) : p.addLine(to: pt)
+    private func disarmNudge() {
+        nudgeTask?.cancel(); nudgeTask = nil
+        if nudge { nudge = false }
+    }
+
+    /// The scan is the band's. Weight first (F2 §05), then every state on screen is one the
+    /// SDK reported: contact, its own seconds, a lifted finger, the twelve fields, or why not.
+    private func runScan() async {
+        remaining = 30; holding = false; failure = nil; dropped = false; measuring = false
+        startedAt = Date()
+        disarmNudge()
+        do {
+            // A relaunch between pairing and this screen leaves the band bound but not
+            // connected; the SDK reconnects to it on its own before anything is pushed.
+            if Band.live.state != .connected { await Band.live.reconnectIfBound() }
+            try await Band.live.syncPersonalInfo(info)
+            armNudge(after: 4)
+            for try await step in Band.live.measureBodyComposition() {
+                switch step {
+                case .waitingForContact:
+                    break
+                case .contact:
+                    disarmNudge()
+                    withAnimation { holding = false; measuring = true }
+                case .measuring(let fraction, _, let secondsLeft):
+                    disarmNudge()
+                    let left = secondsLeft ?? Int(((1 - fraction) * 30).rounded())
+                    withAnimation { remaining = max(0, left); holding = false; measuring = true }
+                case .lostContact:
+                    // 03 edge 2 · the count holds where it was; the band starts over on contact.
+                    withAnimation { holding = true; restarts += 1 }
+                    armNudge(after: 3)
+                case .finished(.bodyComposition(let r)):
+                    disarmNudge()
+                    withAnimation { measuring = false }
+                    await Analytics.shared.track("SCAN_DONE", ["MS": Int(Date().timeIntervalSince(startedAt) * 1000), "RESTARTS": restarts])
+                    onDone(r)
+                    return
+                case .finished:
+                    return
+                case .failed(let reason):
+                    disarmNudge()
+                    withAnimation { failure = reason }
+                    return
+                }
             }
-            ctx.stroke(p, with: .color(NB.lime1),
-                       style: StrokeStyle(lineWidth: 2.2, lineJoin: .round, dash: [2.6, 2.2]))
-            ctx.fill(Path(ellipseIn: CGRect(x: size.width - 70, y: mid - 60, width: 44, height: 44)),
-                     with: .radialGradient(Gradient(colors: [NB.lime1.opacity(0.35), NB.lime1.opacity(0)]),
-                                           center: CGPoint(x: size.width - 48, y: mid - 38),
-                                           startRadius: 0, endRadius: 26))
+        } catch BandError.notConnected {
+            disarmNudge()
+            withAnimation { dropped = true }
+        } catch is CancellationError {
+            return
+        } catch {
+            disarmNudge()
+            withAnimation { failure = (error as? BandError)?.errorDescription ?? "BAND OFFLINE" }
         }
     }
 }
@@ -696,24 +836,33 @@ private struct ECGTrace: View {
 // MARK: 06 · 交底 Baseline
 
 private struct BaselineScreen: View {
+    /// What the band returned. nil only when the scan was skipped — every tile is a dash then.
+    let reading: BodyCompositionReading?
     let onEnter: () -> Void
+
+    private func f(_ v: Double?, _ decimals: Int = 1) -> String {
+        v.map { String(format: "%.\(decimals)f", $0) } ?? Fmt.dash
+    }
 
     /// The full twelve the SDK returns, laid out flat — this screen collects,
     /// it does not judge. No good/high/low anywhere: day zero has nothing to compare to.
-    private static let tiles: [(String, String, String, Color)] = [
-        ("FAT MASS", "13.5", "kg", NB.lime1),
-        ("LEAN MASS", "49.5", "kg", NB.lime1),
-        ("MUSCLE", "46.8", "kg", NB.lime1),
-        ("MUSCLE RATE", "74.3", "%", NB.lime1),
-        ("SKELETAL", "42.1", "%", NB.lime1),
-        ("BONE", "2.7", "kg", NB.lime1),
-        ("BODY WATER", "55.2", "%", NB.cyan1),
-        ("WATER", "34.8", "kg", NB.cyan1),
-        ("PROTEIN", "17.6", "%", NB.cyan1),
-        ("PROTEIN MASS", "11.1", "kg", NB.cyan1),
-        ("SUBCUT FAT", "18.9", "%", NB.cyan1),
-        ("BMR", "1386", "kcal", NB.ember1),
-    ]
+    private var tiles: [(String, String, String, Color)] {
+        let r = reading
+        return [
+            ("FAT MASS", f(r?.fatMassKg), "kg", NB.lime1),
+            ("LEAN MASS", f(r?.leanMassKg), "kg", NB.lime1),
+            ("MUSCLE", f(r?.muscleKg), "kg", NB.lime1),
+            ("MUSCLE RATE", f(r?.muscleRatePercent), "%", NB.lime1),
+            ("SKELETAL", f(r?.skeletalMusclePercent), "%", NB.lime1),
+            ("BONE", f(r?.boneKg), "kg", NB.lime1),
+            ("BODY WATER", f(r?.bodyWaterPercent), "%", NB.cyan1),
+            ("WATER", f(r?.waterKg), "kg", NB.cyan1),
+            ("PROTEIN", f(r?.proteinPercent), "%", NB.cyan1),
+            ("PROTEIN MASS", f(r?.proteinKg), "kg", NB.cyan1),
+            ("SUBCUT FAT", f(r?.subcutaneousFatPercent), "%", NB.cyan1),
+            ("BMR", r?.bmrKcal.map(String.init) ?? Fmt.dash, "kcal", NB.ember1),
+        ]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -723,9 +872,9 @@ private struct BaselineScreen: View {
                 .padding(.top, 24)
 
             HStack(spacing: 0) {
-                HeadlineStat(value: "21.4", unit: "%", label: "BODY FAT", labelTint: NB.lime1)
+                HeadlineStat(value: f(reading?.bodyFatPercent), unit: "%", label: "BODY FAT", labelTint: NB.lime1)
                 Rectangle().fill(NB.white.opacity(0.08)).frame(width: 1, height: 72)
-                HeadlineStat(value: "21.3", unit: nil, label: "BMI", labelTint: NB.white.opacity(0.42))
+                HeadlineStat(value: f(reading?.bmi), unit: nil, label: "BMI", labelTint: NB.white.opacity(0.42))
             }
             .frame(width: NB.Layout.contentWidth, height: 116)
             .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
@@ -734,7 +883,7 @@ private struct BaselineScreen: View {
             .padding(.top, 16)
 
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(114), spacing: 8), count: 3), spacing: 8) {
-                ForEach(Self.tiles, id: \.0) { t in
+                ForEach(tiles, id: \.0) { t in
                     BaselineTile(label: t.0, value: t.1, unit: t.2, tint: t.3)
                 }
             }

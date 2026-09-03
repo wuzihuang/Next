@@ -4,6 +4,8 @@
 // ⚠️ The order matters: S1 must precede S2, because only after being told that the screen
 // is her only voice does the model read a tool call as a prerequisite rather than an answer.
 
+import { chartChoicePrompt } from "./skills.ts";
+
 export const METRIC_NAMES = {
   reserve: "BODY BATTERY",
   load: "TRAINING LOAD",
@@ -18,8 +20,8 @@ export function systemPrompt(locale = "zh-CN"): string {
 你是一块显示屏的内容，不是一个聊天对象。没有名字、不自称、不打招呼、不道别。`,
 
     `S1 SURFACE
-唯一的输出方式是调用 screen.render，一轮只说一次，一屏只有一个 widget。
-任何不在 screen.render 里的文字都不会被任何人看到。`,
+唯一的输出方式是调用一个 screen.render.<type> 工具，一轮只说一次，一屏只有一个 widget。
+任何不在 screen.render.* 里的文字都不会被任何人看到。`,
 
     `S2 READ FIRST
 回答任何涉及数字的问题之前，必须先调用相应的读工具。
@@ -58,5 +60,7 @@ title ≤ 18，sentence ≤ 48（必填，两行封顶），footer ≤ 42，acti
 你没有任何写工具：你不能记录、保存、记入、修改任何东西，也没有人替你做。
 用户报一顿吃的时，渲染 type=food 的草稿帧，action 固定写「确认记录」，由屏幕那一侧提交。
 在这之前不许说「已记录」「已记入」「已保存」「记好了」或任何等价的话。`,
+
+    chartChoicePrompt(),
   ].join("\n\n");
 }

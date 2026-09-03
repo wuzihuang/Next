@@ -12,9 +12,14 @@ struct TrainingDetailView: View {
 
     // 08 edge 1 · STALE is judged by the last successful sync, never by the connection —
     // 「连着但没同步也算陈旧」.
-    private var staleMinutes: Int { Int(Date().timeIntervalSince(data.lastSync) / 60) }
+    // No sync yet is the stalest a page can be: the ring is standing on nothing.
+    private var staleMinutes: Int { data.lastSync.map { Int(Date().timeIntervalSince($0) / 60) } ?? Int.max }
     private var isStale: Bool { DebugEdge.on("stale") || staleMinutes >= 60 }
-    private var staleAgo: String { staleMinutes >= 120 ? "\(staleMinutes / 60)H AGO" : "\(staleMinutes) MIN AGO" }
+    private var staleAgo: String {
+        guard data.lastSync != nil else { return "NEVER" }
+        return staleMinutes >= 120 ? "\(staleMinutes / 60)H AGO" : "\(staleMinutes) MIN AGO"
+    }
+    private var lastSyncClock: String { data.lastSync.map(Fmt.clock) ?? Fmt.dash }
     // 08 edge 2 · the whole page stands on auto heart rate (funType 0); off is 「残」, not empty.
     private var autoHROff: Bool { DebugEdge.on("autohr") || data.capabilities.autoMeasure == .close }
     // 08 edge 5 · the ring caps at 21 and turns amber. F2's curve is asymptotic to 21, so the
@@ -42,12 +47,23 @@ struct TrainingDetailView: View {
     }
 
     var body: some View {
-        DetailScroll(glow: NB.cyan1) {
+        // 01 · header & range. "2.1 TO GO" sits on the title line because it is the one
+        // conclusion this page has.
+        //
+        // ⚠️ The DAY / WEEK / MONTH control is deliberately absent, not forgotten.
+        // ZUO · "留一个死控件比没有更糟", and 1EIH settles the disagreement between this
+        // board (which said build the screens or disable the control) and 09 (which said
+        // delete it) with "以删为准，两页保持一致". WEEK's job is already done by THIS
+        // WEEK at the foot of the page, and MONTH has no content on seven days of data.
+        // 1EEU lists the segmented control itself as out of V1 for both 08 and 09.
+        DetailScroll(glow: NB.cyan1, title: MetricNames.training, trailing: {
+            Text(isOver ? "RING FULL"
+                 : scaled ? String(format: "%.1f TO GO", max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)))
+                          : "NO TARGET YET")
+                .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
+                .foregroundStyle(scaled ? NB.cyanPale : NB.text3Prod)
+        }) {
             VStack(alignment: .leading, spacing: 14) {
-                // 01 · header & range. "2.1 TO GO" sits on the title line because it is
-                // the one conclusion this page has.
-                header
-
                 // 02 · ring & legend
                 ringCard
 
@@ -98,29 +114,6 @@ struct TrainingDetailView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(MetricNames.training)
-                    .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
-                    .foregroundStyle(NB.text1)
-                Spacer(minLength: 0)
-                Text(isOver ? "RING FULL"
-                     : scaled ? String(format: "%.1f TO GO", max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)))
-                              : "NO TARGET YET")
-                    .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                    .foregroundStyle(scaled ? NB.cyanPale : NB.text3Prod)
-            }
-            // ⚠️ The DAY / WEEK / MONTH control is deliberately absent, not forgotten.
-            // ZUO · "留一个死控件比没有更糟", and 1EIH settles the disagreement between this
-            // board (which said build the screens or disable the control) and 09 (which said
-            // delete it) with "以删为准，两页保持一致". WEEK's job is already done by THIS
-            // WEEK at the foot of the page, and MONTH has no content on seven days of data.
-            // 1EEU lists the segmented control itself as out of V1 for both 08 and 09.
-        }
-        .padding(.top, 14)
-    }
-
     private var ringCard: some View {
         VStack(spacing: 18) {
             BigTrainingRing(load: m.trainingLoad, target: m.targetLoad, zone: m.optimalZone,
@@ -131,8 +124,10 @@ struct TrainingDetailView: View {
             // 08 edge cases · every degradation happens here, in place: one status line and its
             // colour, at most a sentence. No modal, no full-page error, no bounce home.
             if isStale {
-                EdgeNote(sub: "AS OF \(Fmt.clock(data.lastSync))", line: "LAST SYNC \(staleAgo)",
-                         text: "The band has been out of range since \(Fmt.clock(data.lastSync)). This is where you were, not where you are.")
+                EdgeNote(sub: "AS OF \(lastSyncClock)", line: "LAST SYNC \(staleAgo)",
+                         text: data.lastSync == nil
+                            ? "The band has not synced yet. Nothing here is measured."
+                            : "The band has been out of range since \(lastSyncClock). This is where you were, not where you are.")
             } else if isOver {
                 EdgeNote(line: String(format: "RING FULL · %.1f OVER TARGET", 21 - (m.targetLoad ?? 21)),
                          text: "Way past \(Fmt.load(m.targetLoad)). Tomorrow's target will already know about this.")
@@ -391,63 +386,6 @@ struct TrainingDetailView: View {
         }
         .padding(.horizontal, 14)
         .frame(width: NB.Layout.contentWidth)
-    }
-}
-
-// MARK: page chrome shared by 08 · 09 · 10 · 13
-
-/// Every detail page is one scroll with a coloured bloom behind the top,
-/// a back mark that says where it returns to, and nothing else pinned.
-struct DetailScroll<Content: View>: View {
-    let glow: Color
-    /// 10 draws its own back mark inside the eyebrow (`‹ COMPOSITION`); one back per page.
-    var showBack = true
-    @ViewBuilder let content: Content
-    let onBack: () -> Void
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                Color.clear.frame(height: Chrome.statusBarBlock)
-                if showBack { BackToRoot(action: onBack).padding(.leading, 18) }
-                content
-            }
-        }
-        .background(alignment: .top) {
-            Ellipse()
-                .fill(RadialGradient(stops: [
-                    .init(color: glow.opacity(0.13), location: 0),
-                    .init(color: glow.opacity(0.035), location: 0.6),
-                    .init(color: glow.opacity(0), location: 1),
-                ], center: .center, startRadius: 0, endRadius: 215))
-                .frame(width: 430, height: 370)
-                .offset(y: -60)
-        }
-        .carbonPage()
-        .ignoresSafeArea(.container, edges: .vertical)
-        .navigationBarBackButtonHidden()
-    }
-}
-
-struct BackToRoot: View {
-    var label: String = "TODAY"
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                Path { p in
-                    p.move(to: CGPoint(x: 7, y: 1))
-                    p.addLine(to: CGPoint(x: 1.5, y: 6.5))
-                    p.addLine(to: CGPoint(x: 7, y: 12))
-                }
-                .stroke(NB.macroLabel, style: StrokeStyle(lineWidth: 1.6, lineCap: .square))
-                .frame(width: 8, height: 13)
-                Text(label)
-                    .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-                    .foregroundStyle(NB.macroLabel)
-            }
-        }
-        .buttonStyle(.plain)
     }
 }
 

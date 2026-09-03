@@ -132,14 +132,19 @@ enum NB {
         static let padGlass: CGFloat = 20
     }
 
-    // MARK: Fixed layout constants the boards write down as law
+    // MARK: Layout. The boards are drawn at 390 × 844 with a 358 column; the phone is
+    // whatever it is. Widths derive from the device (portrait, iPhone only), so every
+    // `.frame(width: NB.Layout.contentWidth)` fills the same 16pt gutters on every model.
     enum Layout {
-        static let screenWidth: CGFloat = 390
+        /// the board's own width; the reference frame for absolute board coordinates
+        static let boardWidth: CGFloat = 390
+        static let boardContentWidth: CGFloat = 358
+        static var screenWidth: CGFloat { ScreenMetrics.size.width }
         static let gutter: CGFloat = 16          // 390 - 358 = 32 → 16 each side
-        static let contentWidth: CGFloat = 358
-        static let panelHeight: CGFloat = 470    // F0/04: 390 → 470 after the strip shrank
+        static var contentWidth: CGFloat { screenWidth - 2 * gutter }
+        static let panelHeight: CGFloat = 470    // F0/04: 390 → 470 after the strip shrank · the canvas height
         static let stripHeight: CGFloat = 136
-        static let cardWidth: CGFloat = 174
+        static var cardWidth: CGFloat { (contentWidth - cardGap) / 2 }
         static let cardGap: CGFloat = 10
         static let dockHeight: CGFloat = 56
         static let dockSideButton: CGFloat = 54

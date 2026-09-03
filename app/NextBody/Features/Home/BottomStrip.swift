@@ -5,6 +5,7 @@ import SwiftUI
 /// The whole card is the tap target; there is no second-level button inside it.
 struct BottomStrip: View {
     let m: DailyMetrics
+    var width: CGFloat = NB.Layout.contentWidth
     let onTraining: () -> Void
     let onFuel: () -> Void
 
@@ -15,7 +16,7 @@ struct BottomStrip: View {
             Button(action: onFuel) { FuelCard(m: m) }
                 .buttonStyle(StripCardStyle())
         }
-        .frame(width: NB.Layout.contentWidth, height: NB.Layout.stripHeight)
+        .frame(width: width, height: NB.Layout.stripHeight)
     }
 }
 

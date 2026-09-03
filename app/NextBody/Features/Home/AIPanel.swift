@@ -8,7 +8,7 @@ struct AIPanel: View {
     var onTurnOn: () -> Void = {}
     let m: DailyMetrics
     let band: BandState
-    let lastSync: Date
+    let lastSync: Date?
     /// 04 · the last five-minute tick. Its age decides whether the readout prints, dims,
     /// or dashes (13 · CURVE STOPS AT THE LAST REAL TICK).
     var vitals: LiveVitals = .mock
@@ -21,7 +21,6 @@ struct AIPanel: View {
     let onWidget: (Destination) -> Void
 
     private var ceremony: Bool { firstRun?.playing == true }
-
     var body: some View {
         ZStack {
             if let firstRun, ceremony {
@@ -30,7 +29,10 @@ struct AIPanel: View {
                                 orbitFraction: firstRun.orbitFraction,
                                 spinning: firstRun.orbitSpinning)
                 }
-            } else {
+            } else if widget?.composition == nil {
+                // A composition result draws its own LED ground and fills the panel.
+                // Standby art behind a 358×470 card is what made the reading look like
+                // a tile sitting in the middle of the display.
                 HalftoneScreen { StandbyArt(charge: Double(m.bodyBattery ?? 0) / 100) }
             }
 
@@ -59,8 +61,10 @@ struct AIPanel: View {
                 }
                 .padding(.vertical, 16)
             } else if let widget {
-                PanelWidgetView(widget: widget, onTap: onWidget)
-                    .transition(.opacity)
+                // 07 · the widget is drawn on the board's 358 × 470 canvas with absolute slots.
+                // Scale to fill the panel the phone actually left — up or down — so a taller
+                // screen does not leave the reading as a card floating in the middle.
+                filledWidget(widget)
             } else if !consent.granted {
                 // 补屏 edge 1 / 2 · NOT COLLECTING. 「—— 是沉默」 at its limit: the panel says what
                 // is not happening and offers the one way to change it. No widget, no readout.
@@ -105,7 +109,19 @@ struct AIPanel: View {
         .background(NB.panelInk)
         .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .stroke(NB.white.opacity(ceremony ? 0 : 0.08), lineWidth: 1))
+            .stroke(widget?.composition != nil ? NB.lime1.opacity(0.18)
+                    : NB.white.opacity(ceremony ? 0 : 0.08), lineWidth: 1))
+    }
+
+    private func filledWidget(_ widget: PanelWidget) -> some View {
+        let bw = NB.Layout.boardContentWidth
+        let bh = NB.Layout.panelHeight
+        let scale = min(size.width / bw, size.height / bh)
+        return PanelWidgetView(widget: widget, onTap: onWidget)
+            .frame(width: bw, height: bh)
+            .scaleEffect(scale)
+            .frame(width: size.width, height: size.height)
+            .transition(.opacity)
     }
 
     private var header: some View {
@@ -122,46 +138,62 @@ struct AIPanel: View {
     }
 
     /// The morning line and nothing else — sleep never reaches the screen (F0 rule 03).
+    /// 04 · the board's type stack: eyebrow over a 64pt hero number, the charge line,
+    /// HR / STRESS as two centred columns, and the one-line hint at the bottom.
     private var standbyReadout: some View {
         VStack(spacing: 0) {
             Hairline().frame(width: 236)
-                .padding(.bottom, 15)
+                .padding(.bottom, 12)
 
             Button {
                 onWidget(.bodyBattery)
             } label: {
                 VStack(spacing: 0) {
-                    Text("\(MetricNames.bodyBattery) \(Fmt.pct(m.bodyBattery))")
-                        .font(NBFont.dot(700, 15)).tracking(0.1 * 15)
-                        .foregroundStyle(NB.lime1)
-                        .frame(height: 18)
+                    Text(MetricNames.bodyBattery)
+                        .font(NBFont.dot(600, 11)).tracking(0.34 * 11)
+                        .foregroundStyle(NB.white.opacity(0.55))
+                    HStack(alignment: .lastTextBaseline, spacing: 2) {
+                        Text(Fmt.int(m.bodyBattery))
+                            .font(NBFont.dot(700, 64)).tracking(-0.045 * 64)
+                            .foregroundStyle(NB.lime1)
+                        if m.bodyBattery != nil {
+                            Text("%")
+                                .font(NBFont.dot(700, 24))
+                                .foregroundStyle(NB.lime1.opacity(0.7))
+                        }
+                    }
+                    .padding(.top, 4)
                     Text(chargeLine)
-                        .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
-                        .foregroundStyle(NB.white.opacity(0.45))
-                        .frame(height: 14)
-                        .padding(.top, 8)
+                        .font(NBFont.dot(500, 11)).tracking(0.1 * 11)
+                        .foregroundStyle(NB.white.opacity(0.6))
+                        .padding(.top, 6)
                 }
             }
             .buttonStyle(.plain)
 
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                readoutLabel("HR")
-                readoutValue(Fmt.int(readout.hr))
-                readoutDot
-                readoutLabel("STRESS")
-                readoutValue(Fmt.int(readout.stress))
-                readoutDot
-                Text(agoText)
-                    .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                    .foregroundStyle(NB.white.opacity(0.34))
+            HStack(spacing: 40) {
+                vitalsColumn(Fmt.int(readout.hr), label: "HR")
+                vitalsColumn(Fmt.int(readout.stress), label: "STRESS")
             }
-            .padding(.top, 10)
+            .padding(.top, 12)
 
-            Text("TAP OR TALK — I'M UP")
-                .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
-                .foregroundStyle(NB.white.opacity(0.28))
-                .padding(.top, 14)
+            Text("\(agoText) · TAP OR TALK — I'M UP")
+                .font(NBFont.dot(500, 10.5)).tracking(0.18 * 10.5)
+                .foregroundStyle(NB.white.opacity(0.42))
+                .padding(.top, 10)
         }
+    }
+
+    /// 04 · one vitals slot: the reading above its label, centred in a fixed column so
+    /// HR and STRESS stay put as the numbers change width.
+    private func vitalsColumn(_ value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value).font(NBFont.dot(700, 28)).tracking(0.04 * 28)
+                .foregroundStyle(NB.white.opacity(0.9))
+            Text(label).font(NBFont.dot(600, 10.5)).tracking(0.2 * 10.5)
+                .foregroundStyle(NB.white.opacity(0.5))
+        }
+        .frame(width: 96)
     }
 
     /// 13 · past six hours the numbers are gone, not dimmed and not carried forward.
@@ -186,18 +218,6 @@ struct AIPanel: View {
         if mins < 1 { return "JUST NOW" }
         if mins < 60 { return "\(mins) MIN AGO" }
         return "\(mins / 60) HR AGO"
-    }
-
-    private func readoutLabel(_ s: String) -> some View {
-        Text(s).font(NBFont.dot(500, 10)).tracking(0.18 * 10)
-            .foregroundStyle(NB.white.opacity(0.38))
-    }
-    private func readoutValue(_ s: String) -> some View {
-        Text(s).font(NBFont.dot(700, 13)).tracking(0.06 * 13)
-            .foregroundStyle(NB.white.opacity(0.82))
-    }
-    private var readoutDot: some View {
-        Text("·").font(NBFont.dot(500, 10)).foregroundStyle(NB.white.opacity(0.2))
     }
 }
 

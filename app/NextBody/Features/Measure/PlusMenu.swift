@@ -63,6 +63,13 @@ struct PlusMenuSheet: View {
                 }
             }
         }
+        // 06 edge 6 · the rows are gated on the link, so the link has to be current. Nothing
+        // re-armed `band.connected` after a transient drop except revisiting home, which left
+        // both measurements dead in a session where the band was reachable all along.
+        .task {
+            if Band.live.state != .connected { await Band.live.reconnectIfBound() }
+            data.band.connected = Band.live.state == .connected
+        }
         .padding(.horizontal, 8)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, maxHeight: inline ? nil : .infinity, alignment: .top)

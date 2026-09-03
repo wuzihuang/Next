@@ -26,16 +26,16 @@ struct NotificationPrimer: View {
                 Spacer().frame(height: 140)
             }
             .padding(.horizontal, 24)
-            .frame(width: 390, alignment: .leading)
+            .frame(width: NB.Layout.screenWidth, alignment: .leading)
 
             VStack(spacing: 12) {
                 LimePillButton(title: "Turn on") { Task { await turnOn() } }
-                    .frame(width: 342)
+                    .frame(width: NB.Layout.contentWidth - 16)
                 Button(action: notNow) {
                     Text("Not now")
                         .font(NBFont.ui(500, 15)).tracking(0.04 * 15)
                         .foregroundStyle(NB.white.opacity(0.55))
-                        .frame(width: 342, height: 44)
+                        .frame(width: NB.Layout.contentWidth - 16, height: 44)
                 }
                 .buttonStyle(.plain)
             }

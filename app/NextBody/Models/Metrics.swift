@@ -36,10 +36,11 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
 
     var start: Date { date }
     /// The server's `user_day` string for this day.
-    var key: String {
+    var key: String { Self.keyFormatter.string(from: date) }
+    private static let keyFormatter: DateFormatter = {
         let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian)
-        f.dateFormat = "yyyy-MM-dd"; return f.string(from: date)
-    }
+        f.dateFormat = "yyyy-MM-dd"; return f
+    }()
     var end: Date { Calendar.current.date(byAdding: .day, value: 1, to: date)! }
 
     func adding(days: Int) -> UserDay {
@@ -198,6 +199,36 @@ struct ReserveSample: Codable, Hashable {
     let value: Int
 }
 
+/// One five-minute tick as the band recorded it: what the heart was doing and what the
+/// stress index read. Both are optional and neither is ever filled in — a tick taken off
+/// the wrist has no heart and no stress, and that absence is the whole point of the row.
+struct VitalSample: Codable, Hashable {
+    let ts: Date
+    let hr: Int?
+    let stress: Int?
+    /// 04B · the rest of the tick, as the band filed it. Skin temperature in °C, and the
+    /// five minutes' steps, kcal and metres — the second page's instruments. All optional
+    /// for the same reason as the two above: an absent reading is absent, never zero.
+    var temp: Double? = nil
+    var steps: Int? = nil
+    var cal: Double? = nil
+    var dis: Double? = nil
+}
+
+/// 04B · SLEEP card. The night OriginDataSync stored under this user day — what the band
+/// reported, unscored: 「不算分、不评价」. The whole reason it is a struct of its own is
+/// that 13 板 forbids sleep on the battery page while 04B prints it first; both read one row.
+struct SleepSummary: Codable, Hashable {
+    var totalMinutes: Int
+    var deepMinutes: Int
+    var lightMinutes: Int
+    var wakeCount: Int
+    /// 04B rule 04 · the band's own sleepLine as stage runs, drawn as-is: deep full height,
+    /// light half, awake a short mark — never re-segmented by the app. Empty on nights
+    /// stored before the line was kept; the strip falls back to proportions for those.
+    var line: [SleepStageRun] = []
+}
+
 /// F2 §02 · one row of daily_metrics. Everything is computed server-side; the app only lays it out.
 struct DailyMetrics: Codable, Hashable, Identifiable {
     var id: Date { day.date }
@@ -223,7 +254,12 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     // server so the detail page never has to re-derive a number the day already settled.
     var reserveDrivers: ReserveDrivers?
     var reserveCurve: [ReserveSample] = []
+    /// 13 · the ticks the battery is made of. Heart and stress are two of the four rows in
+    /// WHY, so the page shows them as measurements rather than only as attributions.
+    var vitalsCurve: [VitalSample] = []
     var nightInputs: NightInputs?
+    /// 04B · last night, from sleep_nights. nil until the band has answered readSleep.
+    var sleep: SleepSummary?
 
     // Energy
     var bmr: Double?                   // the part of the baseline that has elapsed
@@ -309,9 +345,19 @@ enum Fmt {
     static func load(_ v: Double?) -> String { v.map { String(format: "%.1f", min($0, 20.9)) } ?? dash }
     static func kcal(_ v: Double?) -> String {
         guard let v else { return dash }
-        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
-        return f.string(from: NSNumber(value: v)) ?? dash
+        return kcalFormatter.string(from: NSNumber(value: v)) ?? dash
     }
+    // ⚠️ Formatters are built once. Each of these used to be allocated per call, and the
+    // calls sit inside view bodies that run on every frame of an animation.
+    private static let kcalFormatter: NumberFormatter = {
+        let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0; return f
+    }()
+    private static let weekdayFormatter: DateFormatter = {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "EEE"; return f
+    }()
+    private static let clockFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+    }()
     static func signedKcal(_ v: Double?) -> String {
         guard let v else { return dash }
         return (v < 0 ? "−" : "+") + kcal(abs(v))
@@ -339,12 +385,7 @@ enum Fmt {
         return m == 0 ? "\(h)H" : "\(h)H \(m)M"
     }
 
-    static func weekday(_ d: Date) -> String {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "EEE"; return f.string(from: d).uppercased()
-    }
+    static func weekday(_ d: Date) -> String { weekdayFormatter.string(from: d).uppercased() }
 
-    static func clock(_ d: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
-    }
+    static func clock(_ d: Date) -> String { clockFormatter.string(from: d) }
 }

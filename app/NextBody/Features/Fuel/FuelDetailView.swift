@@ -75,9 +75,32 @@ struct FuelDetailView: View {
     }
 
     private var fuelPage: some View {
-        DetailScroll(glow: NB.ember1) {
+        // 09 edge 5 · a closed day is the headline — `‹ SAT 30 AUG` — under a FUEL eyebrow.
+        //
+        // ⚠️ DAY / WEEK / MONTH is absent on purpose — see 08. VAF · "留一个点了没反应的分段
+        // 控件比没有更糟", and 1EIH rules delete for both pages. THIS WEEK at the foot of
+        // this page is what WEEK was for.
+        DetailScroll(glow: NB.ember1, title: "FUEL", headline: isPast ? pastTitle : nil, trailing: {
+            if isPast {
+                Text(overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "CLOSED")
+                    .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
+                    .foregroundStyle(NB.emberPale)
+                // The board's today header has no pager; a closed day gets one to walk the week.
+                HStack(spacing: 6) {
+                    PagerButton(forward: false, enabled: day > today.adding(days: -6)) { withAnimation { day = day.adding(days: -1) } }
+                    PagerButton(forward: true, enabled: isPast) { withAnimation { day = day.adding(days: 1) } }
+                }
+                .padding(.leading, 10)
+            } else {
+                // Deliberately the same number as the one on the home card: you tap it
+                // in the upper half and it is still there when you have scrolled down.
+                Text(logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "\(Fmt.kcal(m.nextMeal)) LEFT")
+                            : "\(Fmt.kcal(m.targetIn)) TARGET")
+                    .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
+                    .foregroundStyle(NB.emberPale)
+            }
+        }) {
             VStack(alignment: .leading, spacing: 14) {
-                header
                 eatenCard
                 macrosCard
                 SectionLabel(logged ? "WHAT WENT IN" : "WHAT GOES IN")
@@ -103,7 +126,9 @@ struct FuelDetailView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 30)
         } onBack: {
-            router.backToRoot()
+            // 09 edge 5 · on a closed day the chevron is the way back to today; from today
+            // it is the way home.
+            if isPast { withAnimation { day = today } } else { router.backToRoot() }
         }
         .sheet(item: $editing) { entry in
             EditMealSheet(entry: entry)
@@ -111,55 +136,6 @@ struct FuelDetailView: View {
                 .presentationBackground(NB.carbon2)
                 .presentationCornerRadius(NB.R.panel)
         }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                if isPast {
-                    // 09 edge 5 · `‹ SAT 30 AUG` — the chevron is the way back to today.
-                    Button { withAnimation { day = today } } label: {
-                        HStack(spacing: 8) {
-                            Text("‹").font(NBFont.brand(400, 28)).foregroundStyle(NB.macroLabel)
-                            Text(pastTitle)
-                                .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
-                                .foregroundStyle(NB.text1)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Back to today")
-                } else {
-                    Text("FUEL")
-                        .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
-                        .foregroundStyle(NB.text1)
-                }
-                Spacer(minLength: 0)
-                if isPast {
-                    Text(overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "CLOSED")
-                        .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                        .foregroundStyle(NB.emberPale)
-                } else {
-                    // Deliberately the same number as the one on the home card: you tap it
-                    // in the upper half and it is still there when you have scrolled down.
-                    Text(logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "\(Fmt.kcal(m.nextMeal)) LEFT")
-                                : "\(Fmt.kcal(m.targetIn)) TARGET")
-                        .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                        .foregroundStyle(NB.emberPale)
-                }
-                // The board's today header has no pager; a closed day gets one to walk the week.
-                if isPast {
-                    HStack(spacing: 6) {
-                        PagerButton(forward: false, enabled: day > today.adding(days: -6)) { withAnimation { day = day.adding(days: -1) } }
-                        PagerButton(forward: true, enabled: isPast) { withAnimation { day = day.adding(days: 1) } }
-                    }
-                    .padding(.leading, 10)
-                }
-            }
-            // ⚠️ Absent on purpose — see 08. VAF · "留一个点了没反应的分段控件比没有更糟",
-            // and 1EIH rules delete for both pages. THIS WEEK at the foot of this page is
-            // what WEEK was for.
-        }
-        .padding(.top, 14)
     }
 
     /// A2 · the big number is what has been eaten, not what is left. Subtraction needs both

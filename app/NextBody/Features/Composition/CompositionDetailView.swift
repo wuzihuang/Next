@@ -79,9 +79,19 @@ struct CompositionDetailView: View {
     }
 
     var body: some View {
-        DetailScroll(glow: NB.lime1, showBack: false) {
+        // 10 · the board drew `‹ COMPOSITION` as the page's back mark; the day is the headline.
+        DetailScroll(glow: NB.lime1, title: "COMPOSITION", headline: titleText, trailing: {
+            HStack(spacing: 6) {
+                PagerButton(forward: false, enabled: true) { day = day.adding(days: -1) }
+                PagerButton(forward: true, enabled: day < UserDay.containing(Date())) {
+                    day = day.adding(days: 1)
+                }
+            }
+        }) {
             VStack(alignment: .leading, spacing: 14) {
-                header
+                // ⚠️ 18FW · "DAY 与 WEEK 都有真屏，MONTH 没有，别把它当已设计." Two segments,
+                // not three — this is the one page whose week view the boards actually drew.
+                SegmentedPills(options: ["DAY", "WEEK"], selection: $range)
                 callCard
                 thatWeekCard
                 if hasCall { whyCard } else { needsCard }
@@ -111,46 +121,6 @@ struct CompositionDetailView: View {
                 "SCANS_7D": m.scans7d,
             ])
         }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // 10 · `‹ COMPOSITION` is the page's one back mark: it returns to wherever the
-            // page was entered from — one layer, never two.
-            Button { router.backToRoot() } label: {
-                HStack(spacing: 9) {
-                    Path { p in
-                        p.move(to: CGPoint(x: 7, y: 1))
-                        p.addLine(to: CGPoint(x: 1.5, y: 6.5))
-                        p.addLine(to: CGPoint(x: 7, y: 12))
-                    }
-                    .stroke(NB.macroLabel, style: StrokeStyle(lineWidth: 1.6, lineCap: .square))
-                    .frame(width: 8, height: 13)
-                    Text("COMPOSITION")
-                        .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-                        .foregroundStyle(NB.macroLabel)
-                }
-                .padding(.top, 14)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-            HStack(alignment: .firstTextBaseline) {
-                Text(titleText)
-                    .font(NBFont.brand(700, 28)).tracking(-0.02 * 28)
-                    .foregroundStyle(NB.text1)
-                Spacer(minLength: 0)
-                HStack(spacing: 6) {
-                    PagerButton(forward: false, enabled: true) { day = day.adding(days: -1) }
-                    PagerButton(forward: true, enabled: day < UserDay.containing(Date())) {
-                        day = day.adding(days: 1)
-                    }
-                }
-            }
-            // ⚠️ 18FW · "DAY 与 WEEK 都有真屏，MONTH 没有，别把它当已设计." Two segments,
-            // not three — this is the one page whose week view the boards actually drew.
-            SegmentedPills(options: ["DAY", "WEEK"], selection: $range)
-        }
-        .padding(.top, 14)
     }
 
     private var titleText: String {

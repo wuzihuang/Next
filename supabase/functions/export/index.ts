@@ -9,6 +9,7 @@ const TABLES = [
   ["meals", "meals"],
   ["daily_rollup", "daily_results"],
   ["weigh_ins", "weigh_ins"],
+  ["night_hrv", "night_hrv"],
 ] as const;
 
 const README = `NEXTBODY DATA EXPORT
@@ -22,6 +23,7 @@ daily_rollup.ndjson   one row per user day (local 04:00 -> 04:00).
                       training_load 0-21, reserve_score 0-100, and the algo_version
                       that produced them.
 weigh_ins.ndjson      the weight series, independent of any BIA reading.
+night_hrv.ndjson      nightly RMSSD derived from band RR intervals, with source counts.
 profile.ndjson        your profile plus per-field provenance.
 
 A null is not a zero. Where a value is null we did not know it; where it is 0 you told us

@@ -47,6 +47,14 @@ struct ConnectFlow: View {
             else if scanEdge == .bluetoothOff { runScan() }
         }
         .transaction { $0.animation = nil }
+        #if DEBUG
+        // `SIMCTL_CHILD_NB_DEBUG_CONNECT_STEP=3` opens the flow on that screen for a walk —
+        // the screen only, none of the scan or pairing work behind it.
+        .onAppear {
+            if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_CONNECT_STEP"],
+               let n = Int(raw), let st = Step(rawValue: n) { step = st }
+        }
+        #endif
     }
 
     private func go(_ s: Step) {
@@ -79,15 +87,26 @@ struct ConnectFlow: View {
                 scanEdge = .nothingFound
                 await Analytics.shared.track("PAIR_FAIL", ["REASON": "NOTHING_FOUND", "STEP": "SCAN"])
             }
+            // Two Veepoo bands in one room both match the SDK's scan (a G70 and an R30 ECG
+            // were seen side by side on the device). The first advertisement to arrive is
+            // whichever radio ticked first, so after it the scan listens 1.5 s more and keeps
+            // the strongest signal: the band on your wrist, next to the phone.
+            var best: DiscoveredBand?
+            var settle: Task<Void, Never>?
             for await event in Band.live.events {
-                if case .discovered(let device) = event {
+                if Task.isCancelled { timeout.cancel(); settle?.cancel(); return }
+                guard case .discovered(let device) = event else { continue }
+                if best == nil || device.rssi > best!.rssi { best = device }
+                if settle == nil {
                     timeout.cancel()
-                    found = device
-                    await Band.live.stopScan()
-                    go(.found)
-                    return
+                    settle = Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        guard !Task.isCancelled, let pick = best, step == .searching else { return }
+                        found = pick
+                        await Band.live.stopScan()
+                        go(.found)
+                    }
                 }
-                if Task.isCancelled { timeout.cancel(); return }
             }
         }
     }
@@ -125,7 +144,7 @@ struct ConnectFlow: View {
 
                 data.band = BandState(
                     connected: true, name: identity.name, mac: identity.bleIdentifier,
-                    batteryPercent: battery.percent ?? 0, firmware: identity.firmware,
+                    batteryPercent: battery.percent, firmware: identity.firmware,
                     lastSync: Date(),
                     capabilities: Self.capabilitySet(caps))
                 step = .connected
@@ -154,8 +173,8 @@ struct ConnectFlow: View {
         var out: Set<BandState.Capability> = []
         if caps.bodyComponent == .support { out.insert(.bodyComponent) }
         if caps.ecg == .support { out.insert(.ecg) }
-        if caps.hrv == .support { out.insert(.heartRate) }
-        if caps.stress == .support { out.insert(.temperature) }
+        if caps.hrv == .support || caps.functions["heart"] == .support { out.insert(.heartRate) }
+        if caps.functions["temperature"] == .support { out.insert(.temperature) }
         if caps.autoMeasure == .support { out.insert(.alarms) }
         if caps.wearDetection == .support { out.insert(.wearDetection) }
         if caps.functions["spo2"] == .support { out.insert(.bloodOxygen) }
@@ -238,8 +257,8 @@ private struct TurnItOn: View {
             NB.panelInk
 
             BandPortrait(sideKeyLit: true, ripples: [34, 58, 82], rippleAlpha: [0.42, 0.20, 0.08])
-                .frame(width: 390, height: 470)
-                .offset(y: 252 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth, height: 470)
+                .offset(y: Chrome.boardY(252))
 
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)
@@ -253,8 +272,8 @@ private struct TurnItOn: View {
             Text("HOLD 2S")
                 .font(NBFont.dot(800, 13)).tracking(0.24 * 13)
                 .foregroundStyle(NB.lime1)
-                .frame(width: 390, alignment: .center)
-                .offset(y: 608 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth, alignment: .center)
+                .offset(y: Chrome.boardY(608))
 
             // The only real dead end in the flow, answered on the screen it happens on.
             Text("Nothing lights up? It may be flat — charge it for ten minutes, then hold again.")
@@ -262,14 +281,14 @@ private struct TurnItOn: View {
                 .lineSpacing(20 - 13)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.text3Prod)
-                .frame(width: 326)
-                .offset(x: 32, y: 640 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth - 64)
+                .offset(x: 32, y: Chrome.boardY(640))
 
             LimePillButton(title: "It's on", action: onNext)
-                .offset(x: 16, y: 708 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .offset(x: 16, y: Chrome.boardY(708))
 
         }
-        .frame(width: 390, alignment: .topLeading)
+        .frame(width: NB.Layout.screenWidth, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -364,9 +383,9 @@ private struct Searching: View {
                     let p = (t * 0.35 + Double(i) * 0.25).truncatingRemainder(dividingBy: 1)
                     return 60 + CGFloat(p) * 130
                 })
-                .frame(width: 390, height: 470)
+                .frame(width: NB.Layout.screenWidth, height: 470)
                 .opacity(edge == nil ? 1 : edge == .bluetoothOff ? 0.2 : 0.18)
-                .offset(y: 252 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .offset(y: Chrome.boardY(252))
             }
 
             VStack(spacing: 0) {
@@ -383,14 +402,14 @@ private struct Searching: View {
                 Text("SCANNING")
                     .font(NBFont.dot(600, 12)).tracking(0.34 * 12)
                     .foregroundStyle(NB.white.opacity(0.42))
-                    .frame(width: 390, alignment: .center)
-                    .offset(y: 700 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                    .frame(width: NB.Layout.screenWidth, alignment: .center)
+                    .offset(y: Chrome.boardY(700))
 
                 Text("Keep it within arm's reach.")
                     .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
-                    .frame(width: 390, alignment: .center)
-                    .offset(y: 750 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                    .frame(width: NB.Layout.screenWidth, alignment: .center)
+                    .offset(y: Chrome.boardY(750))
 
             case .nothingFound:
                 // 02 edge 1 · NOTHING FOUND. Three checks in the most likely order, then the
@@ -412,8 +431,8 @@ private struct Searching: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .frame(width: 390)
-                .offset(y: 604 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth)
+                .offset(y: Chrome.boardY(604))
 
             case .bluetoothOff:
                 // 02 edge 2 · only the status line turns amber; Settings, then rescan by itself.
@@ -431,12 +450,12 @@ private struct Searching: View {
                     .buttonStyle(.plain)
                     .padding(.top, 6)
                 }
-                .frame(width: 390)
-                .offset(y: 660 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth)
+                .offset(y: Chrome.boardY(660))
             }
 
         }
-        .frame(width: 390, alignment: .topLeading)
+        .frame(width: NB.Layout.screenWidth, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
     }
@@ -462,8 +481,8 @@ private struct FoundIt: View {
                 .position(x: 195, y: 252 + 210)
 
             BandPortrait(faceLit: true)
-                .frame(width: 390, height: 470)
-                .offset(y: 252 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth, height: 470)
+                .offset(y: Chrome.boardY(252))
 
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)
@@ -475,22 +494,22 @@ private struct FoundIt: View {
             }
 
             DeviceRow(band: band)
-                .offset(x: 16, y: 600 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .offset(x: 16, y: Chrome.boardY(600))
 
             LimePillButton(title: "Connect", action: onConnect)
-                .offset(x: 16, y: 700 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .offset(x: 16, y: Chrome.boardY(700))
 
             Button(action: onSearchAgain) {
                 Text("Not your band? Search again")
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
-                    .frame(width: 390)
+                    .frame(width: NB.Layout.screenWidth)
             }
             .buttonStyle(.plain)
-            .offset(y: 770 - Chrome.statusBarBlock + Chrome.gateTopInset)
+            .offset(y: Chrome.boardY(770))
 
         }
-        .frame(width: 390, alignment: .topLeading)
+        .frame(width: NB.Layout.screenWidth, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -575,10 +594,10 @@ private struct Pairing: View {
             TimelineView(.animation) { tl in
                 // Edge 4 · the arms stop turning and the whole thing goes amber.
                 Collapse(t: edge == nil ? tl.date.timeIntervalSinceReferenceDate : 0, progress: progress)
-                    .frame(width: 390, height: 400)
+                    .frame(width: NB.Layout.screenWidth, height: 400)
                     .grayscale(edge == nil ? 0 : 1)
                     .colorMultiply(edge == nil ? .white : NB.ember1)
-                    .offset(y: 260 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                    .offset(y: Chrome.boardY(260))
             }
 
             VStack(spacing: 0) {
@@ -601,13 +620,13 @@ private struct Pairing: View {
                     .contentTransition(.numericText())
             }
             .frame(width: NB.Layout.contentWidth)
-            .offset(x: 16, y: 636 - Chrome.statusBarBlock + Chrome.gateTopInset)
+            .offset(x: 16, y: Chrome.boardY(636))
 
             DottedProgress(progress: progress)
                 .frame(width: NB.Layout.contentWidth, height: 6)
                 .grayscale(edge == nil ? 0 : 1)
                 .colorMultiply(edge == nil ? .white : NB.ember1)
-                .offset(x: 16, y: 672 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .offset(x: 16, y: Chrome.boardY(672))
 
             if let edge {
                 VStack(alignment: .leading, spacing: 12) {
@@ -645,23 +664,23 @@ private struct Pairing: View {
                     }
                 }
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
-                .offset(x: 16, y: 690 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .offset(x: 16, y: Chrome.boardY(690))
             } else {
                 Text(Self.stages[min(stage, 3)])
                     .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.white.opacity(0.34))
                     .frame(width: NB.Layout.contentWidth, alignment: .leading)
-                    .offset(x: 16, y: 690 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                    .offset(x: 16, y: Chrome.boardY(690))
 
                 Text("Keep it within arm's reach.")
                     .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
-                    .frame(width: 390, alignment: .center)
-                    .offset(y: 730 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                    .frame(width: NB.Layout.screenWidth, alignment: .center)
+                    .offset(y: Chrome.boardY(730))
             }
 
         }
-        .frame(width: 390, alignment: .topLeading)
+        .frame(width: NB.Layout.screenWidth, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -738,36 +757,36 @@ private struct Connected: View {
             NB.panelInk
 
             Burst(progress: burst)
-                .frame(width: 390, height: 560)
-                .offset(y: 90 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth, height: 560)
+                .offset(y: Chrome.boardY(90))
 
             Text("CONNECTED")
                 .font(NBFont.dot(700, 20)).tracking(0.34 * 20)
                 .foregroundStyle(NB.lime1)
-                .frame(width: 390, alignment: .center)
-                .offset(y: 356 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth, alignment: .center)
+                .offset(y: Chrome.boardY(356))
 
             Text("LINK LOCKED · DOUBLE TAP")
                 .font(NBFont.dot(500, 10.5)).tracking(0.24 * 10.5)
                 .foregroundStyle(NB.white.opacity(0.40))
-                .frame(width: 390, alignment: .center)
-                .offset(y: 390 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .frame(width: NB.Layout.screenWidth, alignment: .center)
+                .offset(y: Chrome.boardY(390))
 
             // 02 rule 05 · low battery does not block pairing; it gets one amber line here.
             if let lowBattery {
                 Text(lowBattery)
                     .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.ember1)
-                    .frame(width: 390, alignment: .center)
-                    .offset(y: 414 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                    .frame(width: NB.Layout.screenWidth, alignment: .center)
+                    .offset(y: Chrome.boardY(414))
             }
 
             // No header, no back key, one button — pairing to profile is a straight line.
             LimePillButton(title: "Now let me get to know you", action: onNext)
-                .offset(x: 16, y: 700 - Chrome.statusBarBlock + Chrome.gateTopInset)
+                .offset(x: 16, y: Chrome.boardY(700))
 
         }
-        .frame(width: 390, alignment: .topLeading)
+        .frame(width: NB.Layout.screenWidth, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { withAnimation(.easeOut(duration: 0.9)) { burst = 1 } }
     }

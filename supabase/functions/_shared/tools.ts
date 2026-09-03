@@ -5,6 +5,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
 // return before harvesting it. As a type-only import the class was erased at runtime, `new`
 // threw, generateText caught it, and every turn came back MODEL_UNAVAILABLE.
 import { NumberLedger } from "./ledger.ts";
+import { fetchAs, sourceList, SOURCE_BY_ID, SOURCE_IDS, type Ctx } from "./sources.ts";
 
 /// F4 §03 · eight read tools. All read-only, all through the caller's JWT.
 /// Return values are three-state, never two: ok+data, ok+null, and not-ok.
@@ -14,7 +15,9 @@ type Ok<T> = { ok: true; data: T | null };
 type Err = { ok: false };
 type Res<T> = Ok<T> | Err;
 
-export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLedger) {
+export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLedger,
+                           cal: { dayKey: string; tz: string } = { dayKey: new Date().toISOString().slice(0, 10), tz: "UTC" }) {
+  const ctx: Ctx = { db, userId, dayKey: cal.dayKey, tz: cal.tz };
   // F7 rule 11 · 「账本容量硬上限 N ≤ 60，服务端实时计数，超配按固定顺序降级并带 trimmed:true」.
   // The series goes first, halved from the old end until the return fits; the model is told.
   const CAP = 60;
@@ -249,6 +252,30 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
           .order("ts", { ascending: false }).limit(n);
         if (error) return { ok: false } as Err;
         return record("measurement.latest", { ok: true, data: { samples: data ?? [] } });
+      },
+    }),
+
+    // 07 · the ninth read. The same catalogue the chart tools draw from, returned as the
+    // numbers a sentence may use: aggregates and a short tail of points. The chart itself
+    // is drawn by screen.render.<type> naming the same source — the series never has to
+    // be copied through the model.
+    "series.get": tool({
+      description: "按数据源读一组数：agg 里的 latest/mean/min/max/count 用来写字，points 是最后几个点。要画图时把同一个 source 交给 screen.render.*。数据源：\n" + sourceList(),
+      parameters: z.object({ source: z.enum(SOURCE_IDS) }),
+      execute: async ({ source }) => {
+        const src = SOURCE_BY_ID.get(source);
+        if (!src) return { ok: false } as Err;
+        const r = await fetchAs(source, src.kind, ctx);
+        if (!r) return record("series.get", { ok: true, data: null });
+        const d = r.data as Record<string, unknown>;
+        const tail = (xs: unknown) => (Array.isArray(xs) ? xs.slice(-8) : undefined);
+        return record("series.get", {
+          ok: true,
+          data: {
+            agg: r.agg, hero: r.hero ?? null, unit: r.unit ?? null, window: r.window,
+            points: tail(d.series) ?? tail(d.bins) ?? tail(d.parts) ?? tail(d.rows) ?? tail(d.minutes) ?? null,
+          },
+        });
       },
     }),
 

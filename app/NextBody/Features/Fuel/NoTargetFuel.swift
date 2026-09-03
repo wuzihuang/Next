@@ -16,15 +16,11 @@ struct NoTargetFuel: View {
     private let sub = Color(hex: 0x8A8A93)
 
     var body: some View {
-        DetailScroll(glow: NB.ember1) {
+        // Same header as the page with a target, so the two never feel like two apps.
+        DetailScroll(glow: NB.ember1, title: "FUEL", trailing: {
+            Text("\(Fmt.dash) TARGET").font(NBFont.dot(700, 12)).tracking(0.04 * 12).foregroundStyle(NB.emberPale)
+        }) {
             VStack(alignment: .leading, spacing: 22) {
-                // Same header as the page with a target, so the two never feel like two apps.
-                HStack(alignment: .firstTextBaseline) {
-                    Text("FUEL").font(NBFont.brand(700, 28)).tracking(-0.02 * 28).foregroundStyle(NB.text1)
-                    Spacer(minLength: 0)
-                    Text("\(Fmt.dash) TARGET").font(NBFont.dot(700, 12)).tracking(0.04 * 12).foregroundStyle(NB.emberPale)
-                }
-
                 // NO TARGET · the one action
                 VStack(alignment: .leading, spacing: 16) {
                     Text("NO TARGET").font(NBFont.dot(700, 11)).tracking(0.24 * 11).foregroundStyle(NB.ember1)

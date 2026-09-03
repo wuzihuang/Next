@@ -1,0 +1,559 @@
+import SwiftUI
+
+/// 04B · PAGE TWO · 往右一滑是仪表，不是判断. Eight of the strip's own 174 × 136 cards, two
+/// columns by four rows, one colour each: SLEEP · HEART / HRV · STRESS / TEMP · STEPS /
+/// DISTANCE · ACTIVE. No dock, no buttons, no adjectives — and not one read of the band:
+/// every number here is a tick Body Battery already pulled (04B rule 09).
+struct VitalsPage: View {
+    let m: DailyMetrics
+    /// The last seven nights, for the HRV bars.
+    let history: [DailyMetrics]
+    let vitals: LiveVitals
+    /// 04B F1 · false until the first sync has ever landed. Before that, the cards that read
+    /// the library say 「还没同步」 instead of printing an empty baseline.
+    var syncedOnce: Bool = true
+    var width: CGFloat = NB.Layout.contentWidth
+    /// 04B rule 08 · the two hot zones. SLEEP and HRV are the same night's two numbers.
+    let onSleep: () -> Void
+    let onHRV: () -> Void
+
+    private var freshness: TickFreshness { vitals.freshness }
+    /// 04B rule 05 · one source for "now": the last tick. 90 minutes on it dims to 45 %,
+    /// six hours turns the number itself into ——.
+    private var dim: Double { freshness == .stale ? 0.45 : 1 }
+    private var gone: Bool { freshness == .gone }
+    private var day: UserDay { m.day }
+    private var ticks: [VitalSample] { m.vitalsCurve }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: NB.Layout.cardGap) {
+                HStack(spacing: NB.Layout.cardGap) {
+                    Button(action: onSleep) { sleepCard }.buttonStyle(InstrumentTap())
+                    heartCard
+                }
+                HStack(spacing: NB.Layout.cardGap) {
+                    Button(action: onHRV) { hrvCard }.buttonStyle(InstrumentTap())
+                    stressCard
+                }
+                HStack(spacing: NB.Layout.cardGap) { tempCard; stepsCard }
+                HStack(spacing: NB.Layout.cardGap) { distanceCard; activeCard }
+            }
+            Spacer(minLength: 12)
+            // 04B · LAST TICK 22:29 · 12 MIN AGO · 1H 05M OFF WRIST — and the page dots,
+            // both pushed to the foot of the page, just over the home indicator.
+            Text(footLine)
+                .font(NBFont.dot(500, 9.5)).tracking(0.12 * 9.5)
+                .lineLimit(1).minimumScaleFactor(0.85)
+                .foregroundStyle(NB.white.opacity(0.38))
+                .frame(width: width)
+            PageDots(current: 1)
+                .padding(.top, 12)
+        }
+        .frame(width: width)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Vitals, page two")
+    }
+
+    // MARK: cards
+
+    private var sleepCard: some View {
+        InstrumentCard(label: "SLEEP", tag: "LAST NIGHT", tint: NB.violet1,
+                       value: m.sleep.map { Fmt.duration($0.totalMinutes) }, unit: nil,
+                       foot: m.sleep.map { "DEEP \(Fmt.duration($0.deepMinutes)) · \($0.wakeCount) WAKES" } ?? "NO NIGHT YET") {
+            if let s = m.sleep { SleepStrip(sleep: s, tint: NB.violet1) }
+        }
+    }
+
+    private var heartCard: some View {
+        let peak = m.peakHR ?? ticks.compactMap(\.hr).max()
+        let resting = m.nightInputs?.rhr.map { Int($0.rounded()) }
+        // 04B F5 · DAY ONE. No tick has ever landed: the number is ——, the curve is not
+        // drawn, and the card says so in words — an empty page, not a zeroed one.
+        let dayOne = vitals.at == nil && ticks.isEmpty
+        return InstrumentCard(label: "HEART", tag: "NOW", tint: NB.lime1,
+                              value: gone ? nil : vitals.hr.map(String.init), unit: "BPM",
+                              foot: "RESTING \(Fmt.int(resting)) · PEAK \(Fmt.int(peak))",
+                              dim: dim,
+                              // 04B F3 · GONE keeps the unit, greyed with the dash — the
+                              // number is missing, the instrument is not.
+                              unitWhenEmpty: gone && !dayOne,
+                              status: dayOne ? ("NO TICKS YET", "FIRST SYNC DRAWS IT") : nil) {
+            DaySpark(samples: ticks, day: day, value: { $0.hr.map(Double.init) }, low: 40, high: 160, tint: NB.lime1)
+        }
+    }
+
+    private var hrvCard: some View {
+        let n = m.nightInputs
+        let nights = history.suffix(7).map { $0.nightInputs?.hrv }
+        let base = n?.hrvBase
+        // 04B F1 · NOT SYNCED. On iOS readHRVData answers [] until the first
+        // startReadOriginData run has landed — the card holds its frame and says 「还没同步」.
+        // ⚠️ Never retried from here: an empty library re-read is empty again, at the
+        // band's battery.
+        let notSynced = !syncedOnce && n == nil
+        return InstrumentCard(label: "HRV", tag: "LAST NIGHT", tint: NB.blue1,
+                              value: n?.hrv.map { String(Int($0.rounded())) }, unit: "MS",
+                              foot: "BASE \(base.map { String(Int($0.rounded())) } ?? Fmt.dash) · \(n?.rhrNights ?? 0)/14 NIGHTS",
+                              status: notSynced ? ("NOT SYNCED YET", "SYNC RUNS ON OPEN") : nil) {
+            NightBars(values: nights, base: base, tint: NB.blue1)
+        }
+    }
+
+    private var stressCard: some View {
+        let bins = VitalsMath.halfHourMean(ticks, day: day, value: { $0.stress.map(Double.init) })
+        let peak = VitalsMath.peak(bins)
+        return InstrumentCard(label: "STRESS", tag: "TODAY", tint: NB.ember1,
+                              value: gone ? nil : vitals.stress.map(String.init), unit: "/100 NOW",
+                              foot: peak.map { "PEAK \(Int($0.value.rounded())) AT \(VitalsMath.clock(day: day, minute: $0.index * 30))" } ?? "NO TICKS YET",
+                              dim: dim, unitWhenEmpty: gone) {
+            FineBars(values: bins, tint: NB.ember1, highlight: { $0 > 60 })
+        }
+    }
+
+    private var tempCard: some View {
+        let temps = ticks.compactMap(\.temp)
+        let last = gone ? nil : ticks.last(where: { $0.temp != nil })?.temp
+        return InstrumentCard(label: "TEMP", tag: "NOW", tint: NB.cyan1,
+                              value: last.map { String(format: "%.1f", $0) }, unit: "°C SKIN",
+                              foot: temps.isEmpty ? "NO TICKS YET"
+                                  : String(format: "LOW %.1f · HIGH %.1f", temps.min()!, temps.max()!),
+                              dim: dim, unitWhenEmpty: gone) {
+            DaySpark(samples: ticks, day: day, value: \.temp, low: 35.5, high: 37.0, tint: NB.cyan1)
+        }
+    }
+
+    private var stepsCard: some View {
+        let bins = VitalsMath.hourSum(ticks, day: day, value: { $0.steps.map(Double.init) })
+        let total = m.steps.map(Double.init) ?? VitalsMath.total(bins)
+        let peak = VitalsMath.peak(bins)
+        return InstrumentCard(label: "STEPS", tag: "TODAY", tint: NB.optimal2,
+                              value: total.map { Fmt.kcal($0) }, unit: nil,
+                              foot: peak.map { "PEAK \(Fmt.kcal($0.value)) AT \(VitalsMath.clock(day: day, minute: $0.index * 60))" } ?? "NO TICKS YET") {
+            HourBars(values: bins, tint: NB.optimal2)
+        }
+    }
+
+    private var distanceCard: some View {
+        let bins = VitalsMath.hourSum(ticks, day: day, value: \.dis)
+        let metres = m.distanceM.map(Double.init) ?? VitalsMath.total(bins)
+        let peak = VitalsMath.peak(bins)
+        return InstrumentCard(label: "DISTANCE", tag: "TODAY", tint: NB.violetPink,
+                              value: metres.map { String(format: "%.1f", $0 / 1000) }, unit: "KM",
+                              foot: peak.map { String(format: "%.1f KM AT %@", $0.value / 1000, VitalsMath.clock(day: day, minute: $0.index * 60)) } ?? "NO TICKS YET") {
+            HourBars(values: bins, tint: NB.violetPink)
+        }
+    }
+
+    private var activeCard: some View {
+        let bins = VitalsMath.hourSum(ticks, day: day, value: \.cal)
+        let kcal = m.eActive ?? VitalsMath.total(bins)
+        let peak = VitalsMath.peak(bins)
+        return InstrumentCard(label: "ACTIVE", tag: "TODAY", tint: NB.run1,
+                              value: kcal.map { Fmt.kcal($0) }, unit: "KCAL",
+                              foot: peak.map { "PEAK \(VitalsMath.clock(day: day, minute: $0.index * 60)) · \(Fmt.kcal($0.value)) KCAL" } ?? "NO TICKS YET") {
+            HourBars(values: bins, tint: NB.run1)
+        }
+    }
+
+    // MARK: foot
+
+    private var footLine: String {
+        guard let at = vitals.at else { return "NO TICKS YET · FIRST SYNC DRAWS THE LINE" }
+        let age = VitalsMath.age(of: at)
+        var line = freshness == .stale ? "SYNCED \(Fmt.clock(at)) · \(age)"
+                                       : "LAST TICK \(Fmt.clock(at)) · \(age)"
+        // 04B rule 04 · gaps of an hour or more are named once, here, never on a card.
+        if let gap = VitalsMath.offWrist(ticks), gap.minutes >= 60 {
+            line += " · \(Fmt.duration(gap.minutes)) OFF WRIST"
+        }
+        return line
+    }
+
+    /// 04B 上线前 · PAGE2_CARD_STATE{CARD,STATE}. What each of the eight cards is showing at
+    /// this instant — a live number (FRESH), a dimmed one (STALE), a dash where a number was
+    /// (GONE), or nothing ever (EMPTY) — so 「滑过来看到的是数还是 ——」 is answerable from
+    /// the logs instead of from guesses.
+    static func cardStates(m: DailyMetrics, vitals: LiveVitals) -> [String: String] {
+        func nowCard(_ value: Bool) -> String {
+            guard vitals.at != nil else { return "EMPTY" }
+            switch vitals.freshness {
+            case .gone: return "GONE"
+            case .stale: return value ? "STALE" : "EMPTY"
+            case .fresh: return value ? "FRESH" : "EMPTY"
+            }
+        }
+        let day = m.day, ticks = m.vitalsCurve
+        let steps = m.steps.map(Double.init) ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: { $0.steps.map(Double.init) }))
+        let metres = m.distanceM.map(Double.init) ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: \.dis))
+        let kcal = m.eActive ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: \.cal))
+        return [
+            "SLEEP": m.sleep == nil ? "EMPTY" : "FRESH",
+            "HEART": nowCard(vitals.hr != nil),
+            "HRV": m.nightInputs?.hrv == nil ? "EMPTY" : "FRESH",
+            "STRESS": nowCard(vitals.stress != nil),
+            "TEMP": nowCard(ticks.contains { $0.temp != nil }),
+            "STEPS": steps == nil ? "EMPTY" : "FRESH",
+            "DISTANCE": metres == nil ? "EMPTY" : "FRESH",
+            "ACTIVE": kcal == nil ? "EMPTY" : "FRESH",
+        ]
+    }
+}
+
+/// 04B rule 03 · a card is a label, a tag, a number, a chart and a foot. Only the tag, the
+/// number and the chart take the card's colour; the rest stays the strip's own white-grey.
+struct InstrumentCard<Chart: View>: View {
+    let label: String
+    let tag: String
+    let tint: Color
+    let value: String?
+    let unit: String?
+    let foot: String
+    var dim: Double = 1
+    /// 04B F3 · GONE: the number is —— but the unit stays, greyed with it. F1/F5 (never had
+    /// data) hide the unit — there is nothing for it to measure yet.
+    var unitWhenEmpty = false
+    /// 04B F1 / F5 · the two-line state foot. When set it replaces the chart and the foot:
+    /// the first line names the state, the second says what happens next.
+    var status: (line: String, sub: String)? = nil
+    @ViewBuilder let chart: () -> Chart
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    Text(label)
+                        .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
+                        .foregroundStyle(NB.text3Prod)
+                    Spacer(minLength: 0)
+                    Text(tag)
+                        .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
+                        .foregroundStyle(value == nil ? NB.text3Prod : tint)
+                        .opacity(dim)
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    // F2 rule 05 · a number that is not there is ——, never 0.
+                    Text(value ?? Fmt.dash)
+                        .font(NBFont.dot(700, 26)).tracking(-0.02 * 26)
+                        .foregroundStyle(value == nil ? NB.text3Prod : tint)
+                        .opacity(dim)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    if let unit, value != nil || unitWhenEmpty {
+                        Text(unit)
+                            .font(NBFont.dot(500, 11))
+                            .foregroundStyle(value == nil ? NB.text3Prod : NB.macroValue)
+                            .opacity(dim)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            if let status {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(status.line)
+                        .font(NBFont.dot(600, 10)).tracking(0.14 * 10)
+                        .foregroundStyle(NB.white.opacity(0.55))
+                    Text(status.sub)
+                        .font(NBFont.dot(500, 10)).tracking(0.05 * 10)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                        .foregroundStyle(NB.macroValue)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    chart()
+                        .frame(height: 28)
+                        .opacity(dim)
+                    Text(foot)
+                        .font(NBFont.dot(500, 10)).tracking(0.05 * 10)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                        .foregroundStyle(NB.macroValue)
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: NB.Layout.cardWidth, height: NB.Layout.stripHeight, alignment: .topLeading)
+        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.hairline, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label), \(tag)")
+        .accessibilityValue(status.map { "\($0.line), \($0.sub)" }
+            ?? value.map { "\($0) \(unit ?? ""), \(foot)" } ?? "no data, \(foot)")
+    }
+}
+
+/// The two hot zones press like the strip's cards; the other six have no press state at
+/// all — 「做一个按压态等于承诺一个不存在的页面」.
+private struct InstrumentTap: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// 04 · 04B · the two 4 pt page dots. The current page is the bright one.
+struct PageDots: View {
+    let current: Int
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<2, id: \.self) { i in
+                Circle()
+                    .fill(NB.white.opacity(i == current ? 0.72 : 0.24))
+                    .frame(width: 4, height: 4)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: charts · 148 × 28 in the board, whatever the card's inner width is on device.
+
+/// A day of one tick series, 04:00 → 04:00 across the width, y on a fixed scale — the ruler
+/// never changes with the day (04B rule 04). A gap in the ticks is a dashed gap in the line,
+/// never a straight segment across it; the last tick carries a dot.
+struct DaySpark: View {
+    let samples: [VitalSample]
+    let day: UserDay
+    let value: (VitalSample) -> Double?
+    let low: Double
+    let high: Double
+    let tint: Color
+
+    var body: some View {
+        Canvas { ctx, size in
+            let span = max(0.001, high - low)
+            func point(_ s: VitalSample, _ v: Double) -> CGPoint {
+                let t = min(1, max(0, s.ts.timeIntervalSince(day.start) / 86_400))
+                let clamped = min(high, max(low, v))
+                let y = size.height - 2 - (clamped - low) / span * (size.height - 4)
+                return CGPoint(x: size.width * t, y: y)
+            }
+            var runs: [[CGPoint]] = []
+            var run: [CGPoint] = []
+            var lastTs: Date?
+            for s in samples {
+                guard let v = value(s) else { continue }
+                // Two ticks more than ten minutes apart were not neighbours on the wrist.
+                if let lastTs, s.ts.timeIntervalSince(lastTs) > 10 * 60, !run.isEmpty {
+                    runs.append(run); run = []
+                }
+                run.append(point(s, v))
+                lastTs = s.ts
+            }
+            if !run.isEmpty { runs.append(run) }
+            guard !runs.isEmpty else { return }
+            for (i, r) in runs.enumerated() {
+                var p = Path()
+                p.move(to: r[0])
+                for pt in r.dropFirst() { p.addLine(to: pt) }
+                if r.count == 1 { p.addLine(to: r[0]) }
+                ctx.stroke(p, with: .color(tint.opacity(0.85)),
+                           style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                if i + 1 < runs.count {
+                    var gap = Path()
+                    gap.move(to: r[r.count - 1]); gap.addLine(to: runs[i + 1][0])
+                    ctx.stroke(gap, with: .color(tint.opacity(0.35)),
+                               style: StrokeStyle(lineWidth: 1.2, dash: [2, 2.5]))
+                }
+            }
+            if let end = runs.last?.last {
+                ctx.fill(Path(ellipseIn: CGRect(x: end.x - 2.5, y: end.y - 2.5, width: 5, height: 5)),
+                         with: .color(tint))
+            }
+        }
+    }
+}
+
+/// 24 bars of an hour each across the day. The tallest hour is the bright one; a bin with no
+/// ticks is left empty, never drawn as 0.
+struct HourBars: View {
+    let values: [Double?]
+    let tint: Color
+
+    var body: some View {
+        Canvas { ctx, size in
+            let n = max(1, values.count)
+            let gap: CGFloat = 2
+            let w = (size.width - gap * CGFloat(n - 1)) / CGFloat(n)
+            let top = values.compactMap { $0 }.max() ?? 0
+            guard top > 0 else { return }
+            for (i, v) in values.enumerated() {
+                guard let v, v > 0 else { continue }
+                let h = max(0.8, size.height * v / top)
+                let rect = CGRect(x: CGFloat(i) * (w + gap), y: size.height - h, width: w, height: h)
+                ctx.fill(Path(rect), with: .color(tint.opacity(v >= top ? 1 : 0.4)))
+            }
+        }
+    }
+}
+
+/// 48 half-hour bars, 2 wide. 04B · the bars over 60 are the same colour, only brighter —
+/// intensity is not a semantic colour.
+struct FineBars: View {
+    let values: [Double?]
+    let tint: Color
+    let highlight: (Double) -> Bool
+
+    var body: some View {
+        Canvas { ctx, size in
+            let n = max(1, values.count)
+            let gap: CGFloat = 1
+            let w = (size.width - gap * CGFloat(n - 1)) / CGFloat(n)
+            for (i, v) in values.enumerated() {
+                guard let v else { continue }
+                let h = max(0.8, size.height * min(1, v / 100))
+                let rect = CGRect(x: CGFloat(i) * (w + gap), y: size.height - h, width: w, height: h)
+                ctx.fill(Path(rect), with: .color(tint.opacity(highlight(v) ? 1 : 0.4)))
+            }
+        }
+    }
+}
+
+/// Seven nights, tonight brightest, a dashed line at the 14-night base. A night we do not
+/// have is a missing bar; under five nights there is no base and no line (04B rule 06).
+struct NightBars: View {
+    let values: [Double?]
+    let base: Double?
+    let tint: Color
+
+    var body: some View {
+        Canvas { ctx, size in
+            let present = values.compactMap { $0 }
+            guard !present.isEmpty else { return }
+            let lo = min(present.min()!, base ?? .infinity) - 8
+            let hi = max(present.max()!, base ?? -.infinity) + 4
+            let span = max(1, hi - lo)
+            let w: CGFloat = 8, gap: CGFloat = 6
+            let n = values.count
+            func y(_ v: Double) -> CGFloat { size.height - CGFloat((v - lo) / span) * size.height }
+            if let base {
+                var line = Path()
+                line.move(to: CGPoint(x: 0, y: y(base)))
+                line.addLine(to: CGPoint(x: CGFloat(n) * (w + gap) - gap, y: y(base)))
+                ctx.stroke(line, with: .color(NB.white.opacity(0.28)), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            }
+            for (i, v) in values.enumerated() {
+                guard let v else { continue }
+                let top = y(v)
+                let rect = CGRect(x: CGFloat(i) * (w + gap), y: top, width: w, height: size.height - top)
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(tint.opacity(i == n - 1 ? 1 : 0.35)))
+            }
+        }
+    }
+}
+
+/// 04B rule 04 · the night as the band's own sleepLine: deep full height, light half, awake
+/// a short mark, in the order the night ran — the app never re-segments it. Only a night
+/// stored without a line falls back to the totals laid out in the order nights usually run.
+struct SleepStrip: View {
+    let sleep: SleepSummary
+    let tint: Color
+
+    var body: some View {
+        Canvas { ctx, size in
+            if !sleep.line.isEmpty {
+                let total = max(1, sleep.line.reduce(0) { $0 + $1.minutes })
+                var x: CGFloat = 0
+                for run in sleep.line {
+                    let w = size.width * CGFloat(run.minutes) / CGFloat(total)
+                    // SDK stages: 0 deep, 1 light, 2 REM, 3 insomnia, 4 awake.
+                    let (h, a): (CGFloat, Double) = switch run.stage {
+                    case 0: (size.height, 0.95)
+                    case 1, 2: (size.height * 16 / 28, 0.45)
+                    default: (size.height * 7 / 28, 0.3)
+                    }
+                    let rect = CGRect(x: x, y: size.height - h, width: max(w, 0.8), height: h)
+                    ctx.fill(Path(rect), with: .color(tint.opacity(a)))
+                    x += w
+                }
+                return
+            }
+            // Fallback for nights stored before the line was kept: the night's proportions
+            // laid out in the order nights usually run — deep early, light late.
+            let total = Double(max(1, sleep.totalMinutes))
+            let deep = Double(sleep.deepMinutes) / total
+            let light = Double(sleep.lightMinutes) / total
+            let wakes = max(0, min(sleep.wakeCount, 4))
+            var segs: [(share: Double, h: CGFloat, alpha: Double)] = [
+                (light * 0.2, 16, 0.45), (deep * 0.55, 28, 0.95), (light * 0.3, 16, 0.45),
+                (deep * 0.45, 28, 0.95), (light * 0.5, 16, 0.45),
+            ]
+            let wakeShare = 0.018
+            for k in 0..<wakes { segs.insert((wakeShare, 7, 0.3), at: min(segs.count, 2 + k * 2)) }
+            let sum = segs.reduce(0) { $0 + $1.share }
+            var x: CGFloat = 0
+            for s in segs {
+                let w = size.width * CGFloat(s.share / sum)
+                let rect = CGRect(x: x, y: size.height - s.h, width: w, height: s.h)
+                ctx.fill(Path(rect), with: .color(tint.opacity(s.alpha)))
+                x += w
+            }
+        }
+    }
+}
+
+/// The arithmetic behind the eight cards. Nothing here asks the band or the server.
+enum VitalsMath {
+    /// Sum of a per-tick value in each hour of the user day; hours with no ticks are nil.
+    static func hourSum(_ samples: [VitalSample], day: UserDay, value: (VitalSample) -> Double?) -> [Double?] {
+        var bins = [Double?](repeating: nil, count: 24)
+        for s in samples {
+            guard let v = value(s) else { continue }
+            let i = Int(s.ts.timeIntervalSince(day.start) / 3600)
+            guard (0..<24).contains(i) else { continue }
+            bins[i] = (bins[i] ?? 0) + v
+        }
+        return bins
+    }
+
+    /// Mean of a per-tick value in each half hour; half hours with no ticks are nil.
+    static func halfHourMean(_ samples: [VitalSample], day: UserDay, value: (VitalSample) -> Double?) -> [Double?] {
+        var sum = [Double](repeating: 0, count: 48), n = [Int](repeating: 0, count: 48)
+        for s in samples {
+            guard let v = value(s) else { continue }
+            let i = Int(s.ts.timeIntervalSince(day.start) / 1800)
+            guard (0..<48).contains(i) else { continue }
+            sum[i] += v; n[i] += 1
+        }
+        return (0..<48).map { n[$0] == 0 ? nil : sum[$0] / Double(n[$0]) }
+    }
+
+    static func peak(_ bins: [Double?]) -> (index: Int, value: Double)? {
+        var best: (Int, Double)?
+        for (i, v) in bins.enumerated() { if let v, v > 0, best == nil || v > best!.1 { best = (i, v) } }
+        return best.map { (index: $0.0, value: $0.1) }
+    }
+
+    static func total(_ bins: [Double?]) -> Double? {
+        let present = bins.compactMap { $0 }
+        return present.isEmpty ? nil : present.reduce(0, +)
+    }
+
+    /// "18:00" for a bin that starts `minute` minutes into the user day.
+    static func clock(day: UserDay, minute: Int) -> String {
+        Fmt.clock(day.start.addingTimeInterval(TimeInterval(minute * 60)))
+    }
+
+    /// "12 MIN AGO" under an hour, "2H 29M AGO" over it. Multiples of one minute, no seconds.
+    static func age(of at: Date, now: Date = Date()) -> String {
+        let minutes = max(0, Int(now.timeIntervalSince(at) / 60))
+        return minutes < 60 ? "\(minutes) MIN AGO" : "\(Fmt.duration(minutes - minutes % 5)) AGO"
+    }
+
+    /// 04B rule 04 · the minutes the band recorded nothing between two ticks that both
+    /// exist. Two ticks ten minutes apart are neighbours; anything wider is a gap.
+    static func offWrist(_ samples: [VitalSample]) -> (minutes: Int, from: Date)? {
+        var minutes = 0
+        var first: Date?
+        var last: Date?
+        for s in samples where s.hr != nil || s.stress != nil {
+            if let last, s.ts.timeIntervalSince(last) > 10 * 60 {
+                minutes += Int(s.ts.timeIntervalSince(last) / 60) - 5
+                if first == nil { first = last }
+            }
+            last = s.ts
+        }
+        guard minutes > 0, let first else { return nil }
+        return (minutes, first)
+    }
+}

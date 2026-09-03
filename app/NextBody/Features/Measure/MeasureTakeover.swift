@@ -33,10 +33,14 @@ struct MeasureTakeover: View {
     @State private var grown = false
     @State private var reading: PartialReading?
     @State private var failure: String?
+    /// True once the stream has carried the band's own seconds; the phone's clock then
+    /// stops counting, so the number on screen is the scan's and never runs ahead of it.
+    @State private var bandClock = false
+    /// When `remaining` last moved — the body figure hops from this instant.
+    @State private var beatAt = Date()
 
     private var isBodyScan: Bool { kind == .bodyComposition }
     private var total: Int { isBodyScan ? 30 : 60 }
-    private var title: String { isBodyScan ? "BODY SCAN" : "BATTERY CHECK" }
 
     private let secondHand = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -44,53 +48,128 @@ struct MeasureTakeover: View {
         ZStack {
             NB.panelInk.ignoresSafeArea()
 
+            // 06 · the takeover is the same screen as 03's Scanning, in the same order:
+            // eyebrow, left-aligned title and its sentence, the figure, the Doto label, the
+            // count. Two screens that do the same measurement have no business looking like
+            // two products.
             VStack(spacing: 0) {
+                Color.clear.frame(height: Chrome.gateTopInset)
                 header
-                Spacer(minLength: 0)
-                headline
+                title
+                    .padding(.top, 24)
                 stage
+                    .frame(height: 280)
+                    .padding(.top, 24)
+                Text(statusLine)
+                    .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+                    .foregroundStyle(statusTint)
+                    .padding(.top, 28)
+                count
+                    .padding(.top, 12)
+                settled
                 Spacer(minLength: 0)
-                footer
+                // Grey, in front — what to do if it breaks, said before it breaks.
+                Text(helpLine)
+                    .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(NB.white.opacity(0.45))
+                    .frame(width: 320)
+                Color.clear.frame(height: 20)
             }
-            .padding(.vertical, 24)
+            .animation(.easeInOut(duration: 0.24), value: phase)
             .opacity(grown ? 1 : 0)
         }
         .scaleEffect(grown ? 1 : 0.92)
         .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : NB.R.hero, style: .continuous))
         .onAppear { open() }
         .onReceive(secondHand) { _ in tick() }
+        .onChange(of: remaining) { beatAt = Date() }
         .statusBarHidden(false)
     }
 
+    /// 03's header, mirrored: its counter sits right, so the eyebrow does. The close mark
+    /// keeps the left slot 03 gives the back key — it is still the only way out.
     private var header: some View {
         HStack {
-            Text(title)
-                .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
-                .foregroundStyle(NB.white.opacity(0.55))
-            Spacer(minLength: 0)
-            // The only exit. There is no back key here, and that is the point.
             Button(action: leave) { CloseMark() }
                 .buttonStyle(.plain)
+                .frame(width: 44, height: 44)
                 .opacity(phase == .opening ? 0 : 1)
+            Spacer(minLength: 0)
+            Text(eyebrow)
+                .font(NBFont.dot(600, 11)).tracking(0.3 * 11)
+                .foregroundStyle(NB.text3Prod)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, Chrome.statusBarBlock - 24)
+        .frame(width: NB.Layout.contentWidth, height: 44)
     }
 
-    private var headline: some View {
-        Text(headlineText)
-            .font(NBFont.brand(500, 22))
-            .foregroundStyle(NB.text1)
-            .frame(maxWidth: .infinity)
-            .contentTransition(.opacity)
-            .animation(.easeInOut(duration: 0.28), value: phase)
+    private var title: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(headlineText)
+                .font(NBFont.ui(500, 32)).tracking(0.01 * 32)
+                .foregroundStyle(NB.text1)
+                .contentTransition(.opacity)
+            Text(subText)
+                .font(NBFont.ui(300, 15)).tracking(0.02 * 15)
+                .lineSpacing(24 - 15)
+                .foregroundStyle(NB.text2)
+                .frame(width: 320, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 24)
     }
+
+    /// 03's counter, to the digit: lime while it runs, amber and small while a finger is off,
+    /// and it holds where it was rather than falling to zero.
+    @ViewBuilder private var count: some View {
+        switch phase {
+        case .opening, .waiting, .nudge, .contact, .failed, .busy, .dropped, .noReading, .notWearing:
+            Color.clear.frame(height: 26)
+        case .lost:
+            Text(String(format: "HOLDING · 00:%02d", max(0, remaining)))
+                .font(NBFont.dot(600, 12)).tracking(0.2 * 12)
+                .foregroundStyle(NB.ember1)
+                .frame(height: 26)
+        default:
+            Text(String(format: "00:%02d", max(0, remaining)))
+                .font(NBFont.dot(700, 26)).tracking(0.14 * 26)
+                .foregroundStyle(NB.lime1)
+                .frame(height: 26)
+                .contentTransition(.numericText(countsDown: true))
+        }
+    }
+
+    /// The one thing 03 has no room for: the number the band has already settled. It lands in
+    /// the empty half of the screen, so nothing above it moves when it arrives.
+    @ViewBuilder private var settled: some View {
+        if phase == .halfway || phase == .lost, reading != nil {
+            VStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(firstNumber)
+                        .font(NBFont.brand(700, 34)).tracking(-0.045 * 34)
+                        .foregroundStyle(phase == .lost ? NB.white.opacity(0.32) : NB.text1)
+                    Text(isBodyScan ? "%" : "BPM")
+                        .font(NBFont.dot(500, 12))
+                        .foregroundStyle(NB.white.opacity(phase == .lost ? 0.20 : 0.42))
+                }
+                Text(isBodyScan ? "BODY FAT · SETTLED" : "HEART RATE · SETTLED")
+                    .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
+                    .foregroundStyle(NB.white.opacity(phase == .lost ? 0.20 : 0.34))
+            }
+            .padding(.top, 34)
+            .transition(.opacity)
+        }
+    }
+
+    /// The eyebrow: what is being measured and how long it takes, in 03's own words.
+    private var eyebrow: String { isBodyScan ? "BODY SCAN · 30S" : "BATTERY CHECK · 60S" }
 
     private var headlineText: String {
         switch phase {
-        case .opening:   ""
-        case .waiting:   isBodyScan ? "Two fingers on the side key." : "Index finger on the side key."
-        case .nudge:     "Still nothing on the key."
+        // Opening borrows waiting's words: a sentence under an empty line reads as a screen
+        // that failed to draw, and this phase is 460 ms of exactly that.
+        case .opening, .waiting: "Finger on the key."
+        case .nudge:     "Still nothing there."
         case .contact:   "Got it. Hold still."
         case .counting:  isBodyScan ? "Mapping you." : "Reading you."
         case .halfway:   "Halfway."
@@ -98,62 +177,58 @@ struct MeasureTakeover: View {
         case .computing: "Working it out."
         case .result:    isBodyScan ? "Fourteen fields." : "Done."
         case .failed:    "That didn't take."
-        case .notWearing: "The band isn’t on your wrist."
+        case .notWearing: "The band isn't on your wrist."
         case .busy:       "She's already measuring something."
         case .dropped:    "Lost the band."
         case .noReading:  "Couldn't get a clean read."
         }
     }
 
+    /// 03's sentence: what the current is doing, said once, and it does not move with the phase.
+    private var subText: String {
+        isBodyScan ? "A tiny current maps your body — you won't feel a thing. Keep your finger on the key."
+                   : "Sixty seconds of heartbeats — rate, HRV and stress out of one reading. Keep your finger on the key."
+    }
+
+    /// The figure is 03's figure at 03's size. A body scan has no waveform, so the current
+    /// walks the body; a battery check really does read the heart, so it keeps the trace.
     @ViewBuilder private var stage: some View {
         switch phase {
         case .opening, .waiting:
             ContactTarget(tint: NB.lime1, pulse: true)
-        case .nudge:
+        case .nudge, .notWearing:
             // Amber is the first time this flow uses colour: it means "we need you to move",
             // never "you failed".
             ContactTarget(tint: NB.ember2, pulse: true)
         case .contact:
             ContactGlow()
-        case .counting:
-            CountdownStage(remaining: remaining, total: total)
-        case .halfway:
-            FirstNumberStage(value: isBodyScan ? "24.1" : "62",
-                             unit: isBodyScan ? "%" : "BPM",
-                             caption: isBodyScan ? "BODY FAT  SETTLED" : "HEART RATE  SETTLED",
-                             remaining: remaining, total: total, faded: false)
-        case .lost:
-            FirstNumberStage(value: isBodyScan ? "24.1" : "62",
-                             unit: isBodyScan ? "%" : "BPM",
-                             caption: isBodyScan ? "BODY FAT  SETTLED" : "HEART RATE  SETTLED",
-                             remaining: Int(lostGrace.rounded()), total: total, faded: true)
-        case .computing:
-            FlatlineStage()
-        case .result:
-            CountdownStage(remaining: 0, total: total)
         case .failed, .busy, .dropped, .noReading:
             // Nothing is drawn where the reading would have been: an empty frame in that
             // position would read as a number we could not print.
-            Color.clear.frame(height: 300)
-        case .notWearing:
-            // 06 edge 1 · amber, because this one is the wearer's to fix.
-            ContactTarget(tint: NB.ember2, pulse: true)
+            Color.clear
+        default:
+            if isBodyScan {
+                // 06 edge 2 · a lifted finger freezes the figure where it was and turns it amber.
+                // Computing and the result hold the whole body lit: it has been read, and
+                // draining it at the end would say the reading went away.
+                BodyFill(beat: phase == .computing || phase == .result ? total : total - remaining,
+                         total: total, beatAt: beatAt, held: phase == .lost)
+            } else {
+                // The trace beats at the rate the band is reporting right now; before the
+                // first value it sweeps flat. Computing flattens it: the reading is over.
+                LiveECG(bpm: reading?.heartRate,
+                        tint: phase == .lost ? NB.ember2 : NB.lime1,
+                        amplitude: phase == .computing ? 0 : 1)
+                    .frame(height: 140)
+            }
         }
     }
 
-    private var footer: some View {
-        VStack(spacing: 10) {
-            Text(statusLine)
-                .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
-                .foregroundStyle(statusTint)
-            Text(helpLine)
-                .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(NB.white.opacity(0.45))
-                .frame(width: 300)
-        }
-        .padding(.bottom, 20)
-        .animation(.easeInOut(duration: 0.24), value: phase)
+    /// The number the band has settled so far, and a dash until it has one. ⚠️ Never a
+    /// placeholder: a printed 24.1 that no band produced is a reading the user will believe.
+    private var firstNumber: String {
+        if isBodyScan { return reading?.bodyFatPercent.map { String(format: "%.1f", $0) } ?? Fmt.dash }
+        return reading?.heartRate.map(String.init) ?? Fmt.dash
     }
 
     private var statusLine: String {
@@ -161,9 +236,9 @@ struct MeasureTakeover: View {
         case .opening:   ""
         case .waiting:   "WAITING FOR YOUR FINGER"
         case .nudge:     "NO CONTACT · \(6)S"
-        case .contact:   isBodyScan ? "BOTH CONTACTS · CIRCUIT CLOSED" : "CONTACT · SIGNAL GOOD"
+        case .contact:   isBodyScan ? "CONTACT · CIRCUIT CLOSED" : "CONTACT · SIGNAL GOOD"
         case .counting:  isBodyScan ? "\(fields) / 14 FIELDS" : "MEASURING · KEEP THE FINGER THERE"
-        case .halfway:   isBodyScan ? "SECOND CONTACT · KEEP GOING" : "HRV NEEDS THE FULL MINUTE"
+        case .halfway:   isBodyScan ? "HALFWAY · KEEP THE FINGER THERE" : "HRV NEEDS THE FULL MINUTE"
         case .lost:      "PAUSED · \(Int(lostGrace.rounded()))S TO RESUME"
         case .computing: isBodyScan ? "COMPUTING 14 FIELDS" : "COMPUTING HRV · STRESS"
         case .result:    "SAVED"
@@ -193,7 +268,7 @@ struct MeasureTakeover: View {
         // ⚠️ Body composition has no resume: lifting off restarts the whole 30 seconds.
         case .counting:  isBodyScan ? "Lift a finger and the scan starts over."
                                     : "Lift early and it picks up where it stopped."
-        case .halfway:   isBodyScan ? "Two contacts make one reading."
+        case .halfway:   isBodyScan ? "One steady contact makes one reading."
                                     : "Stress comes out of the same reading."
         // 06 edge 2 · the board's sentence for a lifted finger.
         case .lost:      isBodyScan ? "Your finger came off the key. This one has to start over."
@@ -224,6 +299,8 @@ struct MeasureTakeover: View {
 
     private func open() {
         remaining = total
+        bandClock = false
+        reading = nil
         withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) { grown = true }
         // DEBUG · 06 edges on the mock band, which never fails on its own.
         if let forced: Phase = ["notwearing": .notWearing, "busy": .busy, "dropped": .dropped, "noreading": .noReading][DebugEdge.name ?? ""] {
@@ -243,6 +320,12 @@ struct MeasureTakeover: View {
             }
 
             do {
+                // ⚠️ The plus key can be pressed a second after a launch or a transient drop,
+                // while the link is still coming back. Sending the first command into that gap
+                // threw notConnected and the screen opened on 「Lost the band」 — a measurement
+                // that never failed, reported as a failure. 03 restores the link first; so does this.
+                if Band.live.state != .connected { await Band.live.reconnectIfBound() }
+
                 // F2 §05 · the band's BIA multiplies by the weight we push down, so the
                 // weight goes first and a scan without it is refused rather than stored.
                 if isBodyScan {
@@ -298,12 +381,16 @@ struct MeasureTakeover: View {
             withAnimation(.easeInOut(duration: 0.3)) { phase = .contact }
             lostGrace = 3
 
-        case .measuring(let fraction, let partial):
+        case .measuring(let fraction, let partial, let secondsLeft):
             reading = partial
-            remaining = max(0, total - Int((Double(total) * fraction).rounded()))
+            if let secondsLeft { bandClock = true; remaining = secondsLeft }
+            else { remaining = max(0, total - Int((Double(total) * fraction).rounded())) }
             fields = min(14, Int((14 * fraction).rounded(.down)))
-            // The first real number lands halfway; before that there is nothing to show.
-            let next: Phase = partial == nil ? .counting : .halfway
+            // Halfway is the clock's, not the value's: a heart-rate read reports a rate from
+            // its first callback, and calling that 「Halfway」 at second one was a lie. The body
+            // scan's clock is the band's; the heart-rate read is timed here.
+            let half = isBodyScan ? fraction >= 0.5 : remaining <= total / 2
+            let next: Phase = half ? .halfway : .counting
             if phase != next { withAnimation { phase = next } }
 
         case .lostContact:
@@ -315,6 +402,16 @@ struct MeasureTakeover: View {
             let widget = resultWidget(result)
             store(result)
             router.measuredWidget = widget
+            if isBodyScan {
+                // 06 · 20 / G·03 · the result is the home panel (one hero, four fields,
+                // one sentence), not a takeover page that says "Fourteen fields." The
+                // cover is not the panel, so the fold is a cut: home is already holding
+                // the widget, and a slide-down would be a different motion than the board.
+                var cut = Transaction()
+                cut.disablesAnimations = true
+                withTransaction(cut) { done() }
+                return
+            }
             withAnimation { phase = .computing }
             Task {
                 try? await Task.sleep(for: .milliseconds(1400))
@@ -337,12 +434,13 @@ struct MeasureTakeover: View {
         }
     }
 
-    /// Every countdown runs on the phone's clock. ⚠️ The SDK's own progress is not a timer
-    /// and reading it as one makes the number jump.
+    /// The phone's clock counts only when the band has no clock of its own to report.
+    /// A body scan's seconds come from the SDK's progress (see `bandClock`); a heart-rate
+    /// read gives values and no progress, so its minute is timed here.
     private func tick() {
         switch phase {
         case .counting, .halfway:
-            if remaining > 0 { remaining -= 1 }
+            if !bandClock, remaining > 0 { remaining -= 1 }
         case .lost:
             lostGrace -= 1
             // Three seconds of grace on a battery check; a body scan has no resume at all.
@@ -395,7 +493,54 @@ struct MeasureTakeover: View {
                 action: "TAP FOR ALL 14 FIELDS", data: .none)
             w.hero = String(format: "%.1f%%", r.bodyFatPercent)
             w.targetOverride = .composition(date: nil)
+            w.accentOverride = NB.lime1
+            // 06 · 20 · the line under the hero is the last measured fat percent and its month,
+            // read before this one is stored; the first scan ever says so instead.
+            let prior = data.weighIns.first { $0.bodyFatPercent != nil }
+            let month: (Date) -> String = { d in
+                let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "MMMM"
+                return f.string(from: d).uppercased()
+            }
+            w.composition = CompositionAnswer(
+                heroSub: prior.flatMap { p in p.bodyFatPercent.map { String(format: "BODY FAT · %.1f%% IN %@", $0, month(p.date)) } }
+                         ?? "BODY FAT · FIRST READING",
+                fields: Self.goalFields(r, goal: data.profile.goal))
             return w
+        }
+    }
+
+    /// 06 · 20 · four tiles, picked by the goal, not a fixed set. Colour follows the domain:
+    /// lime for composition, cyan for water and protein, amber for BMR.
+    private static func goalFields(_ r: BodyCompositionReading, goal: Goal) -> [CompositionAnswer.Field] {
+        func n(_ v: Double?) -> String { v.map { String(format: "%.1f", $0) } ?? Fmt.dash }
+        let lime = NB.lime1.opacity(0.68)
+        let cyan = NB.cyan1.opacity(0.78)
+        let ember = NB.ember1.opacity(0.78)
+        let bmr = CompositionAnswer.Field(label: "BMR",
+                                          value: r.bmrKcal.map(String.init) ?? Fmt.dash,
+                                          tint: ember)
+        switch goal {
+        case .cut:
+            return [
+                .init(label: "FAT",    value: n(r.fatMassKg),         tint: lime),
+                .init(label: "MUSCLE", value: n(r.muscleKg),          tint: lime),
+                .init(label: "WATER",  value: n(r.bodyWaterPercent),  tint: cyan),
+                bmr,
+            ]
+        case .bulk:
+            return [
+                .init(label: "MUSCLE",  value: n(r.muscleKg),          tint: lime),
+                .init(label: "LEAN",    value: n(r.leanMassKg),        tint: lime),
+                .init(label: "PROTEIN", value: n(r.proteinPercent),    tint: cyan),
+                bmr,
+            ]
+        case .recomp:
+            return [
+                .init(label: "MUSCLE",  value: n(r.muscleKg),          tint: lime),
+                .init(label: "WATER",   value: n(r.bodyWaterPercent),  tint: cyan),
+                .init(label: "PROTEIN", value: n(r.proteinPercent),    tint: cyan),
+                bmr,
+            ]
         }
     }
 
@@ -405,10 +550,7 @@ struct MeasureTakeover: View {
         let period = 60 / Double(max(hr, 30))
         return (0..<Int(seconds * hz)).map { i in
             let t = Double(i) / hz
-            let ph = t.truncatingRemainder(dividingBy: period) / period
-            func bump(_ c: Double, _ w: Double, _ a: Double) -> Double { a * exp(-pow((ph - c) / w, 2)) }
-            return bump(0.18, 0.05, 0.12) - bump(0.30, 0.012, 0.18) + bump(0.33, 0.015, 1.0)
-                 - bump(0.37, 0.014, 0.28) + bump(0.60, 0.06, 0.22)
+            return LiveECG.Monitor.pqrst(t.truncatingRemainder(dividingBy: period) / period)
         }
     }
 
@@ -425,6 +567,11 @@ struct MeasureTakeover: View {
             data.today.fatKg = r.fatMassKg
             data.today.leanKg = r.leanMassKg
             data.today.fatSource = .measured
+            data.bodyFatPercent = r.bodyFatPercent
+            data.today.scans7d += 1
+            // The row goes up now. The next launch reads body_composition back, and a
+            // scan that only ever lived in memory would be replaced by the seed by then.
+            Task { await Repository.shared.recordBodyComposition(r) }
         }
     }
 }
@@ -494,99 +641,134 @@ private struct ContactGlow: View {
     }
 }
 
-/// The countdown uses the phone's clock, never the SDK's progress callback.
-private struct CountdownStage: View {
-    let remaining: Int
-    let total: Int
-
-    var body: some View {
-        VStack(spacing: 26) {
-            Text(String(format: "00:%02d", max(0, remaining)))
-                .font(NBFont.dot(700, 44)).tracking(0.1 * 44)
-                .foregroundStyle(NB.text1)
-                .contentTransition(.numericText(countsDown: true))
-            LiveECG(tint: NB.lime1)
-                .frame(height: 90)
-        }
-        .frame(height: 300)
-    }
-}
-
-private struct FirstNumberStage: View {
-    let value: String
-    let unit: String
-    let caption: String
-    let remaining: Int
-    let total: Int
-    let faded: Bool
-
-    var body: some View {
-        VStack(spacing: 22) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(value)
-                    .font(NBFont.brand(700, 46)).tracking(-0.045 * 46)
-                    .foregroundStyle(faded ? NB.white.opacity(0.32) : NB.text1)
-                Text(unit)
-                    .font(NBFont.dot(500, 13))
-                    .foregroundStyle(NB.white.opacity(faded ? 0.20 : 0.42))
-            }
-            Text(caption)
-                .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
-                .foregroundStyle(NB.white.opacity(faded ? 0.20 : 0.34))
-            LiveECG(tint: faded ? NB.ember2 : NB.lime1)
-                .frame(height: 80)
-            Text(String(format: "00:%02d", max(0, remaining)))
-                .font(NBFont.dot(700, 30)).tracking(0.1 * 30)
-                .foregroundStyle(faded ? NB.ember2 : NB.text1)
-                .contentTransition(.numericText(countsDown: true))
-        }
-        .frame(height: 300)
-    }
-}
-
-/// No spinner anywhere: the wait is filled by the data the user just produced,
-/// collapsing into a single line.
-private struct FlatlineStage: View {
-    @State private var flat = false
-    var body: some View {
-        VStack {
-            LiveECG(tint: NB.lime1, amplitude: flat ? 0.06 : 1)
-                .frame(height: 90)
-        }
-        .frame(height: 300)
-        .onAppear { withAnimation(.easeInOut(duration: 1.1)) { flat = true } }
-    }
-}
-
-/// A real waveform, drawn as dots — one sweep is never the same as the last,
-/// and that is the whole proof that it is really reading you.
+/// A monitor, not a loop. The trace is written left to right at 200 Hz from a running beat
+/// phase that advances at the band's own rate: `bpm` is the value the SDK reported last, so
+/// when the rate changes, the rhythm on screen changes with it, and until the first value
+/// lands the sweep is flat — a beating wave with nothing being read is a picture of a
+/// measurement that is not happening. The complex is drawn from the number (this band has no
+/// ECG channel on a heart-rate read); the timing is the measurement's.
 struct LiveECG: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The band's latest rate. nil: nothing read yet, flat sweep, no invented beats.
+    var bpm: Int?
     var tint: Color = NB.lime1
     var amplitude: Double = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var monitor = Monitor()
 
     var body: some View {
         TimelineView(.animation) { tl in
-            Canvas { ctx, size in
-                let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
-                let mid = size.height / 2
-                var dots = Path()
-                let n = 200
-                for i in 0..<n {
-                    let x = size.width * CGFloat(i) / CGFloat(n - 1)
-                    let phase = Double(i) / Double(n) * 3.4 - t * 0.85
-                    let beat = phase - phase.rounded(.down)   // wrap to [0,1); a negative phase must not skip the beat
-                    var v: Double = 0
-                    if beat > 0.30 && beat < 0.35 { v = -0.16 }
-                    else if beat > 0.35 && beat < 0.41 { v = 1.0 }
-                    else if beat > 0.41 && beat < 0.47 { v = -0.5 }
-                    else if beat > 0.55 && beat < 0.68 { v = 0.2 }
-                    else { v = sin(phase * 11) * 0.03 }
-                    let y = mid - CGFloat(v * amplitude) * mid * 0.85
-                    dots.addEllipse(in: CGRect(x: x - 1, y: y - 1, width: 2, height: 2))
+            Canvas(rendersAsynchronously: false) { ctx, size in
+                let m = monitor
+                m.advance(to: tl.date, bpm: bpm, amplitude: amplitude, still: reduceMotion)
+                let W = size.width, H = size.height, mid = H / 2, N = m.samples.count
+                let gain = mid * 0.78
+
+                // ECG paper, in the house dot-matrix: a 1 mm grid at 6 % white.
+                var grid = Path()
+                var gy: CGFloat = 4
+                while gy < H {
+                    var gx: CGFloat = 4
+                    while gx < W { grid.addEllipse(in: CGRect(x: gx - 0.6, y: gy - 0.6, width: 1.2, height: 1.2)); gx += 8 }
+                    gy += 8
                 }
-                ctx.fill(dots, with: .color(tint))
+                ctx.fill(grid, with: .color(NB.white.opacity(0.06)))
+
+                // The sweep: every column holds the sample the head wrote there last. The gap
+                // ahead of the head is what a monitor erases before it writes.
+                let gap = Int(Double(N) * 0.07)
+                var trace = Path()
+                var pen = false
+                var x: CGFloat = 0
+                while x <= W {
+                    let idx = min(N - 1, Int(x / W * CGFloat(N)))
+                    let ahead = (idx - m.head + N) % N
+                    if ahead > 0 && ahead <= gap { pen = false; x += 1; continue }
+                    let pt = CGPoint(x: x, y: mid - CGFloat(m.samples[idx]) * gain)
+                    if pen { trace.addLine(to: pt) } else { trace.move(to: pt); pen = true }
+                    x += 1
+                }
+                ctx.stroke(trace, with: .color(tint), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+
+                // The head: the same white core and lime glow that leads the body scan.
+                if !reduceMotion {
+                    let hx = CGFloat(m.head) / CGFloat(N) * W
+                    let hy = mid - CGFloat(m.samples[(m.head - 1 + N) % N]) * gain
+                    let R: CGFloat = 9 + 5 * CGFloat(m.flash)
+                    ctx.fill(Path(ellipseIn: CGRect(x: hx - R, y: hy - R, width: R * 2, height: R * 2)),
+                             with: .radialGradient(Gradient(colors: [tint.opacity(0.55), tint.opacity(0)]),
+                                                   center: CGPoint(x: hx, y: hy), startRadius: 0, endRadius: R))
+                    ctx.fill(Path(ellipseIn: CGRect(x: hx - 1.6, y: hy - 1.6, width: 3.2, height: 3.2)), with: .color(NB.white))
+                }
             }
+            .overlay(alignment: .topTrailing) {
+                // The readout: the number the rhythm is drawn from.
+                if let bpm {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(bpm)")
+                            .font(NBFont.dot(700, 16)).tracking(0.08 * 16)
+                            .foregroundStyle(tint)
+                            .contentTransition(.numericText())
+                        Text("BPM")
+                            .font(NBFont.dot(500, 9)).tracking(0.2 * 9)
+                            .foregroundStyle(NB.white.opacity(0.42))
+                    }
+                    .padding(.trailing, 4)
+                    .padding(.top, 2)
+                    .animation(.easeOut(duration: 0.2), value: bpm)
+                }
+            }
+        }
+    }
+
+    /// The paper the trace is written on: a ring of samples, one per column of the sweep.
+    final class Monitor {
+        static let hz = 200.0, seconds = 4.0
+        var samples = [Double](repeating: 0, count: Int(hz * seconds))
+        var head = 0
+        private var phase = 0.0
+        private var last: Date?
+        /// 1 at the R spike, fading over ~120 ms: the head swells on every beat.
+        private(set) var flash = 0.0
+
+        func advance(to now: Date, bpm: Int?, amplitude: Double, still: Bool) {
+            guard let last else {
+                self.last = now
+                if still, let bpm { prefill(bpm: bpm, amplitude: amplitude) }
+                return
+            }
+            if still { return }
+            let n = min(Int(Self.hz), Int(now.timeIntervalSince(last) * Self.hz))
+            guard n > 0 else { return }
+            self.last = last.addingTimeInterval(Double(n) / Self.hz)
+            let step = (bpm.map { Double($0) / 60 } ?? 0) / Self.hz
+            for _ in 0..<n {
+                if bpm != nil {
+                    phase += step
+                    if phase >= 1 { phase -= 1; flash = 1 }
+                }
+                let v = bpm == nil ? 0 : Self.pqrst(phase) * amplitude
+                samples[head] = v + Double.random(in: -0.012...0.012)
+                head = (head + 1) % samples.count
+                flash *= 0.96
+            }
+        }
+
+        /// Reduce Motion: the whole paper written once, at the measured rate, and left still.
+        private func prefill(bpm: Int, amplitude: Double) {
+            let step = Double(bpm) / 60 / Self.hz
+            for i in samples.indices {
+                phase += step
+                if phase >= 1 { phase -= 1 }
+                samples[i] = Self.pqrst(phase) * amplitude
+            }
+            head = 0
+        }
+
+        /// One PQRST complex over a beat phase in [0, 1): the shape the panel widget draws too.
+        static func pqrst(_ ph: Double) -> Double {
+            func bump(_ c: Double, _ w: Double, _ a: Double) -> Double { a * exp(-pow((ph - c) / w, 2)) }
+            return bump(0.18, 0.05, 0.12) - bump(0.30, 0.012, 0.18) + bump(0.33, 0.015, 1.0)
+                 - bump(0.37, 0.014, 0.28) + bump(0.60, 0.06, 0.22)
         }
     }
 }

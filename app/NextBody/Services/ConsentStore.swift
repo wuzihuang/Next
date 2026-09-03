@@ -38,23 +38,17 @@ final class ConsentStore: ObservableObject {
 
     func record(_ c: Choice, msOnScreen: Int?) async {
         choice = c
-        UserDefaults.standard.set(["version": Self.version, "choice": c.rawValue,
-                                   "at": ISO8601DateFormatter().string(from: Date())], forKey: Self.key)
-        // Rule 05. `try?` because the table arrives with migration 20260902030000 — until it is
-        // applied the decision lives on the phone, and the server does not enforce it either.
-        // The RLS insert policy checks user_id = auth.uid(); without it every row was refused
-        // silently (the `try?`), so the table stayed empty and the server — once the table
-        // existed — answered every turn with 403 consent_withdrawn.
-        if let uid = await SupabaseClient.shared.currentUserId {
-            _ = try? await SupabaseClient.shared.insert("consents", row: [
-                "user_id": uid,
-                "consent_version": Self.version,
-                "choice": c.rawValue,
-                "text_sha256": Self.textSHA256,
-                "locale": Self.locale,
-                "ms_on_screen": msOnScreen as Any,
-            ])
-        }
+        var stored: [String: Any] = ["version": Self.version, "choice": c.rawValue,
+                                     "at": ISO8601DateFormatter().string(from: Date())]
+        if let msOnScreen { stored["msOnScreen"] = msOnScreen }
+        UserDefaults.standard.set(stored, forKey: Self.key)
+        // Rule 05 · the decision is on the phone first and on the server as soon as it can
+        // be. ⚠️ The row used to be sent once, behind a `try?`, and the account that found
+        // the band bug had two decisions in analytics and none in consents: a write that
+        // failed for any reason — no session yet, the radio, the table not there — was gone.
+        // Now it stays pending until the server has taken it.
+        UserDefaults.standard.set(true, forKey: Self.pendingKey)
+        await flushPending()
         switch c {
         case .granted, .declined:
             await Analytics.shared.track("CONSENT_RESULT", ["VERSION": Self.version, "CHOICE": c.rawValue.uppercased(),
@@ -62,6 +56,45 @@ final class ConsentStore: ObservableObject {
         case .withdrawn:
             await Analytics.shared.track("CONSENT_WITHDRAWN", ["VERSION": Self.version])
         }
+    }
+
+    private static let pendingKey = "nb.consent.pendingUpload"
+
+    /// The stored decision, sent to the server if it has not been taken yet. Called right
+    /// after a decision and every time the app comes forward, so a decision made before the
+    /// session existed still lands. Append-only table: the row carries the moment it was
+    /// decided, not the moment it finally uploaded.
+    func flushPending() async {
+        guard UserDefaults.standard.bool(forKey: Self.pendingKey),
+              let raw = UserDefaults.standard.dictionary(forKey: Self.key),
+              let choice = raw["choice"] as? String,
+              let uid = await SupabaseClient.shared.currentUserId else { return }
+        var row: [String: Any] = [
+            "user_id": uid,
+            "consent_version": raw["version"] as? String ?? Self.version,
+            "choice": choice,
+            "text_sha256": Self.textSHA256,
+            "locale": Self.locale,
+        ]
+        if let at = raw["at"] as? String { row["decided_at"] = at }
+        if let ms = raw["msOnScreen"] as? Int { row["ms_on_screen"] = ms }
+        do {
+            _ = try await SupabaseClient.shared.insert("consents", rows: [row], returning: false)
+            UserDefaults.standard.set(false, forKey: Self.pendingKey)
+        } catch {
+            BandLog.shared.record("insert consents", error: error)
+        }
+    }
+
+    /// 11 · DELETE EVERYTHING. Rule 06 draws the line the other way round — withdrawing is
+    /// not deleting — but deleting is deleting: the decision, its hash and its timestamp are
+    /// the account's, and the row on the server went with the account.
+    /// ⚠️ The pending flag has to go with it, or flushPending() would post this consent to
+    /// whichever account signs in next on this phone.
+    func purge() {
+        choice = nil
+        UserDefaults.standard.removeObject(forKey: Self.key)
+        UserDefaults.standard.removeObject(forKey: Self.pendingKey)
     }
 
     /// The hash of exactly what was on the screen, so a later edit to the copy is a new consent.

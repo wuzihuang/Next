@@ -13,12 +13,14 @@ final class DataStore: ObservableObject {
     /// The window 12's WEEK view reads. Today's list stays in `meals` so 09 is untouched.
     @Published var recentMeals: [MealEntry] = []
     @Published var weighIns: [WeighIn] = []
-    @Published var band: BandState = .mock
-    @Published var profile: Profile = .mock
-    @Published var lastSync: Date = Date().addingTimeInterval(-12 * 60)
+    @Published var band: BandState = Band.isReal ? .unknown : .mock
+    @Published var profile: Profile = Band.isReal ? .blank : .mock
+    /// F3 rule 09 · the moment of the last readOriginData that succeeded. nil until one has:
+    /// a phone that has never synced says so, it does not say "12 MIN AGO".
+    @Published var lastSync: Date? = Band.isReal ? nil : Date().addingTimeInterval(-12 * 60)
     /// 04 · the HR / STRESS row under the readout, and the tick it came from. 13 · the age
     /// of that tick is what decides whether the numbers are shown, dimmed, or dashed.
-    @Published var vitals: LiveVitals = .mock
+    @Published var vitals: LiveVitals = Band.isReal ? LiveVitals() : .mock
     /// 12 · what this HOOP reports it can do, as last stored. The device page and 07's
     /// capabilities() gate read this so they are right before the band answers, and still
     /// right when it is out of range.
@@ -37,11 +39,47 @@ final class DataStore: ObservableObject {
     private init() {
         // The seeded demo account is a returning user: the gate was walked, the band is
         // bound, and the app reconnects to it the way it would on any later launch.
-        if BoundBand.identifier == nil { BoundBand.identifier = "C4-2E-8F-1A-73-9D" }
-        today = DataStore.seedToday()
-        history = DataStore.seedHistory()
-        meals = MealEntry.seed
-        weighIns = WeighIn.seed
+        // ⚠️ Simulator only. On a device a made-up identifier makes the app believe a band
+        // is bound before the gate was ever walked, and every launch would try to reconnect.
+        if !Band.isReal, BoundBand.identifier == nil { BoundBand.identifier = "C4-2E-8F-1A-73-9D" }
+        // Earlier device builds wrote that seed; a real phone carrying it is not bound to anything.
+        if Band.isReal, BoundBand.identifier == "C4-2E-8F-1A-73-9D" { BoundBand.forget() }
+        // The board's numbers exist so the flow is walkable on a simulator with no band.
+        // On a device every one of them would be a figure with no source behind it — F2
+        // rule 05 · unknown is "——", never a plausible number — so the day starts empty and
+        // fills in from daily_results and from the band, or stays a dash.
+        if Band.isReal {
+            today = DailyMetrics(day: UserDay.containing(Date()))
+        } else {
+            today = DataStore.seedToday()
+            history = DataStore.seedHistory()
+            meals = MealEntry.seed
+            weighIns = WeighIn.seed
+        }
+    }
+
+    /// 11 · DELETE EVERYTHING. By the time this runs the account is gone from the server,
+    /// so every number still held here is an orphan — and the gate behind it is a sign-in
+    /// screen that would be drawn over yesterday's readout until the app is killed.
+    /// Back to the state a phone is in before any account: dashes, not the seeded board.
+    /// ⚠️ `isOffline` is not the account's, it is the radio's — Reachability owns it, and
+    /// clearing it here would print ONLINE at the gate of a phone in a lift.
+    func purge() {
+        today = DailyMetrics(day: UserDay.containing(Date()))
+        history = []
+        meals = []
+        recentMeals = []
+        weighIns = []
+        band = .unknown
+        profile = .blank
+        lastSync = nil
+        vitals = LiveVitals()
+        capabilities = BandCapabilities()
+        capabilitiesReadAt = nil
+        exportPreparing = false
+        netFatMass12w = nil
+        netLeanMass12w = nil
+        bodyFatPercent = nil
     }
 
     /// Board 04 · 01 默认 — the screen the whole product is measured against.
@@ -84,6 +122,52 @@ final class DataStore: ObservableObject {
         m.fuelState = .partial(slots: 3)
         m.bandCoverage = 0.86
         m.asOf = Date()
+        // The ticks the board's 72 was made of: five minutes apart from the 04:00 cut to now,
+        // asleep and low until the peak, awake and moving after it, with one hour missing
+        // where the band came off — so the trace on 13 has a gap to draw rather than a
+        // straight line across an hour nobody wore it.
+        var ticks: [VitalSample] = []
+        var t = m.day.start
+        var seed: UInt64 = 0x2545F4914F6CDD1D
+        func rnd() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Double((seed >> 33) % 1_000) / 1_000
+        }
+        while t <= Date() {
+            let hour = Calendar.current.component(.hour, from: t)
+            let offWrist = hour == 13
+            let asleep = hour < 7
+            if !offWrist {
+                // 04B · the second page reads the same ticks: a skin temperature that climbs
+                // through the day, and the five minutes' steps, kcal and metres — heavy in
+                // the 18:00 session, nothing while asleep.
+                let session = hour == 18
+                let steps = asleep ? 0 : session ? Int(120 + rnd() * 60) : Int(rnd() * 40)
+                ticks.append(VitalSample(
+                    ts: t,
+                    hr: Int((asleep ? 49 : 68) + rnd() * (asleep ? 6 : 22)),
+                    stress: Int((asleep ? 12 : 26) + rnd() * (asleep ? 8 : 30)),
+                    temp: (asleep ? 35.9 : session ? 36.7 : 36.4) + rnd() * 0.2,
+                    steps: steps,
+                    cal: Double(steps) * 0.04 + (asleep ? 0.2 : 0.6),
+                    dis: Double(steps) * 0.72))
+            }
+            t = t.addingTimeInterval(300)
+        }
+        m.vitalsCurve = ticks
+        // 01 · the charge line on the default screen: a steady evening charge at +2 a tick,
+        // full about seventy minutes out — inside every one of 1CVO's four conditions.
+        let now = Date()
+        m.reserveCurve = (0...12).map { i in
+            ReserveSample(ts: now.addingTimeInterval(Double(i - 12) * 300), value: 48 + i * 2)
+        }
+        // 04B · SLEEP · 7H 12M, DEEP 1H 48M, 2 WAKES — the board's card, with the band's own
+        // line behind it (total = deep + light; the two wakes are minutes off the count).
+        m.sleep = SleepSummary(totalMinutes: 432, deepMinutes: 108, lightMinutes: 324, wakeCount: 2,
+                               line: [SleepStageRun(stage: 1, minutes: 84), SleepStageRun(stage: 0, minutes: 60),
+                                      SleepStageRun(stage: 1, minutes: 110), SleepStageRun(stage: 4, minutes: 4),
+                                      SleepStageRun(stage: 0, minutes: 48), SleepStageRun(stage: 1, minutes: 130),
+                                      SleepStageRun(stage: 4, minutes: 4)])
         return m
     }
 
@@ -185,7 +269,9 @@ final class DataStore: ObservableObject {
         weighIns.append(w)
         weighIns.sort { $0.date > $1.date }
         // 10S rule 09 · optimistic: the page updates now, the row goes up when it can.
-        WeighInQueue.shared.enqueue(w)
+        if let ownerUserId = SupabaseClient.currentUserIdSnapshot() {
+            WeighInQueue.shared.enqueue(w, ownerUserId: ownerUserId)
+        }
         today.weightKg = w.weightKg
         if let bf = w.bodyFatPercent {
             today.fatKg = w.weightKg * bf / 100
@@ -279,8 +365,31 @@ struct Profile: Hashable {
     var usesMetric: Bool
     var appleHealthLinked: Bool
 
+    /// The name every screen draws. The gate has no username field and onboarding never
+    /// asks, so an account can genuinely have none — Apple hands one over at the first
+    /// authorization and nowhere else. Rather than each screen inventing its own empty
+    /// state, an account with no name of its own is called YOU, everywhere, always.
+    var displayName: String { name.isEmpty ? "YOU" : name }
+
+    /// What the avatar circle carries: one letter per word, at most two.
+    var initials: String {
+        let words = displayName.split(separator: " ")
+        let letters = [words.first, words.count > 1 ? words.last : nil]
+            .compactMap { $0?.first }.map(String.init)
+        return letters.joined().uppercased()
+    }
+
     var age: Int { Calendar.current.dateComponents([.year], from: birthdate, to: Date()).year ?? 34 }
     var hrMax: Int { Int((208 - 0.7 * Double(age)).rounded()) }   // Tanaka
+
+    /// A device before the profile row has been read: no name (the header says YOU) and no
+    /// invented birthday. hrMax off this means nothing, which is fine — no zone is computed
+    /// on the phone (F2 rule 02); the row from onboarding replaces it on the first load.
+    static let blank = Profile(
+        name: "", email: "",
+        birthdate: Calendar.current.date(byAdding: .year, value: -30, to: Date())!,
+        heightCm: 170, sexIsMale: true, goal: .recomp,
+        usesMetric: true, appleHealthLinked: false)
 
     static let mock = Profile(
         name: "ZEPH",
@@ -305,7 +414,9 @@ struct BandState: Hashable {
     var connected: Bool
     var name: String
     var mac: String
-    var batteryPercent: Int
+    /// nil until the band has answered readBattery — the pip draws an empty shell and a
+    /// dash, never 82% (02 rule 05 · an invented percent is the one thing it must not show).
+    var batteryPercent: Int?
     var firmware: String
     var lastSync: Date
     var capabilities: Set<Capability>
@@ -313,6 +424,12 @@ struct BandState: Hashable {
     enum Capability: String, Hashable, CaseIterable {
         case heartRate, bloodOxygen, bloodPressure, ecg, temperature, bodyComponent, wearDetection, alarms
     }
+
+    /// A real phone before the band has answered anything. Every field fills in from the
+    /// band itself (BandPresence) or from the devices row; none of them is guessed.
+    static let unknown = BandState(connected: false, name: "HOOP", mac: "",
+                                   batteryPercent: nil, firmware: "",
+                                   lastSync: .distantPast, capabilities: [])
 
     static let mock = BandState(connected: true, name: "NEXTBODY HOOP", mac: "C4:2E:8F:1A:73:9D",
                                 batteryPercent: 82, firmware: "1.4.7",
@@ -348,5 +465,36 @@ final class SessionStore: ObservableObject {
         // The Keychain copy of the session goes too, or the next launch would restore it
         // straight past the gate.
         Task { await SupabaseClient.shared.signOut() }
+    }
+
+    /// 11 · DELETE EVERYTHING, the phone half of it. reset() is a sign-out, and a sign-out
+    /// is explicitly not this: 「The HOOP stays paired and keeps recording. Your data comes
+    /// back when you sign in.」 Delete promises the opposite in the same sheet — the band
+    /// unpairs itself, and there is no undo — so nothing the account wrote may survive here.
+    ///
+    /// ⚠️ Everything the app stores is a `nb.` key, so this is a sweep rather than a list:
+    /// a list is a thing to forget to add to, and what is forgotten is a weigh-in queue that
+    /// flushes into the next account, or a sync watermark that makes a re-registered phone
+    /// skip the days it has already read. The three in-memory stores are cleared by hand
+    /// because they would each write their copy back over the sweep.
+    func purgeAfterAccountDelete() {
+        DataStore.shared.purge()
+        WeighInQueue.shared.purge()
+        BodyCompositionQueue.shared.purge()
+        ConsentStore.shared.purge()
+        Task { await Analytics.shared.purge() }
+
+        // ⚠️ The SDK only offers disconnect(); "forget" is the app dropping its own device
+        // id — the same pair of sentences as FORGET THIS HOOP, and no more than that.
+        BoundBand.forget()
+        Task { await Band.live.disconnect() }
+
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("nb.") {
+            defaults.removeObject(forKey: key)
+        }
+
+        // Last, so the gate stage it writes is the one that survives the sweep.
+        reset()
     }
 }

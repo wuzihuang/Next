@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 struct RootView: View {
     @EnvironmentObject private var session: SessionStore
@@ -51,9 +52,57 @@ struct RootView: View {
         #if DEBUG
         // `SIMCTL_CHILD_NB_DEBUG_ROUTE=composition` opens straight onto a detail page for a walk.
         .onAppear {
+            os.Logger(subsystem: "com.nextbody.hoop", category: "debug")
+                .notice("root appeared, NB_DEBUG_ROUTE=\(ProcessInfo.processInfo.environment["NB_DEBUG_ROUTE"] ?? "nil", privacy: .public) path=\(router.path.count)")
             if let r = ProcessInfo.processInfo.environment["NB_DEBUG_ROUTE"],
-               let d = Destination(envelopeTarget: r), router.path.isEmpty {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { router.open(d, from: .home) }
+               let d = Destination(envelopeTarget: r) ?? (r == "device" ? .device : nil), router.path.isEmpty {
+                // A push landing while the stack is still settling is dropped on a device,
+                // so it is retried until it sticks.
+                for delay in [1.5, 3.5, 6.0, 9.0] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        if router.path.isEmpty { router.open(d, from: .home) }
+                    }
+                }
+            }
+            // `SIMCTL_CHILD_NB_DEBUG_SHEET=export` lifts one of profile's sheets on top of
+            // whatever the route landed on, for a walk of a sheet that lives behind a tap.
+            if let s = ProcessInfo.processInfo.environment["NB_DEBUG_SHEET"] {
+                let sheet: SheetRoute? = switch s {
+                case "export":        .export
+                case "deleteAccount": .deleteAccount
+                case "privacy":       .privacy
+                case "about":         .about
+                default:              nil
+                }
+                if let sheet {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { router.sheet = sheet }
+                }
+            }
+            // `SIMCTL_CHILD_NB_DEBUG_TAKEOVER=wordmark` plays 02M's film on demand. In the
+            // product it only ever runs once, on a first registration, so this is the one
+            // way to watch it again without making another account. `bodyscan` and `battery`
+            // open the two measurements that otherwise live behind the plus key, which no
+            // harness can press.
+            if let t = ProcessInfo.processInfo.environment["NB_DEBUG_TAKEOVER"] {
+                let takeover: Takeover? = switch t {
+                case "wordmark": .wordmark
+                case "bodyscan": .measure(.bodyComposition)
+                case "battery":  .measure(.heartRate)
+                default:         nil
+                }
+                // The measurements wait for the link the home screen's task restores; the
+                // film does not, and starting it late would be judging the presentation.
+                if let takeover {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (t == "wordmark" ? 0.5 : 2.5)) {
+                        // Without this the cover slides up over ~0.4s and the film's power-on
+                        // plays behind a moving sheet — an artifact of the harness that the real
+                        // sign-in path does not have. The film has to start on a cut here too,
+                        // or what is being judged is the presentation, not the animation.
+                        var cut = Transaction()
+                        cut.disablesAnimations = true
+                        withTransaction(cut) { router.takeover = takeover }
+                    }
+                }
             }
         }
         #endif

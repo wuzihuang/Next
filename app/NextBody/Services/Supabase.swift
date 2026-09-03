@@ -26,9 +26,13 @@ struct SupabaseConfig {
 
 actor SupabaseClient {
     static let shared = SupabaseClient()
+    private static let snapshotLock = NSLock()
+    private static var snapshotUserId: String?
+    private static var snapshotUserEmail: String?
 
     private var accessToken: String?
     private var refreshToken: String?
+    private var refreshTask: Task<RefreshResult, Never>?
     private(set) var userId: String?
     /// The address the session belongs to. 11 prints it under the name, so it has to be
     /// whoever actually signed in.
@@ -41,6 +45,12 @@ actor SupabaseClient {
     }()
 
     func setAccessToken(_ token: String?) { accessToken = token }
+
+    nonisolated static func currentUserIdSnapshot() -> String? {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        return snapshotUserId
+    }
 
     var isSignedIn: Bool { accessToken != nil }
 
@@ -119,7 +129,70 @@ actor SupabaseClient {
             return false
         }
         adopt(session: out)
+        // A restored session is never a registration, however fresh the account is.
+        isNewUser = false
         return true
+    }
+
+    /// Every authenticated request gets one bounded recovery from an expired access token.
+    /// The refresh operation is single-flight, so a foreground sync's parallel chunk uploads
+    /// cannot consume the rotating refresh token several times at once.
+    private func authenticatedData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        var request = request
+        let first = try await session.data(for: request)
+        guard (first.1 as? HTTPURLResponse)?.statusCode == 401 else { return first }
+        guard await refreshExpiredSession() else { return first }
+        request.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                         forHTTPHeaderField: "Authorization")
+        return try await session.data(for: request)
+    }
+
+    private func refreshExpiredSession() async -> Bool {
+        let token = refreshToken ?? SessionKeychain.refreshToken
+        guard let token else { return false }
+        let task: Task<RefreshResult, Never>
+        if let running = refreshTask {
+            task = running
+        } else {
+            let session = self.session
+            task = Task {
+                var request = URLRequest(url: SupabaseConfig.url
+                    .appendingPathComponent("auth/v1/token")
+                    .appending(queryItems: [URLQueryItem(name: "grant_type", value: "refresh_token")]))
+                request.httpMethod = "POST"
+                request.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh_token": token])
+                guard let (data, response) = try? await session.data(for: request) else {
+                    return RefreshResult(payload: nil, status: 0)
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                return RefreshResult(payload: payload, status: status)
+            }
+            refreshTask = task
+        }
+        let result = await task.value
+        refreshTask = nil
+        if let payload = result.payload, payload["access_token"] is String {
+            adopt(session: payload)
+            isNewUser = false
+            return true
+        }
+        if (400..<500).contains(result.status) {
+            accessToken = nil
+            refreshToken = nil
+            userId = nil
+            userEmail = nil
+            SessionKeychain.refreshToken = nil
+            Self.storeSnapshot(userId: nil, userEmail: nil)
+        }
+        return false
+    }
+
+    private struct RefreshResult: @unchecked Sendable {
+        let payload: [String: Any]?
+        let status: Int
     }
 
     /// Forget the session on this device. The server's row is revoked when it can be
@@ -137,15 +210,46 @@ actor SupabaseClient {
         userId = nil
         userEmail = nil
         SessionKeychain.refreshToken = nil
+        Self.storeSnapshot(userId: nil, userEmail: nil)
     }
+
+    /// 01 · 「the server decides new vs returning, not the user」. A session whose account was
+    /// created in this very exchange is a first registration — that, and only that, is what
+    /// 02M's film plays for. Read off the grant reply, never off a local flag.
+    private(set) var isNewUser = false
 
     /// One place that reads a session reply, whichever grant produced it.
     private func adopt(session out: [String: Any]) {
         accessToken = out["access_token"] as? String
         refreshToken = out["refresh_token"] as? String
-        userId = ((out["user"] as? [String: Any])?["id"] as? String)
-        userEmail = (out["user"] as? [String: Any])?["email"] as? String
+        let user = out["user"] as? [String: Any]
+        userId = user?["id"] as? String
+        userEmail = user?["email"] as? String
+        isNewUser = Self.looksLikeFirstRegistration(user)
         SessionKeychain.refreshToken = refreshToken
+        Self.storeSnapshot(userId: userId, userEmail: userEmail)
+    }
+
+    private nonisolated static func storeSnapshot(userId: String?, userEmail: String?) {
+        snapshotLock.lock()
+        snapshotUserId = userId
+        snapshotUserEmail = userEmail
+        snapshotLock.unlock()
+    }
+
+    /// GoTrue stamps `last_sign_in_at` with this very grant, so on a first registration it
+    /// lands within a breath of `created_at`. A returning address is minutes to months apart.
+    private nonisolated static func looksLikeFirstRegistration(_ user: [String: Any]?) -> Bool {
+        guard let created = (user?["created_at"] as? String).flatMap(timestamp) else { return false }
+        guard let last = (user?["last_sign_in_at"] as? String).flatMap(timestamp) else { return true }
+        return abs(last.timeIntervalSince(created)) < 5
+    }
+
+    /// GoTrue returns fractional seconds; the plain ISO parser rejects them.
+    private nonisolated static func timestamp(_ raw: String) -> Date? {
+        let strict = ISO8601DateFormatter()
+        strict.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return strict.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
     }
 
     /// The gate's real path: ask for a six-digit code.
@@ -187,7 +291,7 @@ actor SupabaseClient {
         r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
         r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
                    forHTTPHeaderField: "Authorization")
-        let (data, resp) = try await session.data(for: r)
+        let (data, resp) = try await authenticatedData(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
@@ -211,12 +315,37 @@ actor SupabaseClient {
         r.setValue(returning ? "return=representation" : "return=minimal",
                    forHTTPHeaderField: "Prefer")
         r.httpBody = try JSONSerialization.data(withJSONObject: rows)
-        let (data, resp) = try await session.data(for: r)
+        let (data, resp) = try await authenticatedData(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
         }
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+    }
+
+    /// An insert that leaves rows already there alone. Collected data is insert-only and a
+    /// band only accumulates: every sync after the first carried the same ticks again, and
+    /// without this the whole 400-row chunk was refused on its first duplicate key — the
+    /// new points behind it never arrived. `onConflict` names the key's columns.
+    @discardableResult
+    func insert(_ table: String, rows: [[String: Any]],
+                ignoringDuplicatesOn onConflict: String) async throws -> [[String: Any]] {
+        var r = URLRequest(url: SupabaseConfig.url
+            .appendingPathComponent("rest/v1/\(table)")
+            .appending(queryItems: [URLQueryItem(name: "on_conflict", value: onConflict)]))
+        r.httpMethod = "POST"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                   forHTTPHeaderField: "Authorization")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("resolution=ignore-duplicates,return=minimal", forHTTPHeaderField: "Prefer")
+        r.httpBody = try JSONSerialization.data(withJSONObject: rows)
+        let (data, resp) = try await authenticatedData(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+        return []
     }
 
     /// An upsert. PostgREST wants the conflict target named, otherwise a repeat write is a
@@ -233,7 +362,7 @@ actor SupabaseClient {
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.setValue("resolution=merge-duplicates,return=representation", forHTTPHeaderField: "Prefer")
         r.httpBody = try JSONSerialization.data(withJSONObject: [row])
-        let (data, resp) = try await session.data(for: r)
+        let (data, resp) = try await authenticatedData(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
@@ -260,7 +389,7 @@ actor SupabaseClient {
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.setValue("return=representation", forHTTPHeaderField: "Prefer")
         r.httpBody = try JSONSerialization.data(withJSONObject: row)
-        let (data, resp) = try await session.data(for: r)
+        let (data, resp) = try await authenticatedData(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
@@ -282,7 +411,7 @@ actor SupabaseClient {
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.setValue("return=representation", forHTTPHeaderField: "Prefer")
         r.httpBody = try JSONSerialization.data(withJSONObject: row)
-        let (data, resp) = try await session.data(for: r)
+        let (data, resp) = try await authenticatedData(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
@@ -303,7 +432,7 @@ actor SupabaseClient {
                    forHTTPHeaderField: "Authorization")
         r.setValue("count=exact", forHTTPHeaderField: "Prefer")
         r.setValue("0-0", forHTTPHeaderField: "Range")
-        guard let (_, resp) = try? await session.data(for: r),
+        guard let (_, resp) = try? await authenticatedData(for: r),
               let http = resp as? HTTPURLResponse,
               let range = http.value(forHTTPHeaderField: "content-range"),
               let total = range.split(separator: "/").last else { return nil }
@@ -322,7 +451,7 @@ actor SupabaseClient {
                    forHTTPHeaderField: "Authorization")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.httpBody = try JSONSerialization.data(withJSONObject: args)
-        let (data, resp) = try await session.data(for: r)
+        let (data, resp) = try await authenticatedData(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
@@ -362,7 +491,7 @@ actor SupabaseClient {
         let data = try JSONSerialization.data(withJSONObject: payload)
         let req = try request(name, method: "POST", body: data, isFunction: true)
         do {
-            let (out, resp) = try await session.data(for: req)
+            let (out, resp) = try await authenticatedData(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(code) else {
                 throw Failure.http(code, String(data: out, encoding: .utf8) ?? "")
@@ -392,7 +521,7 @@ actor SupabaseClient {
         // request() sets JSON; multipart has to say its own boundary or the far side sees one
         // undifferentiated blob and answers E_SCHEMA.
         r.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        let (out, resp) = try await session.data(for: r)
+        let (out, resp) = try await authenticatedData(for: r)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw Failure.http(code, String(data: out, encoding: .utf8) ?? "")

@@ -59,7 +59,7 @@ enum SheetRoute: Hashable, Identifiable {
     // 11 · profile
     case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, export, deleteAccount, signOut
     // 12S · device
-    case bandAlarm, bandAutoMonitor, findBand, unbind, firmware
+    case bandAlarm, bandAutoMonitor, findBand, unbind, firmware, syncCadence
     // dock
     case plusMenu
     var id: String { String(describing: self) }

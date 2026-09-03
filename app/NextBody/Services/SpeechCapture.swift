@@ -17,9 +17,15 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
     static let shared = SpeechCapture()
 
     @MainActor @Published private(set) var recording = false
+    /// 05M · B·03 · the chamber's waveform: the last `Self.bars` input levels, 0…1, oldest
+    /// first. Sampled from the recorder's own meter at 25 Hz on the audio queue and handed to
+    /// main as one array, so the view never touches the recorder.
+    @MainActor @Published private(set) var levels: [Double] = Array(repeating: 0, count: SpeechCapture.bars)
+    static let bars = 34
 
     private let queue = DispatchQueue(label: "nb.speech.capture")
     private var recorder: AVAudioRecorder?      // touched only on `queue`
+    private var meter: DispatchSourceTimer?     // touched only on `queue`
 
     /// Returns false when the microphone was refused *or* would not open. The caller stays idle
     /// on a false — a listening animation with nothing behind it is the bug this file exists
@@ -50,25 +56,34 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
             queue.async { [weak self] in
                 guard let self else { return c.resume(returning: false) }
                 let session = AVAudioSession.sharedInstance()
+                // ⚠️ WAV, not AAC. The endpoint was proven with a 16 kHz mono WAV from
+                // `afconvert` (docs/STATUS.md · asr) and the app then sent AAC in an .m4a under
+                // the made-up type `audio/m4a`, which was never tried against DashScope. PCM is
+                // the format that is known to transcribe; at 16 kHz × 16 bit × mono it is
+                // 32 KB/s, so the 60 s cap below keeps the clip under asr's 2 MB.
                 let url = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("nb-\(UUID().uuidString).m4a")
+                    .appendingPathComponent("nb-\(UUID().uuidString).wav")
                 do {
                     try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
                     try session.setActive(true, options: .notifyOthersOnDeactivation)
                     let rec = try AVAudioRecorder(url: url, settings: [
-                        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                        AVFormatIDKey: Int(kAudioFormatLinearPCM),
                         AVSampleRateKey: 16_000,
                         AVNumberOfChannelsKey: 1,
-                        AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+                        AVLinearPCMBitDepthKey: 16,
+                        AVLinearPCMIsFloatKey: false,
+                        AVLinearPCMIsBigEndianKey: false,
                     ])
+                    rec.isMeteringEnabled = true
                     // ⚠️ `record()` returns a Bool, and ignoring it was the same bug a second
                     // time: the wave lit over a microphone that had refused to open.
-                    guard rec.record() else {
+                    guard rec.record(forDuration: 60) else {
                         try? session.setActive(false, options: .notifyOthersOnDeactivation)
                         try? FileManager.default.removeItem(at: url)
                         return c.resume(returning: false)
                     }
                     self.recorder = rec
+                    self.startMeter(rec)
                     c.resume(returning: true)
                 } catch {
                     try? session.setActive(false, options: .notifyOthersOnDeactivation)
@@ -92,6 +107,7 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
         let url: URL? = await withCheckedContinuation { c in
             queue.async { [weak self] in
                 guard let self, let rec = self.recorder else { return c.resume(returning: nil) }
+                self.meter?.cancel(); self.meter = nil
                 rec.stop()
                 self.recorder = nil
                 try? AVAudioSession.sharedInstance()
@@ -99,8 +115,34 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
                 c.resume(returning: rec.url)
             }
         }
-        await MainActor.run { self.recording = false }
+        await MainActor.run {
+            self.recording = false
+            self.levels = Array(repeating: 0, count: Self.bars)
+        }
         return url
+    }
+
+    /// The meter runs on `queue` with the recorder. Average power comes back in dBFS
+    /// (−160 … 0); anything under −50 dB is the room, 0 dB is clipping, and the bar in
+    /// between is linear so a normal speaking voice fills about two thirds of the chamber.
+    private func startMeter(_ rec: AVAudioRecorder) {
+        meter?.cancel()
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now(), repeating: .milliseconds(40))
+        t.setEventHandler { [weak self, weak rec] in
+            guard let self, let rec, rec.isRecording else { return }
+            rec.updateMeters()
+            let db = Double(rec.averagePower(forChannel: 0))
+            let level = min(1, max(0, (db + 50) / 50))
+            Task { @MainActor in
+                var l = self.levels
+                l.removeFirst()
+                l.append(level)
+                self.levels = l
+            }
+        }
+        t.resume()
+        meter = t
     }
 
     private static func permission() async -> Bool {

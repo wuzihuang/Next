@@ -23,9 +23,17 @@ struct BodyBatteryDetailView: View {
     }
 
     var body: some View {
-        DetailScroll(glow: NB.violet1) {
+        DetailScroll(glow: NB.violet1, title: MetricNames.bodyBattery, trailing: {
+            Text(hasNight ? "TODAY" : "DAY 01")
+                .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
+                .foregroundStyle(NB.text3Prod)
+        }) {
             VStack(alignment: .leading, spacing: 14) {
-                header
+                // Heart and stress come off the wrist every five minutes whether or not a
+                // night was recorded, so they sit above the branch: on day one this is the
+                // only measured thing on the page, and on any other day it is what the
+                // battery was computed from. Never hidden behind the night.
+                vitalsCard
                 if hasNight {
                     heroCard
                     if drivers != nil { whyCard }
@@ -74,17 +82,78 @@ struct BodyBatteryDetailView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            Text(MetricNames.bodyBattery)
-                .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
-                .foregroundStyle(NB.text3Prod)
-            Spacer(minLength: 0)
-            Text(hasNight ? "TODAY" : "DAY 01")
-                .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
-                .foregroundStyle(NB.text3Prod)
+    /// The ticks themselves. 04's readout shows the last one; this shows the last one and
+    /// the day it sits at the end of, because the question the page answers — why am I 72 —
+    /// is answered partly by a heart that never came down and a stress line that never did.
+    ///
+    /// ⚠️ Past six hours the numbers are ——, not dimmed: a six-hour-old heart rate is not a
+    /// reading of anything. Same rule as 04, off the same freshness.
+    private var vitalsCard: some View {
+        let day = m.vitalsCurve
+        let hrs = day.compactMap(\.hr)
+        let stresses = day.compactMap(\.stress)
+        // The shown day may be a past one, whose last tick is its own, not the live one.
+        let lastTick = day.last
+        let live = data.vitals
+        let showsLive = m.day == UserDay.containing(Date())
+        let at = showsLive ? live.at : lastTick?.ts
+        let gone = showsLive && live.freshness == .gone
+        let stale = showsLive && live.freshness == .stale
+        let hr = gone ? nil : (showsLive ? (live.hr ?? lastTick?.hr) : lastTick?.hr)
+        let stress = gone ? nil : (showsLive ? (live.stress ?? lastTick?.stress) : lastTick?.stress)
+        return CardBlock(title: "HEART & STRESS",
+                         trailing: at.map { "LAST TICK \(Fmt.clock($0))" } ?? "NO TICK",
+                         trailingTint: gone || at == nil ? NB.text3Prod : NB.lime1) {
+            HStack(spacing: 0) {
+                VitalReading(label: "HEART", value: hr.map(String.init), unit: "BPM",
+                             tint: NB.lime1, dim: stale)
+                VitalReading(label: "STRESS", value: stress.map(String.init), unit: "INDEX",
+                             tint: NB.violet1, dim: stale)
+                VitalReading(label: "RESTING", value: m.nightInputs?.rhr.map { String(Int($0)) },
+                             unit: "BPM", tint: NB.white.opacity(0.42), dim: false)
+            }
+            if !hrs.isEmpty || !stresses.isEmpty {
+                VStack(spacing: 10) {
+                    if !hrs.isEmpty {
+                        VitalTrace(samples: day, value: \.hr, tint: NB.lime1, name: "HEART",
+                                   low: hrs.min() ?? 0, high: hrs.max() ?? 0, unit: "BPM")
+                    }
+                    if !stresses.isEmpty {
+                        VitalTrace(samples: day, value: \.stress, tint: NB.violet1, name: "STRESS",
+                                   low: stresses.min() ?? 0, high: stresses.max() ?? 0, unit: "INDEX")
+                    }
+                    // The same 04 → 22 ruler the battery curve carries, so the two shapes are
+                    // read against one clock rather than two.
+                    HStack {
+                        ForEach(["04", "10", "16", "22"], id: \.self) { t in
+                            Text(t)
+                                .font(NBFont.dot(600, 9)).tracking(0.18 * 9)
+                                .foregroundStyle(NB.white.opacity(0.30))
+                            if t != "22" { Spacer(minLength: 0) }
+                        }
+                    }
+                }
+            }
+            Hairline()
+            Text(vitalsLine(ticks: day.count, gone: gone, stale: stale))
+                .font(NBFont.brand(400, 13))
+                .lineSpacing(6)
+                .foregroundStyle(gone || day.isEmpty ? NB.text3Prod : NB.white.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.top, 14)
+    }
+
+    /// One sentence, and it names which state the numbers above are in. It never explains
+    /// a number the card is not showing.
+    private func vitalsLine(ticks: Int, gone: Bool, stale: Bool) -> String {
+        if ticks == 0 {
+            return data.band.connected
+                ? "Nothing has come off the band for this day yet."
+                : "Connect the band to see the ticks it has been recording."
+        }
+        if gone { return "Nothing for over six hours. These are not old numbers, they are no numbers." }
+        if stale { return "\(ticks) ticks today. Nothing new for a while — it may be off your wrist." }
+        return "\(ticks) ticks today, five minutes apart. Stress is one of the four rows above it."
     }
 
     /// The curve: violet while charging overnight, white while discharging awake,
@@ -251,7 +320,7 @@ struct BodyBatteryDetailView: View {
 
     private var footer: some View {
         HStack {
-            Text("SYNCED \(Fmt.clock(data.lastSync))")
+            Text(data.lastSync.map { "SYNCED \(Fmt.clock($0))" } ?? "NOT SYNCED YET")
                 .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
                 .foregroundStyle(NB.text3Prod)
             Spacer(minLength: 0)
@@ -453,6 +522,80 @@ struct BatteryCurve: View {
             let now = p(tail)
             ctx.fill(Path(ellipseIn: CGRect(x: now.x - 4.5, y: now.y - 4.5, width: 9, height: 9)),
                      with: .color(NB.lime1))
+        }
+    }
+}
+
+
+private struct VitalReading: View {
+    let label: String
+    let value: String?
+    let unit: String
+    let tint: Color
+    var dim = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
+                .foregroundStyle(NB.text3Prod)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value ?? Fmt.dash)
+                    .font(NBFont.dot(700, 24)).tracking(0.02 * 24)
+                    .foregroundStyle(value == nil ? NB.text3Prod : (dim ? NB.text2 : tint))
+                Text(unit)
+                    .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
+                    .foregroundStyle(NB.white.opacity(0.34))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A day of one tick series, drawn across the same 04:00 → 04:00 width as the battery curve.
+/// ⚠️ A gap in the series is a gap in the line, not a straight segment across it: the band
+/// off the wrist recorded nothing, and joining the two ends would draw an hour that never was.
+private struct VitalTrace: View {
+    let samples: [VitalSample]
+    let value: KeyPath<VitalSample, Int?>
+    let tint: Color
+    let name: String
+    let low: Int
+    let high: Int
+    let unit: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(name)
+                    .font(NBFont.dot(600, 9)).tracking(0.18 * 9)
+                    .foregroundStyle(tint.opacity(0.75))
+                Spacer(minLength: 0)
+                Text("\(low) – \(high) \(unit)")
+                    .font(NBFont.dot(500, 9)).tracking(0.12 * 9)
+                    .foregroundStyle(NB.white.opacity(0.30))
+            }
+            Canvas { ctx, size in
+                // ⚠️ x is the clock, not the index. Drawn by index a half day of ticks would
+                // fill the whole width and stop lining up with the battery curve above it,
+                // which is the one thing this trace is here to be read against.
+                guard let first = samples.first else { return }
+                let day = UserDay.containing(first.ts)
+                let span = max(1, high - low)
+                var run = Path()
+                var open = false
+                for s in samples {
+                    guard let v = s[keyPath: value] else { open = false; continue }
+                    let t = min(1, max(0, s.ts.timeIntervalSince(day.start) / 86_400))
+                    let x = size.width * t
+                    let y = size.height - (Double(v - low) / Double(span)) * (size.height - 4) - 2
+                    let pt = CGPoint(x: x, y: y)
+                    if open { run.addLine(to: pt) } else { run.move(to: pt); open = true }
+                }
+                ctx.stroke(run, with: .color(tint.opacity(0.85)),
+                           style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+            }
+            .frame(height: 34)
         }
     }
 }

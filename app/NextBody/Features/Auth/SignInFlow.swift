@@ -19,6 +19,9 @@ struct SignInFlow: View {
     @State private var wrongCount = 0
     @State private var authFailed = false
     @State private var appleSignIn = AppleSignIn()
+    /// 02M ◇5 · where the film hands the screen over: Connect, unless this account already
+    /// has a band bound to it, in which case the gate is behind them and home is next.
+    @State private var nextStage: SessionStore.Stage = .gateConnect
 
     var body: some View {
         ZStack {
@@ -33,9 +36,12 @@ struct SignInFlow: View {
                                     onNewCode: { codeError = nil; code = ""; sendCode() })
             }
 
+            // ◇1 · 「不是渐亮，是通电」. No transition on purpose: the flash *is* the cut. Fading
+            // the film in spent the whole 120ms peak at partial opacity, so the power-on
+            // arrived as a glow while the haptic arrived at full strength — the two came
+            // apart, and the light was the half that was late.
             if playingWordmark {
                 WordmarkAnimation { finish() }
-                    .transition(.opacity)
             }
         }
         .carbonPage()
@@ -61,10 +67,10 @@ struct SignInFlow: View {
             do {
                 let cred = try await appleSignIn.request()
                 try await SupabaseClient.shared.signInWithApple(idToken: cred.idToken, nonce: cred.nonce)
-                verifying = false
                 email = await SupabaseClient.shared.signedInEmail() ?? ""
-                await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": false])
-                withAnimation { playingWordmark = true }
+                await adoptAppleName(cred.fullName)
+                await authSucceeded()
+                verifying = false
             } catch AppleSignIn.Failure.cancelled {
                 verifying = false
             } catch {
@@ -72,6 +78,21 @@ struct SignInFlow: View {
                 withAnimation { authFailed = true }
             }
         }
+    }
+
+    /// The one moment this product is handed a real name. It arrives on the first Apple
+    /// authorization and never again, so it goes to the server here rather than waiting for
+    /// a screen to ask for it — nothing ever asks. A name the user has already set is not
+    /// overwritten: Apple only offers this on a first authorization, but a reinstall after
+    /// revoking would otherwise undo a rename.
+    private func adoptAppleName(_ components: PersonNameComponents?) async {
+        guard let components else { return }
+        let f = PersonNameComponentsFormatter()
+        f.style = .default
+        let name = f.string(from: components).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, DataStore.shared.profile.name.isEmpty else { return }
+        DataStore.shared.profile.name = name
+        await Repository.shared.saveDisplayName(name)
     }
 
     private func sendCode() {
@@ -149,9 +170,10 @@ struct SignInFlow: View {
                 } else {
                     try await SupabaseClient.shared.verifyCode(email: email, token: code)
                 }
+                // The button stays in its verifying state across the one question the
+                // returning path asks the server, so nothing sits dead on screen.
+                await authSucceeded()
                 verifying = false
-                await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": false])
-                withAnimation { playingWordmark = true }
             } catch SupabaseClient.Failure.http(let status, let body) {
                 verifying = false
                 // 01 edge 2 · a code past its ten minutes says so and offers a new one;
@@ -170,10 +192,47 @@ struct SignInFlow: View {
         }
     }
 
+    /// 02M · 「首次注册成功后」. The film is the reward for making an account, not a loader:
+    /// it plays once, for the session the server itself calls new, and at most once in a day.
+    /// Everyone else — a returning address, a second sign-in on a new phone — walks straight
+    /// through to whichever screen is actually next for them.
+    private func authSucceeded() async {
+        let isNew = await SupabaseClient.shared.isNewUser
+        await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": isNew])
+        // A brand-new account cannot have a band yet, so it is never asked — the flash has
+        // to land on the same beat as the last digit, not after a round trip.
+        nextStage = (isNew ? false : await Self.hasBoundBand()) ? .root : .gateConnect
+        if isNew, Self.claimFilmForToday() {
+            playingWordmark = true
+        } else {
+            finish()
+        }
+    }
+
+    /// 02M ◇5 · 「如果该账号已经有了配对的手环，就直接进入到主页」. A forgotten HOOP keeps its
+    /// row and its `unbound_at`, so only a row still bound counts as paired.
+    private static func hasBoundBand() async -> Bool {
+        let rows = try? await SupabaseClient.shared.select("devices", query: [
+            .init(name: "select", value: "id"),
+            .init(name: "unbound_at", value: "is.null"),
+            .init(name: "limit", value: "1"),
+        ])
+        return !(rows ?? []).isEmpty
+    }
+
+    /// 02M · 「不许倒放、不许循环、更不许当加载动画反复用——它一天最多出现一次」.
+    private static func claimFilmForToday() -> Bool {
+        let key = "nb.wordmark.playedOn"
+        let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        guard UserDefaults.standard.double(forKey: key) != today else { return false }
+        UserDefaults.standard.set(today, forKey: key)
+        return true
+    }
+
     private func finish() {
         session.email = email
         session.isSignedIn = true
-        session.stage = .gateConnect
+        session.stage = nextStage
     }
 }
 
@@ -187,7 +246,7 @@ private struct GateScreen: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            GateAurora().frame(width: 390, height: 520)
+            GateAurora().frame(width: NB.Layout.screenWidth, height: 520)
 
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)

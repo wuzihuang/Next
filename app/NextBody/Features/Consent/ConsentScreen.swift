@@ -38,7 +38,7 @@ struct ConsentScreen: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Back")
-                    .padding(.top, Chrome.statusBarBlock - 30)
+                    .padding(.top, Chrome.boardStatusBar - 30)
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text(ConsentCopy.eyebrow).font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(eyebrow)
@@ -107,7 +107,7 @@ struct ConsentScreen: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 28)
-                .frame(width: 390, alignment: .leading)
+                .frame(width: NB.Layout.screenWidth, alignment: .leading)
             }
 
             // 1F4L · 390 × 104, one 342 × 52 button. Grey and inert until the box is ticked.
@@ -117,7 +117,7 @@ struct ConsentScreen: View {
                         Text(ConsentCopy.cta)
                             .font(NBFont.ui(500, 13.5)).tracking(0.15 * 13.5)
                             .foregroundStyle(NB.carbon)
-                            .frame(width: 342, height: 52)
+                            .frame(width: NB.Layout.contentWidth - 16, height: 52)
                             .background(NB.lime1, in: Capsule())
                     }
                     .buttonStyle(.plain)
@@ -125,12 +125,12 @@ struct ConsentScreen: View {
                     Text(ConsentCopy.cta)
                         .font(NBFont.ui(500, 13.5)).tracking(0.15 * 13.5)
                         .foregroundStyle(eyebrow)
-                        .frame(width: 342, height: 52)
+                        .frame(width: NB.Layout.contentWidth - 16, height: 52)
                         .background(rule, in: Capsule())
                         .accessibilityLabel("Continue · tick the box first")
                 }
             }
-            .frame(width: 390, height: 104)
+            .frame(width: NB.Layout.screenWidth, height: 104)
             .background(NB.carbon)
         }
         // The list scrolls under the status bar like any list; the bar itself keeps its ground,

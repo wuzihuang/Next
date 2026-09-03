@@ -118,6 +118,22 @@ struct PairRenderer: View {
     }
 }
 
+/// dual · two series, each normalised to its own range — "two scales, one panel — read the
+/// shape, not the gap". No fill, because a fill would say the gap means something.
+struct DualRenderer: View {
+    let a: [Double]
+    let b: [Double]
+    let accent: Color
+    let secondary: Color
+
+    var body: some View {
+        ZStack {
+            CurveRenderer(values: b, accent: secondary, fill: false, glow: 0.15, dot: false)
+            CurveRenderer(values: a, accent: accent, fill: false, glow: 0.35, dot: true)
+        }
+    }
+}
+
 /// column · bars · days · delta. delta uses the zero-axis variant.
 struct ColumnRenderer: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

@@ -25,7 +25,8 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
     var renderer: PanelRenderer {
         switch self {
         case .metric, .text:                        return .number
-        case .line, .o2night, .dual:                return .curve
+        case .line, .o2night:                       return .curve
+        case .dual:                                 return .dual
         case .band:                                 return .pair
         case .bars, .days, .delta:                  return .column
         case .ring, .gauge, .battery:               return .arc
@@ -77,6 +78,8 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
 
 enum PanelRenderer: String, Hashable {
     case number, curve, pair, column, arc, stack, grid, strip, trace, rows
+    /// 26 · dual · two series on their own scales, no fill between them.
+    case dual
 }
 
 enum HeroStyle: Hashable { case large, small, ring, own, none }
@@ -114,6 +117,10 @@ struct PanelWidget: Identifiable, Hashable {
     /// the source chip at the top (the thumbnail and `IMG · PLATE · PARSED OK`) and the
     /// 「已记入今天的 fuel」 line at the bottom. Optional blocks of one template, not a second screen.
     var photo: PhotoAnswer?
+    /// 06 · 20 · the body scan's result on the panel, as the board draws it: the settled fat
+    /// percent as the hero with the last reading under it, four fields in tiles, the
+    /// sentence, then the spine. An optional block of the one template, like `photo`.
+    var composition: CompositionAnswer?
     /// 06 · 17 · a measurement's result "becomes a message": tapping it asks her about the
     /// numbers instead of opening a page. Only the frames the band just produced carry this.
     var replyPrompt: String?
@@ -194,10 +201,21 @@ struct PanelWidgetView: View {
     }
 
     var body: some View {
-        Button { onTap(widget.targetOverride ?? widget.type.target) } label: { canvas }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(widget.title) · \(widget.sentence)")
+        // 06 · 20 · a composition result is the reading. Tapping the numbers must not
+        // leave the panel — only TAP FOR ALL 14 FIELDS does that. Other widgets stay
+        // one tap to their page (F0 rule 06).
+        Group {
+            if widget.composition != nil {
+                canvas
+            } else {
+                Button { go() } label: { canvas }
+                    .buttonStyle(.plain)
+            }
+        }
+        .accessibilityLabel("\(widget.title) · \(widget.sentence)")
     }
+
+    private func go() { onTap(widget.targetOverride ?? widget.type.target) }
 
     private var canvas: some View {
         ZStack(alignment: .topLeading) {
@@ -205,6 +223,8 @@ struct PanelWidgetView: View {
 
             if let photo = widget.photo {
                 photoCanvas(photo)
+            } else if let composition = widget.composition {
+                compositionCanvas(composition)
             } else {
             // Slot 1 · title
             Text(widget.title.uppercased())
@@ -259,6 +279,109 @@ struct PanelWidgetView: View {
             }
         }
         .frame(width: 358, height: 470, alignment: .topLeading)
+    }
+
+    // MARK: 06 · 20 · BODY COMPOSITION · JUST NOW
+
+    /// The board's frame to the pixel: 358 × 470, its own LED ground (a reading is not drawn
+    /// over the standby art), the lime hairline that marks a frame the band just produced,
+    /// header at y16, hero at y70, the four tiles at y206, the sentence at y300, the spine at y378.
+    @ViewBuilder private func compositionCanvas(_ c: CompositionAnswer) -> some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous).fill(NB.panelInk)
+            Canvas { ctx, size in
+                var grid = Path()
+                var y: CGFloat = 1.4
+                while y < size.height {
+                    var x: CGFloat = 1.4
+                    while x < size.width {
+                        grid.addRoundedRect(in: CGRect(x: x, y: y, width: 3.2, height: 3.2),
+                                            cornerSize: CGSize(width: 0.8, height: 0.8))
+                        x += 4
+                    }
+                    y += 4
+                }
+                ctx.fill(grid, with: .color(Color(hex: 0x131318)))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous))
+        }
+        .frame(width: 358, height: 470)
+
+        // header · the title in the accent, JUST NOW where the tag sits
+        HStack {
+            Text(widget.title.uppercased())
+                .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                .foregroundStyle(NB.lime1)
+            Spacer(minLength: 0)
+            Text("JUST NOW")
+                .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+                .foregroundStyle(NB.white.opacity(0.30))
+        }
+        .frame(width: 318, height: 14)
+        .offset(x: 20, y: 16)
+
+        // hero · the number the scan settled, and where it stood last time
+        VStack(spacing: 10) {
+            Text(widget.hero ?? Fmt.dash)
+                .font(NBFont.brand(700, 66)).tracking(-0.045 * 66)
+                .foregroundStyle(NB.lime1)
+            Text(c.heroSub.uppercased())
+                .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+                .foregroundStyle(NB.white.opacity(0.39))
+        }
+        .frame(width: 318, height: 89)
+        .offset(x: 20, y: 70)
+
+        // four fields · label in the field's own colour, value in white
+        HStack(spacing: 8) {
+            ForEach(c.fields, id: \.label) { f in
+                VStack(spacing: 5) {
+                    Text(f.label)
+                        .font(NBFont.dot(600, 9)).tracking(0.16 * 9)
+                        .foregroundStyle(f.tint)
+                    Text(f.value)
+                        .font(NBFont.brand(600, 18)).tracking(-0.02 * 18)
+                        .foregroundStyle(NB.white)
+                }
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .frame(height: 59)
+                .background(NB.carbon5, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+        }
+        .frame(width: 318, height: 59)
+        .offset(x: 20, y: 206)
+
+        // the sentence · the brightest text on the screen
+        Text(widget.sentence)
+            .font(NBFont.brand(500, 19)).tracking(-0.01 * 19)
+            .lineSpacing(7)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(NB.white)
+            .frame(width: 294, height: 52, alignment: .center)
+            .offset(x: 32, y: 300)
+
+        // the spine · hairline, the facts, the one tap
+        VStack(spacing: 14) {
+            Rectangle().fill(NB.hairline).frame(width: 318, height: 1)
+            if let footer = widget.footer {
+                Text(footer)
+                    .font(NBFont.brand(400, 11.5)).tracking(0.02 * 11.5)
+                    .foregroundStyle(NB.white.opacity(0.50))
+            }
+            if let action = widget.action {
+                Button(action: go) {
+                    Text(action.uppercased())
+                        .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
+                        .foregroundStyle(NB.lime1.opacity(0.85))
+                        .frame(width: 318, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: 318)
+        .offset(x: 20, y: 378)
     }
 
     // MARK: 05 · C·07 · FROM YOUR PHOTO
@@ -430,9 +553,17 @@ struct PanelWidgetView: View {
                 if case .pair(let hi, let lo) = widget.data {
                     PairRenderer(hi: hi, lo: lo, accent: widget.accent).frame(height: h)
                 }
+            case .dual:
+                // ⚠️ The catalogue drew dual through the curve renderer, which eats one
+                // series — the second line never existed. Two scales, one panel.
+                if case .pair(let a, let b) = widget.data {
+                    DualRenderer(a: a, b: b, accent: widget.accent,
+                                 secondary: widget.curveSecondary ?? NB.white.opacity(0.45)).frame(height: h)
+                }
             case .column:
                 if case .bins(let b) = widget.data {
-                    ColumnRenderer(bins: b, accent: widget.accent).frame(height: h)
+                    // 09 · B · delta 用带零轴的变体.
+                    ColumnRenderer(bins: b, accent: widget.accent, zeroAxis: widget.type == .delta).frame(height: h)
                 }
             case .arc:
                 if case .ring(let v, let g, _) = widget.data {
@@ -472,6 +603,19 @@ struct PanelWidgetView: View {
 
 
 /// 05 · C·07 · what the photo answer adds to the panel.
+/// 06 · 20 · what the body scan's frame carries beyond the template: the line under the hero
+/// and the four tiles. Everything in it came off the band or out of the store — never a
+/// placeholder (a printed 34.2 no band produced is a number the user will believe).
+struct CompositionAnswer: Hashable {
+    struct Field: Hashable {
+        var label: String
+        var value: String
+        var tint: Color
+    }
+    var heroSub: String       // BODY FAT · 22.1% IN JUNE
+    var fields: [Field]       // MUSCLE · WATER · PROTEIN · BMR
+}
+
 struct PhotoAnswer: Hashable {
     var thumbnail: UIImage?
     var chip: String            // IMG · PLATE · PARSED OK

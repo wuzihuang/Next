@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import os
 
 /// The agent side. In production every AI call is an Edge Function on Supabase running the
 /// Vercel AI SDK against qwen3.8-flash; the app never talks to a model directly and never
@@ -68,7 +69,14 @@ final class AIService: ObservableObject {
                 }
             }
             reading = nil
-            if let frame { return widget(from: frame) }
+            if let frame {
+                let w = widget(from: frame)
+                #if DEBUG
+                os.Logger(subsystem: "com.nextbody.hoop", category: "turn")
+                    .notice("NB turn · type=\((frame["type"] as? String) ?? "?", privacy: .public) title=\((frame["title"] as? String) ?? "", privacy: .public) sentence=\((frame["sentence"] as? String) ?? "", privacy: .public) decoded=\(w != nil, privacy: .public)")
+                #endif
+                return w
+            }
         } catch {
             reading = nil
             #if DEBUG
@@ -178,17 +186,35 @@ final class AIService: ObservableObject {
     /// `NO_SPEECH` is not an error to apologise for — the board's word for it is
     /// 「DIDN'T CATCH THAT」 and the dock simply returns to idle. Silence and a refusal look the
     /// same from here on purpose: both mean there is nothing to say yet.
-    func transcribe(_ clip: URL) async -> String? {
+    /// ⚠️ Silence and a failure are not the same answer. The first version folded a 401, a
+    /// 503 and a dropped upload into `nil`, and the dock told her NOTHING HEARD for every one
+    /// of them — which sends her back to say it again louder, when the microphone was never
+    /// the problem. Only the server's own NO_SPEECH is silence; the rest is `.failed`.
+    enum Transcript: Equatable {
+        case text(String)
+        case silence
+        case failed(String)
+    }
+
+    func transcribe(_ clip: URL) async -> Transcript {
         defer { try? FileManager.default.removeItem(at: clip) }
         do {
             let out = try await SupabaseClient.shared.uploadFunction(
-                "asr", fileURL: clip, field: "audio", filename: "clip.m4a", mime: "audio/m4a")
-            if out["error"] != nil { return nil }
-            let text = (out["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (text?.isEmpty == false) ? text : nil
+                "asr", fileURL: clip, field: "audio", filename: "clip.wav", mime: "audio/wav")
+            if let err = out["error"] as? String {
+                #if DEBUG
+                NSLog("NB asr · \(err)")
+                #endif
+                return err == "NO_SPEECH" ? .silence : .failed(err)
+            }
+            let text = (out["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? .silence : .text(text)
         } catch {
             lastError = error.localizedDescription
-            return nil
+            #if DEBUG
+            NSLog("NB asr · upload failed: \(error)")
+            #endif
+            return .failed(error.localizedDescription)
         }
     }
 
@@ -214,17 +240,26 @@ final class AIService: ObservableObject {
         if let hex = env["accent"] as? String, hex.hasPrefix("#"),
            let v = UInt32(hex.dropFirst(), radix: 16) { accent = Color(hex: v) }
 
+        let data = env["data"] as? [String: Any] ?? [:]
+        // 07 · 09 · C · rule 2 · data.label 压过 title, on the four types the board names.
+        let label = (data["label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let titled = [.metric, .ring, .cells, .table].contains(type) ? (label ?? title) : title
+        // 13 col 01 · a curve that arrives with a split is night then day: violet, then lime.
+        let split = data["split"] as? Int
+
         return PanelWidget(
             type: type,
-            title: String(title.prefix(18)),
+            title: String(titled.prefix(18)),
             tag: (env["tag"] as? String).flatMap(PanelTag.init(rawValue:)),
             sentence: String(sentence.prefix(48)),
             footer: (env["footer"] as? String).map { String($0.prefix(42)) },
             action: (env["action"] as? String).map { String($0.prefix(32)) },
-            hero: ((env["data"] as? [String: Any])?["hero"]).map { "\($0)" },
-            accentOverride: accent,
+            hero: (data["hero"]).map { "\($0)" }.flatMap { $0.isEmpty ? nil : $0 },
+            accentOverride: accent ?? (split != nil ? NB.violet1 : nil),
+            curveSplit: split,
+            curveSecondary: split != nil ? NB.lime1 : nil,
             targetOverride: target,
-            data: Self.decodeData(env["data"] as? [String: Any] ?? [:], type: type),
+            data: Self.decodeData(data, type: type),
             ttlMinutes: (env["ttl_min"] as? Int) ?? 20,
             priority: (env["priority"] as? String) == "alert" ? .alert : .normal)
     }
@@ -275,8 +310,11 @@ final class AIService: ObservableObject {
         case .curve:
             let s = numbers(d["series"] ?? d["points"] ?? d["samples"])
             return .series(s)
-        case .pair:
-            return .pair(hi: numbers(d["hi"] ?? d["a"]), lo: numbers(d["lo"] ?? d["b"]))
+        case .pair, .dual:
+            // The contract's dual shape is a{label,series} b{label,series}; the server also
+            // sends hi/lo. Read either.
+            let unwrap = { (x: Any?) -> [Double] in numbers((x as? [String: Any])?["series"] ?? x) }
+            return .pair(hi: unwrap(d["hi"] ?? d["a"]), lo: unwrap(d["lo"] ?? d["b"]))
         case .column:
             return .bins(labelled(d["bins"] ?? d["points"] ?? d["days"] ?? d["series"]))
         case .arc:
@@ -286,6 +324,16 @@ final class AIService: ObservableObject {
             let goal = ["goal", "target", "max"].compactMap { key -> Double? in
                 (d[key] as? Double) ?? (d[key] as? Int).map(Double.init)
             }.first ?? 100
+            // 09 · gauge 额外吃 zones · [[from, to, name], …]. Without them a gauge is a ring.
+            if type == .gauge, let zs = d["zones"] as? [[Any]] {
+                let zones = zs.compactMap { z -> (Double, Double, String)? in
+                    guard z.count >= 3,
+                          let lo = (z[0] as? Double) ?? (z[0] as? Int).map(Double.init),
+                          let hi = (z[1] as? Double) ?? (z[1] as? Int).map(Double.init) else { return nil }
+                    return (lo, hi, "\(z[2])")
+                }
+                if !zones.isEmpty { return .gauge(value: v, zones: zones) }
+            }
             return .ring(value: v, goal: goal, unit: (d["unit"] as? String) ?? "")
         case .stack:
             let source = d["parts"] ?? d["macros"] ?? d["rows"]

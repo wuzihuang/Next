@@ -61,6 +61,23 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 11 | Profile · the year heat map and 13 sheets | built, walked on device |
 | 12 + 12S | Device, and its two sheets | built, walked on device |
 | 13 | Body Battery detail | built, walked on device |
+| 04B | Home · page two, the eight instruments | built · swipe reworked (direction lock, no mis-taps), edge states F1–F5, sleepLine strip, PAGE2_* events |
+
+04B notes:
+
+- The swipe (`HomeView.pageGesture`) now locks direction on the first points of travel and,
+  once a horizontal drag owns the touch, both pages stop hit-testing until the finger lifts —
+  a slow drag that started on the SLEEP card no longer ends by opening 13. Page dots show on
+  the first screen too, in the seam above the dock.
+- Edge states: F1 HRV prints `NOT SYNCED YET / SYNC RUNS ON OPEN` until the first sync has
+  landed; F3 GONE keeps the unit greyed next to the —— (`—— BPM`); F5 DAY ONE gives HEART
+  `NO TICKS YET / FIRST SYNC DRAWS IT`. Two-line state feet replace the chart, frames unmoved.
+- SLEEP strip draws the band's own sleepLine (04B rule 04): `VeepooBand.readSleep` parses
+  `VPAccurateSleepModel.parseSleepLine()` into `stage:minutes` runs, stored on
+  `sleep_nights.sleep_line` (migration `20260902090000_sleep_line`), read back into
+  `SleepSummary.line`; nights without a line fall back to the proportions.
+- Events added per the board's ship-list: `PAGE2_HRV_TAP`, `PAGE2_CARD_STATE{CARD,STATE}` on
+  every page-two open, `PAGE2_NOT_SYNCED{PLATFORM}`, `PAGE2_OFF_WRIST{MIN}` once per user day.
 
 ### The band · `app/NextBody/Services/Band/`
 

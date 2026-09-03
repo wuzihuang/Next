@@ -18,3 +18,6 @@ supabase/.temp/
 
 # Local-only secrets for the simulator debug path
 app/Local.xcconfig
+
+# OpenMemory - IDE/Assistant specific rules
+.cursor/rules/openmemory.mdc

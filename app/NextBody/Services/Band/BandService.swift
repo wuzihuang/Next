@@ -29,15 +29,22 @@ protocol BandService: AnyObject {
     /// F2 §01 · dayOffset is a paging parameter and nothing else.
     /// It never becomes a primary key and never reaches a sentence the user reads.
     func readOriginData(dayOffset: Int) async throws -> [OriginPoint]
+    /// HRV and temperature live in separate SDK databases. Reading them through one command
+    /// keeps the BLE operations serialized and preserves their distinct units and semantics.
+    func readHealthData(dayOffset: Int) async throws -> BandHealthData
     func readSleep(dayOffset: Int) async throws -> SleepNight?
 
     func measureHeartRate() -> AsyncThrowingStream<MeasurementProgress, Error>
     func measureBodyComposition() -> AsyncThrowingStream<MeasurementProgress, Error>
 
     func writeSetting(_ setting: BandSetting) async throws -> BandSetting
+    /// Ask the update server whether this band has newer firmware. `nil` is "up to date";
+    /// a throw is "could not ask" — the two are never drawn the same way.
+    func checkFirmwareUpdate() async throws -> FirmwareOffer?
     /// 12 rule 08 · OTA is three-state. `versionUnverified` is its own outcome — the DFU said
     /// done and the version could not be read back — and is never folded into the other two.
-    func updateFirmware(to version: String) async throws -> FirmwareUpdateResult
+    /// `progress` is 0…1 while the file crosses; it is a number, never a tween.
+    func updateFirmware(to version: String, progress: @escaping @Sendable (Double) -> Void) async throws -> FirmwareUpdateResult
     func readAutoMonitoring() async throws -> [AutoMonitorSlot]
     func writeAutoMonitoring(_ slot: AutoMonitorSlot) async throws
 }
@@ -52,6 +59,32 @@ enum BandEvent {
     case battery(BandBattery)
     /// The band finished a measurement it started on its own wrist, not one we asked for.
     case deviceInitiatedMeasurementFinished
+}
+
+/// Fan-out for `BandService.events`. A bare `AsyncStream` has one consumer and ends for good
+/// the moment that consumer's task is cancelled — 02's "search again" cancels the previous
+/// scan task, and 06's ECG screen reads the same stream — so a single shared stream silently
+/// dropped every discovery after the first retry. Each `events` access now gets its own stream;
+/// a send reaches all of them, and a cancelled one just unsubscribes.
+final class BandEventHub: @unchecked Sendable {
+    private let lock = NSLock()
+    private var subscribers: [UUID: AsyncStream<BandEvent>.Continuation] = [:]
+
+    func stream() -> AsyncStream<BandEvent> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            lock.lock(); subscribers[id] = continuation; lock.unlock()
+            continuation.onTermination = { [weak self] _ in
+                guard let self else { return }
+                self.lock.lock(); self.subscribers[id] = nil; self.lock.unlock()
+            }
+        }
+    }
+
+    func send(_ event: BandEvent) {
+        lock.lock(); let live = Array(subscribers.values); lock.unlock()
+        for c in live { c.yield(event) }
+    }
 }
 
 struct DiscoveredBand: Identifiable, Hashable {
@@ -167,11 +200,27 @@ struct OriginPoint {
     let sleepState: Int?
 }
 
+struct BandHealthData {
+    let temperatures: [TemperatureSample]
+    let hrv: [HrvMinuteSample]
+}
+
+/// 04B rule 04 · one run of the band's own sleepLine: a stage and how many minutes it held.
+/// Stages are the SDK's (VPAccurateSleepModel): 0 deep, 1 light, 2 REM, 3 insomnia, 4 awake —
+/// KH firmware emits no 2 or 3.
+struct SleepStageRun: Codable, Hashable {
+    let stage: Int
+    let minutes: Int
+}
+
 struct SleepNight {
     let totalMinutes: Int
     let deepMinutes: Int
     let lightMinutes: Int
     let wakeCount: Int
+    /// 04B rule 04 · the night's sleepLine compressed into runs, in the order the night ran.
+    /// Empty when the band answered without a curve — the strip falls back to proportions.
+    var line: [SleepStageRun] = []
 }
 
 /// The states the measurement takeover renders. `lead == false` is the amber nudge:
@@ -179,7 +228,9 @@ struct SleepNight {
 enum MeasurementProgress {
     case waitingForContact
     case contact
-    case measuring(fraction: Double, partial: PartialReading?)
+    /// `secondsLeft` is the band's own clock when it has one (body composition reports its
+    /// progress); nil means the phone counts, as for a heart-rate read the SDK only values.
+    case measuring(fraction: Double, partial: PartialReading?, secondsLeft: Int? = nil)
     case lostContact
     case finished(MeasurementResult)
     case failed(reason: String)
@@ -212,6 +263,11 @@ struct BodyCompositionReading {
     let bmi: Double?
     /// The weight this reading was computed from — the one we pushed down, not one measured.
     let inputWeightKg: Double
+    /// The rest of the SDK's twelve, for the baseline screen. Absent when the firmware sent
+    /// an empty string; a missing field is a dash, never a number.
+    var muscleRatePercent: Double? = nil
+    var waterKg: Double? = nil
+    var proteinKg: Double? = nil
 }
 
 enum BandSetting {
@@ -269,6 +325,13 @@ enum BandError: LocalizedError {
     }
 }
 
+
+/// What the update server offers for the connected band: the version, and its release
+/// notes one per line. The server, not the band, is the source — the band cannot know.
+struct FirmwareOffer: Equatable {
+    let version: String
+    let notes: [String]
+}
 
 /// 12 rule 08 · completed / failed / versionUnverified.
 enum FirmwareUpdateResult: Equatable {

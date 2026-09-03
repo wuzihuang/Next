@@ -39,8 +39,12 @@ extension Repository {
     /// ⚠️ Written verbatim, never squashed into booleans. On screen "unknown" and
     /// "unsupported" both mean the row is not drawn; when something is wrong they are two
     /// completely different problems, and only one of them is the band's fault.
-    func saveCapabilities(_ caps: BandCapabilities, deviceId: String, userId: String) async {
-        _ = try? await db.upsert("device_capabilities", row: [
+    /// `holdsDays` is the band's saveDays — how many days of history it still carries. It
+    /// travels with the capability row because the backfill and the ON DEVICE fact both
+    /// read it, and a null there made both fall back to a number the app made up.
+    func saveCapabilities(_ caps: BandCapabilities, deviceId: String, userId: String,
+                          holdsDays: Int? = nil) async {
+        var row: [String: Any] = [
             "device_id": deviceId,
             "user_id": userId,
             "read_at": ISO8601DateFormatter().string(from: Date()),
@@ -50,7 +54,9 @@ extension Repository {
             "hrv": caps.hrv.rawValue,
             "stress": caps.stress.rawValue,
             "auto_measure": caps.autoMeasure.rawValue,
-        ], onConflict: "device_id")
+        ]
+        if let holdsDays, holdsDays > 0 { row["watch_data_day_number"] = holdsDays }
+        _ = try? await db.upsert("device_capabilities", row: row, onConflict: "device_id")
     }
 }
 
@@ -66,21 +72,61 @@ extension Repository {
     ///
     /// A field the user edits is marked `edit` in field_sources, which every later
     /// HealthKit sync skips. We do not compare timestamps and we never win against them.
+    ///
+    /// ⚠️ This was a PATCH, and nothing anywhere inserted the row. The demo account had one
+    /// from the seed; a real account had none, so every save updated zero rows, and the
+    /// server — which reads timezone, birth_date, sex and height_cm off this row before it
+    /// computes anything — computed nothing for as long as the account existed. It is an
+    /// upsert on user_id now, and it carries every column the computation reads.
     func saveProfile(_ profile: Profile, editedFields: [String]) async {
+        guard let userId = await db.currentUserId else { return }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         var row: [String: Any] = [
-            "display_name": profile.name,
+            "user_id": userId,
+            "timezone": TimeZone.current.identifier,
             "goal": profile.goal.rawValue,
             "units_metric": profile.usesMetric,
             "height_cm": profile.heightCm,
+            "sex": profile.sexIsMale ? "male" : "female",
+            "birth_date": f.string(from: profile.birthdate),
         ]
+        if !profile.name.isEmpty { row["display_name"] = profile.name }
         if !editedFields.isEmpty {
             var sources: [String: String] = [:]
-            for f in editedFields { sources[f] = "edit" }
+            for e in editedFields { sources[e] = "edit" }
             row["field_sources"] = sources
         }
-        guard let userId = await db.currentUserId else { return }
-        _ = try? await db.patchWhere("profiles", column: "user_id", equals: userId, row: row)
+        do { _ = try await db.upsert("profiles", row: row, onConflict: "user_id") }
+        catch {
+            #if DEBUG
+            NSLog("Repository.saveProfile failed: %@", "\(error)")
+            #endif
+        }
         await Analytics.shared.track("PROFILE_EDITED", ["FIELDS": editedFields])
+    }
+
+    /// Just the name, for the one caller that has a name and nothing else to say: the first
+    /// Apple authorization. It cannot go through `saveProfile`, which would write a whole
+    /// profile of defaults over whatever onboarding is about to establish.
+    func saveDisplayName(_ name: String) async {
+        guard let userId = await db.currentUserId, !name.isEmpty else { return }
+        do { _ = try await db.upsert("profiles", row: ["user_id": userId, "display_name": name],
+                                     onConflict: "user_id") }
+        catch {
+            #if DEBUG
+            NSLog("Repository.saveDisplayName failed: %@", "\(error)")
+            #endif
+        }
+    }
+
+    /// The row the computation hangs off, with at least the timezone on it. Called on every
+    /// launch: a missing row is created, and a phone that has moved zones tells the server —
+    /// the user day is cut at local 04:00, and the server can only know "local" from here.
+    func ensureProfileRow(existingTimezone: String?) async {
+        guard let userId = await db.currentUserId else { return }
+        let tz = TimeZone.current.identifier
+        if existingTimezone == tz { return }
+        _ = try? await db.upsert("profiles", row: ["user_id": userId, "timezone": tz], onConflict: "user_id")
     }
 }
 
@@ -108,6 +154,12 @@ actor Analytics {
         ])
         if pending.count >= 4 { await flush() }
     }
+
+    /// 11 · DELETE EVERYTHING. ⚠️ flush() stamps user_id at flush time, not at track time,
+    /// so a buffer left over from the deleted account would be posted under whoever signs in
+    /// next on this phone. The batch is unsendable anyway — its own account is gone and the
+    /// insert would 401 — so this drops it rather than misattributing it.
+    func purge() { pending.removeAll() }
 
     func flush() async {
         guard !flushing, !pending.isEmpty, let userId = await db.currentUserId else { return }

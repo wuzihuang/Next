@@ -26,15 +26,36 @@ struct DeviceView: View {
     /// 12 edge 5 · the OTA result, three-state.
     @State private var ota: OTAState?
     enum OTAState: Equatable { case running, completed, failed(String), unverified }
+    /// What the update server said when the page asked. `offer` nil with `check` settled
+    /// means the band is current; a failed check is its own line, never "up to date".
+    @State private var offer: FirmwareOffer?
+    @State private var check: OTACheck = .idle
+    enum OTACheck: Equatable { case idle, checking, done, failed(String) }
+    /// 0…1 from the SDK while the file crosses.
+    @State private var otaProgress: Double = 0
     @State private var writing: String?
+    /// How often this phone asks the band for the day. Mirrors SyncCadence so the row
+    /// re-renders when the sheet changes it.
+    @State private var cadence = SyncCadence.minutes
 
     private var connected: Bool { data.band.connected }
 
     var body: some View {
-        DetailScroll(glow: NB.lime1) {
+        // 12 hangs off profile, and the eyebrow says so.
+        DetailScroll(glow: NB.lime1, title: "DEVICE", eyebrow: "PROFILE", trailing: {
+            HStack(spacing: 7) {
+                Circle().fill(connected ? NB.lime1 : NB.white.opacity(0.3))
+                    .frame(width: 6, height: 6)
+                Text(connected ? "CONNECTED" : "DISCONNECTED")
+                    .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
+                    .foregroundStyle(connected ? NB.lime1 : NB.text3Prod)
+            }
+            .padding(.horizontal, 10).frame(height: 24)
+            .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+        }) {
             VStack(alignment: .leading, spacing: 14) {
-                header
                 batteryCard
+                liveCard
                 firmwareCard
                 if !connected { readOnlyNotice }
                 if busyQueued { busyCard }
@@ -57,6 +78,15 @@ struct DeviceView: View {
                         .onChange(of: hrAlarm) { _, on in
                             write(.heartRateAlarm(on: on, low: 50, high: 140))
                         }
+                }
+
+                GroupLabel12("SYNC")
+                RowCard {
+                    // The band records every five minutes regardless; this is only how often
+                    // the phone collects. It is a phone setting, so it stays live off-band.
+                    NavRow(title: "Read the band",
+                           detail: "HOW OFTEN THE DAY IS PULLED",
+                           value: SyncCadence.label(cadence), last: true) { sheet = .syncCadence }
                 }
 
                 GroupLabel12("REMINDERS · VIBRATION ONLY")
@@ -141,7 +171,8 @@ struct DeviceView: View {
                 data.capabilities = fresh
                 if let deviceId = Repository.shared.deviceId,
                    let userId = await SupabaseClient.shared.currentUserId {
-                    await Repository.shared.saveCapabilities(fresh, deviceId: deviceId, userId: userId)
+                    await Repository.shared.saveCapabilities(fresh, deviceId: deviceId, userId: userId,
+                                                             holdsDays: identity?.watchDataDayNumber)
                 }
             }
             if !DebugEdge.on("levelonly") { battery = try? await Band.live.readBattery() }
@@ -149,12 +180,29 @@ struct DeviceView: View {
                 data.band.batteryPercent = percent
             }
             if let identity { data.band.firmware = identity.firmware }
+            await checkForUpdate()
+            // The page now shows what the band recorded, so it asks for it. Throttled and
+            // shared with the home screen's pull: opening this page a second time inside a
+            // tick reads nothing off the band.
+            await OriginDataSync.refreshNow(into: data)
+        }
+        // The band came back while the page was open (a reconnect, or the page was opened
+        // before the link was up): read what the task above could not, and ask the server.
+        .onChange(of: connected) { _, on in
+            guard on, check == .idle else { return }
+            Task {
+                if identity == nil, let fresh = try? await Band.live.readIdentity() {
+                    identity = fresh; data.band.firmware = fresh.firmware
+                }
+                await checkForUpdate()
+            }
         }
         .sheet(item: $sheet) { r in
             Group {
                 switch r {
                 case .bandAutoMonitor: AutoMeasurementSheet()
                 case .bandAlarm:       AlarmsSheet()
+                case .syncCadence:     SyncCadenceSheet(minutes: $cadence)
                 case .unbind:          ForgetHoopSheet()
                 default:               WhyWontItConnectSheet()
                 }
@@ -239,17 +287,42 @@ struct DeviceView: View {
         .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.ember1.opacity(0.25), lineWidth: 1))
     }
 
+    /// Ask the update server. The card says "checking" while this runs, and afterwards one of
+    /// three things: an offer, "up to date", or that the server could not be reached.
+    private func checkForUpdate() async {
+        // The page's task and the reconnect hook can both arrive within a frame of each
+        // other; one request to the server at a time, like every other band call.
+        guard connected, check != .checking else { return }
+        check = .checking
+        do {
+            offer = try await Band.live.checkFirmwareUpdate()
+            check = .done
+        } catch {
+            offer = nil
+            check = .failed(error.localizedDescription)
+        }
+        await Analytics.shared.track("DEV_OTA_CHECK", ["OFFER": offer?.version ?? "none", "OK": check == .done])
+    }
+
     /// 12 rule 08 · the update runs, and the result is one of three.
     private func runUpdate() {
+        guard let offer else { return }
         Task {
             ota = .running
-            await Analytics.shared.track("DEV_OTA_START", ["FROM": identity?.firmware ?? data.band.firmware, "TO": Self.availableFirmware])
+            otaProgress = 0
+            await Analytics.shared.track("DEV_OTA_START", ["FROM": identity?.firmware ?? data.band.firmware, "TO": offer.version])
             let t0 = Date()
             let result: FirmwareUpdateResult
-            do { result = try await Band.live.updateFirmware(to: Self.availableFirmware) }
+            do {
+                result = try await Band.live.updateFirmware(to: offer.version) { p in
+                    Task { @MainActor in otaProgress = p }
+                }
+            }
             catch { result = .failed(reason: "\(error)") }
             switch result {
-            case .completed(let v):   ota = .completed; data.band.firmware = v
+            case .completed(let v):
+                ota = .completed; data.band.firmware = v
+                if let refreshed = try? await Band.live.readIdentity() { identity = refreshed }
             case .failed(let why):    ota = .failed(why)
             case .versionUnverified:  ota = .unverified
             }
@@ -258,7 +331,7 @@ struct DeviceView: View {
     }
 
     private var batteryReading: String {
-        guard let battery else { return "\(data.band.batteryPercent)" }
+        guard let battery else { return data.band.batteryPercent.map(String.init) ?? Fmt.dash }
         if battery.isPercent { return battery.percent.map(String.init) ?? Fmt.dash }
         return battery.level.map { "\($0)/4" } ?? Fmt.dash
     }
@@ -292,30 +365,6 @@ struct DeviceView: View {
         autoDetail.contains("·") ? autoDetail.components(separatedBy: " · ").count : 0
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("PROFILE")
-                .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-                .foregroundStyle(NB.text3Prod)
-            HStack(alignment: .firstTextBaseline) {
-                Text("DEVICE")
-                    .font(NBFont.brand(700, 30)).tracking(-0.02 * 30)
-                    .foregroundStyle(NB.text1)
-                Spacer(minLength: 0)
-                HStack(spacing: 7) {
-                    Circle().fill(connected ? NB.lime1 : NB.white.opacity(0.3))
-                        .frame(width: 6, height: 6)
-                    Text(connected ? "CONNECTED" : "DISCONNECTED")
-                        .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
-                        .foregroundStyle(connected ? NB.lime1 : NB.text3Prod)
-                }
-                .padding(.horizontal, 10).frame(height: 24)
-                .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
-            }
-        }
-        .padding(.top, 14)
-    }
-
     /// The ring and the sentence answer two different questions: 82 is a number, and
     /// "about 3 days of charge left" is what a normal person wanted to know.
     /// ⚠️ Days are our own estimate — the SDK gives percent / level / chargeState only.
@@ -342,7 +391,7 @@ struct DeviceView: View {
             HStack(spacing: 18) {
                 ZStack {
                     Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
-                    RingArc(from: 0, to: battery?.ringFraction ?? Double(data.band.batteryPercent) / 100)
+                    RingArc(from: 0, to: battery?.ringFraction ?? Double(data.band.batteryPercent ?? 0) / 100)
                         .stroke(connected ? NB.lime1 : NB.white.opacity(0.28),
                                 style: StrokeStyle(lineWidth: 5, lineCap: .round))
                         .frame(width: 69, height: 69)
@@ -403,18 +452,76 @@ struct DeviceView: View {
         .cardSkin()
     }
 
+    /// 12 · what actually came off the wrist, on the page about the thing that measured it.
+    /// The device page could say SYNCED 2 MIN AGO and show nothing that was synced — the only
+    /// way to tell a working link from a silent one was to leave for the home screen.
+    ///
+    /// ⚠️ These are the last five-minute tick, not an average and not a live feed: the band
+    /// records every five minutes and the app reads what it recorded. 13 · past six hours the
+    /// numbers are —— rather than dimmed, because a six-hour-old heart rate is not a reading
+    /// of anything, and a band off the wrist reports no heart rate at all.
+    private var liveCard: some View {
+        let vitals = data.vitals
+        let stale = vitals.freshness == .stale
+        let gone = vitals.freshness == .gone
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("LAST TICK")
+                    .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
+                    .foregroundStyle(NB.white.opacity(0.34))
+                Spacer(minLength: 0)
+                Text(vitals.at.map(Fmt.clock) ?? "NO TICK")
+                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                    .foregroundStyle(gone ? NB.text3Prod : NB.lime1)
+            }
+
+            HStack(spacing: 0) {
+                LiveReading(label: "HEART", value: gone ? nil : vitals.hr.map(String.init),
+                            unit: "BPM", dim: stale)
+                LiveReading(label: "STRESS", value: gone ? nil : vitals.stress.map(String.init),
+                            unit: "INDEX", dim: stale)
+                // Steps are the day's own total off the all-day segment, not a tick, so they
+                // do not dim with the tick's age — a step taken this morning is still a step.
+                LiveReading(label: "STEPS", value: data.today.steps.map(String.init),
+                            unit: "TODAY", dim: false)
+            }
+
+            Hairline()
+
+            // One sentence, and it names which of the three states the numbers above are in.
+            Text(liveLine)
+                .font(NBFont.ui(400, 12.5)).tracking(0.02 * 12.5)
+                .foregroundStyle(gone ? NB.text3Prod : NB.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .cardSkin()
+    }
+
+    private var liveLine: String {
+        guard data.vitals.at != nil else {
+            return connected
+                ? "Nothing has come off this HOOP yet."
+                : "Connect the HOOP to see what it has been recording."
+        }
+        switch data.vitals.freshness {
+        case .fresh: return "The HOOP is recording every five minutes."
+        case .stale: return "Nothing new for a while. It may be off your wrist."
+        case .gone:  return "Nothing for over six hours. These are not old numbers, they are no numbers."
+        }
+    }
+
     /// Same shape the panel uses, off the same timestamp, so the two pages cannot disagree
     /// about when the last sync was.
     private var syncedAgo: String {
-        let mins = max(0, Int(Date().timeIntervalSince(data.lastSync) / 60))
+        // A phone that has never pulled a page says so; it does not count from a made-up time.
+        guard let at = data.lastSync else { return "NEVER" }
+        let mins = max(0, Int(Date().timeIntervalSince(at) / 60))
         if mins < 1 { return "JUST NOW" }
         if mins < 60 { return "\(mins) MIN AGO" }
         return "\(mins / 60) HR AGO"
     }
-
-    /// The version the update server offers. A constant until there is an update server;
-    /// it is not something the band can tell us.
-    private static let availableFirmware = "2.5.0"
 
     /// Five reasons the button can be grey, and it always says which one.
     /// "Temporarily unavailable" is never allowed to stand in for all five.
@@ -427,7 +534,7 @@ struct DeviceView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(identity?.firmware ?? data.band.firmware).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
                     Text("?").font(NBFont.dot(500, 14)).foregroundStyle(Color(hex: 0x8A8A96))
-                    Text(Self.availableFirmware).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
+                    Text(offer?.version ?? Fmt.dash).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
                 }
                 Text("The update finished but we could not read the new version back. Check the band before trying again.")
                     .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5).lineSpacing(4).foregroundStyle(NB.white.opacity(0.70))
@@ -449,28 +556,36 @@ struct DeviceView: View {
                     Text(identity?.firmware ?? data.band.firmware)
                         .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
                         .foregroundStyle(NB.text2)
-                    Text("→")
-                        .font(NBFont.dot(700, 13))
-                        .foregroundStyle(NB.lime1)
-                    Text(Self.availableFirmware)
-                        .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
-                        .foregroundStyle(NB.lime1)
+                    // The right side is what the update server offered. ⚠️ It used to be a
+                    // constant 2.5.0, so every HOOP was told it had an update forever.
+                    if let offer, ota != .completed {
+                        Text("→")
+                            .font(NBFont.dot(700, 13))
+                            .foregroundStyle(NB.lime1)
+                        Text(offer.version)
+                            .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
+                            .foregroundStyle(NB.lime1)
+                    }
                 }
                 Text(otaLine)
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(ota == .completed ? NB.lime1 : NB.text3Prod)
             }
             Spacer(minLength: 0)
-            Button(action: runUpdate) {
-                Text(ota == .running ? "UPDATING…" : ota == .completed ? "DONE" : "UPDATE")
-                    .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                    .foregroundStyle(connected ? NB.carbon : NB.text3Prod)
-                    .padding(.horizontal, 18).frame(height: 36)
-                    .background(connected ? NB.lime1 : Color.clear, in: Capsule())
-                    .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+            if offer != nil || (connected && check != .checking && ota != .completed) {
+                // With an offer the button installs it. Without one (current, or the server
+                // could not be asked) it asks again — the card is never a dead end.
+                Button(action: { if offer != nil { runUpdate() } else { Task { await checkForUpdate() } } }) {
+                    Text(otaButton)
+                        .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
+                        .foregroundStyle(connected && offer != nil ? NB.carbon : NB.text3Prod)
+                        .padding(.horizontal, 18).frame(height: 36)
+                        .background(connected && offer != nil ? NB.lime1 : Color.clear, in: Capsule())
+                        .overlay(connected && offer != nil ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .disabled(!connected || ota == .running || ota == .completed)
             }
-            .buttonStyle(.plain)
-            .disabled(!connected || ota == .running || ota == .completed)
         }
         .padding(16)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
@@ -482,10 +597,22 @@ struct DeviceView: View {
     private var otaLine: String {
         switch ota {
         case .running:          return "Installing · keep the band close"
-        case .completed:        return "Installed · \(Self.availableFirmware) is on the band"
+        case .completed:        return "Installed · \(identity?.firmware ?? data.band.firmware) is on the band"
         case .failed(let why):  return why
-        default:                return connected ? "Better sleep staging · about 4 min" : "Reconnect to install this update"
+        default: break
         }
+        guard connected else { return offer == nil ? "Reconnect to check for updates" : "Reconnect to install this update" }
+        switch check {
+        case .idle, .checking:  return "Checking for updates…"
+        case .failed(let why):  return "Could not reach the update server · \(why)"
+        case .done:             return offer.map { $0.notes.first ?? "Update available" } ?? "Up to date"
+        }
+    }
+
+    private var otaButton: String {
+        if ota == .running { return otaProgress > 0 ? "UPDATING \(Int(otaProgress * 100)) %" : "UPDATING…" }
+        if ota == .completed { return "DONE" }
+        return offer != nil ? "UPDATE" : "CHECK"
     }
 
     /// One sentence with a padlock covers the whole read-only段. Switches are not hidden and
@@ -535,6 +662,32 @@ private struct RowCard<Content: View>: View {
         VStack(spacing: 0) { content }
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
+    }
+}
+
+/// One reading off the last tick. `nil` is ——, never a zero and never the tick before it.
+private struct LiveReading: View {
+    let label: String
+    let value: String?
+    let unit: String
+    var dim = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
+                .foregroundStyle(NB.text3Prod)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value ?? Fmt.dash)
+                    .font(NBFont.dot(700, 22)).tracking(0.02 * 22)
+                    .foregroundStyle(value == nil ? NB.text3Prod
+                                     : (dim ? NB.text2 : NB.text1))
+                Text(unit)
+                    .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
+                    .foregroundStyle(NB.white.opacity(0.34))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -811,6 +964,67 @@ private struct MeasureToggle: View {
 /// One table. Every save rewrites all of it — the band replaces the whole alarm set at once,
 /// and its capacity is 3 / 10 / 20 depending on firmware, so a failure is a rollback,
 /// never an optimistic success.
+/// 12 · how often the phone reads the band. One row per cadence, the current one marked.
+/// The choice is written the moment it is tapped — there is nothing to confirm, and the
+/// home screen's loop picks it up within thirty seconds.
+struct SyncCadenceSheet: View {
+    @Binding var minutes: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Read the band")
+                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
+                .foregroundStyle(NB.text1)
+            Text("The HOOP records every five minutes whatever you choose. This is how often your phone collects it.")
+                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                .foregroundStyle(NB.white.opacity(0.38))
+                .padding(.top, 6)
+
+            VStack(spacing: 0) {
+                ForEach(Array(SyncCadence.options.enumerated()), id: \.element) { index, option in
+                    Button {
+                        minutes = option
+                        SyncCadence.minutes = option
+                        Task { await Analytics.shared.track("SYNC_CADENCE_SET", ["MINUTES": option]) }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text(SyncCadence.label(option))
+                                .font(NBFont.dot(500, 12)).tracking(0.14 * 12)
+                                .foregroundStyle(option == minutes ? NB.lime1 : NB.text1)
+                            Spacer(minLength: 0)
+                            if option == minutes {
+                                Circle().fill(NB.lime1).frame(width: 8, height: 8)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(height: 54)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .overlay(alignment: .bottom) {
+                        index == SyncCadence.options.count - 1 ? nil : Hairline().padding(.leading, 16)
+                    }
+                }
+            }
+            .frame(width: NB.Layout.contentWidth)
+            .cardSkin()
+            .padding(.top, 16)
+
+            Text("Shorter keeps the numbers fresher. Longer is easier on both batteries.")
+                .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
+                .foregroundStyle(NB.white.opacity(0.30))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 14)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(NB.carbon2)
+    }
+}
+
 struct AlarmsSheet: View {
     @State private var alarms: [(String, String, Bool)] = [
         ("07:30", "MON TUE WED THU FRI", true),

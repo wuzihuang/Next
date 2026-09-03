@@ -8,26 +8,20 @@ import Foundation
 /// takeover has, which is the only part of this flow that is hard to get right.
 final class MockBand: BandService, @unchecked Sendable {
     private(set) var state: BandConnectionState = .idle {
-        didSet { continuation?.yield(.state(state)) }
+        didSet { hub.send(.state(state)) }
     }
 
-    let events: AsyncStream<BandEvent>
-    private var continuation: AsyncStream<BandEvent>.Continuation?
+    private let hub = BandEventHub()
+    var events: AsyncStream<BandEvent> { hub.stream() }
     private let queue = HoopQueue()
 
     private var pushedWeightKg: Double = 75.6
-
-    init() {
-        var c: AsyncStream<BandEvent>.Continuation?
-        events = AsyncStream { c = $0 }
-        continuation = c
-    }
 
     func startScan() async {
         state = .scanning
         try? await Task.sleep(for: .seconds(2.2))
         guard state == .scanning else { return }
-        continuation?.yield(.discovered(DiscoveredBand(
+        hub.send(.discovered(DiscoveredBand(
             id: "C4-2E-8F-1A-73-9D", name: "NEXTBODY HOOP", rssi: -46, batteryPercent: 96)))
     }
 
@@ -39,7 +33,7 @@ final class MockBand: BandService, @unchecked Sendable {
         for _ in 0..<4 { try? await Task.sleep(for: .milliseconds(600)) }
         state = .connected
         BoundBand.identifier = device.id
-        continuation?.yield(.battery(try await readBattery()))
+        hub.send(.battery(try await readBattery()))
     }
 
     func reconnectIfBound() async {
@@ -47,7 +41,7 @@ final class MockBand: BandService, @unchecked Sendable {
         state = .connecting
         try? await Task.sleep(for: .milliseconds(700))
         state = .connected
-        continuation?.yield(.battery(BandBattery(
+        hub.send(.battery(BandBattery(
             isPercent: true, percent: 82, level: nil, chargeState: .unplugged)))
         _ = bound
     }
@@ -113,13 +107,35 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func readSleep(dayOffset: Int) async throws -> SleepNight? {
         try await requireConnection()
-        return SleepNight(totalMinutes: 452, deepMinutes: 98, lightMinutes: 306, wakeCount: 1)
+        // 6H 50M as the band's own line: light → deep → light → one wake → deep → light.
+        return SleepNight(totalMinutes: 410, deepMinutes: 98, lightMinutes: 306, wakeCount: 1,
+                          line: [SleepStageRun(stage: 1, minutes: 70), SleepStageRun(stage: 0, minutes: 55),
+                                 SleepStageRun(stage: 1, minutes: 92), SleepStageRun(stage: 4, minutes: 6),
+                                 SleepStageRun(stage: 0, minutes: 43), SleepStageRun(stage: 1, minutes: 144)])
+    }
+
+    func readHealthData(dayOffset: Int) async throws -> BandHealthData {
+        try await requireConnection()
+        let temperatures = stride(from: 0, to: 24 * 60, by: 5).map { minute in
+            TemperatureSample(time: String(format: "%02d:%02d", minute / 60, minute % 60),
+                              celsius: 34.0 + 0.4 * sin(Double(minute) / 180))
+        }
+        let hrv = (0..<8 * 60).map { minute in
+            HrvMinuteSample(time: String(format: "%02d:%02d", minute / 60, minute % 60),
+                            rmssdMS: 48 + 5 * sin(Double(minute) / 45),
+                            vendorValue: nil, rrCount: 40)
+        }
+        return BandHealthData(temperatures: temperatures, hrv: hrv)
     }
 
     func measureHeartRate() -> AsyncThrowingStream<MeasurementProgress, Error> {
+        // The real SDK hands back a rate on every `testing` callback, from the first one, and
+        // it wanders as the band settles. The mock does the same, so the trace on 06 beats at
+        // a rate that moves, not at a constant the screen could have invented.
         stream(total: 60) { fraction in
-            .measuring(fraction: fraction,
-                       partial: fraction > 0.5 ? PartialReading(heartRate: 62) : nil)
+            let second = fraction * 60
+            let hr = second < 1 ? nil : 62 + Int((3 * sin(second / 7)).rounded()) + (second < 6 ? 4 : 0)
+            return .measuring(fraction: fraction, partial: hr.map { PartialReading(heartRate: $0) })
         } finish: {
             .heartRate(hr: 62, hrv: 54, stress: 34)
         }
@@ -131,7 +147,7 @@ final class MockBand: BandService, @unchecked Sendable {
             .measuring(fraction: fraction,
                        partial: fraction > 0.5 ? PartialReading(bodyFatPercent: 24.1) : nil)
         } finish: { [pushedWeightKg] in
-            .bodyComposition(BodyCompositionReading(
+            var r = BodyCompositionReading(
                 bodyFatPercent: 14.8,
                 fatMassKg: pushedWeightKg * 0.148,
                 leanMassKg: pushedWeightKg * 0.852,
@@ -139,7 +155,11 @@ final class MockBand: BandService, @unchecked Sendable {
                 bodyWaterPercent: 55.2, proteinPercent: 17.6,
                 subcutaneousFatPercent: 18.9, skeletalMusclePercent: 42.1,
                 bmrKcal: 1710, bmi: 21.3,
-                inputWeightKg: pushedWeightKg))
+                inputWeightKg: pushedWeightKg)
+            r.muscleRatePercent = 74.3
+            r.waterKg = pushedWeightKg * 0.552
+            r.proteinKg = pushedWeightKg * 0.176
+            return .bodyComposition(r)
         }
     }
 
@@ -156,6 +176,8 @@ final class MockBand: BandService, @unchecked Sendable {
                     continuation.finish(throwing: BandError.notConnected); return
                 }
                 continuation.yield(.waitingForContact)
+                // DEBUG · `NB_DEBUG_EDGE=nocontact` never finds a finger, to walk 03 edge 1.
+                if DebugEdge.on("nocontact") { while !Task.isCancelled { try? await Task.sleep(for: .seconds(1)) }; return }
                 // The finger takes about 1.2s to register, which is why the nudge is at 5s.
                 try? await Task.sleep(for: .milliseconds(1200))
                 continuation.yield(.contact)
@@ -171,8 +193,22 @@ final class MockBand: BandService, @unchecked Sendable {
         }
     }
 
-    func updateFirmware(to version: String) async throws -> FirmwareUpdateResult {
-        try? await Task.sleep(for: .seconds(1.2))
+    /// The simulator's update server: one offer, a moment later. `NB_DEBUG_EDGE=uptodate`
+    /// answers that the band is current, `otacheckfail` that the server could not be reached.
+    func checkFirmwareUpdate() async throws -> FirmwareOffer? {
+        try await requireConnection()
+        try? await Task.sleep(for: .milliseconds(900))
+        if DebugEdge.on("uptodate") { return nil }
+        if DebugEdge.on("otacheckfail") { throw BandError.rejected("update server unreachable") }
+        return FirmwareOffer(version: "2.5.0", notes: ["Better sleep staging", "Battery reported in percent"])
+    }
+
+    func updateFirmware(to version: String, progress: @escaping @Sendable (Double) -> Void) async throws -> FirmwareUpdateResult {
+        // A real transfer takes minutes; the mock walks the same shape in seconds.
+        for step in 1...24 {
+            try? await Task.sleep(for: .milliseconds(100))
+            progress(Double(step) / 24)
+        }
         // DEBUG · `NB_DEBUG_EDGE=otaunverified` walks 12 edge 5 on the mock.
         if DebugEdge.on("otaunverified") { return .versionUnverified }
         return .completed(version: version)

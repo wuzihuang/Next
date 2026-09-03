@@ -511,7 +511,9 @@ struct DeleteAccountSheet: View {
                                              ["ERROR": "\(row["error"] ?? "unknown")"])
                 return
             }
-            session.reset()
+            // Not reset() — that is the sign-out, and it leaves the band paired and every
+            // nb.* key on the phone. The sheet just promised there is no undo.
+            session.purgeAfterAccountDelete()
             dismiss()
         } catch {
             failure = Self.failureCopy(ref: "\(error)")

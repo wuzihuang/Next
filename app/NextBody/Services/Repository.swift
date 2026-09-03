@@ -30,19 +30,40 @@ final class Repository {
         await load(days: 182, endingAt: today, into: store)
         await loadComposition(into: store)
         await loadCapabilities(into: store)
+        await loadLastSync(into: store)
+        // Reachability may never change while a user signs out and later returns. Flush the
+        // account-owned outboxes on session restore as well as on network transitions.
+        await WeighInQueue.shared.flush()
+        await BodyCompositionQueue.shared.flush()
+    }
+
+    func loadLastSync(into store: DataStore) async {
+        guard let rows = try? await db.select("devices", query: [
+            .init(name: "select", value: "id,last_origin_sync_at"),
+            .init(name: "unbound_at", value: "is.null"),
+            .init(name: "limit", value: "1"),
+        ]), let row = rows.first else { return }
+        if let id = row["id"] as? String { deviceId = id }
+        store.lastSync = (row["last_origin_sync_at"] as? String).flatMap(Self.timestamp)
     }
 
     /// The profile exists from onboarding onwards; failing to read it is a serious fault,
     /// so the screen keeps whatever it already had rather than blanking the identity card.
     func loadProfile(into store: DataStore) async {
-        guard let row = try? await db.select("profiles", query: [
+        let found = try? await db.select("profiles", query: [
             .init(name: "select", value: "display_name,sex,height_cm,birth_date,goal,units_metric,timezone"),
             .init(name: "limit", value: "1"),
-        ]).first else { return }
+        ]).first
+        // The row must exist and carry this phone's zone before anything can be computed.
+        await ensureProfileRow(existingTimezone: found?["timezone"] as? String)
+        guard let row = found else { return }
 
         if let name = row["display_name"] as? String, !name.isEmpty { store.profile.name = name }
         if let d = try? await db.select("devices", query: [
             .init(name: "select", value: "id,firmware_version,battery_percent,device_number"),
+            // The bound one. A forgotten HOOP keeps its row (12 · "your history stays") and
+            // must not lend the header its last battery reading.
+            .init(name: "unbound_at", value: "is.null"),
             .init(name: "limit", value: "1"),
         ]).first {
             deviceId = d["id"] as? String
@@ -126,6 +147,77 @@ final class Repository {
         store.bodyFatPercent = number(latest["body_fat_pct"])
     }
 
+    /// The bound HOOP's row. The demo account has one from the seed; a real phone had none —
+    /// nothing wrote it after pairing — so `deviceId` stayed nil, sync_runs named no device,
+    /// device_capabilities were never stored, and the header's battery came from a mock.
+    /// One bound row per user (unbound_at is null): patched when it exists, inserted when not.
+    func registerDevice(identity: BandIdentity?, battery: BandBattery?) async {
+        guard let userId = await db.currentUserId else { return }
+        var row: [String: Any] = [:]
+        if let identity {
+            row["firmware_version"] = identity.firmware
+            row["device_number"] = identity.deviceNumber
+        }
+        if let battery {
+            // ⚠️ Three columns together (02 rule 05): a bar count is never stored as a percent.
+            row["battery_is_percent"] = battery.isPercent
+            if let p = battery.percent { row["battery_percent"] = p }
+            if let l = battery.level { row["battery_level"] = l }
+        }
+        do {
+            let bound = try await db.select("devices", query: [
+                .init(name: "select", value: "id"),
+                .init(name: "unbound_at", value: "is.null"),
+                .init(name: "limit", value: "1"),
+            ]).first
+            if let id = bound?["id"] as? String {
+                deviceId = id
+                if !row.isEmpty { _ = try await db.patch("devices", id: id, row: row) }
+            } else if let ble = identity?.bleIdentifier ?? BoundBand.identifier {
+                row["user_id"] = userId
+                row["ble_identifier"] = ble
+                row["ble_identifier_kind"] = "uuid"
+                deviceId = try await db.insert("devices", row: row).first?["id"] as? String
+            }
+        } catch {
+            #if DEBUG
+            NSLog("Repository.registerDevice failed: %@", "\(error)")
+            #endif
+        }
+    }
+
+    /// `devices.last_origin_sync_at` and the in-memory SYNCED label share this one meaning:
+    /// the completion time of a fully successful band sync, never the timestamp of a sample.
+    func markDeviceSynced(at date: Date) async {
+        guard let deviceId else { return }
+        do {
+            _ = try await db.patch("devices", id: deviceId, row: [
+                "last_origin_sync_at": ISO8601DateFormatter().string(from: date),
+            ])
+        } catch { BandLog.shared.record("patch last_origin_sync_at", error: error) }
+    }
+
+    /// F3 · the day's row is computed on the server and nowhere else. The cron settles every
+    /// hour; this asks for the caller's own window now, so a page that just came off the band
+    /// is on the screen before the hour turns. `days` back from today, today included.
+    /// Quiet when the RPC is not deployed yet — the cron still comes round.
+    func settleNow(days: Int) async {
+        do { _ = try await db.rpc("settle_now", args: ["p_days": days]) }
+        catch {
+            #if DEBUG
+            NSLog("Repository.settleNow failed: %@", "\(error)")
+            #endif
+        }
+    }
+
+    /// 06 rule 09 · a band scan is a row in body_composition, not a number in memory.
+    /// device_bia, computed from the weight we pushed down (input_weight_kg); the BIA's own
+    /// BMR is stored as a reference and never enters the budget.
+    func recordBodyComposition(_ r: BodyCompositionReading, at date: Date = Date()) async {
+        guard let userId = await db.userId else { return }
+        BodyCompositionQueue.shared.enqueue(r, at: date, ownerUserId: userId)
+    }
+
     func load(days: Int, endingAt day: UserDay, into store: DataStore) async {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -146,33 +238,81 @@ final class Repository {
             #endif
             guard !rows.isEmpty else { return }
 
-            let fuel = try await db.select("day_fuel", query: [
+            // ⚠️ These eight were awaited one after another: nine round trips end to end, and
+            // the screen sat on all nine every time a band sync settled. Not one of them reads
+            // another's answer — only `daily_results` above had to come first, because an
+            // empty day means none of the rest is worth asking for. Fired together they cost
+            // one round trip's wall clock instead of eight.
+            let stamp = ISO8601DateFormatter()
+            async let fuelRows = db.select("day_fuel", query: [
                 .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,protein_in_g,carb_in_g,fat_in_g,weight_kg"),
             ])
-            let reserve = try await db.select("reserve_daily", query: [
+            async let reserveRows = db.select("reserve_daily", query: [
                 .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs"),
             ])
-            var training = try await db.select("daily_training", query: [
+            async let trainingRows = db.select("daily_training", query: [
                 .init(name: "select", value: "result_id,zone_minutes,peak_hr,curve,segments"),
             ])
             // 补屏 B · active_minutes / distance_m arrive with migration 20260902040000. Asked
             // for separately so a project without them still loads the day — naming an
             // unknown column is a 400 for the whole select, and that 400 took the home
             // screen offline.
-            if let extras = try? await db.select("daily_training", query: [
+            async let trainingExtras = try? await db.select("daily_training", query: [
                 .init(name: "select", value: "result_id,active_minutes,distance_m"),
-            ]) {
+            ])
+            async let weighInRows = db.select("weigh_ins", query: [
+                .init(name: "select", value: "id,measured_at,weight_kg,source"),
+                .init(name: "order", value: "measured_at.desc"),
+                .init(name: "limit", value: "60"),
+            ])
+            // 12 · WEEK needs the week's meals, not just today's. Today's used to be a ninth
+            // request for a strict subset of these same rows; it is now filtered out of them.
+            async let weekMealRows = db.select("meals", query: [
+                .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g"),
+                .init(name: "deleted_at", value: "is.null"),
+                .init(name: "user_day", value: "gte.\(f.string(from: day.adding(days: -6).start))"),
+                .init(name: "user_day", value: "lte.\(f.string(from: day.start))"),
+                .init(name: "order", value: "logged_at.asc"),
+            ])
+            // 13 · the curve is 288 five-minute ticks of the shown day, not a shape we draw
+            // from the day's endpoints. Bounded by the 04:00 cut like everything else.
+            async let sampleRowsAsync = db.select("reserve_samples", query: [
+                .init(name: "select", value: "ts,value"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: day.start))"),
+                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
+                .init(name: "order", value: "ts.asc"),
+            ])
+            // 13 · heart and stress are not a footnote to the battery — two of the four
+            // attribution rows are made of them, so the detail page gets the day's own ticks
+            // in the same 04:00 → 04:00 window as the reserve curve.
+            // 04B · the second page draws the same ticks: skin temperature and the five
+            // minutes' steps, kcal and metres ride along on the columns the sync already writes.
+            async let vitalRowsAsync = db.select("raw_samples", query: [
+                .init(name: "select", value: "ts,heart,stress,temp,step,cal,dis"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: day.start))"),
+                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
+                .init(name: "order", value: "ts.asc"),
+            ])
+            // 04 · the HR / STRESS row is the last tick, not an average and not a guess.
+            async let liveRowsAsync = db.select("raw_samples", query: [
+                .init(name: "select", value: "ts,heart,stress"),
+                // A tick in the future is a tick the band cannot have reported.
+                .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
+                .init(name: "order", value: "ts.desc"),
+                .init(name: "limit", value: "1"),
+            ])
+
+            let fuel = try await fuelRows
+            let reserve = try await reserveRows
+            var training = try await trainingRows
+            if let extras = await trainingExtras {
                 let by = Dictionary(uniqueKeysWithValues: extras.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
                 training = training.map { row in
                     guard let id = row["result_id"] as? String, let e = by[id] else { return row }
                     var r = row; r["active_minutes"] = e["active_minutes"]; r["distance_m"] = e["distance_m"]; return r
                 }
             }
-            let weighIns = try await db.select("weigh_ins", query: [
-                .init(name: "select", value: "id,measured_at,weight_kg,source"),
-                .init(name: "order", value: "measured_at.desc"),
-                .init(name: "limit", value: "60"),
-            ])
+            let weighIns = try await weighInRows
 
             let fuelBy = Dictionary(uniqueKeysWithValues:
                 fuel.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
@@ -312,13 +452,7 @@ final class Repository {
             // server says UNLOGGED, an old locally-seeded meal must not survive on screen.
             // 12 · WEEK needs the week's meals, not just today's. Fetched once for the
             // window; `store.meals` stays today's so 09 keeps reading exactly what it did.
-            let weekRows = try await db.select("meals", query: [
-                .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g"),
-                .init(name: "deleted_at", value: "is.null"),
-                .init(name: "user_day", value: "gte.\(f.string(from: day.adding(days: -6).start))"),
-                .init(name: "user_day", value: "lte.\(f.string(from: day.start))"),
-                .init(name: "order", value: "logged_at.asc"),
-            ])
+            let weekRows = try await weekMealRows
             store.recentMeals = weekRows.compactMap { row in
                 guard let slot = MealEntry.Slot(rawValue: row["slot"] as? String ?? ""),
                       let iso = row["logged_at"] as? String,
@@ -338,36 +472,12 @@ final class Repository {
                     source: .typed)
             }
 
-            let mealRows = try await db.select("meals", query: [
-                .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g"),
-                .init(name: "deleted_at", value: "is.null"),
-                .init(name: "user_day", value: "eq.\(f.string(from: day.start))"),
-                .init(name: "order", value: "logged_at.asc"),
-            ])
-            store.meals = mealRows.compactMap { row in
-                guard let slot = MealEntry.Slot(rawValue: row["slot"] as? String ?? ""),
-                      let iso = row["logged_at"] as? String,
-                      let at = Self.timestamp(iso) else { return nil }
-                return MealEntry(
-                    id: UUID(uuidString: row["id"] as? String ?? "") ?? UUID(),
-                    day: day, at: at, slot: slot, status: .confirmed,
-                    text: row["text_input"] as? String ?? "",
-                    kcal: number(row["kcal"]) ?? 0,
-                    protein: Int(number(row["protein_g"]) ?? 0),
-                    carb: Int(number(row["carb_g"]) ?? 0),
-                    fat: Int(number(row["fat_g"]) ?? 0),
-                    source: .typed)
-            }
+            // Today's list is the shown day's rows out of the week just fetched — the same
+            // columns, the same filter, one fewer request. `store.meals` stays today's so 09
+            // keeps reading exactly what it did.
+            store.meals = store.recentMeals.filter { $0.day == day }
 
-            // 13 · the curve is 288 five-minute ticks of the shown day, not a shape we draw
-            // from the day's endpoints. Bounded by the 04:00 cut like everything else.
-            let stamp = ISO8601DateFormatter()
-            let sampleRows = try await db.select("reserve_samples", query: [
-                .init(name: "select", value: "ts,value"),
-                .init(name: "ts", value: "gte.\(stamp.string(from: day.start))"),
-                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
-                .init(name: "order", value: "ts.asc"),
-            ])
+            let sampleRows = try await sampleRowsAsync
             let curve: [ReserveSample] = sampleRows.compactMap { row in
                 guard let t = row["ts"] as? String,
                       let at = Self.timestamp(t),
@@ -376,20 +486,64 @@ final class Repository {
             }
             if !history.isEmpty { history[history.count - 1].reserveCurve = curve }
 
-            // 04 · the HR / STRESS row is the last tick, not an average and not a guess.
-            let liveRows = try await db.select("raw_samples", query: [
-                .init(name: "select", value: "ts,heart,stress"),
-                // A tick in the future is a tick the band cannot have reported.
-                .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
-                .init(name: "order", value: "ts.desc"),
-                .init(name: "limit", value: "1"),
-            ])
-            if let live = liveRows.first {
-                store.vitals = LiveVitals(
-                    hr: number(live["heart"]).map { Int($0) },
-                    stress: number(live["stress"]).map { Int($0) },
-                    at: (live["ts"] as? String).flatMap(Self.timestamp))
-                if let at = store.vitals.at { store.lastSync = at }
+            // ⚠️ A tick with neither heart nor stress is the band off the wrist. It is dropped
+            // here rather than drawn as a zero, so the two traces stop where the wearing did.
+            let vitalRows = try await vitalRowsAsync
+            let vitals: [VitalSample] = vitalRows.compactMap { row in
+                guard let t = row["ts"] as? String, let at = Self.timestamp(t) else { return nil }
+                let hr = number(row["heart"]).map { Int($0) }
+                let stress = number(row["stress"]).map { Int($0) }
+                let temp = number(row["temp"])
+                let steps = number(row["step"]).map { Int($0) }
+                guard hr != nil || stress != nil || temp != nil || steps != nil else { return nil }
+                return VitalSample(ts: at, hr: hr, stress: stress,
+                                   temp: temp,
+                                   steps: steps,
+                                   cal: number(row["cal"]),
+                                   dis: number(row["dis"]))
+            }
+            if !history.isEmpty { history[history.count - 1].vitalsCurve = vitals }
+
+            // 04B · SLEEP card. The night OriginDataSync stored under this user day. Asked on
+            // its own and swallowed on failure — a project without the table must still load,
+            // and a night the band has not answered is a "——", not an error.
+            if !history.isEmpty,
+               let nightRows = try? await db.select("sleep_nights", query: [
+                   .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line"),
+                   .init(name: "user_day", value: "eq.\(f.string(from: day.start))"),
+                   .init(name: "limit", value: "1"),
+               ]),
+               let night = nightRows.first, let total = number(night["total_minutes"]) {
+                // 04B rule 04 · the band's own staging, stored as "stage:minutes" runs. A row
+                // from before the column existed reads as no line, and the strip falls back
+                // to the totals.
+                let line = ((night["sleep_line"] as? String) ?? "").split(separator: ",").compactMap { pair -> SleepStageRun? in
+                    let parts = pair.split(separator: ":")
+                    guard parts.count == 2, let stage = Int(parts[0]), let minutes = Int(parts[1]), minutes > 0 else { return nil }
+                    return SleepStageRun(stage: stage, minutes: minutes)
+                }
+                history[history.count - 1].sleep = SleepSummary(
+                    totalMinutes: Int(total),
+                    deepMinutes: number(night["deep_minutes"]).map { Int($0) } ?? 0,
+                    lightMinutes: number(night["light_minutes"]).map { Int($0) } ?? 0,
+                    wakeCount: number(night["wake_count"]).map { Int($0) } ?? 0,
+                    line: line)
+            }
+
+            let liveRows = try await liveRowsAsync
+            if let live = liveRows.first,
+               let at = (live["ts"] as? String).flatMap(Self.timestamp) {
+                // ⚠️ The sync writes the tick it just pulled off the band into `store.vitals`
+                // before the row has finished its trip through settle_now. The server's answer
+                // is the same tick or an older one, never a newer one, so it only overwrites
+                // when it is at least as recent — otherwise the panel jumps backwards to the
+                // previous tick a second after showing the current one.
+                if store.vitals.at == nil || at >= store.vitals.at! {
+                    store.vitals = LiveVitals(
+                        hr: number(live["heart"]).map { Int($0) },
+                        stress: number(live["stress"]).map { Int($0) },
+                        at: at)
+                }
             }
 
             // ⚠️ Merge, never replace. A one-day refresh after a band sync calls this with

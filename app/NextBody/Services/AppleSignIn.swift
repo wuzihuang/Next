@@ -15,6 +15,12 @@ final class AppleSignIn: NSObject {
         let idToken: String
         /// The raw nonce; its SHA-256 is what the token carries.
         let nonce: String
+        /// ⚠️ Apple hands the name over at the FIRST authorization for this app and never
+        /// again — every later sign-in leaves this nil, and the only way back is for the
+        /// user to revoke the app in Settings. It is the one real name this product is ever
+        /// offered, since the gate has no username field and onboarding never asks. Whatever
+        /// arrives here has to be written down on the spot or it is gone.
+        let fullName: PersonNameComponents?
     }
 
     enum Failure: Error { case cancelled, noToken, system(Error) }
@@ -66,7 +72,7 @@ extension AppleSignIn: ASAuthorizationControllerDelegate {
               let data = cred.identityToken, let token = String(data: data, encoding: .utf8) else {
             finish(.failure(Failure.noToken)); return
         }
-        finish(.success(Credential(idToken: token, nonce: rawNonce)))
+        finish(.success(Credential(idToken: token, nonce: rawNonce, fullName: cred.fullName)))
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {

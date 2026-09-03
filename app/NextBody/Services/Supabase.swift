@@ -24,6 +24,17 @@ struct SupabaseConfig {
     }
 }
 
+/// The mailbox-free account that carries `supabase/seed/demo.sql`. Simulator walk-through
+/// only — a real phone must never land on it, even from a leftover Keychain session.
+enum DemoAccount {
+    static let email = "demo@nextbody.app"
+    static let password = "nextbody-demo"
+
+    static func matches(_ email: String) -> Bool {
+        email.lowercased().trimmingCharacters(in: .whitespaces) == Self.email
+    }
+}
+
 actor SupabaseClient {
     static let shared = SupabaseClient()
     private static let snapshotLock = NSLock()

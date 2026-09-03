@@ -195,7 +195,10 @@ export function auditFrame(envelope: Record<string, unknown>, ledger: NumberLedg
   // axis, and "26" there is the 26th, not a reading. Auditing them rejected a correct
   // weekly chart over the day of the month. Values, sentences and footers are still
   // audited in full.
-  const AXIS_KEYS = new Set(["label", "dayKey", "t", "ts", "slot", "name", "day", "date", "unit", "mode", "k"]);
+  const AXIS_KEYS = new Set(["label", "dayKey", "t", "ts", "slot", "name", "day", "date", "unit", "mode", "k",
+    // 07 · heat and columns carry their axes as arrays of labels ("04", "MO"); a heat map
+    // was rejected over the "04" of its first two-hour column.
+    "rowLabels", "colLabels", "labels", "window"]);
   const walk = (node: unknown) => {
     if (typeof node === "string") texts.push(node);
     else if (typeof node === "number") {
@@ -205,7 +208,7 @@ export function auditFrame(envelope: Record<string, unknown>, ledger: NumberLedg
       node.forEach((v, i) => { if (!(isPair && i === 0)) walk(v); });
     } else if (node && typeof node === "object") {
       for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
-        if (AXIS_KEYS.has(k) && typeof v === "string") continue;
+        if (AXIS_KEYS.has(k) && (typeof v === "string" || (Array.isArray(v) && v.every((x) => typeof x === "string")))) continue;
         walk(v);
       }
     }
@@ -217,7 +220,9 @@ export function auditFrame(envelope: Record<string, unknown>, ledger: NumberLedg
   walk((envelope as Record<string, unknown>).data);
 
   for (const raw of texts) {
-    let s = raw;
+    // "4,678" is one number. The scanner read it as 4 and 678 and rejected a correct
+    // step count over the separator.
+    let s = raw.replace(/(\d),(\d{3})(?!\d)/g, "$1$2");
     for (const re of WHITELIST) s = s.replace(re, " ");
     for (const m of s.matchAll(/\d+(?:\.\d+)?/g)) {
       const n = Number(m[0].replace(/,/g, ""));

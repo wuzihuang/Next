@@ -273,7 +273,11 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
           ok: true,
           data: {
             agg: r.agg, hero: r.hero ?? null, unit: r.unit ?? null, window: r.window,
-            points: tail(d.series) ?? tail(d.bins) ?? tail(d.parts) ?? tail(d.rows) ?? tail(d.minutes) ?? null,
+            // ⚠️ Every shape a source can return has to be listed here. `lanes` was not,
+            // so a hypnogram came back with `points: null` and a full `agg`, and the model
+            // read the null as "no night" and rendered a text frame saying so.
+            points: tail(d.series) ?? tail(d.bins) ?? tail(d.parts) ?? tail(d.rows)
+              ?? tail(d.lanes) ?? tail(d.minutes) ?? tail(d.cells) ?? null,
           },
         });
       },

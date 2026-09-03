@@ -14,15 +14,15 @@ import SwiftUI
 struct WidgetCatalogue: View {
     @Environment(\.dismiss) private var dismiss
 
-    /// The 24 the model may choose. 1EEU keeps hypnogram / split / o2night out of V1, and
-    /// F0 rule 03 is why — so they are absent here too, and their absence is the test.
-    private var types: [PanelType] { PanelType.allCases.filter { !$0.isSleepWidget } }
+    /// All 27. The night's three came back on 2026-09-03 with the user's own ruling, so the
+    /// catalogue covers the contract in full again.
+    private var types: [PanelType] { PanelType.allCases }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
                 HStack {
-                    Text("\(types.count) TYPES · 10 RENDERERS")
+                    Text("\(types.count) TYPES · 12 RENDERERS")
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.text3Prod)
                     Spacer(minLength: 12)
@@ -72,7 +72,7 @@ struct WidgetCatalogue: View {
         let series: [Double] = [58, 60, 58, 64, 63, 62, 66, 64, 69, 71, 68, 72]
         switch type {
         case .battery:
-            return w(type, MetricNames.bodyBattery, "现在 64。", .ring(value: 64, goal: 100, unit: "%"))
+            return w(type, MetricNames.bodyBattery, "64 right now.", .ring(value: 64, goal: 100, unit: "%"))
         case .metric:
             return w(type, "HEART RATE", "68 bpm · +4 vs RHR 52",
                      .rows([.init(label: "HEART RATE", value: "68"),
@@ -104,7 +104,23 @@ struct WidgetCatalogue: View {
             return w(type, "WEIGH-INS", "5 of 7 days", .cells(rows: 1, cols: 7,
                                                               values: [1, 1, 0, 1, 1, 0, 1], levels: 2))
         case .zones:
-            return w(type, "TIME IN ZONE", "50 min elevated", .strip([(1, 0.5), (2, 0.5), (3, 0), (4, 0), (5, 0)]))
+            // 13 · five columns, minutes per zone.
+            return w(type, "TIME IN ZONE", "50 min elevated · Z2 carried it",
+                     .zones([25, 30, 20, 8, 0]))
+        case .hypnogram:
+            // 12 · run-length lanes: 0 awake · 1 light · 2 deep.
+            return w(type, "SLEEP · 23:41 → 07:18", "Two clean deep blocks before 3 am",
+                     .lanes(runs: [(0, 18), (1, 42), (2, 108), (1, 36), (2, 44), (1, 30),
+                                   (0, 14), (1, 46), (0, 30)],
+                            from: "23:41", to: "07:18"))
+        case .split:
+            return w(type, "SLEEP MIX", "Deep sleep did its job — 24% of the night",
+                     hero: "7H38",
+                     .parts([("DEEP", 108, NB.violet1), ("LIGHT", 324, NB.violet1.opacity(0.6)),
+                             ("AWAKE", 26, NB.white.opacity(0.5))]))
+        case .o2night:
+            return w(type, "NIGHT O2", "Two brief dips — worth watching",
+                     .series([97, 96, 96, 95, 97, 96, 89, 94, 96, 97, 91, 96]))
         case .wave:
             return w(type, "ECG", "avg 68 bpm", .trace(samples: series, hz: 4))
         case .table:
@@ -154,10 +170,6 @@ struct WidgetCatalogue: View {
         case .dual:
             return w(type, "FAT VS LEAN", "The lines crossed in week 9",
                      .pair(hi: series, lo: series.map { $0 * 0.8 }))
-        case .hypnogram, .split, .o2night:
-            // Unreachable: filtered out of `types`, refused by the decoder, and not offered
-            // to the model. Present only because the enum is exhaustive.
-            return w(.text, "NOT IN V1", "Sleep never reaches the screen.", .none)
         }
     }
 

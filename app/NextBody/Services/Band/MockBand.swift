@@ -1,3 +1,4 @@
+#if targetEnvironment(simulator)
 import Foundation
 
 /// The band the simulator has. It answers on the same timings the real one does, so the
@@ -16,6 +17,18 @@ final class MockBand: BandService, @unchecked Sendable {
     private let queue = HoopQueue()
 
     private var pushedWeightKg: Double = 75.6
+    private var autoMonitoringSlots: [AutoMonitorSlot] = [
+        .init(kind: .heartRate, on: true, supportsRange: true,
+              startHour: 0, endHour: 24, intervalMinutes: 30, intervalStepMinutes: 1),
+        .init(kind: .bloodOxygen, on: true, supportsRange: true,
+              startHour: 22, endHour: 7, intervalMinutes: 60, intervalStepMinutes: 5),
+        .init(kind: .hrv, on: true, supportsRange: false,
+              startHour: 0, endHour: 24, intervalMinutes: 60, intervalStepMinutes: 1),
+        .init(kind: .stress, on: true, supportsRange: true,
+              startHour: 9, endHour: 22, intervalMinutes: 30, intervalStepMinutes: 5),
+        .init(kind: .temperature, on: false, supportsRange: false,
+              startHour: 0, endHour: 24, intervalMinutes: 60, intervalStepMinutes: 5),
+    ]
 
     func startScan() async {
         state = .scanning
@@ -53,7 +66,7 @@ final class MockBand: BandService, @unchecked Sendable {
         return BandIdentity(
             name: "NEXTBODY HOOP", model: "KR96 PRO", hardware: "1.2", firmware: "2.4.1",
             deviceNumber: "HB-0042", bleIdentifier: "C4-2E-8F-1A-73-9D",
-            watchDataDayNumber: 7)
+            watchDataDayNumber: 7, sportMode: "10 TYPES")
     }
 
     func readCapabilities() async throws -> BandCapabilities {
@@ -100,6 +113,10 @@ final class MockBand: BandService, @unchecked Sendable {
                 heart: hr, step: asleep ? 0 : Int.random(in: 0...45),
                 cal: Int.random(in: 0...6), distance: Int.random(in: 0...40),
                 met: max(1.0, Double(hr) / 62), temperature: nil,
+                // Every ten minutes, as the band does; higher asleep, as HRV is.
+                hrv: minute % 10 == 0
+                    ? Double(asleep ? 52 + Int.random(in: 0...18) : 32 + Int.random(in: 0...16))
+                    : nil,
                 stress: asleep ? nil : 20 + Int.random(in: 0...30),
                 sleepState: asleep ? 2 : 0)
         }
@@ -223,26 +240,26 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func readAutoMonitoring() async throws -> [AutoMonitorSlot] {
         try await requireConnection()
-        return [
-            .init(kind: .heartRate, on: true, supportsRange: true,
-                  startHour: 0, endHour: 24, intervalMinutes: 30),
-            .init(kind: .bloodOxygen, on: true, supportsRange: true,
-                  startHour: 22, endHour: 7, intervalMinutes: 60),
-            .init(kind: .hrv, on: true, supportsRange: false,
-                  startHour: 0, endHour: 24, intervalMinutes: 60),
-            .init(kind: .stress, on: true, supportsRange: true,
-                  startHour: 9, endHour: 22, intervalMinutes: 30),
-            .init(kind: .temperature, on: false, supportsRange: false,
-                  startHour: 0, endHour: 24, intervalMinutes: 60),
-        ]
+        return try await queue.run("mock.readAutoMonitoring", priority: .p1) {
+            self.autoMonitoringSlots
+        }
     }
 
     func writeAutoMonitoring(_ slot: AutoMonitorSlot) async throws {
         try await requireConnection()
-        try? await Task.sleep(for: .milliseconds(160))
+        try await queue.run("mock.writeAutoMonitoring", priority: .p0) {
+            guard slot.allowedIntervals.contains(slot.intervalMinutes) else {
+                throw BandError.rejected("\(slot.intervalMinutes) minute interval is not supported")
+            }
+            try? await Task.sleep(for: .milliseconds(160))
+            self.autoMonitoringSlots = self.autoMonitoringSlots.map {
+                $0.id == slot.id ? slot : $0
+            }
+        }
     }
 
     private func requireConnection() async throws {
         guard state == .connected else { throw BandError.notConnected }
     }
 }
+#endif

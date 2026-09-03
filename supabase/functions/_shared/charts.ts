@@ -23,26 +23,41 @@ const FAMILY_KIND: Record<ChartSkill["family"], Kind> = {
 };
 
 /// The four text slots, plus target and hero. Same on every chart.
-const words = {
-  title: z.string().describe("≤ 18 个字符，屏上会转大写；写「指标 · 窗口」"),
-  tag: z.enum(["MOVE", "FUEL", "RECOVER", "ALERT"]).optional(),
-  sentence: z.string().describe("≤ 48 字，两行封顶，必填；数字必须来自本轮读到的值"),
-  footer: z.string().optional().describe("≤ 42 字，几段用 ' · ' 连"),
-  action: z.string().optional().describe("≤ 32 字，只在真有下一步时写"),
-  hero: z.string().optional().describe("≤ 16 字的大字；省略则服务端用数据源自己的"),
-  target: z.enum(TARGETS).describe("点击落到哪一页"),
-};
+///
+/// ⚠️ `tag`, `target` and `source` are strings here, not enums, on purpose. Seen on
+/// production: the model left `target` out once, the Zod enum failed inside generateText,
+/// AI_InvalidToolArgumentsError threw, and the whole turn came back MODEL_UNAVAILABLE with
+/// an empty tool trace — the panel fell to the battery frame over one missing word. The
+/// allowed values live in the descriptions and are checked in execute(): a wrong one is a
+/// tool result the model can act on, a missing target is the skill's own.
+const TAGS = ["MOVE", "FUEL", "RECOVER", "ALERT"] as const;
+/// 11 · 07 · the words follow the app's language. The slot descriptions are written in it
+/// too: a model reads the language of its instructions as the language it should answer in.
+function wordsFor(locale: string) {
+  const en = locale.startsWith("en");
+  return {
+    title: z.string().describe(en ? "≤ 18 characters, upper-cased on screen; 'METRIC · WINDOW'" : "≤ 18 个字符，屏上会转大写；写「指标 · 窗口」"),
+    tag: z.string().optional().describe(en ? `One of ${TAGS.join(" / ")}, optional` : `只取 ${TAGS.join(" / ")} 之一，可省略`),
+    sentence: z.string().describe(en ? "≤ 48 characters, two lines at most, required, in English; every number comes from a tool return this turn" : "≤ 48 字，两行封顶，必填；数字必须来自本轮读到的值"),
+    footer: z.string().optional().describe(en ? "≤ 42 characters, segments joined by ' · ', in English" : "≤ 42 字，几段用 ' · ' 连"),
+    action: z.string().optional().describe(en ? "≤ 32 characters, only when there is a real next step" : "≤ 32 字，只在真有下一步时写"),
+    hero: z.string().optional().describe(en ? "≤ 16 characters, the big number; omit to use the source's own" : "≤ 16 字的大字；省略则服务端用数据源自己的"),
+    target: z.string().optional().describe(en ? `The page a tap opens, one of ${TARGETS.join(" / ")}` : `点击落到哪一页，只取 ${TARGETS.join(" / ")} 之一`),
+  };
+}
 
 export type Rendered = { rendered: true; type: string; hero?: string } | { rendered: false; error: "NO_DATA"; say: string };
 
-export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: Envelope) => void) {
+export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: Envelope) => void, locale = "en-US") {
   const tools: Record<string, Tool> = {};
+  const words = wordsFor(locale);
+  const en = locale.startsWith("en");
 
   for (const skill of CHART_SKILLS) {
     const kind = FAMILY_KIND[skill.family];
     const params = skill.sources.length
-      ? z.object({ ...words, source: z.enum(skill.sources as [string, ...string[]]).describe(`数据源：\n${sourceList(skill.sources)}`) })
-      : literalSchema(skill);
+      ? z.object({ ...words, source: z.string().describe(`${en ? "Data source, one of:" : "数据源，只取下面之一："}\n${sourceList(skill.sources)}`) })
+      : literalSchema(skill, words);
 
     tools[`screen.render.${skill.type}`] = tool({
       description: toolDescription(skill),
@@ -52,9 +67,12 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
         let data: Record<string, unknown>;
         let hero: string | undefined = args.hero;
         if (skill.sources.length) {
+          if (!skill.sources.includes(String(args.source))) {
+            return { rendered: false, error: "NO_DATA", say: `${args.source} is not a source for this chart. Use one of: ${skill.sources.join(", ")}.` };
+          }
           const r = await fetchAs(args.source, kind, ctx);
           if (!r) {
-            return { rendered: false, error: "NO_DATA", say: `${args.source} 今天是空的。换一个数据源或另一种图；没有图配得上就用 screen.render.text，把缺的数写成 ——。` };
+            return { rendered: false, error: "NO_DATA", say: `${args.source} has no data. Pick another source or another chart; if none fits, use screen.render.text and write —— for the missing number.` };
           }
           data = shape(r.data);
           hero = hero ?? r.hero;
@@ -62,7 +80,13 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
           // they enter the ledger the way a read tool's return does.
           ledger.harvest(r.agg, `${skill.type}.${args.source}`);
           ledger.harvest(numbersIn(r.hero), `${skill.type}.hero`);
-          if (r.data.kind === "rows") ledger.harvest(r.data.rows.map((x) => numbersIn(x.value)), `${skill.type}.rows`);
+          // The axis is a fact about the data too: "the 18:00 bin", "Saturday 18–20". A
+          // caption that names a label's number was being thrown away over it.
+          ledger.harvest(axisNumbers(r.data), `${skill.type}.axis`);
+          if (r.data.kind === "rows") {
+            ledger.harvest(r.data.rows.map((x) => numbersIn(x.value)), `${skill.type}.rows`);
+            ledger.add(r.data.rows.length, `${skill.type}.rows.length`);
+          }
           if (r.window) data.window = r.window;
           if (r.unit) data.unit = r.unit;
         } else {
@@ -70,11 +94,13 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
         }
         if (hero) data.hero = hero;
 
+        const tag = (TAGS as readonly string[]).includes(String(args.tag)) ? args.tag as (typeof TAGS)[number] : undefined;
+        const target = (TARGETS as readonly string[]).includes(String(args.target)) ? args.target as (typeof TARGETS)[number] : skill.target;
         onRender({
           type: skill.type,
-          title: args.title, tag: args.tag, sentence: args.sentence, footer: args.footer, action: args.action,
-          target: args.target ?? skill.target,
-          data, ttl_min: 20, priority: "normal", locale: "zh-CN",
+          title: String(args.title ?? ""), tag, sentence: String(args.sentence ?? ""), footer: args.footer, action: args.action,
+          target,
+          data, ttl_min: 20, priority: "normal", locale: en ? "en-US" : "zh-CN",
         });
         return { rendered: true, type: skill.type, hero };
       },
@@ -84,21 +110,21 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
 }
 
 /// Charts that carry no series: the model writes the value it read.
-function literalSchema(skill: ChartSkill) {
+function literalSchema(skill: ChartSkill, words: ReturnType<typeof wordsFor>) {
   switch (skill.type) {
     case "metric":
       return z.object({
         ...words,
-        value: z.string().describe("数值，来自本轮读到的值，如 '72'"),
-        unit: z.string().optional().describe("单位，如 'bpm'"),
-        label: z.string().optional().describe("指标名，压过 title"),
-        ref: z.string().optional().describe("参照，如 '+4 VS RHR 52'"),
+        value: z.string().describe("The number, straight from a tool return this turn, e.g. '72'"),
+        unit: z.string().optional().describe("Unit, e.g. 'bpm'"),
+        label: z.string().optional().describe("Metric name; overrides title"),
+        ref: z.string().optional().describe("Reference, e.g. '+4 VS RHR 52'"),
       });
     case "food":
       return z.object({
         ...words,
-        name: z.string().describe("菜名"),
-        portion: z.string().optional().describe("份量，如 '半碗'"),
+        name: z.string().describe("The dish"),
+        portion: z.string().optional().describe("Portion, e.g. 'half a bowl'"),
       });
     default:
       return z.object({ ...words });
@@ -127,9 +153,21 @@ function shape(d: ChartData): Record<string, unknown> {
     case "gauge":  return { value: d.value, zones: d.zones };
     case "stack":  return { parts: d.parts };
     case "grid":   return { rows: d.rows, cols: d.cols, cells: d.cells, scale: d.scale, rowLabels: d.rowLabels, colLabels: d.colLabels };
-    case "strip":  return { minutes: d.minutes, current_zone: d.current_zone };
+    case "strip":  return { minutes: d.minutes, current_zone: d.current_zone, lanes: d.lanes, from: d.from, to: d.to };
     case "rows":   return { rows: d.rows };
   }
+}
+
+function axisNumbers(d: ChartData): number[] {
+  const labels: string[] = [];
+  const take = (pts?: [string, number][]) => pts?.forEach((p) => labels.push(p[0]));
+  if (d.kind === "curve") take(d.series);
+  if (d.kind === "column") take(d.bins);
+  if (d.kind === "pair") { take(d.hi); take(d.lo); }
+  if (d.kind === "stack") take(d.parts);
+  if (d.kind === "grid") { d.colLabels?.forEach((l) => labels.push(l)); d.rowLabels?.forEach((l) => labels.push(l)); }
+  if (d.kind === "rows") d.rows.forEach((r) => labels.push(r.label));
+  return labels.flatMap((l) => numbersIn(l));
 }
 
 function numbersIn(s: string | undefined): number[] {

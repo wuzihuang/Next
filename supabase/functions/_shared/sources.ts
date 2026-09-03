@@ -19,7 +19,7 @@ export type ChartData =
   | { kind: "gauge"; value: number; zones: [number, number, string][] }
   | { kind: "stack"; parts: Point[] }
   | { kind: "grid"; rows: number; cols: number; cells: number[][]; scale: number; rowLabels?: string[]; colLabels?: string[] }
-  | { kind: "strip"; minutes: number[]; current_zone?: number }
+  | { kind: "strip"; minutes?: number[]; current_zone?: number; lanes?: [number, number][]; from?: string; to?: string }
   | { kind: "rows"; rows: { label: string; value: string; spark?: number[] }[] };
 
 export type Kind = ChartData["kind"];
@@ -283,7 +283,7 @@ export const SOURCES: Source[] = [
       const s = stats(vals);
       return {
         data: { kind: "column", bins, unit: "steps", total: vals.reduce((a, b) => a + b, 0) },
-        agg: { ...s, today: sums.get(ctx.dayKey) ?? null, days: vals.length, total: vals.reduce((a, b) => a + b, 0) },
+        agg: { ...s, today: sums.get(ctx.dayKey) ?? null, days: vals.length, windowDays: 7, total: vals.reduce((a, b) => a + b, 0) },
         hero: `${s.mean0} avg`, unit: "steps", window: "7 DAYS",
       };
     },
@@ -306,7 +306,7 @@ export const SOURCES: Source[] = [
       const net = vals.reduce((a, b) => a + b, 0);
       return {
         data: { kind: "column", bins, unit: "kcal", total: net },
-        agg: { ...s, net, up: vals.filter((v) => v > 0).length, down: vals.filter((v) => v < 0).length },
+        agg: { ...s, net, up: vals.filter((v) => v > 0).length, down: vals.filter((v) => v < 0).length, windowDays: 7 },
         hero: `${net > 0 ? "+" : ""}${net} kcal`, unit: "kcal", window: "7 DAYS",
       };
     },
@@ -344,7 +344,7 @@ export const SOURCES: Source[] = [
       const lo: Point[] = present.map((d) => [weekday(d), Math.min(...by.get(d)!)]);
       return {
         data: { kind: "pair", hi, lo, a: "MAX", b: "MIN" },
-        agg: { hiLatest: hi[hi.length - 1][1], loLatest: lo[lo.length - 1][1], hiMax: Math.max(...hi.map((p) => p[1])), loMin: Math.min(...lo.map((p) => p[1])), days: present.length },
+        agg: { hiLatest: hi[hi.length - 1][1], loLatest: lo[lo.length - 1][1], hiMax: Math.max(...hi.map((p) => p[1])), loMin: Math.min(...lo.map((p) => p[1])), days: present.length, windowDays: 7 },
         hero: `${lo[lo.length - 1][1]}–${hi[hi.length - 1][1]}`, unit: "bpm", window: "7 DAYS",
       };
     },
@@ -429,7 +429,7 @@ export const SOURCES: Source[] = [
       const rd = one(rows?.[0]?.reserve_daily);
       const v = rd?.current_value ?? rows?.[0]?.reserve_score ?? null;
       if (v == null) return null;
-      return { data: { kind: "arc", value: v, goal: 100, unit: "%" }, agg: { value: v, wake: rd?.wake_value ?? null, min: rd?.min_value ?? null }, hero: `${v}`, unit: "%", window: "NOW" };
+      return { data: { kind: "arc", value: v, goal: 100, unit: "%" }, agg: { value: v, wake: rd?.wake_value ?? null, min: rd?.min_value ?? null, sinceWake: rd?.wake_value != null ? v - rd.wake_value : null }, hero: `${v}`, unit: "%", window: "NOW" };
     },
   },
   {
@@ -437,7 +437,7 @@ export const SOURCES: Source[] = [
     async fetch(ctx) {
       const f = one((await dayRows(ctx, ctx.dayKey, ctx.dayKey))?.[0]?.day_fuel);
       if (f?.protein_in_g == null || !f?.protein_g) return null;
-      return { data: { kind: "arc", value: f.protein_in_g, goal: f.protein_g, unit: "g" }, agg: { eaten: f.protein_in_g, target: f.protein_g, left: Math.max(0, f.protein_g - f.protein_in_g) }, hero: `${f.protein_in_g}g`, unit: "g", window: "TODAY" };
+      return { data: { kind: "arc", value: f.protein_in_g, goal: f.protein_g, unit: "g" }, agg: { eaten: f.protein_in_g, target: f.protein_g, left: Math.max(0, f.protein_g - f.protein_in_g), pct: Math.round(f.protein_in_g / f.protein_g * 100) }, hero: `${f.protein_in_g}g`, unit: "g", window: "TODAY" };
     },
   },
   {
@@ -445,7 +445,7 @@ export const SOURCES: Source[] = [
     async fetch(ctx) {
       const f = one((await dayRows(ctx, ctx.dayKey, ctx.dayKey))?.[0]?.day_fuel);
       if (f?.kcal_in == null || !f?.target_in) return null;
-      return { data: { kind: "arc", value: f.kcal_in, goal: f.target_in, unit: "" }, agg: { eaten: f.kcal_in, target: f.target_in, left: f.target_in - f.kcal_in }, hero: `${f.kcal_in}`, unit: "kcal", window: "TODAY" };
+      return { data: { kind: "arc", value: f.kcal_in, goal: f.target_in, unit: "" }, agg: { eaten: f.kcal_in, target: f.target_in, left: f.target_in - f.kcal_in, pct: Math.round(f.kcal_in / f.target_in * 100) }, hero: `${f.kcal_in}`, unit: "kcal", window: "TODAY" };
     },
   },
   {
@@ -501,7 +501,12 @@ export const SOURCES: Source[] = [
       const gap = gaps.reduce((b, g) => (g[1] > b[1] ? g : b), gaps[0]);
       return {
         data: { kind: "stack", parts },
-        agg: { proteinIn: f.protein_in_g, proteinTarget: f.protein_g, carbIn: f.carb_in_g, carbTarget: f.carb_g, fatIn: f.fat_in_g, fatTarget: f.fat_g, gap: Math.max(0, gap[1]) },
+        agg: {
+          proteinIn: f.protein_in_g, proteinTarget: f.protein_g, proteinLeft: Math.max(0, gaps[0][1]), proteinPct: f.protein_g ? Math.round((f.protein_in_g ?? 0) / f.protein_g * 100) : null,
+          carbIn: f.carb_in_g, carbTarget: f.carb_g, carbLeft: Math.max(0, gaps[1][1]), carbPct: f.carb_g ? Math.round((f.carb_in_g ?? 0) / f.carb_g * 100) : null,
+          fatIn: f.fat_in_g, fatTarget: f.fat_g, fatLeft: Math.max(0, gaps[2][1]), fatPct: f.fat_g ? Math.round((f.fat_in_g ?? 0) / f.fat_g * 100) : null,
+          gap: Math.max(0, gap[1]),
+        },
         hero: gap[1] > 0 ? `${gap[1]} G ${gap[0]} SHORT` : "ALL THREE MET", unit: "g", window: "TODAY",
       };
     },
@@ -568,6 +573,111 @@ export const SOURCES: Source[] = [
   },
   ...composition(),
   {
+    id: "sleep.mix", kind: "stack", says: "上一夜的深睡 / 浅睡 / 清醒各多少分钟",
+    async fetch(ctx) {
+      const { data, error } = await ctx.db.from("sleep_nights")
+        .select("user_day, total_minutes, deep_minutes, light_minutes, wake_count")
+        .eq("user_id", ctx.userId).lte("user_day", ctx.dayKey)
+        .order("user_day", { ascending: false }).limit(1).maybeSingle();
+      if (error || !data?.total_minutes) return null;
+      const deep = data.deep_minutes ?? 0, light = data.light_minutes ?? 0;
+      const awake = Math.max(0, data.total_minutes - deep - light);
+      const parts: Point[] = [["DEEP", deep], ["LIGHT", light], ["AWAKE", awake]];
+      const h = Math.floor(data.total_minutes / 60), m = data.total_minutes % 60;
+      return {
+        data: { kind: "stack", parts },
+        agg: {
+          total: data.total_minutes, hours: h, minutes: m, deep, light, awake,
+          wakes: data.wake_count ?? 0,
+          deepPct: Math.round(deep / data.total_minutes * 100),
+          lightPct: Math.round(light / data.total_minutes * 100),
+        },
+        hero: `${h}H${String(m).padStart(2, "0")}`, unit: "min", window: "LAST NIGHT",
+      };
+    },
+  },
+  {
+    id: "sleep.stages", kind: "strip", says: "上一夜的睡眠分期，按分钟画成清醒 / 浅睡 / 深睡三条泳道",
+    async fetch(ctx) {
+      // 07 · 12 · run-length lanes. The band writes one state per five-minute tick:
+      // 1 deep · 2 light · 3 awake in bed · 0 not asleep. ⚠️ Only the ticks that carry a
+      // state count; a night the band summarised but did not sample tick by tick has a
+      // sleep.mix and no hypnogram, and that is the honest answer rather than a flat bar.
+      const lo = zoned(addDays(ctx.dayKey, -1), 18, ctx.tz).toISOString();
+      const hi = zoned(ctx.dayKey, 12, ctx.tz).toISOString();
+      const rows = await pageAll<{ ts: string; sleep_states: number | null }>((from, to) =>
+        ctx.db.from("raw_samples").select("ts, sleep_states")
+          .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi)
+          .gt("sleep_states", 0).order("ts").range(from, to));
+      if (!rows || rows.length < 6) return null;
+      // level 0 = awake, 1 = light, 2 = deep — the lane order the board draws top to bottom.
+      const lane = (v: number) => (v === 1 ? 2 : v === 2 ? 1 : 0);
+      const segs: [number, number][] = [];
+      for (const r of rows) {
+        const l = lane(r.sleep_states!);
+        const last = segs[segs.length - 1];
+        if (last && last[0] === l) last[1] += 5; else segs.push([l, 5]);
+      }
+      const minutes = [0, 0, 0];
+      for (const [l, m] of segs) minutes[l] += m;
+      const total = minutes[0] + minutes[1] + minutes[2];
+      const h = Math.floor(total / 60), m = total % 60;
+      return {
+        // 07 · 12 · run-length lanes, level then minutes. `zones` uses `minutes` instead.
+        data: { kind: "strip", lanes: segs, from: hhmm(rows[0].ts, ctx.tz), to: hhmm(rows[rows.length - 1].ts, ctx.tz) },
+        agg: {
+          total, hours: h, minutes: m, awake: minutes[0], light: minutes[1], deep: minutes[2],
+          blocks: segs.length, deepPct: total ? Math.round(minutes[2] / total * 100) : null,
+        },
+        hero: `${h}H${String(m).padStart(2, "0")}`, window: `${hhmm(rows[0].ts, ctx.tz)} → ${hhmm(rows[rows.length - 1].ts, ctx.tz)}`,
+      };
+    },
+  },
+  {
+    id: "o2.night", kind: "curve", says: "上一夜的血氧曲线（需要手环写入 SpO2，目前多半为空）",
+    async fetch(ctx) {
+      // 19 · o2night. `raw_samples.spo2` was dropped in 20260902020000; when a build starts
+      // writing it again this source lights up on its own. Until then: no data, not a zero.
+      const lo = zoned(addDays(ctx.dayKey, -1), 18, ctx.tz).toISOString();
+      const hi = zoned(ctx.dayKey, 12, ctx.tz).toISOString();
+      const { data, error } = await ctx.db.from("raw_samples").select("ts, spo2")
+        .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi).gt("spo2", 0).order("ts").limit(400);
+      if (error || !data || data.length < 6) return null;
+      const rows = data as { ts: string; spo2: number }[];
+      const series: Point[] = rows.map((r) => [hhmm(r.ts, ctx.tz), r.spo2]);
+      const vals = rows.map((r) => r.spo2);
+      const st = stats(vals);
+      return {
+        data: { kind: "curve", series },
+        agg: { ...st, dips: vals.filter((v) => v < 90).length, guide: 90 },
+        hero: `${st.mean0}%`, unit: "%", window: "LAST NIGHT",
+      };
+    },
+  },
+  {
+    id: "hrv.7d", kind: "curve", says: "最近 7 天每天的 HRV（ms）",
+    async fetch(ctx) {
+      const days = window(ctx, 7);
+      const lo = dayBounds(days[0], ctx.tz).start.toISOString();
+      const hi = dayBounds(ctx.dayKey, ctx.tz).end.toISOString();
+      const rows = await pageAll<{ ts: string; hrv: number | null }>((from, to) =>
+        ctx.db.from("raw_samples").select("ts, hrv")
+          .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi).gt("hrv", 0).order("ts").range(from, to));
+      if (!rows || rows.length < 2) return null;
+      const by = new Map<string, number[]>();
+      for (const r of rows) { const d = dayOf(r.ts, ctx.tz); (by.get(d) ?? by.set(d, []).get(d)!).push(Number(r.hrv)); }
+      const present = days.filter((d) => by.has(d));
+      if (!present.length) return null;
+      const series: Point[] = present.map((d) => [weekday(d), Math.round(mean(by.get(d)!)!)]);
+      const st = stats(series.map((p) => p[1]));
+      return {
+        data: { kind: "curve", series },
+        agg: { ...st, days: present.length, windowDays: 7, readings: rows.length },
+        hero: `${st.latest} ms`, unit: "ms", window: "7 DAYS",
+      };
+    },
+  },
+  {
     id: "events.today", kind: "rows", says: "今天按时间发生了什么：餐、抬高心率的时段、称重、体成分",
     async fetch(ctx) {
       const { start, end } = dayBounds(ctx.dayKey, ctx.tz);
@@ -588,7 +698,14 @@ export const SOURCES: Source[] = [
       if (!ev.length) return null;
       ev.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
       const rows = ev.slice(0, 6).map((e) => ({ label: `${hhmm(e.t, ctx.tz)} ${e.label}`, value: e.value }));
-      const agg: Record<string, number | null> = { count: ev.length };
+      // What a caption counts: how many meals, how many elevated blocks, how many readings.
+      const agg: Record<string, number | null> = {
+        count: ev.length,
+        meals: (meals.data ?? []).length,
+        mealsKcal: (meals.data ?? []).reduce((a, m) => a + (m.kcal ?? 0), 0),
+        segments: ev.filter((e) => e.label.endsWith("HR") || e.label.endsWith("SESSION") || e.label.endsWith("BLOCK")).length,
+        weighIns: (weighs.data ?? []).length, comps: (comps.data ?? []).length,
+      };
       ev.forEach((e, i) => { agg[`e${i}`] = e.n; });
       return { data: { kind: "rows", rows }, agg, hero: `${ev.length}`, window: "TODAY" };
     },
@@ -615,7 +732,7 @@ function dailySeries(id: string, label: string, unit: string, pick: (r: DayRow) 
       const prev = mean(vals.slice(0, half)), curr = mean(vals.slice(half));
       return {
         data: { kind: "curve", series },
-        agg: { ...s, today: by.get(ctx.dayKey) ?? null, days: present.length, thisHalfVsPrevHalf: prev != null && curr != null ? r1(curr - prev) : null, latestVsMean: s.latest != null && s.mean != null ? r1(s.latest - s.mean) : null },
+        agg: { ...s, today: by.get(ctx.dayKey) ?? null, days: present.length, windowDays: n, thisHalfVsPrevHalf: prev != null && curr != null ? r1(curr - prev) : null, latestVsMean: s.latest != null && s.mean != null ? r1(s.latest - s.mean) : null },
         hero: `${s.latest}${unit === "%" ? "%" : ""}`, unit, window: `${n} DAYS`,
       };
     },
@@ -643,7 +760,7 @@ function composition(): Source[] {
         const f = rows[0], l = rows[rows.length - 1];
         return {
           data: { kind: "pair", hi: lo, lo: hi, a: "FAT", b: "LEAN" },
-          agg: { fat: l.fat_mass_kg, lean: l.lean_body_mass_kg, fatPct: l.body_fat_pct, fatChange: r1(l.fat_mass_kg! - f.fat_mass_kg!), leanChange: r1(l.lean_body_mass_kg! - f.lean_body_mass_kg!), readings: rows.length },
+          agg: { fat: l.fat_mass_kg, lean: l.lean_body_mass_kg, fatPct: l.body_fat_pct, fatChange: r1(l.fat_mass_kg! - f.fat_mass_kg!), leanChange: r1(l.lean_body_mass_kg! - f.lean_body_mass_kg!), readings: rows.length, weeks: 12 },
           hero: l.body_fat_pct == null ? `${l.fat_mass_kg} kg fat` : `${l.body_fat_pct} % fat`, window: "12 WEEKS",
         };
       },
@@ -660,7 +777,7 @@ function composition(): Source[] {
         const net = r1(vals.reduce((a, b) => a + b, 0));
         return {
           data: { kind: "column", bins: last, unit: "kg", total: net },
-          agg: { net, up: vals.filter((v) => v > 0).length, down: vals.filter((v) => v < 0).length, readings: last.length, fat: rows[rows.length - 1].fat_mass_kg },
+          agg: { net, up: vals.filter((v) => v > 0).length, down: vals.filter((v) => v < 0).length, readings: last.length, fat: rows[rows.length - 1].fat_mass_kg, weeks: 12 },
           hero: `${net > 0 ? "+" : ""}${net} kg`, unit: "kg", window: `${last.length} READINGS`,
         };
       },
@@ -705,7 +822,7 @@ export async function fetchAs(id: string, kind: Kind, ctx: Ctx): Promise<SourceR
   const r = await src.fetch(ctx);
   if (!r) return null;
   if (r.data.kind === kind) return r;
-  if (r.data.kind === "curve" && kind === "column") return { ...r, data: { kind: "column", bins: r.data.series, unit: r.unit } };
+  if (r.data.kind === "curve" && kind === "column") return { ...r, data: { kind: "column", bins: r.data.series, unit: r.unit }, hero: r.agg.mean != null ? `${r.agg.mean} avg` : r.hero };
   if (r.data.kind === "column" && kind === "curve") return { ...r, data: { kind: "curve", series: r.data.bins } };
   return null;
 }

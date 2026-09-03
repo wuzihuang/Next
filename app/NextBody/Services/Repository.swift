@@ -14,13 +14,18 @@ final class Repository {
     /// it, and neither is worth a round trip of its own.
     private(set) var deviceId: String?
 
-    /// Signing in to the seeded demo account. In production this is the six-digit code path.
-    func signInDemo() async throws {
-        // A real session from the gate (six-digit code or Apple) is never replaced by the
-        // demo one — not in this process, and not on the next launch either: the refresh
-        // token in the Keychain is tried first.
-        if await db.restoreSession() { return }
-        try await db.signIn(email: "demo@nextbody.app", password: "nextbody-demo")
+    /// Open a session before Home reads. A real session from the gate is never replaced.
+    /// Simulator: restore, or sign in as the seeded demo account.
+    /// Device: restore only; a leftover demo@ session is dropped so the gate comes back.
+    func openSession() async throws {
+        if await db.restoreSession() {
+            if !Band.allowsSeed, DemoAccount.matches(await db.signedInEmail() ?? "") {
+                await db.signOut()
+            }
+            return
+        }
+        guard Band.allowsSeed else { return }
+        try await db.signIn(email: DemoAccount.email, password: DemoAccount.password)
     }
 
     func loadToday(into store: DataStore) async {
@@ -288,7 +293,7 @@ final class Repository {
             // 04B · the second page draws the same ticks: skin temperature and the five
             // minutes' steps, kcal and metres ride along on the columns the sync already writes.
             async let vitalRowsAsync = db.select("raw_samples", query: [
-                .init(name: "select", value: "ts,heart,stress,temp,step,cal,dis"),
+                .init(name: "select", value: "ts,heart,stress,temp,step,cal,dis,hrv"),
                 .init(name: "ts", value: "gte.\(stamp.string(from: day.start))"),
                 .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
                 .init(name: "order", value: "ts.asc"),
@@ -376,6 +381,7 @@ final class Repository {
                             hrv: number(n["hrv"]), hrvBase: number(n["hrv_base"]),
                             rhr: number(n["rhr"]), rhrBase: number(n["rhr_base"]),
                             rhrNights: Int(number(n["rhr_nights"]) ?? 0),
+                            hrvNights: Int(number(n["hrv_nights"]) ?? 0),
                             multiplier: number(n["multiplier"]))
                     }
                     if let wake = m.bbWake {
@@ -495,12 +501,18 @@ final class Repository {
                 let stress = number(row["stress"]).map { Int($0) }
                 let temp = number(row["temp"])
                 let steps = number(row["step"]).map { Int($0) }
-                guard hr != nil || stress != nil || temp != nil || steps != nil else { return nil }
+                // ⚠️ hrv counts as a reading of its own here. It arrives on its own ten-minute
+                // cadence and a tick carrying only HRV is still a tick — dropping it would
+                // punch a hole in the very curve it is there to draw.
+                let hrv = number(row["hrv"])
+                guard hr != nil || stress != nil || temp != nil || steps != nil || hrv != nil
+                else { return nil }
                 return VitalSample(ts: at, hr: hr, stress: stress,
                                    temp: temp,
                                    steps: steps,
                                    cal: number(row["cal"]),
-                                   dis: number(row["dis"]))
+                                   dis: number(row["dis"]),
+                                   hrv: hrv)
             }
             if !history.isEmpty { history[history.count - 1].vitalsCurve = vitals }
 

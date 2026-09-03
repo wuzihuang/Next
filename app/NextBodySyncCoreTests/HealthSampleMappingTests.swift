@@ -2,6 +2,39 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class HealthSampleMappingTests: XCTestCase {
+    func testAutomaticMeasurementIntervalsOfferSubStepProbesBelowTheDeviceStep() {
+        XCTAssertEqual(
+            AutoMeasurementIntervalPolicy.options(minimumStepMinutes: 5),
+            [1, 2, 3, 4] + Array(stride(from: 5, through: 180, by: 5))
+        )
+        XCTAssertEqual(
+            AutoMeasurementIntervalPolicy.options(minimumStepMinutes: 1),
+            Array(1...180)
+        )
+        XCTAssertEqual(
+            AutoMeasurementIntervalPolicy.options(minimumStepMinutes: 7),
+            [1, 2, 3, 4, 5, 6] + Array(stride(from: 7, through: 175, by: 7))
+        )
+    }
+
+    func testZeroStepMeansEveryWholeMinuteValueIncludingZeroIsSupported() {
+        let options = AutoMeasurementIntervalPolicy.options(minimumStepMinutes: 0)
+
+        XCTAssertEqual(options.first, 0)
+        XCTAssertEqual(options.last, 180)
+        XCTAssertEqual(options.count, 181)
+    }
+
+    func testAutomaticMeasurementIntervalValidationRejectsOutOfRangeValues() {
+        XCTAssertTrue(AutoMeasurementIntervalPolicy.isValid(1, minimumStepMinutes: 1))
+        XCTAssertTrue(AutoMeasurementIntervalPolicy.isValid(15, minimumStepMinutes: 5))
+        XCTAssertTrue(AutoMeasurementIntervalPolicy.isValid(3, minimumStepMinutes: 5))
+        XCTAssertFalse(AutoMeasurementIntervalPolicy.isValid(185, minimumStepMinutes: 5))
+        XCTAssertFalse(AutoMeasurementIntervalPolicy.isValid(-1, minimumStepMinutes: 0))
+        XCTAssertTrue(AutoMeasurementIntervalPolicy.isValid(180, minimumStepMinutes: 0))
+        XCTAssertFalse(AutoMeasurementIntervalPolicy.isValid(181, minimumStepMinutes: 0))
+    }
+
     func testHistoricalUserDayReadsItsCalendarDayAndTheFollowingCalendarDay() {
         XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(daysBack: 1, straddles: true), [1, 0])
         XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(daysBack: 2, straddles: true), [2, 1])
@@ -70,19 +103,56 @@ final class HealthSampleMappingTests: XCTestCase {
         XCTAssertNil(sample?.rmssdMS)
     }
 
-    func testNightHRVIsMedianOfFifteenMinuteBucketMedians() {
-        let samples = [
-            HrvMinuteSample(time: "00:01", rmssdMS: 30, vendorValue: nil, rrCount: 8),
-            HrvMinuteSample(time: "00:06", rmssdMS: 50, vendorValue: nil, rrCount: 9),
-            HrvMinuteSample(time: "00:16", rmssdMS: 80, vendorValue: nil, rrCount: 10),
-            HrvMinuteSample(time: "12:00", rmssdMS: 100, vendorValue: nil, rrCount: 11),
-        ]
+    func testHRVBySlotFloorsAMeasuredMinuteOntoItsFiveMinuteSlot() {
+        let slots = HealthSampleMapping.hrvBySlot([
+            HrvMinuteSample(time: "00:00", rmssdMS: 44, vendorValue: 43, rrCount: 4),
+            HrvMinuteSample(time: "00:12", rmssdMS: 51, vendorValue: 43, rrCount: 4),
+            HrvMinuteSample(time: "23:57", rmssdMS: 35, vendorValue: 33, rrCount: 4),
+        ])
 
-        let night = HealthSampleMapping.nightHRV(from: samples)
+        XCTAssertEqual(slots["00:00"], 44)
+        XCTAssertEqual(slots["00:10"], 51)
+        XCTAssertEqual(slots["23:55"], 35)
+        XCTAssertEqual(slots.count, 3)
+    }
 
-        let value = try? XCTUnwrap(night)
-        XCTAssertEqual(value?.rmssdMS ?? 0, 60, accuracy: 0.001)
-        XCTAssertEqual(value?.bucketCount, 2)
-        XCTAssertEqual(value?.rrCount, 27)
+    func testHRVBySlotKeepsTheMedianWhenOneSlotCaughtSeveralMinutes() {
+        let slots = HealthSampleMapping.hrvBySlot([
+            HrvMinuteSample(time: "06:00", rmssdMS: 30, vendorValue: nil, rrCount: 4),
+            HrvMinuteSample(time: "06:01", rmssdMS: 90, vendorValue: nil, rrCount: 4),
+            HrvMinuteSample(time: "06:02", rmssdMS: 40, vendorValue: nil, rrCount: 4),
+        ])
+
+        XCTAssertEqual(slots["06:00"], 40)
+    }
+
+    func testHRVBySlotDropsVendorOnlyAndImplausibleMinutes() {
+        let slots = HealthSampleMapping.hrvBySlot([
+            HrvMinuteSample(time: "07:00", rmssdMS: nil, vendorValue: 47, rrCount: 1),
+            HrvMinuteSample(time: "07:05", rmssdMS: 900, vendorValue: 47, rrCount: 4),
+            HrvMinuteSample(time: "07:10", rmssdMS: 0, vendorValue: 47, rrCount: 4),
+            HrvMinuteSample(time: "07:15", rmssdMS: 48, vendorValue: 47, rrCount: 4),
+        ])
+
+        XCTAssertEqual(slots, ["07:15": 48])
+    }
+
+    func testOriginDistanceKilometresBecomeMetres() {
+        XCTAssertEqual(HealthSampleMapping.distanceMeters(from: 0.036), 36)
+        XCTAssertEqual(HealthSampleMapping.distanceMeters(from: "0.036"), 36)
+        XCTAssertEqual(HealthSampleMapping.distanceMeters(from: NSNumber(value: 1.2)), 1_200)
+        XCTAssertEqual(HealthSampleMapping.distanceMeters(from: 0), 0)
+        XCTAssertEqual(HealthSampleMapping.distanceMeters(from: "0.000"), 0)
+    }
+
+    func testOriginDistanceAlreadyInMetresIsLeftAlone() {
+        XCTAssertEqual(HealthSampleMapping.distanceMeters(from: 36), 36)
+        XCTAssertEqual(HealthSampleMapping.distanceMeters(from: "40"), 40)
+    }
+
+    func testOriginDistanceRejectsMissingAndNegativeValues() {
+        XCTAssertNil(HealthSampleMapping.distanceMeters(from: nil))
+        XCTAssertNil(HealthSampleMapping.distanceMeters(from: -0.1))
+        XCTAssertNil(HealthSampleMapping.distanceMeters(from: "nope"))
     }
 }

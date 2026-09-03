@@ -480,7 +480,7 @@ struct FuelDetailView: View {
         Button {
             if isPast {
                 // 09 edge 5 · back-logging stays open: the dock, prefilled with the day.
-                let f = DateFormatter(); f.dateFormat = "M月d日"
+                let f = DateFormatter(); f.dateFormat = AppLanguage.isEnglish ? "MMM d" : "M月d日"
                 router.dockPrefill = .init(text: "\(f.string(from: day.start)) ", day: day)
             }
             router.backToRoot()

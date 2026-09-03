@@ -241,7 +241,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
             // and no screen may call it one.
             deviceNumber: "HB-\(model.deviceNumber)",
             bleIdentifier: model.deviceAddress ?? "—",
-            watchDataDayNumber: Int(model.saveDays))
+            watchDataDayNumber: Int(model.saveDays),
+            // VPPeripheralModel.runningSaveTimes / runningType: zero saved sessions means
+            // no sport mode at all; runningType 0 is the single generic mode, 1 the
+            // ten-sport set. The SDK cannot name which sports — the band's screen can.
+            sportMode: model.runningSaveTimes == 0
+                ? "NONE"
+                : model.runningType == 0 ? "SINGLE" : "10 TYPES (T\(model.runningType))")
     }
 
     func readCapabilities() async throws -> BandCapabilities {
@@ -426,6 +432,18 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 let hrv = ((VPDataBaseOperation
                     .veepooSDKGetDeviceHrvData(withDate: date, andTableID: address)
                     as? [[String: Any]]) ?? []).compactMap(HealthSampleMapping.hrv)
+                // Which hours the band actually sampled HRV in, and how many RR intervals a
+                // minute carries: the shape of the domain, not its values.
+                // The SDK pads every minute of the day; only minutes that carry RR intervals
+                // or a vendor scalar are measurements.
+                let measured = hrv.filter { $0.rrCount > 0 || ($0.vendorValue ?? 0) > 0 }
+                let perHour = Dictionary(grouping: measured) { String($0.time.prefix(2)) }
+                    .map { "\($0.key):\($0.value.count)" }.sorted().joined(separator: " ")
+                let withRR = hrv.filter { $0.rmssdMS != nil }.count
+                let withVendor = hrv.filter { ($0.vendorValue ?? 0) > 0 }.count
+                let rr = measured.map(\.rrCount)
+                let sample = measured.prefix(3).map { "\($0.time) rr\($0.rrCount) v\(Int($0.vendorValue ?? 0)) rmssd\(Int($0.rmssdMS ?? 0))" }.joined(separator: "; ")
+                Self.log.notice("readHealthData(\(dayOffset)) \(date, privacy: .public) · hrv \(hrv.count) minute(s) padded, \(measured.count) measured, \(withRR) with ≥2 RR, \(withVendor) with vendor value · rr/min \(rr.min() ?? 0)–\(rr.max() ?? 0) · measured by hour [\(perHour, privacy: .public)] · e.g. \(sample, privacy: .public) · temp \(temperatures.count)")
                 return BandHealthData(temperatures: temperatures, hrv: hrv)
             }
         }
@@ -433,47 +451,102 @@ final class VeepooBand: BandService, @unchecked Sendable {
 
     /// The night that ends on the morning of the day `dayOffset` back. The SDK files a
     /// record under one calendar date and does not say which end of the night it picks, so
-    /// both candidate dates are read and the records are kept by their WAKE_TIME instead.
+    /// both candidate dates are read and the records are kept by their wake time instead.
+    ///
+    /// ⚠️ Two sleep stores. `VPPeripheralModel.sleepType` 0 (and 2, per the vendor demo) is
+    /// 「普通睡眠」 and fills the dictionary table; 1/3 is 「精准睡眠」 and fills only the
+    /// `VPAccurateSleepModel` table. The HOOP is the latter: reading the dictionary table
+    /// alone answered "no night" on every sync and `sleep_nights` never got a row. The accurate
+    /// table is asked first, the dictionary table second, whichever the model claims — the
+    /// claim is logged, never trusted on its own.
     func readSleep(dayOffset: Int) async throws -> SleepNight? {
-        guard peripheral != nil, let address = central.peripheralModel?.deviceAddress else {
+        guard peripheral != nil, let model = central.peripheralModel,
+              let address = model.deviceAddress else {
             throw BandError.notConnected
         }
+        let sleepType = model.sleepType
         return try await queue.run("readSleep(\(dayOffset))", priority: .p2) {
             try await self.readAllDataIfStale()
             let morning = Self.dayString(daysAgo: dayOffset)
-            let records: [[String: Any]] = await MainActor.run {
-                [morning, Self.dayString(daysAgo: dayOffset + 1)].flatMap { date in
-                    (VPDataBaseOperation.veepooSDKGetSleepData(withDate: date, andTableID: address)
-                        as? [[String: Any]]) ?? []
-                }
-            }
-            let night = records.filter { record in
-                guard let wake = record["WAKE_TIME"] as? String else { return false }
-                // "2017/02/09 07:45" · the morning of `morning`, before noon: a nap after
-                // lunch is not the night, and neither is the night before.
+            let dates = [morning, Self.dayString(daysAgo: dayOffset + 1)]
+
+            // "2017/02/09 07:45" · the morning of `morning`, before noon: a nap after lunch
+            // is not the night, and neither is the night before.
+            func endsThisMorning(_ wake: String?) -> Bool {
+                guard let wake else { return false }
                 let day = wake.prefix(10).replacingOccurrences(of: "/", with: "-")
                 let hour = Int(wake.dropFirst(11).prefix(2)) ?? 24
                 return day == morning && hour < 12
             }
+            func num(_ v: Any?) -> Double { (v as? NSNumber)?.doubleValue ?? (v as? String).flatMap(Double.init) ?? 0 }
+
+            let (accurate, accurateTotal, records) = await MainActor.run {
+                () -> ([VPAccurateSleepModel], Int, [[String: Any]]) in
+                let accurate = dates.flatMap {
+                    VPDataBaseOperation.veepooSDKGetAccurateSleepData(withDate: $0, andTableID: address) ?? []
+                }
+                let records = dates.flatMap { date in
+                    (VPDataBaseOperation.veepooSDKGetSleepData(withDate: date, andTableID: address)
+                        as? [[String: Any]]) ?? []
+                }
+                return (accurate, accurate.count, records)
+            }
+
+            let accurateNight = accurate.filter { endsThisMorning($0.wakeTime) }
+                .sorted { ($0.sleepTime ?? "") < ($1.sleepTime ?? "") }
+            if !accurateNight.isEmpty {
+                let deep = accurateNight.reduce(0.0) { $0 + num($1.deepDuration) }
+                let light = accurateNight.reduce(0.0) { $0 + num($1.lightDuration) }
+                let other = accurateNight.reduce(0.0) { $0 + num($1.otherDuration) }
+                var total = accurateNight.reduce(0.0) { $0 + num($1.sleepDuration) }
+                if total <= 0 { total = deep + light + other }
+                let wakes = accurateNight.reduce(0) { $0 + Int(num($1.getUpTimes)) }
+                let line = Self.runs(from: accurateNight)
+                Self.log.notice("readSleep(\(dayOffset)) \(morning, privacy: .public) · accurate (sleepType \(sleepType)) · \(Int(total)) min in \(accurateNight.count) segment(s) · \(accurateNight.first?.sleepTime ?? "?", privacy: .public) → \(accurateNight.last?.wakeTime ?? "?", privacy: .public) · line \(line.count) runs")
+                var result = SleepNight(totalMinutes: Int(total), deepMinutes: Int(deep),
+                                        lightMinutes: Int(light), wakeCount: wakes, line: line)
+                result.sleepStart = Self.instant(accurateNight.first?.sleepTime)
+                result.wakeAt = Self.instant(accurateNight.last?.wakeTime)
+                return result
+            }
+
+            let night = records.filter { endsThisMorning($0["WAKE_TIME"] as? String) }
             guard !night.isEmpty else {
-                Self.log.notice("readSleep(\(dayOffset)) \(morning, privacy: .public) · no night")
+                let stamps = (accurate.compactMap(\.wakeTime) + records.compactMap { $0["WAKE_TIME"] as? String })
+                    .joined(separator: ",")
+                Self.log.notice("readSleep(\(dayOffset)) \(morning, privacy: .public) · no night · sleepType \(sleepType) · accurate \(accurateTotal) record(s), plain \(records.count) · wake times [\(stamps, privacy: .public)]")
                 return nil
             }
-            func num(_ v: Any?) -> Double { (v as? NSNumber)?.doubleValue ?? (v as? String).flatMap(Double.init) ?? 0 }
             let deep = night.reduce(0.0) { $0 + num($1["DEEP_HOUR"]) * 60 }
             let light = night.reduce(0.0) { $0 + num($1["LIGHT_HOUR"]) * 60 }
             var total = night.reduce(0.0) { $0 + num($1["SLE_HOUR"]) * 60 + num($1["SLE_MINUTE"]) }
             if total <= 0 { total = deep + light }
             let wakes = night.reduce(0) { $0 + Int(num($1["WakeUpTime"])) }
-            Self.log.notice("readSleep(\(dayOffset)) \(morning, privacy: .public) · \(Int(total)) min in \(night.count) segment(s)")
+            Self.log.notice("readSleep(\(dayOffset)) \(morning, privacy: .public) · plain (sleepType \(sleepType)) · \(Int(total)) min in \(night.count) segment(s)")
             // Stage counts only; not one of these numbers reaches a screen (F0 rule 03).
             let line = await MainActor.run {
-                Self.sleepLine(morning: morning, address: address,
-                               dates: [morning, Self.dayString(daysAgo: dayOffset + 1)])
+                Self.sleepLine(morning: morning, address: address, dates: dates)
             }
             return SleepNight(totalMinutes: Int(total), deepMinutes: Int(deep),
                               lightMinutes: Int(light), wakeCount: wakes, line: line)
         }
+    }
+
+    /// 04B rule 04 · one run per stage stretch, in the order the segments ran. Stage ids are
+    /// the SDK's: 0 deep, 1 light, 2 REM, 3 insomnia, 4 awake; one point is one minute.
+    private static func runs(from night: [VPAccurateSleepModel]) -> [SleepStageRun] {
+        var runs: [SleepStageRun] = []
+        for model in night {
+            for point in model.parseSleepLine() ?? [] {
+                guard let type = (point["type"] as? NSNumber)?.intValue else { continue }
+                if let last = runs.last, last.stage == type {
+                    runs[runs.count - 1] = SleepStageRun(stage: type, minutes: last.minutes + 1)
+                } else {
+                    runs.append(SleepStageRun(stage: type, minutes: 1))
+                }
+            }
+        }
+        return runs
     }
 
     /// 04B rule 04 · the night's own sleepLine, one run per stage stretch, in the order the
@@ -492,18 +565,14 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 return day == morning && hour < 12
             }
             .sorted { ($0.sleepTime ?? "") < ($1.sleepTime ?? "") }
-        var runs: [SleepStageRun] = []
-        for model in night {
-            for point in model.parseSleepLine() ?? [] {
-                guard let type = (point["type"] as? NSNumber)?.intValue else { continue }
-                if let last = runs.last, last.stage == type {
-                    runs[runs.count - 1] = SleepStageRun(stage: type, minutes: last.minutes + 1)
-                } else {
-                    runs.append(SleepStageRun(stage: type, minutes: 1))
-                }
-            }
-        }
-        return runs
+        return runs(from: night)
+    }
+
+    /// "2017/02/09 07:45", the SDK's sleep stamp, read in the phone's own zone.
+    private static func instant(_ stamp: String?) -> Date? {
+        guard let stamp else { return nil }
+        let f = DateFormatter(); f.dateFormat = "yyyy/MM/dd HH:mm"; f.locale = Locale(identifier: "en_US_POSIX")
+        return f.date(from: stamp)
     }
 
     /// "yyyy-MM-dd" in the phone's calendar, the SDK's query key (「格式为2017-02-09」).
@@ -540,9 +609,12 @@ final class VeepooBand: BandService, @unchecked Sendable {
             // ⚠️ calValue is never used for E_ACTIVE: it already contains the vendor's own
             // basal figure, and adding it to our BMR double-counts. It is stored, not summed.
             cal: int(raw["calValue"]),
-            distance: int(raw["disValue"]),
+            distance: HealthSampleMapping.distanceMeters(from: raw["disValue"]),
             met: num(raw["met"]),
             temperature: num(raw["temperature"] ?? raw["tempValue"]).flatMap { $0 > 0 ? $0 : nil },
+            // The original-data dictionary has no HRV key; it is its own history domain,
+            // read by its own command and joined on in OriginDataSync.
+            hrv: nil,
             stress: int(raw["stress"] ?? raw["stressValue"]).flatMap { $0 > 0 ? $0 : nil },
             sleepState: int(raw["sleepStatus"] ?? raw["sleepState"]))
     }
@@ -783,7 +855,9 @@ final class VeepooBand: BandService, @unchecked Sendable {
                         return AutoMonitorSlot(
                             kind: kind, on: m.on, supportsRange: m.supportRangeTime,
                             startHour: Int(m.startHour), endHour: Int(m.endHour),
-                            intervalMinutes: Int(m.timeInterval))
+                            intervalMinutes: Int(m.timeInterval),
+                            intervalStepMinutes: Int(m.minStepValue),
+                            intervalModifiable: kind != .lorentz)
                     }))
                 }
             }
@@ -799,13 +873,28 @@ final class VeepooBand: BandService, @unchecked Sendable {
             guard let model = native.first(where: { Self.kind($0.type) == slot.kind }) else {
                 throw BandError.unsupported("automatic \(slot.kind.rawValue) monitoring")
             }
+            let requested = slot.intervalMinutes
+            guard (0...AutoMeasurementIntervalPolicy.maximumMinutes).contains(requested) else {
+                throw BandError.rejected("\(requested) minute interval is not supported")
+            }
             model.on = slot.on
             model.startHour = UInt8(slot.startHour)
             model.endHour = UInt8(slot.endHour)
-            model.timeInterval = UInt16(slot.intervalMinutes)
+            guard let requestedInterval = UInt16(exactly: slot.intervalMinutes) else {
+                throw BandError.rejected("AUTO MONITORING INTERVAL IS OUT OF RANGE")
+            }
+            model.timeInterval = requestedInterval
             try await self.sdk("writeAutoMonitoring") { (done: @escaping (Result<Void, Error>) -> Void) in
-                peripheral.veepooSDKSetAutoMonitSwitch(with: model) { success, _ in
-                    done(success ? .success(()) : .failure(BandError.rejected("AUTO MONITORING REFUSED")))
+                peripheral.veepooSDKSetAutoMonitSwitch(with: model) { success, accepted in
+                    guard success else {
+                        done(.failure(BandError.rejected("AUTO MONITORING REFUSED")))
+                        return
+                    }
+                    guard accepted?.timeInterval == requestedInterval else {
+                        done(.failure(BandError.rejected("AUTO MONITORING INTERVAL WAS NOT APPLIED")))
+                        return
+                    }
+                    done(.success(()))
                 }
             }
         }
@@ -843,16 +932,29 @@ enum BoundBand {
 /// One place decides which band the app is talking to.
 enum Band {
     static let live: BandService = {
-        #if canImport(VeepooBleSDK) && !targetEnvironment(simulator)
+        #if targetEnvironment(simulator)
+        return MockBand()
+        #elseif canImport(VeepooBleSDK)
         return VeepooBand()
         #else
-        return MockBand()
+        return DisconnectedBand()
         #endif
     }()
 
     /// True when the app is driving a real band rather than the simulator's stand-in.
     static var isReal: Bool {
         #if canImport(VeepooBleSDK) && !targetEnvironment(simulator)
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// Seeded walk-through: board numbers, MockBand ticks, the demo@ session.
+    /// Compile-time simulator only. Independent of whether VeepooBleSDK is linked —
+    /// an unlinked device build used to make `isReal` false and dump the seed onto the phone.
+    static var allowsSeed: Bool {
+        #if targetEnvironment(simulator)
         true
         #else
         false

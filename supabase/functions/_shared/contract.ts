@@ -22,10 +22,12 @@ export type PanelType = (typeof PANEL_TYPES)[number];
 /// because the contract has 27 and a later version will want them, but offering them in the
 /// render tool's enum is how a sleep-stage strip ends up on screen — the model picks what it
 /// is given.
+/// ⚠️ Ruling reversed on 2026-09-03, by the user, in front of board 07: the night's three
+/// widgets are drawn on 07 (12 hypnogram · 10 split · 19 o2night) and they asked for them
+/// on the screen. F0 rule 03 and 1EEU's not-in-V1 list are superseded for these three; the
+/// data still has to be real, so each one renders only when the band actually wrote it.
 export const SLEEP_TYPES = ["hypnogram", "split", "o2night"] as const;
-export const RENDERABLE_TYPES = PANEL_TYPES.filter(
-  (t) => !(SLEEP_TYPES as readonly string[]).includes(t),
-);
+export const RENDERABLE_TYPES = PANEL_TYPES;
 
 /// F0 rule 06 · every widget declares the page it lands on. There is no sixth destination.
 export const TARGETS = ["training", "fuel", "bodyBattery", "composition", "profile"] as const;
@@ -63,17 +65,30 @@ export const Envelope = z.object({
 export type Envelope = z.infer<typeof Envelope>;
 
 /// The panel is never allowed to be empty: when a frame expires it falls back to this.
-export function batteryFallback(level: number | null): Envelope {
+export function batteryFallback(level: number | null, locale = "en-US"): Envelope {
+  const en = locale.startsWith("en");
   return {
     type: "battery",
     title: "BODY BATTERY",
-    sentence: level === null ? "还没有可用的夜间数据。" : `现在 ${level}。`,
+    sentence: level === null
+      ? (en ? "No night on record yet." : "还没有可用的夜间数据。")
+      : (en ? `${level} right now.` : `现在 ${level}。`),
     data: { level, unit: "%" },
     ttl_min: 20,
     priority: "normal",
-    locale: "zh-CN",
+    locale: en ? "en-US" : "zh-CN",
     target: "bodyBattery",
   };
+}
+
+/// 11 · 07 · units and language are app-side preferences; the app sends its language with
+/// every turn, and the profile row is the fallback for a client that does not.
+/// ⚠️ English is the default, not Chinese. 07's envelope note is explicit — 「locale 只影响
+/// format，不翻译任何一个字」 — and every screen on the board is written in English. Chinese
+/// is what a user picks in Settings, so only an explicit zh selects it; anything else,
+/// including a missing value, is English.
+export function normalizeLocale(raw: unknown): "zh-CN" | "en-US" {
+  return String(raw ?? "").toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
 }
 
 /// F4 · the fixed medical stop frame. S7 renders this and nothing else — no tools,
@@ -98,7 +113,7 @@ export const MEDICAL = /(诊断|症状|吃药|用药|停药|服药|药物|处方
 export const MEDICAL_STOP: Envelope = {
   type: "text",
   title: "NOT A DOCTOR",
-  sentence: "这类问题请找医生。这块屏只报告测量到的数字。",
+  sentence: "That is a question for a doctor. This screen only reports what was measured.",
   footer: "NEXTBODY IS NOT A MEDICAL DEVICE",
   data: {},
   ttl_min: 5,
@@ -106,6 +121,11 @@ export const MEDICAL_STOP: Envelope = {
   locale: "zh-CN",
   target: "profile",
 };
+
+export function medicalStop(locale = "en-US"): Envelope {
+  if (locale.startsWith("en")) return { ...MEDICAL_STOP, locale: "en-US" };
+  return { ...MEDICAL_STOP, sentence: "这类问题请找医生。这块屏只报告测量到的数字。", locale: "zh-CN" };
+}
 
 export const ERROR_CODES = [
   "E_CLAIM",   // F5 C7 · banned phrase

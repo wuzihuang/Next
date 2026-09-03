@@ -1,8 +1,9 @@
 import Foundation
 import SwiftUI
 
-/// Everything the screens read. Backed by Supabase in production; seeded with the
-/// exact numbers printed on the design boards so the flow is walkable without a band.
+/// Everything the screens read. Backed by Supabase in production. On the simulator it is
+/// seeded with the exact numbers printed on the design boards so the flow is walkable
+/// without a band; a real phone starts empty and fills in from the server and the wrist.
 @MainActor
 final class DataStore: ObservableObject {
     static let shared = DataStore()
@@ -13,14 +14,14 @@ final class DataStore: ObservableObject {
     /// The window 12's WEEK view reads. Today's list stays in `meals` so 09 is untouched.
     @Published var recentMeals: [MealEntry] = []
     @Published var weighIns: [WeighIn] = []
-    @Published var band: BandState = Band.isReal ? .unknown : .mock
-    @Published var profile: Profile = Band.isReal ? .blank : .mock
+    @Published var band: BandState = Band.allowsSeed ? .mock : .unknown
+    @Published var profile: Profile = Band.allowsSeed ? .mock : .blank
     /// F3 rule 09 · the moment of the last readOriginData that succeeded. nil until one has:
     /// a phone that has never synced says so, it does not say "12 MIN AGO".
-    @Published var lastSync: Date? = Band.isReal ? nil : Date().addingTimeInterval(-12 * 60)
+    @Published var lastSync: Date? = Band.allowsSeed ? Date().addingTimeInterval(-12 * 60) : nil
     /// 04 · the HR / STRESS row under the readout, and the tick it came from. 13 · the age
     /// of that tick is what decides whether the numbers are shown, dimmed, or dashed.
-    @Published var vitals: LiveVitals = Band.isReal ? LiveVitals() : .mock
+    @Published var vitals: LiveVitals = Band.allowsSeed ? .mock : LiveVitals()
     /// 12 · what this HOOP reports it can do, as last stored. The device page and 07's
     /// capabilities() gate read this so they are right before the band answers, and still
     /// right when it is out of range.
@@ -41,20 +42,20 @@ final class DataStore: ObservableObject {
         // bound, and the app reconnects to it the way it would on any later launch.
         // ⚠️ Simulator only. On a device a made-up identifier makes the app believe a band
         // is bound before the gate was ever walked, and every launch would try to reconnect.
-        if !Band.isReal, BoundBand.identifier == nil { BoundBand.identifier = "C4-2E-8F-1A-73-9D" }
+        if Band.allowsSeed, BoundBand.identifier == nil { BoundBand.identifier = "C4-2E-8F-1A-73-9D" }
         // Earlier device builds wrote that seed; a real phone carrying it is not bound to anything.
-        if Band.isReal, BoundBand.identifier == "C4-2E-8F-1A-73-9D" { BoundBand.forget() }
+        if !Band.allowsSeed, BoundBand.identifier == "C4-2E-8F-1A-73-9D" { BoundBand.forget() }
         // The board's numbers exist so the flow is walkable on a simulator with no band.
         // On a device every one of them would be a figure with no source behind it — F2
         // rule 05 · unknown is "——", never a plausible number — so the day starts empty and
         // fills in from daily_results and from the band, or stays a dash.
-        if Band.isReal {
-            today = DailyMetrics(day: UserDay.containing(Date()))
-        } else {
+        if Band.allowsSeed {
             today = DataStore.seedToday()
             history = DataStore.seedHistory()
             meals = MealEntry.seed
             weighIns = WeighIn.seed
+        } else {
+            today = DailyMetrics(day: UserDay.containing(Date()))
         }
     }
 
@@ -309,11 +310,11 @@ struct MealEntry: Identifiable, Hashable {
         }
         return [
             MealEntry(id: UUID(), day: day, at: at(1, 20, plusDay: false), slot: .snack, status: .confirmed,
-                      text: "半碗面 + 一个鸡蛋", kcal: 310, protein: 14, carb: 42, fat: 9, source: .voice),
+                      text: "Half a bowl of noodles + one egg", kcal: 310, protein: 14, carb: 42, fat: 9, source: .voice),
             MealEntry(id: UUID(), day: day, at: at(8, 10), slot: .breakfast, status: .confirmed,
-                      text: "燕麦、希腊酸奶、蓝莓", kcal: 420, protein: 28, carb: 52, fat: 11, source: .typed),
+                      text: "Oats, Greek yoghurt, blueberries", kcal: 420, protein: 28, carb: 52, fat: 11, source: .typed),
             MealEntry(id: UUID(), day: day, at: at(12, 40), slot: .lunch, status: .confirmed,
-                      text: "鸡胸沙拉配藜麦", kcal: 510, protein: 42, carb: 38, fat: 22, source: .photo),
+                      text: "Chicken salad with quinoa", kcal: 510, protein: 42, carb: 38, fat: 22, source: .photo),
             MealEntry(id: UUID(), day: day, at: at(19, 0), slot: .dinner, status: .open,
                       text: "", kcal: 0, protein: 0, carb: 0, fat: 0),
         ]

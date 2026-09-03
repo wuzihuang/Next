@@ -14,14 +14,19 @@ struct CurveRenderer: View {
     /// `splitAt` take `accent`; the rest take `accent2`. Nil draws one colour, as before.
     var splitAt: Int? = nil
     var accent2: Color? = nil
+    /// 07 · drawn behind the dot screen: the stroke has to be wider than one pitch or the
+    /// mask leaves a broken trail; the fill and the glow are the screen's job now.
+    var led = false
 
     @State private var draw: CGFloat = 0
+    private var stroke: CGFloat { led ? 6 : 2 }
+    private var blur: CGFloat { led ? 0 : 6 }
 
     var body: some View {
         GeometryReader { geo in
             let pts = points(in: geo.size)
             ZStack {
-                if fill, pts.count > 1 {
+                if fill, !led, pts.count > 1 {
                     area(pts, in: geo.size)
                         .fill(LinearGradient(colors: [accent.opacity(0.40), accent.opacity(0)],
                                              startPoint: .top, endPoint: .bottom))
@@ -30,21 +35,21 @@ struct CurveRenderer: View {
                 if let k = splitAt, let a2 = accent2, k >= 0, k < pts.count - 1 {
                     line(Array(pts[...k]))
                         .trim(from: 0, to: draw)
-                        .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                        .shadow(color: accent.opacity(glow), radius: 6)
+                        .stroke(accent, style: StrokeStyle(lineWidth: stroke, lineCap: .round, lineJoin: .round))
+                        .shadow(color: accent.opacity(glow), radius: blur)
                     line(Array(pts[k...]))
                         .trim(from: 0, to: draw)
-                        .stroke(a2, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                        .shadow(color: a2.opacity(glow), radius: 6)
+                        .stroke(a2, style: StrokeStyle(lineWidth: stroke, lineCap: .round, lineJoin: .round))
+                        .shadow(color: a2.opacity(glow), radius: blur)
                 } else {
                     line(pts)
                         .trim(from: 0, to: draw)
-                        .stroke(accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                        .shadow(color: accent.opacity(glow), radius: 6)
+                        .stroke(accent, style: StrokeStyle(lineWidth: stroke, lineCap: .round, lineJoin: .round))
+                        .shadow(color: accent.opacity(glow), radius: blur)
                 }
                 if dot, let last = pts.last {
                     Circle().fill(accent2 ?? accent)
-                        .frame(width: 5, height: 5)
+                        .frame(width: led ? 10 : 5, height: led ? 10 : 5)
                         .position(last)
                         .opacity(draw == 1 ? 1 : 0)
                 }
@@ -82,6 +87,7 @@ struct PairRenderer: View {
     let hi: [Double]
     let lo: [Double]
     let accent: Color
+    var led = false
 
     private func map(_ vs: [Double], mn: Double, span: Double, size: CGSize) -> [CGPoint] {
         vs.enumerated().map { i, v in
@@ -111,7 +117,7 @@ struct PairRenderer: View {
                         guard let f = s.first else { return }
                         p.move(to: f); s.dropFirst().forEach { p.addLine(to: $0) }
                     }
-                    .stroke(accent.opacity(i == 0 ? 1 : 0.6), lineWidth: 1.6)
+                    .stroke(accent.opacity(i == 0 ? 1 : 0.6), lineWidth: led ? 5 : 1.6)
                 }
             }
         }
@@ -125,11 +131,12 @@ struct DualRenderer: View {
     let b: [Double]
     let accent: Color
     let secondary: Color
+    var led = false
 
     var body: some View {
         ZStack {
-            CurveRenderer(values: b, accent: secondary, fill: false, glow: 0.15, dot: false)
-            CurveRenderer(values: a, accent: accent, fill: false, glow: 0.35, dot: true)
+            CurveRenderer(values: b, accent: secondary, fill: false, glow: 0.15, dot: false, led: led)
+            CurveRenderer(values: a, accent: accent, fill: false, glow: 0.35, dot: true, led: led)
         }
     }
 }
@@ -140,6 +147,10 @@ struct ColumnRenderer: View {
     let bins: [(String, Double)]
     let accent: Color
     var zeroAxis = false
+    /// The bars go behind the dot screen and the labels in front of it, so AIPanel draws
+    /// this twice; the catalogue draws both at once.
+    var showBars = true
+    var showLabels = true
 
     @State private var grown: CGFloat = 0
 
@@ -151,11 +162,11 @@ struct ColumnRenderer: View {
             let mx = max(bins.map { abs($0.1) }.max() ?? 1, 0.0001)
             let axisY = zeroAxis ? geo.size.height / 2 : geo.size.height - 14
             ZStack(alignment: .topLeading) {
-                if zeroAxis {
+                if zeroAxis, showBars {
                     Rectangle().fill(NB.white.opacity(0.10))
                         .frame(height: 1).offset(y: axisY)
                 }
-                ForEach(bins.indices, id: \.self) { i in
+                ForEach(showBars ? bins.indices : 0..<0, id: \.self) { i in
                     let v = bins[i].1
                     let h = CGFloat(abs(v) / mx) * (zeroAxis ? geo.size.height / 2 - 8 : geo.size.height - 22) * grown
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
@@ -164,7 +175,7 @@ struct ColumnRenderer: View {
                         .offset(x: CGFloat(i) * (w + gap),
                                 y: v < 0 && zeroAxis ? axisY : axisY - h)
                 }
-                ForEach(bins.indices, id: \.self) { i in
+                ForEach(showLabels ? bins.indices : 0..<0, id: \.self) { i in
                     Text(bins[i].0)
                         .font(NBFont.dot(500, 9)).tracking(0.12 * 9)
                         .foregroundStyle(NB.white.opacity(0.32))
@@ -183,6 +194,7 @@ struct ArcRenderer: View {
     let fraction: Double
     let accent: Color
     let label: String
+    var showLabel = true
     @State private var shown: Double = 0
 
     var body: some View {
@@ -192,9 +204,11 @@ struct ArcRenderer: View {
                 .stroke(accent, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                 .padding(5)
                 .shadow(color: accent.opacity(0.35), radius: 8)
-            Text(label)
-                .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
-                .foregroundStyle(NB.white.opacity(0.45))
+            if showLabel {
+                Text(label)
+                    .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
+                    .foregroundStyle(NB.white.opacity(0.45))
+            }
         }
         .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.9)) { shown = min(fraction, 1) } }
     }
@@ -204,6 +218,7 @@ struct GaugeRenderer: View {
     let value: Double
     let zones: [(Double, Double, String)]
     let accent: Color
+    var showLabel = true
 
     var body: some View {
         let lo = zones.first?.0 ?? 0
@@ -219,9 +234,11 @@ struct GaugeRenderer: View {
             RingArc(from: 0, to: (value - lo) / span * 0.75)
                 .stroke(accent, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                 .rotationEffect(.degrees(225))
-            Text(Fmt.kg(value, decimals: 0))
-                .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
-                .foregroundStyle(NB.white.opacity(0.45))
+            if showLabel {
+                Text(Fmt.kg(value, decimals: 0))
+                    .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
+                    .foregroundStyle(NB.white.opacity(0.45))
+            }
         }
     }
     private func zoneColor(_ i: Int) -> Color {
@@ -232,6 +249,9 @@ struct GaugeRenderer: View {
 /// stack · split · fuel · balance. Segments on one track.
 struct StackRenderer: View {
     let parts: [(String, Double, Color)]
+    /// 10 · split counts minutes, and the board prints them as "1H48 · 24%". fuel and
+    /// balance count kcal or grams and print the number. One renderer, two dialects.
+    var minutes = false
 
     var body: some View {
         let total = max(parts.reduce(0) { $0 + $1.1 }, 0.0001)
@@ -255,13 +275,23 @@ struct StackRenderer: View {
                             .font(NBFont.ui(500, 11)).tracking(0.12 * 11)
                             .foregroundStyle(NB.white.opacity(0.55))
                         Spacer(minLength: 0)
-                        Text(Fmt.kcal(parts[i].1))
+                        Text(minutes ? clock(parts[i].1, of: total) : Fmt.kcal(parts[i].1))
                             .font(NBFont.dot(600, 11))
                             .foregroundStyle(NB.white.opacity(0.80))
                     }
                 }
             }
         }
+    }
+}
+
+extension StackRenderer {
+    /// "1H48 · 24%" — the board's own legend for a night.
+    fileprivate func clock(_ value: Double, of total: Double) -> String {
+        let m = Int(value.rounded())
+        let pct = Int((value / total * 100).rounded())
+        return m >= 60 ? "\(m / 60)H\(String(format: "%02d", m % 60)) · \(pct)%"
+                       : "\(m)M · \(pct)%"
     }
 }
 
@@ -319,11 +349,113 @@ struct StripRenderer: View {
     }
 }
 
+/// lanes · hypnogram. 07 · 12 · three lanes — AWAKE on top, then LIGHT, then DEEP — with
+/// one block per run. The night reads as a shape rather than a bar: where the deep blocks
+/// sit is the whole point, and a stacked bar throws that away.
+struct LaneRenderer: View {
+    /// (lane, minutes) in order. Lane 0 = awake, 1 = light, 2 = deep.
+    let runs: [(Int, Double)]
+    let from: String
+    let to: String
+    var showBlocks = true
+    var showLabels = true
+
+    private let names = ["AWAKE", "LIGHT", "DEEP"]
+    private var tint: [Color] { [NB.white.opacity(0.75), NB.violet1.opacity(0.65), NB.violet1] }
+
+    var body: some View {
+        GeometryReader { geo in
+            let total = max(runs.reduce(0) { $0 + $1.1 }, 1)
+            // 12 · the strip starts under the hero and ends over the clock labels; three
+            // lanes share what is left, label tight above its own blocks.
+            let top: CGFloat = 34
+            let laneH = (geo.size.height - top - 22) / 3
+            let blockH: CGFloat = 14
+            ZStack(alignment: .topLeading) {
+                if showLabels {
+                    ForEach(0..<3, id: \.self) { l in
+                        Text(names[l])
+                            .font(NBFont.dot(600, 9)).tracking(0.12 * 9)
+                            .foregroundStyle(NB.white.opacity(0.34))
+                            .offset(y: top + laneH * CGFloat(l))
+                    }
+                }
+                if showBlocks {
+                    // One pass over the runs, carrying the x cursor forward.
+                    let laid = layout(in: geo.size.width, total: total)
+                    ForEach(laid.indices, id: \.self) { i in
+                        let b = laid[i]
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(tint[min(b.lane, 2)])
+                            .frame(width: max(b.width, 2), height: blockH)
+                            .offset(x: b.x, y: top + laneH * CGFloat(b.lane) + 15)
+                    }
+                }
+                if showLabels {
+                    HStack(spacing: 0) {
+                        Text(from); Spacer(minLength: 0); Text(to)
+                    }
+                    .font(NBFont.dot(500, 9)).tracking(0.12 * 9)
+                    .foregroundStyle(NB.white.opacity(0.32))
+                    .offset(y: geo.size.height - 12)
+                }
+            }
+        }
+    }
+
+    private struct Block { let lane: Int; let x: CGFloat; let width: CGFloat }
+    private func layout(in width: CGFloat, total: Double) -> [Block] {
+        var x: CGFloat = 0
+        return runs.map { run in
+            let w = width * CGFloat(run.1 / total)
+            defer { x += w }
+            return Block(lane: run.0, x: x, width: w - 1)
+        }
+    }
+}
+
+/// columns · zones. 07 · 13 · five columns, Z1…Z5, each in its own zone colour, minutes
+/// under them. The board's own scale: Z1 track grey, then lime, yellow, amber, red.
+struct ZoneColumnsRenderer: View {
+    let minutes: [Double]
+    var showBars = true
+    var showLabels = true
+
+    private var palette: [Color] { [NB.barTrack, NB.lime2, NB.lime1, NB.ember1, NB.alert2] }
+
+    var body: some View {
+        GeometryReader { geo in
+            let n = max(minutes.count, 1)
+            let gap: CGFloat = 10
+            let w = (geo.size.width - gap * CGFloat(n - 1)) / CGFloat(n)
+            let mx = max(minutes.max() ?? 1, 1)
+            let plot = geo.size.height - 18
+            ZStack(alignment: .topLeading) {
+                ForEach(showBars ? minutes.indices : 0..<0, id: \.self) { i in
+                    let h = CGFloat(minutes[i] / mx) * plot
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(minutes[i] > 0 ? palette[min(i, 4)] : NB.barTrack.opacity(0.5))
+                        .frame(width: w, height: max(h, 3))
+                        .offset(x: CGFloat(i) * (w + gap), y: plot - max(h, 3))
+                }
+                ForEach(showLabels ? minutes.indices : 0..<0, id: \.self) { i in
+                    Text("Z\(i + 1)")
+                        .font(NBFont.dot(600, 9)).tracking(0.12 * 9)
+                        .foregroundStyle(NB.white.opacity(minutes[i] > 0 ? 0.55 : 0.28))
+                        .frame(width: w)
+                        .offset(x: CGFloat(i) * (w + gap), y: geo.size.height - 12)
+                }
+            }
+        }
+    }
+}
+
 /// trace · wave. ECG paper: a grid in millimetres, then one line.
 struct TraceRenderer: View {
     let samples: [Double]
     let hz: Double
     let accent: Color
+    var led = false
 
     var body: some View {
         GeometryReader { geo in
@@ -346,7 +478,7 @@ struct TraceRenderer: View {
                         i == 0 ? p.move(to: pt) : p.addLine(to: pt)
                     }
                 }
-                .stroke(accent, style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
+                .stroke(accent, style: StrokeStyle(lineWidth: led ? 5 : 1.6, lineJoin: .round))
             }
         }
     }

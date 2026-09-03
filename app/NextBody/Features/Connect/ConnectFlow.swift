@@ -418,7 +418,7 @@ private struct Searching: View {
                     Text("NOTHING FOUND")
                         .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
                         .foregroundStyle(NB.white.opacity(0.48))
-                    Text("· 手环亮起来了吗\n· 是不是超过一臂远\n· 是不是还连在别的手机上")
+                    Text("· Is the band lit up\n· Is it further than an arm away\n· Is it still linked to another phone")
                         .font(NBFont.ui(300, 13)).lineSpacing(8)
                         .foregroundStyle(NB.white.opacity(0.50))
                         .frame(width: NB.Layout.contentWidth, alignment: .leading)
@@ -445,7 +445,7 @@ private struct Searching: View {
                     Button {
                         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                     } label: {
-                        Text("去打开蓝牙 →").font(NBFont.ui(500, 14)).tracking(0.04 * 14).foregroundStyle(NB.lime1)
+                        Text("Open Bluetooth →").font(NBFont.ui(500, 14)).tracking(0.04 * 14).foregroundStyle(NB.lime1)
                     }
                     .buttonStyle(.plain)
                     .padding(.top, 6)
@@ -638,7 +638,7 @@ private struct Pairing: View {
                         Text("This band is still paired somewhere else.")
                             .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
                         Hairline()
-                        Text("1 · 在那部手机上断开连接\n2 · 或者长按侧键，把手环重启一次")
+                        Text("1 · Disconnect it on that phone\n2 · Or hold the side button to restart the band")
                             .font(NBFont.ui(300, 13.5)).lineSpacing(8).foregroundStyle(NB.white.opacity(0.60))
                     } else {
                         Text("The band stopped answering. Nothing you did wrong.")

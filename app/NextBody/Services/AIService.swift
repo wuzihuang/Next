@@ -30,7 +30,7 @@ final class AIService: ObservableObject {
 
     func turn(_ text: String, day: UserDay, store: DataStore) async -> PanelWidget? {
         guard dailyCallsUsed < dailyCap else {
-            lastError = "今天的对话次数用完了，明天 04:00 重置。"
+            lastError = AppLanguage.isEnglish ? "That was today’s last turn. It resets at 04:00." : "今天的对话次数用完了，明天 04:00 重置。"
             return nil
         }
         dailyCallsUsed += 1
@@ -46,7 +46,7 @@ final class AIService: ObservableObject {
             // frame. The DEBUG path masked it by answering in its place.
             var frame: [String: Any]?
             for try await chunk in SupabaseClient.shared.streamFunction("turn", payload: [
-                "text": text, "dayKey": dayKey,
+                "text": text, "dayKey": dayKey, "locale": AppLanguage.locale,
             ]) {
                 let parts = chunk.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parts.count == 2,
@@ -122,7 +122,7 @@ final class AIService: ObservableObject {
             let out = try await SupabaseClient.shared.callFunction("meal", payload: [
                 "text": entry.text,
                 "slot": entry.slot.rawValue,
-                "locale": "zh-CN",
+                "locale": AppLanguage.locale,
             ])
             if let kcal = numberOf(out["kcal"]) {
                 store.updateMeal(entry.id, kcal: kcal, text: out["name"] as? String ?? entry.text)
@@ -148,7 +148,7 @@ final class AIService: ObservableObject {
                               status: .confirmed, text: caption, kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
         do {
             let out = try await SupabaseClient.shared.callFunction("meal", payload: [
-                "text": caption, "slot": slot.rawValue, "locale": "zh-CN", "image": dataURL,
+                "text": caption, "slot": slot.rawValue, "locale": AppLanguage.locale, "image": dataURL,
             ])
             guard let kcal = numberOf(out["kcal"]) else { lastError = "\(out["error"] ?? "MODEL_UNAVAILABLE")"; return nil }
             let name = out["name"] as? String ?? caption
@@ -225,10 +225,8 @@ final class AIService: ObservableObject {
               let type = PanelType(rawValue: typeRaw),
               let title = env["title"] as? String,
               let sentence = env["sentence"] as? String else { return nil }
-        // ⚠️ F0 rule 03 · sleep never reaches the screen. The render tool no longer offers
-        // the three sleep types, and a frame that carries one anyway is dropped here rather
-        // than drawn — one lock on each side of the wire.
-        guard !type.isSleepWidget else { return nil }
+        // ⚠️ The two locks that kept sleep off the screen are both gone (2026-09-03, the
+        // user's own ruling in front of board 07). A sleep frame draws like any other.
 
         // F0 rule 06 · no target, no screen. The server states this on the Envelope schema and
         // enforces it on its own fixed frames; enforcing it here too means a malformed frame is
@@ -351,6 +349,25 @@ final class AIService: ObservableObject {
         case .strip:
             let stages = numbers(d["minutes"] ?? d["stages"] ?? d["zones"])
             return .strip(stages.enumerated().map { ($0.offset, $0.element) })
+        case .lanes:
+            // 12 · lanes arrive as [[lane, minutes], …]; a flat [lane, min, lane, min] is
+            // read too, because that is the shape a model reaches for when it invents one.
+            var runs: [(Int, Double)] = []
+            if let rows = d["lanes"] as? [[Any]] {
+                runs = rows.compactMap { r in
+                    guard r.count >= 2,
+                          let l = (r[0] as? Int) ?? (r[0] as? Double).map(Int.init),
+                          let m = (r[1] as? Double) ?? (r[1] as? Int).map(Double.init) else { return nil }
+                    return (l, m)
+                }
+            } else {
+                let flat = numbers(d["lanes"] ?? d["stages"] ?? d["minutes"])
+                runs = stride(from: 0, to: max(0, flat.count - 1), by: 2).map { (Int(flat[$0]), flat[$0 + 1]) }
+            }
+            return .lanes(runs: runs, from: (d["from"] as? String) ?? "", to: (d["to"] as? String) ?? "")
+        case .columns:
+            let mins = numbers(d["minutes"] ?? d["zones"] ?? d["stages"])
+            return .zones(mins.isEmpty ? [] : mins)
         case .trace:
             return .trace(samples: numbers(d["samples"] ?? d["series"]),
                           hz: (d["hz"] as? Double) ?? 125)
@@ -375,7 +392,7 @@ final class AIService: ObservableObject {
     /// invent a number.
     private func offlineFrame(_ text: String) -> PanelWidget {
         PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
-                    sentence: "记下了，等联网再算成 kcal。",
+                    sentence: AppLanguage.isEnglish ? "Noted. It becomes kcal once you're back online." : "记下了，等联网再算成 kcal。",
                     footer: String(text.prefix(42)), action: nil, data: .none)
     }
 
@@ -383,7 +400,7 @@ final class AIService: ObservableObject {
         let left = store.today.nextMeal
         return PanelWidget(
             type: .meal, title: "LOGGED", tag: .fuel,
-            sentence: "\(Fmt.kcal(kcal)) KCAL。剩 \(Fmt.kcal(left))。",
+            sentence: AppLanguage.isEnglish ? "\(Fmt.kcal(kcal)) KCAL. \(Fmt.kcal(left)) LEFT." : "\(Fmt.kcal(kcal)) KCAL。剩 \(Fmt.kcal(left))。",
             footer: String(name.prefix(42)), action: "OPEN FUEL",
             data: .rows([.init(label: name, value: Fmt.kcal(kcal))]))
     }
@@ -398,4 +415,28 @@ final class AIService: ObservableObject {
     static let dayFormatter: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f
     }()
+}
+
+/// 11 · 07 · units and language are app-side display preferences. The sheet stores the
+/// language under `nb.language`; this is the one place that reads it back, and every turn
+/// carries it so the screen's words follow the setting rather than the server's default.
+enum AppLanguage {
+    static let key = "nb.language"
+    static var isEnglish: Bool {
+        #if DEBUG
+        // `NB_DEBUG_LANG=en|zh` · a harness cannot open the language sheet.
+        if let forced = ProcessInfo.processInfo.environment["NB_DEBUG_LANG"] { return forced.hasPrefix("en") }
+        #endif
+        return (UserDefaults.standard.string(forKey: key) ?? "English") != "简体中文"
+    }
+    static var locale: String { isEnglish ? "en-US" : "zh-CN" }
+
+    /// The profile row is the server's fallback for a client that sends no locale, and the
+    /// only copy a second device would see. Written when the sheet changes, never on launch.
+    static func sync() {
+        Task {
+            guard let uid = await SupabaseClient.shared.currentUserId else { return }
+            _ = try? await SupabaseClient.shared.patchWhere("profiles", column: "user_id", equals: uid, row: ["locale": locale])
+        }
+    }
 }

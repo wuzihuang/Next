@@ -47,11 +47,15 @@ struct SignInFlow: View {
         .carbonPage()
     }
 
-    /// Google is not wired yet: this is the placeholder that used to stand in for both
-    /// providers, and it signs nothing in. Home then falls back to the demo account.
+    /// Google is not wired yet. On the simulator this still lands on the seeded demo
+    /// session; on a device it must not skip the gate into invented numbers.
     private func provider() {
         if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
-        finish()
+        if Band.allowsSeed {
+            finish()
+        } else {
+            withAnimation { authFailed = true }
+        }
     }
 
     /// 01 edge 5 · cancelled on the system sheet is silent; only a token failure says anything,
@@ -141,7 +145,7 @@ struct SignInFlow: View {
     }
 
     static func isDemo(_ email: String) -> Bool {
-        email.lowercased().trimmingCharacters(in: .whitespaces) == "demo@nextbody.app"
+        Band.allowsSeed && DemoAccount.matches(email)
     }
 
     /// 01 edge 1 · red outline, a 6 px shake, one haptic, then back to the first cell.
@@ -166,7 +170,7 @@ struct SignInFlow: View {
         Task {
             do {
                 if Self.isDemo(email) {
-                    try await SupabaseClient.shared.signIn(email: "demo@nextbody.app", password: "nextbody-demo")
+                    try await SupabaseClient.shared.signIn(email: DemoAccount.email, password: DemoAccount.password)
                 } else {
                     try await SupabaseClient.shared.verifyCode(email: email, token: code)
                 }

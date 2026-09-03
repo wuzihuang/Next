@@ -133,7 +133,7 @@ struct AvatarButton: View {
                 .padding(-max(0, (44 - size) / 2))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("我的")
+        .accessibilityLabel("Profile")
     }
 }
 
@@ -185,7 +185,7 @@ struct HomeHeader: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: onProfile)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("我的 · \(name)")
+            .accessibilityLabel("Profile · \(name)")
             .accessibilityAddTraits(.isButton)
             #if DEBUG
             // 07's catalogue is the one board that cannot be audited by using the app,
@@ -203,7 +203,7 @@ struct HomeHeader: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(batteryPercent.map { "手环 · 电量 \($0)%" } ?? "手环 · 电量未读到")
+            .accessibilityLabel(batteryPercent.map { "Band · battery \($0)%" } ?? "Band · battery not read")
         }
         .frame(width: width, height: Self.height)
     }
@@ -258,11 +258,10 @@ struct DetailScroll<Trailing: View, Content: View>: View {
     let glow: Color
     /// The page's own name — what the bar prints once the page has scrolled.
     let title: String
-    /// What the big row prints when it is not the name: 10's date, 11's ME, 09's closed
-    /// day. The name then sits above it as the eyebrow.
+    /// What the big row prints when it is not the name: 10's date, 09's closed day.
+    /// The name then sits above it as the eyebrow.
     let headline: String?
-    /// An eyebrow of its own — 12 hangs off profile and says so. Defaults to the name
-    /// whenever the headline is something else.
+    /// An eyebrow of its own. Defaults to the name whenever the headline is something else.
     let eyebrow: String?
     /// The right end of the big row: 08's `2.1 TO GO`, 10's pager, 12's CONNECTED pill.
     let trailing: Trailing

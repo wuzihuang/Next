@@ -10,10 +10,10 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
     case cells, hypnogram, zones, wave, table, workout, events, heat, o2night
     case food, meal, fuel, balance, recomp, delta, dual
 
-    /// ⚠️ 1EEU · the three sleep widgets are not in V1, and F0 rule 03 is the reason: the
-    /// night only ever reaches the screen as the Body Battery it produced. They stay in the
-    /// enum because the contract has 27 types, but a frame carrying one is dropped rather
-    /// than drawn — the server no longer offers them, and this is the second lock.
+    /// ⚠️ Ruling reversed on 2026-09-03: the user asked for sleep staging on the screen,
+    /// in front of board 07, which draws all three (12 hypnogram · 10 split · 19 o2night).
+    /// F0 rule 03 and 1EEU's not-in-V1 list are superseded for these three. The property
+    /// stays because the catalogue still groups them; nothing drops them any more.
     var isSleepWidget: Bool {
         switch self {
         case .hypnogram, .split, .o2night: true
@@ -32,7 +32,10 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
         case .ring, .gauge, .battery:               return .arc
         case .split, .fuel, .balance:               return .stack
         case .cells, .heat, .recomp:                return .grid
-        case .hypnogram, .zones:                    return .strip
+        // 07 · 12 vs 13 · the night is three lanes of run-length blocks; the zones widget is
+        // five columns. One renderer drew both as a single stacked bar, which is neither.
+        case .hypnogram:                            return .lanes
+        case .zones:                                return .columns
         case .wave:                                 return .trace
         case .sparks, .table, .events, .workout, .meal, .food: return .rows
         }
@@ -80,6 +83,10 @@ enum PanelRenderer: String, Hashable {
     case number, curve, pair, column, arc, stack, grid, strip, trace, rows
     /// 26 · dual · two series on their own scales, no fill between them.
     case dual
+    /// 12 · hypnogram · AWAKE / LIGHT / DEEP lanes, run-length blocks.
+    case lanes
+    /// 13 · zones · five columns, one per heart-rate zone.
+    case columns
 }
 
 enum HeroStyle: Hashable { case large, small, ring, own, none }
@@ -130,6 +137,8 @@ struct PanelWidget: Identifiable, Hashable {
     var heroSub: String?
     var ttlMinutes: Int = 20
     var priority: Priority = .normal
+    /// When this frame went up. The thinking state counts on it; nothing else looks.
+    var startedAt = Date()
 
     enum Priority: String, Hashable { case normal, alert }
 
@@ -139,10 +148,14 @@ struct PanelWidget: Identifiable, Hashable {
     func hash(into h: inout Hasher) { h.combine(id) }
 
     /// The panel while she is working. Not a type — a state of the same surface.
-    static let thinking = PanelWidget(
-        type: .text, title: "THINKING", tag: nil,
-        sentence: "记下了。正在把它换算成今天的额度。",
-        footer: nil, action: nil, data: .none)
+    /// The question is carried in `sentence` so the singularity can echo it; nothing else
+    /// reads that slot while the title is THINKING.
+    static func thinking(_ question: String = "") -> PanelWidget {
+        PanelWidget(type: .text, title: "THINKING", tag: nil,
+                    sentence: String(question.prefix(38)),
+                    footer: nil, action: nil, data: .none)
+    }
+    static var thinking: PanelWidget { thinking("") }
 }
 
 enum PanelTag: String, Hashable, CaseIterable {
@@ -160,6 +173,10 @@ enum PanelData: Hashable {
     case parts([(String, Double, Color)])                     // stack
     case cells(rows: Int, cols: Int, values: [Int], levels: Int)  // grid
     case strip([(Int, Double)])                               // strip · (level, share)
+    /// 12 · (lane, minutes) in order, plus the night's ends.
+    case lanes(runs: [(Int, Double)], from: String, to: String)
+    /// 13 · five minute counts, Z1…Z5.
+    case zones([Double])
     case trace(samples: [Double], hz: Double)                 // trace
     case rows([RowItem])                                      // rows
 
@@ -184,6 +201,13 @@ enum PanelData: Hashable {
 struct PanelWidgetView: View {
     let widget: PanelWidget
     let onTap: (Destination) -> Void
+    /// 07 · the panel is printed through a dot screen. AIPanel draws the widget twice on the
+    /// same 358 × 470 canvas: the chart layer *behind* the screen, where a stroke becomes a
+    /// trail of LEDs the way board 07 draws every chart, and the text layer in front of it,
+    /// crisp. `.all` is the flat rendering the catalogue and the photo / composition
+    /// canvases keep.
+    var layer: Layer = .all
+    enum Layer { case all, chart, text }
 
     private enum Slot {
         static let safeX: CGFloat = 22
@@ -205,7 +229,10 @@ struct PanelWidgetView: View {
         // leave the panel — only TAP FOR ALL 14 FIELDS does that. Other widgets stay
         // one tap to their page (F0 rule 06).
         Group {
-            if widget.composition != nil {
+            if layer == .chart {
+                // The LEDs do not take taps; the text layer above them does.
+                canvas.allowsHitTesting(false)
+            } else if widget.composition != nil {
                 canvas
             } else {
                 Button { go() } label: { canvas }
@@ -226,6 +253,7 @@ struct PanelWidgetView: View {
             } else if let composition = widget.composition {
                 compositionCanvas(composition)
             } else {
+            if layer != .chart {
             // Slot 1 · title
             Text(widget.title.uppercased())
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
@@ -242,8 +270,10 @@ struct PanelWidgetView: View {
             }
 
             hero
+            }
             chart
 
+            if layer != .chart {
             // Slot 6 · sentence — the brightest text on the screen
             Text(widget.sentence)
                 .font(NBFont.brand(500, 18))
@@ -269,6 +299,7 @@ struct PanelWidgetView: View {
                     .foregroundStyle(widget.accent)
                     .frame(width: 358, alignment: .center)
                     .offset(y: Slot.actionY)
+            }
             }
 
             }
@@ -504,14 +535,37 @@ struct PanelWidgetView: View {
                     .offset(x: Slot.safeX, y: Slot.heroRefY)
             }
 
-        case .ring, .own, .none:
+        case .ring:
+            // The number inside the ring is text: on the printed panel it sits in front of
+            // the dot screen while the arc sits behind it, so the text layer draws it and the
+            // renderer keeps quiet. The flat rendering leaves it to the renderer, as before.
+            if layer == .text {
+                Text(arcLabel)
+                    .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
+                    .foregroundStyle(NB.white.opacity(0.45))
+                    .frame(width: Slot.heroRing.width, height: Slot.heroRing.height)
+                    .offset(x: Slot.heroRing.minX, y: Slot.heroRing.minY)
+            }
+        case .own, .none:
             EmptyView()
+        }
+    }
+
+    private var arcLabel: String {
+        switch widget.data {
+        case .ring(let v, _, _): return Fmt.kg(v, decimals: 0)
+        case .gauge(let v, _):   return Fmt.kg(v, decimals: 0)
+        default:                 return ""
         }
     }
 
     private var heroValue: String {
         if let hero = widget.hero, !hero.isEmpty { return hero }
         switch widget.data {
+        // 09 · o2night's HERO is the night's average with a percent, not its last point.
+        case .series(let s) where widget.type == .o2night:
+            guard !s.isEmpty else { return Fmt.dash }
+            return "\(Int((s.reduce(0, +) / Double(s.count)).rounded()))%"
         case .series(let s):                      return s.last.map { Fmt.kg($0) } ?? Fmt.dash
         case .ring(let v, let g, let u):          return u.isEmpty ? "\(Int(v))/\(Int(g))" : "\(Int(v))\(u)"
         case .gauge(let v, _):                    return Fmt.kg(v)
@@ -522,6 +576,13 @@ struct PanelWidgetView: View {
         case .pair(let hi, _):                    return hi.last.map { Fmt.kg($0) } ?? Fmt.dash
         case .trace(let s, _):                    return s.isEmpty ? Fmt.dash : "\(Int(s.reduce(0, +) / Double(s.count)))"
         case .strip(let s):                       return "\(s.count)"
+        case .lanes(let runs, _, _):
+            let total = runs.reduce(0) { $0 + $1.1 }
+            return "\(Int(total) / 60)H\(String(format: "%02d", Int(total) % 60))"
+        case .zones(let z):
+            // 09 · zones' HERO is `current_zone`, which the board writes as "Z4 · 26 min".
+            guard let top = z.indices.max(by: { z[$0] < z[$1] }), z[top] > 0 else { return Fmt.dash }
+            return "Z\(top + 1) · \(Int(z[top])) MIN"
         case .none:                               return ""
         }
     }
@@ -540,57 +601,75 @@ struct PanelWidgetView: View {
 
     @ViewBuilder private var chart: some View {
         let h = Slot.chartBottom - Slot.chartY
+        // Which layer each renderer belongs to. Shapes (curves, bars, arcs, cells, strips,
+        // traces) are LEDs and go behind the screen; rows, stacks and axis labels are text
+        // and stay in front of it. The flat rendering draws everything at once.
+        let led = layer == .chart
+        let shapes = layer != .text
+        let text = layer != .chart
         Group {
             switch widget.type.renderer {
             case .number:
                 EmptyView()
             case .curve:
-                if case .series(let s) = widget.data {
+                if shapes, case .series(let s) = widget.data {
                     CurveRenderer(values: s, accent: widget.accent,
-                                  splitAt: widget.curveSplit, accent2: widget.curveSecondary).frame(height: h)
+                                  splitAt: widget.curveSplit, accent2: widget.curveSecondary, led: led).frame(height: h)
                 }
             case .pair:
-                if case .pair(let hi, let lo) = widget.data {
-                    PairRenderer(hi: hi, lo: lo, accent: widget.accent).frame(height: h)
+                if shapes, case .pair(let hi, let lo) = widget.data {
+                    PairRenderer(hi: hi, lo: lo, accent: widget.accent, led: led).frame(height: h)
                 }
             case .dual:
                 // ⚠️ The catalogue drew dual through the curve renderer, which eats one
                 // series — the second line never existed. Two scales, one panel.
-                if case .pair(let a, let b) = widget.data {
+                if shapes, case .pair(let a, let b) = widget.data {
                     DualRenderer(a: a, b: b, accent: widget.accent,
-                                 secondary: widget.curveSecondary ?? NB.white.opacity(0.45)).frame(height: h)
+                                 secondary: widget.curveSecondary ?? NB.white.opacity(0.45), led: led).frame(height: h)
                 }
             case .column:
                 if case .bins(let b) = widget.data {
                     // 09 · B · delta 用带零轴的变体.
-                    ColumnRenderer(bins: b, accent: widget.accent, zeroAxis: widget.type == .delta).frame(height: h)
+                    ColumnRenderer(bins: b, accent: widget.accent, zeroAxis: widget.type == .delta,
+                                   showBars: shapes, showLabels: text).frame(height: h)
                 }
             case .arc:
-                if case .ring(let v, let g, _) = widget.data {
-                    ArcRenderer(fraction: g > 0 ? v / g : 0, accent: widget.accent, label: Fmt.kg(v, decimals: 0))
+                if shapes, case .ring(let v, let g, _) = widget.data {
+                    ArcRenderer(fraction: g > 0 ? v / g : 0, accent: widget.accent, label: Fmt.kg(v, decimals: 0),
+                                showLabel: layer == .all)
                         .frame(width: Slot.heroRing.width, height: Slot.heroRing.height)
-                } else if case .gauge(let v, let z) = widget.data {
-                    GaugeRenderer(value: v, zones: z, accent: widget.accent)
+                } else if shapes, case .gauge(let v, let z) = widget.data {
+                    GaugeRenderer(value: v, zones: z, accent: widget.accent, showLabel: layer == .all)
                         .frame(width: Slot.heroRing.width, height: Slot.heroRing.height)
                 }
             case .stack:
-                if case .parts(let p) = widget.data {
-                    StackRenderer(parts: p).frame(height: h)
+                if text, case .parts(let p) = widget.data {
+                    StackRenderer(parts: p, minutes: widget.type == .split).frame(height: h)
                 }
             case .grid:
-                if case .cells(let r, let c, let v, let l) = widget.data {
+                if shapes, case .cells(let r, let c, let v, let l) = widget.data {
                     GridRenderer(rows: r, cols: c, values: v, levels: l, accent: widget.accent).frame(height: h)
                 }
             case .strip:
-                if case .strip(let s) = widget.data {
+                if shapes, case .strip(let s) = widget.data {
                     StripRenderer(segments: s).frame(height: h)
                 }
+            case .lanes:
+                // 12 · the lanes are LEDs; their names and the two clock labels are text.
+                if case .lanes(let runs, let from, let to) = widget.data {
+                    LaneRenderer(runs: runs, from: from, to: to,
+                                 showBlocks: shapes, showLabels: text).frame(height: h)
+                }
+            case .columns:
+                if case .zones(let z) = widget.data {
+                    ZoneColumnsRenderer(minutes: z, showBars: shapes, showLabels: text).frame(height: h)
+                }
             case .trace:
-                if case .trace(let s, let hz) = widget.data {
-                    TraceRenderer(samples: s, hz: hz, accent: widget.accent).frame(height: h)
+                if shapes, case .trace(let s, let hz) = widget.data {
+                    TraceRenderer(samples: s, hz: hz, accent: widget.accent, led: led).frame(height: h)
                 }
             case .rows:
-                if case .rows(let r) = widget.data {
+                if text, case .rows(let r) = widget.data {
                     RowsRenderer(items: r, accent: widget.accent).frame(height: h)
                 }
             }

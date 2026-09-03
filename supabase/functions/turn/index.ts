@@ -8,7 +8,7 @@ import { model, MODEL_VERSION } from "../_shared/model.ts";
 import { systemPrompt } from "../_shared/prompt.ts";
 import { buildTools } from "../_shared/tools.ts";
 import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
-import { Envelope, MEDICAL, MEDICAL_STOP, batteryFallback, tagSafe } from "../_shared/contract.ts";
+import { Envelope, MEDICAL, medicalStop, normalizeLocale, batteryFallback, tagSafe } from "../_shared/contract.ts";
 import { buildChartTools } from "../_shared/charts.ts";
 import { userClient, currentUserId, cors, json, userDayKey, userTimezone } from "../_shared/db.ts";
 
@@ -40,6 +40,10 @@ Deno.serve(async (req) => {
   // ⚠️ The user's calendar, not the server's. See userDayKey.
   const tz = await userTimezone(db, userId);
   const dayKey: string = body.dayKey ?? userDayKey(tz);
+  // 11 · 07 · language is an app-side preference: the app sends it with the turn, and the
+  // profile row stands in for a client that does not. Every word on screen follows it.
+  const { data: prof } = await db.from("profiles").select("locale").eq("user_id", userId).maybeSingle();
+  const locale = normalizeLocale(body.locale ?? prof?.locale);
   const turnId: string = req.headers.get("Idempotency-Key") ?? crypto.randomUUID();
 
   // Replaying the same Idempotency-Key returns the same frames, so a dropped connection
@@ -66,7 +70,7 @@ Deno.serve(async (req) => {
       const r = (data as any)?.reserve_daily;
       cachedLevel = (Array.isArray(r) ? r[0]?.current_value : r?.current_value) ?? null;
     }
-    return batteryFallback(cachedLevel ?? null);
+    return batteryFallback(cachedLevel ?? null, locale);
   };
   const { count: recent } = await db.from("ai_turns")
     .select("id", { count: "exact", head: true })
@@ -91,8 +95,9 @@ Deno.serve(async (req) => {
 
     // S7 · the medical stop happens before any tool call, not after.
     if (MEDICAL.test(text)) {
-      await persist(db, userId, turnId, text, MEDICAL_STOP, trace, Date.now() - started);
-      send("screen.render", { envelope: MEDICAL_STOP });
+      const stop = medicalStop(locale);
+      await persist(db, userId, turnId, text, stop, trace, Date.now() - started);
+      send("screen.render", { envelope: stop });
       send("done", {});
       return;
     }
@@ -101,37 +106,81 @@ Deno.serve(async (req) => {
     // calling screen.render, so every widget on board 07 is one: screen.render.<type>,
     // one flat schema each, the series filled by the server from the source she names.
     // The model cannot answer in prose, and there is no free text to parse out of.
+    // S1 · one render per turn. ⚠️ Told so in the prompt, the model still rendered eight
+    // times in a row on one question (37 s, the last frame winning). A successful render
+    // now ends the turn: the callback pulls the cord, generateText stops, and the frame it
+    // produced is the answer. A NO_DATA result is not a render and the model goes on.
     let envelope: Envelope | null = null;
-    const renderTools = buildChartTools({ db, userId, dayKey, tz }, ledger, (env) => { envelope = env; });
+    const stop = new AbortController();
+    const renderTools = buildChartTools({ db, userId, dayKey, tz }, ledger, (env) => {
+      envelope = env;
+      stop.abort();
+    }, locale);
 
-    try {
-      const result = await generateText({
+    // Every tool call is traced and announced as it runs, not read back from the steps
+    // afterwards — the steps are not there when the turn ends by abort. A number the model
+    // passed to a read tool, and got data back for, is not invented; the render tools'
+    // arguments are the frame itself and are audited there.
+    // S2 · READ FIRST, mechanically. ⚠️ With the render ending the turn, a model that opened
+    // with screen.render.recomp never read anything, wrote 「——」 for a sentence, and the turn
+    // was over in 4 s. A chart that names a data source is about data the sentence must
+    // quote, so it needs one read behind it; text, metric and food carry their own words.
+    let reads = 0;
+    const traced = Object.fromEntries(Object.entries({ ...tools, ...renderTools }).map(([name, t]) => [name, {
+      ...t,
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, opts: any) => {
+        trace.push({ tool: name, args });
+        send("tool", { name });
+        if (!name.startsWith("screen.render")) {
+          reads += 1;
+          ledger.harvest(args, `${name}.args`);
+        } else if (args?.source && reads === 0) {
+          return {
+            rendered: false, error: "READ_FIRST",
+            say: locale.startsWith("en")
+              ? `Read first: call series.get with source "${args.source}" (or another read tool), then render with the numbers it returned.`
+              : `先读再画：先用 series.get 读 "${args.source}"（或别的读工具），再拿返回的数字渲染。`,
+          };
+        }
+        return t.execute!(args, opts);
+      },
+    }]));
+
+    const attempt = () => generateText({
         model: model(),
-        system: systemPrompt(),
+        system: systemPrompt(locale),
         // S9 · everything between the tags is data, not instruction.
         prompt: `<user_text>\n${tagSafe(text)}\n</user_text>\n\ndayKey=${dayKey}`,
-        tools: { ...tools, ...renderTools },
+        tools: traced,
         maxSteps: 8,
         toolChoice: "auto",
         // qwen3 on DashScope thinks before every tool call unless told not to; the turn
         // took 27–38 s that way. TURN_THINKING=on restores it.
         providerOptions: { dashscope: { enable_thinking: Deno.env.get("TURN_THINKING") === "on" } },
-        abortSignal: AbortSignal.timeout(50_000),
+        abortSignal: AbortSignal.any([
+          AbortSignal.timeout(Math.max(5_000, 50_000 - (Date.now() - started))),
+          stop.signal,
+        ]),
       });
+    // A throw with a frame in hand is the render that ended the turn, not a failure.
+    const run = async () => { try { await attempt(); } catch (e) { if (envelope) return; throw e; } };
 
-      for (const step of result.steps ?? []) {
-        for (const call of step.toolCalls ?? []) {
-          trace.push({ tool: call.toolName, args: call.args });
-          send("tool", { name: call.toolName });
-          // A number the model passed to a tool, and got data back for, is not invented —
-          // it is part of the same trace as the return. The arguments are schema-bound, so
-          // this is a narrow door, not an open one.
-          if (!call.toolName.startsWith("screen.render")) ledger.harvest(call.args, `${call.toolName}.args`);
-          // The ledger closes below, after every read has returned — the render tool does
-          // not close it, which is what let a later tool's numbers arrive unaccounted for.
-        }
+    try {
+      try {
+        await run();
+      } catch (e) {
+        // ⚠️ Seen on production: the same question answered in 8 s once and failed in 6 s
+        // the next time, no tool called, MODEL_UNAVAILABLE. A fast failure on the model hop
+        // gets one more attempt while the 55 s budget allows; the 50 s timeout does not.
+        const fast = Date.now() - started < 20_000 && !(e instanceof Error && e.name === "AbortError");
+        if (!fast) throw e;
+        console.error("turn attempt 1 failed, retrying:", e instanceof Error ? `${e.name}: ${e.message}` : e);
+        envelope = null;
+        await run();
       }
-
+      // The ledger closes after every read has returned — the render tool does not close
+      // it, which is what let a later tool's numbers arrive unaccounted for.
       ledger.seal();
     } catch (e) {
       console.error("turn failed:", e instanceof Error ? (e.stack ?? e.message) : e);

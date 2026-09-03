@@ -15,12 +15,6 @@ struct HrvMinuteSample: Equatable {
     let rrCount: Int
 }
 
-struct HrvNightReading: Equatable {
-    let rmssdMS: Double
-    let bucketCount: Int
-    let rrCount: Int
-}
-
 /// Pure conversion at the closed-source SDK boundary. Keeping this free of Veepoo types makes
 /// the unit and missing-value rules testable without a band or the arm64-only framework.
 enum HealthSampleMapping {
@@ -70,25 +64,40 @@ enum HealthSampleMapping {
                                vendorValue: number(raw["hrvValue"]), rrCount: rr.count)
     }
 
-    /// Collapse minute-level RR data before upload: median minute RMSSD inside each 15-minute
-    /// bucket, then the median bucket value for the 00:00–11:59 night window.
-    static func nightHRV(from samples: [HrvMinuteSample]) -> HrvNightReading? {
-        let night = samples.compactMap { sample -> (bucket: Int, value: Double, rr: Int)? in
-            guard let minutes = minutesSinceMidnight(sample.time), minutes < 12 * 60,
+    /// The day's HRV placed on the five-minute grid the sample table uses. The band measures
+    /// roughly every ten minutes, all day, so most slots stay empty; a slot that caught more
+    /// than one measured minute keeps their median rather than whichever arrived last.
+    /// ⚠️ RMSSD only, and only inside the 1–300 ms band the server's own night rule trusts
+    /// (nb.night_hrv_parts) — a chart of ticks and the night's number must never disagree
+    /// about which readings were plausible.
+    static func hrvBySlot(_ samples: [HrvMinuteSample]) -> [String: Double] {
+        let measured = samples.compactMap { sample -> (slot: String, value: Double)? in
+            guard let minutes = minutesSinceMidnight(sample.time),
                   let value = sample.rmssdMS, value.isFinite, (1...300).contains(value)
             else { return nil }
-            return (minutes / 15, value, sample.rrCount)
+            let slot = (minutes / 5) * 5
+            return (String(format: "%02d:%02d", slot / 60, slot % 60), value)
         }
-        guard !night.isEmpty else { return nil }
-        let grouped = Dictionary(grouping: night, by: \.bucket)
-        let bucketValues = grouped.values.compactMap { median($0.map(\.value)) }
-        guard let value = median(bucketValues) else { return nil }
-        return HrvNightReading(rmssdMS: value, bucketCount: bucketValues.count,
-                               rrCount: night.reduce(0) { $0 + $1.rr })
+        return Dictionary(grouping: measured, by: \.slot)
+            .compactMapValues { median($0.map(\.value)) }
+    }
+
+    /// ⚠️ Reconstructed on 2026-09-03 from HealthSampleMappingTests after a concurrent edit
+    /// to this file was overwritten; the tests are the specification it was rebuilt against.
+    ///
+    /// The band reports a slot's distance in kilometres on some firmwares and in whole metres
+    /// on others — 0.036 and 36 are both thirty-six metres. A fractional value is kilometres;
+    /// a whole one is already metres.
+    static func distanceMeters(from value: Any?) -> Int? {
+        guard let raw = number(value), raw.isFinite, raw >= 0 else { return nil }
+        let isKilometres = raw.truncatingRemainder(dividingBy: 1) != 0
+        return Int((isKilometres ? raw * 1_000 : raw).rounded())
     }
 
     private static func number(_ value: Any?) -> Double? {
         if let value = value as? NSNumber { return value.doubleValue }
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
         if let value = value as? String { return Double(value) }
         return nil
     }

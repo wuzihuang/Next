@@ -19,24 +19,24 @@ enum BodyBattery {
 
     static let bands: [Band] = [
         .init(range: 0...19,   target: 4.0,  optimal: 0.0...6.0,   ringPercent: 19,
-              dayLooksLike: "今天什么都不练是一个合法答案，落在区间里，不是失败"),
+              dayLooksLike: "Training nothing today is a legal answer — inside the band, not a failure"),
         .init(range: 20...29,  target: 6.0,  optimal: 3.0...8.5,   ringPercent: 29,
-              dayLooksLike: "走路和日常活动就够到区间"),
+              dayLooksLike: "Walking and ordinary movement reach the band"),
         .init(range: 30...39,  target: 8.0,  optimal: 5.0...10.5,  ringPercent: 38,
-              dayLooksLike: "一次轻度有氧"),
+              dayLooksLike: "One easy aerobic session"),
         .init(range: 40...49,  target: 10.0, optimal: 7.0...12.5,  ringPercent: 48,
-              dayLooksLike: "一次中等强度的课"),
+              dayLooksLike: "One moderate class"),
         .init(range: 50...59,  target: 11.5, optimal: 8.5...14.0,  ringPercent: 55,
-              dayLooksLike: "正常一天"),
+              dayLooksLike: "An ordinary day"),
         .init(range: 60...69,  target: 13.0, optimal: 10.5...15.5, ringPercent: 62,
-              dayLooksLike: "正常一天，可以加一次力量"),
+              dayLooksLike: "An ordinary day, with room for one lifting session"),
         .init(range: 70...79,  target: 14.5, optimal: 12.5...16.5, ringPercent: 69,
-              dayLooksLike: "身体准备好了，一次力量正好"),
+              dayLooksLike: "The body is ready — one lifting session fits"),
         .init(range: 80...89,  target: 16.0, optimal: 14.0...18.0, ringPercent: 76,
-              dayLooksLike: "身体准备好了，可以上强度"),
+              dayLooksLike: "The body is ready for intensity"),
         // The full ring stays above the top band: the target is never allowed to reach 21.
         .init(range: 90...100, target: 18.0, optimal: 15.5...20.0, ringPercent: 86,
-              dayLooksLike: "满环 21 依然留在上面，不许把目标顶到 21"),
+              dayLooksLike: "The full ring stays at 21; the target never goes there"),
     ]
 
     static func band(for wake: Int) -> Band {

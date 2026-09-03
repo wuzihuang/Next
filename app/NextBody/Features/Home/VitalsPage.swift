@@ -6,7 +6,8 @@ import SwiftUI
 /// every number here is a tick Body Battery already pulled (04B rule 09).
 struct VitalsPage: View {
     let m: DailyMetrics
-    /// The last seven nights, for the HRV bars.
+    /// The nights behind today, for the cards that carry a baseline. Not plotted: the HRV
+    /// card draws the day's own ticks, and one point per night is what it drew before.
     let history: [DailyMetrics]
     let vitals: LiveVitals
     /// 04B F1 · false until the first sync has ever landed. Before that, the cards that read
@@ -85,18 +86,31 @@ struct VitalsPage: View {
 
     private var hrvCard: some View {
         let n = m.nightInputs
-        let nights = history.suffix(7).map { $0.nightInputs?.hrv }
         let base = n?.hrvBase
-        // 04B F1 · NOT SYNCED. On iOS readHRVData answers [] until the first
-        // startReadOriginData run has landed — the card holds its frame and says 「还没同步」.
+        // 04B · the band measures HRV every ten minutes, all day, and each of those ticks is
+        // stored. The card draws the day the way HEART and TEMP draw theirs — one bar per
+        // recorded night could only ever be as long as the nights on file, which on a new
+        // band is one bar and reads as a broken chart.
+        // ⚠️ The number above it stays LAST NIGHT: the night's median is what the multiplier
+        // weighs, and it is not the curve's last point.
+        let values = ticks.compactMap(\.hrv)
+        // HRV's personal range is far wider than skin temperature's, so the axis comes from
+        // the day rather than from a constant that would flatten one wrist and clip another.
+        let lo = max(0, (values.min() ?? 20) - 8)
+        let hi = (values.max() ?? 100) + 8
+        // 04B F1 · NOT SYNCED. Before the first sync there is no library to read — the card
+        // holds its frame and says 「还没同步」 rather than printing an empty baseline.
         // ⚠️ Never retried from here: an empty library re-read is empty again, at the
         // band's battery.
         let notSynced = !syncedOnce && n == nil
         return InstrumentCard(label: "HRV", tag: "LAST NIGHT", tint: NB.blue1,
                               value: n?.hrv.map { String(Int($0.rounded())) }, unit: "MS",
-                              foot: "BASE \(base.map { String(Int($0.rounded())) } ?? Fmt.dash) · \(n?.rhrNights ?? 0)/14 NIGHTS",
+                              foot: values.isEmpty
+                                  ? "BASE \(base.map { String(Int($0.rounded())) } ?? Fmt.dash) · \(n?.hrvNights ?? 0)/14 NIGHTS"
+                                  : "BASE \(base.map { String(Int($0.rounded())) } ?? Fmt.dash) · LOW \(Int(values.min()!.rounded())) · HIGH \(Int(values.max()!.rounded()))",
                               status: notSynced ? ("NOT SYNCED YET", "SYNC RUNS ON OPEN") : nil) {
-            NightBars(values: nights, base: base, tint: NB.blue1)
+            DaySpark(samples: ticks, day: day, value: \.hrv,
+                     low: lo, high: hi, tint: NB.blue1)
         }
     }
 

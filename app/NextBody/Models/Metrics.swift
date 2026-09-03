@@ -168,6 +168,9 @@ struct NightInputs: Codable, Hashable {
     var rhr: Double?
     var rhrBase: Double?
     var rhrNights: Int = 0
+    /// How many of the last fourteen nights had an HRV of their own. Its own count: a night
+    /// the band measured HRV through is not the same set as one it measured a resting pulse in.
+    var hrvNights: Int = 0
     var multiplier: Double?
 
     /// The card's "n OF 3" — how many of the three inputs actually arrived.
@@ -213,6 +216,9 @@ struct VitalSample: Codable, Hashable {
     var steps: Int? = nil
     var cal: Double? = nil
     var dis: Double? = nil
+    /// 04B · RMSSD in ms for this tick. The band measures it every ten minutes, all day, so
+    /// most ticks carry nothing and the ones that do are the HRV card's curve.
+    var hrv: Double? = nil
 }
 
 /// 04B · SLEEP card. The night OriginDataSync stored under this user day — what the band

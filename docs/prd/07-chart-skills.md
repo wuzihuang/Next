@@ -11,6 +11,7 @@ S11 CHART CHOICE
 · 一天之内或几十天里怎么变 → line；一周逐天比较 → days；一天里分时段的量 → bars
 · 每天高低两条边 → band；一周×时段的规律 → heat；有正有负的逐次变化 → delta；两条趋势对照 → dual
 · 训练：区间分钟 → zones；今天负荷的构成 → workout / table；今天发生了什么 → events
+· 昨夜：逐分钟分期 → hypnogram；三段占比 → split；夜间血氧 → o2night
 · 燃料：三大营养素对目标 → fuel；吃进对消耗 → balance；今天记了哪几餐 → meal；用户报一顿吃的 → food
 · 几项指标一起看 → sparks；做到了几天 → cells；12 周体成分的方向 → recomp
 序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换一种图或用 text 写 ——，不许自己造点。
@@ -23,10 +24,13 @@ S11 CHART CHOICE
 |---|---|---|---|---|---|---|
 | `metric` | ANY SCALAR | 用户问的是此刻的一个数（心率现在多少、体重多少、今天吃了多少）。 | 这个数有满值或目标时用 ring；问的是「怎么变」时用 line。 | 模型自己填字 | value 只写数字与单位，来自本轮读到的值；label 写指标名；ref 写参照（+4 VS RHR 52）。 | profile |
 | `text` | BIG WORD · NO DATA | 没有任何一张图配得上这个问题：一句判断、一个方向、或者数据是空的（写 ——）。 | 手里有一串数据就别用 text，把它画出来。 | 模型自己填字 | sentence 是唯一的主角，≤ 48 字；footer 放依据，action 放下一步（可省）。 | profile |
-| `line` | TIME SERIES | 问的是一天之内或一段日子里某个指标怎么变：心率、压力、BODY BATTERY 曲线、体重走势、负荷/电量/摄入的 7–30 天趋势。 | 只有一个数时用 metric；一周里逐天比较用 days；两条线对照用 dual。 | `heart.today`<br>`stress.today`<br>`bodyBattery.today`<br>`trainingLoad.7d`<br>`trainingLoad.30d`<br>`bodyBattery.7d`<br>`bodyBattery.30d`<br>`intakeKcal.7d`<br>`intakeKcal.30d`<br>`weight.30d`<br>`weight.90d` | title 写「指标 · 窗口」；sentence 说形状（一个高峰、平了、往下走），footer 放 min/max/mean。 | training |
+| `line` | TIME SERIES | 问的是一天之内或一段日子里某个指标怎么变：心率、压力、BODY BATTERY 曲线、体重走势、负荷/电量/摄入的 7–30 天趋势。 | 只有一个数时用 metric；一周里逐天比较用 days；两条线对照用 dual。 | `heart.today`<br>`stress.today`<br>`bodyBattery.today`<br>`trainingLoad.7d`<br>`trainingLoad.30d`<br>`bodyBattery.7d`<br>`bodyBattery.30d`<br>`intakeKcal.7d`<br>`intakeKcal.30d`<br>`weight.30d`<br>`weight.90d`<br>`hrv.7d` | title 写「指标 · 窗口」；sentence 说形状（一个高峰、平了、往下走），footer 放 min/max/mean。 | training |
 | `band` | HI / LO PAIR | 问的是每天的高低两条边——一周心率最高与最低的走势。 | 只关心一条线用 line；不是高低成对的数据不要用。 | `heart.range.7d` | hero 写今天的低–高；sentence 说两条边有没有拉开或收窄。 | training |
 | `bars` | INTRADAY BINS | 一天里分时段的量：今天的步数按两小时、今天每一餐的 kcal。 | 逐天比较用 days；连续变化用 line。 | `steps.today`<br>`mealsBySlot.today`<br>`trainingLoad.7d`<br>`intakeKcal.7d` | hero 写总量与单位；sentence 指出最高的那一段；footer 写峰值时段。 | training |
 | `days` | WEEK VS TARGET | 一周里每天多少：步数、训练负荷、电量、摄入逐天比较。 | 一天之内用 bars；有正有负用 delta。 | `steps.7d`<br>`trainingLoad.7d`<br>`bodyBattery.7d`<br>`intakeKcal.7d` | hero 写 7 天均值；sentence 点名最高和最低的那天；footer 写今天对均值。 | training |
+| `hypnogram` | SLEEP STAGES | 问的是昨晚睡得怎么样、几点睡几点醒、深睡够不够：按分钟画成清醒 / 浅睡 / 深睡三条泳道。 | 只想知道各段总时长用 split；只想要一个数用 metric。 | `sleep.stages` | title 写 SLEEP · 起止时刻；hero 是总时长；sentence 说深睡块的形状；footer 写醒了几次。 | bodyBattery |
+| `split` | SLEEP MIX | 昨晚深睡 / 浅睡 / 清醒各占多少：一条堆叠轨加三行图例。 | 想看逐分钟的形状用 hypnogram。 | `sleep.mix` | hero 是总时长（7H38 这种）；sentence 说深睡占比；footer 写三段分钟数。 | bodyBattery |
+| `o2night` | SPO2 + APNEA | 问的是夜间血氧：一整夜的曲线、均值、最低点、掉到 90 以下几次。 | 手环没写 SpO2 时这张图没有数据，改用 split 或 text。 | `o2.night` | hero 写均值百分比；sentence 说有没有掉点；footer 写 guide 90 与最低值。 | bodyBattery |
 | `sparks` | MULTI-METRIC ROWS | 用户想一眼看几项指标（心率、压力、步数）各自的近况。 | 只问一项时用 line 或 metric。 | `vitals.7d` | 没有 hero；sentence 说三项里哪一项在动；footer 写窗口。 | training |
 | `ring` | GOAL PROGRESS | 一个数对它的满值或目标：TRAINING LOAD 对 21、蛋白质对目标、热量对目标。 | 没有目标的数用 metric；BODY BATTERY 用 battery。 | `load.today`<br>`protein.today`<br>`kcal.today` | sentence 写「X 的 Y」或还差多少；footer 写目标从哪来。 | training |
 | `gauge` | ZONED 0–100 | 一个 0–100 且有分区含义的读数：此刻的压力（REST / MID / HIGH）。 | 没有分区的数用 metric 或 ring。 | `stress.now` | hero 写数值与分区名；sentence 说它在往哪边走；footer 写读数时刻。 | bodyBattery |
@@ -85,6 +89,10 @@ S11 CHART CHOICE
 | `composition.dual` | pair | 12 周脂肪量 vs 瘦体重两条线（kg） |
 | `composition.delta` | column | 两次体成分之间脂肪量的变化，一柱一次，有正有负（kg） |
 | `composition.recomp` | grid | 12 周 × 7 天的格子：每次测量脂肪往下（亮）还是往上（暗） |
+| `sleep.mix` | stack | 上一夜的深睡 / 浅睡 / 清醒各多少分钟 |
+| `sleep.stages` | strip | 上一夜的睡眠分期，按分钟画成清醒 / 浅睡 / 深睡三条泳道 |
+| `o2.night` | curve | 上一夜的血氧曲线（需要手环写入 SpO2，目前多半为空） |
+| `hrv.7d` | curve | 最近 7 天每天的 HRV（ms） |
 | `events.today` | rows | 今天按时间发生了什么：餐、抬高心率的时段、称重、体成分 |
 
 ## 不提供的四种

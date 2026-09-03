@@ -13,7 +13,7 @@ let package = Package(
                 "BandPresence.swift", "BandService.swift", "BluetoothState.swift",
                 "HoopQueue.swift", "MockBand.swift", "OriginDataSync.swift", "VeepooBand.swift",
             ],
-            sources: ["HealthSampleMapping.swift"]
+            sources: ["AutoMeasurementIntervalPolicy.swift", "HealthSampleMapping.swift"]
         ),
         .testTarget(
             name: "NextBodySyncCoreTests",

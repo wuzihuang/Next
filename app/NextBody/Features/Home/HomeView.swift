@@ -232,7 +232,7 @@ struct HomeView: View {
             // opening any page in the first seconds silently turned the whole app into a mock.
             let store = data
             let load = Task { @MainActor in
-                try? await Repository.shared.signInDemo()
+                try? await Repository.shared.openSession()
                 await Repository.shared.loadToday(into: store)
             }
             await load.value
@@ -242,7 +242,7 @@ struct HomeView: View {
             // dropped in silence — the phone sat on "——" with the band paired and no account
             // behind it. Back to the gate; the band stays bound, the history stays on the
             // server. (The simulator keeps its seeded walk-through.)
-            if Band.isReal, await SupabaseClient.shared.currentUserId == nil {
+            if !Band.allowsSeed, await SupabaseClient.shared.currentUserId == nil {
                 session.stage = .gateSignIn
                 return
             }
@@ -262,6 +262,21 @@ struct HomeView: View {
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(8))
                     handleSend(q)
+                }
+            }
+            // `NB_DEBUG_PANEL=thinking` pins the singularity so it can be read against
+            // board 07 · 16 · 02; it is on screen for seconds in real use, which is long
+            // enough to see and too short to check. `=<type>` pins one catalogue sample of
+            // that widget instead, which is the only way to reach a chart whose data the
+            // account does not have today.
+            if let want = ProcessInfo.processInfo.environment["NB_DEBUG_PANEL"], !want.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(4))
+                    if want == "thinking" {
+                        widget = .thinking("Why am I so tired today?")
+                    } else if let t = PanelType(rawValue: want) {
+                        widget = WidgetCatalogue.sample(t)
+                    }
                 }
             }
             #endif
@@ -548,7 +563,7 @@ struct HomeView: View {
     /// The draft she rendered becomes a row: the same path a food sentence takes directly.
     private func confirmMeal(_ text: String, day: UserDay) {
         lastSent = nil
-        withAnimation { widget = .thinking }
+        withAnimation { widget = .thinking(text) }
         Task {
             let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotFor(day: day),
                                   status: .confirmed, text: text,
@@ -559,8 +574,8 @@ struct HomeView: View {
             } else {
                 data.deleteMeal(entry.id)
                 withAnimation { widget = PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
-                                                     sentence: "这一餐没记上。再点一次确认。",
-                                                     footer: String(text.prefix(42)), action: "确认记录", data: .none) }
+                                                     sentence: AppLanguage.isEnglish ? "That meal did not save. Tap confirm once more." : "这一餐没记上。再点一次确认。",
+                                                     footer: String(text.prefix(42)), action: AppLanguage.isEnglish ? "CONFIRM" : "确认记录", data: .none) }
                 lastSent = (text, day)
             }
         }
@@ -678,7 +693,7 @@ struct HomeView: View {
         let backlogging = backlogDay != nil
         backlogDay = nil
         lastSent = (text, day)
-        withAnimation { widget = .thinking }
+        withAnimation { widget = .thinking(text) }
 
         // 05 · C05 → C07 · photo and caption leave as one object and come back as one answer
         // with the source chip. The plate is logged to today's fuel on the way.
@@ -692,7 +707,7 @@ struct HomeView: View {
                                                slot: slotForNow(), into: data)
                 await Analytics.shared.track("MSG_SEND", ["TYPE": "PHOTO", "CHARS": text.count, "HAS_PHOTO": true])
                 withAnimation { widget = frame ?? PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
-                                                              sentence: "这张盘子没读出来。字先留着，再发一次。",
+                                                              sentence: AppLanguage.isEnglish ? "Could not read that plate. Your words are kept; send it again." : "这张盘子没读出来。字先留着，再发一次。",
                                                               footer: String(text.prefix(42)), action: nil, data: .none) }
             }
             return
@@ -717,7 +732,7 @@ struct HomeView: View {
                 }
             }
             let frame = await ai.turn(text, day: day, store: data)
-            withAnimation { widget = frame ?? .thinking }
+            withAnimation { widget = frame ?? .thinking(text) }
         }
     }
 
@@ -731,9 +746,14 @@ struct HomeView: View {
     /// anything it gets wrong is wrong before anything else gets a say.
     private static func looksLikeFood(_ text: String) -> Bool {
         guard !isQuestion(text) else { return false }
-        let markers = ["吃", "喝", "早饭", "午饭", "晚饭", "夜宵", "加餐", "记一笔",
-                       "ate", "had", "drank", "breakfast", "lunch", "dinner", "snack"]
-        if markers.contains(where: { text.localizedCaseInsensitiveContains($0) }) { return true }
+        let markers = ["吃", "喝", "早饭", "午饭", "晚饭", "夜宵", "加餐", "记一笔"]
+        if markers.contains(where: { text.contains($0) }) { return true }
+        // ⚠️ The English markers were substrings: "ate" sat inside "heart r-ate", so "Show my
+        // heart rate range this week" was logged as a meal — a 1 kcal row named DINNER —
+        // before the model ever saw the question. Whole words only.
+        let words = ["ate", "had", "drank", "breakfast", "lunch", "dinner", "snack"]
+        if text.range(of: "\\b(" + words.joined(separator: "|") + ")\\b",
+                      options: [.regularExpression, .caseInsensitive]) != nil { return true }
         // A plate named without a verb — 「半碗面加一个鸡蛋」 — is a log in everyday Chinese.
         // Both a food noun and a portion word are required, so 「面」 alone, or 「三个」 alone,
         // still goes to her as a question. F4 §02: the model has no write tool, so a plate

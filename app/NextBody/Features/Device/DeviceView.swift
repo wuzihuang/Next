@@ -41,8 +41,7 @@ struct DeviceView: View {
     private var connected: Bool { data.band.connected }
 
     var body: some View {
-        // 12 hangs off profile, and the eyebrow says so.
-        DetailScroll(glow: NB.lime1, title: "DEVICE", eyebrow: "PROFILE", trailing: {
+        DetailScroll(glow: NB.lime1, title: "DEVICE", trailing: {
             HStack(spacing: 7) {
                 Circle().fill(connected ? NB.lime1 : NB.white.opacity(0.3))
                     .frame(width: 6, height: 6)
@@ -122,6 +121,12 @@ struct DeviceView: View {
                     // ⚠️ DeviceVersion.deviceNumber. The SDK has no serial number and no
                     // screen in this product is allowed to call this one.
                     IdentityRow(name: "DEVICE NO.", value: identity?.deviceNumber ?? "HB-0042")
+                    #if DEBUG
+                    // A diagnostic, not product copy: the band's sport-mode tier, straight
+                    // from the SDK's model. Which sports those are, only the band's own
+                    // workout list can say — there is no query for the list itself.
+                    IdentityRow(name: "SPORT MODE", value: identity?.sportMode ?? "—")
+                    #endif
                     // ⚠️ On iOS this is a CoreBluetooth UUID. The label says BLUETOOTH, not
                     // MAC, because it is not one and it changes with the phone.
                     IdentityRow(name: "BLUETOOTH",
@@ -829,13 +834,15 @@ private struct DestructiveRow: View {
 struct AutoMeasurementSheet: View {
     @State private var slots: [AutoMonitorSlot] = []
     @State private var loading = true
+    @State private var writeError: String?
+    @State private var writingKinds: Set<AutoMonitorSlot.Kind> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Automatic measurement")
                 .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
                 .foregroundStyle(NB.text1)
-            Text("What the HOOP measures on its own, all day.")
+            Text("Choose each sensor's own interval. Shorter intervals use more battery.")
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
                 .padding(.top, 6)
@@ -849,17 +856,20 @@ struct AutoMeasurementSheet: View {
                             // 12S decision 2 · isSlotModify / isIntervalModify: a chip the firmware
                             // will not let you change is not rendered — a read-only grey chip gets
                             // tapped over and over. Both false leaves only the switch.
-                            chips: slot.supportsRange
-                                ? [slot.slotModifiable ? String(format: "%02d:00 – %02d:00", slot.startHour, slot.endHour) : nil,
-                                   slot.intervalModifiable ? "EVERY \(slot.intervalMinutes) MIN" : nil].compactMap { $0 }
+                            chips: slot.supportsRange && slot.slotModifiable
+                                ? [String(format: "%02d:00 – %02d:00", slot.startHour, slot.endHour)]
                                 : [],
+                            selectedInterval: slot.intervalModifiable ? slot.intervalMinutes : nil,
+                            intervalOptions: slot.intervalModifiable ? slot.allowedIntervals : [],
+                            onIntervalSelected: { interval in
+                                update(slot, interval: interval)
+                            },
+                            isWriting: writingKinds.contains(slot.kind),
                             detailIsLime: slot.on && slot.supportsRange && slot.slotModifiable && slot.intervalModifiable,
                             isOn: Binding(
-                                get: { slots[index].on },
+                                get: { slots.first(where: { $0.id == slot.id })?.on ?? slot.on },
                                 set: { on in
-                                    slots[index].on = on
-                                    let updated = slots[index]
-                                    Task { try? await Band.live.writeAutoMonitoring(updated) }
+                                    update(slot, on: on)
                                 }),
                             last: index == slots.count - 1)
                     }
@@ -873,6 +883,13 @@ struct AutoMeasurementSheet: View {
                     .foregroundStyle(NB.white.opacity(0.30))
                     .frame(maxWidth: .infinity)
                     .padding(.top, 14)
+                if let writeError {
+                    Text(writeError)
+                        .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
+                        .foregroundStyle(NB.ember1)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 10)
+                }
             } else if !loading {
                 // ⚠️ An empty answer means the band told us nothing, which is not the same
                 // as the band having nothing. The screen says which one it is.
@@ -891,6 +908,30 @@ struct AutoMeasurementSheet: View {
         .task {
             slots = (try? await Band.live.readAutoMonitoring()) ?? []
             loading = false
+        }
+    }
+
+    private func update(_ original: AutoMonitorSlot, on: Bool? = nil, interval: Int? = nil) {
+        guard !writingKinds.contains(original.kind) else { return }
+        var updated = original
+        if let on { updated.on = on }
+        if let interval {
+            guard updated.allowedIntervals.contains(interval) else { return }
+            updated.intervalMinutes = interval
+            updated.on = true
+        }
+        slots = slots.map { $0.id == updated.id ? updated : $0 }
+        writeError = nil
+        writingKinds = writingKinds.union([updated.kind])
+        Task {
+            defer { writingKinds = writingKinds.subtracting([updated.kind]) }
+            do {
+                try await Band.live.writeAutoMonitoring(updated)
+                slots = (try? await Band.live.readAutoMonitoring()) ?? slots
+            } catch {
+                slots = slots.map { $0.id == original.id ? original : $0 }
+                writeError = error.localizedDescription
+            }
         }
     }
 
@@ -913,10 +954,14 @@ struct AutoMeasurementSheet: View {
         if slot.supportsRange {
             // The board's line for a row whose window and interval are both editable.
             if slot.slotModifiable && slot.intervalModifiable { return "WINDOW AND INTERVAL, BOTH YOURS" }
-            return String(format: "%02d:00 – %02d:00 · EVERY %d MIN",
-                          slot.startHour, slot.endHour, slot.intervalMinutes)
+            return String(format: "%02d:00 – %02d:00 · %@",
+                          slot.startHour, slot.endHour, intervalLabel(slot.intervalMinutes))
         }
-        return "EVERY \(slot.intervalMinutes) MIN"
+        return intervalLabel(slot.intervalMinutes)
+    }
+
+    private static func intervalLabel(_ minutes: Int) -> String {
+        minutes == 0 ? "CONTINUOUS" : "EVERY \(minutes) MIN"
     }
 }
 
@@ -924,6 +969,10 @@ private struct MeasureToggle: View {
     let title: String
     let detail: String
     var chips: [String] = []
+    var selectedInterval: Int?
+    var intervalOptions: [Int] = []
+    var onIntervalSelected: (Int) -> Void = { _ in }
+    var isWriting = false
     var detailIsLime = false
     @Binding var isOn: Bool
     var last = false
@@ -940,7 +989,7 @@ private struct MeasureToggle: View {
                         .foregroundStyle(detailIsLime ? NB.lime1 : isOn ? NB.text3Prod : NB.white.opacity(0.28))
                 }
                 Spacer(minLength: 0)
-                Toggle("", isOn: $isOn).labelsHidden().tint(NB.lime1)
+                Toggle("", isOn: $isOn).labelsHidden().tint(NB.lime1).disabled(isWriting)
             }
             if !chips.isEmpty && isOn {
                 HStack(spacing: 10) {
@@ -952,12 +1001,43 @@ private struct MeasureToggle: View {
                             .background(Color(hex: 0x17171B), in: Capsule())
                             .overlay(Capsule().stroke(NB.lime1.opacity(0.24), lineWidth: 1))
                     }
+                    intervalMenu
                 }
+            } else if selectedInterval != nil && isOn {
+                intervalMenu
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+    }
+
+    @ViewBuilder
+    private var intervalMenu: some View {
+        if let selectedInterval, !intervalOptions.isEmpty {
+            Menu {
+                Picker("Measurement interval", selection: Binding(
+                    get: { selectedInterval },
+                    set: onIntervalSelected
+                )) {
+                    ForEach(intervalOptions, id: \.self) { minutes in
+                        Text(label(minutes)).tag(minutes)
+                    }
+                }
+            } label: {
+                Text(label(selectedInterval))
+                    .font(NBFont.dot(600, 11)).tracking(0.14 * 11)
+                    .foregroundStyle(NB.lime1)
+                    .frame(maxWidth: .infinity).frame(height: 32)
+                    .background(Color(hex: 0x17171B), in: Capsule())
+                    .overlay(Capsule().stroke(NB.lime1.opacity(0.24), lineWidth: 1))
+            }
+            .disabled(isWriting)
+        }
+    }
+
+    private func label(_ minutes: Int) -> String {
+        minutes == 0 ? "Continuous" : "\(minutes) min"
     }
 }
 
@@ -975,7 +1055,7 @@ struct SyncCadenceSheet: View {
             Text("Read the band")
                 .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
                 .foregroundStyle(NB.text1)
-            Text("The HOOP records every five minutes whatever you choose. This is how often your phone collects it.")
+            Text("This controls how often your phone collects stored readings. Sensor intervals are set under Automatic measurement.")
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
                 .padding(.top, 6)
@@ -1010,7 +1090,7 @@ struct SyncCadenceSheet: View {
             .cardSkin()
             .padding(.top, 16)
 
-            Text("Shorter keeps the numbers fresher. Longer is easier on both batteries.")
+            Text("Some stored history, including temperature, still arrives in five-minute points. Faster reads do not create extra samples.")
                 .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
                 .foregroundStyle(NB.white.opacity(0.30))
                 .frame(maxWidth: .infinity)

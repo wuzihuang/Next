@@ -54,6 +54,7 @@
 		E75E45F7EF629DF91B5C9ADA /* NSObject+MJClass.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = "NSObject+MJClass.m"; path = "Vendor/MJExtension/MJExtension/NSObject+MJClass.m"; sourceTree = "<group>"; };
 		F4C2660BD56E9D70F3AC1E46 /* MJPropertyType.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = MJPropertyType.m; path = Vendor/MJExtension/MJExtension/MJPropertyType.m; sourceTree = "<group>"; };
 		FE0000000000000000000001 /* NextBody.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NextBody.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE0000000000000000000101 /* NextBodyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NextBodyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE0000000000000000000002 /* NextBody-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "NextBody-Info.plist"; sourceTree = "<group>"; };
 		FE0000000000000000000003 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -64,10 +65,22 @@
 			path = NextBody;
 			sourceTree = "<group>";
 		};
+		FE0000000000000000000110 /* NextBodyUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = NextBodyUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		FE0000000000000000000020 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FE0000000000000000000120 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -110,6 +123,7 @@
 			isa = PBXGroup;
 			children = (
 				FE0000000000000000000010 /* NextBody */,
+				FE0000000000000000000110 /* NextBodyUITests */,
 				FE0000000000000000000002 /* NextBody-Info.plist */,
 				FE0000000000000000000003 /* Local.xcconfig */,
 				FE0000000000000000000031 /* Products */,
@@ -122,6 +136,7 @@
 			isa = PBXGroup;
 			children = (
 				FE0000000000000000000001 /* NextBody.app */,
+				FE0000000000000000000101 /* NextBodyUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -151,6 +166,25 @@
 			productReference = FE0000000000000000000001 /* NextBody.app */;
 			productType = "com.apple.product-type.application";
 		};
+		FE0000000000000000000140 /* NextBodyUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FE0000000000000000000150 /* Build configuration list for PBXNativeTarget "NextBodyUITests" */;
+			buildPhases = (
+				FE0000000000000000000121 /* Sources */,
+				FE0000000000000000000120 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				FE0000000000000000000110 /* NextBodyUITests */,
+			);
+			name = NextBodyUITests;
+			productName = NextBodyUITests;
+			productReference = FE0000000000000000000101 /* NextBodyUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -162,6 +196,9 @@
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					FE0000000000000000000040 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					FE0000000000000000000140 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -181,6 +218,7 @@
 			projectRoot = "";
 			targets = (
 				FE0000000000000000000040 /* NextBody */,
+				FE0000000000000000000140 /* NextBodyUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -236,6 +274,13 @@
 				0E66FF9EC0F1E66CA80A4D7B /* NSString+MJExtension.m in Sources */,
 				65934DD915B4E35D3C11A4D8 /* MJPropertyKey.m in Sources */,
 				AAA171ED5343D72EAA9E7A78 /* MJFoundation.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FE0000000000000000000121 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -411,6 +456,36 @@
 			};
 			name = Release;
 		};
+		FE0000000000000000000172 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nextbody.hoop.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = NextBody;
+			};
+			name = Debug;
+		};
+		FE0000000000000000000173 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nextbody.hoop.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = NextBody;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -419,6 +494,15 @@
 			buildConfigurations = (
 				FE0000000000000000000072 /* Debug */,
 				FE0000000000000000000073 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FE0000000000000000000150 /* Build configuration list for PBXNativeTarget "NextBodyUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FE0000000000000000000172 /* Debug */,
+				FE0000000000000000000173 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

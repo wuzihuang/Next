@@ -477,8 +477,11 @@ struct MeasureTakeover: View {
             w.heroSub = "BODY BATTERY" + (yesterday.map { " · WAS \($0) YESTERDAY" } ?? "")
             w.accentOverride = NB.lime1     // 06 · 16 · lime, not the ECG warning red
             // 06 · 17 · the tap turns the reading into a question for her.
-            w.replyPrompt = "刚测完：心率 \(hr)，HRV \(hrv.map(String.init) ?? "——") ms，压力 \(stress.map(String.init) ?? "——")"
-                + (yesterday.map { "，昨天电量 \($0)" } ?? "") + "。今天怎么安排？"
+            w.replyPrompt = AppLanguage.isEnglish
+                ? "Just measured: HR \(hr), HRV \(hrv.map(String.init) ?? "——") ms, stress \(stress.map(String.init) ?? "——")"
+                : "刚测完：心率 \(hr)，HRV \(hrv.map(String.init) ?? "——") ms，压力 \(stress.map(String.init) ?? "——")"
+                + (yesterday.map { AppLanguage.isEnglish ? ", battery \($0) yesterday" : "，昨天电量 \($0)" } ?? "")
+                + (AppLanguage.isEnglish ? ". What should today look like?" : "。今天怎么安排？")
             return w
         case .bodyComposition(let r):
             let fatDown = (data.today.fatKg).map { r.fatMassKg < $0 } ?? false

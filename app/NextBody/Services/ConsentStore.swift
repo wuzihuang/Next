@@ -34,6 +34,11 @@ final class ConsentStore: ObservableObject {
         if raw?["version"] as? String == Self.version, let c = raw?["choice"] as? String {
             choice = Choice(rawValue: c)
         }
+        // `SIMCTL_CHILD_NB_DEBUG_CONSENT=granted` walks the panel's collecting face without
+        // driving the consent screen first — same shape as NB_DEBUG_STAGE, memory only.
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["NB_DEBUG_CONSENT"] == "granted" { choice = .granted }
+        #endif
     }
 
     func record(_ c: Choice, msOnScreen: Int?) async {

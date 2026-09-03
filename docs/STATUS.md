@@ -69,6 +69,14 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
   once a horizontal drag owns the touch, both pages stop hit-testing until the finger lifts —
   a slow drag that started on the SLEEP card no longer ends by opening 13. Page dots show on
   the first screen too, in the seam above the dock.
+- The panel's standby face carries no tap target. It was once a Button to `.bodyBattery` —
+  an entrance no board drew, and F1 gives 13 exactly one (the morning widget) — so a
+  tap-length swipe on the display opened a detail page from the display itself. The resting
+  face is now display only; widgets on the panel stay one tap to their page (F0 rule 06).
+  Regression: `NextBodyUITests` (the project's first XCUITest target) taps the standby
+  display on a 16e and asserts no `Back` appears — `xcodebuild test -scheme NextBody` runs
+  it. The harness hook `NB_DEBUG_CONSENT=granted` (DEBUG only, memory only) walks the
+  panel's collecting face without driving the consent screen.
 - Edge states: F1 HRV prints `NOT SYNCED YET / SYNC RUNS ON OPEN` until the first sync has
   landed; F3 GONE keeps the unit greyed next to the —— (`—— BPM`); F5 DAY ONE gives HEART
   `NO TICKS YET / FIRST SYNC DRAWS IT`. Two-line state feet replace the chart, frames unmoved.
@@ -1453,3 +1461,231 @@ psql "$SUPABASE_DB_URL" -f supabase/seed/demo.sql
 The pooler host for this project is `aws-0-us-west-1.pooler.supabase.com:5432` with the user
 `postgres.gkgzwcxivnffsecshvfs`. ⚠️ `db.gkgzwcxivnffsecshvfs.supabase.co` resolves to IPv6 only
 and is unreachable from an IPv4-only network, which looks exactly like the database being down.
+
+## Phase 13 · every widget on board 07 is a tool the model can call, and the phone drew one
+
+### What was asked
+Board 07 writes the render contract in MCP vocabulary: 27 widget types, one envelope. The ask
+was to expose those charts to the cloud AI so it reads the database and *picks* a chart, to
+write skills that say which chart fits which question, and to prove it on the user's iPhone.
+
+### What was built · `supabase/functions/_shared/`
+- **`charts.ts` · 23 render tools, `screen.render.<type>`.** F4 §01's ruling holds — no MCP
+  server, `tool()` + Zod inside the Edge Function — but the one free-form `screen.render`
+  (its `data` was `z.record(z.any())`, and the model shaped it however it liked) is gone.
+  Every type the model may pick is its own tool with a flat, strict schema: the four text
+  slots, `target`, an optional `hero`, and for every series-shaped chart a `source` enum.
+  The model never transcribes a series; it names the source and the server draws it.
+- **`sources.ts` · 30 data sources.** Each reads this user's rows through the turn's JWT
+  (RLS applies), buckets them to the panel's width, and returns the renderer's exact shape
+  plus an `agg` block — the numbers the model may say (latest / mean / min / max / left /
+  pct / delta, pre-computed per F7 §08). `null` is "no data": the tool answers `NO_DATA`,
+  the model picks another chart or writes ——. Intraday HR / stress / steps, the reserve
+  curve with its night→day split, 7- and 30-day dailies, weight, HR hi/lo, two heat maps,
+  zones, segments, meals, macros, balance, weigh-in and meal cells, vitals sparks, three
+  body-composition views, the day's events.
+- **`skills.ts` · one skill per chart.** Shape, use-when, avoid-when, sources, copy rules,
+  default target — the single source for the tool descriptions, the new **S11 CHART CHOICE**
+  section of the prompt, and `docs/prd/07-chart-skills.md`, which
+  `supabase/scripts/chart-skills-doc.ts` regenerates so the document cannot drift.
+- **`tools.ts` · a ninth read, `series.get`.** The same catalogue as numbers: aggregates and
+  the last eight points, through `record()` and the ledger cap.
+- **`turn/index.ts`.** The chart tools replace the render tool; the ledger harvests every
+  read's args except `screen.render.*`; the chart's `agg`, hero and row values enter the
+  ledger when it renders, so a caption about the chart audits clean.
+- **S3 reworded.** It promised the model "两个账上数字的百分比" while the ledger (F7 §08) only
+  ever allowed rounding — the first local run wrote 「完成度约63%」 and rule 06 threw the frame
+  away. Now: numbers come from tool returns as they are, and every ratio a sentence might
+  want is a field the source already computed.
+- **Thinking off by default.** `providerOptions.dashscope.enable_thinking` is `false` unless
+  the secret `TURN_THINKING=on` is set. Phase 9 measured 27–38 s per turn with it on; with it
+  off the same questions answer in 6–20 s and the tool choice held on every question tried.
+  That is the ruling Phase 9 asked for; flip the secret to undo it without a release.
+
+### App
+- `dual` had no second line: the type mapped to the curve renderer, which eats one series.
+  It has its own `DualRenderer` now — two lines, each on its own scale, no fill.
+- `delta` never got its zero axis; `ColumnRenderer(zeroAxis:)` is set for it.
+- `gauge` zones were never decoded (a gauge off the wire was a ring). They are.
+- A curve arriving with `data.split` is drawn night-violet then day-lime (13 col 01);
+  `data.label` overrides the title on metric / ring / cells / table (07 · 09 · C · rule 2).
+- `NB_DEBUG_TURN=<question>` sends one question through `handleSend` eight seconds after
+  home loads, for a phone no harness can type into; `AIService.turn` logs
+  `NB turn · type=… decoded=…` as a public Logger line.
+
+### Proven
+- **Every source, straight against the hosted DB** (`supabase/scripts/dev/source-test.ts`):
+  the fourteen that have data today answer in 220–450 ms; the rest are honestly `NULL`
+  (no meals logged, no night → no reserve, one weigh-in this week).
+- **Locally and on production**, as the user's own session
+  (`supabase/scripts/dev/turn-test.py`): 心率 → `line · heart.today`, 周负荷 → `days`,
+  吃了多少 → `ring · kcal.today`, 压力 → `gauge · stress.now`, 体脂 → `dual`, 区间 → `zones`,
+  发生了什么 → `events`, 走得最多 → `days · steps.7d`, 蛋白质 with nothing logged → `text` with ——.
+  Not one frame lost to E_SCHEMA after the S3 change.
+- **On the iPhone 17 Pro Max**, `supabase/scripts/dev/device-turn.sh "我今天的心率怎么样" hr`:
+  the panel drew 「心率 · 今日 · 115 bpm」, the ember curve of the band's own 95 readings
+  from today, 「今日均值 73 bpm，最低 54、最高 115，此刻 115。」, and the server holds the
+  turn (6.2 s, `series.get heart.today → series.get zones.today → screen.render.line`).
+
+### One production failure, found in the function log and closed
+「这周哪天走得最多」 answered in 8 s once and came back MODEL_UNAVAILABLE in 6 s the next time,
+no tool called. `function_logs` had it: `AI_InvalidToolArgumentsError … "path": ["target"],
+"message": "Required"` — the model left the enum field out, Zod refused the call inside
+`generateText`, the exception took the whole turn with it. Two changes: `tag`, `target` and
+`source` are plain strings on the chart tools now, checked in `execute()` (a wrong source is a
+tool result the model can act on; a missing target is the skill's own default); and a fast
+failure on the model hop is retried once inside the 55 s budget. Redeployed and re-run. A second rejection followed on `band`: 「近7天」 — the window is a number
+a caption says, and only the *present* days were in the ledger. Every windowed source now
+returns `windowDays` / `weeks` beside `days`, and the same question passed twice.
+
+On the phone, three shapes after the fix: `line` (今日心率), `gauge` (STRESS · NOW, 11 in the
+REST arc) and `days` (步数 · 7 天, two lime columns, 「2412 avg」).
+
+### What the database held, and a note on seed data
+The account had **no band samples at all** when this started — the last turn on record had
+answered 「当前上下文中未提供心率数值，无法显示」 with an empty tool trace. A marked eight-day
+seed (`supabase/seed/dev-samples.sql`, every row tagged `seed`, cleanup block at the end) was
+applied so the charts had something to draw; while this session was paused those rows were
+removed (exactly the five tables the cleanup names), and the band began syncing real ticks.
+The seed was not re-applied: the phone now shows real data, and a seed tick would sit beside
+a real one in the settle. Re-run the seed only on an account with no band.
+
+### Open
+- `wave` is not offered: there are no ECG samples in the database, and 07's rule is that a
+  capability the device has not produced never becomes a widget. The three sleep widgets stay
+  out by F0 rule 03.
+- `bodyBattery.*`, `battery.now` and the fuel sources are empty until the band delivers a
+  night and a meal is logged; the model writes —— for them, which is the contract.
+- `range.get`'s `intakeKcal` column maps to `fuel_balance_kcal` (the delta, not the intake).
+  `series.get intakeKcal.7d` reads `day_fuel.kcal_in`; the older tool was left as found.
+- Tool names carry dots (`screen.render.line`), which DashScope accepts and the Vercel AI
+  Gateway may not — if the gateway key is ever set, rename before switching.
+
+## Phase 14 · the chart goes behind the dot screen, the words follow the language, every type is drawn
+
+### Three things the user saw on the phone
+1. Only three widget shapes had been shown (line, gauge, days).
+2. The screen answered in Chinese while the app's language is set to English.
+3. The chart did not look like the board: a smooth vector curve laid over the standby planet,
+   where board 07 draws every chart as LEDs on a field of unlit dots and no planet at all.
+
+### What changed
+- **The widget is printed, not lit** (`AIPanel`, `PanelWidgetView.layer`). The same 358 × 470
+  canvas is drawn twice with one transform: the chart layer *behind* `HalftoneScreen` over
+  `--led-off`, where a 6 pt stroke, a bar, an arc or a cell becomes a trail of dots exactly as
+  the board draws it; the text layer in front of the screen, crisp. The standby planet is the
+  panel's idle face and is not drawn under a widget. Renderers gained the switches the split
+  needs (`led`, `showBars` / `showLabels`, `showLabel`); the ring's number moved to the text
+  layer; the catalogue's flat rendering (`.all`) is unchanged. Photo and composition answers
+  keep their own canvases.
+- **The language travels with the turn.** The sheet stores it under `nb.language`; `AppLanguage`
+  reads it back, every `turn` / `meal` call carries `locale`, and the server takes
+  `body.locale ?? profiles.locale`. In `en-US` S6 says so in English, the slot descriptions on
+  every chart tool are English, the envelope's `locale` is `en-US`, and the battery fallback,
+  the medical stop, the THINKING and OFFLINE frames are English on both sides.
+- **One render per turn, enforced.** In English the model rendered eight times on one question
+  (37 s). A successful render now aborts `generateText` through an `AbortController`; a throw
+  with a frame in hand is the answer. Tool calls are traced and streamed as they execute, so the
+  phone hears `series.get` while it runs rather than after the turn.
+- **Test data for the fuel and composition charts**: `supabase/seed/dev-fuel.sql` — seven days of
+  marked meals and ten weekly body-composition readings on the user's account, cleanup at the
+  end of the file. The band supplies the rest.
+
+### The 22-chart matrix, and what it caught
+`supabase/scripts/dev/matrix.sh`-style run (one English question per type, one screenshot
+each, `NB_DEBUG_TURN` + `NB_DEBUG_LANG=en`): every offered type drew on the phone as LEDs
+behind the dot screen. The run also caught four server-side faults, each fixed and redeployed:
+- **Render before read.** With the render ending the turn, the model opened three questions
+  with the render tool and wrote 「——」 for a sentence. A chart that names a data source is now
+  refused with `READ_FIRST` until one read tool has run this turn; text / metric / food are
+  exempt.
+- **Axis labels rejected as numbers.** "the 18:00 bin", the heat map's "04" column: labels are
+  facts about the data, so the chart tool harvests every label's numbers and the audit skips
+  `rowLabels` / `colLabels` arrays.
+- **Thousands separators.** "4,678 steps" scanned as 4 and 678. The audit joins `\d,\d{3}`
+  before matching.
+- **Counts of rows.** "7 entries: 3 meals, 3 HR rises" — `events.today` returns per-kind counts
+  and every rows-shaped source adds its row count to the ledger.
+Two tiles caught the phone in the user's hands (a home screen, a notification over the panel)
+and were re-run. Contact sheets: `matrix/sheet-1.png`, `matrix/sheet-2.png` in the session
+scratchpad, and sent to the user.
+- **The food classifier ate a question.** `looksLikeFood` matched its English markers as
+  substrings, so "Show my heart r**ate** range this week" went down the meal path, `/meal`
+  answered "No object generated", and a 1 kcal row named DINNER landed in `meals` before the
+  model ever saw the question. The English markers are whole words now (`\b(ate|had|…)\b`);
+  the row the test created was deleted and the day re-settled. The Chinese markers are
+  unchanged — 吃 inside 吃药 is the medical stop's job, and that runs first.
+
+## Phase 15 · the board read 1:1 again — the night is on screen, and English is the default
+
+### What the user said
+Three things, in front of board 07: too few widget shapes had been shown (the thinking state
+and sleep staging among them), the screen answered in Chinese although the app is set to
+English, and the type had no pixel character.
+
+### The ruling that changed
+**Sleep is on the screen.** F0 rule 03 ("the night only reaches the screen as the Body Battery
+it produced") and 1EEU's not-in-V1 list kept `hypnogram` / `split` / `o2night` out. The user
+asked for sleep staging directly, standing in front of the three widgets board 07 draws. Both
+locks are gone: `RENDERABLE_TYPES` is all 27, and the client stopped dropping sleep frames.
+The data still has to be real — each one renders only when the band actually wrote it.
+
+### English is the default, not Chinese
+07's envelope note is explicit: `"locale": "zh-CN" // 只影响 format，不翻译任何一个字`, and every
+screen on the board is written in English. So the default flipped:
+- `normalizeLocale` returns `en-US` for anything that is not an explicit `zh`, including a
+  missing value. `systemPrompt`, `buildChartTools`, `batteryFallback` and `medicalStop` all
+  default to English.
+- `profiles.locale` for the account was `zh-CN` and is now `en-US`.
+- The app's remaining Chinese literals are English, or English with the Chinese behind
+  `AppLanguage.isEnglish`: the rate-limit line, the logged-meal frame, the confirm action, the
+  measurement reply prompt, every accessibility label, the catalogue's battery sample.
+- Verified with no `locale` in the payload at all (the server's own default) and on the phone
+  with no `NB_DEBUG_LANG`: nine turns, all `en-US`, no Chinese character in any frame.
+
+### Four widgets that had never been drawn
+- **`hypnogram`** · 07 · 12 · three lanes (AWAKE / LIGHT / DEEP) of run-length blocks with the
+  night's two clock labels. It had been mapped to the same renderer as `zones`, which draws one
+  stacked bar — neither shape was right. `LaneRenderer` is new; source `sleep.stages` reads
+  `raw_samples.sleep_states` per tick and returns runs.
+- **`zones`** · 07 · 13 · five columns in the zone palette (track grey, lime, yellow, amber,
+  red) with Z1…Z5 under them. `ZoneColumnsRenderer` is new; the derived hero names the zone the
+  way the board does ("Z2 · 30 MIN").
+- **`split`** · 07 · 10 · the stack's legend speaks minutes now — "1H48 · 24%", the board's own
+  wording — instead of printing raw numbers through the kcal formatter.
+- **`o2night`** · 07 · 19 · the curve draws; its hero is the night's average with a percent.
+  `raw_samples.spo2` was dropped in migration 20260902020000, so the source answers NO_DATA
+  until a build writes SpO2 again. That is the contract, not a gap.
+- **`thinking`** · 07 · 16 · 02 · was a nine-dot ellipse and the word THINKING. It is the
+  board's singularity now: five arms of dots wound into a black core with a lime ring, the
+  question echoed at the top in Doto (an LED has no input field, so without the echo nobody
+  remembers what they asked), the elapsed seconds in the tag slot, and the tool she is on named
+  at the foot ("PULLING YOUR WEEK IN · SLEEP · HRV · STRESS · 7 DAYS"). The standby planet is
+  no longer drawn behind it: the planet is the thing being pulled in, and leaving it there read
+  as two objects.
+
+Also new: `hrv.7d`, so the HRV the band has been writing since this morning has a chart.
+
+### One bug the sleep work exposed
+`series.get` built its `points` field from a fixed list of shapes and `lanes` was not on it. A
+hypnogram came back with a full `agg` and `points: null`, the model read the null as "no night",
+and rendered a text frame saying there was no sleep data — while the lanes were sitting right
+there. Every shape a source can return is listed now.
+
+### Proven
+- All four new sources against the hosted database: `sleep.mix` 6H50 from the band's own night,
+  `sleep.stages` 7H40 / 8 blocks / 34% deep, `hrv.7d` 60 ms, `o2.night` honestly null.
+- On the phone, live through the dock with no language override: sleep → `hypnogram`, deep
+  sleep → `split`, HRV → `line`, overnight recovery → `text` with ——. All `en-US`.
+- Every one of the 27 types plus the thinking state pinned and photographed with
+  `NB_DEBUG_PANEL`, which is new: it holds one panel state up so a widget whose data the
+  account does not have today can still be read against the board.
+
+### The rest of the app, in English
+The AI screen was the complaint; the same rule applies to every surface, so the remaining
+user-visible Chinese went too: Connect's three troubleshooting blocks and its Bluetooth link,
+Onboarding's three skip / retry / reconnect actions, board 13's nine `dayLooksLike` lines on the
+Body Battery page, the back-logged plate's date format, and the offline seed's three meal names.
+What is left in Chinese is deliberate and not display text: the food classifier's Chinese nouns,
+the medical-stop pattern, the `简体中文` option label, the stored-value comparison, and the
+Chinese branch of each `AppLanguage.isEnglish ?` pair.

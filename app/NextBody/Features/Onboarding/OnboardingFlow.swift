@@ -538,7 +538,7 @@ private struct FingersOn: View {
                             Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "LOW_BATTERY"]) }
                             onSkip()
                         } label: {
-                            Text("先跳过，稍后再测 →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                            Text("Skip for now, measure later →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
                         }
                         .buttonStyle(.plain)
                     }
@@ -668,7 +668,7 @@ private struct ScanningScreen: View {
                         .foregroundStyle(NB.white.opacity(0.80))
                     HStack(spacing: 24) {
                         Button(action: { attempt += 1 }) {
-                            Text("再试一次 →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                            Text("Try again →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
                         }
                         .buttonStyle(.plain)
                         Button(action: onSkip) {
@@ -690,7 +690,7 @@ private struct ScanningScreen: View {
                         .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
                         .foregroundStyle(NB.white.opacity(0.80))
                     Button(action: onReconnect) {
-                        Text("重新连接 →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                        Text("Reconnect →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
                     }
                     .buttonStyle(.plain)
                 }

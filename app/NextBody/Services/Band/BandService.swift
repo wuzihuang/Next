@@ -2,7 +2,7 @@ import Foundation
 
 /// What the app needs from a band, and nothing more. Two implementations sit behind it:
 /// `MockBand` on the simulator and `VeepooBand` on a device with the framework linked.
-/// Every screen talks to this, so the flow is walkable either way.
+/// A device build that cannot import the SDK gets `DisconnectedBand` — idle, invents nothing.
 protocol BandService: AnyObject {
     var state: BandConnectionState { get }
     var events: AsyncStream<BandEvent> { get }
@@ -108,6 +108,9 @@ struct BandIdentity {
     /// How many days of history the band still holds. Missing days are drawn empty,
     /// never as 0, and never averaged.
     let watchDataDayNumber: Int
+    /// The band's own sport-mode tier: NONE, SINGLE, or "10 TYPES (…)". The SDK has no
+    /// way to ask WHICH sports a firmware carries — the band's own workout list does.
+    let sportMode: String
 }
 
 /// FunctionStatus values are carried through verbatim. On screen `unknown` and `unsupported`
@@ -190,12 +193,18 @@ struct OriginPoint {
     let heart: Int?
     let step: Int?
     let cal: Int?
+    /// Metres for this five-minute slot. The SDK's `disValue` is kilometres; the bridge
+    /// converts before this is stored.
     let distance: Int?
     let met: Double?
     // F5 §07 / F7 rule 04 · no spo2 here. The whitelist is applied where the SDK's object is
     // rebuilt, not downstream — a value that never crosses the bridge cannot reach a table,
     // a screen, an export or a tool return.
     let temperature: Double?
+    /// RMSSD in ms for this tick, joined in from the band's separate HRV history. The
+    /// original-data dictionary carries no HRV of its own, so this is nil at the SDK bridge
+    /// and filled where the two domains meet.
+    let hrv: Double?
     let stress: Int?
     let sleepState: Int?
 }
@@ -221,6 +230,11 @@ struct SleepNight {
     /// 04B rule 04 · the night's sleepLine compressed into runs, in the order the night ran.
     /// Empty when the band answered without a curve — the strip falls back to proportions.
     var line: [SleepStageRun] = []
+    /// When the night began and ended, from the band's own record. The server's night
+    /// resting heart rate is the 5th percentile of the ticks between them — raw_samples
+    /// carries no sleep flag on this SDK, so without these two the number cannot exist.
+    var sleepStart: Date? = nil
+    var wakeAt: Date? = nil
 }
 
 /// The states the measurement takeover renders. `lead == false` is the amber nudge:
@@ -302,9 +316,17 @@ struct AutoMonitorSlot: Identifiable, Hashable {
     var startHour: Int
     var endHour: Int
     var intervalMinutes: Int
+    /// The device's own interval capability. Zero means every whole-minute value 0...180;
+    /// otherwise the firmware names step, 2 × step … 180. Minutes below the step are offered
+    /// as probes — the write is only believed when the band echoes the value back.
+    var intervalStepMinutes: Int = 5
     /// 12 rule 06 · isSlotModify / isIntervalModify from readAutoMeasureSetting().
     var slotModifiable = true
     var intervalModifiable = true
+
+    var allowedIntervals: [Int] {
+        AutoMeasurementIntervalPolicy.options(minimumStepMinutes: intervalStepMinutes)
+    }
 }
 
 enum BandError: LocalizedError {
@@ -338,4 +360,39 @@ enum FirmwareUpdateResult: Equatable {
     case completed(version: String)
     case failed(reason: String)
     case versionUnverified
+}
+
+/// A device build with no SDK linked. Stays idle and invents nothing — MockBand's
+/// plausible day would otherwise land on a real account.
+final class DisconnectedBand: BandService, @unchecked Sendable {
+    private(set) var state: BandConnectionState = .idle
+    private let hub = BandEventHub()
+    var events: AsyncStream<BandEvent> { hub.stream() }
+
+    func startScan() async {}
+    func stopScan() async {}
+    func connect(_: DiscoveredBand) async throws { throw BandError.notConnected }
+    func reconnectIfBound() async {}
+    func disconnect() async { state = .disconnected }
+
+    func readIdentity() async throws -> BandIdentity { throw BandError.notConnected }
+    func readCapabilities() async throws -> BandCapabilities { throw BandError.notConnected }
+    func readBattery() async throws -> BandBattery { throw BandError.notConnected }
+    func syncPersonalInfo(_: PersonalInfo) async throws { throw BandError.notConnected }
+    func readOriginData(dayOffset _: Int) async throws -> [OriginPoint] { throw BandError.notConnected }
+    func readHealthData(dayOffset _: Int) async throws -> BandHealthData { throw BandError.notConnected }
+    func readSleep(dayOffset _: Int) async throws -> SleepNight? { throw BandError.notConnected }
+    func measureHeartRate() -> AsyncThrowingStream<MeasurementProgress, Error> {
+        AsyncThrowingStream { $0.finish(throwing: BandError.notConnected) }
+    }
+    func measureBodyComposition() -> AsyncThrowingStream<MeasurementProgress, Error> {
+        AsyncThrowingStream { $0.finish(throwing: BandError.notConnected) }
+    }
+    func writeSetting(_: BandSetting) async throws -> BandSetting { throw BandError.notConnected }
+    func checkFirmwareUpdate() async throws -> FirmwareOffer? { throw BandError.notConnected }
+    func updateFirmware(to _: String, progress _: @escaping @Sendable (Double) -> Void) async throws -> FirmwareUpdateResult {
+        throw BandError.notConnected
+    }
+    func readAutoMonitoring() async throws -> [AutoMonitorSlot] { throw BandError.notConnected }
+    func writeAutoMonitoring(_: AutoMonitorSlot) async throws { throw BandError.notConnected }
 }

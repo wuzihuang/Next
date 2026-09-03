@@ -266,7 +266,7 @@ struct LanguageSheet: View {
         SheetFrame(title: "Language") {
             VStack(spacing: 0) {
                 ForEach(languages, id: \.self) { l in
-                    Button { selected = l; dismiss() } label: {
+                    Button { selected = l; AppLanguage.sync(); dismiss() } label: {
                         HStack {
                             Text(l).font(NBFont.ui(500, 15)).foregroundStyle(NB.text1)
                             Spacer(minLength: 0)
@@ -282,7 +282,7 @@ struct LanguageSheet: View {
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
         } footer: {
-            Text("Only affects how numbers are written, not the words she uses.")
+            Text("The screen answers in this language. Metric names stay as they are.")
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white.opacity(0.38))

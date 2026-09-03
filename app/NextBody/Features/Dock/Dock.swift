@@ -155,7 +155,7 @@ struct Dock: View {
             .scaleEffect(pressT0 != nil && !listening ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: pressT0 != nil)
             .animation(.easeOut(duration: 0.16), value: cancel)
-            .accessibilityLabel(listening ? (cancel ? "松手取消" : "正在听 · 松手发送 · 上滑取消") : "按住说话")
+            .accessibilityLabel(listening ? (cancel ? "Release to cancel" : "Listening · release to send · slide up to cancel") : "Hold to talk")
             .accessibilityAddTraits(.startsMediaSession)
             .gesture(
                 DragGesture(minimumDistance: 0)

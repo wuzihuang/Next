@@ -96,7 +96,9 @@ final class OriginDataSync {
         calendar.timeZone = .current
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: day.start)!
         var points: [DatedPoint] = []
-        var hrvNight: HrvNightReading?
+        /// Every measured HRV tick of this user day, by instant. Both a column on the rows
+        /// this sync inserts and the payload that fills the rows earlier syncs already stored.
+        var hrvTicks: [Date: Double] = [:]
         var auxiliaryUploaded = true
         var pagesReturned = 0
         let wanted = Self.pages(for: day)
@@ -116,9 +118,6 @@ final class OriginDataSync {
             let health: BandHealthData
             do {
                 health = try await band.readHealthData(dayOffset: offset)
-                if Self.dayString(calendarDay) == Self.dayString(day.start) {
-                    hrvNight = HealthSampleMapping.nightHRV(from: health.hrv)
-                }
             } catch {
                 auxiliaryUploaded = false
                 BandLog.shared.record("readHealthData(\(offset))", error: error)
@@ -126,11 +125,23 @@ final class OriginDataSync {
             }
             let temperatures = Dictionary(grouping: health.temperatures, by: \.time)
                 .compactMapValues { $0.last?.celsius }
+            // The band measures HRV every ten minutes, all day — not only at night. Both
+            // domains are read from the same page, so this is where they are joined.
+            let hrvBySlot = HealthSampleMapping.hrvBySlot(health.hrv)
+            // Kept with their instants as well: a tick stored by an earlier sync cannot be
+            // re-inserted carrying its HRV, so those rows are filled in afterwards.
+            for (slot, value) in hrvBySlot {
+                guard let ts = HealthSampleMapping.instant(time: slot, calendarDay: calendarDay,
+                                                           calendar: calendar),
+                      ts >= day.start, ts < dayEnd else { continue }
+                hrvTicks[ts] = value
+            }
             points.append(contentsOf: page.map { point in
                 DatedPoint(calendarDay: calendarDay, point: OriginPoint(
                     time: point.time, heart: point.heart, step: point.step, cal: point.cal,
                     distance: point.distance, met: point.met,
                     temperature: temperatures[Self.clock(point.time)],
+                    hrv: hrvBySlot[Self.clock(point.time)],
                     stress: point.stress, sleepState: point.sleepState))
             })
         }
@@ -152,6 +163,9 @@ final class OriginDataSync {
         // is off the band rather than after the server has settled the day (12 · LIVE).
         var newest: Date?
         var latest: LiveVitals?
+        // Ticks already past the watermark cannot be inserted again; fill_dis writes metres
+        // into the zeros Int(km) left behind. Collected here, before the mark drops them.
+        var distanceTicks: [(ts: Date, metres: Int)] = []
         let rows = points.compactMap { dated -> [String: Any]? in
             let point = dated.point
             guard let ts = HealthSampleMapping.instant(time: point.time,
@@ -162,6 +176,9 @@ final class OriginDataSync {
             // slots. A tick that has not happened is not a sample (04 · the readout's "last
             // tick" query already refuses the future; the table should not hold it either).
             guard ts <= now.addingTimeInterval(5 * 60) else { return nil }
+            if let metres = point.distance, metres > 0 {
+                distanceTicks.append((ts, metres))
+            }
             if let mark, ts <= mark { return nil }
             if newest == nil || ts > newest! {
                 newest = ts
@@ -194,6 +211,7 @@ final class OriginDataSync {
             row["dis"] = point.distance ?? NSNull()
             row["met"] = point.met ?? NSNull()
             row["temp"] = point.temperature ?? NSNull()
+            row["hrv"] = point.hrv ?? NSNull()
             row["stress"] = point.stress ?? NSNull()
             row["sleep_states"] = point.sleepState ?? NSNull()
             return row
@@ -205,37 +223,30 @@ final class OriginDataSync {
             return 0
         }
 
-        // Auxiliary domains are retried even when raw_samples has no new ticks. Previously the
-        // early return below made one failed sleep/HRV upload permanent after the raw watermark
-        // had advanced.
-        if let hrvNight {
-            do {
-                _ = try await db.upsert("night_hrv", row: [
-                    "user_id": userId,
-                    "user_day": Self.dayString(day.start),
-                    "rmssd_ms": hrvNight.rmssdMS,
-                    "bucket_count": hrvNight.bucketCount,
-                    "rr_count": hrvNight.rrCount,
-                    "sampled_tz": tz,
-                    "source": "band_rr",
-                    "collected_at": iso.string(from: now),
-                ], onConflict: "user_id,user_day")
-            } catch {
-                auxiliaryUploaded = false
-                BandLog.shared.record("upsert night_hrv", error: error)
-            }
-        }
+        // ⚠️ The night's own HRV is not computed here and never was computable here. A night
+        // that begins before midnight lies in the previous calendar day — a different SDK
+        // page and a different user day — so a sync reading today's page cannot see its own
+        // night's first half. The phone sends every tick's RMSSD and the server takes the
+        // night from them, between the sleep window this same sync uploads
+        // (nb.night_hrv · migration 20260903110000).
 
+        // Auxiliary domains are retried even when raw_samples has no new ticks: the early
+        // return below once made one failed upload permanent after the raw watermark moved.
+        //
         // The sleep row is keyed to the calendar day on which the user woke. Before 04:00,
         // `wanted` is [0, 1], but this still is yesterday's user day; page 0 is tonight's
         // unfinished sleep and belongs to the next user day. The oldest requested device day
         // is always the calendar date represented by `day.start`.
-        if !Self.sleepStored(for: day, userId: userId),
-           let night = (try? await band.readSleep(dayOffset: wanted.max() ?? 0)) ?? nil {
+        var night: SleepNight?
+        if !Self.sleepStored(for: day, userId: userId) {
+            do { night = try await band.readSleep(dayOffset: wanted.max() ?? 0) }
+            catch { BandLog.shared.record("readSleep(\(wanted.max() ?? 0))", error: error) }
+        }
+        if let night {
             do {
                 // 04B rule 04 · the sleepLine rides along as compact "stage:minutes" runs, so
                 // the SLEEP strip draws the band's own staging instead of re-deriving it.
-                _ = try await db.upsert("sleep_nights", row: [
+                var row: [String: Any] = [
                     "user_id": userId,
                     "user_day": Self.dayString(day.start),
                     "total_minutes": night.totalMinutes,
@@ -243,11 +254,56 @@ final class OriginDataSync {
                     "light_minutes": night.lightMinutes,
                     "wake_count": night.wakeCount,
                     "sleep_line": night.line.map { "\($0.stage):\($0.minutes)" }.joined(separator: ","),
-                ], onConflict: "user_id,user_day")
+                ]
+                // The night's window feeds nb.night_rhr (migration 20260903090000). Until that
+                // migration is on the server PostgREST refuses unknown columns, so the row
+                // goes up once more without them rather than not at all.
+                if let start = night.sleepStart, let wake = night.wakeAt {
+                    row["sleep_start"] = iso.string(from: start)
+                    row["wake_at"] = iso.string(from: wake)
+                }
+                _ = try await db.upsert("sleep_nights", row: row, onConflict: "user_id,user_day")
                 Self.markSleepStored(for: day, userId: userId)
             } catch {
                 auxiliaryUploaded = false
                 BandLog.shared.record("upsert sleep_nights", error: error)
+            }
+        }
+
+        // HRV is its own SDK history domain and can land a sync behind the tick it belongs
+        // to — by then that tick is stored, and raw_samples is insert-only, so there is no
+        // insert left to carry the value. fill_hrv writes into those rows and only where the
+        // column is still null: a number already stored is never rewritten. This sits above
+        // the early return on purpose, because a sync with no new ticks is exactly the one
+        // that has a backlog to fill.
+        if !hrvTicks.isEmpty {
+            do {
+                let payload = hrvTicks.sorted { $0.key < $1.key }.map { tick in
+                    ["ts": iso.string(from: tick.key),
+                     "hrv": (tick.value * 10).rounded() / 10] as [String: Any]
+                }
+                let answer = try await db.rpc("fill_hrv", args: ["p_samples": payload])
+                let filled = ((answer as? [String: Any])?["filled"] as? NSNumber)?.intValue
+                Self.log.notice("fill_hrv \(Self.dayString(day.start), privacy: .public): \(hrvTicks.count) offered, \(filled.map(String.init) ?? "?", privacy: .public) filled")
+            } catch {
+                auxiliaryUploaded = false
+                BandLog.shared.record("fill_hrv", error: error)
+            }
+        }
+
+        // ⚠️ disValue was kilometres truncated to 0. New ticks insert metres; these are the
+        // ticks already stored. fill_dis only overwrites null/zero, so a still hour stays 0.
+        if !distanceTicks.isEmpty {
+            do {
+                let payload = distanceTicks.sorted { $0.ts < $1.ts }.map { tick in
+                    ["ts": iso.string(from: tick.ts), "dis": tick.metres] as [String: Any]
+                }
+                let answer = try await db.rpc("fill_dis", args: ["p_samples": payload])
+                let filled = ((answer as? [String: Any])?["filled"] as? NSNumber)?.intValue
+                Self.log.notice("fill_dis \(Self.dayString(day.start), privacy: .public): \(distanceTicks.count) offered, \(filled.map(String.init) ?? "?", privacy: .public) filled")
+            } catch {
+                auxiliaryUploaded = false
+                BandLog.shared.record("fill_dis", error: error)
             }
         }
 
@@ -342,7 +398,11 @@ final class OriginDataSync {
         // ⚠️ "v2": the first version of this mark was set whether or not a single day had
         // come off the band, and on the phone that found the readBasicData bug it was set
         // after seven failed reads. A new key is the only way that phone asks again.
-        let key = "nb.band.backfilled.v3.\(userId).\(bound)"
+        // ⚠️ "v4" (2026-09-03): raw_samples.hrv arrived after those days were stored, so every
+        // tick the backfill had already written carries a null no later sync would ever fill —
+        // fill_hrv only reaches the days a sync actually asks for. One more pass writes them.
+        // ⚠️ "v5": origin disValue is km; those days stored 0 m. fill_dis repairs them.
+        let key = "nb.band.backfilled.v5.\(userId).\(bound)"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         let identity = try? await band.readIdentity()
         // saveDays of 0 is the band not having said; asking for the SDK's usual seven costs
@@ -410,7 +470,9 @@ final class OriginDataSync {
     /// The night for a day that is over is read once and never again. Today's is re-read every
     /// two hours, because a night stored at 05:00 is a night that was still being slept.
     private static func sleepKey(_ day: UserDay, userId: String) -> String {
-        "nb.sync.sleep.\(userId).\(BoundBand.identifier ?? "none").\(dayString(day.start))"
+        // "v2": the row gained sleep_start/wake_at on 2026-09-03; nights stored under the old
+        // key are read once more so the window reaches the server.
+        "nb.sync.sleep.v3.\(userId).\(BoundBand.identifier ?? "none").\(dayString(day.start))"
     }
 
     static func sleepStored(for day: UserDay, userId: String, now: Date = Date()) -> Bool {
@@ -479,8 +541,8 @@ final class OriginDataSync {
 /// this phone: it is about this phone's radio and battery, not about the account, so it is
 /// not a profile field and never reaches the server.
 ///
-/// The band records a tick every five minutes whatever is chosen here; a longer cadence
-/// only means the ticks arrive in bigger batches. Nothing is skipped and nothing is lost.
+/// This does not control any sensor. Each automatic measurement uses the interval reported
+/// by the device, while some historical SDK domains still return five-minute points.
 enum SyncCadence {
     static let options = [5, 10, 15, 30, 60]
     static let `default` = 5

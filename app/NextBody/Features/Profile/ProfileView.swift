@@ -4,6 +4,8 @@ import SwiftUI
 /// you, not a control panel. Reached only from the avatar; back goes to the root.
 /// The only second-level page in the product hangs off the DEVICE row.
 struct ProfileView: View {
+    /// The sheet's own key; read here so the row shows what is actually selected.
+    @AppStorage(AppLanguage.key) private var language = "English"
     @ObservedObject private var consent = ConsentStore.shared
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
@@ -11,7 +13,7 @@ struct ProfileView: View {
     private var hasScans: Bool { !data.weighIns.isEmpty }
 
     var body: some View {
-        DetailScroll(glow: NB.lime1, title: "PROFILE", headline: "ME") {
+        DetailScroll(glow: NB.lime1, title: "ME") {
             VStack(alignment: .leading, spacing: 14) {
                 identityCard
                 heatMapCard
@@ -56,7 +58,7 @@ struct ProfileView: View {
                                detail: healthLastRead.map { "LAST READ \($0) · NOTHING NEW" }) {
                         router.sheet = .appleHealth
                     }
-                    SettingRow(title: "LANGUAGE", value: "ENGLISH") { router.sheet = .language }
+                    SettingRow(title: "LANGUAGE", value: language == "简体中文" ? "简体中文" : "ENGLISH") { router.sheet = .language }
                 }
 
                 GroupLabel("DATA & LEGAL")

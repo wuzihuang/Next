@@ -76,7 +76,7 @@ final class AIService: ObservableObject {
     func turn(_ text: String, day: UserDay, store: DataStore,
               imageDataURL: String? = nil) async -> PanelWidget? {
         guard dailyCallsUsed < dailyCap else {
-            lastError = AppLanguage.isEnglish ? "That was today’s last turn. It resets at 04:00." : "今天的对话次数用完了，明天 04:00 重置。"
+            lastError = L("That was today’s last turn. It resets at 04:00.")
             return nil
         }
         #if DEBUG
@@ -263,7 +263,7 @@ final class AIService: ObservableObject {
                 ? (left == 0 ? "PROTEIN IS CLOSED FOR TODAY" : "\(left) G STILL TO PLACE")
                 : "\(Fmt.kcal(kcal)) KCAL ON THE PLATE"
             return PanelWidget(
-                type: .meal, title: "FROM YOUR PHOTO", tag: .fuel,
+                type: .meal, title: L("FROM YOUR PHOTO"), tag: .fuel,
                 sentence: (out["answer"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "\(protein) g protein on that plate.",
                 footer: footer, action: nil, targetOverride: .fuel,
                 data: .rows([.init(label: name, value: Fmt.kcal(kcal))]),
@@ -561,16 +561,16 @@ final class AIService: ObservableObject {
     /// Offline the app still has to say something true: it logs the words and does not
     /// invent a number.
     private func offlineFrame(_ text: String) -> PanelWidget {
-        PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
-                    sentence: AppLanguage.isEnglish ? "Noted. It becomes kcal once you're back online." : "记下了，等联网再算成 kcal。",
+        PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
+                    sentence: L("Noted. It becomes kcal once you're back online."),
                     footer: String(text.prefix(42)), action: nil, data: .none)
     }
 
     private func loggedFrame(name: String, kcal: Double, store: DataStore) -> PanelWidget {
         let left = store.today.nextMeal
         return PanelWidget(
-            type: .meal, title: "LOGGED", tag: .fuel,
-            sentence: AppLanguage.isEnglish ? "\(Fmt.kcal(kcal)) KCAL. \(Fmt.kcal(left)) LEFT." : "\(Fmt.kcal(kcal)) KCAL。剩 \(Fmt.kcal(left))。",
+            type: .meal, title: L("LOGGED"), tag: .fuel,
+            sentence: L("%@ KCAL. %@ LEFT.", Fmt.kcal(kcal), Fmt.kcal(left)),
             footer: String(name.prefix(42)), action: "OPEN FUEL",
             data: .rows([.init(label: name, value: Fmt.kcal(kcal))]))
     }
@@ -587,26 +587,3 @@ final class AIService: ObservableObject {
     }()
 }
 
-/// 11 · 07 · units and language are app-side display preferences. The sheet stores the
-/// language under `nb.language`; this is the one place that reads it back, and every turn
-/// carries it so the screen's words follow the setting rather than the server's default.
-enum AppLanguage {
-    static let key = "nb.language"
-    static var isEnglish: Bool {
-        #if DEBUG
-        // `NB_DEBUG_LANG=en|zh` · a harness cannot open the language sheet.
-        if let forced = ProcessInfo.processInfo.environment["NB_DEBUG_LANG"] { return forced.hasPrefix("en") }
-        #endif
-        return (UserDefaults.standard.string(forKey: key) ?? "English") != "简体中文"
-    }
-    static var locale: String { isEnglish ? "en-US" : "zh-CN" }
-
-    /// The profile row is the server's fallback for a client that sends no locale, and the
-    /// only copy a second device would see. Written when the sheet changes, never on launch.
-    static func sync() {
-        Task {
-            guard let uid = await SupabaseClient.shared.currentUserId else { return }
-            _ = try? await SupabaseClient.shared.patchWhere("profiles", column: "user_id", equals: uid, row: ["locale": locale])
-        }
-    }
-}

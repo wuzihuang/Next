@@ -299,11 +299,11 @@ struct HomeView: View {
         .task {
             // DEBUG · 05 edges on a simulator with no microphone story of its own.
             switch DebugEdge.name {
-            case "micdenied":   note(DockNote(line: "MICROPHONE OFF", text: "Typing still works.\nTurn the mic on in Settings.", action: "Open Settings"))
-            case "tooshort":    note(DockNote(line: "0.3S · TOO SHORT", text: "Hold, say it, then let go."))
-            case "nospeech":    note(DockNote(line: "NOTHING HEARD", text: "Say it again, or type it."))
-            case "offline":     note(DockNote(line: "NO CONNECTION", text: "It stays here. Send it when you're back."))
-            case "interrupted": note(DockNote(line: "INTERRUPTED AT 0:07", text: "Not saved. Say it again when you're free."))
+            case "micdenied":   note(DockNote(line: L("MICROPHONE OFF"), text: L("Typing still works.\nTurn the mic on in Settings."), action: L("Open Settings")))
+            case "tooshort":    note(DockNote(line: L("0.3S · TOO SHORT"), text: L("Hold, say it, then let go.")))
+            case "nospeech":    note(DockNote(line: L("NOTHING HEARD"), text: L("Say it again, or type it.")))
+            case "offline":     note(DockNote(line: L("NO CONNECTION"), text: L("It stays here. Send it when you're back.")))
+            case "interrupted": note(DockNote(line: L("INTERRUPTED AT 0:07"), text: L("Not saved. Say it again when you're free.")))
             // 05M · B·03 / B·04 · the chamber and its cancel state, on a simulator that has no
             // microphone to hold; the waveform shows the board's own bars.
             case "recording", "cancelling": dockMode = .listening
@@ -644,7 +644,7 @@ struct HomeView: View {
             // 05 edge 1 · MIC DENIED. iOS asks once; after that the dock says so and typing
             // still works. No system prompt the second time.
             if SpeechCapture.permissionDenied || DebugEdge.on("micdenied") {
-                note(DockNote(line: "MICROPHONE OFF", text: "Typing still works.\nTurn the mic on in Settings.", action: "Open Settings"))
+                note(DockNote(line: L("MICROPHONE OFF"), text: L("Typing still works.\nTurn the mic on in Settings."), action: L("Open Settings")))
                 return
             }
             // The recorder refused to open — no audio device (a simulator), or CoreAudio said
@@ -653,7 +653,7 @@ struct HomeView: View {
             let stream = reachability.isOnline ? await ai.beginStreamingTranscription() : nil
             guard await SpeechCapture.shared.start(onPCMChunk: { pcm in stream?.append(pcm) }) else {
                 stream?.cancel()
-                note(DockNote(line: "MIC UNAVAILABLE", text: "The microphone would not open.\nTyping still works."), clearAfter: 4)
+                note(DockNote(line: L("MIC UNAVAILABLE"), text: L("The microphone would not open.\nTyping still works.")), clearAfter: 4)
                 return
             }
             asrStream = stream
@@ -668,7 +668,7 @@ struct HomeView: View {
     /// `afterMenu` waits for the plus sheet's dismiss (0.22 s) so the camera cover is not fighting it.
     private func openCamera(afterMenu: Bool = false) {
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            note(DockNote(line: "CAMERA UNAVAILABLE", text: "Use Photo library from the plus menu."), clearAfter: 4)
+            note(DockNote(line: L("CAMERA UNAVAILABLE"), text: L("Use Photo library from the plus menu.")), clearAfter: 4)
             return
         }
         if afterMenu {
@@ -685,7 +685,7 @@ struct HomeView: View {
                   let raw = UIImage(data: data) else { throw CocoaError(.fileReadCorruptFile) }
             await attach(image: raw)
         } catch {
-            note(DockNote(line: "UPLOAD FAILED", text: "Tap the photo to retry, or remove it."))
+            note(DockNote(line: L("UPLOAD FAILED"), text: L("Tap the photo to retry, or remove it.")))
             await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": 0, "OK": false])
         }
     }
@@ -724,7 +724,7 @@ struct HomeView: View {
             else {
                 attachment = Attachment(image: raw, dataURL: "", progress: 0, failed: true)
             }
-            note(DockNote(line: "UPLOAD FAILED", text: "Tap the photo to retry, or remove it."))
+            note(DockNote(line: L("UPLOAD FAILED"), text: L("Tap the photo to retry, or remove it.")))
             await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": 0, "OK": false])
         }
     }
@@ -746,9 +746,9 @@ struct HomeView: View {
             } else {
                 data.deleteMeal(entry.id)
                 guard panelRequestID == requestID else { return }
-                withAnimation { widget = PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
-                                                     sentence: AppLanguage.isEnglish ? "That meal did not save. Tap confirm once more." : "这一餐没记上。再点一次确认。",
-                                                     footer: String(text.prefix(42)), action: AppLanguage.isEnglish ? "CONFIRM" : "确认记录", data: .none) }
+                withAnimation { widget = PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
+                                                     sentence: L("That meal did not save. Tap confirm once more."),
+                                                     footer: String(text.prefix(42)), action: L("CONFIRM"), data: .none) }
                 lastSent = (text, day)
             }
         }
@@ -846,21 +846,21 @@ struct HomeView: View {
             // than none, so nothing is sent and the dock says it was not saved.
             if let t = SpeechCapture.shared.interruptedAt {
                 stream?.cancel()
-                note(DockNote(line: String(format: "INTERRUPTED AT %d:%02d", Int(t) / 60, Int(t) % 60),
-                              text: "Not saved. Say it again when you're free."), clearAfter: 4)
+                note(DockNote(line: L("INTERRUPTED AT %d:%02d", Int(t) / 60, Int(t) % 60),
+                              text: L("Not saved. Say it again when you're free.")), clearAfter: 4)
                 return
             }
             // 05 edge 2 · TOO SHORT. Under 0.6 s is a slip: no send, no error, 1.2 s on the capsule.
             if elapsed < 0.6 {
                 stream?.cancel()
-                note(DockNote(line: String(format: "%.1fS · TOO SHORT", elapsed), text: "Hold, say it, then let go."), clearAfter: 1.2)
+                note(DockNote(line: L("%.1fS · TOO SHORT", elapsed), text: L("Hold, say it, then let go.")), clearAfter: 1.2)
                 return
             }
             // 05 edge 5 · OFFLINE. A clip cannot wait in the dock the way a draft does, so the
             // capsule says when to say it again rather than pretending it heard nothing.
             if !reachability.isOnline || DebugEdge.on("offline") {
                 stream?.cancel()
-                note(DockNote(line: "NO CONNECTION", text: "Say it again when you're back."), clearAfter: 4)
+                note(DockNote(line: L("NO CONNECTION"), text: L("Say it again when you're back.")), clearAfter: 4)
                 return
             }
             let requestID = beginPanelRequest()
@@ -874,14 +874,14 @@ struct HomeView: View {
                 // 05 edge 3 · NO SPEECH. Recorded, transcribed to nothing: it stays in the dock
                 // for the next take rather than sending her an empty message.
                 withAnimation { widget = nil }
-                note(DockNote(line: "NOTHING HEARD", text: "Say it again, or type it."), clearAfter: 4)
+                note(DockNote(line: L("NOTHING HEARD"), text: L("Say it again, or type it.")), clearAfter: 4)
             case .failed:
                 guard panelRequestID == requestID else { return }
                 // Not on the board's list of six, because the board assumed the server answers.
                 // A 401, a 503 or a dropped upload is not silence, and telling her to speak up
                 // for it would be a lie; the line names the step that failed.
                 withAnimation { widget = nil }
-                note(DockNote(line: "COULDN'T TRANSCRIBE", text: "Say it again, or type it."), clearAfter: 4)
+                note(DockNote(line: L("COULDN'T TRANSCRIBE"), text: L("Say it again, or type it.")), clearAfter: 4)
             }
         }
     }
@@ -895,7 +895,7 @@ struct HomeView: View {
         // capsule says when to try.
         if !reachability.isOnline || DebugEdge.on("offline") {
             draft = text
-            note(DockNote(line: "NO CONNECTION", text: "It stays here. Send it when you're back."))
+            note(DockNote(line: L("NO CONNECTION"), text: L("It stays here. Send it when you're back.")))
             return
         }
         let day = backlogDay ?? UserDay.containing(Date())
@@ -921,8 +921,8 @@ struct HomeView: View {
                                                slot: slotForNow(), into: data)
                 await Analytics.shared.track("MSG_SEND", ["TYPE": "PHOTO", "CHARS": text.count, "HAS_PHOTO": true])
                 guard panelRequestID == requestID else { return }
-                withAnimation { widget = frame ?? PanelWidget(type: .text, title: "OFFLINE", tag: .fuel,
-                                                              sentence: AppLanguage.isEnglish ? "Could not read that plate. Your words are kept; send it again." : "这张盘子没读出来。字先留着，再发一次。",
+                withAnimation { widget = frame ?? PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
+                                                              sentence: L("Could not read that plate. Your words are kept; send it again."),
                                                               footer: String(text.prefix(42)), action: nil, data: .none) }
             }
             return
@@ -1069,7 +1069,7 @@ private struct PhotoTray: View {
             }
             .buttonStyle(.plain)
             .offset(x: 12, y: -12)
-            .accessibilityLabel("Remove photo")
+            .accessibilityLabel(L("Remove photo"))
         }
         .frame(width: 100, height: 100)
     }

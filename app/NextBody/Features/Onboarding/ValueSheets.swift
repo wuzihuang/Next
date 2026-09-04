@@ -35,12 +35,12 @@ private struct SheetShell<Content: View>: View {
 
             Spacer(minLength: 0)
 
-            LimePillButton(title: saveTitle, action: onSave)
+            LimePillButton(title: L(saveTitle), action: onSave)
                 .padding(.bottom, showCancel ? 8 : 22)
 
             if showCancel, let onCancel {
                 Button(action: onCancel) {
-                    Text("Cancel")
+                    Text(L("Cancel"))
                         .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                         .foregroundStyle(NB.white.opacity(0.42))
                 }
@@ -91,7 +91,7 @@ struct WeightRulerSheet: View {
     private var display: Double { unit == "KG" ? draft : draft * 2.2046226 }
 
     var body: some View {
-        SheetShell(title: "Weight",
+        SheetShell(title: L("Weight"),
                    trailing: AnyView(UnitToggle(options: ["KG", "LB"], selection: $unit)),
                    saveTitle: "Save", onSave: { value = draft; onSave() }) {
             VStack(spacing: 0) {
@@ -114,7 +114,7 @@ struct WeightRulerSheet: View {
                     .frame(height: 74)
                     .padding(.top, 26)
 
-                Text("Drag the ruler, or tap the number to type")
+                Text(L("Drag the ruler, or tap the number to type"))
                     .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                     .foregroundStyle(NB.white.opacity(0.38))
                     .padding(.top, 18)
@@ -193,7 +193,7 @@ struct HeightRulerSheet: View {
     @State private var typed = ""
 
     var body: some View {
-        SheetShell(title: "Height",
+        SheetShell(title: L("Height"),
                    trailing: AnyView(UnitToggle(options: ["CM", "FT"], selection: $unit)),
                    saveTitle: "Save", onSave: { value = draft; onSave() }) {
             HStack(alignment: .top, spacing: 0) {
@@ -210,7 +210,7 @@ struct HeightRulerSheet: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text("Drag the scale, or tap the number to type")
+                    Text(L("Drag the scale, or tap the number to type"))
                         .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                         .foregroundStyle(NB.white.opacity(0.38))
                         .frame(width: 190, alignment: .leading)
@@ -298,9 +298,9 @@ struct BirthdayWheelSheet: View {
     }
 
     var body: some View {
-        SheetShell(title: "Birthday",
+        SheetShell(title: L("Birthday"),
                    trailing: AnyView(
-                        Text("AGE \(age)")
+                        Text(L("AGE %d", age))
                             .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                             .foregroundStyle(NB.lime1)
                             .contentTransition(.numericText())),
@@ -318,7 +318,7 @@ struct BirthdayWheelSheet: View {
                     .frame(height: 190)
                     .padding(.top, 10)
 
-                Text("Age drives the body-composition model — worth getting right.")
+                Text(L("Age drives the body-composition model — worth getting right."))
                     .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(NB.white.opacity(0.38))

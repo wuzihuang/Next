@@ -150,12 +150,12 @@ struct MeasureTakeover: View {
                     Text(firstNumber)
                         .font(NBFont.brand(700, 34)).tracking(-0.045 * 34)
                         .foregroundStyle(phase == .lost ? NB.white.opacity(0.32) : NB.text1)
-                    Text(isBodyScan ? "%" : "BPM")
+                    Text(isBodyScan ? "%" : L("BPM"))
                         .font(NBFont.dot(500, 12))
                         .foregroundStyle(NB.white.opacity(phase == .lost ? 0.20 : 0.42))
                 }
-                Text(isBodyScan ? "BODY FAT · SETTLED"
-                     : isBalance ? "HEART RATE · MEASURING" : "HEART RATE · SETTLED")
+                Text(isBodyScan ? L("BODY FAT · SETTLED")
+                     : isBalance ? L("HEART RATE · MEASURING") : L("HEART RATE · SETTLED"))
                     .font(NBFont.dot(500, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.white.opacity(phase == .lost ? 0.20 : 0.34))
             }
@@ -166,7 +166,7 @@ struct MeasureTakeover: View {
 
     /// The eyebrow: what is being measured and how long it takes, in 03's own words.
     private var eyebrow: String {
-        isBodyScan ? "BODY SCAN · 30S" : isBalance ? "BALANCE CHECK · 40S" : "BATTERY CHECK · 60S"
+        isBodyScan ? L("BODY SCAN · 30S") : isBalance ? L("BALANCE CHECK · 40S") : L("BATTERY CHECK · 60S")
     }
 
     private var headlineText: String {
@@ -175,19 +175,19 @@ struct MeasureTakeover: View {
         // that failed to draw, and this phase is 460 ms of exactly that.
         // The board's own words: which finger, and which key. 「Finger on the key」 with a ring
         // around the display was an instruction to press the screen.
-        case .opening, .waiting: "Index finger on the side key."
-        case .nudge:     "Still nothing on the key."
-        case .contact:   "Got it. Hold still."
-        case .counting:  isBodyScan ? "Mapping you." : isBalance ? "Listening to your rhythm." : "Reading you."
-        case .halfway:   "Halfway."
-        case .lost:      "Put it back."
-        case .computing: "Working it out."
-        case .result:    isBodyScan ? "Fourteen fields." : isBalance ? "Rest and drive." : "Done."
-        case .failed:    "That didn't take."
-        case .notWearing: "The band isn't on your wrist."
-        case .busy:       "She's already measuring something."
-        case .dropped:    "Lost the band."
-        case .noReading:  "Couldn't get a clean read."
+        case .opening, .waiting: L("Index finger on the side key.")
+        case .nudge:     L("Still nothing on the key.")
+        case .contact:   L("Got it. Hold still.")
+        case .counting:  isBodyScan ? L("Mapping you.") : isBalance ? L("Listening to your rhythm.") : L("Reading you.")
+        case .halfway:   L("Halfway.")
+        case .lost:      L("Put it back.")
+        case .computing: L("Working it out.")
+        case .result:    isBodyScan ? L("Fourteen fields.") : isBalance ? L("Rest and drive.") : L("Done.")
+        case .failed:    L("That didn't take.")
+        case .notWearing: L("The band isn't on your wrist.")
+        case .busy:       L("She's already measuring something.")
+        case .dropped:    L("Lost the band.")
+        case .noReading:  L("Couldn't get a clean read.")
         }
     }
 
@@ -274,7 +274,7 @@ struct MeasureTakeover: View {
                                              .init(color: .black, location: 0.86),
                                              .init(color: .clear, location: 1)],
                                      startPoint: .top, endPoint: .bottom))
-            Text(reading?.heartRate.map { "\($0) BPM · FROM YOUR WRIST" } ?? "FINDING YOUR PULSE")
+            Text(reading?.heartRate.map { L("%d BPM · FROM YOUR WRIST", $0) } ?? L("FINDING YOUR PULSE"))
                 .font(NBFont.dot(500, 9.5)).tracking(0.18 * 9.5)
                 .foregroundStyle(NB.white.opacity(0.34))
         }
@@ -290,23 +290,23 @@ struct MeasureTakeover: View {
     private var statusLine: String {
         switch phase {
         case .opening:   ""
-        case .waiting:   "WAITING FOR YOUR FINGER"
-        case .nudge:     "NO CONTACT · \(6)S"
-        case .contact:   isBodyScan ? "CONTACT · CIRCUIT CLOSED" : "CONTACT · PULSE LOCK"
-        case .counting:  isBodyScan ? "\(fields) / 14 FIELDS" : "MEASURING · KEEP STILL"
-        case .halfway:   isBodyScan ? "HALFWAY · KEEP THE FINGER THERE"
-                         : isBalance ? "HALFWAY · KEEP THE FINGER THERE" : "KEEP STILL · STRESS NEXT"
-        case .lost:      "PAUSED · \(Int(lostGrace.rounded()))S TO RESUME"
-        case .computing: isBodyScan ? "COMPUTING 14 FIELDS"
-                         : isBalance ? "WORKING OUT THE BALANCE" : "MEASURING STRESS · HRV"
+        case .waiting:   L("WAITING FOR YOUR FINGER")
+        case .nudge:     L("NO CONTACT · %dS", 6)
+        case .contact:   isBodyScan ? L("CONTACT · CIRCUIT CLOSED") : L("CONTACT · PULSE LOCK")
+        case .counting:  isBodyScan ? L("%d / 14 FIELDS", fields) : L("MEASURING · KEEP STILL")
+        case .halfway:   isBodyScan ? L("HALFWAY · KEEP THE FINGER THERE")
+                         : isBalance ? L("HALFWAY · KEEP THE FINGER THERE") : L("KEEP STILL · STRESS NEXT")
+        case .lost:      L("PAUSED · %dS TO RESUME", Int(lostGrace.rounded()))
+        case .computing: isBodyScan ? L("COMPUTING 14 FIELDS")
+                         : isBalance ? L("WORKING OUT THE BALANCE") : L("MEASURING STRESS · HRV")
         // ⚠️ The ECG is not written to any table — 20 000 points have nowhere to go — so
         // this one says what actually happened instead of borrowing "SAVED".
-        case .result:    isBalance ? "ON THE PANEL" : "SAVED"
-        case .failed:    failure ?? "NOT MEASURED"
-        case .notWearing: "NOT WEARING · PUT IT BACK ON"
-        case .busy:       "MEASURING NOW · TRY IN A MOMENT"
-        case .dropped:    "DISCONNECTED · RECONNECTING"
-        case .noReading:  "NO READING · NOTHING KEPT"
+        case .result:    isBalance ? L("ON THE PANEL") : L("SAVED")
+        case .failed:    failure ?? L("NOT MEASURED")
+        case .notWearing: L("NOT WEARING · PUT IT BACK ON")
+        case .busy:       L("MEASURING NOW · TRY IN A MOMENT")
+        case .dropped:    L("DISCONNECTED · RECONNECTING")
+        case .noReading:  L("NO READING · NOTHING KEPT")
         }
     }
     private var statusTint: Color {
@@ -324,32 +324,32 @@ struct MeasureTakeover: View {
     private var helpLine: String {
         switch phase {
         case .opening:   ""
-        case .waiting:   "Rest your hand on the table. Nothing to press."
-        case .nudge:     "Skin, not a nail or a sleeve. Let it rest, don't press."
-        case .contact:   isBodyScan ? "A tiny current crosses your body. You won't feel it."
-                                    : isBalance ? "Keep the finger on the key. The field breathes with your pulse."
-                                    : "Breathe normally. Talking is fine."
+        case .waiting:   L("Rest your hand on the table. Nothing to press.")
+        case .nudge:     L("Skin, not a nail or a sleeve. Let it rest, don't press.")
+        case .contact:   isBodyScan ? L("A tiny current crosses your body. You won't feel it.")
+                                    : isBalance ? L("Keep the finger on the key. The field breathes with your pulse.")
+                                    : L("Breathe normally. Talking is fine.")
         // ⚠️ Body composition has no resume: lifting off restarts the whole 30 seconds.
-        case .counting:  isBodyScan ? "Lift a finger and the scan starts over."
+        case .counting:  isBodyScan ? L("Lift a finger and the scan starts over.")
                                     // ⚠️ Not the battery check's sentence, and not a trace:
                                     // the field's tempo IS the rate the band is reporting.
-                                    : isBalance ? "One breath of the field for every beat it reads."
-                                    : "Heart rate from the band — the sweep follows that beat."
-        case .halfway:   isBodyScan ? "One steady contact makes one reading."
-                                    : isBalance ? "Halfway. Keep the finger where it is."
-                                    : "Almost there. Stress and HRV come after the minute."
+                                    : isBalance ? L("One breath of the field for every beat it reads.")
+                                    : L("Heart rate from the band — the sweep follows that beat.")
+        case .halfway:   isBodyScan ? L("One steady contact makes one reading.")
+                                    : isBalance ? L("Halfway. Keep the finger where it is.")
+                                    : L("Almost there. Stress and HRV come after the minute.")
         // 06 edge 2 · the board's sentence for a lifted finger.
-        case .lost:      isBodyScan ? "Your finger came off the key. This one has to start over."
-                                    : "Your finger came off the key."
-        case .computing: isBodyScan ? "You can lift your finger now."
-                                    : isBalance ? "You can lift your finger now."
-                                    : "Stress on the band now. HRV if this firmware has it."
-        case .result:    "Folding it back onto the panel."
-        case .notWearing: "Not a failure — it slipped or came off. Put it back on and the count continues."
-        case .busy:       "One measurement at a time. It frees itself when the other one ends."
-        case .dropped:    "Nothing half-done is kept. Reconnecting — then put your finger back on."
-        case .noReading:  "This one didn't read cleanly. Nothing invented, nothing stored."
-        case .failed:    "Close this and try again when you are ready."
+        case .lost:      isBodyScan ? L("Your finger came off the key. This one has to start over.")
+                                    : L("Your finger came off the key.")
+        case .computing: isBodyScan ? L("You can lift your finger now.")
+                                    : isBalance ? L("You can lift your finger now.")
+                                    : L("Stress on the band now. HRV if this firmware has it.")
+        case .result:    L("Folding it back onto the panel.")
+        case .notWearing: L("Not a failure — it slipped or came off. Put it back on and the count continues.")
+        case .busy:       L("One measurement at a time. It frees itself when the other one ends.")
+        case .dropped:    L("Nothing half-done is kept. Reconnecting — then put your finger back on.")
+        case .noReading:  L("This one didn't read cleanly. Nothing invented, nothing stored.")
+        case .failed:    L("Close this and try again when you are ready.")
         }
     }
 
@@ -819,7 +819,7 @@ struct MeasureTakeover: View {
             let bb = data.bodyBatteryNow ?? data.today.bbWake ?? 0
             let yesterday = data.history.last(where: { $0.day < data.today.day })?.bbWake
             var w = PanelWidget(
-                type: .wave, title: "BODY BATTERY", tag: .recover,
+                type: .wave, title: L("BODY BATTERY"), tag: .recover,
                 sentence: bb < 60 ? "You're still carrying yesterday. Keep it easy today."
                                   : "Charged and steady. Today can take the session.",
                 footer: "HR \(hr) · HRV \(hrv.map { "\($0) MS" } ?? "——") · STRESS \(stress.map { "\($0) / 100" } ?? "——")",
@@ -830,11 +830,9 @@ struct MeasureTakeover: View {
             w.heroSub = "BODY BATTERY" + (yesterday.map { " · WAS \($0) YESTERDAY" } ?? "")
             w.accentOverride = NB.lime1     // 06 · 16 · lime, not the ECG warning red
             // 06 · 17 · the tap turns the reading into a question for her.
-            w.replyPrompt = AppLanguage.isEnglish
-                ? "Just measured: HR \(hr), HRV \(hrv.map(String.init) ?? "——") ms, stress \(stress.map(String.init) ?? "——")"
-                : "刚测完：心率 \(hr)，HRV \(hrv.map(String.init) ?? "——") ms，压力 \(stress.map(String.init) ?? "——")"
-                + (yesterday.map { AppLanguage.isEnglish ? ", battery \($0) yesterday" : "，昨天电量 \($0)" } ?? "")
-                + (AppLanguage.isEnglish ? ". What should today look like?" : "。今天怎么安排？")
+            w.replyPrompt = L("Just measured: HR %d, HRV %@ ms, stress %@", hr, hrv.map(String.init) ?? "——", stress.map(String.init) ?? "——")
+                + (yesterday.map { L(", battery %d yesterday", $0) } ?? "")
+                + L(". What should today look like?")
             return w
         case .pulseStudy(let study):
             // ⚠️ Nothing here is drawn unless the band actually reported enough beats.
@@ -843,7 +841,7 @@ struct MeasureTakeover: View {
             // read rather than printing a confident percentage.
             guard let balance = AutonomicBalance(intervals: study.intervals) else {
                 var w = PanelWidget(
-                    type: .metric, title: "BALANCE", tag: nil,
+                    type: .metric, title: L("BALANCE"), tag: nil,
                     sentence: "The band didn't send enough beats to read the balance. Nothing was made up to fill it.",
                     footer: study.heartRate.map { "HEART RATE \($0) BPM" } ?? "NO READING",
                     action: "TRY IT AGAIN WHEN YOU'RE STILL", data: .none)
@@ -852,7 +850,7 @@ struct MeasureTakeover: View {
                 return w
             }
             var w = PanelWidget(
-                type: .metric, title: "BALANCE", tag: nil,
+                type: .metric, title: L("BALANCE"), tag: nil,
                 sentence: balance.note,
                 footer: "",
                 action: "TAP TO ASK ABOUT IT", data: .none)
@@ -868,15 +866,14 @@ struct MeasureTakeover: View {
                          "SD2 \(Int(balance.sd2.rounded())) MS",
                          "\(balance.points.count) BEATS"].joined(separator: " · "),
                 points: balance.points.map { CGPoint(x: $0.x, y: $0.y) })
-            w.replyPrompt = AppLanguage.isEnglish
-                ? "Just did a balance check: rest \(balance.split.rest)%, drive \(balance.split.drive)%, SD1 \(Int(balance.sd1.rounded())) ms, SD2 \(Int(balance.sd2.rounded())) ms. What does that suggest for today?"
-                : "刚做完平衡检查：休息 \(balance.split.rest)%、驱动 \(balance.split.drive)%，SD1 \(Int(balance.sd1.rounded())) ms，SD2 \(Int(balance.sd2.rounded())) ms。今天该怎么安排？"
+            w.replyPrompt = L("Just did a balance check: rest %d%%, drive %d%%, SD1 %d ms, SD2 %d ms. What does that suggest for today?",
+                              balance.split.rest, balance.split.drive, Int(balance.sd1.rounded()), Int(balance.sd2.rounded()))
             return w
         case .bodyComposition(let r):
             let fatDown = (data.today.fatKg).map { r.fatMassKg < $0 } ?? false
             let leanHeld = (data.today.leanKg).map { abs(r.leanMassKg - $0) < 0.3 } ?? true
             var w = PanelWidget(
-                type: .metric, title: "BODY COMPOSITION", tag: nil,
+                type: .metric, title: L("BODY COMPOSITION"), tag: nil,
                 sentence: fatDown && leanHeld ? "Fat down, muscle held. That is the version you wanted."
                         : "One reading, not a verdict. The trend is what counts.",
                 footer: [r.bmi.map { String(format: "BMI %.1f", $0) },
@@ -908,29 +905,29 @@ struct MeasureTakeover: View {
         let lime = NB.lime1.opacity(0.68)
         let cyan = NB.cyan1.opacity(0.78)
         let ember = NB.ember1.opacity(0.78)
-        let bmr = CompositionAnswer.Field(label: "BMR",
+        let bmr = CompositionAnswer.Field(label: L("BMR"),
                                           value: r.bmrKcal.map(String.init) ?? Fmt.dash,
                                           tint: ember)
         switch goal {
         case .cut:
             return [
-                .init(label: "FAT",    value: n(r.fatMassKg),         tint: lime),
-                .init(label: "MUSCLE", value: n(r.muscleKg),          tint: lime),
-                .init(label: "WATER",  value: n(r.bodyWaterPercent),  tint: cyan),
+                .init(label: L("FAT"),    value: n(r.fatMassKg),         tint: lime),
+                .init(label: L("MUSCLE"), value: n(r.muscleKg),          tint: lime),
+                .init(label: L("WATER"),  value: n(r.bodyWaterPercent),  tint: cyan),
                 bmr,
             ]
         case .bulk:
             return [
-                .init(label: "MUSCLE",  value: n(r.muscleKg),          tint: lime),
-                .init(label: "LEAN",    value: n(r.leanMassKg),        tint: lime),
-                .init(label: "PROTEIN", value: n(r.proteinPercent),    tint: cyan),
+                .init(label: L("MUSCLE"),  value: n(r.muscleKg),          tint: lime),
+                .init(label: L("LEAN"),    value: n(r.leanMassKg),        tint: lime),
+                .init(label: L("PROTEIN"), value: n(r.proteinPercent),    tint: cyan),
                 bmr,
             ]
         case .recomp:
             return [
-                .init(label: "MUSCLE",  value: n(r.muscleKg),          tint: lime),
-                .init(label: "WATER",   value: n(r.bodyWaterPercent),  tint: cyan),
-                .init(label: "PROTEIN", value: n(r.proteinPercent),    tint: cyan),
+                .init(label: L("MUSCLE"),  value: n(r.muscleKg),          tint: lime),
+                .init(label: L("WATER"),   value: n(r.bodyWaterPercent),  tint: cyan),
+                .init(label: L("PROTEIN"), value: n(r.proteinPercent),    tint: cyan),
                 bmr,
             ]
         }
@@ -1198,7 +1195,7 @@ struct LiveECG: View {
                             .font(NBFont.dot(700, 16)).tracking(0.08 * 16)
                             .foregroundStyle(tint)
                             .contentTransition(.numericText())
-                        Text("BPM")
+                        Text(L("BPM"))
                             .font(NBFont.dot(500, 9)).tracking(0.2 * 9)
                             .foregroundStyle(NB.white.opacity(0.42))
                     }

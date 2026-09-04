@@ -25,7 +25,7 @@ struct BodyBatteryDetailView: View {
 
     var body: some View {
         DetailScroll(glow: NB.violet1, title: MetricNames.bodyBattery, trailing: {
-            Text(hasNight ? "TODAY" : "DAY 01")
+            Text(hasNight ? L("TODAY") : L("DAY 01"))
                 .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
                 .foregroundStyle(NB.text3Prod)
         }) {
@@ -49,7 +49,7 @@ struct BodyBatteryDetailView: View {
                 } else {
                     emptyCard
                     needsCard
-                    LimePillButton(title: "Wear it tonight") { router.backToRoot() }
+                    LimePillButton(title: L("Wear it tonight")) { router.backToRoot() }
                         .padding(.top, 6)
                 }
             }
@@ -106,26 +106,26 @@ struct BodyBatteryDetailView: View {
         let stale = showsLive && live.freshness == .stale
         let hr = gone ? nil : (showsLive ? (live.hr ?? lastTick?.hr) : lastTick?.hr)
         let stress = gone ? nil : (showsLive ? (live.stress ?? lastTick?.stress) : lastTick?.stress)
-        return CardBlock(title: "HEART & STRESS",
-                         trailing: at.map { "LAST TICK \(Fmt.clock($0))" } ?? "NO TICK",
+        return CardBlock(title: L("HEART & STRESS"),
+                         trailing: at.map { L("LAST TICK %@", Fmt.clock($0)) } ?? L("NO TICK"),
                          trailingTint: gone || at == nil ? NB.text3Prod : NB.lime1) {
             HStack(spacing: 0) {
-                VitalReading(label: "HEART", value: hr.map(String.init), unit: "BPM",
+                VitalReading(label: L("HEART"), value: hr.map(String.init), unit: "BPM",
                              tint: NB.lime1, dim: stale)
-                VitalReading(label: "STRESS", value: stress.map(String.init), unit: "INDEX",
+                VitalReading(label: L("STRESS"), value: stress.map(String.init), unit: L("INDEX"),
                              tint: NB.violet1, dim: stale)
-                VitalReading(label: "RESTING", value: m.nightInputs?.rhr.map { String(Int($0)) },
+                VitalReading(label: L("RESTING"), value: m.nightInputs?.rhr.map { String(Int($0)) },
                              unit: "BPM", tint: NB.white.opacity(0.42), dim: false)
             }
             if !hrs.isEmpty || !stresses.isEmpty {
                 VStack(spacing: 10) {
                     if !hrs.isEmpty {
-                        VitalTrace(samples: day, value: \.hr, tint: NB.lime1, name: "HEART",
-                                   low: hrs.min() ?? 0, high: hrs.max() ?? 0, unit: "BPM")
+                        VitalTrace(samples: day, value: \.hr, tint: NB.lime1, name: L("HEART"),
+                                   low: hrs.min() ?? 0, high: hrs.max() ?? 0, unit: L("BPM"))
                     }
                     if !stresses.isEmpty {
-                        VitalTrace(samples: day, value: \.stress, tint: NB.violet1, name: "STRESS",
-                                   low: stresses.min() ?? 0, high: stresses.max() ?? 0, unit: "INDEX")
+                        VitalTrace(samples: day, value: \.stress, tint: NB.violet1, name: L("STRESS"),
+                                   low: stresses.min() ?? 0, high: stresses.max() ?? 0, unit: L("INDEX"))
                     }
                     // The same 04 → 22 ruler the battery curve carries, so the two shapes are
                     // read against one clock rather than two.
@@ -153,12 +153,12 @@ struct BodyBatteryDetailView: View {
     private func vitalsLine(ticks: Int, gone: Bool, stale: Bool) -> String {
         if ticks == 0 {
             return data.band.connected
-                ? "Nothing has come off the band for this day yet."
-                : "Connect the band to see the ticks it has been recording."
+                ? L("Nothing has come off the band for this day yet.")
+                : L("Connect the band to see the ticks it has been recording.")
         }
-        if gone { return "Nothing for over six hours. These are not old numbers, they are no numbers." }
-        if stale { return "\(ticks) ticks today. Nothing new for a while — it may be off your wrist." }
-        return "\(ticks) ticks today, five minutes apart. Stress is one of the four rows above it."
+        if gone { return L("Nothing for over six hours. These are not old numbers, they are no numbers.") }
+        if stale { return L("%d ticks today. Nothing new for a while — it may be off your wrist.", ticks) }
+        return L("%d ticks today, five minutes apart. Stress is one of the four rows above it.", ticks)
     }
 
     /// The curve: violet while charging overnight, white while discharging awake,
@@ -170,18 +170,18 @@ struct BodyBatteryDetailView: View {
                     Text(Fmt.int(m.bodyBattery))
                         .font(NBFont.dot(800, 64))
                         .foregroundStyle(NB.text1)
-                    Text("OF 100")
+                    Text(L("OF 100"))
                         .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
                         .foregroundStyle(NB.white.opacity(0.42))
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(hasNight ? "PEAK \(peakTime)" : "LIVE ESTIMATE")
+                    Text(hasNight ? L("PEAK %@", peakTime) : L("LIVE ESTIMATE"))
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.white.opacity(0.42))
                     Text(hasNight
-                         ? "\(Fmt.signed(drivers?.lastNight ?? 0)) LAST NIGHT"
-                         : "FROM WRIST DATA")
+                         ? L("%@ LAST NIGHT", Fmt.signed(drivers?.lastNight ?? 0))
+                         : L("FROM WRIST DATA"))
                         .font(NBFont.dot(700, 12)).tracking(0.12 * 12)
                         .foregroundStyle(hasNight ? NB.violet1 : NB.lime1)
                 }
@@ -189,7 +189,7 @@ struct BodyBatteryDetailView: View {
             BatteryCurve(samples: m.reserveCurve).frame(width: 318, height: 120)
             HStack {
                 ForEach(["04", "10", "NOW", "22"], id: \.self) { t in
-                    Text(t)
+                    Text(t == "NOW" ? L("NOW") : t)
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(t == "NOW" ? NB.lime1 : NB.white.opacity(0.34))
                     if t != "22" { Spacer(minLength: 0) }
@@ -208,17 +208,17 @@ struct BodyBatteryDetailView: View {
     @ViewBuilder private var whyCard: some View {
         let d = drivers ?? ReserveDrivers(lastNight: 0, awake: 0, movement: 0, stress: 0, anchor: 0)
         let scale = max(1, max(abs(d.lastNight), max(abs(d.awake), max(abs(d.movement), abs(d.stress)))))
-        CardBlock(title: "WHY \(Fmt.int(m.bodyBattery))", trailing: "FROM \(d.anchor) AT 04:00") {
+        CardBlock(title: L("WHY %@", Fmt.int(m.bodyBattery)), trailing: L("FROM %d AT 04:00", d.anchor)) {
             VStack(spacing: 11) {
-                ContribRow(label: hasNight ? "Last night" : "Recovery",
+                ContribRow(label: hasNight ? L("Last night") : L("Recovery"),
                            value: d.lastNight, maxAbs: scale, tint: NB.violet1)
-                ContribRow(label: "Just being awake", value: d.awake, maxAbs: scale, tint: NB.white.opacity(0.35))
-                ContribRow(label: "Moving around", value: d.movement, maxAbs: scale, tint: NB.white.opacity(0.35))
-                ContribRow(label: "Stress", value: d.stress, maxAbs: scale, tint: NB.white.opacity(0.35))
+                ContribRow(label: L("Just being awake"), value: d.awake, maxAbs: scale, tint: NB.white.opacity(0.35))
+                ContribRow(label: L("Moving around"), value: d.movement, maxAbs: scale, tint: NB.white.opacity(0.35))
+                ContribRow(label: L("Stress"), value: d.stress, maxAbs: scale, tint: NB.white.opacity(0.35))
             }
             Hairline()
             HStack {
-                Text("THESE FOUR ADD UP TO \(Fmt.signed(d.sum))")
+                Text(L("THESE FOUR ADD UP TO %@", Fmt.signed(d.sum)))
                     .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
@@ -230,8 +230,8 @@ struct BodyBatteryDetailView: View {
             // assumption. Say it in words; never let 20 read as something we measured.
             if d.assumedAnchor {
                 Text(hasNight
-                     ? "There was no yesterday to start from, so the first night began at an assumed 20. It stops being an assumption tomorrow."
-                     : "There was no previous day or recorded night, so this daytime estimate begins at a neutral 50. Live wrist data moves it from there.")
+                     ? L("There was no yesterday to start from, so the first night began at an assumed 20. It stops being an assumption tomorrow.")
+                     : L("There was no previous day or recorded night, so this daytime estimate begins at a neutral 50. Live wrist data moves it from there."))
                     .font(NBFont.brand(400, 13))
                     .lineSpacing(6)
                     .foregroundStyle(NB.white.opacity(0.62))
@@ -243,14 +243,14 @@ struct BodyBatteryDetailView: View {
     /// a unit. Sleep duration and stages are not, here or anywhere.
     private var inputsCard: some View {
         let n = m.nightInputs ?? NightInputs()
-        return CardBlock(title: "LAST NIGHT'S INPUTS", trailing: "\(n.present) OF 3") {
+        return CardBlock(title: L("LAST NIGHT'S INPUTS"), trailing: L("%d OF 3", n.present)) {
             VStack(spacing: 12) {
                 InputRow(name: "HRV", value: Fmt.kg(n.hrv, decimals: 0), unit: n.hrv == nil ? nil : "MS",
-                         base: n.hrvBase.map { "BASE \(Int($0))" })
+                         base: n.hrvBase.map { L("BASE %d", Int($0)) })
                 Hairline()
                 InputRow(name: "Resting heart rate", value: Fmt.kg(n.rhr, decimals: 0),
                          unit: n.rhr == nil ? nil : "BPM",
-                         base: n.rhrBase.map { "BASE \(Int($0))" })
+                         base: n.rhrBase.map { L("BASE %d", Int($0)) })
                 Hairline()
                 InputRow(name: "Charge multiplier",
                          value: n.multiplier.map { String(format: "%.2f", $0) } ?? Fmt.dash,
@@ -263,11 +263,11 @@ struct BodyBatteryDetailView: View {
         let band = BodyBattery.band(for: m.bbWake ?? 0)
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("TODAY'S TARGET")
+                Text(L("TODAY'S TARGET"))
                     .font(NBFont.dot(700, 11)).tracking(0.22 * 11)
                     .foregroundStyle(NB.white)
                 Spacer(minLength: 0)
-                Text("SET AT \(peakTime)")
+                Text(L("SET AT %@", peakTime))
                     .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                     .foregroundStyle(NB.white.opacity(0.42))
             }
@@ -276,24 +276,24 @@ struct BodyBatteryDetailView: View {
                     .font(NBFont.dot(800, 38))
                     .foregroundStyle(NB.lime1)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(String(format: "RANGE %.1f – %.1f", band.optimal.lowerBound, band.optimal.upperBound))
+                    Text(L("RANGE %.1f – %.1f", band.optimal.lowerBound, band.optimal.upperBound))
                         .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
                         .foregroundStyle(NB.white.opacity(0.42))
-                    Text("BAND \(band.range.lowerBound) – \(band.range.upperBound)")
+                    Text(L("BAND %d – %d", band.range.lowerBound, band.range.upperBound))
                         .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
                         .foregroundStyle(NB.white.opacity(0.42))
                 }
             }
-            Text("Set once this morning. It does not move as the battery drops through the day.")
+            Text(L("Set once this morning. It does not move as the battery drops through the day."))
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(8)
                 .foregroundStyle(NB.white.opacity(0.70))
             Button { router.path = [.training] } label: {
                 HStack(spacing: 8) {
-                    Text("OPEN TRAINING")
+                    Text(L("OPEN TRAINING"))
                         .font(NBFont.dot(600, 10.5)).tracking(0.18 * 10.5)
                         .foregroundStyle(NB.white.opacity(0.55))
-                    Text("→")
+                    Text(L("→"))
                         .font(NBFont.dot(700, 11))
                         .foregroundStyle(NB.lime1)
                 }
@@ -310,7 +310,7 @@ struct BodyBatteryDetailView: View {
     /// Three tiers, drawn as three segments — never a percentage. Once you draw 73%
     /// people read it as a measurement.
     private var confidenceCard: some View {
-        CardBlock(title: "CONFIDENCE", trailing: m.confidence.rawValue, trailingIsDot: true) {
+        CardBlock(title: L("CONFIDENCE"), trailing: m.confidence.rawValue, trailingIsDot: true) {
             HStack(spacing: 6) {
                 ForEach(0..<3, id: \.self) { i in
                     Capsule()
@@ -318,15 +318,15 @@ struct BodyBatteryDetailView: View {
                         .frame(height: 5)
                 }
             }
-            Text("BASELINE \(m.nightInputs?.rhrNights ?? 0) / 14 NIGHTS")
+            Text(L("BASELINE %d / 14 NIGHTS", m.nightInputs?.rhrNights ?? 0))
                 .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
                 .foregroundStyle(NB.text3Prod)
         }
     }
 
     private var daytimeAnchorCard: some View {
-        CardBlock(title: "DAYTIME ESTIMATE", trailing: "NO NIGHT REQUIRED") {
-            Text("Heart rate, HRV, stress and movement update this score now. A recorded night improves tomorrow's recovery and freezes its training target.")
+        CardBlock(title: L("DAYTIME ESTIMATE"), trailing: L("NO NIGHT REQUIRED")) {
+            Text(L("Heart rate, HRV, stress and movement update this score now. A recorded night improves tomorrow's recovery and freezes its training target."))
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(8)
                 .foregroundStyle(NB.white.opacity(0.70))
@@ -354,7 +354,7 @@ struct BodyBatteryDetailView: View {
                                                       "SOURCE": "battery_check"])
                     }
                 } label: {
-                    Text("BATTERY CHECK")
+                    Text(L("BATTERY CHECK"))
                         .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                         .foregroundStyle(NB.text2)
                         .padding(.horizontal, 16).frame(height: 34)
@@ -374,14 +374,14 @@ struct BodyBatteryDetailView: View {
                 Text(Fmt.dash)
                     .font(NBFont.dot(800, 36))
                     .foregroundStyle(NB.text3Prod)
-                Text("OF 100")
+                Text(L("OF 100"))
                     .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
                     .foregroundStyle(NB.white.opacity(0.30))
             }
-            Text("NOTHING TO CHARGE FROM YET")
+            Text(L("NOTHING TO CHARGE FROM YET"))
                 .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
                 .foregroundStyle(NB.ember1)
-            Text("The first number arrives after your first night with the band on. Nothing to do today.")
+            Text(L("The first number arrives after your first night with the band on. Nothing to do today."))
                 .font(NBFont.brand(400, 16))
                 .lineSpacing(8)
                 .foregroundStyle(NB.text1)
@@ -395,7 +395,7 @@ struct BodyBatteryDetailView: View {
 
     /// Three lines, and the last one is the point: fourteen nights before it knows your normal.
     private var needsCard: some View {
-        CardBlock(title: "WHAT IT NEEDS") {
+        CardBlock(title: L("WHAT IT NEEDS")) {
             VStack(alignment: .leading, spacing: 14) {
                 NeedRow("One night with the band on your wrist")
                 NeedRow("Five nights before the number settles")
@@ -452,7 +452,7 @@ private struct InputRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(name)
+            Text(L(name))
                 .font(NBFont.brand(400, 13))
                 .foregroundStyle(NB.text2)
             Spacer(minLength: 0)

@@ -41,11 +41,11 @@ struct DeviceView: View {
     private var connected: Bool { data.band.connected }
 
     var body: some View {
-        DetailScroll(glow: NB.lime1, title: "DEVICE", trailing: {
+        DetailScroll(glow: NB.lime1, title: L("DEVICE"), trailing: {
             HStack(spacing: 7) {
                 Circle().fill(connected ? NB.lime1 : NB.white.opacity(0.3))
                     .frame(width: 6, height: 6)
-                Text(connected ? "CONNECTED" : "DISCONNECTED")
+                Text(connected ? L("CONNECTED") : L("DISCONNECTED"))
                     .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(connected ? NB.lime1 : NB.text3Prod)
             }
@@ -60,9 +60,9 @@ struct DeviceView: View {
                 if busyQueued { busyCard }
                 if let clamped { clampCard(clamped) }
 
-                GroupLabel12("AUTOMATIC")
+                GroupLabel12(L("AUTOMATIC"))
                 RowCard {
-                    NavRow(title: "Automatic measurement",
+                    NavRow(title: L("Automatic measurement"),
                            detail: autoDetail,
                            value: autoValue,
                            // The sheet itself states the verdict: empty, switch-only, or
@@ -72,24 +72,24 @@ struct DeviceView: View {
                         sheet = .bandAutoMonitor
                     }
                     // One switch with one range is enough; a range needs no second toggle.
-                    ToggleRow(title: "Heart rate alarm",
-                              detail: "ALERTS OUTSIDE 50 – 140 BPM",
+                    ToggleRow(title: L("Heart rate alarm"),
+                              detail: L("ALERTS OUTSIDE 50 – 140 BPM"),
                               isOn: $hrAlarm, enabled: connected, last: true)
                         .onChange(of: hrAlarm) { _, on in
                             write(.heartRateAlarm(on: on, low: 50, high: 140))
                         }
                 }
 
-                GroupLabel12("SYNC")
+                GroupLabel12(L("SYNC"))
                 RowCard {
                     // The band records every five minutes regardless; this is only how often
                     // the phone collects. It is a phone setting, so it stays live off-band.
-                    NavRow(title: "Read the band",
-                           detail: "HOW OFTEN THE DAY IS PULLED",
+                    NavRow(title: L("Read the band"),
+                           detail: L("HOW OFTEN THE DAY IS PULLED"),
                            value: SyncCadence.label(cadence), last: true) { sheet = .syncCadence }
                 }
 
-                GroupLabel12("IDENTITY")
+                GroupLabel12(L("IDENTITY"))
                 // Five dead facts, no box: they are not settings.
                 // ⚠️ DEVICE NO. is DeviceVersion.deviceNumber — the SDK has no serial number.
                 VStack(spacing: 0) {
@@ -114,28 +114,28 @@ struct DeviceView: View {
                 .frame(width: NB.Layout.contentWidth)
 
                 #if DEBUG
-                GroupLabel12("DEBUG")
+                GroupLabel12(L("DEBUG"))
                 RowCard {
-                    NavRow(title: "Sport mode probe",
-                           detail: "TAP A TYPE · THE BAND OPENS IT, THEN CLOSES IT",
+                    NavRow(title: L("Sport mode probe"),
+                           detail: L("TAP A TYPE · THE BAND OPENS IT, THEN CLOSES IT"),
                            value: identity?.sportMode ?? "—", last: true) { sportProbe = true }
                 }
                 #endif
 
-                GroupLabel12("CONNECTION")
+                GroupLabel12(L("CONNECTION"))
                 RowCard {
                     if connected {
                         // Disconnecting is reversible, so the safe button is not red.
-                        DestructiveRow(title: "Disconnect",
-                                       detail: "It keeps recording. Nothing reaches the app.",
+                        DestructiveRow(title: L("Disconnect"),
+                                       detail: L("It keeps recording. Nothing reaches the app."),
                                        tint: NB.text1) { sheet = .unbind }
                     } else {
-                        DestructiveRow(title: "Why won't it connect?",
-                                       detail: "Bluetooth, distance, or a flat battery.",
+                        DestructiveRow(title: L("Why won't it connect?"),
+                                       detail: L("Bluetooth, distance, or a flat battery."),
                                        tint: NB.text1) { sheet = .findBand }
                     }
-                    DestructiveRow(title: "Forget this HOOP",
-                                   detail: "Removes it from this phone. Your history stays.",
+                    DestructiveRow(title: L("Forget this HOOP"),
+                                   detail: L("Removes it from this phone. Your history stays."),
                                    tint: NB.alert2, last: true) { sheet = .unbind }
                 }
             }
@@ -265,10 +265,10 @@ struct DeviceView: View {
             Text(c.name).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(c.got).font(NBFont.dot(700, 22)).tracking(0.02 * 22).foregroundStyle(NB.text1)
-                Text("YOU ASKED FOR \(c.asked)").font(NBFont.dot(500, 11)).tracking(0.06 * 11)
+                Text(L("YOU ASKED FOR %@", c.asked)).font(NBFont.dot(500, 11)).tracking(0.06 * 11)
                     .foregroundStyle(NB.ember1.opacity(0.85))
             }
-            Text("THE BAND SET WHAT IT COULD. THIS IS ITS ANSWER, NOT OURS.")
+            Text(L("THE BAND SET WHAT IT COULD. THIS IS ITS ANSWER, NOT OURS."))
                 .font(NBFont.ui(300, 11)).tracking(0.04 * 11).foregroundStyle(NB.text3Prod)
         }
         .padding(14)
@@ -279,8 +279,8 @@ struct DeviceView: View {
     /// 12 edge 4 · DEVICE BUSY · QUEUE, DON'T FAIL.
     private var busyCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("DEVICE BUSY").font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
-            Text("A measurement is running. Your change is queued and will go through when it finishes.")
+            Text(L("DEVICE BUSY")).font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
+            Text(L("A measurement is running. Your change is queued and will go through when it finishes."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5).lineSpacing(5).foregroundStyle(NB.white.opacity(0.70))
         }
         .padding(14)
@@ -338,9 +338,9 @@ struct DeviceView: View {
         return battery.level.map { "\($0)/4" } ?? Fmt.dash
     }
     private var batteryUnit: String {
-        guard connected else { return "LAST SEEN" }
-        guard let battery else { return "PERCENT" }
-        return battery.isPercent ? "PERCENT" : "BARS"
+        guard connected else { return L("LAST SEEN") }
+        guard let battery else { return L("PERCENT") }
+        return battery.isPercent ? L("PERCENT") : L("BARS")
     }
 
     /// Last fact the band reported, including the one already sitting on `data.band`
@@ -351,39 +351,39 @@ struct DeviceView: View {
     }
 
     private var chargeLine: String {
-        guard connected else { return "Still recording on your wrist" }
+        guard connected else { return L("Still recording on your wrist") }
         switch displayedCharge {
-        case .charging: return "Charging"
-        case .full:     return "Charged"
-        default:        return "About 3 days of charge left"
+        case .charging: return L("Charging")
+        case .full:     return L("Charged")
+        default:        return L("About 3 days of charge left")
         }
     }
 
     private var powerValue: String {
-        guard connected else { return "UNKNOWN" }
+        guard connected else { return L("UNKNOWN") }
         switch displayedCharge {
-        case .charging:  return "CHARGING"
-        case .full:      return "FULL"
-        case .unplugged: return "UNPLUGGED"
+        case .charging:  return L("CHARGING")
+        case .full:      return L("FULL")
+        case .unplugged: return L("UNPLUGGED")
         case .unknown:   return Fmt.dash
         }
     }
 
     /// Only what this HOOP actually reported for automatic measurement.
     private var autoDetail: String {
-        guard connected else { return "CONNECT TO READ" }
-        guard let autoRead else { return "ASKING THIS HOOP" }
+        guard connected else { return L("CONNECT TO READ") }
+        guard let autoRead else { return L("ASKING THIS HOOP") }
         let slots = autoRead.slots
         if !slots.isEmpty {
             return slots.map { Self.autoShort($0.kind) }.joined(separator: " · ")
         }
         switch autoRead {
         case .interval:
-            return "NOT REPORTED"
+            return L("NOT REPORTED")
         case .switches:
-            return "INTERVAL IS FIRMWARE-OWNED"
+            return L("INTERVAL IS FIRMWARE-OWNED")
         case .failed:
-            return "COULD NOT READ"
+            return L("COULD NOT READ")
         }
     }
     private var autoValue: String {
@@ -421,9 +421,9 @@ struct DeviceView: View {
                                 .frame(width: 22, height: 34)
                         }
                     }
-                    Text("\(battery.level ?? 0) OF 4 BARS")
+                    Text(L("%d OF 4 BARS", battery.level ?? 0))
                         .font(NBFont.dot(700, 14)).tracking(0.14 * 14).foregroundStyle(Color(hex: 0xB0B0BA))
-                    Text("This firmware reports level, not percent.")
+                    Text(L("This firmware reports level, not percent."))
                         .font(NBFont.ui(300, 11.5)).tracking(0.03 * 11.5).foregroundStyle(NB.text3Prod)
                 }
                 .frame(maxWidth: .infinity)
@@ -450,7 +450,7 @@ struct DeviceView: View {
                     Text(data.band.name)
                         .font(NBFont.ui(600, 18)).tracking(0.02 * 18)
                         .foregroundStyle(NB.text1)
-                    Text("KR96 PRO")
+                    Text(L("KR96 PRO"))
                         .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
                         .foregroundStyle(NB.white.opacity(0.34))
                     // The ring gives a number; this line gives what a person wanted to know.
@@ -469,20 +469,20 @@ struct DeviceView: View {
                 // POWER holds the last charge the band reported. UNKNOWN is only for a
                 // disconnected band — a connected band that has not answered yet is a dash,
                 // never a flash of UNKNOWN over a known CHARGING.
-                DeviceFact(label: "POWER",
+                DeviceFact(label: L("POWER"),
                            value: powerValue)
                 // ⚠️ F3 rule 11 · 「代码里出现字面量 7 即为 bug」. This fell back to "7 DAYS"
                 // when identity had not been read, so the page stated how much the band holds
                 // using a number the app made up — and 7 is exactly the value rule 11 names,
                 // because it is the one every HOOP is assumed to have until it says otherwise.
-                DeviceFact(label: "ON DEVICE",
+                DeviceFact(label: L("ON DEVICE"),
                            value: identity.map { "\($0.watchDataDayNumber) DAYS" } ?? Fmt.dash)
                 // ⚠️ F3 rule 09 · SYNCED is the moment of the last readOriginComplete that
                 // succeeded, and `store.lastSync` is written on exactly that. This column
                 // printed "2 MIN AGO" whenever the band was connected and "2 HRS AGO" when it
                 // was not — two constants, true only by coincidence, on the one page a user
                 // opens to find out whether syncing is working.
-                DeviceFact(label: "SYNCED", value: syncedAgo)
+                DeviceFact(label: L("SYNCED"), value: syncedAgo)
             }
         }
         .padding(18)
@@ -504,7 +504,7 @@ struct DeviceView: View {
         let gone = vitals.freshness == .gone
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("LAST TICK")
+                Text(L("LAST TICK"))
                     .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.white.opacity(0.34))
                 Spacer(minLength: 0)
@@ -514,14 +514,14 @@ struct DeviceView: View {
             }
 
             HStack(spacing: 0) {
-                LiveReading(label: "HEART", value: gone ? nil : vitals.hr.map(String.init),
+                LiveReading(label: L("HEART"), value: gone ? nil : vitals.hr.map(String.init),
                             unit: "BPM", dim: stale)
-                LiveReading(label: "STRESS", value: gone ? nil : vitals.stress.map(String.init),
-                            unit: "INDEX", dim: stale)
+                LiveReading(label: L("STRESS"), value: gone ? nil : vitals.stress.map(String.init),
+                            unit: L("INDEX"), dim: stale)
                 // Steps are the day's own total off the all-day segment, not a tick, so they
                 // do not dim with the tick's age — a step taken this morning is still a step.
-                LiveReading(label: "STEPS", value: data.today.steps.map(String.init),
-                            unit: "TODAY", dim: false)
+                LiveReading(label: L("STEPS"), value: data.today.steps.map(String.init),
+                            unit: L("TODAY"), dim: false)
             }
 
             Hairline()
@@ -544,9 +544,9 @@ struct DeviceView: View {
                 : "Connect the HOOP to see what it has been recording."
         }
         switch data.vitals.freshness {
-        case .fresh: return "The HOOP is recording every five minutes."
-        case .stale: return "Nothing new for a while. It may be off your wrist."
-        case .gone:  return "Nothing for over six hours. These are not old numbers, they are no numbers."
+        case .fresh: return L("The HOOP is recording every five minutes.")
+        case .stale: return L("Nothing new for a while. It may be off your wrist.")
+        case .gone:  return L("Nothing for over six hours. These are not old numbers, they are no numbers.")
         }
     }
 
@@ -554,11 +554,11 @@ struct DeviceView: View {
     /// about when the last sync was.
     private var syncedAgo: String {
         // A phone that has never pulled a page says so; it does not count from a made-up time.
-        guard let at = data.lastSync else { return "NEVER" }
+        guard let at = data.lastSync else { return L("NEVER") }
         let mins = max(0, Int(Date().timeIntervalSince(at) / 60))
-        if mins < 1 { return "JUST NOW" }
-        if mins < 60 { return "\(mins) MIN AGO" }
-        return "\(mins / 60) HR AGO"
+        if mins < 1 { return L("JUST NOW") }
+        if mins < 60 { return L("%d MIN AGO", mins) }
+        return L("%d HR AGO", mins / 60)
     }
 
     /// Five reasons the button can be grey, and it always says which one.
@@ -568,13 +568,13 @@ struct DeviceView: View {
         if ota == .unverified {
             // 12 edge 5 · OTA UNVERIFIED · NOT SUCCESS, NOT FAILURE.
             VStack(alignment: .leading, spacing: 10) {
-                Text("VERSION UNCONFIRMED").font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
+                Text(L("VERSION UNCONFIRMED")).font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(identity?.firmware ?? data.band.firmware).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
-                    Text("?").font(NBFont.dot(500, 14)).foregroundStyle(Color(hex: 0x8A8A96))
+                    Text(L("?")).font(NBFont.dot(500, 14)).foregroundStyle(Color(hex: 0x8A8A96))
                     Text(offer?.version ?? Fmt.dash).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
                 }
-                Text("The update finished but we could not read the new version back. Check the band before trying again.")
+                Text(L("The update finished but we could not read the new version back. Check the band before trying again."))
                     .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5).lineSpacing(4).foregroundStyle(NB.white.opacity(0.70))
             }
             .padding(14)
@@ -584,7 +584,7 @@ struct DeviceView: View {
         } else {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("FIRMWARE")
+                Text(L("FIRMWARE"))
                     .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.text3Prod)
                 HStack(spacing: 8) {
@@ -597,7 +597,7 @@ struct DeviceView: View {
                     // The right side is what the update server offered. ⚠️ It used to be a
                     // constant 2.5.0, so every HOOP was told it had an update forever.
                     if let offer, ota != .completed {
-                        Text("→")
+                        Text(L("→"))
                             .font(NBFont.dot(700, 13))
                             .foregroundStyle(NB.lime1)
                         Text(offer.version)
@@ -634,23 +634,23 @@ struct DeviceView: View {
 
     private var otaLine: String {
         switch ota {
-        case .running:          return "Installing · keep the band close"
-        case .completed:        return "Installed · \(identity?.firmware ?? data.band.firmware) is on the band"
-        case .failed(let why):  return why
+        case .running:          return L("Installing · keep the band close")
+        case .completed:        return L("Installed · %@ is on the band", identity?.firmware ?? data.band.firmware)
+        case .failed(let why):  return L(why)
         default: break
         }
-        guard connected else { return offer == nil ? "Reconnect to check for updates" : "Reconnect to install this update" }
+        guard connected else { return offer == nil ? L("Reconnect to check for updates") : L("Reconnect to install this update") }
         switch check {
-        case .idle, .checking:  return "Checking for updates…"
-        case .failed(let why):  return "Could not reach the update server · \(why)"
-        case .done:             return offer.map { $0.notes.first ?? "Update available" } ?? "Up to date"
+        case .idle, .checking:  return L("Checking for updates…")
+        case .failed(let why):  return L("Could not reach the update server · %@", L(why))
+        case .done:             return offer.map { $0.notes.first ?? L("Update available") } ?? L("Up to date")
         }
     }
 
     private var otaButton: String {
-        if ota == .running { return otaProgress > 0 ? "UPDATING \(Int(otaProgress * 100)) %" : "UPDATING…" }
-        if ota == .completed { return "DONE" }
-        return offer != nil ? "UPDATE" : "CHECK"
+        if ota == .running { return otaProgress > 0 ? L("UPDATING %d %%", Int(otaProgress * 100)) : L("UPDATING…") }
+        if ota == .completed { return L("DONE") }
+        return offer != nil ? L("UPDATE") : L("CHECK")
     }
 
     /// One sentence with a padlock covers the whole read-only段. Switches are not hidden and
@@ -658,7 +658,7 @@ struct DeviceView: View {
     private var readOnlyNotice: some View {
         HStack(spacing: 8) {
             LockGlyph()
-            Text("Settings below are read-only until you reconnect")
+            Text(L("Settings below are read-only until you reconnect"))
                 .font(NBFont.ui(400, 12)).tracking(0.02 * 12)
                 .foregroundStyle(NB.text3Prod)
             Spacer(minLength: 0)
@@ -816,7 +816,7 @@ private struct IdentityRow: View {
     var last = false
     var body: some View {
         HStack {
-            Text(name)
+            Text(L(name))
                 .font(NBFont.ui(500, 11)).tracking(0.16 * 11)
                 .foregroundStyle(NB.text3Prod)
             Spacer(minLength: 0)
@@ -889,7 +889,7 @@ struct AutoMeasurementSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Automatic measurement")
+                Text(L("Automatic measurement"))
                     .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
                     .foregroundStyle(NB.text1)
                 Text(subtitle)
@@ -898,7 +898,7 @@ struct AutoMeasurementSheet: View {
                     .padding(.top, 6)
 
                 if loading && slots.isEmpty {
-                    Text("ASKING THIS HOOP…")
+                    Text(L("ASKING THIS HOOP…"))
                         .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                         .foregroundStyle(NB.white.opacity(0.38))
                         .padding(.top, 24)
@@ -970,8 +970,8 @@ struct AutoMeasurementSheet: View {
 
     private var footer: String {
         firmwareOwnsInterval
-            ? "The interval itself is not a setting on this firmware."
-            : "Only what this HOOP can measure is listed"
+            ? L("The interval itself is not a setting on this firmware.")
+            : L("Only what this HOOP can measure is listed")
     }
 
     @ViewBuilder
@@ -981,12 +981,12 @@ struct AutoMeasurementSheet: View {
             EdgeNote(line: headline, text: sentence)
         case .switches:
             EdgeNote(
-                line: "THIS FIRMWARE HAS NO AUTOMATIC-MEASUREMENT SWITCHES",
-                text: "How often it measures is decided on the band. This app cannot change that interval.")
+                line: L("THIS FIRMWARE HAS NO AUTOMATIC-MEASUREMENT SWITCHES"),
+                text: L("How often it measures is decided on the band. This app cannot change that interval."))
         case .interval, .none:
             EdgeNote(
-                line: "THIS HOOP DID NOT REPORT ITS AUTOMATIC MEASUREMENTS",
-                text: "The interval API is on this firmware, but the band sent no rows. Try again while it is on your wrist.")
+                line: L("THIS HOOP DID NOT REPORT ITS AUTOMATIC MEASUREMENTS"),
+                text: L("The interval API is on this firmware, but the band sent no rows. Try again while it is on your wrist."))
         }
     }
 
@@ -1053,18 +1053,18 @@ struct AutoMeasurementSheet: View {
     }
 
     private static func detail(_ slot: AutoMonitorSlot, firmwareOwnsInterval: Bool) -> String {
-        guard slot.on else { return "OFF" }
-        if firmwareOwnsInterval { return "FIRMWARE INTERVAL" }
+        guard slot.on else { return L("OFF") }
+        if firmwareOwnsInterval { return L("FIRMWARE INTERVAL") }
         if slot.supportsRange {
-            if slot.slotModifiable && slot.intervalModifiable { return "WINDOW AND INTERVAL, BOTH YOURS" }
-            return String(format: "%02d:00 – %02d:00 · %@",
-                          slot.startHour, slot.endHour, intervalLabel(slot.intervalMinutes))
+            if slot.slotModifiable && slot.intervalModifiable { return L("WINDOW AND INTERVAL, BOTH YOURS") }
+            return L("%02d:00 – %02d:00 · %@",
+                     slot.startHour, slot.endHour, intervalLabel(slot.intervalMinutes))
         }
         return intervalLabel(slot.intervalMinutes)
     }
 
     private static func intervalLabel(_ minutes: Int) -> String {
-        minutes == 0 ? "CONTINUOUS" : "EVERY \(minutes) MIN"
+        minutes == 0 ? L("CONTINUOUS") : L("EVERY %d MIN", minutes)
     }
 }
 
@@ -1152,10 +1152,10 @@ struct SyncCadenceSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Read the band")
+            Text(L("Read the band"))
                 .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
                 .foregroundStyle(NB.text1)
-            Text("This controls how often your phone collects stored readings. Sensor intervals are set under Automatic measurement.")
+            Text(L("This controls how often your phone collects stored readings. Sensor intervals are set under Automatic measurement."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
                 .padding(.top, 6)
@@ -1190,7 +1190,7 @@ struct SyncCadenceSheet: View {
             .cardSkin()
             .padding(.top, 16)
 
-            Text("Some stored history, including temperature, still arrives in five-minute points. Faster reads do not create extra samples.")
+            Text(L("Some stored history, including temperature, still arrives in five-minute points. Faster reads do not create extra samples."))
                 .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5)
                 .foregroundStyle(NB.white.opacity(0.30))
                 .frame(maxWidth: .infinity)
@@ -1214,15 +1214,15 @@ struct ForgetHoopSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Forget this HOOP?")
+            Text(L("Forget this HOOP?"))
                 .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
                 .foregroundStyle(NB.text1)
-            Text("This phone stops pairing with it. Everything it has already sent you stays — 12 weeks of nights and every reading. Pairing it again takes about a minute.")
+            Text(L("This phone stops pairing with it. Everything it has already sent you stays — 12 weeks of nights and every reading. Pairing it again takes about a minute."))
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(7)
                 .foregroundStyle(NB.text2)
             Spacer(minLength: 0)
-            LimePillButton(title: "Keep it paired") { dismiss() }
+            LimePillButton(title: L("Keep it paired")) { dismiss() }
             Button {
                 // ⚠️ The SDK only offers disconnect(). "Forget" is the app dropping its own
                 // device id — "factory reset" is not something we can do, and the difference
@@ -1232,7 +1232,7 @@ struct ForgetHoopSheet: View {
                 data.band.connected = false
                 dismiss()
             } label: {
-                Text("FORGET THIS HOOP")
+                Text(L("FORGET THIS HOOP"))
                     .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
                     .foregroundStyle(NB.alert2)
                     .frame(width: NB.Layout.contentWidth, height: 52)
@@ -1255,20 +1255,20 @@ struct DisconnectSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Disconnect the HOOP?")
+            Text(L("Disconnect the HOOP?"))
                 .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
                 .foregroundStyle(NB.text1)
-            Text("It keeps recording on your wrist. Nothing new reaches the app until you connect again.")
+            Text(L("It keeps recording on your wrist. Nothing new reaches the app until you connect again."))
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(7)
                 .foregroundStyle(NB.text2)
             Spacer(minLength: 0)
-            LimePillButton(title: "Stay connected") { dismiss() }
+            LimePillButton(title: L("Stay connected")) { dismiss() }
             Button {
                 data.band.connected = false
                 dismiss()
             } label: {
-                Text("DISCONNECT")
+                Text(L("DISCONNECT"))
                     .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
                     .foregroundStyle(NB.text2)
                     .frame(width: NB.Layout.contentWidth, height: 52)
@@ -1288,16 +1288,16 @@ struct DisconnectSheet: View {
 struct WhyWontItConnectSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Why won't it connect?")
+            Text(L("Why won't it connect?"))
                 .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
                 .foregroundStyle(NB.text1)
             VStack(alignment: .leading, spacing: 0) {
-                ReasonItem(index: "01", title: "Bluetooth is off",
-                           detail: "Turn it on in Control Centre, then come back.")
-                ReasonItem(index: "02", title: "It's out of range",
-                           detail: "Bring the band within arm's reach of the phone.")
-                ReasonItem(index: "03", title: "The battery is flat",
-                           detail: "Charge it for ten minutes and hold the side key.", last: true)
+                ReasonItem(index: "01", title: L("Bluetooth is off"),
+                           detail: L("Turn it on in Control Centre, then come back."))
+                ReasonItem(index: "02", title: L("It's out of range"),
+                           detail: L("Bring the band within arm's reach of the phone."))
+                ReasonItem(index: "03", title: L("The battery is flat"),
+                           detail: L("Charge it for ten minutes and hold the side key."), last: true)
             }
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
@@ -1348,10 +1348,10 @@ private struct SportProbeSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("SPORT MODE PROBE")
+            Text(L("SPORT MODE PROBE"))
                 .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
                 .foregroundStyle(NB.text1)
-            Text("Each tap opens the sport on the band and closes it again. A check means this firmware carries it. The SDK cannot query its own list, so this is the only way to enumerate it.")
+            Text(L("Each tap opens the sport on the band and closes it again. A check means this firmware carries it. The SDK cannot query its own list, so this is the only way to enumerate it."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
                 .padding(.top, 6)

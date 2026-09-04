@@ -12,18 +12,18 @@ import Foundation
 enum MetricNames {
     /// Was "Recovery" until F0 §02 renamed it. 08's card reads BODY BATTERY DECIDES IT because
     /// of that rename, and nothing may reintroduce the old word.
-    static let bodyBattery = "BODY BATTERY"
+    static var bodyBattery: String { L("BODY BATTERY") }
 
     /// Was "Strain". The full name is the metric; `training` is the short form board 04 prints
     /// on the 174 × 136 card, where the long one does not fit. Two spellings of one concept,
     /// both drawn from the boards — not a sixth synonym.
-    static let trainingLoad = "TRAINING LOAD"
-    static let training = "TRAINING"
+    static var trainingLoad: String { L("TRAINING LOAD") }
+    static var training: String { L("TRAINING") }
 
-    static let calories = "CALORIES"
+    static var calories: String { L("CALORIES") }
 
     /// Daily Direction's three buckets, as 11's legend prints them.
-    static let deficit = "DEFICIT"
-    static let level = "LEVEL"
-    static let surplus = "SURPLUS"
+    static var deficit: String { L("DEFICIT") }
+    static var level: String { L("LEVEL") }
+    static var surplus: String { L("SURPLUS") }
 }

@@ -4,8 +4,7 @@ import SwiftUI
 /// you, not a control panel. Reached only from the avatar; back goes to the root.
 /// The only second-level page in the product hangs off the DEVICE row.
 struct ProfileView: View {
-    /// The sheet's own key; read here so the row shows what is actually selected.
-    @AppStorage(AppLanguage.key) private var language = "English"
+    @ObservedObject private var language = AppLanguage.shared
     @ObservedObject private var consent = ConsentStore.shared
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
@@ -13,29 +12,29 @@ struct ProfileView: View {
     private var hasScans: Bool { !data.weighIns.isEmpty }
 
     var body: some View {
-        DetailScroll(glow: NB.lime1, title: "ME") {
+        DetailScroll(glow: NB.lime1, title: L("ME")) {
             VStack(alignment: .leading, spacing: 14) {
                 identityCard
                 heatMapCard
                 statTiles
 
-                GroupLabel("ACCOUNT")
+                GroupLabel(L("ACCOUNT"))
                 RowGroup {
-                    SettingRow(title: "PERSONAL INFO", value: data.profile.displayName.uppercased()) {
+                    SettingRow(title: L("PERSONAL INFO"), value: data.profile.displayName.uppercased()) {
                         router.sheet = .profileEdit
                     }
-                    SettingRow(title: "BODY METRICS",
+                    SettingRow(title: L("BODY METRICS"),
                                value: "\(Int(data.profile.heightCm)) CM · \(Fmt.kg(data.today.weightKg)) KG") {
                         router.sheet = .weighIn
                     }
                     // 11 edge 2 · the sheet closes and the value changes at once; today's target and
                     // macros do not. The 「明天生效」 line lives on the row, not only in the sheet.
-                    SettingRow(title: "TRAINING GOAL", value: goalLabel,
+                    SettingRow(title: L("TRAINING GOAL"), value: goalLabel,
                                detail: goalChangedToday ? "FROM TOMORROW · TODAY IS UNCHANGED" : nil) {
                         router.sheet = .goal
                     }
                     // The only second level in the product — it really has a page of content.
-                    SettingRow(title: "DEVICE",
+                    SettingRow(title: L("DEVICE"),
                                value: data.band.connected
                                     ? "HOOP · \(data.band.batteryPercent.map { "\($0)%" } ?? Fmt.dash)"
                                     : "HOOP · DAY 1") {
@@ -43,29 +42,29 @@ struct ProfileView: View {
                     }
                 }
 
-                GroupLabel("PREFERENCES")
+                GroupLabel(L("PREFERENCES"))
                 RowGroup {
-                    SettingRow(title: "NOTIFICATIONS", value: "ON") { router.sheet = .notifications }
-                    SettingRow(title: "UNITS", value: data.profile.usesMetric ? "METRIC · KG" : "IMPERIAL · LB") {
+                    SettingRow(title: L("NOTIFICATIONS"), value: L("ON")) { router.sheet = .notifications }
+                    SettingRow(title: L("UNITS"), value: data.profile.usesMetric ? L("METRIC · KG") : L("IMPERIAL · LB")) {
                         router.sheet = .units
                     }
                     // 11 edge 1 · a source that stopped answering: the value goes amber and the row
                     // carries the last read. ⚠️ Read permission cannot be probed, so the row says what
                     // is known — when something last came back — never "you turned it off".
-                    SettingRow(title: "APPLE HEALTH",
+                    SettingRow(title: L("APPLE HEALTH"),
                                value: data.profile.appleHealthLinked ? "SYNCED" : "NOT CONNECTED",
                                valueTint: data.profile.appleHealthLinked ? nil : NB.ember1,
                                detail: healthLastRead.map { "LAST READ \($0) · NOTHING NEW" }) {
                         router.sheet = .appleHealth
                     }
-                    SettingRow(title: "LANGUAGE", value: language == "简体中文" ? "简体中文" : "ENGLISH") { router.sheet = .language }
+                    SettingRow(title: L("LANGUAGE"), value: language.locale.rowLabel) { router.sheet = .language }
                 }
 
-                GroupLabel("DATA & LEGAL")
+                GroupLabel(L("DATA & LEGAL"))
                 RowGroup {
                     // 补屏 rule 06 · 「撤回 ≠ 删除，两个动作、两行入口、两条权利」. This row stops
                     // collection; DELETE ACCOUNT, three rows down, is the other right.
-                    SettingRow(title: "COLLECTING HEALTH DATA", value: consent.granted ? "ON" : "OFF") {
+                    SettingRow(title: L("COLLECTING HEALTH DATA"), value: consent.granted ? L("ON") : L("OFF")) {
                         if consent.granted {
                             Task { await ConsentStore.shared.record(.withdrawn, msOnScreen: nil) }
                         } else {
@@ -74,21 +73,21 @@ struct ProfileView: View {
                     }
                     // 11 edge 3 · export is async, not modal: the row says PREPARING… and the page can
                     // be left.
-                    SettingRow(title: "EXPORT MY DATA",
-                               value: data.exportPreparing ? "PREPARING…" : hasScans ? "ALL TIME" : "NOTHING YET",
+                    SettingRow(title: L("EXPORT MY DATA"),
+                               value: data.exportPreparing ? L("PREPARING…") : hasScans ? L("ALL TIME") : L("NOTHING YET"),
                                valueTint: data.exportPreparing ? NB.ember1.opacity(0.85) : nil,
-                               detail: data.exportPreparing ? "YOU CAN LEAVE THIS PAGE" : nil) {
+                               detail: data.exportPreparing ? L("YOU CAN LEAVE THIS PAGE") : nil) {
                         router.sheet = .export
                     }
-                    SettingRow(title: "PRIVACY POLICY", value: "UPDATED JUN 24") { router.sheet = .privacy }
-                    SettingRow(title: "TERMS OF SERVICE", value: "V 2.1") { router.sheet = .about }
+                    SettingRow(title: L("PRIVACY POLICY"), value: L("UPDATED JUN 24")) { router.sheet = .privacy }
+                    SettingRow(title: L("TERMS OF SERVICE"), value: "V 2.1") { router.sheet = .about }
                     // The second of only two places in the product allowed to use red.
-                    SettingRow(title: "DELETE ACCOUNT", value: "PERMANENT",
+                    SettingRow(title: L("DELETE ACCOUNT"), value: L("PERMANENT"),
                                titleTint: NB.alert2) { router.sheet = .deleteAccount }
                 }
 
                 Button { router.sheet = .signOut } label: {
-                    Text("SIGN OUT")
+                    Text(L("SIGN OUT"))
                         .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
                         .foregroundStyle(NB.text1)
                         .frame(width: NB.Layout.contentWidth, height: 48)
@@ -98,7 +97,7 @@ struct ProfileView: View {
                 .buttonStyle(.plain)
                 .padding(.top, 6)
 
-                Text("NEXTBODY 1.4.2  ·  BUILD 2831")
+                Text(L("NEXTBODY 1.4.2  ·  BUILD 2831"))
                     .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
                     .foregroundStyle(NB.white.opacity(0.22))
                     .frame(width: NB.Layout.contentWidth, alignment: .center)
@@ -120,13 +119,12 @@ struct ProfileView: View {
     private var healthLastRead: String? {
         guard !data.profile.appleHealthLinked, HealthService.shared.asked,
               let at = UserDefaults.standard.object(forKey: "nb.health.lastRead") as? Date else { return nil }
-        let f = DateFormatter(); f.dateFormat = "MMM d"
-        return f.string(from: at).uppercased()
+        return Fmt.displayDate(at, format: "MMM d").uppercased()
     }
 
     private var goalLabel: String {
         switch data.profile.goal {
-        case .cut: "ENDURANCE"; case .recomp: "RECOMP"; case .bulk: "STRENGTH"
+        case .cut: L("ENDURANCE"); case .recomp: L("RECOMP"); case .bulk: L("STRENGTH")
         }
     }
 
@@ -156,9 +154,9 @@ struct ProfileView: View {
             Hairline()
 
             HStack(spacing: 0) {
-                IdentityStat(label: "HEIGHT", value: "\(Int(data.profile.heightCm))", unit: "CM")
-                IdentityStat(label: "WEIGHT", value: Fmt.kg(data.today.weightKg), unit: "KG")
-                IdentityStat(label: "AGE", value: "\(data.profile.age)", unit: nil)
+                IdentityStat(label: L("HEIGHT"), value: "\(Int(data.profile.heightCm))", unit: "CM")
+                IdentityStat(label: L("WEIGHT"), value: Fmt.kg(data.today.weightKg), unit: "KG")
+                IdentityStat(label: L("AGE"), value: "\(data.profile.age)", unit: nil)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -174,11 +172,11 @@ struct ProfileView: View {
     private var heatMapCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("COMPOSITION")
+                Text(L("COMPOSITION"))
                     .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
                     .foregroundStyle(NB.text1)
                 Spacer(minLength: 0)
-                Text(hasScans ? "RECOMP · 12 W" : "NO WEIGH-INS YET")
+                Text(hasScans ? L("RECOMP · 12 W") : L("NO WEIGH-INS YET"))
                     .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
                     .foregroundStyle(hasScans ? NB.macroValue : NB.text3Prod)
             }
@@ -189,13 +187,13 @@ struct ProfileView: View {
             DirectionLegend()
             if !hasScans {
                 HStack(alignment: .center) {
-                    Text("WEIGH IN ON 5 MORNINGS AND\nTHE FIRST SQUARE LIGHTS UP")
+                    Text(L("WEIGH IN ON 5 MORNINGS AND\nTHE FIRST SQUARE LIGHTS UP"))
                         .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                         .lineSpacing(4)
                         .foregroundStyle(NB.text3Prod)
                     Spacer(minLength: 0)
                     Button { router.sheet = .weighIn } label: {
-                        Text("ADD A WEIGH-IN")
+                        Text(L("ADD A WEIGH-IN"))
                             .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
                             .foregroundStyle(NB.lime1)
                     }
@@ -212,11 +210,11 @@ struct ProfileView: View {
     /// and therefore has to be labelled apart from the two deltas around it.
     private var statTiles: some View {
         HStack(spacing: 8) {
-            NetTile(label: "FAT MASS", value: Fmt.signedKg(data.netFatMass12w, decimals: 1), unit: "KG",
+            NetTile(label: L("FAT MASS"), value: Fmt.signedKg(data.netFatMass12w, decimals: 1), unit: "KG",
                     tint: data.netFatMass12w == nil ? NB.text3Prod : NB.lime1)
-            NetTile(label: "LEAN MASS", value: Fmt.signedKg(data.netLeanMass12w, decimals: 1), unit: "KG",
+            NetTile(label: L("LEAN MASS"), value: Fmt.signedKg(data.netLeanMass12w, decimals: 1), unit: "KG",
                     tint: data.netLeanMass12w == nil ? NB.text3Prod : NB.lime1)
-            NetTile(label: "BODY FAT", value: Fmt.kg(data.bodyFatPercent), unit: "%",
+            NetTile(label: L("BODY FAT"), value: Fmt.kg(data.bodyFatPercent), unit: "%",
                     tint: NB.text1, isAbsolute: true)
         }
         .frame(width: NB.Layout.contentWidth)
@@ -344,7 +342,7 @@ private struct NetTile: View {
                     .foregroundStyle(NB.white.opacity(0.34))
             }
             // ⚠️ BODY FAT is an absolute value sitting between two deltas — it must say so.
-            Text(isAbsolute ? "ABSOLUTE" : "12 W NET")
+            Text(isAbsolute ? L("ABSOLUTE") : L("12 W NET"))
                 .font(NBFont.dot(500, 9)).tracking(0.14 * 9)
                 .foregroundStyle(NB.white.opacity(0.26))
         }
@@ -361,7 +359,8 @@ private struct MonthAxis: View {
         let f = DateFormatter()
         let months: [String] = (0..<6).reversed().map { back in
             let d = Calendar.current.date(byAdding: .month, value: -back, to: Date())!
-            f.dateFormat = "MMM"
+            f.locale = AppLanguage.shared.swiftLocale
+            f.dateFormat = AppLanguage.shared.isEnglish ? "MMM" : "M月"
             return f.string(from: d).uppercased()
         }
         return HStack(spacing: 0) {
@@ -429,9 +428,9 @@ struct DirectionLegend: View {
             }
             HStack(spacing: 18) {
                 LegendChip(direction: .surplus, label: MetricNames.surplus, note: "≥ +150 KCAL")
-                LegendChip(direction: .greyNothing, label: "NOT LOGGED", note: "NOTHING TO GO ON")
+                LegendChip(direction: .greyNothing, label: L("NOT LOGGED"), note: L("NOTHING TO GO ON"))
             }
-            LegendChip(direction: .greyNoBurn, label: "NO BURN", note: "BAND OFF MOST OF THE DAY")
+            LegendChip(direction: .greyNoBurn, label: L("NO BURN"), note: L("BAND OFF MOST OF THE DAY"))
         }
     }
 }

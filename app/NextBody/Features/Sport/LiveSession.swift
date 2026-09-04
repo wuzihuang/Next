@@ -333,13 +333,13 @@ final class LiveSessionStore: ObservableObject {
     /// One short line, or nothing while it is simply running. The island has room for the
     /// numbers or for a sentence, never both, so silence is the good state.
     private var islandNote: String? {
-        if opening { return "OPENING ON THE BAND" }
+        if opening { return L("OPENING ON THE BAND") }
         switch wrist {
         case .live:      return nil
-        case .reaching:  return "REACHING THE WRIST"
-        case .noContact: return "NO CONTACT · TIGHTEN THE BAND"
-        case .offline:   return "BAND OFFLINE · STILL TIMING"
-        case .off:       return "TIMING · THE WRIST IS NOT BEING READ"
+        case .reaching:  return L("REACHING THE WRIST")
+        case .noContact: return L("NO CONTACT · TIGHTEN THE BAND")
+        case .offline:   return L("BAND OFFLINE · STILL TIMING")
+        case .off:       return L("TIMING · THE WRIST IS NOT BEING READ")
         }
     }
 
@@ -362,9 +362,8 @@ final class LiveSessionStore: ObservableObject {
 
     /// The line the panel carries when the band refused the mode: no session, one sentence.
     func refusalWidget(_ s: Session, line: String) -> PanelWidget {
-        PanelWidget(type: .text, title: "SPORT MODE", tag: .move,
-                    sentence: AppLanguage.isEnglish ? "The band did not open \(s.mode.name). Nothing was started."
-                                                    : "手环没有打开 \(s.mode.name)，什么都没开始。",
+        PanelWidget(type: .text, title: L("SPORT MODE"), tag: .move,
+                    sentence: L("The band did not open %@. Nothing was started.", s.mode.displayName),
                     footer: line.uppercased(), action: nil, accentOverride: NB.ember1, data: .none)
     }
 
@@ -377,17 +376,17 @@ final class LiveSessionStore: ObservableObject {
         let burned = "\(Int(kcal.rounded()))"
         var w = PanelWidget(
             type: .workout,
-            title: "SESSION · \(s.mode.name.uppercased())",
+            title: L("SESSION · %@", s.mode.displayName),
             tag: .move,
-            sentence: "\(minutes) min · avg \(avg) bpm · \(burned) kcal",
-            footer: closed ? "SAVED ON THE BAND · \(Fmt.clock(s.startedAt)) → \(Fmt.clock(Date()))"
-                           : "BAND DID NOT CLOSE IT · CHECK THE WRIST",
+            sentence: L("%d min · avg %@ bpm · %@ kcal", minutes, avg, burned),
+            footer: closed ? L("SAVED ON THE BAND · %@ → %@", Fmt.clock(s.startedAt), Fmt.clock(Date()))
+                           : L("BAND DID NOT CLOSE IT · CHECK THE WRIST"),
             action: nil,
             hero: hero,
             data: .rows([
-                .init(label: "AVG HR", value: avg),
-                .init(label: "PEAK", value: peakHR.map { "\($0)" } ?? Fmt.dash),
-                .init(label: "BURN", value: "\(burned) KCAL"),
+                .init(label: L("AVG HR"), value: avg),
+                .init(label: L("PEAK"), value: peakHR.map { "\($0)" } ?? Fmt.dash),
+                .init(label: L("BURN"), value: "\(burned) KCAL"),
             ]))
         if !closed { w.accentOverride = NB.ember1 }
         return w

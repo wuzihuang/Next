@@ -35,10 +35,10 @@ final class FirstRun: ObservableObject {
     /// How many characters of each subtitle line have been typed.
     @Published private(set) var typed: (first: Int, second: Int) = (0, 0)
 
-    static let lineOne = "I DON'T COACH."
-    static let lineTwo = "I READ YOU."
-    static let lineThree = "THE FIRST TARGET LANDS BY MORNING"
-    static let lineThreeUnpaired = "PAIR YOUR BAND TO START"
+    static var lineOne: String { L("I DON'T COACH.") }
+    static var lineTwo: String { L("I READ YOU.") }
+    static var lineThree: String { L("THE FIRST TARGET LANDS BY MORNING") }
+    static var lineThreeUnpaired: String { L("PAIR YOUR BAND TO START") }
 
     private var task: Task<Void, Never>?
 

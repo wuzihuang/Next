@@ -17,29 +17,29 @@ struct NoTargetFuel: View {
 
     var body: some View {
         // Same header as the page with a target, so the two never feel like two apps.
-        DetailScroll(glow: NB.ember1, title: "FUEL", trailing: {
-            Text("\(Fmt.dash) TARGET").font(NBFont.dot(700, 12)).tracking(0.04 * 12).foregroundStyle(NB.emberPale)
+        DetailScroll(glow: NB.ember1, title: L("FUEL"), trailing: {
+            Text(L("%@ TARGET", Fmt.dash)).font(NBFont.dot(700, 12)).tracking(0.04 * 12).foregroundStyle(NB.emberPale)
         }) {
             VStack(alignment: .leading, spacing: 22) {
                 // NO TARGET · the one action
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("NO TARGET").font(NBFont.dot(700, 11)).tracking(0.24 * 11).foregroundStyle(NB.ember1)
+                    Text(L("NO TARGET")).font(NBFont.dot(700, 11)).tracking(0.24 * 11).foregroundStyle(NB.ember1)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Fmt.dash).font(NBFont.dot(800, 64)).foregroundStyle(NB.white.opacity(0.24))
-                        Text("KCAL TARGET").font(NBFont.dot(600, 11)).tracking(0.2 * 11).foregroundStyle(NB.text3Prod)
+                        Text(L("KCAL TARGET")).font(NBFont.dot(600, 11)).tracking(0.2 * 11).foregroundStyle(NB.text3Prod)
                     }
-                    Text("Targets are built from your body weight. Without it, HOOP can count what you eat, but it can't tell you how much you need.")
+                    Text(L("Targets are built from your body weight. Without it, HOOP can count what you eat, but it can't tell you how much you need."))
                         .font(NBFont.ui(300, 15)).lineSpacing(8).foregroundStyle(sub)
                     // 1F5B · one 298 × 52 pill, the screen's only action.
                     Button { router.sheet = .weighIn } label: {
-                        Text("Add a weigh-in")
+                        Text(L("Add a weigh-in"))
                             .font(NBFont.ui(500, 13.5)).tracking(0.15 * 13.5)
                             .foregroundStyle(NB.carbon)
                             .frame(width: 298, height: 52)
                             .background(NB.lime1, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    Text("Type it in, or pull the latest from Apple Health.")
+                    Text(L("Type it in, or pull the latest from Apple Health."))
                         .font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(sub)
                 }
                 .padding(22)
@@ -48,20 +48,20 @@ struct NoTargetFuel: View {
 
                 // LOGGED TODAY · counts, not comparisons
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("LOGGED TODAY").font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.text3Prod)
+                    Text(L("LOGGED TODAY")).font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.text3Prod)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Text(Fmt.kcal(m.eIn)).font(NBFont.dot(800, 44)).foregroundStyle(m.eIn == nil ? NB.white.opacity(0.24) : NB.ember1)
-                            Text("KCAL EATEN").font(NBFont.dot(600, 11)).tracking(0.2 * 11).foregroundStyle(NB.text3Prod)
+                            Text(L("KCAL EATEN")).font(NBFont.dot(600, 11)).tracking(0.2 * 11).foregroundStyle(NB.text3Prod)
                         }
                         Text(mealsLine).font(NBFont.ui(300, 13)).foregroundStyle(sub)
                     }
                     HStack(spacing: 0) {
-                        gram("PROTEIN", m.protein?.eaten).frame(width: 102, alignment: .leading)
-                        gram("CARBS", m.carb?.eaten).frame(width: 91, alignment: .leading)
-                        gram("FAT", m.fat?.eaten).frame(width: 80, alignment: .leading)
+                        gram(L("PROTEIN"), m.protein?.eaten).frame(width: 102, alignment: .leading)
+                        gram(L("CARBS"), m.carb?.eaten).frame(width: 91, alignment: .leading)
+                        gram(L("FAT"), m.fat?.eaten).frame(width: 80, alignment: .leading)
                     }
-                    Text("No targets to compare them to yet.").font(NBFont.ui(300, 13)).foregroundStyle(sub)
+                    Text(L("No targets to compare them to yet.")).font(NBFont.ui(300, 13)).foregroundStyle(sub)
                 }
                 .padding(22)
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
@@ -69,16 +69,16 @@ struct NoTargetFuel: View {
 
                 // THE BAND COUNTED · true without a weight
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("THE BAND COUNTED").font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.text3Prod)
+                    Text(L("THE BAND COUNTED")).font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.text3Prod)
                         .padding(.bottom, 8)
-                    countRow("Steps", m.steps.map { Fmt.int($0) } ?? Fmt.dash)
-                    countRow("Distance", distance)
-                    countRow("Active minutes", m.activeMinutes.map(String.init) ?? Fmt.dash)
+                    countRow(L("Steps"), m.steps.map { Fmt.int($0) } ?? Fmt.dash)
+                    countRow(L("Distance"), distance)
+                    countRow(L("Active minutes"), m.activeMinutes.map(String.init) ?? Fmt.dash)
                     HStack {
-                        Text("Burn").font(NBFont.ui(400, 15)).foregroundStyle(ink)
+                        Text(L("Burn")).font(NBFont.ui(400, 15)).foregroundStyle(ink)
                         Spacer(minLength: 0)
-                        Text("NEEDS YOUR WEIGHT").font(NBFont.dot(600, 10)).tracking(0.18 * 10).foregroundStyle(NB.ember1)
-                            .accessibilityLabel("Needs you")
+                        Text(L("NEEDS YOUR WEIGHT")).font(NBFont.dot(600, 10)).tracking(0.18 * 10).foregroundStyle(NB.ember1)
+                            .accessibilityLabel(L("Needs you"))
                         Text(Fmt.dash).font(NBFont.dot(600, 15)).foregroundStyle(NB.white.opacity(0.32)).padding(.leading, 10)
                     }
                     .frame(height: 44)
@@ -89,7 +89,7 @@ struct NoTargetFuel: View {
 
                 // WHAT A WEIGH-IN TURNS ON · text only (rule 11)
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("WHAT A WEIGH-IN TURNS ON").font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.text3Prod)
+                    Text(L("WHAT A WEIGH-IN TURNS ON")).font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.text3Prod)
                     ForEach([
                         "A calorie target for the day, and how far you are from it.",
                         "Protein, carbs and fat measured against a target, not just a total.",
@@ -115,7 +115,7 @@ struct NoTargetFuel: View {
 
     private var mealsLine: String {
         let n = data.meals.filter { $0.status == .confirmed }.count
-        return n == 0 ? "nothing yet" : "from \(n) meal\(n == 1 ? "" : "s")"
+        return n == 0 ? L("nothing yet") : n == 1 ? L("from %d meal", n) : L("from %d meals", n)
     }
     private var distance: String {
         guard let d = m.distanceM else { return Fmt.dash }

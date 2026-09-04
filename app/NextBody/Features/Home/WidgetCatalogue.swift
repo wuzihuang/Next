@@ -104,9 +104,9 @@ struct WidgetCatalogue: View {
                                                          ("T", 11.5), ("F", 6.9), ("S", 13.9), ("S", 12.4)]))
         case .sparks:
             return w(type, "LAST NIGHT", "Three inputs, all measured.",
-                     .rows([.init(label: "HRV", value: "62 ms", spark: series),
-                            .init(label: "RHR", value: "48 bpm", spark: series.reversed()),
-                            .init(label: "SPO2", value: "97 %", spark: series)]))
+                     .rows([.init(label: L("HRV"), value: "62 ms", spark: series),
+                            .init(label: L("RHR"), value: "48 bpm", spark: series.reversed()),
+                            .init(label: L("SPO2"), value: "97 %", spark: series)]))
         case .ring:
             return w(type, MetricNames.training, "5.0 of 21", .ring(value: 5, goal: 21, unit: ""))
         case .gauge:
@@ -138,19 +138,19 @@ struct WidgetCatalogue: View {
             return w(type, "ECG", "avg 68 bpm", .trace(samples: series, hz: 4))
         case .table:
             return w(type, "TODAY'S BUILD", "Three sources, 5.0 total",
-                     .rows([.init(label: "MORNING WALK", value: "+2.0"),
-                            .init(label: "ELEVATED HR", value: "+1.3"),
-                            .init(label: "STEPS", value: "+1.7")]))
+                     .rows([.init(label: L("MORNING WALK"), value: "+2.0"),
+                            .init(label: L("ELEVATED HR"), value: "+1.3"),
+                            .init(label: L("STEPS"), value: "+1.7")]))
         case .workout:
             return w(type, "SESSION", "45 min · avg 136 bpm", hero: "45 MIN",
-                     .rows([.init(label: "STRENGTH", value: "45 MIN"),
-                            .init(label: "AVG HR", value: "136")]))
+                     .rows([.init(label: L("STRENGTH"), value: "45 MIN"),
+                            .init(label: L("AVG HR"), value: "136")]))
         case .events:
             return w(type, "TODAY", "Four things happened", hero: "4",
-                     .rows([.init(label: "07:20 BREAKFAST", value: "375"),
-                            .init(label: "07:30 WALK", value: "+2.0"),
-                            .init(label: "12:40 LUNCH", value: "532"),
-                            .init(label: "18:00 SESSION", value: "+8.9")]))
+                     .rows([.init(label: L("07:20 BREAKFAST"), value: "375"),
+                            .init(label: L("07:30 WALK"), value: "+2.0"),
+                            .init(label: L("12:40 LUNCH"), value: "532"),
+                            .init(label: L("18:00 SESSION"), value: "+8.9")]))
         case .heat:
             return w(type, "WEEK × HOUR", "Evenings are the load", hero: "18:00",
                      .cells(rows: 7, cols: 12,
@@ -158,16 +158,16 @@ struct WidgetCatalogue: View {
         case .food:
             // 07 · 20 · the plate: name, kcal as the hero, three macro rows.
             var f = w(type, "LOGGED · 12:42", "Good pick — 48 g protein still to place",
-                      .rows([.init(label: "CHICKEN SALAD", value: "420")]))
+                      .rows([.init(label: L("CHICKEN SALAD"), value: "420")]))
             f.plate = PlateBlock(name: "Chicken salad", portion: "1 bowl", kcal: 420,
                                  protein: 32, carb: 18, fat: 22, pctOfBudget: 31)
             f.footer = "660 KCAL LEFT · KITCHEN CLOSES 21:00"
             return f
         case .meal:
             return w(type, "LUNCH", "532 kcal · 50 g protein", hero: "532",
-                     .rows([.init(label: "CHICKEN", value: "310"),
-                            .init(label: "RICE", value: "160"),
-                            .init(label: "GREENS", value: "62")]))
+                     .rows([.init(label: L("CHICKEN"), value: "310"),
+                            .init(label: L("RICE"), value: "160"),
+                            .init(label: L("GREENS"), value: "62")]))
         case .fuel:
             // ⚠️ 07 gives fuel's hero as "biggest gap", which needs the target beside each
             // eaten value — the stack shape carries one number per part and cannot derive

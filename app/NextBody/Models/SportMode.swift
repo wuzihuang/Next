@@ -7,6 +7,7 @@ struct SportModeOption: Identifiable, Hashable {
     var id: Int { rawValue }
     let rawValue: Int
     let name: String
+    var displayName: String { L(name) }
 }
 
 enum SportModeCatalog {
@@ -62,6 +63,9 @@ enum SportModeCatalog {
     ]
 
     static func name(for rawValue: Int) -> String {
-        modes.first(where: { $0.rawValue == rawValue })?.name ?? "Sport #\(rawValue)"
+        if let name = modes.first(where: { $0.rawValue == rawValue })?.name {
+            return L(name)
+        }
+        return L("Sport #%d", rawValue)
     }
 }

@@ -648,6 +648,6 @@ enum SyncCadence {
     static var throttle: TimeInterval { min(120, interval / 2) }
 
     static func label(_ minutes: Int) -> String {
-        minutes < 60 ? "EVERY \(minutes) MIN" : "EVERY HOUR"
+        minutes < 60 ? L("EVERY %d MIN", minutes) : L("EVERY HOUR")
     }
 }

@@ -62,7 +62,7 @@ struct VitalsWindow {
         }
         var labels = marks.map(Fmt.clock)
         if endsNow, !labels.isEmpty {
-            labels[labels.count - 1] = "NOW"
+            labels[labels.count - 1] = L("NOW")
         }
         return VitalsWindow(
             start: range.start,
@@ -223,7 +223,7 @@ struct VitalsHypnogram: View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Self.laneNames, id: \.self) { name in
-                    Text(name)
+                    Text(L(name))
                         .font(NBFont.ui(400, 8)).tracking(0.08 * 8)
                         .foregroundStyle(NB.white.opacity(0.40))
                         .frame(maxHeight: .infinity, alignment: .center)

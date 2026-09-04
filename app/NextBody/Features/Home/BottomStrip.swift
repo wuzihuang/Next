@@ -26,8 +26,8 @@ struct TrainingCard: View {
     let m: DailyMetrics
 
     private var toGo: String {
-        guard let t = m.targetLoad, let l = m.trainingLoad else { return "NO TARGET" }
-        return String(format: "%.1f TO GO", max(0, t - l))
+        guard let t = m.targetLoad, let l = m.trainingLoad else { return L("NO TARGET") }
+        return L("%.1f TO GO", max(0, t - l))
     }
 
     var body: some View {
@@ -47,24 +47,24 @@ struct TrainingCard: View {
                 VStack(alignment: .leading, spacing: 9) {
                     if m.targetLoad == nil {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("TARGET").font(NBFont.ui(500, 11)).tracking(0.06 * 11)
+                            Text(L("TARGET")).font(NBFont.ui(500, 11)).tracking(0.06 * 11)
                                 .foregroundStyle(NB.text3Prod)
-                            Text("NOT SET").font(NBFont.ui(600, 12)).foregroundStyle(NB.text1)
+                            Text(L("NOT SET")).font(NBFont.ui(600, 12)).foregroundStyle(NB.text1)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("FULL RING").font(NBFont.ui(500, 11)).tracking(0.06 * 11)
+                            Text(L("FULL RING")).font(NBFont.ui(500, 11)).tracking(0.06 * 11)
                                 .foregroundStyle(NB.text3Prod)
-                            Text("21.0").font(NBFont.dot(700, 14)).tracking(0.02 * 14)
+                            Text(L("21.0")).font(NBFont.dot(700, 14)).tracking(0.02 * 14)
                                 .foregroundStyle(NB.text3Prod)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("SUGGESTED").font(NBFont.ui(500, 11)).tracking(0.06 * 11)
+                            Text(L("SUGGESTED")).font(NBFont.ui(500, 11)).tracking(0.06 * 11)
                                 .foregroundStyle(NB.text3Prod)
-                            Text("STRENGTH").font(NBFont.ui(600, 12)).foregroundStyle(NB.text1)
+                            Text(L("STRENGTH")).font(NBFont.ui(600, 12)).foregroundStyle(NB.text1)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("TARGET").font(NBFont.ui(500, 11)).tracking(0.06 * 11)
+                            Text(L("TARGET")).font(NBFont.ui(500, 11)).tracking(0.06 * 11)
                                 .foregroundStyle(NB.text3Prod)
                             Text(Fmt.load(m.targetLoad)).font(NBFont.dot(700, 14)).tracking(0.02 * 14)
                                 .foregroundStyle(NB.cyanPale)
@@ -86,10 +86,10 @@ struct FuelCard: View {
 
     private var headline: String {
         guard let next = m.nextMeal else { return unloggedHead }
-        return "\(Fmt.kcal(next)) LEFT"
+        return L("%@ LEFT", Fmt.kcal(next))
     }
     private var unloggedHead: String {
-        if case .unlogged = m.fuelState { return "UNLOGGED" }
+        if case .unlogged = m.fuelState { return L("UNLOGGED") }
         return Fmt.dash
     }
 
@@ -116,9 +116,9 @@ struct FuelCard: View {
             }
             Spacer(minLength: 0)
             VStack(spacing: 6) {
-                MacroBar(label: "PRO",  eaten: m.protein?.eaten, target: m.protein?.target, tint: NB.violet1)
-                MacroBar(label: "CARB", eaten: m.carb?.eaten,    target: m.carb?.target,    tint: NB.optimal2)
-                MacroBar(label: "FAT",  eaten: m.fat?.eaten,     target: m.fat?.target,     tint: NB.run1)
+                MacroBar(label: L("PRO"),  eaten: m.protein?.eaten, target: m.protein?.target, tint: NB.violet1)
+                MacroBar(label: L("CARB"), eaten: m.carb?.eaten,    target: m.carb?.target,    tint: NB.optimal2)
+                MacroBar(label: L("FAT"),  eaten: m.fat?.eaten,     target: m.fat?.target,     tint: NB.run1)
             }
         }
         .padding(12)

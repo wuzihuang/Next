@@ -34,14 +34,13 @@ struct FuelDetailView: View {
     }
     private var logged: Bool { m.eIn != nil }
     private var pastTitle: String {
-        let f = DateFormatter(); f.dateFormat = "EEE d MMM"
-        return f.string(from: day.start).uppercased()
+        Fmt.displayDate(day.start, format: "EEE d MMM").uppercased()
     }
     /// 09 edge 1 · PARTIAL: logged but not closed — a slot is still open.
     private var closed: Bool { openSlots.isEmpty }
     private var partialSummary: String {
         let n = data.meals.filter { $0.status == .confirmed }.count
-        return "\(n) MEAL\(n == 1 ? "" : "S") · NOT CLOSED"
+        return n == 1 ? L("%d MEAL · NOT CLOSED", n) : L("%d MEALS · NOT CLOSED", n)
     }
     /// 09 edge 3 / rule 02 · over target is capped, not punished.
     private var overBy: Double? {
@@ -80,9 +79,9 @@ struct FuelDetailView: View {
         // ⚠️ DAY / WEEK / MONTH is absent on purpose — see 08. VAF · "留一个点了没反应的分段
         // 控件比没有更糟", and 1EIH rules delete for both pages. THIS WEEK at the foot of
         // this page is what WEEK was for.
-        DetailScroll(glow: NB.ember1, title: "FUEL", headline: isPast ? pastTitle : nil, trailing: {
+        DetailScroll(glow: NB.ember1, title: L("FUEL"), headline: isPast ? pastTitle : nil, trailing: {
             if isPast {
-                Text(overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "CLOSED")
+                Text(overBy.map { L("+%@ OVER", Fmt.kcal($0)) } ?? L("CLOSED"))
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .foregroundStyle(NB.emberPale)
                 // The board's today header has no pager; a closed day gets one to walk the week.
@@ -94,8 +93,8 @@ struct FuelDetailView: View {
             } else {
                 // Deliberately the same number as the one on the home card: you tap it
                 // in the upper half and it is still there when you have scrolled down.
-                Text(logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER" } ?? "\(Fmt.kcal(m.nextMeal)) LEFT")
-                            : "\(Fmt.kcal(m.targetIn)) TARGET")
+                Text(logged ? (overBy.map { L("+%@ OVER", Fmt.kcal($0)) } ?? L("%@ LEFT", Fmt.kcal(m.nextMeal)))
+                            : L("%@ TARGET", Fmt.kcal(m.targetIn)))
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .foregroundStyle(NB.emberPale)
             }
@@ -103,7 +102,7 @@ struct FuelDetailView: View {
             VStack(alignment: .leading, spacing: 14) {
                 eatenCard
                 macrosCard
-                SectionLabel(logged ? "WHAT WENT IN" : "WHAT GOES IN")
+                SectionLabel(logged ? L("WHAT WENT IN") : L("WHAT GOES IN"))
                 foodCard
                 balanceCard
                 // 09 edge 5 · EST is gone on a closed day: the burn card is a forecast.
@@ -114,9 +113,9 @@ struct FuelDetailView: View {
                     weekCard
                 } else {
                     VStack(spacing: 0) {
-                        GateRow(title: "WHERE THE BURN GOES", when: "AFTER 1 FULL DAY")
+                        GateRow(title: L("WHERE THE BURN GOES"), when: L("AFTER 1 FULL DAY"))
                         Hairline()
-                        GateRow(title: "THIS WEEK", when: "AFTER 7 DAYS")
+                        GateRow(title: L("THIS WEEK"), when: L("AFTER 7 DAYS"))
                     }
                     .padding(.horizontal, 14)
                     .frame(width: NB.Layout.contentWidth)
@@ -142,12 +141,12 @@ struct FuelDetailView: View {
     private var eatenCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
-                Text(isPast ? "EATEN THAT DAY" : "EATEN TODAY")
+                Text(isPast ? L("EATEN THAT DAY") : L("EATEN TODAY"))
                     .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
-                Text(isPast ? (logged ? mealSummary : "NOTHING LOGGED")
-                     : logged ? (closed ? mealSummary : partialSummary) : "NOTHING LOGGED YET")
+                Text(isPast ? (logged ? mealSummary : L("NOTHING LOGGED"))
+                     : logged ? (closed ? mealSummary : partialSummary) : L("NOTHING LOGGED YET"))
                     .font(logged && !closed ? NBFont.dot(700, 12) : NBFont.ui(500, 11))
                     .tracking(logged && !closed ? 0.04 * 12 : 0.06 * 11)
                     .foregroundStyle(logged && !closed ? NB.ember1.opacity(0.85) : NB.text3Prod)
@@ -156,7 +155,7 @@ struct FuelDetailView: View {
                 Text(Fmt.kcal(m.eIn))
                     .font(NBFont.dot(700, 54)).tracking(-0.02 * 54)
                     .foregroundStyle(logged ? NB.ember1 : NB.text3Prod)
-                Text("/\(Fmt.kcal(m.targetIn)) KCAL")
+                Text(L("/%@ KCAL", Fmt.kcal(m.targetIn)))
                     .font(NBFont.dot(500, 14)).tracking(0.02 * 14)
                     .foregroundStyle(NB.macroValue)
             }
@@ -173,11 +172,11 @@ struct FuelDetailView: View {
                 HStack(alignment: .firstTextBaseline) {
                     // "an empty page" and "a broken page" must not look the same:
                     // NOTHING COUNTED YET — A BLANK, NOT A ZERO.
-                    Text(isPast ? (logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER — STILL A FINE DAY" } ?? "CLOSED — NOTHING LEFT TO PLACE")
-                                          : "NOTHING COUNTED — A BLANK, NOT A ZERO")
-                         : logged ? (overBy.map { "+\(Fmt.kcal($0)) OVER — STILL A FINE DAY" }
-                                   ?? "\(Fmt.kcal(m.nextMeal)) LEFT — \(leftInWords)")
-                                : "NOTHING COUNTED YET — A BLANK, NOT A ZERO")
+                    Text(isPast ? (logged ? (overBy.map { L("+%@ OVER — STILL A FINE DAY", Fmt.kcal($0)) } ?? L("CLOSED — NOTHING LEFT TO PLACE"))
+                                          : L("NOTHING COUNTED — A BLANK, NOT A ZERO"))
+                         : logged ? (overBy.map { L("+%@ OVER — STILL A FINE DAY", Fmt.kcal($0)) }
+                                   ?? L("%@ LEFT — %@", Fmt.kcal(m.nextMeal), leftInWords))
+                                : L("NOTHING COUNTED YET — A BLANK, NOT A ZERO"))
                         .font(NBFont.ui(500, 12)).tracking(0.04 * 12)
                         .foregroundStyle(NB.emberPale)
                     Spacer(minLength: 0)
@@ -197,18 +196,20 @@ struct FuelDetailView: View {
     /// fastest way to lose the page.
     private var mealSummary: String {
         let today = data.meals.filter { $0.status == .confirmed }
-        guard let last = today.map(\.at).max() else { return "NOTHING LOGGED YET" }
-        return "\(today.count) MEAL\(today.count == 1 ? "" : "S") · LAST \(Fmt.clock(last))"
+        guard let last = today.map(\.at).max() else { return L("NOTHING LOGGED YET") }
+        return today.count == 1
+            ? L("%d MEAL · LAST %@", today.count, Fmt.clock(last))
+            : L("%d MEALS · LAST %@", today.count, Fmt.clock(last))
     }
 
     /// The remaining budget said as a meal rather than a number. It has to match the size
     /// of what is actually left, or the sentence is worse than no sentence.
     private var leftInWords: String {
-        guard let left = m.nextMeal else { return "NOTHING BOOKED" }
-        if left >= 700 { return "ABOUT ONE FULL DINNER" }
-        if left >= 400 { return "ABOUT A LIGHT DINNER" }
-        if left >= 200 { return "ABOUT A SNACK" }
-        return "BARELY A SNACK"
+        guard let left = m.nextMeal else { return L("NOTHING BOOKED") }
+        if left >= 700 { return L("ABOUT ONE FULL DINNER") }
+        if left >= 400 { return L("ABOUT A LIGHT DINNER") }
+        if left >= 200 { return L("ABOUT A SNACK") }
+        return L("BARELY A SNACK")
     }
 
     /// ⚠️ Protein comes first whenever it is short, and only then does the biggest
@@ -225,13 +226,13 @@ struct FuelDetailView: View {
         }
         let protein = gaps.first { $0.0 == "PROTEIN" }
         let worst = (protein.map { $0.1 > 0 } == true) ? protein : gaps.max { $0.2 < $1.2 }
-        guard let worst, worst.1 > 0 else { return "EVERY TARGET IS MET — NOTHING LEFT TO CHASE TODAY." }
+        guard let worst, worst.1 > 0 else { return L("EVERY TARGET IS MET — NOTHING LEFT TO CHASE TODAY.") }
         let openSlots = MealEntry.Slot.allCases.count - Set(data.meals.filter { $0.status == .confirmed }.map(\.slot)).count
-        let meals = openSlots <= 0 ? "NOTHING LEFT ON THE PLAN"
-                                   : "\(openSlots) MEAL\(openSlots == 1 ? "" : "S") LEFT"
+        let meals = openSlots <= 0 ? L("NOTHING LEFT ON THE PLAN")
+                                   : (openSlots == 1 ? L("%d MEAL LEFT", openSlots) : L("%d MEALS LEFT", openSlots))
         let gap = (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)
-        let session = gap >= 3 ? " AND A SESSION ON THE WAY" : ""
-        return "\(worst.0) IS THE ONE THAT MATTERS TONIGHT — \(worst.1) G SHORT WITH \(meals)\(session)."
+        let session = gap >= 3 ? L(" AND A SESSION ON THE WAY") : ""
+        return L("%@ IS THE ONE THAT MATTERS TONIGHT — %d G SHORT WITH %@%@.", L(worst.0), worst.1, meals, session)
     }
 
     private var percentText: String {
@@ -242,18 +243,18 @@ struct FuelDetailView: View {
     /// A3 · three bars, never merged. 84 g of protein and 132 g of carbs do not mean the same
     /// thing tonight; averaging them into one percentage erases the only useful distinction.
     private var macrosCard: some View {
-        CardBlock(title: "MACROS", trailing: "VS TARGET") {
+        CardBlock(title: L("MACROS"), trailing: L("VS TARGET")) {
             VStack(spacing: 14) {
-                MacroDetailRow(name: "PRO", slot: m.protein, tint: NB.violet1,
+                MacroDetailRow(name: L("PRO"), slot: m.protein, tint: NB.violet1,
                                note: proteinNote)
-                MacroDetailRow(name: "CARB", slot: m.carb, tint: NB.optimal2,
-                               note: toGo(m.carb, "G TO GO"))
-                MacroDetailRow(name: "FAT", slot: m.fat, tint: NB.run1,
-                               note: toGo(m.fat, "G TO GO"))
+                MacroDetailRow(name: L("CARB"), slot: m.carb, tint: NB.optimal2,
+                               note: toGo(m.carb))
+                MacroDetailRow(name: L("FAT"), slot: m.fat, tint: NB.run1,
+                               note: toGo(m.fat))
             }
             Hairline()
             Text(logged ? macroNote
-                 : "THESE TARGETS COME FROM YOUR WEIGHT AND YOUR GOAL — THEY ARE READY BEFORE YOU LOG ANYTHING.")
+                 : L("THESE TARGETS COME FROM YOUR WEIGHT AND YOUR GOAL — THEY ARE READY BEFORE YOU LOG ANYTHING."))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .lineSpacing(5)
                 .foregroundStyle(NB.text3Prod)
@@ -261,15 +262,15 @@ struct FuelDetailView: View {
     }
 
     private var proteinNote: String {
-        guard let p = m.protein else { return "\(Fmt.dash) G/KG" }
+        guard let p = m.protein else { return L("%@ G/KG", Fmt.dash) }
         guard let w = m.weightKg, p.eaten > 0 else {
-            return "\(Fmt.dash) G/KG · \(p.target) G TO GO"
+            return L("%@ G/KG · %d G TO GO", Fmt.dash, p.target)
         }
-        return String(format: "%.1f G/KG · %d G TO GO", Double(p.eaten) / w, max(0, p.target - p.eaten))
+        return L("%.1f G/KG · %d G TO GO", Double(p.eaten) / w, max(0, p.target - p.eaten))
     }
-    private func toGo(_ slot: MacroSlot?, _ suffix: String) -> String {
+    private func toGo(_ slot: MacroSlot?) -> String {
         guard let s = slot else { return Fmt.dash }
-        return "\(max(0, s.target - s.eaten)) \(suffix)"
+        return L("%d G TO GO", max(0, s.target - s.eaten))
     }
 
     private func toGoValue(_ slot: MacroSlot?) -> String {
@@ -279,8 +280,8 @@ struct FuelDetailView: View {
     /// A4 · timestamps on the left so the card reads like a day, not like a list.
     /// The last row is the single amber OPEN slot — the only highlight the page allows.
     private var foodCard: some View {
-        CardBlock(title: "FOOD",
-                  trailing: logged ? "\(Fmt.kcal(m.eIn)) KCAL · \(m.protein?.eaten ?? m.proteinIn ?? dayMeals.reduce(0) { $0 + $1.protein }) G PRO" : isPast ? "NOTHING IN" : "NOTHING IN YET") {
+        CardBlock(title: L("FOOD"),
+                  trailing: logged ? L("%@ KCAL · %d G PRO", Fmt.kcal(m.eIn), m.protein?.eaten ?? m.proteinIn ?? dayMeals.reduce(0) { $0 + $1.protein }) : isPast ? L("NOTHING IN") : L("NOTHING IN YET")) {
             let confirmed = dayMeals
             VStack(spacing: 10) {
                 ForEach(Array(confirmed.enumerated()), id: \.element.id) { i, meal in
@@ -295,7 +296,7 @@ struct FuelDetailView: View {
             // 09 edge 5 · OPEN slots and suggestions are for a day that is still running.
             ForEach(isPast ? [] : openSlots, id: \.self) { slot in
                 OpenSlotRow(slot: slot,
-                            hint: slot == nextSlot ? (logged ? "AIM FOR 60 G PROTEIN IN IT" : "START WITH 40 G PROTEIN") : "NOT LOGGED",
+                            hint: slot == nextSlot ? (logged ? L("AIM FOR 60 G PROTEIN IN IT") : L("START WITH 40 G PROTEIN")) : L("NOT LOGGED"),
                             kcal: slot == nextSlot ? (logged ? Fmt.kcal(m.nextMeal) : "~500") : Fmt.dash,
                             lit: slot == nextSlot)
             }
@@ -303,7 +304,7 @@ struct FuelDetailView: View {
                 // B4 · one of the four ways to let a user say "I didn't eat".
                 // ⚠️ It appears only in the empty state.
                 HStack {
-                    Text("Fasting, or nothing so far?")
+                    Text(L("Fasting, or nothing so far?"))
                         .font(NBFont.ui(300, 12)).tracking(0.02 * 12)
                         .foregroundStyle(NB.text3Prod)
                     Spacer(minLength: 0)
@@ -311,7 +312,7 @@ struct FuelDetailView: View {
                         data.today.fuelState = .fasted
                         data.today.eIn = 0
                     } label: {
-                        Text("MARK AS FASTED")
+                        Text(L("MARK AS FASTED"))
                             .font(NBFont.ui(500, 11)).tracking(0.12 * 11)
                             .foregroundStyle(NB.white.opacity(0.55))
                     }
@@ -336,18 +337,18 @@ struct FuelDetailView: View {
     /// A6 · two different bases on one axis, so both rows say which base they use.
     /// NOW = E_IN − E_OUT_NOW, both measured. The second row is a conditional, not an estimate.
     private var balanceCard: some View {
-        CardBlock(title: "ENERGY BALANCE",
-                  trailing: isPast ? "CLOSED" : outUnknown ? "\(Int(coverageHours))H OF DATA ONLY"
-                          : logged ? "SO FAR TODAY" : "NEEDS A DAY OF WEAR",
+        CardBlock(title: L("ENERGY BALANCE"),
+                  trailing: isPast ? L("CLOSED") : outUnknown ? L("%dH OF DATA ONLY", Int(coverageHours))
+                          : logged ? L("SO FAR TODAY") : L("NEEDS A DAY OF WEAR"),
                   trailingIsDot: outUnknown || isPast,
                   trailingTint: outUnknown ? NB.ember1.opacity(0.85) : nil) {
             HStack(spacing: 10) {
-                BalanceStat(label: "IN", value: Fmt.kcal(m.eIn), tint: logged ? NB.ember1 : NB.text3Prod)
+                BalanceStat(label: L("IN"), value: Fmt.kcal(m.eIn), tint: logged ? NB.ember1 : NB.text3Prod)
                 // 09 edge 2 · half the equation missing: OUT and BALANCE go grey, IN stays.
                 // Never a BMR estimate dressed as a measurement.
-                BalanceStat(label: "OUT", value: outUnknown ? Fmt.dash : Fmt.kcal(m.eOutNow),
+                BalanceStat(label: L("OUT"), value: outUnknown ? Fmt.dash : Fmt.kcal(m.eOutNow),
                             tint: logged && !outUnknown ? NB.cyan1 : NB.text3Prod)
-                BalanceStat(label: "BALANCE", value: outUnknown ? Fmt.dash : Fmt.signedKcal(m.balance),
+                BalanceStat(label: L("BALANCE"), value: outUnknown ? Fmt.dash : Fmt.signedKcal(m.balance),
                             tint: outUnknown ? NB.text3Prod : NB.text1)
             }
             if outUnknown {
@@ -358,7 +359,7 @@ struct FuelDetailView: View {
             }
             if isPast {
                 // 09 edge 5 · a closed day has one number, and it was measured.
-                Text("MEASURED · NO ESTIMATE")
+                Text(L("MEASURED · NO ESTIMATE"))
                     .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.macroValue)
             }
@@ -377,15 +378,15 @@ struct FuelDetailView: View {
             HStack(spacing: 16) {
                 HStack(spacing: 7) {
                     Rectangle().fill(NB.limeMid.opacity(0.55)).frame(width: 14, height: 8)
-                    Text("RECOMP WINDOW")
+                    Text(L("RECOMP WINDOW"))
                         .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                         .foregroundStyle(NB.text3Prod)
                 }
                 if logged, !isPast {
                     HStack(spacing: 7) {
                         Circle().stroke(NB.ember1, lineWidth: 2).frame(width: 9, height: 9)
-                            .accessibilityLabel("Needs you")   // F5 §09 · colour is not the only carrier
-                        Text("IF YOU EAT THE \(Fmt.kcal(m.nextMeal))")
+                            .accessibilityLabel(L("Needs you"))   // F5 §09 · colour is not the only carrier
+                        Text(L("IF YOU EAT THE %@", Fmt.kcal(m.nextMeal)))
                             .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                             .foregroundStyle(NB.text3Prod)
                     }
@@ -398,7 +399,7 @@ struct FuelDetailView: View {
     /// A7 · 2,280 = BASELINE 1,480 + STEPS 320 + TRAINING 480. The training block is dashed
     /// because it has not happened yet; anything forecast is always dashed, product-wide.
     private var burnCard: some View {
-        CardBlock(title: "WHERE THE BURN GOES", trailing: "\(Fmt.kcal(m.eOutFull)) EST", trailingIsDot: true) {
+        CardBlock(title: L("WHERE THE BURN GOES"), trailing: L("%@ EST", Fmt.kcal(m.eOutFull)), trailingIsDot: true) {
             HStack(spacing: 2) {
                 // ⚠️ Every row here is the whole day, because the header says EST. Mixing
                 // the elapsed baseline into a card headed by a full-day estimate leaves
@@ -414,12 +415,12 @@ struct FuelDetailView: View {
                                                     style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
             }
             VStack(spacing: 11) {
-                BurnRow(swatch: NB.cyanDeep, dashed: false, name: "BASELINE",
+                BurnRow(swatch: NB.cyanDeep, dashed: false, name: L("BASELINE"),
                         detail: nil, value: Fmt.kcal(m.bmrFull), valueTint: NB.macroValue)
-                BurnRow(swatch: NB.cyan1, dashed: false, name: "STEPS & MOVEMENT",
+                BurnRow(swatch: NB.cyan1, dashed: false, name: L("STEPS & MOVEMENT"),
                         detail: nil, value: Fmt.kcal(m.activeForecast), valueTint: NB.macroValue)
                 BurnRow(swatch: NB.cyan3.opacity(0.5), dashed: true, name: MetricNames.training,
-                        detail: "PLANNED · \(plannedSession)",
+                        detail: L("PLANNED · %@", plannedSession),
                         value: Fmt.kcal(m.eTrainPlan), valueTint: NB.cyanPale)
             }
         }
@@ -435,8 +436,8 @@ struct FuelDetailView: View {
         let closed = week.dropLast().compactMap(\.balance)
         let avg = closed.isEmpty ? nil : closed.reduce(0, +) / Double(closed.count)
         let inWindow = closed.filter { $0 <= -200 && $0 >= -500 }.count
-        return CardBlock(title: "THIS WEEK",
-                         trailing: "AVG \(Fmt.signedKcal(avg))", trailingIsDot: true) {
+        return CardBlock(title: L("THIS WEEK"),
+                         trailing: L("AVG %@", Fmt.signedKcal(avg)), trailingIsDot: true) {
             BalanceWeek(values: values, todayClosed: m.day.isClosed)
                 .frame(height: 76)
             HStack {
@@ -457,7 +458,7 @@ struct FuelDetailView: View {
                 }
             }
             Hairline()
-            Text("\(inWindow) OF \(closed.count) FINISHED DAYS LANDED INSIDE THE RECOMP WINDOW. THE SHADED BAND IS −200 TO −500 KCAL.")
+            Text(L("%d OF %d FINISHED DAYS LANDED INSIDE THE RECOMP WINDOW. THE SHADED BAND IS −200 TO −500 KCAL.", inWindow, closed.count))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .lineSpacing(5)
                 .foregroundStyle(NB.text3Prod)
@@ -468,9 +469,9 @@ struct FuelDetailView: View {
     /// disagree about the same evening.
     private var plannedSession: String {
         let gap = (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)
-        if gap >= 8 { return "STRENGTH 45 MIN" }
-        if gap >= 3 { return "STRENGTH 30 MIN" }
-        return "EASY WALK 20 MIN"
+        if gap >= 8 { return L("STRENGTH 45 MIN") }
+        if gap >= 3 { return L("STRENGTH 30 MIN") }
+        return L("EASY WALK 20 MIN")
     }
 }
 
@@ -490,11 +491,11 @@ struct MacroDetailRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(name)
+                Text(L(name))
                     .font(NBFont.ui(600, 12)).tracking(0.06 * 12)
                     .foregroundStyle(NB.text1)
                     .frame(width: 44, alignment: .leading)
-                Text(note)
+                Text(note.isEmpty ? "" : L(note))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
@@ -538,7 +539,7 @@ struct MealRow: View {
                 .foregroundStyle(Color(hex: 0x8A8A96))
                 .frame(width: 52, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
-                Text(meal.slot.rawValue)
+                Text(L(meal.slot.rawValue))
                     .font(NBFont.ui(600, 13))
                     .foregroundStyle(NB.text1)
                 Text(meal.text.uppercased())
@@ -551,7 +552,7 @@ struct MealRow: View {
                 Text(Fmt.kcal(meal.kcal))
                     .font(NBFont.dot(700, 14)).tracking(0.02 * 14)
                     .foregroundStyle(NB.text1)
-                Text("\(meal.protein) G PRO")
+                Text(L("%d G PRO", meal.protein))
                     .font(NBFont.dot(500, 11)).tracking(0.02 * 11)
                     .foregroundStyle(Color(hex: 0x8A8A96))
             }
@@ -568,12 +569,12 @@ struct OpenSlotRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text("OPEN")
+            Text(L("OPEN"))
                 .font(NBFont.ui(500, 10)).tracking(0.1 * 10)
                 .foregroundStyle(lit ? NB.ember2 : NB.white.opacity(0.28))
                 .frame(width: 44, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
-                Text(slot.rawValue)
+                Text(L(slot.rawValue))
                     .font(NBFont.ui(600, 13))
                     .foregroundStyle(lit ? NB.emberPale : NB.white.opacity(0.42))
                 Text(hint)
@@ -640,11 +641,11 @@ struct BalanceAxis: View {
                     Capsule().fill(NB.white)
                         .frame(width: 2.5, height: 20)
                         .offset(x: x(now ?? 0, w) - 1.25, y: 18)
-                    Text("\(Fmt.signedKcal(now)) NOW")
+                    Text(L("%@ NOW", Fmt.signedKcal(now)))
                         .font(NBFont.dot(700, 10)).tracking(0.02 * 10)
                         .foregroundStyle(NB.text1)
                         .offset(x: max(0, x(now ?? 0, w) - 22), y: 0)
-                    Text("\(Fmt.signedKcal(ifBudget)) EST")
+                    Text(L("%@ EST", Fmt.signedKcal(ifBudget)))
                         .font(NBFont.dot(700, 10)).tracking(0.02 * 10)
                         .foregroundStyle(NB.ember1)
                         .offset(x: max(0, x(ifBudget, w) - 18), y: 38)
@@ -772,19 +773,19 @@ struct EditMealSheet: View {
                     .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous)
                         .stroke(NB.hairline, lineWidth: 1))
-                Text("KCAL")
+                Text(L("KCAL"))
                     .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
             }
 
-            Text("EDITING RECOMPUTES THIS USER DAY. RANGE IS THE LAST 7 DAYS.")
+            Text(L("EDITING RECOMPUTES THIS USER DAY. RANGE IS THE LAST 7 DAYS."))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .foregroundStyle(NB.text3Prod)
 
             Spacer(minLength: 0)
 
-            LimePillButton(title: "Save") {
+            LimePillButton(title: L("Save")) {
                 data.updateMeal(entry.id, kcal: Double(kcal) ?? entry.kcal, text: text)
                 dismiss()
             }
@@ -793,7 +794,7 @@ struct EditMealSheet: View {
                 data.deleteMeal(entry.id)
                 dismiss()
             } label: {
-                Text("Delete this entry")
+                Text(L("Delete this entry"))
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.alert2)
                     .frame(maxWidth: .infinity)

@@ -14,7 +14,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
     case heart, sleep, hrv, stress, temp, steps, distance, active
 
     /// What `DetailScroll` prints — the board's own `‹ VITALS · HEART`.
-    var title: String { "VITALS · \(shortName)" }
+    var title: String { L("VITALS · %@", L(shortName)) }
 
     /// The card's label on page two, which is also the board's nav word.
     var shortName: String {
@@ -56,14 +56,14 @@ enum VitalsMetric: String, Hashable, CaseIterable {
     /// The board's hero eyebrow: what the number was measured by, not what it means.
     var sensor: String {
         switch self {
-        case .heart:    "OPTICAL PPG SENSOR"
-        case .sleep:    "OVERNIGHT STAGING"
-        case .hrv:      "RMSSD AUTONOMIC TONE"
-        case .stress:   "PHYSIOLOGICAL STRAIN"
-        case .temp:     "SKIN BASELINE OFFSET"
-        case .steps:    "DAILY CADENCE ACCUMULATED"
-        case .distance: "SPATIAL DISPLACEMENT"
-        case .active:   "DAILY METABOLIC BURN"
+        case .heart:    L("OPTICAL PPG SENSOR")
+        case .sleep:    L("OVERNIGHT STAGING")
+        case .hrv:      L("RMSSD AUTONOMIC TONE")
+        case .stress:   L("PHYSIOLOGICAL STRAIN")
+        case .temp:     L("SKIN BASELINE OFFSET")
+        case .steps:    L("DAILY CADENCE ACCUMULATED")
+        case .distance: L("SPATIAL DISPLACEMENT")
+        case .active:   L("DAILY METABOLIC BURN")
         }
     }
 
@@ -71,14 +71,14 @@ enum VitalsMetric: String, Hashable, CaseIterable {
     /// drawn against, named so a flat line cannot be mistaken for a rescaled one.
     var chartTitle: String {
         switch self {
-        case .heart:    "LAST 24H TELEMETRY"
-        case .sleep:    "STAGES HYPNOGRAM"
-        case .hrv:      "LAST 24H RMSSD SCATTER"
-        case .stress:   "LAST 24H AUTONOMIC LOAD"
-        case .temp:     "LAST 24H BASELINE DEVIATION"
-        case .steps:    "TODAY'S CADENCE HISTOGRAM"
-        case .distance: "TODAY'S DISTANCE CLIMB"
-        case .active:   "TODAY'S METABOLIC BURN"
+        case .heart:    L("LAST 24H TELEMETRY")
+        case .sleep:    L("STAGES HYPNOGRAM")
+        case .hrv:      L("LAST 24H RMSSD SCATTER")
+        case .stress:   L("LAST 24H AUTONOMIC LOAD")
+        case .temp:     L("LAST 24H BASELINE DEVIATION")
+        case .steps:    L("TODAY'S CADENCE HISTOGRAM")
+        case .distance: L("TODAY'S DISTANCE CLIMB")
+        case .active:   L("TODAY'S METABOLIC BURN")
         }
     }
 
@@ -99,11 +99,11 @@ enum VitalsMetric: String, Hashable, CaseIterable {
     var periodLabel: String {
         switch timeline {
         case .lastNight:
-            "LAST NIGHT"
+            L("LAST NIGHT")
         case .rolling24Hours:
-            "LAST 24H"
+            L("LAST 24H")
         case .userDayToNow:
-            "TODAY · 04→NOW"
+            L("TODAY · 04→NOW")
         }
     }
 

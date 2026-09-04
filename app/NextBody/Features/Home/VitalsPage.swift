@@ -71,7 +71,7 @@ struct VitalsPage: View {
         }
         .frame(width: width)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Vitals, page two")
+        .accessibilityLabel(L("Vitals, page two"))
     }
 
     /// ADR-0001 · a card presses like the strip's do: `HotZoneTap` retires the tap the moment
@@ -85,10 +85,10 @@ struct VitalsPage: View {
     // MARK: cards
 
     private var sleepCard: some View {
-        InstrumentCard(label: "SLEEP", tag: "LAST NIGHT", tint: NB.violet1,
+        InstrumentCard(label: L("SLEEP"), tag: L("LAST NIGHT"), tint: NB.violet1,
                        height: cardHeight,
                        value: m.sleep.map { Fmt.duration($0.totalMinutes) }, unit: nil,
-                       foot: m.sleep.map { "DEEP \(Fmt.duration($0.deepMinutes)) · \($0.wakeCount) WAKES" } ?? "NO NIGHT YET") {
+                       foot: m.sleep.map { L("DEEP %@ · %d WAKES", Fmt.duration($0.deepMinutes), $0.wakeCount) } ?? L("NO NIGHT YET")) {
             if let s = m.sleep { SleepStrip(sleep: s, tint: NB.violet1) }
         }
     }
@@ -99,10 +99,10 @@ struct VitalsPage: View {
         // 04B F5 · DAY ONE. No tick has ever landed: the number is ——, the curve is not
         // drawn, and the card says so in words — an empty page, not a zeroed one.
         let dayOne = vitals.at == nil && ticks.isEmpty
-        return InstrumentCard(label: "HEART", tag: "NOW", tint: NB.lime1,
+        return InstrumentCard(label: L("HEART"), tag: L("NOW"), tint: NB.lime1,
                               height: cardHeight,
                               value: gone ? nil : vitals.hr.map(String.init), unit: "BPM",
-                              foot: "RESTING \(Fmt.int(resting)) · PEAK \(Fmt.int(peak))",
+                              foot: L("RESTING %@ · PEAK %@", Fmt.int(resting), Fmt.int(peak)),
                               dim: dim,
                               // 04B F3 · GONE keeps the unit, greyed with the dash — the
                               // number is missing, the instrument is not.
@@ -131,12 +131,12 @@ struct VitalsPage: View {
         // ⚠️ Never retried from here: an empty library re-read is empty again, at the
         // band's battery.
         let notSynced = !syncedOnce && n == nil
-        return InstrumentCard(label: "HRV", tag: "LAST NIGHT", tint: NB.blue1,
+        return InstrumentCard(label: L("HRV"), tag: L("LAST NIGHT"), tint: NB.blue1,
                               height: cardHeight,
                               value: n?.hrv.map { String(Int($0.rounded())) }, unit: "MS",
                               foot: values.isEmpty
-                                  ? "BASE \(base.map { String(Int($0.rounded())) } ?? Fmt.dash) · \(n?.hrvNights ?? 0)/14 NIGHTS"
-                                  : "BASE \(base.map { String(Int($0.rounded())) } ?? Fmt.dash) · LOW \(Int(values.min()!.rounded())) · HIGH \(Int(values.max()!.rounded()))",
+                                  ? L("BASE %@ · %d/14 NIGHTS", base.map { String(Int($0.rounded())) } ?? Fmt.dash, n?.hrvNights ?? 0)
+                                  : L("BASE %@ · LOW %d · HIGH %d", base.map { String(Int($0.rounded())) } ?? Fmt.dash, Int(values.min()!.rounded()), Int(values.max()!.rounded())),
                               status: notSynced ? ("NOT SYNCED YET", "SYNC RUNS ON OPEN") : nil) {
             DaySpark(samples: ticks, day: day, value: \.hrv,
                      low: lo, high: hi, tint: NB.blue1)
@@ -146,10 +146,10 @@ struct VitalsPage: View {
     private var stressCard: some View {
         let bins = VitalsMath.halfHourMean(ticks, day: day, value: { $0.stress.map(Double.init) })
         let peak = VitalsMath.peak(bins)
-        return InstrumentCard(label: "STRESS", tag: "TODAY", tint: NB.ember1,
+        return InstrumentCard(label: L("STRESS"), tag: L("TODAY"), tint: NB.ember1,
                               height: cardHeight,
-                              value: gone ? nil : vitals.stress.map(String.init), unit: "/100 NOW",
-                              foot: peak.map { "PEAK \(Int($0.value.rounded())) AT \(VitalsMath.clock(day: day, minute: $0.index * 30))" } ?? "NO TICKS YET",
+                              value: gone ? nil : vitals.stress.map(String.init), unit: L("/100 NOW"),
+                              foot: peak.map { L("PEAK %d AT %@", Int($0.value.rounded()), VitalsMath.clock(day: day, minute: $0.index * 30)) } ?? L("NO TICKS YET"),
                               dim: dim, unitWhenEmpty: gone) {
             FineBars(values: bins, tint: NB.ember1, highlight: { $0 > 60 })
         }
@@ -158,11 +158,11 @@ struct VitalsPage: View {
     private var tempCard: some View {
         let temps = ticks.compactMap(\.temp)
         let last = gone ? nil : ticks.last(where: { $0.temp != nil })?.temp
-        return InstrumentCard(label: "TEMP", tag: "NOW", tint: NB.cyan1,
+        return InstrumentCard(label: L("TEMP"), tag: L("NOW"), tint: NB.cyan1,
                               height: cardHeight,
-                              value: last.map { String(format: "%.1f", $0) }, unit: "°C SKIN",
-                              foot: temps.isEmpty ? "NO TICKS YET"
-                                  : String(format: "LOW %.1f · HIGH %.1f", temps.min()!, temps.max()!),
+                              value: last.map { String(format: "%.1f", $0) }, unit: L("°C SKIN"),
+                              foot: temps.isEmpty ? L("NO TICKS YET")
+                                  : L("LOW %.1f · HIGH %.1f", temps.min()!, temps.max()!),
                               dim: dim, unitWhenEmpty: gone) {
             DaySpark(samples: ticks, day: day, value: \.temp, low: 35.5, high: 37.0, tint: NB.cyan1)
         }
@@ -172,10 +172,10 @@ struct VitalsPage: View {
         let bins = VitalsMath.hourSum(ticks, day: day, value: { $0.steps.map(Double.init) })
         let total = m.steps.map(Double.init) ?? VitalsMath.total(bins)
         let peak = VitalsMath.peak(bins)
-        return InstrumentCard(label: "STEPS", tag: "TODAY", tint: NB.optimal2,
+        return InstrumentCard(label: L("STEPS"), tag: L("TODAY"), tint: NB.optimal2,
                               height: cardHeight,
                               value: total.map { Fmt.kcal($0) }, unit: nil,
-                              foot: peak.map { "PEAK \(Fmt.kcal($0.value)) AT \(VitalsMath.clock(day: day, minute: $0.index * 60))" } ?? "NO TICKS YET") {
+                              foot: peak.map { L("PEAK %@ AT %@", Fmt.kcal($0.value), VitalsMath.clock(day: day, minute: $0.index * 60)) } ?? L("NO TICKS YET")) {
             HourBars(values: bins, tint: NB.optimal2)
         }
     }
@@ -184,10 +184,10 @@ struct VitalsPage: View {
         let bins = VitalsMath.hourSum(ticks, day: day, value: \.dis)
         let metres = m.distanceM.map(Double.init) ?? VitalsMath.total(bins)
         let peak = VitalsMath.peak(bins)
-        return InstrumentCard(label: "DISTANCE", tag: "TODAY", tint: NB.violetPink,
+        return InstrumentCard(label: L("DISTANCE"), tag: L("TODAY"), tint: NB.violetPink,
                               height: cardHeight,
                               value: metres.map { String(format: "%.1f", $0 / 1000) }, unit: "KM",
-                              foot: peak.map { String(format: "%.1f KM AT %@", $0.value / 1000, VitalsMath.clock(day: day, minute: $0.index * 60)) } ?? "NO TICKS YET") {
+                              foot: peak.map { L("%.1f KM AT %@", $0.value / 1000, VitalsMath.clock(day: day, minute: $0.index * 60)) } ?? L("NO TICKS YET")) {
             HourBars(values: bins, tint: NB.violetPink)
         }
     }
@@ -196,10 +196,10 @@ struct VitalsPage: View {
         let bins = VitalsMath.hourSum(ticks, day: day, value: \.cal)
         let kcal = m.eActive ?? VitalsMath.total(bins)
         let peak = VitalsMath.peak(bins)
-        return InstrumentCard(label: "ACTIVE", tag: "TODAY", tint: NB.run1,
+        return InstrumentCard(label: L("ACTIVE ENERGY"), tag: L("TODAY"), tint: NB.run1,
                               height: cardHeight,
                               value: kcal.map { Fmt.kcal($0) }, unit: "KCAL",
-                              foot: peak.map { "PEAK \(VitalsMath.clock(day: day, minute: $0.index * 60)) · \(Fmt.kcal($0.value)) KCAL" } ?? "NO TICKS YET") {
+                              foot: peak.map { L("PEAK %@ · %@ KCAL", VitalsMath.clock(day: day, minute: $0.index * 60), Fmt.kcal($0.value)) } ?? L("NO TICKS YET")) {
             HourBars(values: bins, tint: NB.run1)
         }
     }
@@ -207,13 +207,13 @@ struct VitalsPage: View {
     // MARK: foot
 
     private var footLine: String {
-        guard let at = vitals.at else { return "NO TICKS YET · FIRST SYNC DRAWS THE LINE" }
+        guard let at = vitals.at else { return L("NO TICKS YET · FIRST SYNC DRAWS THE LINE") }
         let age = VitalsMath.age(of: at)
-        var line = freshness == .stale ? "SYNCED \(Fmt.clock(at)) · \(age)"
-                                       : "LAST TICK \(Fmt.clock(at)) · \(age)"
+        var line = freshness == .stale ? L("SYNCED %@ · %@", Fmt.clock(at), age)
+                                       : L("LAST TICK %@ · %@", Fmt.clock(at), age)
         // 04B rule 04 · gaps of an hour or more are named once, here, never on a card.
         if let gap = VitalsMath.offWrist(ticks), gap.minutes >= 60 {
-            line += " · \(Fmt.duration(gap.minutes)) OFF WRIST"
+            line += L(" · %@ OFF WRIST", Fmt.duration(gap.minutes))
         }
         return line
     }
@@ -614,7 +614,7 @@ enum VitalsMath {
     /// "12 MIN AGO" under an hour, "2H 29M AGO" over it. Multiples of one minute, no seconds.
     static func age(of at: Date, now: Date = Date()) -> String {
         let minutes = max(0, Int(now.timeIntervalSince(at) / 60))
-        return minutes < 60 ? "\(minutes) MIN AGO" : "\(Fmt.duration(minutes - minutes % 5)) AGO"
+        return minutes < 60 ? L("%d MIN AGO", minutes) : L("%@ AGO", Fmt.duration(minutes - minutes % 5))
     }
 
     /// 04B rule 04 · the minutes the band recorded nothing between two ticks that both

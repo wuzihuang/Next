@@ -213,7 +213,7 @@ private struct ChatTopBarView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text("DIAGNOSTIC TERMINAL")
+                    Text(L("DIAGNOSTIC TERMINAL"))
                         .font(NBFont.dot(700, 13))
                         .tracking(0.06 * 13)
                         .foregroundStyle(NB.text1)
@@ -221,7 +221,7 @@ private struct ChatTopBarView: View {
                         .fill(NB.lime1)
                         .frame(width: 7, height: 7)
                 }
-                Text("LINKED: VEEPOO-BAND · PPG 50HZ")
+                Text(L("LINKED: VEEPOO-BAND · PPG 50HZ"))
                     .font(NBFont.dot(500, 10))
                     .tracking(0.04 * 10)
                     .foregroundStyle(NB.lime1)
@@ -234,7 +234,7 @@ private struct ChatTopBarView: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(NB.lime1)
-                    Text(AppLanguage.isEnglish ? "HISTORY" : "历史记录")
+                    Text(L("HISTORY"))
                         .font(NBFont.dot(700, 11))
                         .tracking(0.04 * 11)
                         .foregroundStyle(NB.text1)
@@ -280,7 +280,7 @@ private struct UserBubbleView: View {
                     Text(formatTime(message.at))
                         .font(NBFont.dot(400, 10))
                         .foregroundStyle(NB.text3Prod)
-                    Text("· DELIVERED")
+                    Text(L("· DELIVERED"))
                         .font(NBFont.dot(500, 10))
                         .foregroundStyle(NB.text3Prod)
                 }
@@ -367,12 +367,12 @@ private struct AiTelemetryCardView: View {
     private func telemetryTable(_ metrics: [TelemetryMetricItem]) -> some View {
         VStack(spacing: 8) {
             HStack {
-                Text("TELEMETRY METRICS")
+                Text(L("TELEMETRY METRICS"))
                     .font(NBFont.dot(600, 10))
                     .tracking(0.06 * 10)
                     .foregroundStyle(NB.text3Prod)
                 Spacer()
-                Text("DELTA (14D)")
+                Text(L("DELTA (14D)"))
                     .font(NBFont.dot(600, 10))
                     .tracking(0.06 * 10)
                     .foregroundStyle(NB.text3Prod)
@@ -402,7 +402,7 @@ private struct AiTelemetryCardView: View {
 
     private func prescriptionsList(_ list: [String]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(AppLanguage.isEnglish ? "PRESCRIPTION · ACTION STEPS:" : "PRESCRIPTION · 处方调整：")
+            Text(L("PRESCRIPTION · ACTION STEPS:"))
                 .font(NBFont.dot(700, 11))
                 .tracking(0.04 * 11)
                 .foregroundStyle(NB.lime1)
@@ -428,7 +428,7 @@ private struct ThinkingStatusView: View {
                 Circle()
                     .fill(NB.lime1)
                     .frame(width: 7, height: 7)
-                Text("SYNCHRONIZING BAND SENSORS...")
+                Text(L("SYNCHRONIZING BAND SENSORS..."))
                     .font(NBFont.dot(600, 11))
                     .tracking(0.04 * 11)
                     .foregroundStyle(NB.lime1)
@@ -477,9 +477,9 @@ private struct ChatBottomDockView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 Button {
-                    onQuickPrompt(AppLanguage.isEnglish ? "Evaluate next week's deload training schedule" : "评估下周减量训练排期")
+                    onQuickPrompt(L("Evaluate next week's deload training schedule"))
                 } label: {
-                    Text(AppLanguage.isEnglish ? "[CMD: ADJUST PLAN]" : "[CMD: 调整训练计划]")
+                    Text(L("[CMD: ADJUST PLAN]"))
                         .font(NBFont.dot(600, 11))
                         .tracking(0.03 * 11)
                         .foregroundStyle(NB.lime1)
@@ -491,9 +491,9 @@ private struct ChatBottomDockView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    onQuickPrompt(AppLanguage.isEnglish ? "Correlate sleep stages with nocturnal HRV" : "比对夜间睡眠分期与HRV")
+                    onQuickPrompt(L("Correlate sleep stages with nocturnal HRV"))
                 } label: {
-                    Text(AppLanguage.isEnglish ? "[CMD: SLEEP CORRELATION]" : "[CMD: 交叉比对睡眠曲线]")
+                    Text(L("[CMD: SLEEP CORRELATION]"))
                         .font(NBFont.dot(500, 11))
                         .tracking(0.03 * 11)
                         .foregroundStyle(NB.text2)
@@ -515,7 +515,7 @@ private struct ChatBottomDockView: View {
                 .frame(width: 40, height: 40)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            Text(AppLanguage.isEnglish ? "Photo attached ready for analysis" : "已附带照片，可进行生理动作分析")
+            Text(L("Photo attached ready for analysis"))
                 .font(NBFont.ui(400, 13))
                 .foregroundStyle(NB.text1)
 
@@ -551,7 +551,7 @@ private struct ChatBottomDockView: View {
             TextField(
                 "",
                 text: $inputText,
-                prompt: Text(AppLanguage.isEnglish ? "Ask advice, command or attach photo..." : "探讨方案，或发照片诊断分析...")
+                prompt: Text(L("Ask advice, command or attach photo..."))
                     .font(NBFont.brand(400, 14))
                     .foregroundColor(NB.text3Prod)
             )

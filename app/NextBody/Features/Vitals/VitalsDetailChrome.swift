@@ -189,7 +189,7 @@ struct VitalsSplit: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if present.isEmpty || total <= 0 {
-                Text("NO TICKS YET")
+                Text(L("NO TICKS YET"))
                     .font(NBFont.dot(500, 10)).tracking(0.05 * 10)
                     .foregroundStyle(NB.macroValue)
             } else {

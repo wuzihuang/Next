@@ -1,7 +1,12 @@
 import SwiftUI
+import UIKit
 
 /// The three families the design file loads: Jost (UI), Inter Tight (brand), Doto (dot-matrix numerals).
+/// Chinese has no glyphs in those cuts, so Fusion Pixel (12px proportional zh_hans) is the
+/// CJK cascade — and the primary face for UI/brand copy when the app language is Chinese.
 enum NBFont {
+    static let cjkPixel = "Fusion-Pixel-12px-Prop-zh_hans-Regular"
+
     enum Family: String {
         case ui = "Jost"
         case brand = "InterTight"
@@ -27,7 +32,23 @@ enum NBFont {
         // xLarge cap RootView sets. fixedSize froze every screen at 1.0×, which is stricter
         // than the ruling — 「允许到 xLarge；再大冻结」 — and quietly stopped the largest
         // standard size from being honoured at all.
-        .custom("\(family.rawValue)-\(style(weight, family: family))", size: size)
+        let latin = "\(family.rawValue)-\(style(weight, family: family))"
+        if AppLanguage.shared.usesCJKFont && family != .dot {
+            return cascaded(primary: cjkPixel, fallback: latin, size: size)
+        }
+        return cascaded(primary: latin, fallback: cjkPixel, size: size)
+    }
+
+    private static func cascaded(primary: String, fallback: String, size: CGFloat) -> Font {
+        let base = UIFont(name: primary, size: size)
+            ?? UIFont.systemFont(ofSize: size, weight: .medium)
+        guard let fallbackFont = UIFont(name: fallback, size: size) else {
+            return Font(base)
+        }
+        let descriptor = base.fontDescriptor.addingAttributes([
+            UIFontDescriptor.AttributeName.cascadeList: [fallbackFont.fontDescriptor]
+        ])
+        return Font(UIFont(descriptor: descriptor, size: size))
     }
 
     static func ui(_ weight: Int, _ size: CGFloat) -> Font { named(.ui, weight, size) }

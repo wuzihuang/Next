@@ -31,7 +31,7 @@ struct ContactNudgeSheet: View {
             .frame(width: 260, height: 132)
             .padding(.top, 14)
 
-            Text("Rest it on the metal key at the band's side. Skin, not a nail or a sleeve — let it rest, don't press.")
+            Text(L("Rest it on the metal key at the band's side. Skin, not a nail or a sleeve — let it rest, don't press."))
                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13).lineSpacing(4)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white.opacity(0.55))

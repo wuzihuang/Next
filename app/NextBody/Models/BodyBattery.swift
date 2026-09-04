@@ -72,7 +72,7 @@ enum ChargeForecast {
         // Condition four: the same estimate one tick ago must land within 45 minutes.
         if let before = estimate(curve, endingAt: curve.count - 2),
            abs(now.timeIntervalSince(before)) > 45 * 60 { return nil }
-        return "CHARGING WHILE YOU WIND DOWN · FULL \(Fmt.clock(now))"
+        return L("CHARGING WHILE YOU WIND DOWN · FULL %@", Fmt.clock(now))
     }
 
     /// The instant the reserve reaches 100, or nil if any of the first three conditions fails.

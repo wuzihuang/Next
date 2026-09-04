@@ -23,11 +23,9 @@ enum MedicalStop {
 
     /// S7's fixed frame. It is a legal envelope like any other — the panel never goes empty.
     static var frame: PanelWidget {
-        PanelWidget(type: .text, title: "NOT A DOCTOR", tag: .alert,
-                    sentence: AppLanguage.isEnglish
-                        ? "That is a question for a doctor. This screen only reports what was measured."
-                        : "这类问题请找医生。这块屏只报告测量到的数字。",
-                    footer: "NEXTBODY IS NOT A MEDICAL DEVICE",
+        PanelWidget(type: .text, title: L("NOT A DOCTOR"), tag: .alert,
+                    sentence: L("That is a question for a doctor. This screen only reports what was measured."),
+                    footer: L("NEXTBODY IS NOT A MEDICAL DEVICE"),
                     action: nil, targetOverride: .profile, data: .none, priority: .alert)
     }
 }

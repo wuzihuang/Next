@@ -19,8 +19,8 @@ struct ProfileSheet: View {
             case .language:      LanguageSheet()
             case .appleHealth:   AppleHealthSheet()
             case .export:        ExportSheet()
-            case .privacy:       LegalSheet(title: "Privacy policy", body: Self.privacyText)
-            case .about:         LegalSheet(title: "Terms of service", body: Self.termsText)
+            case .privacy:       LegalSheet(title: L("Privacy policy"), body: L(Self.privacyText))
+            case .about:         LegalSheet(title: L("Terms of service"), body: L(Self.termsText))
             case .deleteAccount: DeleteAccountSheet()
             case .signOut:       SignOutSheet()
             default:             EmptyView()
@@ -58,19 +58,19 @@ struct PersonalInfoSheet: View {
     @State private var phone = "+1 415 ••• 0192"
 
     var body: some View {
-        SheetFrame(title: "Your details") {
+        SheetFrame(title: L("Your details")) {
             VStack(spacing: 10) {
-                FieldBox(label: "Name", text: $name)
-                FieldBox(label: "Email", text: $email, badge: "VERIFIED")
-                FieldBox(label: "Phone", text: $phone)
+                FieldBox(label: L("Name"), text: $name)
+                FieldBox(label: L("Email"), text: $email, badge: L("VERIFIED"))
+                FieldBox(label: L("Phone"), text: $phone)
             }
-            Text("Tap any field to change it")
+            Text(L("Tap any field to change it"))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
                 .frame(maxWidth: .infinity)
                 .padding(.top, 6)
         } footer: {
-            LimePillButton(title: "Save") {
+            LimePillButton(title: L("Save")) {
                 data.profile.name = name
                 data.profile.email = email
                 let saved = data.profile
@@ -94,7 +94,7 @@ struct TrainingGoalSheet: View {
     ]
 
     var body: some View {
-        SheetFrame(title: "Training goal") {
+        SheetFrame(title: L("Training goal")) {
             VStack(spacing: 10) {
                 ForEach(Self.options, id: \.0) { g, title, sub in
                     Button {
@@ -134,7 +134,7 @@ struct TrainingGoalSheet: View {
             }
         } footer: {
             // Today's numbers are already spent; changing the goal cannot rewrite them.
-            Text("Takes effect with tomorrow's numbers")
+            Text(L("Takes effect with tomorrow's numbers"))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
         }
@@ -150,18 +150,18 @@ struct NotificationsSheet: View {
     @EnvironmentObject private var router: Router
 
     var body: some View {
-        SheetFrame(title: "Notifications") {
+        SheetFrame(title: L("Notifications")) {
             VStack(spacing: 0) {
                 // 13 · the morning line. It is the only thing the night is allowed to say.
-                SwitchRow(title: "Morning report", detail: "07:00", isOn: $morning)
-                SwitchRow(title: "Training nudge", detail: "ONLY IF YOU ARE UNDER BY 17:00", isOn: $training)
-                SwitchRow(title: "Sunday report", detail: weekly ? "ON" : "OFF", isOn: $weekly)
-                SwitchRow(title: "Quiet hours", detail: "22:30 → 07:00", isOn: $quiet, last: true)
+                SwitchRow(title: L("Morning report"), detail: L("07:00"), isOn: $morning)
+                SwitchRow(title: L("Training nudge"), detail: L("ONLY IF YOU ARE UNDER BY 17:00"), isOn: $training)
+                SwitchRow(title: L("Sunday report"), detail: weekly ? L("ON") : L("OFF"), isOn: $weekly)
+                SwitchRow(title: L("Quiet hours"), detail: L("22:30 → 07:00"), isOn: $quiet, last: true)
             }
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
         } footer: {
-            Text("Move and drink buzzes live on the HOOP.")
+            Text(L("Move and drink buzzes live on the HOOP."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
         }
@@ -214,10 +214,10 @@ struct UnitsSheet: View {
     @State private var heightUnit = "CM"
 
     var body: some View {
-        SheetFrame(title: "Units & language") {
+        SheetFrame(title: L("Units & language")) {
             VStack(spacing: 0) {
                 HStack {
-                    Text("Weight").font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
+                    Text(L("Weight")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
                     Spacer(minLength: 0)
                     UnitToggle(options: ["KG", "LB"], selection: $weightUnit)
                 }
@@ -225,7 +225,7 @@ struct UnitsSheet: View {
                 .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
 
                 HStack {
-                    Text("Height").font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
+                    Text(L("Height")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
                     Spacer(minLength: 0)
                     UnitToggle(options: ["CM", "FT"], selection: $heightUnit)
                 }
@@ -233,9 +233,9 @@ struct UnitsSheet: View {
                 .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
 
                 HStack {
-                    Text("Language").font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
+                    Text(L("Language")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
                     Spacer(minLength: 0)
-                    Text("English")
+                    Text(AppLanguage.shared.locale.nativeName)
                         .font(NBFont.ui(400, 13))
                         .foregroundStyle(NB.text3Prod)
                     Chevron()
@@ -245,7 +245,7 @@ struct UnitsSheet: View {
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
         } footer: {
-            Text("Changes everywhere, straight away")
+            Text(L("Changes everywhere, straight away"))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
         }
@@ -259,30 +259,29 @@ struct UnitsSheet: View {
 
 struct LanguageSheet: View {
     @Environment(\.dismiss) private var dismiss
-    private let languages = ["English", "简体中文"]
-    @AppStorage("nb.language") private var selected = "English"
+    @ObservedObject private var language = AppLanguage.shared
 
     var body: some View {
-        SheetFrame(title: "Language") {
+        SheetFrame(title: L("Language")) {
             VStack(spacing: 0) {
-                ForEach(languages, id: \.self) { l in
-                    Button { selected = l; AppLanguage.sync(); dismiss() } label: {
+                ForEach(AppLocale.allCases) { loc in
+                    Button { language.set(loc); dismiss() } label: {
                         HStack {
-                            Text(l).font(NBFont.ui(500, 15)).foregroundStyle(NB.text1)
+                            Text(loc.nativeName).font(NBFont.ui(500, 15)).foregroundStyle(NB.text1)
                             Spacer(minLength: 0)
-                            if selected == l { Circle().fill(NB.lime1).frame(width: 10, height: 10) }
+                            if language.locale == loc { Circle().fill(NB.lime1).frame(width: 10, height: 10) }
                         }
                         .padding(.horizontal, 16).frame(height: 58)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .overlay(alignment: .bottom) { l == languages.last ? nil : Hairline().padding(.leading, 16) }
+                    .overlay(alignment: .bottom) { loc == AppLocale.allCases.last ? nil : Hairline().padding(.leading, 16) }
                 }
             }
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
         } footer: {
-            Text("The screen answers in this language. Metric names stay as they are.")
+            Text(L("The screen answers in this language. Metric names stay as they are."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white.opacity(0.38))
@@ -296,13 +295,13 @@ struct AppleHealthSheet: View {
     @EnvironmentObject private var data: DataStore
 
     var body: some View {
-        SheetFrame(title: "Apple Health") {
+        SheetFrame(title: L("Apple Health")) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 14) {
                     Circle().fill(data.profile.appleHealthLinked ? NB.optimal2 : NB.ember1)
                         .accessibilityLabel(data.profile.appleHealthLinked ? "Connected" : "Needs you")
                         .frame(width: 8, height: 8)
-                    Text(data.profile.appleHealthLinked ? "SYNCED" : "NOT CONNECTED")
+                    Text(data.profile.appleHealthLinked ? L("SYNCED") : L("NOT CONNECTED"))
                         .font(NBFont.dot(700, 12)).tracking(0.16 * 12)
                         .foregroundStyle(data.profile.appleHealthLinked ? NB.optimal2 : NB.ember1)
                     Spacer(minLength: 0)
@@ -310,11 +309,11 @@ struct AppleHealthSheet: View {
                 // ⚠️ Board 11 said "and write back the weigh-ins you enter by hand". The consent
                 // screen (later, and the legal one) says "We never write anything back to Apple
                 // Health", and the app does not — so this sentence follows the consent board.
-                Text("We read your sex, date of birth, height and weight. Nothing is ever written back.")
+                Text(L("We read your sex, date of birth, height and weight. Nothing is ever written back."))
                     .font(NBFont.brand(400, 14))
                     .lineSpacing(7)
                     .foregroundStyle(NB.text2)
-                Text("A blank read means nothing came back — not that you refused.")
+                Text(L("A blank read means nothing came back — not that you refused."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -350,19 +349,19 @@ struct ExportSheet: View {
     @State private var failed = false
 
     var body: some View {
-        SheetFrame(title: "Export my data") {
+        SheetFrame(title: L("Export my data")) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Everything this account holds, assembled here. It goes nowhere until you send it.")
+                Text(L("Everything this account holds, assembled here. It goes nowhere until you send it."))
                     .font(NBFont.brand(400, 14))
                     .lineSpacing(7)
                     .foregroundStyle(NB.text2)
 
                 if failed {
-                    Text("Could not reach the server. Nothing was exported.")
+                    Text(L("Could not reach the server. Nothing was exported."))
                         .font(NBFont.ui(400, 12)).tracking(0.02 * 12)
                         .foregroundStyle(NB.alert2)
                 } else if counts.isEmpty {
-                    Text("ASSEMBLING …")
+                    Text(L("ASSEMBLING …"))
                         .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
                         .foregroundStyle(NB.text3Prod)
                 } else {
@@ -384,7 +383,7 @@ struct ExportSheet: View {
                 }
             }
         } footer: {
-            Text("SENDING IT ON IS NOT IN THIS BUILD — THE COMPLIANCE ROUTE IS UNDECIDED")
+            Text(L("SENDING IT ON IS NOT IN THIS BUILD — THE COMPLIANCE ROUTE IS UNDECIDED"))
                 .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.text3Prod)
@@ -443,14 +442,14 @@ struct DeleteAccountSheet: View {
     /// counts off the server, and each one stays "——" until it arrives rather than guessing.
     private var losses: String {
         let w = weighIns.map(String.init) ?? Fmt.dash
-        let c = weeks.map { "\($0) weeks" } ?? Fmt.dash
-        let n = nights.map { "\($0) nights" } ?? Fmt.dash
-        return "\(w) weigh-ins, \(c) of composition and \(n) you have slept in it go with it. The HOOP unpairs itself. There is no undo."
+        let c = weeks.map { L("%d weeks", $0) } ?? Fmt.dash
+        let n = nights.map { L("%d nights", $0) } ?? Fmt.dash
+        return L("%@ weigh-ins, %@ of composition and %@ you have slept in it go with it. The HOOP unpairs itself. There is no undo.", w, c, n)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Delete your account?")
+            Text(L("Delete your account?"))
                 .font(NBFont.ui(500, 24)).tracking(0.01 * 24)
                 .foregroundStyle(NB.text1)
             Text(losses)
@@ -466,12 +465,12 @@ struct DeleteAccountSheet: View {
 
             Spacer(minLength: 0)
 
-            LimePillButton(title: "Keep my account") { dismiss() }
+            LimePillButton(title: L("Keep my account")) { dismiss() }
 
             Button {
                 Task { await deleteEverything() }
             } label: {
-                Text("DELETE EVERYTHING")
+                Text(L("DELETE EVERYTHING"))
                     .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
                     .foregroundStyle(NB.alert2)
                     .frame(width: NB.Layout.contentWidth, height: 52)
@@ -527,7 +526,8 @@ struct DeleteAccountSheet: View {
     static func failureCopy(ref: String) -> String {
         var h: UInt32 = 2166136261
         for b in ref.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
-        return String(format: "DELETION FAILED\nNothing was removed. Your account is exactly as it was. Try again, or write to us.\nREF %04X-%02X", h & 0xFFFF, (h >> 16) & 0xFF)
+        let ref = String(format: "%04X-%02X", h & 0xFFFF, (h >> 16) & 0xFF)
+        return L("DELETION FAILED\nNothing was removed. Your account is exactly as it was. Try again, or write to us.\nREF %@", ref)
     }
 }
 
@@ -536,20 +536,20 @@ struct SignOutSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        SheetFrame(title: "Sign out?") {
+        SheetFrame(title: L("Sign out?")) {
             // 11 edge 4 · not the same as delete, and it has to say so on the spot.
-            Text("The HOOP stays paired and keeps recording.\nYour data comes back when you sign in.")
+            Text(L("The HOOP stays paired and keeps recording.\nYour data comes back when you sign in."))
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(7)
                 .foregroundStyle(NB.text2)
         } footer: {
             VStack(spacing: 14) {
-                LimePillButton(title: "Stay signed in") { dismiss() }
+                LimePillButton(title: L("Stay signed in")) { dismiss() }
                 Button {
                     session.reset()
                     dismiss()
                 } label: {
-                    Text("Sign out")
+                    Text(L("Sign out"))
                         .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                         .foregroundStyle(NB.text3Prod)
                 }

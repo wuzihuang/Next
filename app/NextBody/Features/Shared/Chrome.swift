@@ -55,7 +55,7 @@ struct Wordmark: View {
     var size: CGFloat = 24
     var body: some View {
         HStack(spacing: 7) {
-            Text("NEXTBODY")
+            Text(L("NEXTBODY"))
                 .font(NBFont.brand(800, size))
                 .tracking(-0.01 * size)
                 .foregroundStyle(NB.text1)
@@ -159,7 +159,7 @@ struct AvatarButton: View {
                 .padding(-max(0, (44 - size) / 2))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Profile")
+        .accessibilityLabel(L("Profile"))
     }
 }
 
@@ -184,13 +184,12 @@ struct HomeHeader: View {
     /// ⚠️ One formatter for the process. Building a DateFormatter costs milliseconds, and
     /// this line was rebuilding one on every pass of the header — which re-renders with
     /// every battery tick and every store change behind it.
-    private static let dayFormatter: DateFormatter = {
+    private var dayLine: String {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "EEE · d MMM"
-        return f
-    }()
-    private var dayLine: String { Self.dayFormatter.string(from: Date()).uppercased() }
+        f.locale = AppLanguage.shared.swiftLocale
+        f.dateFormat = AppLanguage.shared.isEnglish ? "EEE · d MMM" : "EEE · M月d日"
+        return f.string(from: Date()).uppercased()
+    }
 
     private var pipLabel: String {
         let level = batteryPercent.map { "Band · battery \($0)%" } ?? "Band · battery not read"
@@ -453,7 +452,7 @@ struct DetailScroll<Trailing: View, Content: View>: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Back")
+            .accessibilityLabel(L("Back"))
             .position(x: hitW / 2, y: mix(startY, endY, t))
         }
     }

@@ -17,10 +17,10 @@ struct NotificationPrimer: View {
             NB.carbon.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 18) {
                 Spacer()
-                Text("Every morning HOOP tells you how last night went.")
+                Text(L("Every morning HOOP tells you how last night went."))
                     .font(NBFont.brand(600, 30)).tracking(-0.02 * 30).lineSpacing(4)
                     .foregroundStyle(ink)
-                Text("That's the only thing it will ever notify you about.")
+                Text(L("That's the only thing it will ever notify you about."))
                     .font(NBFont.ui(300, 17)).lineSpacing(8)
                     .foregroundStyle(lede)
                 Spacer().frame(height: 140)
@@ -29,10 +29,10 @@ struct NotificationPrimer: View {
             .frame(width: NB.Layout.screenWidth, alignment: .leading)
 
             VStack(spacing: 12) {
-                LimePillButton(title: "Turn on") { Task { await turnOn() } }
+                LimePillButton(title: L("Turn on")) { Task { await turnOn() } }
                     .frame(width: NB.Layout.contentWidth - 16)
                 Button(action: notNow) {
-                    Text("Not now")
+                    Text(L("Not now"))
                         .font(NBFont.ui(500, 15)).tracking(0.04 * 15)
                         .foregroundStyle(NB.white.opacity(0.55))
                         .frame(width: NB.Layout.contentWidth - 16, height: 44)

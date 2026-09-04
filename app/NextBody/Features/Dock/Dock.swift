@@ -213,7 +213,7 @@ struct Dock: View {
                 // right slot belongs to send. Tapping it only opens the picker; nothing moves.
                 Button(action: onCamera) { CameraGlyph() }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Add a photo")
+                    .accessibilityLabel(L("Add a photo"))
             }
             .padding(.leading, 18)
             .padding(.trailing, 14)

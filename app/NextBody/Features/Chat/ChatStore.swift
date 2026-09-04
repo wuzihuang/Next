@@ -18,7 +18,7 @@ final class ChatStore: ObservableObject {
     }
 
     func startNewSession(initialTitle: String? = nil) {
-        let title = initialTitle ?? (AppLanguage.isEnglish ? "New Consultation" : "新对话咨询")
+        let title = initialTitle ?? (L("New Consultation"))
         let session = ChatSession(
             id: UUID().uuidString,
             title: title,
@@ -80,33 +80,27 @@ final class ChatStore: ObservableObject {
         let verdictLvl: VerdictLevel
 
         if recovery < 40 || hrvVal < 45 {
-            verdictStr = AppLanguage.isEnglish ? "VERDICT: ENTER MANDATORY DELOAD" : "VERDICT: 进入强制减量周"
+            verdictStr = L("VERDICT: ENTER MANDATORY DELOAD")
             verdictTag = "STRAIN OVERLOAD"
             verdictLvl = .alert
         } else if recovery > 75 {
-            verdictStr = AppLanguage.isEnglish ? "VERDICT: PRIME STRAIN STATE" : "VERDICT: 神经状态饱满"
+            verdictStr = L("VERDICT: PRIME STRAIN STATE")
             verdictTag = "OPTIMAL"
             verdictLvl = .optimal
         } else {
-            verdictStr = AppLanguage.isEnglish ? "VERDICT: SUSTAINED BASELINE" : "VERDICT: 维持基线负荷"
+            verdictStr = L("VERDICT: SUSTAINED BASELINE")
             verdictTag = "STEADY"
             verdictLvl = .steady
         }
 
         let analysisText = widget?.sentence ?? (
-            AppLanguage.isEnglish
-                ? "Neuromuscular fatigue detected. PPG frequency spectrum confirms elevated sympathetic tone (LF/HF ratio 3.4 vs 1.2 baseline), accompanied by a 0.35°C nocturnal temperature deviation."
-                : "神经肌肉系统未完全超代偿。PPG 频域分析显示交感神经张力持续占主导（LF/HF 比值 3.4，基准值 1.2），体温波动偏高 0.35°C。"
+            L("Neuromuscular fatigue detected. PPG frequency spectrum confirms elevated sympathetic tone (LF/HF ratio 3.4 vs 1.2 baseline), accompanied by a 0.35°C nocturnal temperature deviation.")
         )
 
-        let prescriptions = AppLanguage.isEnglish ? [
-            "1. Pause heavy squats; swap to 50% 1RM velocity sets or bodyweight mobility.",
-            "2. Shift evening carbohydrate intake to 3h before bed to minimize nocturnal metabolic heat.",
-            "3. Maintain 8h+ sleep for 3 consecutive nights until morning HRV rebounds past 50ms."
-        ] : [
-            "1. 暂停大重量深蹲，降至 50% 1RM 速度组或改徒手动作。",
-            "2. 晚间摄入碳水前置至睡前 3 小时，避免胃肠高代谢干扰深睡。",
-            "3. 连续 3 天维持夜间睡眠在 8h 以上，观察 HRV 是否回升至 50ms。"
+        let prescriptions = [
+            L("1. Pause heavy squats; swap to 50% 1RM velocity sets or bodyweight mobility."),
+            L("2. Shift evening carbohydrate intake to 3h before bed to minimize nocturnal metabolic heat."),
+            L("3. Maintain 8h+ sleep for 3 consecutive nights until morning HRV rebounds past 50ms.")
         ]
 
         let telemetry = CyberTelemetryData(

@@ -30,29 +30,29 @@ struct ConsentScreen: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
                     Button(action: decline) {
-                        Text("‹")
+                        Text(L("‹"))
                             .font(NBFont.brand(400, 24))
                             .foregroundStyle(NB.white.opacity(0.55))
                             .frame(width: 44, height: 44, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Back")
+                    .accessibilityLabel(L("Back"))
                     .padding(.top, Chrome.boardStatusBar - 30)
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(ConsentCopy.eyebrow).font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(eyebrow)
-                        Text(ConsentCopy.title).font(NBFont.brand(600, 34)).tracking(-0.01 * 34).lineSpacing(4).foregroundStyle(ink)
-                        Text(ConsentCopy.lede).font(NBFont.ui(300, 15)).lineSpacing(8).foregroundStyle(lede)
+                        Text(L(ConsentCopy.eyebrow)).font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(eyebrow)
+                        Text(L(ConsentCopy.title)).font(NBFont.brand(600, 34)).tracking(-0.01 * 34).lineSpacing(4).foregroundStyle(ink)
+                        Text(L(ConsentCopy.lede)).font(NBFont.ui(300, 15)).lineSpacing(8).foregroundStyle(lede)
                     }
 
                     ForEach(Array(ConsentCopy.sections.enumerated()), id: \.offset) { _, section in
                         VStack(alignment: .leading, spacing: 14) {
-                            Text(section.head).font(NBFont.dot(600, 10)).tracking(0.24 * 10).foregroundStyle(eyebrow)
+                            Text(L(section.head)).font(NBFont.dot(600, 10)).tracking(0.24 * 10).foregroundStyle(eyebrow)
                             ForEach(Array(section.items.enumerated()), id: \.offset) { _, item in
                                 VStack(alignment: .leading, spacing: 5) {
-                                    Text(item.name).font(NBFont.brand(500, 16)).lineSpacing(6).foregroundStyle(ink)
-                                    Text(item.why).font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(bodyInk)
+                                    Text(L(item.name)).font(NBFont.brand(500, 16)).lineSpacing(6).foregroundStyle(ink)
+                                    Text(L(item.why)).font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(bodyInk)
                                 }
                             }
                         }
@@ -61,8 +61,8 @@ struct ConsentScreen: View {
 
                     ForEach(Array(ConsentCopy.notes.enumerated()), id: \.offset) { i, note in
                         VStack(alignment: .leading, spacing: 9) {
-                            Text(note.head).font(NBFont.dot(600, 10)).tracking(0.24 * 10).foregroundStyle(eyebrow)
-                            Text(note.body).font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(bodyInk)
+                            Text(L(note.head)).font(NBFont.dot(600, 10)).tracking(0.24 * 10).foregroundStyle(eyebrow)
+                            Text(L(note.body)).font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(bodyInk)
                         }
                         .padding(.top, i == 0 ? 12 : 0)
                         .overlay(alignment: .top) { if i == 0 { rule.frame(height: 1) } }
@@ -88,9 +88,9 @@ struct ConsentScreen: View {
                             .padding(-12)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(ConsentCopy.agree)
+                        .accessibilityLabel(L(ConsentCopy.agree))
                         .accessibilityAddTraits(agreed ? [.isSelected] : [])
-                        Text(ConsentCopy.agree).font(NBFont.ui(400, 15)).lineSpacing(7).foregroundStyle(ink)
+                        Text(L(ConsentCopy.agree)).font(NBFont.ui(400, 15)).lineSpacing(7).foregroundStyle(ink)
                     }
                     .padding(.top, 14)
                     .overlay(alignment: .top) { rule.frame(height: 1) }
@@ -101,8 +101,8 @@ struct ConsentScreen: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(ConsentCopy.ifNot).font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(bodyInk)
-                        Text(ConsentCopy.withdraw).font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(bodyInk)
+                        Text(L(ConsentCopy.ifNot)).font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(bodyInk)
+                        Text(L(ConsentCopy.withdraw)).font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(bodyInk)
                     }
                 }
                 .padding(.horizontal, 24)
@@ -114,7 +114,7 @@ struct ConsentScreen: View {
             VStack(spacing: 0) {
                 if agreed {
                     Button { Task { await accept() } } label: {
-                        Text(ConsentCopy.cta)
+                        Text(L(ConsentCopy.cta))
                             .font(NBFont.ui(500, 13.5)).tracking(0.15 * 13.5)
                             .foregroundStyle(NB.carbon)
                             .frame(width: NB.Layout.contentWidth - 16, height: 52)
@@ -122,12 +122,12 @@ struct ConsentScreen: View {
                     }
                     .buttonStyle(.plain)
                 } else {
-                    Text(ConsentCopy.cta)
+                    Text(L(ConsentCopy.cta))
                         .font(NBFont.ui(500, 13.5)).tracking(0.15 * 13.5)
                         .foregroundStyle(eyebrow)
                         .frame(width: NB.Layout.contentWidth - 16, height: 52)
                         .background(rule, in: Capsule())
-                        .accessibilityLabel("Continue · tick the box first")
+                        .accessibilityLabel(L("Continue · tick the box first"))
                 }
             }
             .frame(width: NB.Layout.screenWidth, height: 104)

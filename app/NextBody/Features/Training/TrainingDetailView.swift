@@ -16,8 +16,8 @@ struct TrainingDetailView: View {
     private var staleMinutes: Int { data.lastSync.map { Int(Date().timeIntervalSince($0) / 60) } ?? Int.max }
     private var isStale: Bool { DebugEdge.on("stale") || staleMinutes >= 60 }
     private var staleAgo: String {
-        guard data.lastSync != nil else { return "NEVER" }
-        return staleMinutes >= 120 ? "\(staleMinutes / 60)H AGO" : "\(staleMinutes) MIN AGO"
+        guard data.lastSync != nil else { return L("NEVER") }
+        return staleMinutes >= 120 ? L("%dH AGO", staleMinutes / 60) : L("%d MIN AGO", staleMinutes)
     }
     private var lastSyncClock: String { data.lastSync.map(Fmt.clock) ?? Fmt.dash }
     // 08 edge 2 · the whole page stands on auto heart rate (funType 0); off is 「残」, not empty.
@@ -57,9 +57,9 @@ struct TrainingDetailView: View {
         // WEEK at the foot of the page, and MONTH has no content on seven days of data.
         // 1EEU lists the segmented control itself as out of V1 for both 08 and 09.
         DetailScroll(glow: NB.cyan1, title: MetricNames.training, trailing: {
-            Text(isOver ? "RING FULL"
-                 : scaled ? String(format: "%.1f TO GO", max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)))
-                          : "NO TARGET YET")
+            Text(isOver ? L("RING FULL")
+                 : scaled ? L("%.1f TO GO", max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)))
+                          : L("NO TARGET YET"))
                 .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                 .foregroundStyle(scaled ? NB.cyanPale : NB.text3Prod)
         }) {
@@ -70,7 +70,7 @@ struct TrainingDetailView: View {
                 // 03 · why this number — the trust of the whole page
                 whyCard
 
-                SectionLabel(scaled ? "WHERE IT CAME FROM" : "WHERE IT WILL COME FROM")
+                SectionLabel(scaled ? L("WHERE IT CAME FROM") : L("WHERE IT WILL COME FROM"))
 
                 // 04 · today's build
                 buildCard
@@ -93,14 +93,14 @@ struct TrainingDetailView: View {
                         // F1 · no path between two detail pages — replace the stack.
                         router.path = [.sportMode]
                     } label: {
-                        Text("START A SESSION")
+                        Text(L("START A SESSION"))
                             .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
                             .foregroundStyle(NB.carbon)
                             .frame(width: NB.Layout.contentWidth, height: 48)
                             .background(NB.cyan1, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    Text("PICK A MODE · THE BAND RUNS IT")
+                    Text(L("PICK A MODE · THE BAND RUNS IT"))
                         .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
                         .foregroundStyle(NB.text3Prod)
                 }
@@ -123,38 +123,40 @@ struct TrainingDetailView: View {
             // 08 edge cases · every degradation happens here, in place: one status line and its
             // colour, at most a sentence. No modal, no full-page error, no bounce home.
             if isStale {
-                EdgeNote(sub: "AS OF \(lastSyncClock)", line: "LAST SYNC \(staleAgo)",
+                EdgeNote(sub: L("AS OF %@", lastSyncClock), line: L("LAST SYNC %@", staleAgo),
                          text: data.lastSync == nil
-                            ? "The band has not synced yet. Nothing here is measured."
-                            : "The band has been out of range since \(lastSyncClock). This is where you were, not where you are.")
+                            ? L("The band has not synced yet. Nothing here is measured.")
+                            : L("The band has been out of range since %@. This is where you were, not where you are.", lastSyncClock))
             } else if isOver {
-                EdgeNote(line: String(format: "RING FULL · %.1f OVER TARGET", 21 - (m.targetLoad ?? 21)),
-                         text: "Way past \(Fmt.load(m.targetLoad)). Tomorrow's target will already know about this.")
+                EdgeNote(line: L("RING FULL · %.1f OVER TARGET", 21 - (m.targetLoad ?? 21)),
+                         text: L("Way past %@. Tomorrow's target will already know about this.", Fmt.load(m.targetLoad)))
             }
             if autoHROff {
-                EdgeNote(line: "AUTO HR IS OFF",
-                         text: "Steps alone can't move the ring. Turn continuous heart rate back on and today rebuilds itself.",
+                EdgeNote(line: L("AUTO HR IS OFF"),
+                         text: L("Steps alone can't move the ring. Turn continuous heart rate back on and today rebuilds itself."),
                          action: { router.open(.deviceAutoMonitor, from: .home) })
             }
             if gapMinutes >= 60, let g = longestGap {
                 let hours = Int((g.end.timeIntervalSince(g.start) / 3600).rounded())
-                EdgeNote(line: "NOT ON THE WRIST \(Fmt.clock(g.start))–\(Fmt.clock(g.end))",
-                         text: "The line goes flat, not up. Whatever happened in those \(hours == 1 ? "sixty minutes" : "\(hours) hours") isn't in today's number.")
+                EdgeNote(line: L("NOT ON THE WRIST %@–%@", Fmt.clock(g.start), Fmt.clock(g.end)),
+                         text: hours == 1
+                            ? L("The line goes flat, not up. Whatever happened in those sixty minutes isn't in today's number.")
+                            : L("The line goes flat, not up. Whatever happened in those %d hours isn't in today's number.", hours))
             }
 
             VStack(spacing: 11) {
                 Hairline()
-                LegendRow(swatch: .bar(NB.cyan1, 7), label: "TRAINING NOW",
+                LegendRow(swatch: .bar(NB.cyan1, 7), label: L("TRAINING NOW"),
                           labelColor: NB.text1, value: Fmt.load(m.trainingLoad), valueColor: NB.cyan1, bold: true)
-                LegendRow(swatch: .bar(NB.cyan2, 5), label: "OPTIMAL ZONE",
+                LegendRow(swatch: .bar(NB.cyan2, 5), label: L("OPTIMAL ZONE"),
                           labelColor: NB.text2,
                           value: m.optimalZone.map { String(format: "%.1f – %.1f", $0.lowerBound, $0.upperBound) } ?? Fmt.dash,
                           valueColor: NB.macroValue, bold: false)
-                LegendRow(swatch: .dot(NB.cyanPale), label: "TARGET",
+                LegendRow(swatch: .dot(NB.cyanPale), label: L("TARGET"),
                           labelColor: NB.text2, value: Fmt.load(m.targetLoad),
                           valueColor: NB.cyanPale, bold: true)
-                LegendRow(swatch: .bar(Color(hex: 0x33333D), 5), label: "FULL RING",
-                          labelColor: NB.text3Prod, value: "21.0 MAX",
+                LegendRow(swatch: .bar(Color(hex: 0x33333D), 5), label: L("FULL RING"),
+                          labelColor: NB.text3Prod, value: L("21.0 MAX"),
                           valueColor: Color(hex: 0x8A8A96), bold: false)
             }
             .frame(width: 330)
@@ -171,11 +173,11 @@ struct TrainingDetailView: View {
     /// the number above it.
     private var nightLine: String {
         let n = m.nightInputs
-        let hrv = n?.hrv.map { "HRV \(Int($0)) MS" } ?? "HRV \(Fmt.dash)"
-        let rhr = n?.rhr.map { "RHR \(Int($0)) BPM" } ?? "RHR \(Fmt.dash)"
-        let word = m.reserveDrivers.map { BodyBattery.chargeWord(Int($0.lastNight.rounded())) }
-            ?? "CHARGED OVERNIGHT"
-        return "\(hrv) · \(rhr) · \(word)"
+        let hrv = n?.hrv.map { L("HRV %d MS", Int($0)) } ?? L("HRV %@", Fmt.dash)
+        let rhr = n?.rhr.map { L("RHR %d BPM", Int($0)) } ?? L("RHR %@", Fmt.dash)
+        let word = m.reserveDrivers.map { L(BodyBattery.chargeWord(Int($0.lastNight.rounded()))) }
+            ?? L("CHARGED OVERNIGHT")
+        return L("%@ · %@ · %@", hrv, rhr, word)
     }
 
     /// Where the target sits on a ring that runs to 21. The board prints 69% because its
@@ -207,40 +209,41 @@ struct TrainingDetailView: View {
     private var recentWord: String {
         guard let avg = sevenDayAverage else { return Fmt.dash }
         guard let zone = m.optimalZone else { return Fmt.load(avg) }
-        if avg < zone.lowerBound { return "LIGHT" }
-        if avg > zone.upperBound { return "HEAVY" }
-        return "STEADY"
+        if avg < zone.lowerBound { return L("LIGHT") }
+        if avg > zone.upperBound { return L("HEAVY") }
+        return L("STEADY")
     }
 
     private var recentDetail: String {
-        let since = daysSinceSession.map { "\($0) DAY\($0 == 1 ? "" : "S") SINCE YOUR LAST SESSION" }
-            ?? "NO SESSION ON RECORD"
-        return "\(since) · 7D AVG \(Fmt.load(sevenDayAverage))"
+        let since = daysSinceSession.map {
+            $0 == 1 ? L("%d DAY SINCE YOUR LAST SESSION", $0) : L("%d DAYS SINCE YOUR LAST SESSION", $0)
+        } ?? L("NO SESSION ON RECORD")
+        return L("%@ · 7D AVG %@", since, Fmt.load(sevenDayAverage))
     }
 
     /// 03 · a four-link causal chain, in order: this morning's charge → the target on the ring
     /// → the acceptable band → the recent load. The last line is the only one worth having:
     /// it looks at history instead of at today.
     private var whyCard: some View {
-        CardBlock(title: scaled ? "WHY \(Fmt.load(m.targetLoad))" : "WHAT THE RING NEEDS",
-                  trailing: scaled ? "\(MetricNames.bodyBattery) DECIDES IT" : "0 OF 4 READY") {
+        CardBlock(title: scaled ? L("WHY %@", Fmt.load(m.targetLoad)) : L("WHAT THE RING NEEDS"),
+                  trailing: scaled ? L("%@ DECIDES IT", MetricNames.bodyBattery) : L("0 OF 4 READY")) {
             VStack(alignment: .leading, spacing: 13) {
-                ReasonLine(dot: NB.optimal2, title: "\(MetricNames.bodyBattery) THIS MORNING",
+                ReasonLine(dot: NB.optimal2, title: L("%@ THIS MORNING", MetricNames.bodyBattery),
                            value: m.bbWake.map { "\($0)%" } ?? Fmt.dash, valueColor: NB.optimal2,
-                           detail: scaled ? nightLine : "ONE NIGHT OF SLEEP ON THE BAND")
-                ReasonLine(dot: NB.cyanPale, title: "TARGET ON THE RING",
+                           detail: scaled ? nightLine : L("ONE NIGHT OF SLEEP ON THE BAND"))
+                ReasonLine(dot: NB.cyanPale, title: L("TARGET ON THE RING"),
                            value: Fmt.load(m.targetLoad), valueColor: NB.cyanPale,
-                           detail: scaled ? "\(Fmt.pct(m.bbWake)) LANDS AT \(ringShare) OF THE FULL RING"
-                                          : "\(MetricNames.bodyBattery) DECIDES IT — NOTHING TO DECIDE FROM YET")
-                ReasonLine(dot: NB.cyan2, title: "OPTIMAL ZONE",
+                           detail: scaled ? L("%@ LANDS AT %@ OF THE FULL RING", Fmt.pct(m.bbWake), ringShare)
+                                          : L("%@ DECIDES IT — NOTHING TO DECIDE FROM YET", MetricNames.bodyBattery))
+                ReasonLine(dot: NB.cyan2, title: L("OPTIMAL ZONE"),
                            value: m.optimalZone.map { String(format: "%.1f – %.1f", $0.lowerBound, $0.upperBound) } ?? Fmt.dash,
                            valueColor: NB.macroValue,
-                           detail: scaled ? "ANYWHERE IN HERE COUNTS AS HITTING THE DAY"
-                                          : "THE ZONE MOVES WITH THE TARGET")
-                ReasonLine(dot: NB.ember1, title: "RECENT LOAD",
-                           value: scaled ? recentWord : "NONE", valueColor: NB.ember1,
+                           detail: scaled ? L("ANYWHERE IN HERE COUNTS AS HITTING THE DAY")
+                                          : L("THE ZONE MOVES WITH THE TARGET"))
+                ReasonLine(dot: NB.ember1, title: L("RECENT LOAD"),
+                           value: scaled ? recentWord : L("NONE"), valueColor: NB.ember1,
                            detail: scaled ? recentDetail
-                                          : "NO SESSIONS ON RECORD · 7D AVG \(Fmt.dash)")
+                                          : L("NO SESSIONS ON RECORD · 7D AVG %@", Fmt.dash))
             }
         }
     }
@@ -248,33 +251,36 @@ struct TrainingDetailView: View {
     private func detail(for seg: TrainingSegment) -> String {
         if seg.allDay {
             let steps = Fmt.kcal(seg.steps.map(Double.init))
-            return "\(steps) STEPS · NEVER LEFT Z1"
+            return L("%@ STEPS · NEVER LEFT Z1", steps)
         }
         let mins = seg.minutes.map(Fmt.duration) ?? Fmt.dash
-        let hr = seg.avgHR.map { "AVG \($0) BPM" } ?? Fmt.dash
-        return "\(mins) · \(hr)"
+        let hr = seg.avgHR.map { L("AVG %d BPM", $0) } ?? Fmt.dash
+        return L("%@ · %@", mins, hr)
     }
 
     /// 05 · one suggestion, never a list — and it has to be sized to the gap that is
     /// actually left, not to a number printed on the board.
     private var suggestion: (title: String, delta: Double) {
         let gap = max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0))
-        if gap >= 8 { return ("STRENGTH · 45 MIN", gap) }
-        if gap >= 3 { return ("STRENGTH · 30 MIN", gap) }
-        return ("EASY WALK · 20 MIN", gap)
+        if gap >= 8 { return (L("STRENGTH · 45 MIN"), gap) }
+        if gap >= 3 { return (L("STRENGTH · 30 MIN"), gap) }
+        return (L("EASY WALK · 20 MIN"), gap)
     }
 
     /// 04 · the number on the ring must be breakable into parts. The time column is a fixed
     /// slot so ALL DAY sits in the same lane as a clock time.
     private var buildCard: some View {
-        CardBlock(title: "TODAY'S BUILD",
-                  trailing: scaled ? "\(m.segments.count) SOURCE\(m.segments.count == 1 ? "" : "S") · \(Fmt.load(m.trainingLoad)) TOTAL"
-                                   : "0 SOURCES · 0.0 TOTAL") {
+        CardBlock(title: L("TODAY'S BUILD"),
+                  trailing: scaled
+                    ? (m.segments.count == 1
+                       ? L("%d SOURCE · %@ TOTAL", m.segments.count, Fmt.load(m.trainingLoad))
+                       : L("%d SOURCES · %@ TOTAL", m.segments.count, Fmt.load(m.trainingLoad)))
+                    : L("0 SOURCES · 0.0 TOTAL")) {
             if scaled && !m.segments.isEmpty {
                 VStack(spacing: 10) {
                     ForEach(Array(m.segments.enumerated()), id: \.element.id) { i, seg in
                         if i > 0 { Hairline() }
-                        BuildRow(time: seg.allDay ? "ALL DAY" : Fmt.clock(seg.at),
+                        BuildRow(time: seg.allDay ? L("ALL DAY") : Fmt.clock(seg.at),
                                  name: seg.name, detail: detail(for: seg),
                                  delta: "+\(String(format: "%.1f", seg.delta))",
                                  timeIsLabel: seg.allDay)
@@ -283,14 +289,14 @@ struct TrainingDetailView: View {
                 // 05 · one suggestion, never a list. It sits last and is drawn in a dashed
                 // box so it can't be mistaken for something already done.
                 NextSuggestion(title: suggestion.title,
-                               detail: "PUTS YOU AT \(Fmt.load(m.targetLoad)) — IN ZONE",
+                               detail: L("PUTS YOU AT %@ — IN ZONE", Fmt.load(m.targetLoad)),
                                delta: "+\(String(format: "%.1f", suggestion.delta))")
             } else {
                 VStack(spacing: 8) {
-                    Text("NOTHING HAS COME IN YET")
+                    Text(L("NOTHING HAS COME IN YET"))
                         .font(NBFont.ui(500, 12)).tracking(0.14 * 12)
                         .foregroundStyle(NB.text2)
-                    Text("WALKS, RIDES, ELEVATED HR AND STEPS ALL LAND HERE ONCE THE BAND IS ON YOUR WRIST")
+                    Text(L("WALKS, RIDES, ELEVATED HR AND STEPS ALL LAND HERE ONCE THE BAND IS ON YOUR WRIST"))
                         .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
@@ -305,13 +311,13 @@ struct TrainingDetailView: View {
     }
 
     private var throughTheDayCard: some View {
-        CardBlock(title: "THROUGH THE DAY", trailing: "CUMULATIVE · 0–21") {
+        CardBlock(title: L("THROUGH THE DAY"), trailing: L("CUMULATIVE · 0–21")) {
             CumulativeCurve(target: m.targetLoad ?? 14.5, now: m.trainingLoad ?? 0,
                             points: m.loadCurve, day: m.day, gaps: gapsInHours)
                 .frame(height: 120)
             HStack {
                 ForEach(["00", "06", "12", "NOW", "24"], id: \.self) { t in
-                    Text(t)
+                    Text(t == "NOW" ? L("NOW") : t)
                         .font(NBFont.dot(t == "NOW" ? 700 : 500, 10)).tracking(0.04 * 10)
                         .foregroundStyle(t == "NOW" ? NB.cyan1 : Color(hex: 0x8A8A96))
                     if t != "24" { Spacer(minLength: 0) }
@@ -326,8 +332,8 @@ struct TrainingDetailView: View {
         let top = max(1, mins.max() ?? 1)
         let tints = [NB.cyanDeep, NB.cyan1, NB.lime2, NB.ember1, NB.alert2]
         let hard = mins.dropFirst(3).reduce(0, +)
-        return CardBlock(title: "TIME IN ZONE",
-                         trailing: "\(Fmt.duration(mins.reduce(0, +))) ELEVATED", trailingIsDot: true) {
+        return CardBlock(title: L("TIME IN ZONE"),
+                         trailing: L("%@ ELEVATED", Fmt.duration(mins.reduce(0, +))), trailingIsDot: true) {
             VStack(spacing: 9) {
                 ForEach(0..<5, id: \.self) { i in
                     ZoneBar(zone: "Z\(i + 1)", fill: Double(mins[i]) / Double(top),
@@ -335,7 +341,7 @@ struct TrainingDetailView: View {
                 }
             }
             Hairline()
-            Text("Z4 AND ABOVE IS WHERE THE RING MOVES FAST — \(Fmt.duration(hard)) TODAY, AGAINST \(Fmt.duration(hardBest)) ON YOUR HARDEST DAY THIS WEEK.")
+            Text(L("Z4 AND ABOVE IS WHERE THE RING MOVES FAST — %@ TODAY, AGAINST %@ ON YOUR HARDEST DAY THIS WEEK.", Fmt.duration(hard), Fmt.duration(hardBest)))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .lineSpacing(5)
                 .foregroundStyle(NB.text3Prod)
@@ -357,7 +363,7 @@ struct TrainingDetailView: View {
         let values = week.map { $0.trainingLoad ?? 0 }
         let avg = sevenDayAverage ?? 0
         let labels = week.map { Fmt.weekday($0.day.date) }
-        return CardBlock(title: "THIS WEEK", trailing: "7D AVG \(Fmt.load(sevenDayAverage))",
+        return CardBlock(title: L("THIS WEEK"), trailing: L("7D AVG %@", Fmt.load(sevenDayAverage)),
                          trailingIsDot: true) {
             WeekBars(values: values, average: avg)
                 .frame(height: 88)
@@ -377,11 +383,11 @@ struct TrainingDetailView: View {
     /// so they are not drawn empty — only titled, with the condition that unlocks them.
     private var gatesCard: some View {
         VStack(spacing: 0) {
-            GateRow(title: "THROUGH THE DAY", when: "AFTER 1 FULL DAY")
+            GateRow(title: L("THROUGH THE DAY"), when: L("AFTER 1 FULL DAY"))
             Hairline()
-            GateRow(title: "TIME IN ZONE", when: "AFTER 1 FULL DAY")
+            GateRow(title: L("TIME IN ZONE"), when: L("AFTER 1 FULL DAY"))
             Hairline()
-            GateRow(title: "THIS WEEK", when: "AFTER 7 DAYS")
+            GateRow(title: L("THIS WEEK"), when: L("AFTER 7 DAYS"))
         }
         .padding(.horizontal, 14)
         .frame(width: NB.Layout.contentWidth)
@@ -395,7 +401,7 @@ struct SegmentedPills: View {
         HStack(spacing: 3) {
             ForEach(options, id: \.self) { o in
                 Button { selection = o } label: {
-                    Text(o)
+                    Text(L(o))
                         .font(NBFont.ui(500, 11)).tracking(0.14 * 11)
                         .foregroundStyle(selection == o ? NB.text1 : NB.text3Prod)
                         .padding(.vertical, 7).padding(.horizontal, 17)
@@ -561,7 +567,7 @@ struct NextSuggestion: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text("NEXT")
+            Text(L("NEXT"))
                 .font(NBFont.ui(500, 10)).tracking(0.1 * 10)
                 .foregroundStyle(NB.cyan2)
                 .frame(width: 52, alignment: .leading)
@@ -673,7 +679,7 @@ struct BigTrainingRing: View {
                 Text(Fmt.load(load))
                     .font(NBFont.dot(700, 46)).tracking(-0.02 * 46)
                     .foregroundStyle(load == nil ? NB.text3Prod : (heroTint ?? tint))
-                Text("OF 21")
+                Text(L("OF 21"))
                     .font(NBFont.ui(500, 11)).tracking(0.22 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -768,7 +774,7 @@ struct CumulativeCurve: View {
                         .stroke(NB.ember1, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 7]))
                     Circle().fill(NB.ember1).frame(width: 6.8, height: 6.8).position(a)
                     Circle().fill(NB.ember1).frame(width: 6.8, height: 6.8).position(b)
-                    Text("\(Int((g.1 - g.0).rounded()))H GAP")
+                    Text(L("%dH GAP", Int((g.1 - g.0).rounded())))
                         .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
                         .foregroundStyle(NB.ember1.opacity(0.85))
                         .position(x: (a.x + b.x) / 2, y: a.y + 16)
@@ -780,7 +786,7 @@ struct CumulativeCurve: View {
                 Circle().fill(NB.cyanPale).frame(width: 7, height: 7)
                     .position(pt(min(23.5, nowX + 2.1), target, size))
 
-                Text("TARGET \(String(format: "%.1f", target))")
+                Text(L("TARGET %@", String(format: "%.1f", target)))
                     .font(NBFont.dot(700, 11)).tracking(0.02 * 11)
                     .foregroundStyle(Color(hex: 0x7FCEDD))
                     .offset(x: 4, y: targetY - 18)

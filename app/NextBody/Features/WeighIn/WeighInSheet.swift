@@ -38,7 +38,7 @@ struct WeighInSheet: View {
             if let w = await HealthService.shared.latestWeight(),
                w.at > (data.weighIns.first?.date ?? .distantPast) {
                 let f = DateFormatter(); f.dateFormat = "HH:mm"
-                let day = Calendar.current.isDateInToday(w.at) ? "TODAY" : Calendar.current.isDateInYesterday(w.at) ? "YESTERDAY" : f.string(from: w.at)
+                let day = Calendar.current.isDateInToday(w.at) ? L("TODAY") : Calendar.current.isDateInYesterday(w.at) ? L("YESTERDAY") : f.string(from: w.at)
                 healthCandidate = (w.kg, "\(day) \(f.string(from: w.at))", w.at, w.uuid)
                 mode = .fromHealth
             }
@@ -55,11 +55,11 @@ struct WeighInSheet: View {
     private var byHand: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Add a weigh-in")
+                Text(L("Add a weigh-in"))
                     .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
                     .foregroundStyle(NB.text1)
                 // It stays in HOOP: we never write a hand-typed number back into Health.
-                Text("Stays in HOOP. It never goes back to Health.")
+                Text(L("Stays in HOOP. It never goes back to Health."))
                     .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                     .foregroundStyle(NB.white.opacity(0.38))
             }
@@ -81,15 +81,15 @@ struct WeighInSheet: View {
 
             if outOfRange {
                 VStack(spacing: 4) {
-                    Text("OUT OF RANGE").font(NBFont.dot(600, 12)).tracking(0.22 * 12).foregroundStyle(NB.ember1.opacity(0.85))
+                    Text(L("OUT OF RANGE")).font(NBFont.dot(600, 12)).tracking(0.22 * 12).foregroundStyle(NB.ember1.opacity(0.85))
                     Text(unit == "KG" ? "20–300 KG" : "44–661 LB").font(NBFont.brand(500, 13.5)).foregroundStyle(NB.white.opacity(0.70))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 8)
             } else if let earlier = todaysEarlier, let kg = parsed {
                 VStack(spacing: 4) {
-                    Text("ALREADY ONE TODAY").font(NBFont.dot(600, 12)).tracking(0.22 * 12).foregroundStyle(NB.ember1.opacity(0.85))
-                    Text("\(Fmt.kg(kg)) REPLACES \(Fmt.kg(earlier.weightKg))").font(NBFont.brand(500, 13.5)).foregroundStyle(NB.white.opacity(0.70))
+                    Text(L("ALREADY ONE TODAY")).font(NBFont.dot(600, 12)).tracking(0.22 * 12).foregroundStyle(NB.ember1.opacity(0.85))
+                    Text(L("%@ REPLACES %@", Fmt.kg(kg), Fmt.kg(earlier.weightKg))).font(NBFont.brand(500, 13.5)).foregroundStyle(NB.white.opacity(0.70))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 8)
@@ -116,14 +116,13 @@ struct WeighInSheet: View {
 
             // SAVE is the only lime on this screen, and it stays tappable even when the
             // number has not moved — "yes, today is still 78.6" is a valid record.
-            LimePillButton(title: "SAVE", enabled: parsed != nil) { save() }
+            LimePillButton(title: L("SAVE"), enabled: parsed != nil) { save() }
                 .padding(.bottom, 22)
         }
     }
 
     private var todayLabel: String {
-        let f = DateFormatter(); f.dateFormat = "MMM d"
-        return "TODAY · \(f.string(from: Date()).uppercased())"
+        return L("TODAY · %@", Fmt.displayDate(Date(), format: "MMM d").uppercased())
     }
 
     private var parsed: Double? {
@@ -155,10 +154,10 @@ struct WeighInSheet: View {
     private var fromHealth: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("FROM HEALTH")
+                Text(L("FROM HEALTH"))
                     .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                     .foregroundStyle(NB.white.opacity(0.34))
-                Text("There's a new weigh-in")
+                Text(L("There's a new weigh-in"))
                     .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
                     .foregroundStyle(NB.text1)
             }
@@ -179,7 +178,7 @@ struct WeighInSheet: View {
                 .padding(.top, 28)
 
                 // The number, its source and its time — three facts before one green button.
-                Text("APPLE HEALTH  ·  \(c.at)")
+                Text(L("APPLE HEALTH  ·  %@", c.at))
                     .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.white.opacity(0.34))
                     .frame(maxWidth: .infinity)
@@ -188,7 +187,7 @@ struct WeighInSheet: View {
 
             Spacer(minLength: 0)
 
-            LimePillButton(title: "USE THIS") {
+            LimePillButton(title: L("USE THIS")) {
                 if let c = healthCandidate {
                     // 10 rule 08 · a Health reading keeps its own timestamp, and its own id
                     // (10S rule 04) so the same sample never enters twice.
@@ -201,7 +200,7 @@ struct WeighInSheet: View {
 
             // Swiping away is a refusal; we do not ask again for the same record.
             Button { mode = .byHand } label: {
-                Text("Enter a different number")
+                Text(L("Enter a different number"))
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -224,7 +223,7 @@ struct DecimalPad: View {
                 HStack(spacing: 6) {
                     ForEach(row, id: \.self) { key in
                         Button { tap(key) } label: {
-                            Text(key)
+                            Text(key == "DEL" ? L("DEL") : key)
                                 .font(key == "DEL" ? NBFont.ui(500, 12) : NBFont.ui(400, 22))
                                 .tracking(key == "DEL" ? 0.16 * 12 : 0)
                                 .foregroundStyle(key == "DEL" ? NB.text3Prod : NB.text1)

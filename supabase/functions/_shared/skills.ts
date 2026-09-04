@@ -264,28 +264,46 @@ export function toolDescription(s: ChartSkill): string {
 
 /// S11 · the router. Compact on purpose: one line per group of charts, so the whole
 /// section reads in a glance and a wrong line can be rolled back on its own.
-export function chartChoicePrompt(sourceScope?: string[]): string {
+export function chartChoicePrompt(sourceScope?: string[], en = true): string {
   if (sourceScope) {
     const choices = chartSkillsForScope(sourceScope)
       .map((skill) => `· ${skill.type} → ${skill.use}`);
     return [
       "S11 CHART CHOICE",
-      "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再从本轮提供的图里选：",
+      en
+        ? "Each chart on screen is a screen.render.<type> tool. Read the numbers first, then pick from the charts offered this turn:"
+        : "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再从本轮提供的图里选：",
       ...choices,
-      "序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换图或用 text 写 ——。一轮只渲染一次。",
+      en
+        ? "Series charts only pick a source; the server fills the points. If a tool returns NO_DATA, switch chart or write —— as text. One render per turn."
+        : "序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换图或用 text 写 ——。一轮只渲染一次。",
     ].join("\n");
   }
-  return [
-    "S11 CHART CHOICE",
-    "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再按问题的形状选图：",
-    "· 此刻一个数 → metric；一个数对满值/目标 → ring；0–100 带分区 → gauge；BODY BATTERY 此刻 → battery",
-    "· 一天之内或几十天里怎么变 → line；一周逐天比较 → days；一天里分时段的量 → bars",
-    "· 每天高低两条边 → band；一周×时段的规律 → heat；有正有负的逐次变化 → delta；两条趋势对照 → dual",
-    "· 训练：区间分钟 → zones；今天负荷的构成 → workout / table；今天发生了什么 → events",
-    "· 昨夜：逐分钟分期 → hypnogram；三段占比 → split；夜间血氧 → o2night",
-    "· 燃料：三大营养素对目标 → fuel；吃进对消耗 → balance；今天记了哪几餐 → meal；用户报一顿吃的 → food",
-    "· 几项指标一起看 → sparks；做到了几天 → cells；12 周体成分的方向 → recomp",
-    "序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换一种图或用 text 写 ——，不许自己造点。",
-    "没有任何图配得上时才用 text。一轮只渲染一次。",
-  ].join("\n");
+  return en
+    ? [
+      "S11 CHART CHOICE",
+      "Each chart on screen is a screen.render.<type> tool. Read the numbers first, then pick a chart that matches the question's shape:",
+      "· one number now → metric; a number against a target → ring; 0–100 with zones → gauge; BODY BATTERY now → battery",
+      "· change inside a day or across tens of days → line; day-by-day for a week → days; amounts by hour → bars",
+      "· daily high and low → band; week × hour pattern → heat; signed changes → delta; two trends → dual",
+      "· training: zone minutes → zones; today's load makeup → workout / table; what happened today → events",
+      "· last night: minute stages → hypnogram; three-way split → split; overnight SpO2 → o2night",
+      "· fuel: macros vs target → fuel; in vs out → balance; which meals today → meal; user reports a plate → food",
+      "· several metrics together → sparks; days completed → cells; 12-week composition direction → recomp",
+      "Series charts only pick a source; the server fills the points. If a tool returns NO_DATA, switch chart or write —— as text. Do not invent points.",
+      "Use text only when no chart fits. One render per turn.",
+    ].join("\n")
+    : [
+      "S11 CHART CHOICE",
+      "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再按问题的形状选图：",
+      "· 此刻一个数 → metric；一个数对满值/目标 → ring；0–100 带分区 → gauge；BODY BATTERY 此刻 → battery",
+      "· 一天之内或几十天里怎么变 → line；一周逐天比较 → days；一天里分时段的量 → bars",
+      "· 每天高低两条边 → band；一周×时段的规律 → heat；有正有负的逐次变化 → delta；两条趋势对照 → dual",
+      "· 训练：区间分钟 → zones；今天负荷的构成 → workout / table；今天发生了什么 → events",
+      "· 昨夜：逐分钟分期 → hypnogram；三段占比 → split；夜间血氧 → o2night",
+      "· 燃料：三大营养素对目标 → fuel；吃进对消耗 → balance；今天记了哪几餐 → meal；用户报一顿吃的 → food",
+      "· 几项指标一起看 → sparks；做到了几天 → cells；12 周体成分的方向 → recomp",
+      "序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换一种图或用 text 写 ——，不许自己造点。",
+      "没有任何图配得上时才用 text。一轮只渲染一次。",
+    ].join("\n");
 }

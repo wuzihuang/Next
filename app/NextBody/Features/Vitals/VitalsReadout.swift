@@ -62,7 +62,7 @@ extension VitalsReadout {
     /// Metres under a kilometre read as metres. "0.0 KM" for a real 40-metre walk looks like
     /// a bug on the legend even though the number is honest.
     static func distanceLabel(_ metres: Double) -> String {
-        metres < 1000 ? "\(Int(metres.rounded())) M" : String(format: "%.1f KM", metres / 1000)
+        metres < 1000 ? L("%d M", Int(metres.rounded())) : L("%.1f KM", metres / 1000)
     }
 }
 
@@ -104,7 +104,7 @@ extension VitalsReadout {
         var badge: VitalsBadge.Model?
         if let now, let resting {
             let over = now - resting
-            let text = over <= 15 ? "NORMAL RESTING" : (over <= 45 ? "ACTIVE" : "ELEVATED")
+            let text = over <= 15 ? L("NORMAL RESTING") : (over <= 45 ? L("ACTIVE") : L("ELEVATED"))
             badge = .init(text: text, tint: over <= 15 ? NB.optimal2 : (over <= 45 ? NB.lime1 : NB.ember1))
         }
 
@@ -115,27 +115,27 @@ extension VitalsReadout {
             badge: badge,
             value: now.map(String.init),
             unit: "BPM",
-            gauge: gauge(low: dayLow.map { "MIN \($0)" } ?? "MIN \(Fmt.dash)",
-                         now: now.map { "NOW \($0)" } ?? "NOW \(Fmt.dash)",
-                         high: dayHigh.map { "PEAK \($0)" } ?? "PEAK \(Fmt.dash)",
+            gauge: gauge(low: dayLow.map { L("MIN %d", $0) } ?? L("MIN %@", Fmt.dash),
+                         now: now.map { L("NOW %d", $0) } ?? L("NOW %@", Fmt.dash),
+                         high: dayHigh.map { L("PEAK %d", $0) } ?? L("PEAK %@", Fmt.dash),
                          value: now.map(Double.init), low: dayLow.map(Double.init), high: dayHigh.map(Double.init)),
-            footLeft: vitals.at.map { "LAST TICK \(Fmt.clock($0))" } ?? "NO TICK YET",
-            footRight: restingBand.map { "RESTING BAND \(Int($0.lowerBound))–\(Int($0.upperBound))" },
-            chartNote: "FIXED 40–160 BPM",
-            splitTitle: "TIME IN ZONES",
+            footLeft: vitals.at.map { L("LAST TICK %@", Fmt.clock($0)) } ?? L("NO TICK YET"),
+            footRight: restingBand.map { L("RESTING BAND %d–%d", Int($0.lowerBound), Int($0.upperBound)) },
+            chartNote: L("FIXED 40–160 BPM"),
+            splitTitle: L("TIME IN ZONES"),
             splitTrailing: zoneTotal(m: m, ticks: ticks, profile: profile),
             bands: heartZoneBands(m: m, ticks: ticks, profile: profile),
-            statLeft: .init(label: "RESTING HR", value: resting.map(String.init), unit: "BPM",
+            statLeft: .init(label: L("RESTING HR"), value: resting.map(String.init), unit: "BPM",
                             foot: delta(resting.map(Double.init), vs: sevenDayResting,
                                         unit: "BPM", suffix: "vs 7d", lowerIsBetter: true).text,
                             tint: delta(resting.map(Double.init), vs: sevenDayResting,
                                         unit: "BPM", suffix: "vs 7d", lowerIsBetter: true).tint),
-            statRight: .init(label: "HRV RMSSD", value: m.nightInputs?.hrv.map { String(Int($0.rounded())) },
+            statRight: .init(label: L("HRV RMSSD"), value: m.nightInputs?.hrv.map { String(Int($0.rounded())) },
                              unit: "MS",
-                             foot: m.nightInputs?.hrvBase.map { "BASE \(Int($0.rounded())) MS" } ?? "NO BASELINE YET",
+                             foot: m.nightInputs?.hrvBase.map { L("BASE %d MS", Int($0.rounded())) } ?? L("NO BASELINE YET"),
                              tint: NB.blue1))
         out.referenceBand = restingBand
-        out.referenceLabel = restingBand.map { "RESTING BAND \(Int($0.lowerBound))–\(Int($0.upperBound))" }
+        out.referenceLabel = restingBand.map { L("RESTING BAND %d–%d", Int($0.lowerBound), Int($0.upperBound)) }
         return out
     }
 
@@ -144,7 +144,7 @@ extension VitalsReadout {
     /// the minutes. Never a guessed name for a band nobody was in.
     private static func heartZoneBands(m: DailyMetrics, ticks: [VitalSample],
                                        profile: Profile) -> [VitalsSplit.Band] {
-        let names = ["Rest", "Fat", "Aero", "Peak"]
+        let names = [L("Rest"), L("Fat"), L("Aero"), L("Peak")]
         let tints = [NB.lime1, NB.optimal2, NB.caution2, NB.alert2]
         var minutes = [Int](repeating: 0, count: 4)
 
@@ -175,28 +175,28 @@ extension VitalsReadout {
     private static func zoneTotal(m: DailyMetrics, ticks: [VitalSample], profile: Profile) -> String? {
         let bands = heartZoneBands(m: m, ticks: ticks, profile: profile)
         let total = Int(bands.reduce(0) { $0 + $1.share })
-        return total > 0 ? "TOTAL \(Fmt.duration(total))" : nil
+        return total > 0 ? L("TOTAL %@", Fmt.duration(total)) : nil
     }
 
     // MARK: 02 · sleep
 
     private static func sleep(m: DailyMetrics) -> VitalsReadout {
         guard let night = m.sleep, night.totalMinutes > 0 else {
-            return empty(unit: "ASLEEP",
-                         foot: "NO NIGHT ON RECORD",
-                         chartNote: "4 STAGES",
-                         splitTitle: "STAGE PROPORTIONS",
-                         statLeft: .init(label: "DEEP SLEEP", value: nil, unit: nil,
-                                         foot: "WEAR IT TONIGHT", tint: nil),
-                         statRight: .init(label: "WAKE EVENTS", value: nil, unit: nil,
-                                          foot: "WEAR IT TONIGHT", tint: nil))
+            return empty(unit: L("ASLEEP"),
+                         foot: L("NO NIGHT ON RECORD"),
+                         chartNote: L("4 STAGES"),
+                         splitTitle: L("STAGE PROPORTIONS"),
+                         statLeft: .init(label: L("DEEP SLEEP"), value: nil, unit: nil,
+                                         foot: L("WEAR IT TONIGHT"), tint: nil),
+                         statRight: .init(label: L("WAKE EVENTS"), value: nil, unit: nil,
+                                          foot: L("WEAR IT TONIGHT"), tint: nil))
         }
 
         let total = night.totalMinutes
         let deepShare = Double(night.deepMinutes) / Double(max(1, total))
         // 「不算分、不评价」 — the badge names the night's deep share, which is a measurement,
         // and stops there. It is not a sleep score.
-        let badgeText = deepShare >= 0.20 ? "RESTORATIVE" : (deepShare >= 0.13 ? "ADEQUATE" : "LIGHT NIGHT")
+        let badgeText = deepShare >= 0.20 ? L("RESTORATIVE") : (deepShare >= 0.13 ? L("ADEQUATE") : L("LIGHT NIGHT"))
         let badgeTint = deepShare >= 0.20 ? NB.optimal2 : (deepShare >= 0.13 ? NB.violet1 : NB.ember1)
 
         // A deep episode is one run of stage 0. The band files them; counting them is not
@@ -208,50 +208,50 @@ extension VitalsReadout {
             // A row stored before the line was kept: the two totals it does have, and no
             // invented REM band.
             bands = [
-                .init(name: "Deep", tint: NB.violet1, share: Double(night.deepMinutes),
+                .init(name: L("Deep"), tint: NB.violet1, share: Double(night.deepMinutes),
                       detail: Fmt.duration(night.deepMinutes)),
-                .init(name: "Light", tint: NB.violet2, share: Double(night.lightMinutes),
+                .init(name: L("Light"), tint: NB.violet2, share: Double(night.lightMinutes),
                       detail: Fmt.duration(night.lightMinutes)),
             ]
         } else {
             bands = [
-                .init(name: "Deep", tint: NB.violet1, share: Double(night.deepMinutes),
+                .init(name: L("Deep"), tint: NB.violet1, share: Double(night.deepMinutes),
                       detail: Fmt.duration(night.deepMinutes)),
-                .init(name: "Light", tint: NB.violet2, share: Double(night.lightMinutes),
+                .init(name: L("Light"), tint: NB.violet2, share: Double(night.lightMinutes),
                       detail: Fmt.duration(night.lightMinutes)),
-                .init(name: "REM", tint: NB.blue1, share: Double(night.remMinutes),
+                .init(name: L("REM"), tint: NB.blue1, share: Double(night.remMinutes),
                       detail: Fmt.duration(night.remMinutes)),
-                .init(name: "Awake", tint: NB.white.opacity(0.35), share: Double(night.awakeMinutes),
+                .init(name: L("Awake"), tint: NB.white.opacity(0.35), share: Double(night.awakeMinutes),
                       detail: Fmt.duration(night.awakeMinutes)),
             ]
         }
 
         let window: String
         if let start = night.sleepStart, let wake = night.wakeAt {
-            window = "BED \(Fmt.clock(start)) · WAKE \(Fmt.clock(wake))"
+            window = L("BED %@ · WAKE %@", Fmt.clock(start), Fmt.clock(wake))
         } else {
-            window = "WINDOW NOT ON RECORD"
+            window = L("WINDOW NOT ON RECORD")
         }
 
         return VitalsReadout(
             badge: .init(text: badgeText, tint: badgeTint),
             value: Fmt.duration(total),
-            unit: "ASLEEP",
+            unit: L("ASLEEP"),
             gauge: nil,
             footLeft: window,
-            footRight: deepEpisodes > 0 ? "\(deepEpisodes) DEEP EPISODES" : nil,
-            chartNote: night.line.isEmpty ? "TOTALS ONLY" : "AWAKE · REM · LIGHT · DEEP",
-            splitTitle: "STAGE PROPORTIONS",
-            splitTrailing: "TOTAL \(Fmt.duration(total))",
+            footRight: deepEpisodes > 0 ? L("%d DEEP EPISODES", deepEpisodes) : nil,
+            chartNote: night.line.isEmpty ? L("TOTALS ONLY") : L("AWAKE · REM · LIGHT · DEEP"),
+            splitTitle: L("STAGE PROPORTIONS"),
+            splitTrailing: L("TOTAL %@", Fmt.duration(total)),
             bands: bands,
-            statLeft: .init(label: "DEEP SLEEP", value: Fmt.duration(night.deepMinutes), unit: nil,
-                            foot: "\(Int((deepShare * 100).rounded()))% OF THE NIGHT", tint: NB.violet1),
+            statLeft: .init(label: L("DEEP SLEEP"), value: Fmt.duration(night.deepMinutes), unit: nil,
+                            foot: L("%d%% OF THE NIGHT", Int((deepShare * 100).rounded())), tint: NB.violet1),
             // Never the hero's own number again: the tile used to repeat TIME ASLEEP, which
             // is the one thing the page has already said in 52 pt type.
-            statRight: .init(label: "WAKE EVENTS", value: String(night.wakeCount),
-                             unit: night.wakeCount == 1 ? "WAKE" : "WAKES",
-                             foot: night.awakeMinutes > 0 ? "\(Fmt.duration(night.awakeMinutes)) AWAKE"
-                                                          : "NONE STAGED AWAKE",
+            statRight: .init(label: L("WAKE EVENTS"), value: String(night.wakeCount),
+                             unit: night.wakeCount == 1 ? L("WAKE") : L("WAKES"),
+                             foot: night.awakeMinutes > 0 ? L("%@ AWAKE", Fmt.duration(night.awakeMinutes))
+                                                          : L("NONE STAGED AWAKE"),
                              tint: night.wakeCount > 2 ? NB.ember1 : nil))
     }
 
@@ -266,7 +266,7 @@ extension VitalsReadout {
         var badge: VitalsBadge.Model?
         if let value, let base, base > 0 {
             let ratio = value / base
-            let text = ratio >= 1.08 ? "ABOVE BASELINE" : (ratio >= 0.92 ? "WITHIN RANGE" : "BELOW BASELINE")
+            let text = ratio >= 1.08 ? L("ABOVE BASELINE") : (ratio >= 0.92 ? L("WITHIN RANGE") : L("BELOW BASELINE"))
             let tint = ratio >= 1.08 ? NB.optimal2 : (ratio >= 0.92 ? NB.blue1 : NB.ember1)
             badge = .init(text: text, tint: tint)
         }
@@ -286,9 +286,9 @@ extension VitalsReadout {
             let inBand = ticks.filter { $0 >= base * 0.92 && $0 <= base * 1.08 }.count
             let above = ticks.filter { $0 > base * 1.08 }.count
             bands = [
-                .init(name: "Below", tint: NB.ember1, share: Double(below), detail: "\(below)"),
-                .init(name: "In band", tint: NB.blue1, share: Double(inBand), detail: "\(inBand)"),
-                .init(name: "Above", tint: NB.optimal2, share: Double(above), detail: "\(above)"),
+                .init(name: L("Below"), tint: NB.ember1, share: Double(below), detail: "\(below)"),
+                .init(name: L("In band"), tint: NB.blue1, share: Double(inBand), detail: "\(inBand)"),
+                .init(name: L("Above"), tint: NB.optimal2, share: Double(above), detail: "\(above)"),
             ]
         }
 
@@ -296,27 +296,27 @@ extension VitalsReadout {
             badge: badge,
             value: value.map { String(Int($0.rounded())) },
             unit: "MS",
-            gauge: gauge(low: envelope.map { "LOW \(Int($0.lowerBound.rounded()))" } ?? "LOW \(Fmt.dash)",
-                         now: value.map { "NIGHT \(Int($0.rounded()))" } ?? "NIGHT \(Fmt.dash)",
-                         high: envelope.map { "HIGH \(Int($0.upperBound.rounded()))" } ?? "HIGH \(Fmt.dash)",
+            gauge: gauge(low: envelope.map { L("LOW %d", Int($0.lowerBound.rounded())) } ?? L("LOW %@", Fmt.dash),
+                         now: value.map { L("NIGHT %d", Int($0.rounded())) } ?? L("NIGHT %@", Fmt.dash),
+                         high: envelope.map { L("HIGH %d", Int($0.upperBound.rounded())) } ?? L("HIGH %@", Fmt.dash),
                          value: value, low: envelope?.lowerBound, high: envelope?.upperBound),
-            footLeft: "\(night?.hrvNights ?? 0)/14 NIGHTS ON FILE",
-            footRight: base.map { "BASE \(Int($0.rounded())) MS" },
-            chartNote: ticks.isEmpty ? "NO RMSSD TICKS" : "\(ticks.count) TICKS · 14-NIGHT ENVELOPE",
-            splitTitle: "TICKS VS BASELINE",
-            splitTrailing: ticks.isEmpty ? nil : "\(ticks.count) TICKS",
+            footLeft: L("%d/14 NIGHTS ON FILE", night?.hrvNights ?? 0),
+            footRight: base.map { L("BASE %d MS", Int($0.rounded())) },
+            chartNote: ticks.isEmpty ? L("NO RMSSD TICKS") : L("%d TICKS · 14-NIGHT ENVELOPE", ticks.count),
+            splitTitle: L("TICKS VS BASELINE"),
+            splitTrailing: ticks.isEmpty ? nil : L("%d TICKS", ticks.count),
             bands: bands,
-            statLeft: .init(label: "24H MEDIAN", value: median(ticks).map { String(Int($0.rounded())) },
+            statLeft: .init(label: L("24H MEDIAN"), value: median(ticks).map { String(Int($0.rounded())) },
                             unit: "MS",
-                            foot: ticks.isEmpty ? "NO TICKS YET"
-                                : "LOW \(Int(ticks.min()!.rounded())) · HIGH \(Int(ticks.max()!.rounded()))",
+                            foot: ticks.isEmpty ? L("NO TICKS YET")
+                                : L("LOW %d · HIGH %d", Int(ticks.min()!.rounded()), Int(ticks.max()!.rounded())),
                             tint: NB.blue1),
-            statRight: .init(label: "VS BASELINE",
+            statRight: .init(label: L("VS BASELINE"),
                              value: (value != nil && (base ?? 0) > 0)
                                  ? String(format: "%.2f", value! / base!) : nil,
-                             unit: "RATIO",
-                             foot: (night?.hrvNights ?? 0) >= 5 ? "\(night!.hrvNights) NIGHTS WEIGHED"
-                                                                : "NEEDS 5 NIGHTS",
+                             unit: L("RATIO"),
+                             foot: (night?.hrvNights ?? 0) >= 5 ? L("%d NIGHTS WEIGHED", night!.hrvNights)
+                                                                : L("NEEDS 5 NIGHTS"),
                              tint: nil))
     }
 
@@ -332,7 +332,7 @@ extension VitalsReadout {
 
         var badge: VitalsBadge.Model?
         if let now {
-            let text = now < 25 ? "REST STATE" : (now < 50 ? "STEADY" : (now < 75 ? "ELEVATED" : "HIGH LOAD"))
+            let text = now < 25 ? L("REST STATE") : (now < 50 ? L("STEADY") : (now < 75 ? L("ELEVATED") : L("HIGH LOAD")))
             let tint = now < 25 ? NB.optimal2 : (now < 50 ? NB.lime1 : (now < 75 ? NB.ember1 : NB.alert2))
             badge = .init(text: text, tint: tint)
         }
@@ -343,7 +343,7 @@ extension VitalsReadout {
             let i = value < 25 ? 0 : (value < 50 ? 1 : (value < 75 ? 2 : 3))
             minutes[i] += tickMinutes
         }
-        let names = ["Rest", "Low", "Mid", "High"]
+        let names = [L("Rest"), L("Low"), L("Mid"), L("High")]
         let tints = [NB.optimal2, NB.lime1, NB.ember1, NB.alert2]
         let totalMinutes = minutes.reduce(0, +)
         let bands: [VitalsSplit.Band] = totalMinutes == 0 ? [] : (0..<4).map { i in
@@ -364,26 +364,26 @@ extension VitalsReadout {
             badge: badge,
             value: now.map(String.init),
             unit: "/ 100",
-            gauge: gauge(low: values.min().map { "LOW \($0)" } ?? "LOW \(Fmt.dash)",
-                         now: now.map { "NOW \($0)" } ?? "NOW \(Fmt.dash)",
-                         high: values.max().map { "PEAK \($0)" } ?? "PEAK \(Fmt.dash)",
+            gauge: gauge(low: values.min().map { L("LOW %d", $0) } ?? L("LOW %@", Fmt.dash),
+                         now: now.map { L("NOW %d", $0) } ?? L("NOW %@", Fmt.dash),
+                         high: values.max().map { L("PEAK %d", $0) } ?? L("PEAK %@", Fmt.dash),
                          value: now.map(Double.init),
                          low: values.min().map(Double.init), high: values.max().map(Double.init)),
-            footLeft: dayMean.map { "24H MEAN \(Int($0.rounded()))" } ?? "NO TICKS YET",
-            footRight: peak.flatMap { tick in tick.stress.map { "PEAK \($0) AT \(Fmt.clock(tick.ts))" } },
-            chartNote: "FIXED 0–100 INDEX",
-            splitTitle: "TIME IN STRESS ZONES",
-            splitTrailing: totalMinutes > 0 ? "TOTAL \(Fmt.duration(totalMinutes))" : nil,
+            footLeft: dayMean.map { L("24H MEAN %d", Int($0.rounded())) } ?? L("NO TICKS YET"),
+            footRight: peak.flatMap { tick in tick.stress.map { L("PEAK %d AT %@", $0, Fmt.clock(tick.ts)) } },
+            chartNote: L("FIXED 0–100 INDEX"),
+            splitTitle: L("TIME IN STRESS ZONES"),
+            splitTrailing: totalMinutes > 0 ? L("TOTAL %@", Fmt.duration(totalMinutes)) : nil,
             bands: bands,
-            statLeft: .init(label: "RECOVERY TIME", value: minutes[0] > 0 ? Fmt.duration(minutes[0]) : nil,
+            statLeft: .init(label: L("RECOVERY TIME"), value: minutes[0] > 0 ? Fmt.duration(minutes[0]) : nil,
                             unit: nil,
                             foot: totalMinutes > 0
-                                ? "\(Int((Double(minutes[0]) / Double(totalMinutes) * 100).rounded()))% OF 24H"
-                                : "NO TICKS YET",
+                                ? L("%d%% OF 24H", Int((Double(minutes[0]) / Double(totalMinutes) * 100).rounded()))
+                                : L("NO TICKS YET"),
                             tint: NB.optimal2),
-            statRight: .init(label: "HIGH-LOAD EVENTS", value: values.isEmpty ? nil : String(events),
-                             unit: events == 1 ? "EVENT" : "EVENTS",
-                             foot: minutes[3] > 0 ? "\(Fmt.duration(minutes[3])) OVER 75" : "NONE OVER 75",
+            statRight: .init(label: L("HIGH-LOAD EVENTS"), value: values.isEmpty ? nil : String(events),
+                             unit: events == 1 ? L("EVENT") : L("EVENTS"),
+                             foot: minutes[3] > 0 ? L("%@ OVER 75", Fmt.duration(minutes[3])) : L("NONE OVER 75"),
                              tint: events > 0 ? NB.ember1 : nil))
     }
 
@@ -400,7 +400,7 @@ extension VitalsReadout {
         var badge: VitalsBadge.Model?
         if let deviation {
             let magnitude = abs(deviation)
-            let text = magnitude <= 0.3 ? "BASELINE STABLE" : (magnitude <= 0.6 ? "MILD SHIFT" : "DEVIATION")
+            let text = magnitude <= 0.3 ? L("BASELINE STABLE") : (magnitude <= 0.6 ? L("MILD SHIFT") : L("DEVIATION"))
             let tint = magnitude <= 0.3 ? NB.optimal2 : (magnitude <= 0.6 ? NB.cyan1 : NB.ember1)
             badge = .init(text: text, tint: tint)
         }
@@ -411,7 +411,7 @@ extension VitalsReadout {
             let i = value < -0.3 ? 0 : (value <= 0.3 ? 1 : 2)
             minutes[i] += tickMinutes
         }
-        let names = ["Below", "Stable", "Above"]
+        let names = [L("Below"), L("Stable"), L("Above")]
         let tints = [NB.blue1, NB.optimal2, NB.ember1]
         let totalMinutes = minutes.reduce(0, +)
         let bands: [VitalsSplit.Band] = totalMinutes == 0 ? [] : (0..<3).map { i in
@@ -422,31 +422,31 @@ extension VitalsReadout {
         var out = VitalsReadout(
             badge: badge,
             value: deviation.map { String(format: "%+.1f", $0) },
-            unit: "°C VS BASELINE",
-            gauge: gauge(low: deviations.min().map { String(format: "LOW %+.1f", $0) } ?? "LOW \(Fmt.dash)",
-                         now: deviation.map { String(format: "NOW %+.1f", $0) } ?? "NOW \(Fmt.dash)",
-                         high: deviations.max().map { String(format: "HIGH %+.1f", $0) } ?? "HIGH \(Fmt.dash)",
+            unit: L("°C VS BASELINE"),
+            gauge: gauge(low: deviations.min().map { L("LOW %+.1f", $0) } ?? L("LOW %@", Fmt.dash),
+                         now: deviation.map { L("NOW %+.1f", $0) } ?? L("NOW %@", Fmt.dash),
+                         high: deviations.max().map { L("HIGH %+.1f", $0) } ?? L("HIGH %@", Fmt.dash),
                          value: deviation, low: deviations.min(), high: deviations.max()),
             // The window is named, not just the number: +0.2 against last night and +0.2
             // against the last seven days are two different claims.
-            footLeft: source.map { String(format: "BASELINE %.1f °C · %@", $0.value, $0.source) }
-                ?? "NO BASELINE YET",
-            footRight: last.map { String(format: "SKIN %.1f °C", $0) },
-            chartNote: "FIXED ±1.0 °C",
-            splitTitle: "TIME OFF BASELINE",
-            splitTrailing: totalMinutes > 0 ? "TOTAL \(Fmt.duration(totalMinutes))" : nil,
+            footLeft: source.map { L("BASELINE %.1f °C · %@", $0.value, L($0.source)) }
+                ?? L("NO BASELINE YET"),
+            footRight: last.map { L("SKIN %.1f °C", $0) },
+            chartNote: L("FIXED ±1.0 °C"),
+            splitTitle: L("TIME OFF BASELINE"),
+            splitTrailing: totalMinutes > 0 ? L("TOTAL %@", Fmt.duration(totalMinutes)) : nil,
             bands: bands,
-            statLeft: .init(label: "24H LOW", value: today.min().map { String(format: "%.1f", $0) },
+            statLeft: .init(label: L("24H LOW"), value: today.min().map { String(format: "%.1f", $0) },
                             unit: "°C",
-                            foot: today.isEmpty ? "NO TICKS YET" : "\(today.count) TICKS · 24H",
+                            foot: today.isEmpty ? L("NO TICKS YET") : L("%d TICKS · 24H", today.count),
                             tint: NB.blue1),
-            statRight: .init(label: "24H HIGH", value: today.max().map { String(format: "%.1f", $0) },
+            statRight: .init(label: L("24H HIGH"), value: today.max().map { String(format: "%.1f", $0) },
                              unit: "°C",
-                             foot: baseline.map { String(format: "BASELINE %.1f °C", $0) } ?? "NO BASELINE YET",
+                             foot: baseline.map { L("BASELINE %.1f °C", $0) } ?? L("NO BASELINE YET"),
                              tint: NB.ember1))
         out.baseline = baseline
         out.referenceBand = -0.3...0.3
-        out.referenceLabel = "STABLE ±0.3 °C"
+        out.referenceLabel = L("STABLE ±0.3 °C")
         return out
     }
 
@@ -465,7 +465,7 @@ extension VitalsReadout {
         var badge: VitalsBadge.Model?
         if let total, let weekMean, weekMean > 0 {
             let ahead = total >= weekMean
-            badge = .init(text: ahead ? "ABOVE 7D MEAN" : "BELOW 7D MEAN",
+            badge = .init(text: ahead ? L("ABOVE 7D MEAN") : L("BELOW 7D MEAN"),
                           tint: ahead ? NB.optimal2 : NB.ember1)
         }
 
@@ -478,31 +478,31 @@ extension VitalsReadout {
             if s < 150 { casual += Double(s) } else if s < 400 { active += Double(s) } else { run += Double(s) }
         }
         let bands: [VitalsSplit.Band] = (casual + active + run) == 0 ? [] : [
-            .init(name: "Casual", tint: NB.optimal2.opacity(0.45), share: casual, detail: Fmt.kcal(casual)),
-            .init(name: "Active", tint: NB.optimal2, share: active, detail: Fmt.kcal(active)),
-            .init(name: "Run", tint: NB.lime1, share: run, detail: Fmt.kcal(run)),
+            .init(name: L("Casual"), tint: NB.optimal2.opacity(0.45), share: casual, detail: Fmt.kcal(casual)),
+            .init(name: L("Active"), tint: NB.optimal2, share: active, detail: Fmt.kcal(active)),
+            .init(name: L("Run"), tint: NB.lime1, share: run, detail: Fmt.kcal(run)),
         ]
 
         return VitalsReadout(
             badge: badge,
             value: total.map { Fmt.kcal($0) },
-            unit: "STEPS",
-            gauge: gauge(low: week.min().map { "7D LOW \(Fmt.kcal($0))" } ?? "7D LOW \(Fmt.dash)",
-                         now: total.map { "TODAY \(Fmt.kcal($0))" } ?? "TODAY \(Fmt.dash)",
-                         high: week.max().map { "7D HIGH \(Fmt.kcal($0))" } ?? "7D HIGH \(Fmt.dash)",
+            unit: L("STEPS"),
+            gauge: gauge(low: week.min().map { L("7D LOW %@", Fmt.kcal($0)) } ?? L("7D LOW %@", Fmt.dash),
+                         now: total.map { L("TODAY %@", Fmt.kcal($0)) } ?? L("TODAY %@", Fmt.dash),
+                         high: week.max().map { L("7D HIGH %@", Fmt.kcal($0)) } ?? L("7D HIGH %@", Fmt.dash),
                          value: total, low: week.min(), high: week.max()),
-            footLeft: m.activeMinutes.map { "ACTIVE TIME \(Fmt.duration($0))" } ?? "NO ACTIVE TIME YET",
-            footRight: peak.map { "PEAK \(Fmt.kcal($0.value))/H AT \(VitalsMath.clock(day: m.day, minute: $0.index * 60))" },
-            chartNote: "TODAY · PER HOUR",
-            splitTitle: "CADENCE INTENSITY",
-            splitTrailing: total.map { "\(Fmt.kcal($0)) STEPS" },
+            footLeft: m.activeMinutes.map { L("ACTIVE TIME %@", Fmt.duration($0)) } ?? L("NO ACTIVE TIME YET"),
+            footRight: peak.map { L("PEAK %@/H AT %@", Fmt.kcal($0.value), VitalsMath.clock(day: m.day, minute: $0.index * 60)) },
+            chartNote: L("TODAY · PER HOUR"),
+            splitTitle: L("CADENCE INTENSITY"),
+            splitTrailing: total.map { L("%@ STEPS", Fmt.kcal($0)) },
             bands: bands,
-            statLeft: .init(label: "DISTANCE", value: metres.map { String(format: "%.2f", $0 / 1000) },
+            statLeft: .init(label: L("DISTANCE"), value: metres.map { String(format: "%.2f", $0 / 1000) },
                             unit: "KM",
-                            foot: metres.map { "\(Fmt.kcal($0)) M WALKED" } ?? "NO DISTANCE YET",
+                            foot: metres.map { L("%@ M WALKED", Fmt.kcal($0)) } ?? L("NO DISTANCE YET"),
                             tint: NB.violetPink),
-            statRight: .init(label: "ACTIVITY BURN", value: activeKcal.map { Fmt.kcal($0) }, unit: "KCAL",
-                             foot: activeKcal == nil ? "NEEDS YOUR WEIGHT" : "MOVEMENT ONLY",
+            statRight: .init(label: L("ACTIVITY BURN"), value: activeKcal.map { Fmt.kcal($0) }, unit: "KCAL",
+                             foot: activeKcal == nil ? L("NEEDS YOUR WEIGHT") : L("MOVEMENT ONLY"),
                              tint: NB.run1))
     }
 
@@ -519,7 +519,7 @@ extension VitalsReadout {
         var badge: VitalsBadge.Model?
         if let metres, let weekMean, weekMean > 0 {
             let ahead = metres >= weekMean
-            badge = .init(text: ahead ? "ABOVE 7D MEAN" : "BELOW 7D MEAN",
+            badge = .init(text: ahead ? L("ABOVE 7D MEAN") : L("BELOW 7D MEAN"),
                           tint: ahead ? NB.optimal2 : NB.ember1)
         }
 
@@ -550,22 +550,22 @@ extension VitalsReadout {
             badge: badge,
             value: metres.map { String(format: "%.2f", $0 / 1000) },
             unit: "KM",
-            gauge: gauge(low: week.min().map { String(format: "7D LOW %.1f", $0 / 1000) } ?? "7D LOW \(Fmt.dash)",
-                         now: metres.map { String(format: "TODAY %.2f", $0 / 1000) } ?? "TODAY \(Fmt.dash)",
-                         high: week.max().map { String(format: "7D HIGH %.1f", $0 / 1000) } ?? "7D HIGH \(Fmt.dash)",
+            gauge: gauge(low: week.min().map { L("7D LOW %.1f", $0 / 1000) } ?? L("7D LOW %@", Fmt.dash),
+                         now: metres.map { L("TODAY %.2f", $0 / 1000) } ?? L("TODAY %@", Fmt.dash),
+                         high: week.max().map { L("7D HIGH %.1f", $0 / 1000) } ?? L("7D HIGH %@", Fmt.dash),
                          value: metres, low: week.min(), high: week.max()),
-            footLeft: metres.map { "\(Fmt.kcal($0)) METRES TODAY" } ?? "NO DISTANCE YET",
-            footRight: m.activeMinutes.map { "ACTIVE \(Fmt.duration($0))" },
-            chartNote: "CUMULATIVE · TODAY",
-            splitTitle: "WHEN IT HAPPENED",
-            splitTrailing: metres.map { String(format: "%.2f KM", $0 / 1000) },
+            footLeft: metres.map { L("%@ METRES TODAY", Fmt.kcal($0)) } ?? L("NO DISTANCE YET"),
+            footRight: m.activeMinutes.map { L("ACTIVE %@", Fmt.duration($0)) },
+            chartNote: L("CUMULATIVE · TODAY"),
+            splitTitle: L("WHEN IT HAPPENED"),
+            splitTrailing: metres.map { L("%.2f KM", $0 / 1000) },
             bands: bands,
-            statLeft: .init(label: "STRIDE LENGTH", value: stride.map { String(format: "%.0f", $0) },
+            statLeft: .init(label: L("STRIDE LENGTH"), value: stride.map { String(format: "%.0f", $0) },
                             unit: "CM",
-                            foot: steps.map { "\(Fmt.kcal($0)) STEPS" } ?? "NEEDS STEPS",
+                            foot: steps.map { L("%@ STEPS", Fmt.kcal($0)) } ?? L("NEEDS STEPS"),
                             tint: NB.violetPink),
-            statRight: .init(label: "ACTIVITY BURN", value: activeKcal.map { Fmt.kcal($0) }, unit: "KCAL",
-                             foot: activeKcal == nil ? "NEEDS YOUR WEIGHT" : "MOVEMENT ONLY",
+            statRight: .init(label: L("ACTIVITY BURN"), value: activeKcal.map { Fmt.kcal($0) }, unit: "KCAL",
+                             foot: activeKcal == nil ? L("NEEDS YOUR WEIGHT") : L("MOVEMENT ONLY"),
                              tint: NB.run1))
     }
 
@@ -583,9 +583,9 @@ extension VitalsReadout {
 
         var bands: [VitalsSplit.Band] = []
         let parts: [(String, Color, Double?)] = [
-            ("Resting", NB.macroValue, bmr),
-            ("Active", NB.run1, move),
-            ("Training", NB.cyan1, train),
+            (L("Resting"), NB.macroValue, bmr),
+            (L("Active"), NB.run1, move),
+            (L("Training"), NB.cyan1, train),
         ]
         for (name, tint, value) in parts {
             guard let value, value > 0 else { continue }
@@ -593,37 +593,37 @@ extension VitalsReadout {
         }
 
         return VitalsReadout(
-            badge: move.map { .init(text: "ACTIVE \(Fmt.kcal($0))", tint: NB.run1) },
+            badge: move.map { .init(text: L("ACTIVE %@", Fmt.kcal($0)), tint: NB.run1) },
             value: total.map { Fmt.kcal($0) },
             unit: "KCAL",
-            gauge: gauge(low: bmr.map { "RESTING \(Fmt.kcal($0))" } ?? "RESTING \(Fmt.dash)",
-                         now: move.map { "ACTIVE \(Fmt.kcal($0))" } ?? "ACTIVE \(Fmt.dash)",
-                         high: total.map { "TOTAL \(Fmt.kcal($0))" } ?? "TOTAL \(Fmt.dash)",
+            gauge: gauge(low: bmr.map { L("RESTING %@", Fmt.kcal($0)) } ?? L("RESTING %@", Fmt.dash),
+                         now: move.map { L("ACTIVE %@", Fmt.kcal($0)) } ?? L("ACTIVE %@", Fmt.dash),
+                         high: total.map { L("TOTAL %@", Fmt.kcal($0)) } ?? L("TOTAL %@", Fmt.dash),
                          // How much of the burn was moved for, rather than simply elapsed.
                          value: move, low: 0, high: total),
             footLeft: (bmr != nil || move != nil)
-                ? "RESTING \(Fmt.kcal(bmr)) + ACTIVE \(Fmt.kcal(move))"
-                : "NEEDS YOUR WEIGHT",
-            footRight: m.bmrFull.map { "FULL DAY BASELINE \(Fmt.kcal($0))" },
-            chartNote: "TODAY · PER HOUR",
-            splitTitle: "WHERE THE BURN CAME FROM",
-            splitTrailing: total.map { "\(Fmt.kcal($0)) KCAL" },
+                ? L("RESTING %@ + ACTIVE %@", Fmt.kcal(bmr), Fmt.kcal(move))
+                : L("NEEDS YOUR WEIGHT"),
+            footRight: m.bmrFull.map { L("FULL DAY BASELINE %@", Fmt.kcal($0)) },
+            chartNote: L("TODAY · PER HOUR"),
+            splitTitle: L("WHERE THE BURN CAME FROM"),
+            splitTrailing: total.map { L("%@ KCAL", Fmt.kcal($0)) },
             bands: bands,
             // The peak hour rather than the active-minute count: 補屏 B leaves activeMinutes
             // nil on a day with no weight, and a nil tile whose foot read "PEAK 19 KCAL/H"
             // was two unrelated facts stacked on each other.
-            statLeft: .init(label: "PEAK BURN HOUR", value: peak.map { Fmt.kcal($0.value) },
+            statLeft: .init(label: L("PEAK BURN HOUR"), value: peak.map { Fmt.kcal($0.value) },
                             unit: "KCAL",
-                            foot: peak.map { "AT \(VitalsMath.clock(day: m.day, minute: $0.index * 60))" }
-                                ?? "NO TICKS YET",
+                            foot: peak.map { L("AT %@", VitalsMath.clock(day: m.day, minute: $0.index * 60)) }
+                                ?? L("NO TICKS YET"),
                             tint: NB.run1),
             // ⚠️ bmrFull is the whole day's baseline and bmr is the part that has elapsed.
             // The tile used to print —— for bmrFull with the foot "NEEDS YOUR WEIGHT" while
             // RESTING 1,480 — which only exists because the weight does — sat right above it.
-            statRight: .init(label: "RESTING BASELINE", value: (m.bmrFull ?? bmr).map { Fmt.kcal($0) },
+            statRight: .init(label: L("RESTING BASELINE"), value: (m.bmrFull ?? bmr).map { Fmt.kcal($0) },
                              unit: "KCAL",
-                             foot: m.bmrFull != nil ? "WHOLE DAY, UNMOVED"
-                                 : (bmr != nil ? "ELAPSED SO FAR" : "NEEDS YOUR WEIGHT"),
+                             foot: m.bmrFull != nil ? L("WHOLE DAY, UNMOVED")
+                                 : (bmr != nil ? L("ELAPSED SO FAR") : L("NEEDS YOUR WEIGHT")),
                              tint: nil))
     }
 }
@@ -688,12 +688,12 @@ private extension VitalsReadout {
     /// says so instead of printing a delta against a baseline that does not exist.
     static func delta(_ value: Double?, vs baseline: Double?, unit: String, suffix: String,
                       lowerIsBetter: Bool) -> (text: String, tint: Color?) {
-        guard let value, let baseline else { return ("NO BASELINE YET", nil) }
+        guard let value, let baseline else { return (L("NO BASELINE YET"), nil) }
         let diff = value - baseline
         let rounded = Int(abs(diff).rounded())
-        guard rounded > 0 else { return ("LEVEL \(suffix)", nil) }
+        guard rounded > 0 else { return (L("LEVEL %@", L(suffix)), nil) }
         let better = lowerIsBetter ? diff < 0 : diff > 0
-        return ("\(diff < 0 ? "↓" : "↑") \(rounded) \(unit) \(suffix)",
+        return (L("%@ %d %@ %@", diff < 0 ? "↓" : "↑", rounded, unit, L(suffix)),
                 better ? NB.optimal2 : NB.ember1)
     }
 

@@ -33,8 +33,7 @@ struct CompositionDetailView: View {
     }
     private var frozen: Bool { staleDays >= 3 }
     private var lastReadLabel: String {
-        let f = DateFormatter(); f.dateFormat = "MMM d"
-        return f.string(from: data.weighIns.first?.date ?? Date()).uppercased()
+        return Fmt.displayDate(data.weighIns.first?.date ?? Date(), format: "MMM d").uppercased()
     }
     /// 10 edge 3 · a day-over-day jump is shown, stored and marked — deleting it would be
     /// editing the facts for the user.
@@ -61,14 +60,17 @@ struct CompositionDetailView: View {
         let s = signals
         guard s.filter(\.lit).count < 4 else { return nil }
         func word(_ v: Double?) -> String {
-            guard let v else { return "FLAT" }
-            return abs(v) < 0.05 ? "FLAT" : v < 0 ? "DOWN" : "UP"
+            guard let v else { return L("FLAT") }
+            return abs(v) < 0.05 ? L("FLAT") : v < 0 ? L("DOWN") : L("UP")
         }
         let fat = word(m.fatEmaDelta7d), lean = word(m.leanEmaDelta7d)
-        let trends = fat == lean ? "FAT IS \(fat), LEAN IS TOO." : "FAT IS \(fat), LEAN IS \(lean)."
-        let off = s.dropFirst(2).filter { !$0.lit }.map { $0.name == "PROTEIN INTAKE" ? "PROTEIN" : "BALANCE" }
+        let trends = fat == lean
+            ? L("FAT IS %@, LEAN IS TOO.", fat)
+            : L("FAT IS %@, LEAN IS %@.", fat, lean)
+        let off = s.dropFirst(2).filter { !$0.lit }.map { $0.name == "PROTEIN INTAKE" ? L("PROTEIN") : L("BALANCE") }
         guard !off.isEmpty else { return trends }
-        return "\(trends) \(off.joined(separator: " AND ")) \(off.count == 1 ? "DISAGREES" : "DISAGREE")."
+        return L("%@ %@ %@.", trends, off.joined(separator: L(" AND ")),
+                 off.count == 1 ? L("DISAGREES") : L("DISAGREE"))
     }
 
     private var call: TheCall? {
@@ -80,7 +82,7 @@ struct CompositionDetailView: View {
 
     var body: some View {
         // 10 · the board drew `‹ COMPOSITION` as the page's back mark; the day is the headline.
-        DetailScroll(glow: NB.lime1, title: "COMPOSITION", headline: titleText, trailing: {
+        DetailScroll(glow: NB.lime1, title: L("COMPOSITION"), headline: titleText, trailing: {
             HStack(spacing: 6) {
                 PagerButton(forward: false, enabled: true) { day = day.adding(days: -1) }
                 PagerButton(forward: true, enabled: day < UserDay.containing(Date())) {
@@ -95,7 +97,7 @@ struct CompositionDetailView: View {
                 callCard
                 thatWeekCard
                 if hasCall { whyCard } else { needsCard }
-                SectionLabel("EVIDENCE")
+                SectionLabel(L("EVIDENCE"))
                 weighInCard
                 if hasCall {
                     energyCard
@@ -104,7 +106,7 @@ struct CompositionDetailView: View {
                     trainingCard
                 } else {
                     gates
-                    LimePillButton(title: "Add a weigh-in") { router.sheet = .weighIn }
+                    LimePillButton(title: L("Add a weigh-in")) { router.sheet = .weighIn }
                         .padding(.top, 6)
                 }
             }
@@ -114,6 +116,11 @@ struct CompositionDetailView: View {
             router.backToRoot()
         }
         .task {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["NB_DEBUG_COMP_RANGE"] == "WEEK" {
+                range = "WEEK"
+            }
+            #endif
             await Analytics.shared.track("COMP_DETAIL_OPEN", [
                 "CALL": call?.rawValue ?? "NO_CALL",
                 "CONFIDENCE": m.confidence.rawValue,
@@ -123,8 +130,7 @@ struct CompositionDetailView: View {
     }
 
     private var titleText: String {
-        let f = DateFormatter(); f.dateFormat = "EEE · MMM d"
-        return f.string(from: day.start).uppercased()
+        Fmt.displayDate(day.start, format: "EEE · MMM d").uppercased()
     }
 
     /// The quadrant appears here and in one line of text — nowhere else, and never in the
@@ -138,18 +144,18 @@ struct CompositionDetailView: View {
                     .shadow(color: hasCall ? NB.lime1.opacity(0.35) : .clear, radius: 13)
                 VStack(alignment: .leading, spacing: 7) {
                     HStack(spacing: 9) {
-                        Text(call?.rawValue ?? "NO CALL")
+                        Text(L(call?.rawValue ?? "NO CALL"))
                             .font(NBFont.brand(700, 26)).tracking(-0.02 * 26)
                             .foregroundStyle(NB.text1)
-                        Text(hasCall ? "ESTIMATE" : "PENDING")
+                        Text(hasCall ? L("ESTIMATE") : L("PENDING"))
                             .font(NBFont.ui(500, 11)).tracking(0.14 * 11)
                             .foregroundStyle(Color(hex: 0x9A9AA6))
                             .padding(.horizontal, 9).padding(.vertical, 3)
                             .overlay(Capsule().stroke(NB.white.opacity(0.12), lineWidth: 1))
                     }
                     Text(hasCall
-                         ? "FAT \(Fmt.signedKg(m.fatEmaDelta7d)) KG · LEAN \(Fmt.signedKg(m.leanEmaDelta7d)) KG · 7D"
-                         : "FAT \(Fmt.dash) · LEAN \(Fmt.dash) · NEEDS 5 OF 7 DAYS")
+                         ? L("FAT %@ KG · LEAN %@ KG · 7D", Fmt.signedKg(m.fatEmaDelta7d), Fmt.signedKg(m.leanEmaDelta7d))
+                         : L("FAT %@ · LEAN %@ · NEEDS 5 OF 7 DAYS", Fmt.dash, Fmt.dash))
                         .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
                         .foregroundStyle(NB.macroValue)
                 }
@@ -158,7 +164,7 @@ struct CompositionDetailView: View {
             Rectangle().fill(NB.barTrack).frame(height: 1)
             HStack {
                 HStack(spacing: 9) {
-                    Text("CONFIDENCE")
+                    Text(L("CONFIDENCE"))
                         .font(NBFont.ui(500, 11)).tracking(0.12 * 11)
                         .foregroundStyle(NB.text3Prod)
                     HStack(spacing: 3) {
@@ -168,13 +174,13 @@ struct CompositionDetailView: View {
                                 .frame(width: 16, height: 4)
                         }
                     }
-                    Text(m.confidence.rawValue)
+                    Text(L(m.confidence.rawValue))
                         .font(NBFont.dot(700, 11)).tracking(0.04 * 11)
                         .foregroundStyle(hasCall ? NB.lime1 : NB.text3Prod)
                 }
                 Spacer(minLength: 0)
                 // ⚠️ Never an unqualified fraction: the screen must say what it is counting.
-                Text("\(m.scans7d)/7 DAYS MEASURED")
+                Text(L("%d/7 DAYS MEASURED", m.scans7d))
                     .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
                     .foregroundStyle(Color(hex: 0x8A8A96))
             }
@@ -227,9 +233,10 @@ struct CompositionDetailView: View {
     private var thatWeekCard: some View {
         // 19YI · the same seven cells, renamed, with coverage in place of the date range.
         let late = backfilled
-        return CardBlock(title: isWeek ? "DAILY BREAKDOWN" : "THAT WEEK",
-                  trailing: !late.isEmpty && !isWeek ? "\(late.count) DAY\(late.count == 1 ? "" : "S") RECALCULATED"
-                          : isWeek ? "\(loggedDays) OF 7 LOGGED" : weekLabel,
+        return CardBlock(title: isWeek ? L("DAILY BREAKDOWN") : L("THAT WEEK"),
+                  trailing: !late.isEmpty && !isWeek
+                          ? (late.count == 1 ? L("%d DAY RECALCULATED", late.count) : L("%d DAYS RECALCULATED", late.count))
+                          : isWeek ? L("%d OF 7 LOGGED", loggedDays) : weekLabel,
                   trailingIsDot: true,
                   trailingTint: !late.isEmpty && !isWeek ? NB.ember1.opacity(0.85) : nil) {
             HStack(spacing: 6) {
@@ -247,7 +254,7 @@ struct CompositionDetailView: View {
                 }
             }
             if !late.isEmpty, !isWeek {
-                EvidenceNote("YOU LOGGED \(rangeLabel(late)) LATE. \(countWord(late.count)) CHANGED.")
+                EvidenceNote(L("YOU LOGGED %@ LATE. %@ CHANGED.", rangeLabel(late), countWord(late.count)))
             }
         }
     }
@@ -272,17 +279,16 @@ struct CompositionDetailView: View {
         }
     }
     private func rangeLabel(_ days: [UserDay]) -> String {
-        let f = DateFormatter(); f.dateFormat = "MMM d"
         guard let first = days.first, let last = days.last else { return "" }
-        if days.count == 1 { return f.string(from: first.start).uppercased() }
+        if days.count == 1 { return Fmt.displayDate(first.start, format: "MMM d").uppercased() }
         let contiguous = zip(days, days.dropFirst()).allSatisfy { $1 == $0.adding(days: 1) }
         let sameMonth = Calendar.current.isDate(first.start, equalTo: last.start, toGranularity: .month)
-        if contiguous && sameMonth { return "\(f.string(from: first.start).uppercased())–\(dayNumber(last))" }
-        return days.map { f.string(from: $0.start).uppercased() }.joined(separator: ", ")
+        if contiguous && sameMonth { return "\(Fmt.displayDate(first.start, format: "MMM d").uppercased())–\(dayNumber(last))" }
+        return days.map { Fmt.displayDate($0.start, format: "MMM d").uppercased() }.joined(separator: ", ")
     }
     private func countWord(_ n: Int) -> String {
         let words = ["", "THAT DAY", "THOSE TWO DAYS", "THOSE THREE DAYS", "THOSE FOUR DAYS", "THOSE FIVE DAYS", "THOSE SIX DAYS", "THOSE SEVEN DAYS"]
-        return n < words.count ? words[n] : "THOSE \(n) DAYS"
+        return n < words.count ? L(words[n]) : L("THOSE %d DAYS", n)
     }
 
     private var weekDays: [UserDay] {
@@ -291,8 +297,7 @@ struct CompositionDetailView: View {
         return (0..<7).map { start.adding(days: $0) }
     }
     private var weekLabel: String {
-        let f = DateFormatter(); f.dateFormat = "MMM d"
-        return "\(f.string(from: weekDays.first!.start).uppercased()) — \(dayNumber(weekDays.last!))"
+        "\(Fmt.displayDate(weekDays.first!.start, format: "MMM d").uppercased()) — \(dayNumber(weekDays.last!))"
     }
     private func dayNumber(_ d: UserDay) -> String {
         "\(Calendar.current.component(.day, from: d.start))"
@@ -302,8 +307,8 @@ struct CompositionDetailView: View {
     /// that signal clears its own threshold.
     private var whyCard: some View {
         let s = signals
-        return CardBlock(title: "WHY \(call?.rawValue ?? "")",
-                         trailing: "\(s.filter(\.lit).count)/4 SIGNALS AGREE", trailingIsDot: true) {
+        return CardBlock(title: L("WHY %@", L(call?.rawValue ?? "")),
+                         trailing: L("%d/4 SIGNALS AGREE", s.filter(\.lit).count), trailingIsDot: true) {
             VStack(spacing: 12) {
                 ForEach(s, id: \.name) { sig in
                     SignalRow(lit: sig.lit, name: sig.name, value: sig.value, note: sig.note)
@@ -350,18 +355,18 @@ struct CompositionDetailView: View {
         let inWindow = (avgBalance.map { $0 <= -200 && $0 >= -500 }) ?? false
 
         return [
-            ("FAT MASS TREND", "\(Fmt.signedKg(fat)) KG",
-             fatLit ? "7D EMA · CLEARS THE ±0.15 KG THRESHOLD"
-                    : "7D EMA · INSIDE THE ±0.15 KG THRESHOLD", fatLit),
-            ("LEAN MASS TREND", "\(Fmt.signedKg(lean)) KG",
-             leanLit ? "7D EMA · CLEARS THE ±0.10 KG THRESHOLD"
-                     : "7D EMA · INSIDE THE ±0.10 KG THRESHOLD", leanLit),
+            ("FAT MASS TREND", L("%@ KG", Fmt.signedKg(fat)),
+             fatLit ? L("7D EMA · CLEARS THE ±0.15 KG THRESHOLD")
+                    : L("7D EMA · INSIDE THE ±0.15 KG THRESHOLD"), fatLit),
+            ("LEAN MASS TREND", L("%@ KG", Fmt.signedKg(lean)),
+             leanLit ? L("7D EMA · CLEARS THE ±0.10 KG THRESHOLD")
+                     : L("7D EMA · INSIDE THE ±0.10 KG THRESHOLD"), leanLit),
             ("PROTEIN INTAKE",
-             avgPerKg.map { String(format: "%.1f G/KG", $0) } ?? Fmt.dash,
-             "\(hitDays) OF \(perKg.count) DAYS AT OR ABOVE 1.8 G/KG", hitDays >= 4),
-            ("ENERGY BALANCE", Fmt.signedKcal(avgBalance) + " KCAL",
-             inWindow ? "INSIDE THE −200 TO −500 RECOMP WINDOW"
-                      : "OUTSIDE THE −200 TO −500 RECOMP WINDOW", inWindow),
+             avgPerKg.map { L("%.1f G/KG", $0) } ?? Fmt.dash,
+             L("%d OF %d DAYS AT OR ABOVE 1.8 G/KG", hitDays, perKg.count), hitDays >= 4),
+            ("ENERGY BALANCE", L("%@ KCAL", Fmt.signedKcal(avgBalance)),
+             inWindow ? L("INSIDE THE −200 TO −500 RECOMP WINDOW")
+                      : L("OUTSIDE THE −200 TO −500 RECOMP WINDOW"), inWindow),
         ]
     }
 
@@ -377,18 +382,21 @@ struct CompositionDetailView: View {
             let now = weekAvg(window, pick)
             let then = weekAvg(prev, pick)
             guard let now, let then else {
-                return (label, Fmt.dash, "NO PREVIOUS WEEK TO COMPARE", false)
+                return (label, Fmt.dash, L("NO PREVIOUS WEEK TO COMPARE"), false)
             }
             let delta = now - then
             let moved = lowerIsBetter ? delta < 0 : delta > 0
             guard let bar else {
                 return (label, format(delta),
-                        "VS LAST WEEK · \(moved ? "MOVING THE RIGHT WAY" : "MOVING THE OTHER WAY")",
+                        moved ? L("VS LAST WEEK · MOVING THE RIGHT WAY")
+                              : L("VS LAST WEEK · MOVING THE OTHER WAY"),
                         moved)
             }
             let cleared = moved && abs(delta) > bar
             return (label, format(delta),
-                    "VS LAST WEEK · \(cleared ? "CLEARS" : "INSIDE") THE ±\(String(format: "%.2f", bar)) BAR",
+                    cleared
+                        ? L("VS LAST WEEK · CLEARS THE ±%@ BAR", String(format: "%.2f", bar))
+                        : L("VS LAST WEEK · INSIDE THE ±%@ BAR", String(format: "%.2f", bar)),
                     cleared)
         }
         return [
@@ -406,29 +414,29 @@ struct CompositionDetailView: View {
     }
 
     private var needsCard: some View {
-        CardBlock(title: "WHAT IT NEEDS", trailing: "\(m.scans7d) OF 5 SIGNALS READY") {
+        CardBlock(title: L("WHAT IT NEEDS"), trailing: L("%d OF 5 SIGNALS READY", m.scans7d)) {
             VStack(alignment: .leading, spacing: 14) {
                 SignalRow(lit: false, name: "FAT MASS TREND", value: Fmt.dash,
-                          note: "NEEDS A WEIGH-IN BEFORE A TREND EXISTS")
+                          note: L("NEEDS A WEIGH-IN BEFORE A TREND EXISTS"))
                 SignalRow(lit: false, name: "LEAN MASS TREND", value: Fmt.dash,
-                          note: "NEEDS A WEIGH-IN BEFORE A TREND EXISTS")
+                          note: L("NEEDS A WEIGH-IN BEFORE A TREND EXISTS"))
                 SignalRow(lit: false, name: "PROTEIN INTAKE", value: Fmt.dash,
-                          note: "NEEDS FOOD LOGGED ON THE SAME DAY")
+                          note: L("NEEDS FOOD LOGGED ON THE SAME DAY"))
                 SignalRow(lit: false, name: "ENERGY BALANCE", value: Fmt.dash,
-                          note: "NEEDS BOTH INTAKE AND BURN ON THE SAME DAY")
+                          note: L("NEEDS BOTH INTAKE AND BURN ON THE SAME DAY"))
             }
             Hairline()
             VStack(alignment: .leading, spacing: 6) {
-                Text("HOW THIS IS DERIVED")
+                Text(L("HOW THIS IS DERIVED"))
                     .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                     .foregroundStyle(NB.text3Prod)
-                Text("One weigh-in swings ±0.8 kg on water alone, so no single morning ever sets a quadrant. The call comes from a 7-day exponential average and needs at least 5 measured days — below that its square stays grey.")
+                Text(L("One weigh-in swings ±0.8 kg on water alone, so no single morning ever sets a quadrant. The call comes from a 7-day exponential average and needs at least 5 measured days — below that its square stays grey."))
                     .font(NBFont.brand(400, 12.5))
                     .lineSpacing(5)
                     .foregroundStyle(NB.text2)
             }
             // ⚠️ RECOMP is inferred from body metrics: a direction, not a diagnosis.
-            Text("RECOMP IS INFERRED FROM YOUR BODY METRICS — A DIRECTION, NOT A DIAGNOSIS.")
+            Text(L("RECOMP IS INFERRED FROM YOUR BODY METRICS — A DIRECTION, NOT A DIAGNOSIS."))
                 .font(NBFont.ui(400, 10.5)).tracking(0.06 * 10.5)
                 .foregroundStyle(NB.text3Prod)
         }
@@ -443,52 +451,52 @@ struct CompositionDetailView: View {
     /// device this product does not have — on the one page whose whole job is saying where each
     /// number came from.
     private var weighInCard: some View {
-        CardBlock(title: "WEIGH-IN",
-                  trailing: notSynced ? "SAVED · NOT SYNCED" : frozen ? "LAST READ \(lastReadLabel)" : spike ? "OUTLIER · KEPT" : sourceLine,
+        CardBlock(title: L("WEIGH-IN"),
+                  trailing: notSynced ? L("SAVED · NOT SYNCED") : frozen ? L("LAST READ %@", lastReadLabel) : spike ? L("OUTLIER · KEPT") : sourceLine,
                   trailingIsDot: true,
                   trailingTint: (notSynced || frozen || spike) ? NB.ember1.opacity(0.85) : nil) {
             // 10S rule 07 · the composition page's top row is one of the two ways in.
             Button { router.sheet = .weighIn } label: {
                 HStack(spacing: 10) {
-                    EvidenceStat(label: "WEIGHT", value: Fmt.kg(m.weightKg), unit: frozen ? "KG · FROZEN" : "KG",
-                                 delta: spike ? "\(Fmt.signedKg(weightDelta1d)) IN A DAY" : "\(Fmt.signedKg(weightDelta7d)) VS 7D",
+                    EvidenceStat(label: L("WEIGHT"), value: Fmt.kg(m.weightKg), unit: frozen ? L("KG · FROZEN") : "KG",
+                                 delta: spike ? L("%@ IN A DAY", Fmt.signedKg(weightDelta1d)) : L("%@ VS 7D", Fmt.signedKg(weightDelta7d)),
                                  deltaTint: spike ? NB.ember1.opacity(0.85) : NB.macroValue)
-                    EvidenceStat(label: "FAT MASS", value: Fmt.kg(m.fatKg), unit: "KG",
-                                 delta: "\(Fmt.signedKg(m.fatEmaDelta7d)) VS 7D", deltaTint: NB.lime1)
+                    EvidenceStat(label: L("FAT MASS"), value: Fmt.kg(m.fatKg), unit: "KG",
+                                 delta: L("%@ VS 7D", Fmt.signedKg(m.fatEmaDelta7d)), deltaTint: NB.lime1)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Add a weigh-in")
+            .accessibilityLabel(L("Add a weigh-in"))
             Rectangle().fill(NB.barTrack).frame(height: 1)
             HStack(spacing: 10) {
-                EvidenceStat(label: "LEAN MASS", value: Fmt.kg(m.leanKg), unit: "KG",
-                             delta: "\(Fmt.signedKg(m.leanEmaDelta7d)) VS 7D", deltaTint: NB.lime1)
-                EvidenceStat(label: "BODY FAT", value: bodyFatPercent, unit: "%",
-                             delta: "\(Fmt.signedKg(bodyFatDelta7d)) VS 7D", deltaTint: NB.lime1)
+                EvidenceStat(label: L("LEAN MASS"), value: Fmt.kg(m.leanKg), unit: "KG",
+                             delta: L("%@ VS 7D", Fmt.signedKg(m.leanEmaDelta7d)), deltaTint: NB.lime1)
+                EvidenceStat(label: L("BODY FAT"), value: bodyFatPercent, unit: "%",
+                             delta: L("%@ VS 7D", Fmt.signedKg(bodyFatDelta7d)), deltaTint: NB.lime1)
             }
             Rectangle().fill(NB.barTrack).frame(height: 1)
             VStack(alignment: .leading, spacing: 9) {
-                SourceLegend(measured: true, label: "MEASURED",
-                             fields: measuredComposition ? "WEIGHT · BODY FAT % · FAT MASS · LEAN MASS" : "WEIGHT · BODY FAT %")
-                SourceLegend(measured: false, label: "DERIVED",
-                             fields: measuredComposition ? "NOTHING TODAY" : "FAT MASS · LEAN MASS")
+                SourceLegend(measured: true, label: L("MEASURED"),
+                             fields: measuredComposition ? L("WEIGHT · BODY FAT % · FAT MASS · LEAN MASS") : L("WEIGHT · BODY FAT %"))
+                SourceLegend(measured: false, label: L("DERIVED"),
+                             fields: measuredComposition ? L("NOTHING TODAY") : L("FAT MASS · LEAN MASS"))
                 // 10 edges · the note under the legend is the receipt: what changed, and why.
                 // 10S edge 4 · the row is here and counted; the server has not seen it yet.
                 if notSynced {
-                    EvidenceNote("IT'LL GO UP LATER")
+                    EvidenceNote(L("IT'LL GO UP LATER"))
                 }
                 if frozen {
-                    EvidenceNote("NOTHING NEW SINCE \(lastReadLabel).")
+                    EvidenceNote(L("NOTHING NEW SINCE %@.", lastReadLabel))
                 }
                 if spike {
                     EvidenceNote((weightDelta7d.map { abs($0) < 0.5 }) ?? true
-                                 ? "THE 7-DAY AVERAGE BARELY MOVED."
-                                 : "THE 7-DAY AVERAGE MOVED \(Fmt.signedKg(weightDelta7d)) KG.")
+                                 ? L("THE 7-DAY AVERAGE BARELY MOVED.")
+                                 : L("THE 7-DAY AVERAGE MOVED %@ KG.", Fmt.signedKg(weightDelta7d)))
                 }
                 if measuredComposition {
-                    EvidenceNote(previousFatKg.map { "ESTIMATE WAS \(Fmt.kg($0)) · THE SERIES RE-ANCHORS FROM HERE" }
-                                 ?? "MEASURED TODAY · THE SERIES RE-ANCHORS FROM HERE")
+                    EvidenceNote(previousFatKg.map { L("ESTIMATE WAS %@ · THE SERIES RE-ANCHORS FROM HERE", Fmt.kg($0)) }
+                                 ?? L("MEASURED TODAY · THE SERIES RE-ANCHORS FROM HERE"))
                 }
             }
         }
@@ -500,7 +508,7 @@ struct CompositionDetailView: View {
         return queue.isPending(w.id)
     }
     private var sourceLine: String {
-        guard let w = data.weighIns.first else { return "NO SOURCE CONNECTED" }
+        guard let w = data.weighIns.first else { return L("NO SOURCE CONNECTED") }
         return "\(w.origin.rawValue)  ·  \(Fmt.clock(w.date))"
     }
     /// Both deltas are against the same seven-day window the two mass trends use, so the
@@ -523,19 +531,19 @@ struct CompositionDetailView: View {
 
     private var energyCard: some View {
         let kIn = avg(\.eIn), kOut = avg(\.eOutNow), bal = avg(\.balance)
-        return CardBlock(title: "ENERGY",
-                         trailing: isWeek ? "DAILY AVERAGE · \(loggedDays) OF 7 LOGGED"
-                                          : "LOGGED \(windowMeals.count) MEALS",
+        return CardBlock(title: L("ENERGY"),
+                         trailing: isWeek ? L("DAILY AVERAGE · %d OF 7 LOGGED", loggedDays)
+                                          : L("LOGGED %d MEALS", windowMeals.count),
                          trailingIsDot: true) {
             HStack(spacing: 10) {
-                BalanceStat(label: "IN", value: Fmt.kcal(kIn), tint: NB.ember1)
-                BalanceStat(label: "OUT", value: Fmt.kcal(kOut), tint: NB.cyan1)
-                BalanceStat(label: "BALANCE", value: Fmt.signedKcal(bal), tint: NB.text1)
+                BalanceStat(label: L("IN"), value: Fmt.kcal(kIn), tint: NB.ember1)
+                BalanceStat(label: L("OUT"), value: Fmt.kcal(kOut), tint: NB.cyan1)
+                BalanceStat(label: L("BALANCE"), value: Fmt.signedKcal(bal), tint: NB.text1)
             }
             BalanceAxis(now: bal ?? 0, ifBudget: bal ?? 0, enabled: bal != nil).frame(height: 52)
             HStack(spacing: 7) {
                 Rectangle().fill(NB.limeMid.opacity(0.55)).frame(width: 14, height: 8)
-                Text("RECOMP WINDOW  −200 TO −500 KCAL")
+                Text(L("RECOMP WINDOW  −200 TO −500 KCAL"))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
@@ -552,8 +560,8 @@ struct CompositionDetailView: View {
         }
         let pro = slot({ $0.proteinIn }, { $0.protein })
         let perKg = (pro.map(\.eaten)).flatMap { p in m.weightKg.map { Double(p) / $0 } }
-        return CardBlock(title: "MACROS",
-                         trailing: isWeek ? "DAILY AVERAGE · VS TARGET" : "VS TARGET") {
+        return CardBlock(title: L("MACROS"),
+                         trailing: isWeek ? L("DAILY AVERAGE · VS TARGET") : L("VS TARGET")) {
             VStack(spacing: 10) {
                 MacroDetailRow(name: "PRO", slot: pro, tint: NB.violet1,
                                note: perKg.map { String(format: "%.1f G/KG", $0) } ?? "")
@@ -593,10 +601,10 @@ struct CompositionDetailView: View {
             .sorted { ($0.days, $0.kcal) > ($1.days, $1.kcal) }
             .prefix(5)
 
-        return CardBlock(title: isWeek ? "TOP FOODS" : "FOOD",
-                         trailing: "\(Fmt.kcal(kcal)) KCAL · \(pro) G PRO") {
+        return CardBlock(title: isWeek ? L("TOP FOODS") : L("FOOD"),
+                         trailing: L("%@ KCAL · %d G PRO", Fmt.kcal(kcal), pro)) {
             if meals.isEmpty {
-                Text("NOTHING LOGGED IN THIS WINDOW")
+                Text(L("NOTHING LOGGED IN THIS WINDOW"))
                     .font(NBFont.dot(500, 11)).tracking(0.14 * 11)
                     .foregroundStyle(NB.text3Prod)
             } else if isWeek {
@@ -632,20 +640,20 @@ struct CompositionDetailView: View {
         let hard = avg { d in d.zoneMinutes.map { Double($0.dropFirst(3).reduce(0, +)) } }
         let session = window.compactMap { $0.segments.first { !$0.allDay && $0.name == "HARD SESSION" } }.first
         return CardBlock(title: MetricNames.training,
-                         trailing: isWeek ? "DAILY AVERAGE"
-                                          : session.map { "HARD · \(Fmt.duration($0.minutes ?? 0))" }
-                                            ?? "NO SESSION") {
+                         trailing: isWeek ? L("DAILY AVERAGE")
+                                          : session.map { L("HARD · %@", Fmt.duration($0.minutes ?? 0)) }
+                                            ?? L("NO SESSION")) {
             HStack(spacing: 10) {
                 EvidenceStat(label: MetricNames.trainingLoad, value: Fmt.load(load), unit: nil,
                              delta: nil, deltaTint: .clear)
-                EvidenceStat(label: "STEPS", value: Fmt.kcal(steps), unit: nil,
+                EvidenceStat(label: L("STEPS"), value: Fmt.kcal(steps), unit: nil,
                              delta: nil, deltaTint: .clear)
             }
             Rectangle().fill(NB.barTrack).frame(height: 1)
             HStack(spacing: 10) {
                 EvidenceStat(label: MetricNames.bodyBattery, value: Fmt.kg(battery, decimals: 0), unit: "%",
                              delta: nil, deltaTint: .clear)
-                EvidenceStat(label: "ZONE 4+", value: Fmt.kg(hard, decimals: 0), unit: "MIN",
+                EvidenceStat(label: L("ZONE 4+"), value: Fmt.kg(hard, decimals: 0), unit: "MIN",
                              delta: nil, deltaTint: .clear)
             }
         }
@@ -653,13 +661,13 @@ struct CompositionDetailView: View {
 
     private var gates: some View {
         VStack(spacing: 0) {
-            GateRow(title: "ENERGY", when: "WITH YOU LOG A MEAL")
+            GateRow(title: L("ENERGY"), when: L("WITH YOU LOG A MEAL"))
             Hairline()
-            GateRow(title: "MACROS", when: "WITH YOU LOG A MEAL")
+            GateRow(title: L("MACROS"), when: L("WITH YOU LOG A MEAL"))
             Hairline()
-            GateRow(title: "FOOD", when: "WITH YOU LOG A MEAL")
+            GateRow(title: L("FOOD"), when: L("WITH YOU LOG A MEAL"))
             Hairline()
-            GateRow(title: MetricNames.training, when: "AFTER 1 FULL DAY")
+            GateRow(title: MetricNames.training, when: L("AFTER 1 FULL DAY"))
         }
         .padding(.horizontal, 14)
         .frame(width: NB.Layout.contentWidth)
@@ -738,7 +746,7 @@ private struct SignalRow: View {
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(name)
+                    Text(L(name))
                         .font(NBFont.ui(500, 12.5)).tracking(0.06 * 12.5)
                         .foregroundStyle(lit ? NB.text1 : NB.text2)
                     Spacer(minLength: 0)
@@ -746,7 +754,7 @@ private struct SignalRow: View {
                         .font(NBFont.dot(700, 13))
                         .foregroundStyle(lit ? NB.lime1 : NB.text3Prod)
                 }
-                Text(note)
+                Text(L(note))
                     .font(NBFont.dot(500, 11)).tracking(0.02 * 11)
                     .foregroundStyle(Color(hex: 0x8A8A96))
             }

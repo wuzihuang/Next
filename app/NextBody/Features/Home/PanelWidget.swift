@@ -257,7 +257,7 @@ struct PanelWidgetView: View {
                     .buttonStyle(HotZoneTap(pressedScale: 1))
             }
         }
-        .accessibilityLabel("\(widget.title) · \(widget.sentence)")
+        .accessibilityLabel("\(L(widget.title)) · \(L(widget.sentence))")
     }
 
     private func go() { onTap(widget.targetOverride ?? widget.type.target) }
@@ -279,14 +279,14 @@ struct PanelWidgetView: View {
             } else {
             if layer != .chart {
             // Slot 1 · title
-            Text(widget.title.uppercased())
+            Text(L(widget.title).uppercased())
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(widget.accent)
                 .offset(x: Slot.safeX, y: Slot.topY)
 
             // Slot 2 · tag — never takes the accent
             if let tag = widget.tag {
-                Text(tag.rawValue)
+                Text(L(tag.rawValue))
                     .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                     .foregroundStyle(NB.white.opacity(0.30))
                     .frame(width: topRowWidth, alignment: .trailing)
@@ -299,7 +299,7 @@ struct PanelWidgetView: View {
 
             if layer != .chart {
             // Slot 6 · sentence — the brightest text on the screen
-            Text(widget.sentence)
+            Text(L(widget.sentence))
                 .font(NBFont.brand(500, 18))
                 .lineSpacing(7)
                 .multilineTextAlignment(.center)
@@ -344,12 +344,12 @@ struct PanelWidgetView: View {
     /// board puts the words on this type.
     @ViewBuilder private func headlineCanvas(_ h: HeadlineBlock) -> some View {
         if layer != .chart {
-            Text(widget.title.uppercased())
+            Text(L(widget.title).uppercased())
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(widget.accent)
                 .offset(x: Slot.safeX, y: Slot.topY)
             if let tag = widget.tag {
-                Text(tag.rawValue)
+                Text(L(tag.rawValue))
                     .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                     .foregroundStyle(NB.white.opacity(0.30))
                     .frame(width: topRowWidth, alignment: .trailing)
@@ -375,7 +375,7 @@ struct PanelWidgetView: View {
                     .frame(width: 358, alignment: .center)
                     .offset(y: 232)
             }
-            Text(widget.sentence)
+            Text(L(widget.sentence))
                 .font(NBFont.brand(400, 13))
                 .foregroundStyle(NB.white.opacity(0.72))
                 .multilineTextAlignment(.center)
@@ -411,7 +411,7 @@ struct PanelWidgetView: View {
         let present = macros.filter { $0.1 != nil && $0.1! > 0 }
         let mx = max(present.compactMap { $0.1 }.max() ?? 1, 1)
         if layer != .chart {
-            Text(widget.title.uppercased())
+            Text(L(widget.title).uppercased())
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(widget.accent)
                 .offset(x: Slot.safeX, y: Slot.topY)
@@ -435,7 +435,7 @@ struct PanelWidgetView: View {
                 .frame(width: 358 - Slot.safeX * 2, alignment: .center)
                 .offset(x: Slot.safeX, y: 150)
             if let pct = plate.pctOfBudget {
-                Text("\(pct)% OF TODAY'S BUDGET")
+                Text(L("%d%% OF TODAY'S BUDGET", pct))
                     .font(NBFont.dot(500, 10.5)).tracking(0.16 * 10.5)
                     .foregroundStyle(NB.white.opacity(0.42))
                     .frame(width: 358, alignment: .center)
@@ -462,7 +462,7 @@ struct PanelWidgetView: View {
                 .frame(width: 358 - Slot.safeX * 2)
                 .offset(x: Slot.safeX, y: 262 + CGFloat(i) * 44)
             }
-            Text(widget.sentence)
+            Text(L(widget.sentence))
                 .font(NBFont.brand(500, 16)).lineSpacing(5)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white)
@@ -514,11 +514,11 @@ struct PanelWidgetView: View {
 
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(widget.title.uppercased())
+                Text(L(widget.title).uppercased())
                     .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                     .foregroundStyle(NB.lime1)
                 Spacer(minLength: 0)
-                Text("JUST NOW")
+                Text(L("JUST NOW"))
                     .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                     .foregroundStyle(NB.white.opacity(0.30))
                     // The panel's own close mark sits in this corner, drawn over the widget
@@ -550,11 +550,11 @@ struct PanelWidgetView: View {
                 .frame(height: 10)
 
                 HStack(spacing: 0) {
-                    Text("REST \(Int(b.restShare * 100))%")
+                    Text(L("REST %d%%", Int(b.restShare * 100)))
                         .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
                         .foregroundStyle(NB.lime1)
                     Spacer(minLength: 0)
-                    Text("DRIVE \(100 - Int(b.restShare * 100))%")
+                    Text(L("DRIVE %d%%", 100 - Int(b.restShare * 100)))
                         .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
                         .foregroundStyle(NB.ember1.opacity(0.9))
                 }
@@ -602,11 +602,11 @@ struct PanelWidgetView: View {
 
         // header · the title in the accent, JUST NOW where the tag sits
         HStack {
-            Text(widget.title.uppercased())
+            Text(L(widget.title).uppercased())
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(NB.lime1)
             Spacer(minLength: 0)
-            Text("JUST NOW")
+            Text(L("JUST NOW"))
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                 .foregroundStyle(NB.white.opacity(0.30))
         }
@@ -646,7 +646,7 @@ struct PanelWidgetView: View {
         .offset(x: 20, y: 206)
 
         // the sentence · the brightest text on the screen
-        Text(widget.sentence)
+        Text(L(widget.sentence))
             .font(NBFont.brand(500, 19)).tracking(-0.01 * 19)
             .lineSpacing(7)
             .multilineTextAlignment(.center)
@@ -681,11 +681,11 @@ struct PanelWidgetView: View {
 
     /// The same 358 × 470 canvas as A·08 / B·07, plus the source chip and the logged line.
     @ViewBuilder private func photoCanvas(_ photo: PhotoAnswer) -> some View {
-        Text("FROM YOUR PHOTO")
+        Text(L("FROM YOUR PHOTO"))
             .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
             .foregroundStyle(NB.white.opacity(0.70))
             .offset(x: Slot.safeX, y: Slot.topY)
-        Text("PHOTO + TEXT")
+        Text(L("PHOTO + TEXT"))
             .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
             .foregroundStyle(NB.white.opacity(0.40))
             .frame(width: topRowWidth, alignment: .trailing)
@@ -716,7 +716,7 @@ struct PanelWidgetView: View {
             .foregroundStyle(NB.white.opacity(0.55))
             .frame(width: 358, alignment: .center)
             .offset(y: 118)
-        Text(widget.sentence)
+        Text(L(widget.sentence))
             .font(NBFont.brand(500, 22)).lineSpacing(9)
             .multilineTextAlignment(.center)
             .foregroundStyle(NB.white)
@@ -731,12 +731,12 @@ struct PanelWidgetView: View {
         }
         // two pills at y318 · the plate is already logged; the second opens fuel
         HStack(spacing: 14) {
-            Text("LOG THE PLATE")
+            Text(L("LOG THE PLATE"))
                 .font(NBFont.dot(600, 10)).tracking(0.14 * 10)
                 .foregroundStyle(NB.lime1)
                 .frame(width: 120, height: 40)
                 .overlay(Capsule().stroke(NB.lime1.opacity(0.6), lineWidth: 2.5))
-            Text("SHOW FUEL")
+            Text(L("SHOW FUEL"))
                 .font(NBFont.dot(600, 10)).tracking(0.14 * 10)
                 .foregroundStyle(NB.white.opacity(0.55))
                 .frame(width: 120, height: 40)
@@ -823,7 +823,7 @@ struct PanelWidgetView: View {
                         Text(Fmt.kg(v, decimals: 0))
                             .font(NBFont.dot(600, 12)).tracking(0.08 * 12)
                             .foregroundStyle(NB.white.opacity(0.55))
-                        Text("OF \(Fmt.kg(g, decimals: 0))\(u)".uppercased())
+                        Text(L("OF %@%@", Fmt.kg(g, decimals: 0), u))
                             .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
                             .foregroundStyle(NB.white.opacity(0.34))
                     }
@@ -1033,7 +1033,7 @@ struct PoincarePlot: View {
             ctx.stroke(frame, with: .color(NB.white.opacity(0.10)), lineWidth: 1)
 
             guard points.count > 1 else {
-                ctx.draw(Text("NOT ENOUGH BEATS")
+                ctx.draw(Text(L("NOT ENOUGH BEATS"))
                     .font(NBFont.dot(500, 9.5))
                     .foregroundStyle(NB.white.opacity(0.30)),
                          at: CGPoint(x: size.width / 2, y: size.height / 2))

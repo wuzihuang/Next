@@ -203,7 +203,7 @@ private struct PairHeader: View {
                 Color.clear.frame(width: 44, height: 44)
             }
             Spacer(minLength: 0)
-            Text(String(format: "PAIRING %02d / 05", index))
+            Text(L("PAIRING %02d / 05", index))
                 .font(NBFont.dot(600, 11)).tracking(0.3 * 11)
                 .foregroundStyle(NB.text3Prod)
         }
@@ -264,20 +264,20 @@ private struct TurnItOn: View {
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)
                 PairHeader(index: 1)
-                PairTitle(title: "Turn it on",
-                          sub: "Hold the button on the right edge for two seconds, until the band lights up.")
+                PairTitle(title: L("Turn it on"),
+                          sub: L("Hold the button on the right edge for two seconds, until the band lights up."))
                     .padding(.top, 24)
                 Spacer(minLength: 0)
             }
 
-            Text("HOLD 2S")
+            Text(L("HOLD 2S"))
                 .font(NBFont.dot(800, 13)).tracking(0.24 * 13)
                 .foregroundStyle(NB.lime1)
                 .frame(width: NB.Layout.screenWidth, alignment: .center)
                 .offset(y: Chrome.boardY(608))
 
             // The only real dead end in the flow, answered on the screen it happens on.
-            Text("Nothing lights up? It may be flat — charge it for ten minutes, then hold again.")
+            Text(L("Nothing lights up? It may be flat — charge it for ten minutes, then hold again."))
                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .lineSpacing(20 - 13)
                 .multilineTextAlignment(.center)
@@ -285,7 +285,7 @@ private struct TurnItOn: View {
                 .frame(width: NB.Layout.screenWidth - 64)
                 .offset(x: 32, y: Chrome.boardY(640))
 
-            LimePillButton(title: "It's on", action: onNext)
+            LimePillButton(title: L("It's on"), action: onNext)
                 .offset(x: 16, y: Chrome.boardY(708))
 
         }
@@ -392,21 +392,21 @@ private struct Searching: View {
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)
                 PairHeader(index: 2, onBack: onBack)
-                PairTitle(title: "Searching",
-                          sub: "Keep the band close to your phone. This usually takes a few seconds.")
+                PairTitle(title: L("Searching"),
+                          sub: L("Keep the band close to your phone. This usually takes a few seconds."))
                     .padding(.top, 24)
                 Spacer(minLength: 0)
             }
 
             switch edge {
             case .none:
-                Text("SCANNING")
+                Text(L("SCANNING"))
                     .font(NBFont.dot(600, 12)).tracking(0.34 * 12)
                     .foregroundStyle(NB.white.opacity(0.42))
                     .frame(width: NB.Layout.screenWidth, alignment: .center)
                     .offset(y: Chrome.boardY(700))
 
-                Text("Keep it within arm's reach.")
+                Text(L("Keep it within arm's reach."))
                     .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
                     .frame(width: NB.Layout.screenWidth, alignment: .center)
@@ -416,15 +416,15 @@ private struct Searching: View {
                 // 02 edge 1 · NOTHING FOUND. Three checks in the most likely order, then the
                 // outlined key. Not a new page — this is screen 02 itself.
                 VStack(spacing: 14) {
-                    Text("NOTHING FOUND")
+                    Text(L("NOTHING FOUND"))
                         .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
                         .foregroundStyle(NB.white.opacity(0.48))
-                    Text("· Is the band lit up\n· Is it further than an arm away\n· Is it still linked to another phone")
+                    Text(L("· Is the band lit up\n· Is it further than an arm away\n· Is it still linked to another phone"))
                         .font(NBFont.ui(300, 13)).lineSpacing(8)
                         .foregroundStyle(NB.white.opacity(0.50))
                         .frame(width: NB.Layout.contentWidth, alignment: .leading)
                     Button(action: onSearchAgain) {
-                        Text("Search again")
+                        Text(L("Search again"))
                             .font(NBFont.ui(500, 14)).tracking(0.04 * 14)
                             .foregroundStyle(NB.white)
                             .frame(width: NB.Layout.contentWidth, height: 44)
@@ -438,15 +438,15 @@ private struct Searching: View {
             case .bluetoothOff:
                 // 02 edge 2 · only the status line turns amber; Settings, then rescan by itself.
                 VStack(spacing: 14) {
-                    Text("BLUETOOTH IS OFF")
+                    Text(L("BLUETOOTH IS OFF"))
                         .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
                         .foregroundStyle(NB.ember1.opacity(0.85))
-                    Text("I can’t look for the band without it.")
+                    Text(L("I can’t look for the band without it."))
                         .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
                     Button {
                         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                     } label: {
-                        Text("Open Bluetooth →").font(NBFont.ui(500, 14)).tracking(0.04 * 14).foregroundStyle(NB.lime1)
+                        Text(L("Open Bluetooth →")).font(NBFont.ui(500, 14)).tracking(0.04 * 14).foregroundStyle(NB.lime1)
                     }
                     .buttonStyle(.plain)
                     .padding(.top, 6)
@@ -488,8 +488,8 @@ private struct FoundIt: View {
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)
                 PairHeader(index: 3, onBack: onBack)
-                PairTitle(title: "Found it",
-                          sub: "One band is in range. Tap connect and keep it near your phone.")
+                PairTitle(title: L("Found it"),
+                          sub: L("One band is in range. Tap connect and keep it near your phone."))
                     .padding(.top, 24)
                 Spacer(minLength: 0)
             }
@@ -497,11 +497,11 @@ private struct FoundIt: View {
             DeviceRow(band: band)
                 .offset(x: 16, y: Chrome.boardY(600))
 
-            LimePillButton(title: "Connect", action: onConnect)
+            LimePillButton(title: L("Connect"), action: onConnect)
                 .offset(x: 16, y: Chrome.boardY(700))
 
             Button(action: onSearchAgain) {
-                Text("Not your band? Search again")
+                Text(L("Not your band? Search again"))
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
                     .frame(width: NB.Layout.screenWidth)
@@ -544,7 +544,7 @@ private struct DeviceRow: View {
                 Text(band?.name.uppercased() ?? "NEXTBODY HOOP")
                     .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                     .foregroundStyle(NB.text1)
-                Text("READY TO PAIR")
+                Text(L("READY TO PAIR"))
                     .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -604,13 +604,13 @@ private struct Pairing: View {
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)
                 PairHeader(index: 4)
-                PairTitle(title: "Pairing", sub: "Keep it close — pulling everything into place.")
+                PairTitle(title: L("Pairing"), sub: L("Keep it close — pulling everything into place."))
                     .padding(.top, 24)
                 Spacer(minLength: 0)
             }
 
             HStack(alignment: .firstTextBaseline) {
-                Text(edge == nil ? "PAIRING" : "STOPPED")
+                Text(edge == nil ? L("PAIRING") : L("STOPPED"))
                     .font(NBFont.dot(600, 11)).tracking(0.3 * 11)
                     .foregroundStyle(edge == nil ? NB.text3Prod : NB.ember1.opacity(0.85))
                 Spacer(minLength: 0)
@@ -633,20 +633,20 @@ private struct Pairing: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if edge == .taken {
                         // 02 edge 5 · the most common real reason an auth fails, named, with two steps.
-                        Text("TAKEN BY ANOTHER PHONE")
+                        Text(L("TAKEN BY ANOTHER PHONE"))
                             .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
                             .foregroundStyle(NB.ember1.opacity(0.85))
-                        Text("This band is still paired somewhere else.")
+                        Text(L("This band is still paired somewhere else."))
                             .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
                         Hairline()
-                        Text("1 · Disconnect it on that phone\n2 · Or hold the side button to restart the band")
+                        Text(L("1 · Disconnect it on that phone\n2 · Or hold the side button to restart the band"))
                             .font(NBFont.ui(300, 13.5)).lineSpacing(8).foregroundStyle(NB.white.opacity(0.60))
                     } else {
-                        Text("The band stopped answering. Nothing you did wrong.")
+                        Text(L("The band stopped answering. Nothing you did wrong."))
                             .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
                     }
                     Button(action: onRetry) {
-                        Text("Try again")
+                        Text(L("Try again"))
                             .font(NBFont.ui(500, 14)).tracking(0.06 * 14)
                             .foregroundStyle(NB.carbon)
                             .frame(width: NB.Layout.contentWidth, height: 44)
@@ -656,7 +656,7 @@ private struct Pairing: View {
                     // Only the second failure offers the way back to 02.
                     if failures >= 2 {
                         Button(action: onSearchAgain) {
-                            Text("Search again")
+                            Text(L("Search again"))
                                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                                 .foregroundStyle(NB.text3Prod)
                                 .frame(width: NB.Layout.contentWidth)
@@ -673,7 +673,7 @@ private struct Pairing: View {
                     .frame(width: NB.Layout.contentWidth, alignment: .leading)
                     .offset(x: 16, y: Chrome.boardY(690))
 
-                Text("Keep it within arm's reach.")
+                Text(L("Keep it within arm's reach."))
                     .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
                     .frame(width: NB.Layout.screenWidth, alignment: .center)
@@ -761,13 +761,13 @@ private struct Connected: View {
                 .frame(width: NB.Layout.screenWidth, height: 560)
                 .offset(y: Chrome.boardY(90))
 
-            Text("CONNECTED")
+            Text(L("CONNECTED"))
                 .font(NBFont.dot(700, 20)).tracking(0.34 * 20)
                 .foregroundStyle(NB.lime1)
                 .frame(width: NB.Layout.screenWidth, alignment: .center)
                 .offset(y: Chrome.boardY(356))
 
-            Text("LINK LOCKED · DOUBLE TAP")
+            Text(L("LINK LOCKED · DOUBLE TAP"))
                 .font(NBFont.dot(500, 10.5)).tracking(0.24 * 10.5)
                 .foregroundStyle(NB.white.opacity(0.40))
                 .frame(width: NB.Layout.screenWidth, alignment: .center)
@@ -783,7 +783,7 @@ private struct Connected: View {
             }
 
             // No header, no back key, one button — pairing to profile is a straight line.
-            LimePillButton(title: "Now let me get to know you", action: onNext)
+            LimePillButton(title: L("Now let me get to know you"), action: onNext)
                 .offset(x: 16, y: Chrome.boardY(700))
 
         }

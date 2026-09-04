@@ -26,17 +26,17 @@ struct PlusMenuSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GroupHeader("ADD TO THE MESSAGE")
-            MenuRow(icon: .camera, title: "Take a photo",
-                    detail: "Camera, straight into the message.") { close(); onCamera?() }
-            MenuRow(icon: .library, title: "Photo library",
-                    detail: "Pick one you already have.") { close(); onLibrary?() }
+            GroupHeader(L("ADD TO THE MESSAGE"))
+            MenuRow(icon: .camera, title: L("Take a photo"),
+                    detail: L("Camera, straight into the message.")) { close(); onCamera?() }
+            MenuRow(icon: .library, title: L("Photo library"),
+                    detail: L("Pick one you already have.")) { close(); onLibrary?() }
 
             Hairline().padding(.vertical, 8)
-            GroupHeader("SPORT MODE")
+            GroupHeader(L("SPORT MODE"))
             let sportOffline: String? = data.band.connected ? nil : "The band isn't connected."
-            MenuRow(icon: .sport, title: "Start a session",
-                    detail: "Pick a mode · the band runs it.",
+            MenuRow(icon: .sport, title: L("Start a session"),
+                    detail: L("Pick a mode · the band runs it."),
                     unavailable: sportOffline) {
                 close()
                 router.open(.sportMode, from: .home)
@@ -47,7 +47,7 @@ struct PlusMenuSheet: View {
             if canHeartRate || canBodyScan {
                 Hairline().padding(.vertical, 8)
 
-                GroupHeader("MEASURE ON THE BAND")
+                GroupHeader(L("MEASURE ON THE BAND"))
                 // Pressing a row is the confirmation. "60 S" is already printed on it, so a
                 // second "are you sure, 60 seconds?" box would be asking a question already answered.
                 // 06 edge 6 · NO BAND: the two band rows are dimmed in the sheet with the reason;
@@ -62,17 +62,17 @@ struct PlusMenuSheet: View {
                     // ⚠️ Nothing in this row, or anywhere the user reads, names the SDK
                     // command underneath. A product that presents a heart trace or reads one
                     // for the user is regulated in the US; this deliberately does neither.
-                    MenuRow(icon: .pulse, title: "Balance check",
-                            detail: "40 s of your pulse rhythm — rest against drive.",
-                            duration: "40 S", unavailable: offline) {
+                    MenuRow(icon: .pulse, title: L("Balance check"),
+                            detail: L("40 s of your pulse rhythm — rest against drive."),
+                            duration: L("40 S"), unavailable: offline) {
                         close()
                         router.takeover = .measure(.ecg)
                     }
                 }
                 if canBodyScan {
-                    MenuRow(icon: .body, title: "Body scan",
-                            detail: "Fourteen fields — fat, muscle, water.",
-                            duration: "30 S", unavailable: offline) {
+                    MenuRow(icon: .body, title: L("Body scan"),
+                            detail: L("Fourteen fields — fat, muscle, water."),
+                            duration: L("30 S"), unavailable: offline) {
                         close()
                         router.takeover = .measure(.bodyComposition)
                     }

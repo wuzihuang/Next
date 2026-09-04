@@ -101,9 +101,9 @@ struct AutonomicBalance {
     /// The headline. Describes the cloud, names no condition.
     var headline: String {
         switch lead {
-        case .parasympathetic: "Rest is leading."
-        case .sympathetic:     "Drive is leading."
-        case .even:            "Both sides, evenly."
+        case .parasympathetic: L("Rest is leading.")
+        case .sympathetic:     L("Drive is leading.")
+        case .even:            L("Both sides, evenly.")
         }
     }
 
@@ -114,11 +114,11 @@ struct AutonomicBalance {
     var note: String {
         switch lead {
         case .parasympathetic:
-            "Your beat-to-beat spacing kept changing — the pattern a settled body makes. Forty seconds is a snapshot, not a verdict."
+            L("Your beat-to-beat spacing kept changing — the pattern a settled body makes. Forty seconds is a snapshot, not a verdict.")
         case .sympathetic:
-            "Your beats came at a steadier spacing, which is what effort, caffeine or a busy head all look like from here."
+            L("Your beats came at a steadier spacing, which is what effort, caffeine or a busy head all look like from here.")
         case .even:
-            "Neither half of the pattern is doing much more than the other right now."
+            L("Neither half of the pattern is doing much more than the other right now.")
         }
     }
 

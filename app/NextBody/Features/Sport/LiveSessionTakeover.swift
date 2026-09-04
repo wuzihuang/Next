@@ -142,7 +142,7 @@ struct LiveSessionTakeover: View {
                 Text(closing ? (store.refusal == nil ? "DONE" : "REFUSED") : "LIVE")
                     .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
                     .foregroundStyle(NB.lime1)
-                Text("·")
+                Text(L("·"))
                     .font(NBFont.dot(600, 11))
                     .foregroundStyle(NB.white.opacity(0.28))
                 Text((mode?.name ?? "").uppercased())
@@ -171,7 +171,7 @@ struct LiveSessionTakeover: View {
                     .foregroundStyle(NB.text1)
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                Text("ELAPSED")
+                Text(L("ELAPSED"))
                     .font(NBFont.dot(600, 10)).tracking(0.3 * 10)
                     .foregroundStyle(NB.white.opacity(0.42))
             }
@@ -185,9 +185,9 @@ struct LiveSessionTakeover: View {
     private var stats: some View {
         HStack(spacing: 0) {
             readout(value: store.liveHR.map(String.init) ?? Fmt.dash, unit: "BPM",
-                    label: "HEART RATE", lit: store.liveHR != nil)
+                    label: L("HEART RATE"), lit: store.liveHR != nil)
             readout(value: burnText, unit: "KCAL",
-                    label: "BURNED", lit: store.wrist == .live)
+                    label: L("BURNED"), lit: store.wrist == .live)
         }
         .frame(width: NB.Layout.contentWidth)
         .padding(.top, 8)
@@ -245,8 +245,8 @@ struct LiveSessionTakeover: View {
         .disabled(closing || store.stopping || store.opening)
         .opacity(store.opening ? 0.55 : 1)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Stop session")
-        .accessibilityHint("Press and hold for one second")
+        .accessibilityLabel(L("Stop session"))
+        .accessibilityHint(L("Press and hold for one second"))
         .accessibilityAction { stopNow() }
     }
 
@@ -258,19 +258,19 @@ struct LiveSessionTakeover: View {
     }
 
     private var statusLine: String {
-        if let r = store.refusal { return "REFUSED · \(r.uppercased())" }
-        if closing { return "SAVED · FOLDING BACK" }
-        if store.stopping { return "CLOSING THE MODE ON THE BAND" }
-        if store.opening { return "OPENING \((mode?.name ?? "").uppercased()) ON THE BAND" }
-        if store.session?.joined == true, store.wrist == .live { return "JOINED THE SESSION ALREADY ON THE BAND · LIVE" }
+        if let r = store.refusal { return L("REFUSED · %@", r.uppercased()) }
+        if closing { return L("SAVED · FOLDING BACK") }
+        if store.stopping { return L("CLOSING THE MODE ON THE BAND") }
+        if store.opening { return L("OPENING %@ ON THE BAND", (mode?.name ?? "").uppercased()) }
+        if store.session?.joined == true, store.wrist == .live { return L("JOINED THE SESSION ALREADY ON THE BAND · LIVE") }
         if let e = store.errorLine { return e.uppercased() }
-        if hint { return "HOLD THE KEY TO STOP" }
+        if hint { return L("HOLD THE KEY TO STOP") }
         switch store.wrist {
-        case .off:       return "TIMING · THE WRIST IS NOT BEING READ"
-        case .reaching:  return "REACHING THE WRIST"
-        case .live:      return "HEART RATE FROM THE WRIST · LIVE"
-        case .noContact: return "NO CONTACT · TIGHTEN THE BAND"
-        case .offline:   return "BAND OFFLINE · THE CLOCK KEEPS RUNNING"
+        case .off:       return L("TIMING · THE WRIST IS NOT BEING READ")
+        case .reaching:  return L("REACHING THE WRIST")
+        case .live:      return L("HEART RATE FROM THE WRIST · LIVE")
+        case .noContact: return L("NO CONTACT · TIGHTEN THE BAND")
+        case .offline:   return L("BAND OFFLINE · THE CLOCK KEEPS RUNNING")
         }
     }
 

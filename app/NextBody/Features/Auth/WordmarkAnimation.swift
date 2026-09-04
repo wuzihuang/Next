@@ -52,7 +52,7 @@ struct WordmarkAnimation: View {
                     Wordmark(size: 46)
                         .opacity(solidOpacity(t))
                         .shadow(color: NB.lime1.opacity(0.5 * glow(t)), radius: 24)
-                    Text("Build your next body.")
+                    Text(L("Build your next body."))
                         .font(NBFont.ui(300, 21)).tracking(0.02 * 21)
                         .foregroundStyle(NB.white.opacity(0.82))
                         .opacity(subOpacity(t))

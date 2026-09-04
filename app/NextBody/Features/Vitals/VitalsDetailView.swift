@@ -137,14 +137,14 @@ struct VitalsDetailView: View {
         switch metric {
         case .heart:
             trace(value: { $0.hr.map(Double.init) }, low: 40, high: 160, r: r,
-                  extreme: { "MAX \(Int($0.rounded()))" },
-                  empty: ("NO HEART TICKS IN 24H", "THE NEXT SYNC DRAWS THE LINE"),
+                  extreme: { L("MAX %d", Int($0.rounded())) },
+                  empty: (L("NO HEART TICKS IN 24H"), L("THE NEXT SYNC DRAWS THE LINE")),
                   has: ticks.contains { $0.hr != nil })
 
         case .stress:
             trace(value: { $0.stress.map(Double.init) }, low: 0, high: 100, r: r,
-                  extreme: { "PEAK \(Int($0.rounded()))" },
-                  empty: ("NO STRESS TICKS IN 24H", "THE NEXT SYNC DRAWS THE LINE"),
+                  extreme: { L("PEAK %d", Int($0.rounded())) },
+                  empty: (L("NO STRESS TICKS IN 24H"), L("THE NEXT SYNC DRAWS THE LINE")),
                   has: ticks.contains { $0.stress != nil })
 
         case .temp:
@@ -155,21 +155,21 @@ struct VitalsDetailView: View {
                             value: { $0.temp.map { $0 - baseline } },
                             window: window, low: -1.0, high: 1.0, tint: metric.tint,
                             referenceBand: r.referenceBand, referenceLabel: r.referenceLabel,
-                            extremeLabel: { String(format: "HIGH %+.1f", $0) })
+                            extremeLabel: { L("HIGH %+.1f", $0) })
             } else {
-                VitalsChartEmpty(line: ticks.contains { $0.temp != nil } ? "NO BASELINE YET" : "NO SKIN TICKS IN 24H",
+                VitalsChartEmpty(line: ticks.contains { $0.temp != nil } ? L("NO BASELINE YET") : L("NO SKIN TICKS IN 24H"),
                                  sub: ticks.contains { $0.temp != nil }
-                                     ? "A DEVIATION NEEDS THE DAYS BEHIND TODAY"
-                                     : "THE NEXT SYNC DRAWS THE LINE")
+                                     ? L("A DEVIATION NEEDS THE DAYS BEHIND TODAY")
+                                     : L("THE NEXT SYNC DRAWS THE LINE"))
             }
 
         case .sleep:
             if let line = m.sleep?.line, !line.isEmpty {
                 VitalsHypnogram(runs: line, tint: metric.tint)
             } else {
-                VitalsChartEmpty(line: m.sleep == nil ? "NO NIGHT ON RECORD" : "TOTALS ONLY",
-                                 sub: m.sleep == nil ? "WEAR IT TONIGHT"
-                                                     : "THE BAND FILED NO STAGE LINE")
+                VitalsChartEmpty(line: m.sleep == nil ? L("NO NIGHT ON RECORD") : L("TOTALS ONLY"),
+                                 sub: m.sleep == nil ? L("WEAR IT TONIGHT")
+                                                     : L("THE BAND FILED NO STAGE LINE"))
             }
 
         case .hrv:
@@ -179,19 +179,19 @@ struct VitalsDetailView: View {
                               envelope: nightly.count >= 5 ? nightly.min()!...nightly.max()! : nil,
                               baseline: m.nightInputs?.hrvBase, tint: metric.tint)
             } else {
-                VitalsChartEmpty(line: "NO RMSSD TICKS IN 24H",
-                                 sub: "THE BAND MEASURES IT EVERY TEN MINUTES")
+                VitalsChartEmpty(line: L("NO RMSSD TICKS IN 24H"),
+                                 sub: L("THE BAND MEASURES IT EVERY TEN MINUTES"))
             }
 
         case .steps:
             histogram(value: { $0.steps.map(Double.init) },
-                      peak: { "PEAK \(Fmt.kcal($0))/H" },
-                      empty: ("NO STEPS TODAY", "THE NEXT SYNC FILLS THE HOURS"))
+                      peak: { L("PEAK %@/H", Fmt.kcal($0)) },
+                      empty: (L("NO STEPS TODAY"), L("THE NEXT SYNC FILLS THE HOURS")))
 
         case .active:
             histogram(value: \.cal,
-                      peak: { "PEAK \(Fmt.kcal($0)) KCAL/H" },
-                      empty: ("NO BURN TICKS TODAY", "THE NEXT SYNC FILLS THE HOURS"))
+                      peak: { L("PEAK %@ KCAL/H", Fmt.kcal($0)) },
+                      empty: (L("NO BURN TICKS TODAY"), L("THE NEXT SYNC FILLS THE HOURS")))
 
         case .distance:
             let bins = VitalsMath.hourSum(ticks, range: window.range, value: \.dis)
@@ -200,7 +200,7 @@ struct VitalsDetailView: View {
                             endLabel: (m.distanceM.map(Double.init) ?? VitalsMath.total(bins))
                                 .map { String(format: "%.2f KM", $0 / 1000) })
             } else {
-                VitalsChartEmpty(line: "NO DISTANCE TODAY", sub: "THE NEXT SYNC DRAWS THE CLIMB")
+                VitalsChartEmpty(line: L("NO DISTANCE TODAY"), sub: L("THE NEXT SYNC DRAWS THE CLIMB"))
             }
         }
     }
@@ -259,16 +259,16 @@ struct VitalsDetailView: View {
     private var footer: some View {
         var line: String
         if metric.isNightly {
-            line = m.sleep?.wakeAt.map { "FROM THE NIGHT THAT ENDED \(Fmt.clock($0))" }
-                ?? "FROM THE LAST NIGHT THE BAND FILED"
+            line = m.sleep?.wakeAt.map { L("FROM THE NIGHT THAT ENDED %@", Fmt.clock($0)) }
+                ?? L("FROM THE LAST NIGHT THE BAND FILED")
         } else if let at = latestTickAt {
-            line = "LAST TICK \(Fmt.clock(at)) · \(VitalsMath.age(of: at, now: now))"
+            line = L("LAST TICK %@ · %@", Fmt.clock(at), VitalsMath.age(of: at, now: now))
             if [.heart, .stress, .temp].contains(metric),
                let gap = VitalsMath.offWrist(ticks), gap.minutes >= 60 {
-                line += " · \(Fmt.duration(gap.minutes)) OFF WRIST"
+                line += L(" · %@ OFF WRIST", Fmt.duration(gap.minutes))
             }
         } else {
-            line = "NO TICKS YET · FIRST SYNC DRAWS THE LINE"
+            line = L("NO TICKS YET · FIRST SYNC DRAWS THE LINE")
         }
         return Text(line)
             .font(NBFont.dot(500, 9.5)).tracking(0.12 * 9.5)

@@ -5,6 +5,7 @@ struct NextBodyApp: App {
     @StateObject private var session = SessionStore()
     @StateObject private var router = Router()
     @StateObject private var data = DataStore.shared
+    @StateObject private var language = AppLanguage.shared
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
@@ -13,6 +14,9 @@ struct NextBodyApp: App {
                 .environmentObject(session)
                 .environmentObject(router)
                 .environmentObject(data)
+                .environmentObject(language)
+                .environment(\.locale, language.swiftLocale)
+                .id(language.locale.rawValue)
                 .preferredColorScheme(.dark)
                 .tint(NB.lime1)
                 // 14 · an island left counting for a session this process is not in — the app

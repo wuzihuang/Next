@@ -15,11 +15,11 @@ struct ChatHistorySheet: View {
 
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(AppLanguage.isEnglish ? "CONSULTATION ARCHIVE" : "会话归档历史")
+                    Text(L("CONSULTATION ARCHIVE"))
                         .font(NBFont.dot(700, 14))
                         .tracking(0.04 * 14)
                         .foregroundStyle(NB.text1)
-                    Text("\(chatStore.sessions.count) " + (AppLanguage.isEnglish ? "SESSIONS RECORDED · TELEMETRY LOGS" : "条历史记录 · 生理遥测"))
+                    Text("\(chatStore.sessions.count) " + (L("SESSIONS RECORDED · TELEMETRY LOGS")))
                         .font(NBFont.ui(400, 12))
                         .foregroundStyle(NB.lime1)
                 }
@@ -31,7 +31,7 @@ struct ChatHistorySheet: View {
                         Image(systemName: "plus")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(NB.carbon)
-                        Text(AppLanguage.isEnglish ? "NEW CHAT" : "新对话")
+                        Text(L("NEW CHAT"))
                             .font(NBFont.dot(700, 11))
                             .foregroundStyle(NB.carbon)
                     }
@@ -58,7 +58,7 @@ struct ChatHistorySheet: View {
                                         .lineLimit(1)
                                     Spacer()
                                     if isActive {
-                                        Text(AppLanguage.isEnglish ? "ACTIVE" : "当前")
+                                        Text(L("CURRENT"))
                                             .font(NBFont.dot(600, 10))
                                             .foregroundStyle(NB.lime1)
                                             .padding(.horizontal, 7)
@@ -68,7 +68,7 @@ struct ChatHistorySheet: View {
                                         HStack(spacing: 4) {
                                             Image(systemName: "photo")
                                                 .font(.system(size: 10))
-                                            Text("\(session.photosCount) " + (AppLanguage.isEnglish ? "PHOTOS" : "张照片"))
+                                            Text("\(session.photosCount) " + (L("PHOTOS")))
                                                 .font(NBFont.dot(500, 10))
                                         }
                                         .foregroundStyle(NB.cyan1)
@@ -113,7 +113,7 @@ struct ChatHistorySheet: View {
             }
 
             HStack {
-                Text(AppLanguage.isEnglish ? "AUTO-SAVED TO NEXTBODY CLOUD" : "已自动同步至 NEXTBODY CLOUD")
+                Text(L("AUTO-SAVED TO NEXTBODY CLOUD"))
                     .font(NBFont.dot(400, 10))
                     .foregroundStyle(NB.text3Prod)
                 Spacer()
@@ -121,7 +121,7 @@ struct ChatHistorySheet: View {
                     chatStore.clearAll()
                     onDismiss()
                 } label: {
-                    Text(AppLanguage.isEnglish ? "CLEAR ALL" : "清空历史")
+                    Text(L("CLEAR ALL"))
                         .font(NBFont.dot(600, 11))
                         .foregroundStyle(NB.alert2)
                 }
@@ -139,12 +139,12 @@ struct ChatHistorySheet: View {
         if cal.isDateInToday(date) {
             let f = DateFormatter()
             f.dateFormat = "HH:mm"
-            return (AppLanguage.isEnglish ? "TODAY " : "今天 ") + f.string(from: date)
+            return (L("TODAY ")) + f.string(from: date)
         } else if cal.isDateInYesterday(date) {
-            return AppLanguage.isEnglish ? "YESTERDAY" : "昨天"
+            return L("YESTERDAY")
         } else {
             let f = DateFormatter()
-            f.dateFormat = AppLanguage.isEnglish ? "MMM d" : "M月d日"
+            f.dateFormat = L("MMM d")
             return f.string(from: date)
         }
     }

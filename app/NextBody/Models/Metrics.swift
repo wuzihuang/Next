@@ -380,12 +380,22 @@ enum Fmt {
     /// board's "4H 12M" shape. ⚠️ Every duration here is a multiple of five, because the
     /// raw points are five minutes apart — never round one to something finer.
     static func duration(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes) MIN" }
+        if minutes < 60 { return L("%d MIN", minutes) }
         let h = minutes / 60, m = minutes % 60
-        return m == 0 ? "\(h)H" : "\(h)H \(m)M"
+        return m == 0 ? L("%dH", h) : L("%dH %dM", h, m)
     }
 
-    static func weekday(_ d: Date) -> String { weekdayFormatter.string(from: d).uppercased() }
+    static func weekday(_ d: Date) -> String {
+        weekdayFormatter.locale = AppLanguage.shared.swiftLocale
+        return weekdayFormatter.string(from: d).uppercased()
+    }
+
+    static func displayDate(_ d: Date, format: String) -> String {
+        let f = DateFormatter()
+        f.locale = AppLanguage.shared.swiftLocale
+        f.dateFormat = format
+        return f.string(from: d)
+    }
 
     static func clock(_ d: Date) -> String { clockFormatter.string(from: d) }
 }

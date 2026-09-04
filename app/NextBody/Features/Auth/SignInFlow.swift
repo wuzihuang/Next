@@ -257,7 +257,7 @@ private struct GateScreen: View {
 
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .top, spacing: 9) {
-                        Text("NEXTBODY")
+                        Text(L("NEXTBODY"))
                             .font(NBFont.brand(800, 46)).tracking(-0.045 * 46)
                             .foregroundStyle(NB.text1)
                         RoundedRectangle(cornerRadius: 2, style: .continuous)
@@ -266,10 +266,10 @@ private struct GateScreen: View {
                             .padding(.top, 6)
                     }
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Build your next body.")
+                        Text(L("Build your next body."))
                             .font(NBFont.ui(300, 21)).tracking(0.02 * 21)
                             .foregroundStyle(NB.white.opacity(0.82))
-                        Text("TRAIN · RECOVER · REPEAT")
+                        Text(L("TRAIN · RECOVER · REPEAT"))
                             .font(NBFont.dot(600, 11)).tracking(0.3 * 11)
                             .foregroundStyle(NB.white.opacity(0.62))
                     }
@@ -282,7 +282,7 @@ private struct GateScreen: View {
 
                 VStack(spacing: 10) {
                     GateButton(style: .solid, action: onApple) {
-                        AppleGlyph(); Text("Continue with Apple")
+                        AppleGlyph(); Text(L("Continue with Apple"))
                             .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                             .foregroundStyle(NB.carbon)
                     }
@@ -290,19 +290,19 @@ private struct GateScreen: View {
                     // up to second. A cancel on the system sheet is silent.
                     if failed {
                         GateButton(style: .outline, action: onEmail) {
-                            EnvelopeGlyph(); Text("Continue with email")
+                            EnvelopeGlyph(); Text(L("Continue with email"))
                                 .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                                 .foregroundStyle(NB.text1)
                         }
                     }
                     GateButton(style: .outline, action: onGoogle) {
-                        GoogleGlyph(); Text("Continue with Google")
+                        GoogleGlyph(); Text(L("Continue with Google"))
                             .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                             .foregroundStyle(NB.text1)
                     }
                     if !failed {
                         GateButton(style: .outline, action: onEmail) {
-                            EnvelopeGlyph(); Text("Continue with email")
+                            EnvelopeGlyph(); Text(L("Continue with email"))
                                 .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                                 .foregroundStyle(NB.text1)
                         }
@@ -310,7 +310,7 @@ private struct GateScreen: View {
                     if failed {
                         HStack(spacing: 10) {
                             Circle().fill(NB.alert2).frame(width: 6, height: 6)
-                            Text("Sign-in failed. Try email instead.")
+                            Text(L("Sign-in failed. Try email instead."))
                                 .font(NBFont.ui(400, 14)).tracking(0.01 * 14)
                                 .foregroundStyle(NB.white.opacity(0.78))
                         }
@@ -391,11 +391,11 @@ private struct GateButton<Content: View>: View {
 
 private struct LegalLine: View {
     var body: some View {
-        (Text("By continuing you agree to our ")
+        (Text(L("By continuing you agree to our "))
             .foregroundColor(NB.text3Prod)
-         + Text("Terms").foregroundColor(NB.lime1)
-         + Text(" and ").foregroundColor(NB.text3Prod)
-         + Text("Privacy Policy").foregroundColor(NB.lime1))
+         + Text(L("Terms")).foregroundColor(NB.lime1)
+         + Text(L(" and ")).foregroundColor(NB.text3Prod)
+         + Text(L("Privacy Policy")).foregroundColor(NB.lime1))
             .font(NBFont.ui(400, 12.5))
             .tracking(0.02 * 12.5)
             .multilineTextAlignment(.center)
@@ -425,10 +425,10 @@ private struct EmailScreen: View {
             StepBar(step: "STEP 01 / 02", onBack: onBack)
 
             VStack(alignment: .leading, spacing: 14) {
-                Text("Your email")
+                Text(L("Your email"))
                     .font(NBFont.ui(500, 32)).tracking(0.01 * 32)
                     .foregroundStyle(NB.text1)
-                Text("We'll send a 6-digit code.\nNo password to set.")
+                Text(L("We'll send a 6-digit code.\nNo password to set."))
                     .font(NBFont.ui(300, 15)).tracking(0.02 * 15)
                     .lineSpacing(24 - 15)
                     .fixedSize(horizontal: false, vertical: true)
@@ -439,7 +439,7 @@ private struct EmailScreen: View {
             .padding(.top, 44)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("EMAIL ADDRESS")
+                Text(L("EMAIL ADDRESS"))
                     .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
                     .foregroundStyle(NB.text3Prod)
 
@@ -466,9 +466,9 @@ private struct EmailScreen: View {
                 // lines have to live above it or they are never read; the key under the
                 // keyboard is `go`, and the lime button is what the keyboard's dismissal reveals.
                 VStack(spacing: 0) {
-                    ReasonRow(lit: true, text: "A code signs you in — nothing to remember")
+                    ReasonRow(lit: true, text: L("A code signs you in — nothing to remember"))
                         .overlay(alignment: .bottom) { Hairline() }
-                    ReasonRow(lit: false, text: "Used only for sign-in and your weekly report")
+                    ReasonRow(lit: false, text: L("Used only for sign-in and your weekly report"))
                 }
                 .padding(.top, 22)
             }
@@ -483,9 +483,9 @@ private struct EmailScreen: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 10) {
                             Circle().fill(NB.caution2).frame(width: 6, height: 6)
-                            Text("5 SENT · 1H WINDOW").font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.caution2)
+                            Text(L("5 SENT · 1H WINDOW")).font(NBFont.dot(600, 11)).tracking(0.24 * 11).foregroundStyle(NB.caution2)
                         }
-                        Text("You've hit the limit. Try again in an hour.")
+                        Text(L("You've hit the limit. Try again in an hour."))
                             .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).foregroundStyle(NB.white.opacity(0.78))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -497,11 +497,11 @@ private struct EmailScreen: View {
                             // 01 edge 4 · Sending, in place, 8 s; the address is not touched.
                             Circle().stroke(NB.carbon.opacity(0.55), lineWidth: 2).frame(width: 14, height: 14)
                                 .overlay(Circle().trim(from: 0, to: 0.25).stroke(NB.carbon, lineWidth: 2).rotationEffect(.degrees(-90)))
-                            Text("Sending")
+                            Text(L("Sending"))
                                 .font(NBFont.ui(500, 15)).tracking(0.01 * 15)
                                 .foregroundStyle(NB.carbon.opacity(0.6))
                         } else {
-                        Text("Send code")
+                        Text(L("Send code"))
                             .font(NBFont.ui(500, 15)).tracking(0.06 * 15)
                             .foregroundStyle(NB.carbon)
                         ArrowGlyph(color: NB.carbon)
@@ -515,14 +515,14 @@ private struct EmailScreen: View {
                 .buttonStyle(.plain)
                 .disabled(!valid || sending)
                 if error == .noNetwork {
-                    Text("No connection. Your code wasn't sent.")
+                    Text(L("No connection. Your code wasn't sent."))
                         .font(NBFont.ui(400, 13.5)).tracking(0.01 * 13.5)
                         .foregroundStyle(NB.alert1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 8)
                 }
 
-                Text("Use Apple or Google instead")
+                Text(L("Use Apple or Google instead"))
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
                     .onTapGesture(perform: onBack)
@@ -580,11 +580,11 @@ private struct CodeScreen: View {
             StepBar(step: "STEP 02 / 02", onBack: onBack)
 
             VStack(alignment: .leading, spacing: 14) {
-                Text("Enter the code")
+                Text(L("Enter the code"))
                     .font(NBFont.ui(500, 32)).tracking(0.01 * 32)
                     .foregroundStyle(NB.text1)
                 HStack(spacing: 0) {
-                    Text("Sent to ")
+                    Text(L("Sent to "))
                         .font(NBFont.ui(300, 15)).tracking(0.02 * 15)
                         .foregroundStyle(NB.text2)
                     Text(email)
@@ -620,11 +620,11 @@ private struct CodeScreen: View {
             }
 
             HStack(spacing: 8) {
-                Text("Didn't get it?")
+                Text(L("Didn't get it?"))
                     .font(NBFont.ui(400, 13.5)).tracking(0.02 * 13.5)
                     .foregroundStyle(NB.text3Prod)
                 if resendIn > 0 {
-                    Text("Resend in")
+                    Text(L("Resend in"))
                         .font(NBFont.ui(400, 13.5)).tracking(0.02 * 13.5)
                         .foregroundStyle(NB.white.opacity(0.34))
                     Text(String(format: "%02d:%02d", resendIn / 60, resendIn % 60))
@@ -648,7 +648,7 @@ private struct CodeScreen: View {
                 if error == .expired {
                     // 01 edge 2 · the primary becomes the one step that fixes it; the address stays.
                     Button(action: onNewCode) {
-                        Text("Get a new code")
+                        Text(L("Get a new code"))
                             .font(NBFont.ui(500, 15)).tracking(0.01 * 15)
                             .foregroundStyle(NB.carbon)
                             .frame(maxWidth: .infinity).frame(height: 56)
@@ -666,7 +666,7 @@ private struct CodeScreen: View {
                 .overlay(code.count == 6 ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
                 }
 
-                Text("Use a different email")
+                Text(L("Use a different email"))
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text3Prod)
                     .onTapGesture(perform: onBack)
@@ -747,7 +747,7 @@ private struct Keypad: View {
             }
             HStack(spacing: 6) {
                 Color.clear.frame(maxWidth: .infinity).frame(height: 46)
-                Key(label: "0") { onDigit("0") }
+                Key(label: L("0")) { onDigit("0") }
                 Button(action: onDelete) {
                     BackspaceGlyph()
                         .frame(maxWidth: .infinity).frame(height: 46)

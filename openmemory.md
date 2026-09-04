@@ -9,6 +9,7 @@ model credentials and tool execution server-side.
 ## Architecture
 
 - `app/NextBody/`: SwiftUI application, BLE/band services, local repository, and the AI client.
+- `app/NextBody/L10n/`: in-app language (`AppLanguage`) and English-as-key catalogs (`L()` → `Tables/zh-Hans.json`).
 - `supabase/functions/`: authenticated Edge Functions for turns, ASR, meals, settlement,
   exports, and account deletion.
 - `supabase/functions/_shared/`: model provider, prompt, tool catalogue, data sources,
@@ -32,6 +33,7 @@ model credentials and tool execution server-side.
 - **Data tools** — `_shared/tools.ts`, `_shared/sources.ts`, and `_shared/charts.ts` read
   user-scoped data under RLS and build render envelopes.
 - **Number ledger** — `_shared/ledger.ts` rejects frame numbers that did not come from a tool.
+- **App language** — `AppLanguage` stores `en` / `zh-Hans` (default English). `L("English source")` looks up the current table. The system prompt language-locks AI frames to the selected locale.
 
 ## Patterns
 
@@ -136,7 +138,10 @@ model credentials and tool execution server-side.
 ## Patterns
 - Use design tokens from `NB`; do not introduce hard-coded colors outside `DesignSystem/Tokens.swift`.
 - Interactive controls expose at least a 44 × 44 pt hit target even when the visible glyph is smaller.
-- User-visible and accessibility defaults are English; explicit Simplified Chinese is selected through app language state.
+- User-visible and accessibility defaults are English; explicit Simplified Chinese is selected through app language state (`AppLanguage` + `L()` English-as-key tables in `app/NextBody/L10n/`).
+- Adding a language: add an `AppLocale` case and a `L10n/Tables/<code>.json` mapping English source strings to that language. Missing keys fall back to English. The first table is `zh-Hans.json` (~1000 keys).
+- Chinese UI/brand type uses Fusion Pixel 12px proportional zh_hans, cascaded behind Doto/Jost/Inter Tight so numbers stay pixel-dot and CJK stays pixel.
+- AI turns carry `AppLanguage.serverLocale`. The system prompt, meal vision prompt, and chart slot descriptions are written in the selected language and lock the frame to that language regardless of user input.
 - The idle panel is represented by `widget == nil`; THINKING and completed personalized frames are represented by non-nil widgets.
 - Every asynchronous panel request carries a request ID; dismissing or starting another request invalidates late results so they cannot replace STANDBY.
 - The panel’s chart layer is drawn behind `HalftoneScreen`, while text remains crisp above it.

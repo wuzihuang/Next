@@ -13,6 +13,20 @@ struct OnboardingFlow: View {
     /// 03 edge 3 · after the band dropped mid-scan and Connect ran again, the profile is on
     /// record and the run resumes at BASELINE 01, not at the first question.
     @State private var step: Step = {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_ONB_STEP"] {
+            switch raw {
+            case "consent": return .consent
+            case "healthSync": return .healthSync
+            case "confirm": return .confirm
+            case "goal": return .goal
+            case "fingersOn": return .fingersOn
+            case "scanning": return .scanning
+            case "baseline": return .baseline
+            default: break
+            }
+        }
+        #endif
         if UserDefaults.standard.bool(forKey: "nb.onboarding.resumeAtBaseline") {
             UserDefaults.standard.removeObject(forKey: "nb.onboarding.resumeAtBaseline")
             return .fingersOn
@@ -279,19 +293,19 @@ private struct HealthSync: View {
     private let chips = ["HEIGHT", "WEIGHT", "BIRTHDAY", "SEX"]
 
     var body: some View {
-        OnbPage(counter: "ABOUT YOU 01 / 03",
-                title: "First, about you",
-                sub: "We can pull height, weight and birthday straight from Apple Health.",
-                cta: "Sync from Apple Health", onCTA: onSync,
-                footnote: "Enter manually instead", onFootnote: onManual) {
+        OnbPage(counter: L("ABOUT YOU 01 / 03"),
+                title: L("First, about you"),
+                sub: L("We can pull height, weight and birthday straight from Apple Health."),
+                cta: L("Sync from Apple Health"), onCTA: onSync,
+                footnote: L("Enter manually instead"), onFootnote: onManual) {
             VStack(spacing: 22) {
                 HealthMark()
-                Text("Apple Health")
+                Text(L("Apple Health"))
                     .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                     .foregroundStyle(NB.text2)
                 HStack(spacing: 8) {
                     ForEach(chips, id: \.self) { c in
-                        Text(c)
+                        Text(L(c))
                             .font(NBFont.dot(600, 9)).tracking(0.16 * 9)
                             .foregroundStyle(NB.text3Prod)
                             .padding(.horizontal, 12).frame(height: 26)
@@ -365,37 +379,36 @@ private struct ConfirmScreen: View {
     private func shown(_ field: String, _ value: String) -> String { filled.contains(field) ? value : "" }
 
     private var bornText: String {
-        let f = DateFormatter(); f.dateFormat = "LLLL yyyy"
-        return Calendar.current.date(from: born).map { f.string(from: $0) } ?? "—"
+        return Calendar.current.date(from: born).map { Fmt.displayDate($0, format: "LLLL yyyy") } ?? "—"
     }
 
     var body: some View {
-        OnbPage(counter: "ABOUT YOU 02 / 03",
-                title: "Does this look right?",
-                sub: "Pulled from Apple Health. Tap any value to correct it before we calibrate.",
+        OnbPage(counter: L("ABOUT YOU 02 / 03"),
+                title: L("Does this look right?"),
+                sub: L("Pulled from Apple Health. Tap any value to correct it before we calibrate."),
                 onBack: onBack,
                 // 03 edge 1 · NOTHING SYNCED: the same screen, values empty, ADD instead of HEALTH,
                 // and the key is "Save and continue", dead until all four are in. No error line —
                 // 「我们无法证明它失败了」.
-                cta: nothingSynced ? "Save and continue" : "Looks right",
+                cta: nothingSynced ? L("Save and continue") : L("Looks right"),
                 ctaEnabled: !nothingSynced || filled.count == 4,
                 onCTA: onNext,
-                footnote: "Nothing synced? Just type it in") {
+                footnote: L("Nothing synced? Just type it in")) {
             VStack(spacing: 10) {
                 // Sex has no sheet: two options are not worth a panel, so it toggles in place.
-                ValueRow(label: "Sex", value: shown("sex", sex), tag: tag("sex", fromHealth: sexFromHealth)) {
+                ValueRow(label: L("Sex"), value: shown("sex", L(sex)), tag: tag("sex", fromHealth: sexFromHealth)) {
                     if filled.contains("sex") { sex = (sex == "Female") ? "Male" : "Female" }
                     onSexTap()
                 }
-                ValueRow(label: "Born", value: shown("born", bornText), tag: tag("born", fromHealth: bornFromHealth)) {
+                ValueRow(label: L("Born"), value: shown("born", bornText), tag: tag("born", fromHealth: bornFromHealth)) {
                     onEdit(.birthday)
                 }
-                ValueRow(label: "Height", value: shown("height", "\(Int(heightCm)) cm"),
+                ValueRow(label: L("Height"), value: shown("height", "\(Int(heightCm)) cm"),
                          tag: tag("height", fromHealth: heightFromHealth), warn: heightOut) { onEdit(.height) }
-                ValueRow(label: "Weight", value: shown("weight", String(format: "%.0f kg", weightKg)),
+                ValueRow(label: L("Weight"), value: shown("weight", String(format: "%.0f kg", weightKg)),
                          tag: tag("weight", fromHealth: weightFromHealth), warn: weightOut) { onEdit(.weightBaseline) }
                 if heightOut || weightOut {
-                    Text("That's outside what we can measure. Check it?")
+                    Text(L("That's outside what we can measure. Check it?"))
                         .font(NBFont.ui(400, 14)).tracking(0.01 * 14)
                         .foregroundStyle(NB.emberPale)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -430,7 +443,7 @@ private struct ValueRow: View {
                         .foregroundStyle(NB.text1)
                 }
                 Spacer(minLength: 0)
-                Text(tag)
+                Text(L(tag))
                     .font(NBFont.dot(600, 9)).tracking(0.18 * 9)
                     .foregroundStyle(tagTint)
                     .padding(.horizontal, 10).frame(height: 22)
@@ -461,12 +474,12 @@ private struct GoalScreen: View {
     ]
 
     var body: some View {
-        OnbPage(counter: "ABOUT YOU 03 / 03",
-                title: "What brings you here?",
-                sub: "Pick one focus. It sets your daily MOVE and FUEL targets — change it anytime.",
+        OnbPage(counter: L("ABOUT YOU 03 / 03"),
+                title: L("What brings you here?"),
+                sub: L("Pick one focus. It sets your daily MOVE and FUEL targets — change it anytime."),
                 onBack: onBack,
-                cta: "Continue", onCTA: onNext,
-                footnote: "You can switch goals later in Profile") {
+                cta: L("Continue"), onCTA: onNext,
+                footnote: L("You can switch goals later in Profile")) {
             // The only real question in the whole of onboarding — and the first option is
             // already selected, so Continue is never grey.
             VStack(spacing: 10) {
@@ -474,10 +487,10 @@ private struct GoalScreen: View {
                     Button { goal = g } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(title)
+                                Text(L(title))
                                     .font(NBFont.ui(400, 16)).tracking(0.01 * 16)
                                     .foregroundStyle(NB.text1)
-                                Text(sub)
+                                Text(L(sub))
                                     .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                                     .foregroundStyle(NB.white.opacity(0.42))
                             }
@@ -514,31 +527,31 @@ private struct FingersOn: View {
     @State private var lowBattery: Int?
 
     var body: some View {
-        OnbPage(counter: "BASELINE 01 / 03",
-                title: "Now, your baseline",
-                sub: "Rest your hand on the table and touch the side key with your index finger. Hold still.",
+        OnbPage(counter: L("BASELINE 01 / 03"),
+                title: L("Now, your baseline"),
+                sub: L("Rest your hand on the table and touch the side key with your index finger. Hold still."),
                 onBack: onBack,
-                cta: "Start body scan", ctaEnabled: lowBattery == nil, onCTA: {
+                cta: L("Start body scan"), ctaEnabled: lowBattery == nil, onCTA: {
                     Task { await Analytics.shared.track("SCAN_START", [:]) }
                     onStart()
                 },
-                footnote: "Takes about 30 seconds") {
+                footnote: L("Takes about 30 seconds")) {
             ZStack {
                 if let lowBattery {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(spacing: 12) {
                             BatteryGlyph()
-                            Text("BATTERY \(lowBattery)%")
+                            Text(L("BATTERY %d%%", lowBattery))
                                 .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
                         }
-                        Text("Charge the band before the first scan — it needs about 15%.")
+                        Text(L("Charge the band before the first scan — it needs about 15%."))
                             .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
                             .foregroundStyle(NB.white.opacity(0.80))
                         Button {
                             Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "LOW_BATTERY"]) }
                             onSkip()
                         } label: {
-                            Text("Skip for now, measure later →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                            Text(L("Skip for now, measure later →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
                         }
                         .buttonStyle(.plain)
                     }
@@ -554,7 +567,7 @@ private struct FingersOn: View {
                 }
                 .frame(width: 240, height: 300)
 
-                Text("INDEX FINGER ON THE SIDE KEY")
+                Text(L("INDEX FINGER ON THE SIDE KEY"))
                     .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.lime1.opacity(0.75))
                     .offset(y: 190)
@@ -654,25 +667,25 @@ private struct ScanningScreen: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: Chrome.gateTopInset)
             // Once the scan starts the back key is gone — you cannot half-measure a body.
-            OnbHeader(counter: "BASELINE 02 / 03")
-            OnbTitle(title: "Scanning",
-                     sub: "A tiny current maps your body — you won't feel a thing. Keep your finger on the key.")
+            OnbHeader(counter: L("BASELINE 02 / 03"))
+            OnbTitle(title: L("Scanning"),
+                     sub: L("A tiny current maps your body — you won't feel a thing. Keep your finger on the key."))
                 .padding(.top, 24)
 
             if let failure {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(failure)
                         .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
-                    Text("The band ran the scan and could not finish it.\nNothing you filled in is lost.")
+                    Text(L("The band ran the scan and could not finish it.\nNothing you filled in is lost."))
                         .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
                         .foregroundStyle(NB.white.opacity(0.80))
                     HStack(spacing: 24) {
                         Button(action: { attempt += 1 }) {
-                            Text("Try again →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                            Text(L("Try again →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
                         }
                         .buttonStyle(.plain)
                         Button(action: onSkip) {
-                            Text("Skip for now").font(NBFont.ui(400, 14)).tracking(0.02 * 14).foregroundStyle(NB.white.opacity(0.42))
+                            Text(L("Skip for now")).font(NBFont.ui(400, 14)).tracking(0.02 * 14).foregroundStyle(NB.white.opacity(0.42))
                         }
                         .buttonStyle(.plain)
                     }
@@ -684,13 +697,13 @@ private struct ScanningScreen: View {
                 .padding(.top, 60)
             } else if dropped {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("BAND DISCONNECTED")
+                    Text(L("BAND DISCONNECTED"))
                         .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
-                    Text("The band went quiet mid-scan.\nNothing you filled in is lost.")
+                    Text(L("The band went quiet mid-scan.\nNothing you filled in is lost."))
                         .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
                         .foregroundStyle(NB.white.opacity(0.80))
                     Button(action: onReconnect) {
-                        Text("Reconnect →").font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                        Text(L("Reconnect →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
                     }
                     .buttonStyle(.plain)
                 }
@@ -707,14 +720,14 @@ private struct ScanningScreen: View {
                 .padding(.top, 24)
                 .onChange(of: remaining) { beatAt = Date() }
 
-            Text("BODY COMPOSITION")
+            Text(L("BODY COMPOSITION"))
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                 .foregroundStyle(NB.white.opacity(0.34))
                 .padding(.top, 28)
 
             // The counter counts down, not up: the ETA belongs before the wait, not during it.
             // Edge 2 · it holds — never resets to zero; zero looks like 「白干了」.
-            Text(holding ? String(format: "HOLDING · 00:%02d", remaining) : String(format: "00:%02d", remaining))
+            Text(holding ? L("HOLDING · 00:%02d", remaining) : String(format: "00:%02d", remaining))
                 .font(holding ? NBFont.dot(600, 12) : NBFont.dot(700, 26)).tracking(holding ? 0.2 * 12 : 0.14 * 26)
                 .foregroundStyle(holding ? NB.ember1 : NB.lime1)
                 .padding(.top, 12)
@@ -724,9 +737,9 @@ private struct ScanningScreen: View {
             Spacer(minLength: 0)
 
             // Grey, in front — what to do if it breaks, said before it breaks.
-            Text(holding ? "Put your finger back — we'll pick it up."
-                 : restarts > 0 ? "Second lift — starting over from 30."
-                 : "Lift your finger and the scan restarts.")
+            Text(holding ? L("Put your finger back — we'll pick it up.")
+                 : restarts > 0 ? L("Second lift — starting over from 30.")
+                 : L("Lift your finger and the scan restarts."))
                 .font(holding ? NBFont.ui(400, 14.5) : NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .foregroundStyle(holding ? NB.emberPale : NB.white.opacity(0.42))
 
@@ -867,14 +880,14 @@ private struct BaselineScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: Chrome.gateTopInset)
-            OnbHeader(counter: "BASELINE 03 / 03")
-            OnbTitle(title: "Your baseline", sub: "First scan complete — this is day zero.")
+            OnbHeader(counter: L("BASELINE 03 / 03"))
+            OnbTitle(title: L("Your baseline"), sub: L("First scan complete — this is day zero."))
                 .padding(.top, 24)
 
             HStack(spacing: 0) {
-                HeadlineStat(value: f(reading?.bodyFatPercent), unit: "%", label: "BODY FAT", labelTint: NB.lime1)
+                HeadlineStat(value: f(reading?.bodyFatPercent), unit: "%", label: L("BODY FAT"), labelTint: NB.lime1)
                 Rectangle().fill(NB.white.opacity(0.08)).frame(width: 1, height: 72)
-                HeadlineStat(value: f(reading?.bmi), unit: nil, label: "BMI", labelTint: NB.white.opacity(0.42))
+                HeadlineStat(value: f(reading?.bmi), unit: nil, label: L("BMI"), labelTint: NB.white.opacity(0.42))
             }
             .frame(width: NB.Layout.contentWidth, height: 116)
             .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
@@ -893,8 +906,8 @@ private struct BaselineScreen: View {
             Spacer(minLength: 0)
 
             // "Enter NEXTBODY", never "Done" — the end point is the product, not the form.
-            LimePillButton(title: "Enter NEXTBODY", action: onEnter)
-            Text("Scan again anytime from the Device page")
+            LimePillButton(title: L("Enter NEXTBODY"), action: onEnter)
+            Text(L("Scan again anytime from the Device page"))
                 .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
                 .foregroundStyle(NB.white.opacity(0.42))
                 .padding(.top, 16)
@@ -921,7 +934,7 @@ private struct HeadlineStat: View {
                         .foregroundStyle(NB.white.opacity(0.42))
                 }
             }
-            Text(label)
+            Text(L(label))
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                 .foregroundStyle(labelTint)
         }
@@ -936,7 +949,7 @@ private struct BaselineTile: View {
     let tint: Color
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label)
+            Text(L(label))
                 .font(NBFont.dot(600, 9)).tracking(0.16 * 9)
                 .foregroundStyle(tint)
                 .lineLimit(1)
@@ -965,16 +978,16 @@ private struct AgeGate: View {
         ZStack {
             NB.carbon.opacity(0.94).ignoresSafeArea()
             VStack(spacing: 18) {
-                Text("NEXTBODY IS 18+")
+                Text(L("NEXTBODY IS 18+"))
                     .font(NBFont.dot(700, 13)).tracking(0.3 * 13)
                     .foregroundStyle(NB.alert2)
-                Text("We can't create an account for someone under 18.")
+                Text(L("We can't create an account for someone under 18."))
                     .font(NBFont.ui(400, 17)).tracking(0.01 * 17)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(NB.text1)
                     .frame(width: 280)
                 Button(action: onBack) {
-                    Text("Change date of birth")
+                    Text(L("Change date of birth"))
                         .font(NBFont.ui(500, 15)).tracking(0.06 * 15)
                         .foregroundStyle(NB.text1)
                         .frame(width: 280, height: 52)

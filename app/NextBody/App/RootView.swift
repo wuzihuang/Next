@@ -93,6 +93,10 @@ struct RootView: View {
                 case "deleteAccount": .deleteAccount
                 case "privacy":       .privacy
                 case "about":         .about
+                case "language":      .language
+                case "units":         .units
+                case "plusMenu":      .plusMenu
+                case "weighIn":       .weighIn
                 default:              nil
                 }
                 if let sheet {

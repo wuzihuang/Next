@@ -94,7 +94,7 @@ struct AIPanel: View {
                 // is not happening and offers the one way to change it. No widget, no readout.
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
-                        Text("NOT COLLECTING")
+                        Text(L("NOT COLLECTING"))
                             .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                             .foregroundStyle(NB.ember1)
                         Spacer(minLength: 0)
@@ -102,12 +102,12 @@ struct AIPanel: View {
                     .padding(.horizontal, 22)
                     Spacer(minLength: 0)
                     VStack(spacing: 14) {
-                        Text("HOOP isn't reading anything yet.")
+                        Text(L("HOOP isn't reading anything yet."))
                             .font(NBFont.brand(400, 18)).tracking(-0.01 * 18)
                             .foregroundStyle(NB.white.opacity(0.88))
                             .multilineTextAlignment(.center)
                         Button(action: onTurnOn) {
-                            Text("Turn it on")
+                            Text(L("Turn it on"))
                                 .font(NBFont.ui(500, 13.5)).tracking(0.15 * 13.5)
                                 .foregroundStyle(NB.carbon)
                                 .frame(height: 44)
@@ -115,7 +115,7 @@ struct AIPanel: View {
                                 .background(NB.ember1, in: Capsule())
                         }
                         .buttonStyle(HotZoneTap(pressedScale: 1))
-                        .accessibilityHint("Opens the consent screen")
+                        .accessibilityHint(L("Opens the consent screen"))
                     }
                     .padding(.bottom, 30)
                 }
@@ -137,7 +137,7 @@ struct AIPanel: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Return to standby")
+                .accessibilityLabel(L("Return to standby"))
                 .accessibilityIdentifier("panel-dismiss")
                 .accessibilitySortPriority(100)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -176,7 +176,7 @@ struct AIPanel: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            Text(headerLine)
+            Text(L(headerLine))
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(headerTint)
             Spacer(minLength: 0)
@@ -208,7 +208,7 @@ struct AIPanel: View {
                         .font(NBFont.dot(700, 64)).tracking(-0.045 * 64)
                         .foregroundStyle(NB.lime1)
                     if m.bodyBattery != nil {
-                        Text("%")
+                        Text(L("%"))
                             .font(NBFont.dot(700, 24))
                             .foregroundStyle(NB.lime1.opacity(0.7))
                     }
@@ -224,13 +224,13 @@ struct AIPanel: View {
                 // 04 · the pip beats at the rate that was just measured, and only when the
                 // number under it came off the wrist seconds ago. It is the number told
                 // again — the one animation here that is not decoration.
-                vitalsColumn(Fmt.int(readout.hr), label: "HR", beat: live.liveHR)
-                vitalsColumn(Fmt.int(readout.stress), label: "STRESS",
+                vitalsColumn(Fmt.int(readout.hr), label: L("HR"), beat: live.liveHR)
+                vitalsColumn(Fmt.int(readout.stress), label: L("STRESS"),
                              live: live.liveStress != nil, working: live.phase == .stress)
             }
             .padding(.top, 12)
 
-            Text("\(sourceLine) · TAP OR TALK — I'M UP")
+            Text(L("%@ · TAP OR TALK — I'M UP", sourceLine))
                 .font(NBFont.dot(500, 10.5)).tracking(0.18 * 10.5)
                 .foregroundStyle(NB.white.opacity(0.42))
                 .padding(.top, 10)
@@ -271,12 +271,12 @@ struct AIPanel: View {
     /// 04 · the state word. OFFLINE is the link, NO CONTACT is the wrist, and LIVE is only
     /// said while the band is actually answering — never as a label for a stored number.
     private var headerLine: String {
-        guard band.connected else { return "OFFLINE" }
+        guard band.connected else { return L("OFFLINE") }
         switch live.phase {
-        case .live where live.liveHR != nil, .stress: return "LIVE"
-        case .reaching, .live:                        return "REACHING"
-        case .noContact:                              return "NO CONTACT"
-        case .off, .offline:                          return "STANDBY"
+        case .live where live.liveHR != nil, .stress: return L("LIVE")
+        case .reaching, .live:                        return L("REACHING")
+        case .noContact:                              return L("NO CONTACT")
+        case .off, .offline:                          return L("STANDBY")
         }
     }
 
@@ -295,13 +295,13 @@ struct AIPanel: View {
     private var sourceLine: String {
         guard band.connected else { return agoText }
         switch live.phase {
-        case .live where live.liveHR != nil: return "LIVE"
+        case .live where live.liveHR != nil: return L("LIVE")
         // 04 · the stress test holds the sensor for 19 s. The percentage is the band's own
         // count, not a tween over an expected duration — it stops when the band stops.
-        case .stress:                        return live.stressProgress.map { "MEASURING STRESS · \($0)%" }
-                                                 ?? "MEASURING STRESS"
-        case .reaching, .live:               return "REACHING FOR A BEAT"
-        case .noContact:                     return "PUT THE HOOP BACK ON"
+        case .stress:                        return live.stressProgress.map { L("MEASURING STRESS · %d%%", $0) }
+                                                 ?? L("MEASURING STRESS")
+        case .reaching, .live:               return L("REACHING FOR A BEAT")
+        case .noContact:                     return L("PUT THE HOOP BACK ON")
         case .off, .offline:                 return agoText
         }
     }
@@ -310,19 +310,19 @@ struct AIPanel: View {
     /// board 13's conditions hold. Otherwise the row is empty — never a placeholder, and
     /// never a discharge sentence the board never wrote.
     private var chargeLine: String {
-        guard m.bodyBattery != nil else { return "NO NIGHT ON RECORD" }
+        guard m.bodyBattery != nil else { return L("NO NIGHT ON RECORD") }
         if vitals.freshness == .stale, let at = vitals.at {
-            return "SYNCED \(Fmt.clock(at))"
+            return L("SYNCED %@", Fmt.clock(at))
         }
         return ChargeForecast.line(curve: m.reserveCurve) ?? ""
     }
 
     private var agoText: String {
-        guard let at = vitals.at else { return "NO TICK" }
+        guard let at = vitals.at else { return L("NO TICK") }
         let mins = max(0, Int(Date().timeIntervalSince(at) / 60))
-        if mins < 1 { return "JUST NOW" }
-        if mins < 60 { return "\(mins) MIN AGO" }
-        return "\(mins / 60) HR AGO"
+        if mins < 1 { return L("JUST NOW") }
+        if mins < 60 { return L("%d MIN AGO", mins) }
+        return L("%d HR AGO", mins / 60)
     }
 }
 
@@ -412,7 +412,7 @@ struct ThinkingStage: View {
 
     private func header(elapsed: Double) -> some View {
         HStack(spacing: 0) {
-            Text("THINKING")
+            Text(L("THINKING"))
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(NB.lime1)
             Spacer(minLength: 0)
@@ -494,15 +494,15 @@ struct ThinkingStage: View {
     /// The tool she is on, in the board's words rather than the wire's.
     private var readingLine: String {
         switch reading {
-        case .none:                       return "PULLING YOUR WEEK IN"
-        case .some(let t) where t.hasPrefix("screen.render"): return "DRAWING IT"
-        case .some(let t) where t.hasPrefix("series"):        return "PULLING YOUR WEEK IN"
-        case .some(let t) where t.hasPrefix("day"):           return "READING TODAY"
-        case .some(let t) where t.hasPrefix("meals"):         return "READING YOUR PLATES"
-        case .some(let t) where t.hasPrefix("profile"):       return "READING YOUR PROFILE"
-        case .some(let t) where t.hasPrefix("device"):        return "ASKING THE BAND"
-        case .some(let t) where t.hasPrefix("measurement"):   return "READING YOUR SCANS"
-        case .some:                                           return "PULLING YOUR WEEK IN"
+        case .none:                       return L("PULLING YOUR WEEK IN")
+        case .some(let t) where t.hasPrefix("screen.render"): return L("DRAWING IT")
+        case .some(let t) where t.hasPrefix("series"):        return L("PULLING YOUR WEEK IN")
+        case .some(let t) where t.hasPrefix("day"):           return L("READING TODAY")
+        case .some(let t) where t.hasPrefix("meals"):         return L("READING YOUR PLATES")
+        case .some(let t) where t.hasPrefix("profile"):       return L("READING YOUR PROFILE")
+        case .some(let t) where t.hasPrefix("device"):        return L("ASKING THE BAND")
+        case .some(let t) where t.hasPrefix("measurement"):   return L("READING YOUR SCANS")
+        case .some:                                           return L("PULLING YOUR WEEK IN")
         }
     }
 

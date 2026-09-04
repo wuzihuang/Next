@@ -124,7 +124,13 @@ export const MEDICAL_STOP: Envelope = {
 
 export function medicalStop(locale = "en-US"): Envelope {
   if (locale.startsWith("en")) return { ...MEDICAL_STOP, locale: "en-US" };
-  return { ...MEDICAL_STOP, sentence: "这类问题请找医生。这块屏只报告测量到的数字。", locale: "zh-CN" };
+  return {
+    ...MEDICAL_STOP,
+    title: "不是医生",
+    sentence: "这类问题请找医生。这块屏只报告测量到的数字。",
+    footer: "NEXTBODY 不是医疗器械",
+    locale: "zh-CN",
+  };
 }
 
 export const ERROR_CODES = [

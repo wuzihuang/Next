@@ -34,8 +34,11 @@ all-or-nothing, and iOS HRV only reads the local library.
 STORE_RAW: 5-min whitelist scalars (heart/step/cal/dis/met …), BIA 14, sport sessions, battery,
 firmware, capabilities, settings. DERIVED: HRV/RR → 15-min RMSSD median (not per-minute rows).
 HIDDEN: sleep (only `q_dsec`, the charge integral — not the four columns), skin temperature,
-stress (⚠️ not in F5's whitelist — see 上线前). DROP: SpO2, BP, glucose, ppgs/ecgs, half-hour
-summaries, day summaries, progress events.
+stress (⚠️ not in F5's whitelist — see 上线前). DROP: daytime/spot SpO2, BP, ppgs/ecgs, half-hour
+summaries, day summaries, progress events. Overnight automatic SpO2 is not origin: it is stored
+in `oxygen_samples` from the SDK oxygen history, clipped to the recorded night. Vendor optical
+meal-response history is stored in `response_samples` and rendered only as the unitless
+RESPONSE index — never as glucose / mmol/L / 血糖.
 
 ## Sec 04–06 · local → upload → cloud
 Local: `PRIMARY KEY (device_id, ts_utc)`, ≈117 KB/day, never a CHECK that can void a whole row.

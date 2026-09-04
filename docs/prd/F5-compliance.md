@@ -75,8 +75,8 @@ sent to the model provider a "share with a third party" under MHMDA.
 | Capability | V1 |
 |---|---|
 | bloodPressure | 不调用、不渲染、不入库、不进导出 |
-| spoH (SpO2) | 数值不上屏、不入库、不喂 AI；12 板 auto-measure 那串照抄 SDK 返回 |
-| bloodGlucose | 全链路不接 |
+| spoH (SpO2) | Overnight automatic history only: stored in `oxygen_samples`, shown on the sleep page (mean / min / curve), fed to AI as `o2.night`. Daytime spot, health-glance, and vendor apnea grades stay DROP. The device auto-measure switch remains the collection gate. |
+| bloodGlucose | May store vendor optical scalars in `response_samples`. May render only the unitless meal-response index on page two (RESPONSE). Must not export or prompt mmol/L / blood glucose / 血糖 / SPIKE. 1.4.1 still forbids blood-test claims. |
 | ecgFunction | 不调用；HRV 走 readHRVData() |
 | temperature | 不上屏、不入库；只作 Body Battery 隐藏输入 |
 | heartRateAlarm | kept as the band's buzz switch; copy says "Buzz above / below" only |
@@ -106,7 +106,7 @@ Failure copy fixed: **"Couldn't finish. Nothing was deleted."** 删除边界到�
 C1 Used to Track You all NO · C2 HealthKit four read types only · C3 MHMDA consent is its own
 screen: one checkbox, one Continue · C4 notification dialog once, only after the 13 primer's
 Turn on · C5 age gate 18+ at Looks right · C6 SDK whitelist (HR, HRV, steps/cal/dist/MET, body
-composition, battery/firmware, six writable settings) · C7 every AI English sentence passes the
+composition, overnight automatic SpO2, wrist optical meal response as RESPONSE, battery/firmware, six writable settings) · C7 every AI English sentence passes the
 §06 list first, hit ⇒ discard, E_CLAIM, never sent back for rewrite; the list lives in DB,
 cached 5 min · C8 delete = single-transaction hard delete, 30 s, fixed failure copy · C9 two
 data exits only · C10 no `--text-3` in code · C11 Reduce Motion → 0 with numbers present;

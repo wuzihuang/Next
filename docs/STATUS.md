@@ -65,6 +65,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 12 + 12S | Device, and its two sheets | built, walked on device |
 | 13 | Body Battery detail | built, walked on device |
 | 04B | Home · page two, the eight instruments | built · swipe reworked (direction lock, no mis-taps), edge states F1–F5, sleepLine strip, PAGE2_* events |
+| 04C | Page two RESPONSE (retired HRV slot) | built · unitless meal-response index, compare-amber, PAGE2_RESPONSE_STATE |
 
 04B notes:
 
@@ -94,17 +95,19 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
   display on a 16e and asserts no `Back` appears — `xcodebuild test -scheme NextBody` runs
   it. The harness hook `NB_DEBUG_CONSENT=granted` (DEBUG only, memory only) walks the
   panel's collecting face without driving the consent screen.
-- Edge states: F1 HRV prints `NOT SYNCED YET / SYNC RUNS ON OPEN` until the first sync has
+- Edge states: F1 HEART prints `NOT SYNCED YET / SYNC RUNS ON OPEN` until the first sync has
   landed; F3 GONE keeps the unit greyed next to the —— (`—— BPM`); F5 DAY ONE gives HEART
-  `NO TICKS YET / FIRST SYNC DRAWS IT`. Two-line state feet replace the chart, frames unmoved.
+  `NO TICKS YET / FIRST SYNC DRAWS IT`. RESPONSE empty feet are `NEEDS 5 DAYS` / `SWITCH OFF`
+  / `ALL ZEROS` / `NO TICKS TODAY`. Two-line state feet replace the chart, frames unmoved.
 - SLEEP strip draws the band's own sleepLine (04B rule 04): `VeepooBand.readSleep` parses
   `VPAccurateSleepModel.parseSleepLine()` into `stage:minutes` runs, stored on
   `sleep_nights.sleep_line` (migration `20260902090000_sleep_line`), read back into
   `SleepSummary.line`; nights without a line fall back to the proportions.
-- Events added per the board's ship-list: `PAGE2_HRV_TAP`, `PAGE2_CARD_STATE{CARD,STATE}` on
+- Events added per the board's ship-list: `PAGE2_RESPONSE_STATE{FRESH|NEEDS5|OFF|ZERO|EMPTY}`,
+  `RESPONSE_DETAIL_OPEN`, `PAGE2_CARD_STATE{CARD,STATE}` on
   every page-two open, `PAGE2_NOT_SYNCED{PLATFORM}`, `PAGE2_OFF_WRIST{MIN}` once per user day.
 - The eight detail rulers now name one honest window: SLEEP is the recorded completed night;
-  HEART / HRV / STRESS / TEMP are rolling 24 hours; STEPS / DISTANCE / ACTIVE run from the
+  HEART / RESPONSE / STRESS / TEMP are rolling 24 hours; STEPS / DISTANCE / ACTIVE run from the
   04:00 user-day boundary to now. Current-day charts end at NOW rather than drawing empty
   future hours, and hourly bars use that same partial-day geometry.
 - A band pull updates the raw in-memory curve before upload and settlement. `Repository.load`
@@ -1821,3 +1824,44 @@ Covered by completed-frame and THINKING dismissal cases in `HomeDisplayTapTests`
 completed-frame case passed on iPhone 16 Pro Max (iOS 18.5), and THINKING was photographed
 with its bare pixel ×. The final THINKING automated rerun is currently blocked before launch
 by unrelated `DeviceView` auto-monitor type errors.
+
+
+## AI Coach and local conversation history · 2026-09-04
+
+Chat now uses its own Coach prompt rather than the Home display contract. It answers
+ordinary questions in prose, passes up to 32 recent messages as conversation context,
+and uses data widgets only when useful. General prose permits calculations and advice;
+measured-data charts retain their provenance checks. The Home panel keeps its existing
+prompt and rendering rules.
+
+Conversations, active session, image attachments and original widget envelopes are saved
+atomically under Application Support/NextBody/ChatArchives, partitioned by account. They
+survive process relaunch; this is local persistence, not cross-device cloud sync. Storage
+errors are visible with a retry action. Clearing history removes the local archive.
+
+Validation: 7 archive tests (88.89% archive line coverage), 10 backend tests, backend type
+check, iOS simulator build, and ChatHistoryTests.testSentMessageSurvivesAppRelaunch passed.
+The Coach backend still requires deployment of the turn function; these changes have not
+been deployed by this task.
+
+
+### 2026-09-04 · chat production hotfix (turn v31)
+
+The live v30 function was still panel-only: chat text calls could omit the panel's required
+`headline`, and even ordinary arithmetic could end in `E_SCHEMA`. v31 adds the existing
+coach/chat branch and narrowly repairs missing text presentation fields using existing text;
+repaired arguments must pass the actual tool schema. JWT verification remains enabled.
+
+Deployment used the exact v30 source recovered from its source maps plus the chat hotfix,
+because the main working tree's newer turn depends on database RPCs not yet deployed
+(`claim_ai_turn`, `consume_request_budget`, conversation context, and calculation status).
+No migrations were applied. Production-compatible source is kept in the
+`codex/chat-production-hotfix` worktree at
+`/Users/zihuangwu/.codex/worktrees/next-chat-production-hotfix`; do not redeploy the entire main working tree until
+its database migrations are verified. The parameter repair is also integrated into main.
+
+Validation: 6 text-repair tests (including the real AI SDK stream/tool execution), 6 handler
+regressions, and production type-check passed. Live chat checks passed for `2+2`, sleep/HRV
+queries, and a contextual follow-up; no SSE errors. v31 post-deploy logs showed no errors.
+The repeatable handler runner is `supabase/scripts/dev/chat-regression/run.py` in the hotfix
+worktree.

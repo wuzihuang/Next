@@ -10,6 +10,7 @@ const TABLES = [
   ["daily_rollup", "daily_results"],
   ["weigh_ins", "weigh_ins"],
   ["night_hrv", "night_hrv"],
+  ["response_samples", "response_samples"],
 ] as const;
 
 const README = `NEXTBODY DATA EXPORT
@@ -24,6 +25,7 @@ daily_rollup.ndjson   one row per user day (local 04:00 -> 04:00).
                       that produced them.
 weigh_ins.ndjson      the weight series, independent of any BIA reading.
 night_hrv.ndjson      nightly RMSSD derived from band RR intervals, with source counts.
+response_samples.ndjson  timestamps of wrist optical meal-response points, not a blood test.
 profile.ndjson        your profile plus per-field provenance.
 
 A null is not a zero. Where a value is null we did not know it; where it is 0 you told us
@@ -39,7 +41,8 @@ Deno.serve(async (req) => {
   const parts: Record<string, string> = { "README.txt": README };
 
   for (const [name, table] of TABLES) {
-    const { data } = await db.from(table).select("*").eq("user_id", userId).limit(20000);
+    const select = name === "response_samples" ? "ts,sampled_tz,src" : "*";
+    const { data } = await db.from(table).select(select).eq("user_id", userId).limit(20000);
     parts[`${name}.ndjson`] = (data ?? []).map((r) => JSON.stringify(r)).join("\n");
   }
   const { data: profile } = await db.from("profiles")

@@ -76,16 +76,25 @@ model credentials and tool execution server-side.
   recomputes today with an audited migration reason.
 - **Body Battery live preview** — `DataStore` rebases from the server score and applies
   unsynced live sensor minutes; the next settlement always replaces the preview anchor.
-- **OriginDataSync** — Joins original-data ticks with separate HRV history, uploads raw samples
-  and accurate sleep records, settles the affected day, then reloads the server result.
+- **MealResponseIndex** — Pure SyncCore index: timestamped optical points and recorded sleep
+  windows in, signed percent versus own daytime median out. Near is ±8%. Vendor zeros never
+  become points. Page two prints RESPONSE; ingest stores `response_samples.optical`.
+- **OriginDataSync** — Joins original-data ticks with separate HRV, overnight oxygen, and
+  wrist optical meal-response histories. Optical points upload as domain `response` into
+  `response_samples` (never a glucose column). Screens print only the unitless RESPONSE index.
 
 ## Patterns
 - Deep conversational AI interactions navigate to the dedicated full-screen Cyber Telemetry terminal (`/chat`), while the Home display maintains focus on immediate ambient widget metrics.
 - Multi-modal chat inputs support staging image attachments (`PhotosPicker`) alongside query text sent to server-side AI turns.
+- Plus · Photograph your meal (`拍照记录食物`) is presented by `CameraGate` (UIKit camera on the key window) and auto-sends through `photoMeal`. The keyboard-field camera key still attaches and waits for a caption. Photo library stays pick-then-caption. Long-pressing the dock orb skips the plus sheet and opens that same camera (`sendFood: true`); a tap still opens the sheet. The hold is `PressHold` (UIKit) so it arms under the page drag (ADR-0001).
 - Stored historical health values are server-authoritative and reproducible from raw inputs.
 - A live UI preview may estimate only the unsynced interval and must rebase on server reload.
 - Optional SDK values remain optional; missing and off-wrist are not numeric zero.
 - Veepoo accurate sleep stages: 0 deep, 1 light, 2 REM, 3 insomnia, 4 awake.
+- Sleep page prints staging + night HRV + overnight SpO2 as measurements; no score, no
+  apnea grade, no RESTORATIVE badge. Overnight SpO2 lives in `oxygen_samples`.
+- Page two RESPONSE is the meal-response index, never a blood test: card label RESPONSE,
+  tint compare-amber, no mmol/L / glucose / 血糖 / SPIKE on screens, export, or AI frames.
 - Pure SDK-boundary calculations belong in `NextBodySyncCore` with deterministic XCTest coverage.
 # Next · OpenMemory Guide
 
@@ -106,11 +115,17 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
+- `GateRoute` / `LaunchGate` / `SessionStore.resolveLaunch`: F1 §02 cold start. After a session exists, `devices.unbound_at is null` plus a finished About You (sex / height / birth_date) decide Connect vs Onboarding vs Home. Pairing writes the devices row immediately; Forget writes `unbound_at` and returns to Connect.
+- `HomeLaunchPolicy` / `HomeSnapshot` / `Repository.bootstrapHome`: same-day disk snapshot paints Home on the first frame; a still-valid access token skips the grant round trip; today's `daily_results` plus two-day samples load in parallel and replace the snapshot. 182-day history, composition, and BLE origin pull continue in the background.
+- `DirectionHeatMap` / `DailyDirectionPolicy`: Profile COMPOSITION is 26×7 Daily Direction
+  cells (lime deficit / outline level / red surplus). Colour comes from two logged meal
+  slots plus band coverage and live BALANCE — weigh-ins never light a square, and the
+  open user day is allowed to colour before 04:00 so the map is not empty until tomorrow.
 - `Router`: one-level detail navigation; leaving the root snapshots `homePage`, and every dismiss restores it so page-two vitals return to page two. Destinations include `sportMode`.
 - `HomeView`: owns the current optional `PanelWidget`, dock state, and panel callbacks; the pager index lives on `Router.homePage` so NavigationStack push/pop cannot wipe it.
 - `AIPanel`: renders STANDBY when no widget exists, THINKING during a request, and a completed personalized widget frame.
 - `PanelWidgetView`: renders the server-declared widget envelope on the fixed 358 × 470 panel canvas.
-- `Chrome`: shared page geometry and reusable navigation/close controls.
+- `Chrome`: shared page geometry and reusable navigation/close controls. `DetailScroll` keeps a `BackChevron` pinned at the 44pt bar's left on every second-level page (it does not scroll away with the large title).
 - `AIService`: sends user turns and decodes rendered widget frames.
 - `ASRStreamingSession` + `SpeechCapture`: open the authenticated socket before recording,
   tail complete 16 kHz mono Int16 frames from the live WAV, and retain the WAV as fallback.
@@ -118,44 +133,76 @@ model credentials and tool execution server-side.
   request-scoped data URL to `/turn`, then clear the preview and Base64 after recognition.
 - `_shared/tool-routing.ts`: conservatively scopes explicit single-domain turns; unclear and
   multi-domain questions keep the full source and renderer catalogue.
-- `PlusMenuSheet`: three groups — ADD, SPORT MODE (`Start a session` → `SportModeView`), MEASURE.
+- `PlusMenuSheet`: three groups — ADD (`Photograph your meal` / `拍照记录食物` opens the camera and auto-sends; Photo library still attaches), SPORT MODE (`Start a session` → `SportModeView`), MEASURE. Copy follows `AppLanguage`.
+- Dock orb: tap opens `PlusMenuSheet`; a 0.45 s hold on the same key calls `openCamera(sendFood: true)` and skips the sheet. VoiceOver exposes `Photograph your meal` as a custom action. Home's first-run skip `TapGesture` is masked with `including: firstRun.playing ? .all : .none` — a parent tap after idle cancels the orb's UIKit `PressHold`, so the sheet never opened. Regression: `NextBodyUITests/DockOrbPlusMenuTests`.
 - `DeviceView`: band identity, battery, firmware, automatic measurement, heart-rate
-  alarm, and sync cadence. POWER and the charge line read `BandState.chargeState` so a
+  alarm, and sync cadence. A lime SYNC capsule sits to the right of the battery ring and calls
+  `pullBandNow` — battery, identity, then `OriginDataSync.refreshNow(minimumInterval: 0)`
+  so cadence cannot swallow a tap. Disconnected greys the capsule; an in-flight pull
+  shows a spinner and joins the existing `inFlight` rather than starting a second one.
+  POWER and the charge line read `BandState.chargeState` so a
   known charging band does not flash UNKNOWN while `readBattery` is in flight.
+  Remaining days are not written — the SDK does not report them.
+  Automatic measurement also exposes Scientific sleep as the band's real
+  `VPSettingAutomaticPPGTest` state. It is read directly, written through the BLE queue,
+  and re-read after writes; enabling it affects future REM staging and may use more battery.
   Reminder / raise-to-wake / alarm / low-power rows are omitted until they have a real
   SDK write path; a switch that only flips local `@State` is not shown.
 - `BandBatteryPip`: 12×7 header cell. Charging / full draw a pixel bolt and pulse the
   fill; `BandPresence` stores `chargeState` from battery events so the pip updates
   without opening Device.
 - `SportModeView` / `SportModeCatalog`: catalogued modes (raw 0…47); start/stop via `BandService.startSportMode` / `stopSportMode`. Firmware refusals stay greyed for the page life.
-- `VitalsTimelinePolicy` + `VitalsDetailView`: sleep uses its recorded night; heart, HRV,
-  stress, and skin temperature use a rolling 24-hour window; steps, distance, and active
-  calories use the current 04:00 user day only through now.
+- `VitalsTimelinePolicy` + `VitalsDetailView`: sleep uses its recorded night and now also
+  draws night HRV (window RMSSD scatter) and overnight SpO2 (`oxygen_samples`, 85–100
+  curve) on that same clock. The nav word is the instrument itself (`HEART` / 心率), never
+  a `VITALS ·` / `体征 ·` prefix. Page two's retired HRV slot is RESPONSE (`MealResponseIndex`):
+  unitless signed percent versus own daytime median, compare-amber, rolling-24h scatter,
+  no mmol/L. `vitals.hrv` still deep-links to sleep. Heart, stress, temperature, and
+  RESPONSE use a rolling 24-hour window; steps, distance, and active calories use the
+  current 04:00 user day only through now. The home STRESS card uses that same 24h window
+  for its bars and number: the newest tick often
+  has PPG heart and no stress, so "now" is the last positive stress in 24h
+  (`currentStress`), not the newest row's null. `Repository.load` joins the latest
+  `raw_samples` row with the latest `stress > 0` row instead of copying the newest null
+  across, and loads overnight SpO2 from `oxygen_samples` clipped to `sleep_start`/`wake_at`.
 - `OriginDataSync` + `Repository`: measured band ticks merge into the in-memory curve before
   upload/settlement, while repository reloads query two user days and preserve fresher local
-  points. A missing `daily_results` row never gates raw-sample loading.
+  points. A missing `daily_results` row never gates raw-sample loading. Overnight automatic
+  oxygen is a separate SDK history domain (`veepoo-spo2-v1` → `oxygen_samples`), clipped
+  to the recorded night — never restored onto `raw_samples.spo2`.
 
 ## Patterns
+- Gate branching is `LaunchGate.stage(hasBoundBand:profileComplete:)` — never the last `nb.gate.stage` alone. A finished profile is not asked again after re-pair; a kill mid-About You restores `nb.onboarding.draft.<userId>`.
+- Daily Direction on the heat map uses live E_OUT_NOW; `nb.compute_fuel` no longer writes a null direction for an open day. Two snacks in one slot still stay GREY_NOTHING.
 - Use design tokens from `NB`; do not introduce hard-coded colors outside `DesignSystem/Tokens.swift`.
 - Interactive controls expose at least a 44 × 44 pt hit target even when the visible glyph is smaller.
+- Vitals second-level titles are the instrument name (`HEART` / 心率), never `VITALS ·` / `体征 ·`. `DetailScroll` pins the back chevron at the 44pt bar's left on every detail page.
 - User-visible and accessibility defaults are English; explicit Simplified Chinese is selected through app language state (`AppLanguage` + `L()` English-as-key tables in `app/NextBody/L10n/`).
 - Adding a language: add an `AppLocale` case and a `L10n/Tables/<code>.json` mapping English source strings to that language. Missing keys fall back to English. The first table is `zh-Hans.json` (~1000 keys).
 - Chinese UI/brand type uses Fusion Pixel 12px proportional zh_hans, cascaded behind Doto/Jost/Inter Tight so numbers stay pixel-dot and CJK stays pixel.
 - AI turns carry `AppLanguage.serverLocale`. The system prompt, meal vision prompt, and chart slot descriptions are written in the selected language and lock the frame to that language regardless of user input.
 - The idle panel is represented by `widget == nil`; THINKING and completed personalized frames are represented by non-nil widgets.
+- `StandbyArt` (the planet) lives only on `idlePlate`. `AIPanel` switches idle / occupied / ceremony as one exclusive tree with animations disabled on the swap, so the orbit cannot cross-fade under a reading. Photo answers paint an opaque unlit LED field under the words (`unlitField`); they used to sit on `Color.clear`.
 - Every asynchronous panel request carries a request ID; dismissing or starting another request invalidates late results so they cannot replace STANDBY.
 - The panel’s chart layer is drawn behind `HalftoneScreen`, while text remains crisp above it.
 - Home horizontal paging owns recognized drags; panel and card taps must not fire at the end of a page swipe.
+- First-run skip is a root `TapGesture` only while `firstRun.playing`. After idle it is `.none`: SwiftUI's parent tap cancels a child `UIViewRepresentable` (`PressHold`) even when the handler is a no-op. Keyboard still worked because it is a `Button`.
 - Push-to-talk ASR streams during recording and commits on release; any stream failure falls
   back to the completed WAV upload instead of losing the utterance.
 - AI image bytes are never persisted to Postgres or Storage. `image.inspect` produces an
   ephemeral factual extract for the Thinking turn and the UI distinguishes sending from
   server-confirmed analysis.
+- A plus-menu food photo is a camera capture that auto-sends through `photoMeal` with a
+  locale prompt; it is not staged in the dock the way a keyboard-field or library photo is.
 - A confidently routed turn prefetches its ranked source candidates, harvests the winning
   source into the number ledger, and removes the redundant model read round while Thinking
   remains enabled. Ambiguous turns are not pruned; explicit comparisons among heart rate,
   stress, and steps use the existing `vitals.7d` multi-metric source.
 - SDK cannot list supported sports; product shows a fixed catalog and marks refused modes after a failed start.
+- Home launch paints the last same-day snapshot immediately, then replaces it with the
+  server's current row (target <1 s). A previous user day's snapshot is not today's score.
+  Child tables are selected by `result_id in.(…)` so Home is not blocked on every day's
+  training curve. Band origin sync still updates the wrist's unsynced minutes afterwards.
 - Raw measurements may update the UI immediately, but derived daily metrics remain
   server-authoritative. Merge raw ticks by timestamp and preserve non-nil auxiliary fields.
 - Never draw future hours on a current-day chart. A ruler's endpoint, sample filter, and

@@ -12,13 +12,14 @@ let package = Package(
             exclude: [
                 "BandPresence.swift", "BandService.swift", "BluetoothState.swift",
                 "HoopQueue.swift", "LiveReadout.swift", "MockBand.swift",
-                "OriginDataSync.swift", "VeepooBand.swift",
+                "OpticalAutoSwitch.swift", "OriginDataSync.swift", "VeepooBand.swift",
             ],
             sources: [
                 "AutoMeasurementIntervalPolicy.swift",
                 "AutoMeasurementSwitchFallback.swift",
                 "BodyBatteryEngine.swift",
                 "HealthSampleMapping.swift",
+                "MealResponseIndex.swift",
                 "VitalSample.swift",
                 "VitalsTimelinePolicy.swift",
             ]

@@ -58,7 +58,8 @@ Report direction and confidence. Do not conclude. Do not dress the user's perfor
 No encouragement, no praise, no comfort, no advice. No exclamation marks.
 LANGUAGE LOCK: the app is set to English (en-US). Every word on screen — title, sentence, footer, action, hero, headline, eyebrow, sub — is written in English.
 Ignore the language of <user_text>, <photo_extract>, source labels, and any quoted words. If the user writes Chinese, Japanese, or anything else, the frame is still English.
-No Chinese characters anywhere in the frame. Metric tokens stay as they are (BODY BATTERY, TRAINING LOAD, HRV, KCAL).`,
+No Chinese characters anywhere in the frame. Metric tokens stay as they are (BODY BATTERY, TRAINING LOAD, HRV, KCAL, RESPONSE).
+Wrist optical meal response is RESPONSE, never glucose, mmol/L, mg/dL, 血糖, or SPIKE.`,
 
     `S7 MEDICAL STOP
 If the user asks about diagnosis, symptoms, medication, disease, pregnancy, or whether something is safe, render only the fixed fallback frame. No tools. No explanation.`,
@@ -113,7 +114,8 @@ title ≤ 18，sentence ≤ 48（必填，两行封顶），footer ≤ 42，acti
 不鼓励、不表扬、不安慰、不提建议。不用感叹号。
 语言锁定：应用语言是简体中文（zh-CN）。屏上每一个字——title、sentence、footer、action、hero、headline、eyebrow、sub——必须是简体中文。
 忽略 <user_text>、<photo_extract>、数据标签和任何引文里的语言。用户用英文、日文或任何其他语言提问，屏上仍然只写中文。
-指标专名保持原样（BODY BATTERY、TRAINING LOAD、HRV、KCAL）。`,
+指标专名保持原样（BODY BATTERY、TRAINING LOAD、HRV、KCAL、RESPONSE）。
+腕部光学进餐反应只写 RESPONSE，不许写血糖、mmol/L、mg/dL 或 SPIKE。`,
 
     `S7 MEDICAL STOP
 用户问诊断、症状、用药、疾病、怀孕、是否安全时，只渲染那条固定回退帧，

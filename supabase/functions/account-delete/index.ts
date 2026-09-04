@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
 
   for (const table of ["screen_frames", "ai_turns", "analytics_events", "call_changes", "meals",
                        "weigh_ins", "body_composition", "raw_samples", "reserve_samples",
-                       "sleep_nights", "night_hrv", "daily_results", "sync_runs",
+                       "sleep_nights", "night_hrv", "response_samples", "daily_results", "sync_runs",
                        "device_capabilities", "devices"]) {
     await db.from(table).delete().eq("user_id", userId);
   }

@@ -13,6 +13,20 @@ struct HrvMinuteSample: Equatable {
     /// The vendor's opaque HRV scalar. Retained for diagnostics, never substituted for RMSSD.
     let vendorValue: Double?
     let rrCount: Int
+    var rrMilliseconds: [Double] = []
+}
+
+/// One automatic oxygen reading from the SDK oxygen history, not from origin ticks.
+struct OxygenSample: Equatable {
+    let time: String
+    let percent: Int
+}
+
+/// One wrist optical meal-response slot. The vendor table may call the column something
+/// else; the mapped fields never do. Zeros are empty slots, not a reading on the median.
+struct OpticalResponseSample: Equatable {
+    let time: String
+    let optical: Double
 }
 
 /// Pure conversion at the closed-source SDK boundary. Keeping this free of Veepoo types makes
@@ -47,6 +61,33 @@ enum HealthSampleMapping {
                                  celsius: celsius)
     }
 
+    /// Overnight SpO2 only. 0 is the band's empty slot; apnea flags on the same dictionary
+    /// are ignored here so they cannot reach a table or a screen (ADR-0002).
+    static func oxygen(from raw: [String: Any]) -> OxygenSample? {
+        guard let time = clock(raw["Time"] as? String ?? raw["time"] as? String),
+              let percent = integer(raw["OxygenValue"] ?? raw["oxygenValue"]),
+              (50...100).contains(percent)
+        else { return nil }
+        return OxygenSample(time: time, percent: percent)
+    }
+
+    /// Vendor zeros, non-finite values, and risk-level keys are dropped. The slot keeps the
+    /// median of the valid optical scalars so one five-minute row is one point.
+    static func opticalResponse(from raw: [String: Any]) -> OpticalResponseSample? {
+        guard let time = clock(raw["time"] as? String ?? raw["Time"] as? String) else { return nil }
+        let values = (raw["bloodGlucoses"] as? [Any] ?? raw["optical"] as? [Any] ?? [])
+            .compactMap(number)
+            .filter { $0.isFinite && $0 != 0 }
+        guard let optical = median(values), optical > 0 else { return nil }
+        return OpticalResponseSample(time: time, optical: optical)
+    }
+
+    static func overnightOxygenSummary(_ percents: [Int]) -> (mean: Int, min: Int)? {
+        guard !percents.isEmpty else { return nil }
+        let mean = Int((Double(percents.reduce(0, +)) / Double(percents.count)).rounded())
+        return (mean, percents.min()!)
+    }
+
     static func hrv(from raw: [String: Any]) -> HrvMinuteSample? {
         guard let time = clock(raw["time"] as? String) else { return nil }
         let rr = (raw["hearts"] as? [Any] ?? [])
@@ -61,7 +102,7 @@ enum HealthSampleMapping {
             return sqrt(squared.reduce(0, +) / Double(squared.count))
         }() : nil
         return HrvMinuteSample(time: time, rmssdMS: rmssd,
-                               vendorValue: number(raw["hrvValue"]), rrCount: rr.count)
+                               vendorValue: number(raw["hrvValue"]), rrCount: rr.count, rrMilliseconds: rr)
     }
 
     /// The day's HRV placed on the five-minute grid the sample table uses. The band measures

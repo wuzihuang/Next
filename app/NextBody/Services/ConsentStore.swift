@@ -17,7 +17,9 @@ import Foundation
 @MainActor
 final class ConsentStore: ObservableObject {
     static let shared = ConsentStore()
-    static let version = "1.0.0"
+    /// 1.2.0 · wrist optical meal response joined page two as RESPONSE. A stored 1.1.0 grant
+    /// must see the new copy; the hash of the screen is what a later edit is measured by.
+    static let version = "1.2.0"
     static let locale = "en-US"
 
     enum Choice: String { case granted, declined, withdrawn }
@@ -130,10 +132,12 @@ enum ConsentCopy {
             Item(name: "Steps, distance, calories and movement intensity",
                  why: "Your daily load, and the burn side of energy balance."),
             Item(name: "Sleep signals",
-                 why: "Used for one thing: how much your Body Battery recharged overnight. HOOP does not show sleep stages, sleep scores or sleep duration."),
+                 why: "Staging, duration, night HRV and overnight automatic oxygen from the night the band recorded. HOOP does not score the night."),
             Item(name: "Body composition — 14 measures from the band's bioimpedance sensor",
                  why: "Body fat, muscle, water, bone, protein, metabolic rate and more. Only when you start a measurement yourself. Never in the background."),
             Item(name: "Skin temperature", why: "One hidden input to Body Battery. It is never shown as a number."),
+            Item(name: "Wrist optical meal response",
+                 why: "Shown as RESPONSE, a unitless index versus your own daytime median. It is not a blood test."),
         ]),
         Section(head: "FROM YOU", items: [
             Item(name: "Meals — your words and your photos",
@@ -148,7 +152,7 @@ enum ConsentCopy {
     struct Note { let head: String; let body: String }
     static let notes: [Note] = [
         Note(head: "WHAT WE DON'T TOUCH",
-             body: "The KR96 PRO hardware can also read blood pressure, blood oxygen, blood glucose and ECG. HOOP never turns those on, never stores them and never shows them. They are not in this app."),
+             body: "The KR96 PRO hardware can also read blood pressure, ECG, and daytime or on-demand blood oxygen. HOOP never turns those on, never stores them and never shows them. Overnight automatic oxygen is stored and shown on the sleep page only. Wrist optical meal response is stored and shown as RESPONSE; it is not a blood test."),
         Note(head: "WHAT WE NEVER DO",
              body: "We never sell your health data.\nWe never give it to advertising networks or data brokers.\nWe never write anything back to Apple Health."),
         Note(head: "WHERE IT GOES",

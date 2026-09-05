@@ -8,35 +8,67 @@
 
 import { generateObject, streamText, type Tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { ChatHistory, coachFrame, coachMessages } from "../_shared/coach.ts";
 import { ThoughtStream } from "../_shared/thoughts.ts";
-import { model, MODEL_VERSION, visionModel } from "../_shared/model.ts";
+import { model, MODEL_VERSION, modelChain, primaryModelId, visionModel } from "../_shared/model.ts";
 import { systemPrompt } from "../_shared/prompt.ts";
-import { buildTools, readSeriesSource } from "../_shared/tools.ts";
+import { buildTools } from "../_shared/tools.ts";
 import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
-import { Envelope, MEDICAL, medicalStop, normalizeLocale, batteryFallback, tagSafe } from "../_shared/contract.ts";
+import { Envelope, MEDICAL, medicalStop, normalizeLocale, batteryFallback, slowDownFrame, tagSafe } from "../_shared/contract.ts";
 import { buildChartTools } from "../_shared/charts.ts";
 import { userClient, currentUserId, cors, json, userDayKey } from "../_shared/db.ts";
 import { enforceRequestBudget } from "../_shared/rate-limit.ts";
+import { consumeAiQuota, quotaDeniedResponse, recordAiUsage } from "../_shared/ai-quota.ts";
+import { usageFromProvider, type TokenUsage } from "../_shared/cost.ts";
+import { MAX_TURN_STEPS, gateTurnTool, initialToolGate, isRenderTool } from "../_shared/turn-phase.ts";
 import { clientFreshness, freshnessContext } from "../_shared/freshness.ts";
 import { resolveTurnContext } from "../_shared/turn-context.ts";
 import type { Ctx } from "../_shared/sources.ts";
-import { sourceScopeFor } from "../_shared/tool-routing.ts";
 import { repairTextToolCall } from "../_shared/tool-repair.ts";
 
-// 60 turns an hour and 150 a day. Free forever does not mean unlimited: the cost is real,
-// and the ceiling is a rate limit rather than a paywall.
-const HOURLY = 60, _DAILY = 150;
+const HOURLY = 60;
 
-Deno.serve(async (req) => {
+export type TurnDependencies = {
+  authenticate: (request: Request) => Promise<string | null>;
+  client: (request: Request) => SupabaseClient;
+  budget: (db: SupabaseClient) => Promise<Response | null>;
+  quota: (db: SupabaseClient) => Promise<
+    { allowed: true; remaining?: number } | { allowed: false; reason: "count" | "spend" | "unavailable" }
+  >;
+  streamText: typeof streamText;
+  generateObject: typeof generateObject;
+  recordUsage: (
+    db: SupabaseClient,
+    usage: TokenUsage,
+    modelId: string,
+    turnId?: string,
+  ) => Promise<void>;
+};
+
+const defaults: TurnDependencies = {
+  authenticate: currentUserId,
+  client: userClient,
+  budget: (db) => enforceRequestBudget(db, "turn"),
+  quota: (db) => consumeAiQuota(db, "turn"),
+  streamText,
+  generateObject,
+  recordUsage: (db, usage, modelId, turnId) =>
+    recordAiUsage(db, { endpoint: "turn", modelId, usage, turnId }),
+};
+
+export async function handleTurn(
+  req: Request,
+  deps = defaults,
+): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "METHOD_NOT_ALLOWED" }, 405);
 
   const bodyPromise = req.json().catch(() => ({}));
-  const userId = await currentUserId(req);
+  const userId = await deps.authenticate(req);
   if (!userId) return json({ error: "UNAUTHENTICATED" }, 401);
 
-  const db = userClient(req);
+  const db = deps.client(req);
   const body = await bodyPromise;
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "E_BODY_SCHEMA" }, 422);
   if (body.text != null && (typeof body.text !== "string" || body.text.length > 8000)) {
@@ -117,7 +149,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  const budgetFailure = await enforceRequestBudget(db, "turn");
+  const budgetFailure = await deps.budget(db);
   if (budgetFailure) return budgetFailure;
 
   /// ⚠️ Every failure path sent batteryFallback(null), so a degraded frame told a user with
@@ -141,9 +173,8 @@ Deno.serve(async (req) => {
   };
   const recent = recentResult.count;
   if ((recent ?? 0) >= HOURLY) {
-    const fb = await fallback();
     return sse((send) => {
-      send("error", { code: "RATE_LIMITED", fallback_frame: fb });
+      send("error", { code: "RATE_LIMITED", fallback_frame: slowDownFrame(locale, "rate") });
     });
   }
 
@@ -165,13 +196,18 @@ Deno.serve(async (req) => {
     return sse(send => {send("screen.render",{envelope:frame.widget_tree,replay:true});send("done",{replay:true});});
   }
   if (claim.data?.status !== "claimed") return json({error:"TURN_UNAVAILABLE"},503);
+  const quota = await deps.quota(db);
+  if (!quota.allowed) {
+    await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId });
+    if (isChat) return quotaDeniedResponse(locale, quota);
+    return sse((send) => {
+      send("error", { code: "RATE_LIMITED", fallback_frame: slowDownFrame(locale) });
+    });
+  }
   const started = Date.now();
   const ledger = new NumberLedger();
   ledger.seedConstants();
 
-  // Clear single-domain questions do not need every source description in the model context.
-  // Ambiguous and multi-metric questions return null and retain the complete catalogue.
-  const sourceScope = isChat ? undefined : image ? [] : sourceScopeFor(resolved.queryText) ?? undefined;
   const trace: unknown[] = [];
 
   return sse(async (send) => {
@@ -192,7 +228,7 @@ Deno.serve(async (req) => {
       trace.push({ tool: "image.inspect", bytes: Math.floor(image.length * 0.75) });
       send("tool", { name: "image.inspect" });
       try {
-        photoExtract = await inspectImage(image, text, locale);
+        photoExtract = await inspectImage(image, text, locale, deps, db, turnId);
         ledger.harvest(photoExtract, "image.inspect");
       } catch (error) {
         console.error("turn image inspect failed:", error instanceof Error ? error.message : error);
@@ -204,38 +240,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // A confident route can perform the predictable source read before the model runs. This
-    // removes one full think → tool → think round while preserving Thinking for the render.
-    // Candidate fallbacks are fetched concurrently and the first non-empty source wins.
-    const prefetched: { source: string; data: Record<string, unknown> }[] = [];
-    const sourceFailures: string[] = [];
-    if (sourceScope?.length) {
-      await Promise.all(sourceScope.map(async (source) => {
-        try {
-          const data = await readSeriesSource(source, ctx);
-          if (data) {
-            prefetched.push({ source, data });
-            ledger.harvest(data, "series.get");
-            trace.push({ tool: "series.get", args: { source }, prefetched: true });
-            send("tool", { name: "series.get", prefetched: true });
-          }
-        } catch {
-          sourceFailures.push(source);
-          trace.push({ tool: "series.get", args: { source }, error: "SOURCE_QUERY_FAILED" });
-        }
-      }));
-    }
     const tools: Record<string, Tool> = photoExtract && !isChat
-      ? {} : buildTools(db, userId, ledger, { dayKey, tz }, undefined, ctx);
+      ? {} : buildTools(db, userId, ledger, { dayKey, tz }, ctx);
 
-    // 07 · 02 · the surface is a tool, not a reply. S1 says the only way she speaks is by
-    // calling screen.render, so every widget on board 07 is one: screen.render.<type>,
-    // one flat schema each, the series filled by the server from the source she names.
-    // The model cannot answer in prose, and there is no free text to parse out of.
-    // S1 · one render per turn. ⚠️ Told so in the prompt, the model still rendered eight
-    // times in a row on one question (37 s, the last frame winning). A successful render
-    // now ends the turn: the callback pulls the cord, generateText stops, and the frame it
-    // produced is the answer. A NO_DATA result is not a render and the model goes on.
     let envelope: Envelope | null = null;
     const stop = new AbortController();
     const renderTools = buildChartTools(
@@ -246,7 +253,6 @@ Deno.serve(async (req) => {
         stop.abort();
       },
       locale,
-      undefined,
     );
 
     if (isChat) {
@@ -261,32 +267,35 @@ Deno.serve(async (req) => {
       };
     }
 
-    // Every tool call is traced and announced as it runs, not read back from the steps
-    // afterwards — the steps are not there when the turn ends by abort. A number the model
-    // passed to a read tool, and got data back for, is not invented; the render tools'
-    // arguments are the frame itself and are audited there.
-    // S2 · READ FIRST, mechanically. ⚠️ With the render ending the turn, a model that opened
-    // with screen.render.recomp never read anything, wrote 「——」 for a sentence, and the turn
-    // was over in 4 s. A chart that names a data source is about data the sentence must
-    // quote, so it needs one read behind it; text, metric and food carry their own words.
-    let reads = prefetched.length || photoExtract ? 1 : 0;
+    const hasReadTools = Object.keys(tools).length > 0;
+    const gate = photoExtract
+      ? { phase: 2 as const, readCalls: 1, rereadUsed: false }
+      : initialToolGate(hasReadTools);
     const traced = Object.fromEntries(Object.entries({ ...tools, ...renderTools }).map(([name, t]) => [name, {
       ...t,
       // deno-lint-ignore no-explicit-any
       execute: async (args: any, opts: any) => {
         trace.push({ tool: name, args });
         send("tool", { name });
-        if (!name.startsWith("screen.render")) {
-          reads += 1;
-          ledger.harvest(args, `${name}.args`);
-        } else if (args?.source && reads === 0) {
+        const decision = gateTurnTool(gate, name, hasReadTools);
+        if (!decision.allow) {
+          const reread = decision.error === "REREAD_USED";
           return {
-            rendered: false, error: "READ_FIRST",
+            ...(isRenderTool(name) ? { rendered: false } : {}),
+            error: decision.error,
             say: locale.startsWith("en")
-              ? `Read first: call series.get with source "${args.source}" (or another read tool), then render with the numbers it returned.`
-              : `先读再画：先用 series.get 读 "${args.source}"（或别的读工具），再拿返回的数字渲染。`,
+              ? (reread
+                ? "Already reread once. Draw with the numbers you have."
+                : "Read first: call data.read for this source, then render with the numbers it returned.")
+              : (reread
+                ? "已经补读过一次，现在用已有数字制图。"
+                : "先读再画：先用 data.read 读数，再拿返回的数字渲染。"),
           };
         }
+        gate.phase = decision.next.phase;
+        gate.readCalls = decision.next.readCalls;
+        gate.rereadUsed = decision.next.rereadUsed;
+        if (!isRenderTool(name)) ledger.harvest(args, `${name}.args`);
         return await t.execute!(args, opts);
       },
     }]));
@@ -305,21 +314,21 @@ Deno.serve(async (req) => {
       enable_thinking: true,
       thinking_budget: Number(Deno.env.get("TURN_THINKING_BUDGET") ?? 200),
     };
-    const sourceContext = `\n\n<source_data>\n${JSON.stringify({ sources: prefetched, failedSources: sourceFailures, query: resolved, availability })}\n</source_data>`;
+    const sourceContext = `\n\n<source_data>\n${JSON.stringify({ query: resolved, availability })}\n</source_data>`;
     const photoContext = photoExtract
       ? `\n\n<photo_extract>\n${JSON.stringify(photoExtract)}\n</photo_extract>`
       : "";
-    const attempt = async () => {
-      const res = streamText({
-        model: model(),
+    const attempt = async (modelId = modelChain()[0]) => {
+      const res = deps.streamText({
+        model: model(modelId),
         system: systemPrompt(locale, undefined, isChat ? "chat" : "panel"),
-        // Chat uses real conversation roles; panel retains its tagged display input.
         ...(isChat
           ? { messages: coachMessages(history.data, text, currentDay, `${sourceContext}${photoContext}`) }
           : { prompt: `<user_text>\n${tagSafe(text)}\n</user_text>\n\ncurrentDay=${currentDay}; requestedDay=${dayKey}${sourceContext}${photoContext}` }),
         tools: traced,
         experimental_repairToolCall: repairTextToolCall,
-        maxSteps: 8,
+        // AI SDK 4.3 streamText has no prepareStep; two-phase is gated in execute.
+        maxSteps: MAX_TURN_STEPS,
         ...(isChat ? { maxTokens: 4096 } : {}),
         toolChoice: "auto",
         providerOptions: { dashscope: think, "vercel-gateway": think },
@@ -328,41 +337,54 @@ Deno.serve(async (req) => {
           stop.signal,
         ]),
       });
-      // Provider reasoning is live progress on both surfaces; answer text is collected
-      // separately so it never becomes a thought or a pre-tool chat response.
       let answer = "";
       for await (const part of res.fullStream) {
         thoughts.accept(part);
         if (isChat && part.type === "text-delta") answer += part.textDelta;
         else if (part.type === "step-finish") {
-          // Discard preambles before a tool read; the next model step supplies the answer.
           if (isChat && part.finishReason === "tool-calls") answer = "";
+          const usage = (part as { usage?: unknown }).usage;
+          if (usage) {
+            await deps.recordUsage(db, usageFromProvider(usage), modelId, turnId);
+          }
         }
         else if (part.type === "error") throw part.error;
       }
       thoughts.flush();
       if (isChat && !envelope && answer.trim()) envelope = coachFrame(answer.trim(), locale);
     };
-    // A throw with a frame in hand is the render that ended the turn, not a failure.
     const run = async () => {
-      try { await attempt(); } catch (e) { thoughts.flush(); if (envelope) return; throw e; }
+      const ids = modelChain();
+      let lastError: unknown;
+      for (const [index, modelId] of ids.entries()) {
+        try {
+          await attempt(modelId);
+          return;
+        } catch (e) {
+          thoughts.flush();
+          if (envelope) return;
+          lastError = e;
+          const fast = Date.now() - started < 20_000 &&
+            !(e instanceof Error && e.name === "AbortError");
+          if (index === 0 && fast) {
+            console.error("turn attempt 1 failed, retrying:", e instanceof Error ? `${e.name}: ${e.message}` : e);
+            envelope = null;
+            try {
+              await attempt(modelId);
+              return;
+            } catch (retryError) {
+              thoughts.flush();
+              if (envelope) return;
+              lastError = retryError;
+            }
+          }
+        }
+      }
+      throw lastError;
     };
 
     try {
-      try {
-        await run();
-      } catch (e) {
-        // ⚠️ Seen on production: the same question answered in 8 s once and failed in 6 s
-        // the next time, no tool called, MODEL_UNAVAILABLE. A fast failure on the model hop
-        // gets one more attempt while the 55 s budget allows; the 50 s timeout does not.
-        const fast = Date.now() - started < 20_000 && !(e instanceof Error && e.name === "AbortError");
-        if (!fast) throw e;
-        console.error("turn attempt 1 failed, retrying:", e instanceof Error ? `${e.name}: ${e.message}` : e);
-        envelope = null;
-        await run();
-      }
-      // The ledger closes after every read has returned — the render tool does not close
-      // it, which is what let a later tool's numbers arrive unaccounted for.
+      await run();
       ledger.seal();
     } catch (e) {
       console.error("turn failed:", e instanceof Error ? (e.stack ?? e.message) : e);
@@ -421,7 +443,9 @@ Deno.serve(async (req) => {
       await db.rpc("release_ai_turn", {p_turn:turnId,p_lease:leaseId});
     }
   }, fallback);
-});
+}
+
+if (import.meta.main) Deno.serve((req) => handleTurn(req));
 
 const ImageExtract = z.object({
   summary: z.string().max(320),
@@ -434,8 +458,11 @@ async function inspectImage(
   image: string,
   userText: string,
   locale: "zh-CN" | "en-US",
+  deps: TurnDependencies,
+  db: SupabaseClient,
+  turnId: string,
 ): Promise<Record<string, unknown>> {
-  const { object } = await generateObject({
+  const result = await deps.generateObject({
     model: visionModel(),
     schema: ImageExtract,
     system: [
@@ -455,7 +482,8 @@ async function inspectImage(
     mode: "json",
     abortSignal: AbortSignal.timeout(20_000),
   });
-  return object;
+  await deps.recordUsage(db, usageFromProvider(result.usage), primaryModelId(), turnId);
+  return result.object;
 }
 
 function imageFailure(locale: "zh-CN" | "en-US"): Envelope {

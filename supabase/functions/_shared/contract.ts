@@ -122,6 +122,34 @@ export const MEDICAL_STOP: Envelope = {
   target: "profile",
 };
 
+export function slowDownFrame(
+  locale = "en-US",
+  kind: "daily" | "rate" = "daily",
+): Envelope {
+  const en = locale.startsWith("en");
+  const daily = kind === "daily";
+  return {
+    type: "text",
+    title: en ? "SLOW DOWN" : "请慢一点",
+    sentence: en
+      ? (daily
+        ? "Today's allowance is used up. It returns tomorrow."
+        : "Too many questions just now. Wait a moment.")
+      : (daily
+        ? "今天的次数用完了，明天会恢复。"
+        : "刚才问得太密了，稍等一下。"),
+    data: {
+      headline: en
+        ? (daily ? "TOMORROW" : "WAIT")
+        : (daily ? "明天恢复" : "稍等"),
+    },
+    ttl_min: 20,
+    priority: "normal",
+    locale: en ? "en-US" : "zh-CN",
+    target: "profile",
+  };
+}
+
 export function medicalStop(locale = "en-US"): Envelope {
   if (locale.startsWith("en")) return { ...MEDICAL_STOP, locale: "en-US" };
   return {

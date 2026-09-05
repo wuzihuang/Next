@@ -11,3 +11,14 @@ Deno.test("chat selects presentation by question without changing the home panel
     assertEquals(systemPrompt(locale, undefined, "panel"), home);
   }
 });
+
+Deno.test("different questions keep the system prompt byte-for-byte identical", () => {
+  const a = systemPrompt("en-US", ["heart.today"]);
+  const b = systemPrompt("en-US", ["sleep.stages", "sleep.mix"]);
+  const c = systemPrompt("en-US");
+  assertEquals(a, b);
+  assertEquals(b, c);
+  assert(a.includes("S11 CHART CHOICE"));
+  assert(!a.includes("this turn:"));
+});
+

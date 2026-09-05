@@ -17,7 +17,7 @@ for (const providerName of ["dashscope", "vercel-gateway"]) {
         assertEquals(body.enable_thinking, true);
         assertEquals(body.thinking_budget, 200);
         const encoder = new TextEncoder();
-        return new Response(
+        return Promise.resolve(new Response(
           new ReadableStream({
             start(controller) {
               const send = (
@@ -44,7 +44,7 @@ for (const providerName of ["dashscope", "vercel-gateway"]) {
             },
           }),
           { headers: { "content-type": "text/event-stream" } },
-        );
+        ));
       },
     });
     const result = streamText({

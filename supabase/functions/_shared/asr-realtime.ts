@@ -1,7 +1,7 @@
-export const ASR_REALTIME_MODEL = "qwen3-asr-flash-realtime";
+import { asrRealtimeModel } from "./model.ts";
 
 export function realtimeURL(): string {
-  return `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=${ASR_REALTIME_MODEL}`;
+  return `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=${asrRealtimeModel()}`;
 }
 
 export function sessionUpdate(language: string): string {

@@ -19,6 +19,8 @@ export const METRICS = [
   "bloodOxygen",
   "bloodPressure",
   "ecg",
+  "activeMinutes",
+  "dayDistance",
 ] as const;
 export const metricRequestSchema = z.object({
   metrics: z.array(z.enum(METRICS)).min(1).max(8),
@@ -35,17 +37,22 @@ export interface MetricRequest {
 }
 type Row = Record<string, unknown>;
 const one = (x: unknown): Row => (Array.isArray(x) ? x[0] : x) as Row ?? {};
-const definitions: Record<
-  Metric,
-  {
-    table: string;
-    column: string;
-    unit: string;
-    nested?: string;
-    timestamp?: boolean;
-    unsupported?: boolean;
-  }
-> = {
+export type MetricOrigin = "measured" | "derived" | "unknown";
+export type MetricGrain = "day" | "measurement" | "tick";
+export type MetricDefinition = {
+  table: string;
+  column: string;
+  unit: string;
+  nested?: string;
+  timestamp?: boolean;
+  timestampColumn?: string;
+  unsupported?: boolean;
+  origin?: MetricOrigin;
+  grain?: MetricGrain;
+  measuredAtColumn?: string;
+  says?: string;
+};
+export const definitions: Record<Metric, MetricDefinition> = {
   trainingLoad: {
     table: "daily_results",
     column: "training_load",
@@ -113,19 +120,80 @@ const definitions: Record<
   },
   sleepMinutes: { table: "sleep_nights", column: "total_minutes", unit: "min" },
   bloodOxygen: {
-    table: "unsupported",
-    column: "",
+    table: "oxygen_samples",
+    column: "spo2",
     unit: "%",
-    unsupported: true,
+    timestamp: true,
+    timestampColumn: "ts",
+    origin: "measured",
+    grain: "measurement",
+    measuredAtColumn: "ts",
+    says: "Overnight automatic SpO2. Not a daytime reading and not an apnea grade.",
   },
   bloodPressure: {
     table: "unsupported",
     column: "",
     unit: "mmHg",
     unsupported: true,
+    grain: "measurement",
   },
-  ecg: { table: "unsupported", column: "", unit: "mV", unsupported: true },
+  ecg: { table: "unsupported", column: "", unit: "mV", unsupported: true, grain: "measurement" },
+  activeMinutes: {
+    table: "daily_results",
+    column: "active_minutes",
+    nested: "daily_training",
+    unit: "min",
+    origin: "derived",
+    grain: "day",
+    says: "Minutes where movement reached moderate intensity. Not training load.",
+  },
+  dayDistance: {
+    table: "daily_results",
+    column: "distance_m",
+    nested: "daily_training",
+    unit: "m",
+    origin: "derived",
+    grain: "day",
+    says: "Settled distance for the user day, in metres.",
+  },
 };
+function dailyResultsSelect(metrics: Metric[]): string {
+  const cols = new Set([
+    "user_day",
+    "id",
+    "result_revision",
+    "computed_at",
+    "calculation_as_of",
+    "input_revision",
+    "algo_version",
+  ]);
+  const nested = new Map<string, Set<string>>();
+  for (const metric of metrics) {
+    const def = definitions[metric];
+    if (def.table !== "daily_results" || def.unsupported) continue;
+    if (def.nested === "reserve_daily") {
+      const set = nested.get("reserve_daily") ?? new Set();
+      set.add("night_inputs");
+      nested.set("reserve_daily", set);
+    } else if (def.nested) {
+      const set = nested.get(def.nested) ?? new Set();
+      set.add(def.column);
+      nested.set(def.nested, set);
+    } else if (def.column) {
+      cols.add(def.column);
+    }
+  }
+  let select = [...cols].join(",");
+  for (const [rel, fields] of nested) {
+    select += `,${rel}(${[...fields].join(",")})`;
+  }
+  return select;
+}
+
+function stampColumn(def: MetricDefinition): string {
+  return def.timestampColumn ?? "measured_at";
+}
+
 function validDay(day: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(Date.parse(day)) &&
     new Date(day).toISOString().slice(0, 10) === day;
@@ -166,18 +234,22 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
       const rows: Row[] = [];
       for (let offset = 0;; offset += 1000) {
         if (offset >= 100000) throw Error("RANGE_TOO_DENSE");
+        const stamp = stampColumn(def);
         const select = def.table === "daily_results"
-          ? "user_day,id,result_revision,computed_at,calculation_as_of,input_revision,algo_version,training_load,reserve_score,fuel_balance_kcal,day_fuel(kcal_in,kcal_out,protein_in_g),reserve_daily(night_inputs)"
+          ? dailyResultsSelect(request.metrics)
           : "*";
         let q = ctx.db.from(def.table).select(select).eq("user_id", ctx.userId);
         q = def.timestamp
-          ? q.gte("measured_at", dayBounds(from, tz).start.toISOString()).lt(
-            "measured_at",
+          ? q.gte(stamp, dayBounds(from, tz).start.toISOString()).lt(
+            stamp,
             dayBounds(to, tz).end.toISOString(),
           )
           : q.gte("user_day", from).lte("user_day", to);
-        const ordered = q.order(def.timestamp ? "measured_at" : "user_day");
-        const { data, error } = await (def.timestamp ? ordered.order("id") : ordered).range(offset,offset+999);
+        const ordered = q.order(def.timestamp ? stamp : "user_day");
+        const paged = def.timestamp && stamp === "measured_at"
+          ? ordered.order("id")
+          : ordered;
+        const { data, error } = await paged.range(offset,offset+999);
         if (error) throw Error("QUERY_FAILED");
         const page = (data ?? []) as unknown as Row[];
         rows.push(...page);
@@ -213,7 +285,10 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
       }[] = def.unsupported
         ? []
         : def.timestamp
-        ? rows.map((r) => ({ dayKey: String(r.measured_at), value: value(r) }))
+        ? rows.map((r) => ({
+          dayKey: String(r[stampColumn(def)] ?? r.measured_at),
+          value: value(r),
+        }))
         : days.map((dayKey) => ({
           dayKey,
           value: by.get(dayKey) ?? null,
@@ -257,10 +332,11 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
         rows.map((r) => r[key]).filter((v): v is string =>
           typeof v === "string" && Number.isFinite(Date.parse(v))
         ).sort().at(-1) ?? null;
-      const derived = def.table === "daily_results" ||
-        def.table === "body_composition";
+      const derived = def.origin === "derived" ||
+        (def.origin == null &&
+          (def.table === "daily_results" || def.table === "body_composition"));
       const partial = !def.timestamp && present.length < days.length;
-      const stale = def.table === "daily_results" &&
+      const stale = (def.table === "daily_results") &&
         before.some((r: Row) => r.pending === true);
       // The evidence revision identifies the exact queried values, metric, unit and interval.
       const signature = JSON.stringify({
@@ -313,9 +389,7 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
             : "complete",
           origin: def.unsupported
             ? "unknown"
-            : derived
-            ? "derived"
-            : "measured",
+            : def.origin ?? (derived ? "derived" : "measured"),
           actualRange: present.length
             ? { from: present[0].dayKey, to: present.at(-1)!.dayKey }
             : null,
@@ -334,7 +408,8 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
             : null,
           computedAt: timestamp("computed_at"),
           measuredAt: timestamp(
-            def.table === "sleep_nights" ? "wake_at" : "measured_at",
+            def.measuredAtColumn ??
+              (def.table === "sleep_nights" ? "wake_at" : stampColumn(def)),
           ),
           uploadedAt: timestamp("collected_at"),
           collectionCoverage: def.timestamp

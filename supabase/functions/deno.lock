@@ -7,6 +7,7 @@
     "npm:@supabase/supabase-js@2.45.4": "2.45.4",
     "npm:@supabase/supabase-js@2.57.4": "2.57.4",
     "npm:ai@4.3.16": "4.3.16_react@19.2.8_zod@3.25.76",
+    "npm:ws@8.18.3": "8.18.3",
     "npm:zod@3.25.76": "3.25.76"
   },
   "jsr": {

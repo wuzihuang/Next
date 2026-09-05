@@ -4,19 +4,96 @@
 // DIDN'T CATCH THAT — it never guesses at what was said.
 
 import NodeWebSocket from "npm:ws@8.18.3";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { audioAppend, finishEvents, parseProviderEvent, realtimeURL, sessionUpdate } from "../_shared/asr-realtime.ts";
-import { currentUserId, cors, json } from "../_shared/db.ts";
+import { currentUserId, cors, json, userClient } from "../_shared/db.ts";
+import { asrFlashModel } from "../_shared/model.ts";
+import { enforceRequestBudget } from "../_shared/rate-limit.ts";
+import { consumeAiQuota, quotaDeniedResponse, recordAiUsage } from "../_shared/ai-quota.ts";
+import { usageFromProvider, type TokenUsage } from "../_shared/cost.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;   // ≤ 2 MB, ≤ 60 s
 
-Deno.serve(async (req) => {
+export type AsrTranscript =
+  | { ok: true; text: string; usage?: TokenUsage }
+  | { ok: false; error: string; status: number };
+
+export type AsrDependencies = {
+  authenticate: (request: Request) => Promise<string | null>;
+  client: (request: Request) => SupabaseClient;
+  budget: (db: SupabaseClient) => Promise<Response | null>;
+  quota: (db: SupabaseClient) => Promise<
+    { allowed: true } | { allowed: false; reason: "count" | "spend" | "unavailable" }
+  >;
+  transcribe: (bytes: Uint8Array, mime: string) => Promise<AsrTranscript>;
+  recordUsage: (
+    db: SupabaseClient,
+    usage: TokenUsage,
+    modelId: string,
+  ) => Promise<void>;
+};
+
+async function providerTranscribe(
+  bytes: Uint8Array,
+  mime: string,
+): Promise<AsrTranscript> {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  const dataUri = `data:${mime || "audio/wav"};base64,${btoa(binary)}`;
+  const res = await fetch(
+    "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${Deno.env.get("DASHSCOPE_API_KEY")}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: asrFlashModel(),
+        input: { messages: [{ role: "user", content: [{ audio: dataUri }] }] },
+        parameters: { asr_options: { language: "zh" } },
+      }),
+      signal: AbortSignal.timeout(11_000),
+    },
+  );
+  if (!res.ok) return { ok: false, error: "MODEL_UNAVAILABLE", status: 503 };
+  const out = await res.json();
+  // deno-lint-ignore no-explicit-any
+  const parts = out?.output?.choices?.[0]?.message?.content as any[] | undefined;
+  const text = (parts ?? []).map((p) => p?.text ?? "").join("").trim();
+  return { ok: true, text, usage: usageFromProvider(out?.usage) };
+}
+
+const defaults: AsrDependencies = {
+  authenticate: currentUserId,
+  client: userClient,
+  budget: (db) => enforceRequestBudget(db, "asr"),
+  quota: (db) => consumeAiQuota(db, "asr"),
+  transcribe: providerTranscribe,
+  recordUsage: (db, usage, modelId) =>
+    recordAiUsage(db, { endpoint: "asr", modelId, usage }),
+};
+
+export async function handleAsr(
+  req: Request,
+  deps = defaults,
+): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if ((req.headers.get("upgrade") ?? "").toLowerCase() === "websocket") {
+    const userId = await deps.authenticate(req);
+    if (!userId) return json({ error: "UNAUTHENTICATED" }, 401);
+    const db = deps.client(req);
+    const limited = await deps.budget(db);
+    if (limited) return limited;
+    const quota = await deps.quota(db);
+    if (!quota.allowed) return quotaDeniedResponse("en-US", quota);
     return await streamTranscription(req);
   }
   const started = Date.now();
   const [userId, form] = await Promise.all([
-    currentUserId(req),
+    deps.authenticate(req),
     req.formData().catch(() => null),
   ]);
   if (!userId) return json({ error: "UNAUTHENTICATED" }, 401);
@@ -25,66 +102,37 @@ Deno.serve(async (req) => {
   if (!(file instanceof File)) return json({ error: "E_SCHEMA" }, 422);
   if (file.size > MAX_BYTES) return json({ error: "E_SCHEMA", reason: "TOO_LARGE" }, 413);
 
+  const db = deps.client(req);
+  const limited = await deps.budget(db);
+  if (limited) return limited;
+  const quota = await deps.quota(db);
+  if (!quota.allowed) return quotaDeniedResponse("en-US", quota);
+
   let buffer: ArrayBuffer | null = await file.arrayBuffer();
   try {
     const bytes = new Uint8Array(buffer!);
-    // ⚠️ This used to POST a multipart file to
-    // `/compatible-mode/v1/audio/transcriptions` with `paraformer-realtime-v2`. That path does
-    // not exist on DashScope — it answers 404 — so every request here returned
-    // MODEL_UNAVAILABLE and the voice input could never have worked. A typechecker cannot see a
-    // wrong URL, and the failure looked exactly like the model being down.
-    //
-    // What does work, tried with real speech: qwen3-asr-flash on the multimodal endpoint, with
-    // the clip inline as a data URI. It returned 「今天吃了半碗面加一个鸡蛋。」 for a clip that
-    // said exactly that.
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    }
-    const dataUri = `data:${file.type || "audio/wav"};base64,${btoa(binary)}`;
-
-    const res = await fetch(
-      "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${Deno.env.get("DASHSCOPE_API_KEY")}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "qwen3-asr-flash",
-          input: { messages: [{ role: "user", content: [{ audio: dataUri }] }] },
-          parameters: { asr_options: { language: "zh" } },
-        }),
-        signal: AbortSignal.timeout(11_000),
-      });
-    if (!res.ok) return json({ error: "MODEL_UNAVAILABLE" }, 503);
-
-    const out = await res.json();
-    // deno-lint-ignore no-explicit-any
-    const parts = out?.output?.choices?.[0]?.message?.content as any[] | undefined;
-    const text = (parts ?? []).map((p) => p?.text ?? "").join("").trim();
-    if (!text) return json({ error: "NO_SPEECH" }, 200);
-
-    // ⚠️ Two seconds of digital silence came back as 「嗯。」. The model fills rather than
-    // returns nothing, and with no confidence to gate on, a transcript of pure filler is the
-    // only thing left that means "there was nothing there". The board's line is that she never
-    // guesses at what was said — sending 「嗯。」 down the turn path is a guess, and it is the
-    // kind that logs a meal or asks a question the user did not ask.
-    if (isFiller(text)) {
-      return json({ error: "NO_SPEECH" }, 200);
-    }
-
-    // ⚠️ This model returns no confidence and no duration, so neither is invented here. F4's
-    // 「confidence < 0.4 → NO_SPEECH」 cannot be enforced against this provider: an empty
-    // transcript is the only silence signal it gives. Writing 1.0 into the field would read as
-    // "certain" on every clip, which is worse than saying nothing — S4's absence law applies to
-    // our own metadata too. Both stay null until a provider that reports them is chosen.
-    return json({ text, durationMs: null, confidence: null, latencyMs: Date.now() - started });
+    const result = await deps.transcribe(bytes, file.type || "audio/wav");
+    if (!result.ok) return json({ error: result.error }, result.status);
+    const text = result.text.trim();
+    if (!text || isFiller(text)) return json({ error: "NO_SPEECH" }, 200);
+    await deps.recordUsage(
+      db,
+      result.usage ?? { promptTokens: 0, cachedTokens: 0, completionTokens: 0 },
+      asrFlashModel(),
+    );
+    return json({
+      text,
+      durationMs: null,
+      confidence: null,
+      latencyMs: Date.now() - started,
+    });
   } finally {
-    // the buffer never outlives the request
     buffer = null;
   }
-});
+}
+
+if (import.meta.main) Deno.serve((req) => handleAsr(req));
+
 
 async function streamTranscription(req: Request): Promise<Response> {
   const [userId, key] = await Promise.all([

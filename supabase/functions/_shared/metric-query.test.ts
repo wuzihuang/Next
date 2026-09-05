@@ -206,15 +206,22 @@ Deno.test("read metadata distinguishes partial, stale, absent and unsupported wi
   if (!stale.ok) throw Error("failed");
   assertEquals(stale.data[0].evidence.status, "stale");
 });
-Deno.test("excluded blood oxygen has unsupported status and never looks like missing collected data", async () => {
-  const result = await queryMetrics(context({}), {
+Deno.test("overnight oxygen is collected as measured samples rather than an unsupported hole", async () => {
+  const result = await queryMetrics(context({
+    oxygen_samples: [{
+      user_id: "u",
+      ts: "2026-09-04T22:00:00.000Z",
+      spo2: 97,
+    }],
+  }), {
     metrics: ["bloodOxygen"],
     from: "2026-09-04",
     to: "2026-09-04",
   });
-  if (!result.ok) throw Error("expected explicit unsupported result");
-  assertEquals(result.data[0].evidence.status, "unsupported");
-  assertEquals(result.data[0].points, []);
+  if (!result.ok) throw Error("expected overnight oxygen");
+  assertEquals(result.data[0].stats.latest, 97);
+  assertEquals(result.data[0].evidence.status, "complete");
+  assertEquals(result.data[0].evidence.origin, "measured");
 });
 Deno.test("separate successful reads in one turn cannot mix different day revisions", async () => {
   const ctx = context({ daily_results: [] });

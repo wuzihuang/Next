@@ -5,6 +5,8 @@ export type BudgetEndpoint =
   | "meal-commit"
   | "meal-operation"
   | "turn"
+  | "meal"
+  | "asr"
   | "archive-data"
   | "export"
   | "account-delete";

@@ -29,6 +29,14 @@ struct SessionAttributes: ActivityAttributes {
         /// One short line — what the screen's status row would say. nil while it is simply
         /// running, so the island shows the numbers and nothing else.
         var note: String?
+        /// Optional to decode activities created before energy provenance was added.
+        var energyEstimated: Bool? = nil
+        var energyAvailable: Bool? = nil
+
+        var energyText: String {
+            guard energyAvailable != false else { return "—" }
+            return "\(energyEstimated == true ? "≈" : "")\(kcal)"
+        }
     }
 
     /// The sport, in the catalogue's own words. Fixed for the session.

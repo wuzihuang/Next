@@ -24,6 +24,7 @@
 		ED485C1939AD04B9540CB23E /* NSObject+MJKeyValue.m in Sources */ = {isa = PBXBuildFile; fileRef = A71C111CB8E6EDB02CD2CE94 /* NSObject+MJKeyValue.m */; };
 		FE0000000000000000000203 /* SessionAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000202 /* SessionAttributes.swift */; };
 		FE0000000000000000000281 /* NextBodyLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000201 /* NextBodyLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FE0000000000000000000300 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = FE0000000000000000000301 /* GoogleSignIn */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -108,6 +109,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE0000000000000000000300 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -214,6 +216,9 @@
 				FE0000000000000000000010 /* NextBody */,
 			);
 			name = NextBody;
+			packageProductDependencies = (
+				FE0000000000000000000301 /* GoogleSignIn */,
+			);
 			productName = NextBody;
 			productReference = FE0000000000000000000001 /* NextBody.app */;
 			productType = "com.apple.product-type.application";
@@ -284,9 +289,13 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = FE0000000000000000000030;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FE0000000000000000000302 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FE0000000000000000000031 /* Products */;
 			projectDirPath = "";
@@ -673,6 +682,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		FE0000000000000000000302 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 10.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FE0000000000000000000301 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FE0000000000000000000302 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = FE0000000000000000000060 /* Project object */;
 }

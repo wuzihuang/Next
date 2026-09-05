@@ -52,7 +52,17 @@ final class AppleSignIn: NSObject {
         controller = nil
     }
 
-    private static func randomNonce(length: Int = 32) -> String {
+    private static func randomNonce(length: Int = 32) -> String { Nonce.random(length: length) }
+
+    private static func sha256(_ input: String) -> String { Nonce.sha256(input) }
+}
+
+/// The nonce convention both providers share: what goes out to Apple or Google is the
+/// SHA-256, what goes to Supabase is the raw string. Supabase hashes the raw one itself and
+/// compares — a token minted for anyone else's request will not match, which is the entire
+/// point of the round trip. One copy, because two copies drift.
+enum Nonce {
+    static func random(length: Int = 32) -> String {
         var bytes = [UInt8](repeating: 0, count: length)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         precondition(status == errSecSuccess, "SecRandomCopyBytes failed: \(status)")
@@ -60,7 +70,7 @@ final class AppleSignIn: NSObject {
         return String(bytes.map { charset[Int($0) % charset.count] })
     }
 
-    private static func sha256(_ input: String) -> String {
+    static func sha256(_ input: String) -> String {
         SHA256.hash(data: Data(input.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }

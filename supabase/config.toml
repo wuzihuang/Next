@@ -342,6 +342,18 @@ email_optional = false
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.
+# 01 · Google 原生登录。App 拿 GoogleSignIn SDK 签出的 id_token 直接换会话，不走网页 OAuth，
+# 所以 client_id 是 **iOS** 那个（token 的 aud），secret 留空。线上项目同样只填这一个。
+[auth.external.google]
+enabled = true
+client_id = "285632967349-gnn01criesqi6itpf8kr4lfherfhu36i.apps.googleusercontent.com"
+secret = ""
+redirect_uri = ""
+url = ""
+# 我们自己出 nonce（哈希给 Google，原文给 Supabase），所以校验留着。
+skip_nonce_check = false
+email_optional = false
+
 [auth.web3.solana]
 enabled = false
 

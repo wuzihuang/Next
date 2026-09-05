@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// 14 · LIVE SESSION · the panel grown over the whole home screen for as long as the band
 /// is running a sport mode. Not a page and not a cover: it is the panel's own rectangle,
@@ -12,6 +13,7 @@ import UIKit
 /// the lime key at the foot is the only way out. Held, not tapped: a workout screen lives
 /// under a sleeve and a sweaty thumb, and a session ended by accident cannot be resumed.
 struct LiveSessionTakeover: View {
+    private static let log = Logger(subsystem: "com.nextbody.hoop", category: "session-ui")
     /// Where the panel sits on home, in home's own coordinates — the frame this grows from.
     let panelFrame: CGRect
     let screen: CGSize
@@ -28,7 +30,7 @@ struct LiveSessionTakeover: View {
     /// 0…1 · how far the thumb has held the key.
     @State private var hold: CGFloat = 0
     @State private var holding = false
-    @State private var holdWork: DispatchWorkItem?
+    @State private var holdStartedAt: TimeInterval?
     @State private var hint = false
     @State private var closing = false
 
@@ -87,6 +89,9 @@ struct LiveSessionTakeover: View {
                 onFolded(widget)
             }
         }
+        // Modality belongs to the whole session, not an individual readout leaf.
+        // Without a container XCTest identifies the heart-rate value as an alert.
+        .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
     }
 
@@ -186,8 +191,16 @@ struct LiveSessionTakeover: View {
         HStack(spacing: 0) {
             readout(value: store.liveHR.map(String.init) ?? Fmt.dash, unit: "BPM",
                     label: L("HEART RATE"), lit: store.liveHR != nil)
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("session-heart-rate")
+                .accessibilityLabel(L("HEART RATE"))
+                .accessibilityValue(store.liveHR.map(String.init) ?? Fmt.dash)
             readout(value: burnText, unit: "KCAL",
-                    label: L("BURNED"), lit: store.wrist == .live)
+                    label: store.energyLabel, lit: store.wrist == .live)
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("session-calories")
+                .accessibilityLabel(store.energyLabel)
+                .accessibilityValue(burnText)
         }
         .frame(width: NB.Layout.contentWidth)
         .padding(.top, 8)
@@ -234,18 +247,25 @@ struct LiveSessionTakeover: View {
         .scaleEffect(holding ? 0.985 : 1)
         .animation(.easeOut(duration: 0.12), value: holding)
         .contentShape(Capsule())
-        .gesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                .onChanged { v in
-                    guard !holding, !closing, !store.stopping else { return }
-                    beginHold()
-                }
-                .onEnded { _ in endHold() }
-        )
+        .overlay {
+            // The native recognizer owns the threshold while the finger is down,
+            // independently of home's SwiftUI page-gesture arbitration.
+            PressHold(minimumDuration: 0.9,
+                      onTouch: { down in
+                          if down { beginHold() } else { endHold() }
+                      },
+                      onArm: { stopNow() },
+                      onLift: { _ in endHold() },
+                      onTap: { showHoldHint() },
+                      diagnosticName: "session-stop",
+                      allowsQualifiedRelease: true)
+                .clipShape(Capsule())
+        }
         .disabled(closing || store.stopping || store.opening)
         .opacity(store.opening ? 0.55 : 1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L("Stop session"))
+        .accessibilityIdentifier("session-stop")
         .accessibilityHint(L("Press and hold for one second"))
         .accessibilityAction { stopNow() }
     }
@@ -253,6 +273,7 @@ struct LiveSessionTakeover: View {
     // MARK: words
 
     private var burnText: String {
+        guard store.hasCalories else { return Fmt.dash }
         guard store.wrist != .off || store.kcal > 0 else { return Fmt.dash }
         return "\(Int(store.kcal.rounded()))"
     }
@@ -271,6 +292,7 @@ struct LiveSessionTakeover: View {
         case .live:      return L("HEART RATE FROM THE WRIST · LIVE")
         case .noContact: return L("NO CONTACT · TIGHTEN THE BAND")
         case .offline:   return L("BAND OFFLINE · THE CLOCK KEEPS RUNNING")
+        case .paused:    return L("PAUSED ON THE BAND")
         }
     }
 
@@ -284,7 +306,7 @@ struct LiveSessionTakeover: View {
         case .reaching:  return NB.lime1.opacity(0.85)
         case .noContact: return NB.ember2
         // 06 rule 07 · device-side states are 32 % grey, not amber and not red.
-        case .off, .offline: return NB.white.opacity(0.32)
+        case .off, .offline, .paused: return NB.white.opacity(0.32)
         }
     }
 
@@ -314,29 +336,36 @@ struct LiveSessionTakeover: View {
     // MARK: the hold
 
     private func beginHold() {
+        guard !holding, !closing, !store.stopping, !store.opening else { return }
+        holdStartedAt = ProcessInfo.processInfo.systemUptime
+        Self.log.notice("session stop hold touch began")
         holding = true
         hint = false
         withAnimation(.linear(duration: 0.9)) { hold = 1 }
-        let work = DispatchWorkItem { if holding { stopNow() } }
-        holdWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: work)
     }
 
     private func endHold() {
         guard holding else { return }
+        let elapsed = holdStartedAt.map { ProcessInfo.processInfo.systemUptime - $0 } ?? 0
+        Self.log.notice("session stop hold lifted elapsed=\(elapsed, privacy: .public)")
+        holdStartedAt = nil
         holding = false
-        holdWork?.cancel()
-        holdWork = nil
-        guard !closing, !store.stopping else { return }
+        guard !closing, !store.stopping, !store.opening else { return }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { hold = 0 }
+    }
+
+    private func showHoldHint() {
+        guard !closing, !store.stopping, !store.opening else { return }
         hint = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { hint = false }
     }
 
     private func stopNow() {
-        guard !closing, !store.stopping else { return }
+        guard !closing, !store.stopping, !store.opening else { return }
+        let elapsed = holdStartedAt.map { ProcessInfo.processInfo.systemUptime - $0 } ?? 0
+        Self.log.notice("session stop committed elapsed=\(elapsed, privacy: .public)")
+        holdStartedAt = nil
         holding = false
-        holdWork?.cancel()
         UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
         Task {
             let widget = await store.stop()

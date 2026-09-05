@@ -10,13 +10,15 @@ struct VitalSample: Codable, Hashable {
     let stress: Int?
     var temp: Double? = nil
     var steps: Int? = nil
-    var cal: Double? = nil
+    /// Vendor original-data calorie counter. Veepoo documents this as `cal`, not kcal, and
+    /// it includes the vendor's basal component. Archive it for evidence; never sum or show it.
+    var vendorCalories: Double? = nil
     var dis: Double? = nil
     var hrv: Double? = nil
 
     var hasReading: Bool {
         hr != nil || stress != nil || temp != nil || steps != nil
-            || cal != nil || dis != nil || hrv != nil
+            || vendorCalories != nil || dis != nil || hrv != nil
     }
 
     /// Merge freshly read band points into a stored curve without erasing auxiliary fields
@@ -35,12 +37,22 @@ struct VitalSample: Codable, Hashable {
                 stress: sample.stress ?? current.stress,
                 temp: sample.temp ?? current.temp,
                 steps: sample.steps ?? current.steps,
-                cal: sample.cal ?? current.cal,
+                vendorCalories: sample.vendorCalories ?? current.vendorCalories,
                 dis: sample.dis ?? current.dis,
                 hrv: sample.hrv ?? current.hrv
             )
         }
 
         return samplesByTimestamp.values.sorted { $0.ts < $1.ts }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ts, hr, stress, temp, steps, dis, hrv
+        case vendorCalories = "cal"
+    }
+
+    static func rolling(_ samples: [VitalSample], endingAt now: Date) -> [VitalSample] {
+        let window = VitalsTimelinePolicy.rolling24Hours(endingAt: now)
+        return samples.filter { window.contains($0.ts) }
     }
 }

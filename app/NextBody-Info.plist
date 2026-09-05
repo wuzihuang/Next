@@ -4,6 +4,11 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>NextBody</string>
 	<key>CFBundleExecutable</key>
@@ -20,6 +25,19 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- 01 · Google 原生登录。这个 client ID 不是机密（它和 bundle id 绑定，Google 靠 bundle
+	     校验来源），反转形式就是 SDK 回调用的 URL scheme。Supabase 那边校验的正是它做 aud。 -->
+	<key>GIDClientID</key>
+	<string>285632967349-gnn01criesqi6itpf8kr4lfherfhu36i.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.285632967349-gnn01criesqi6itpf8kr4lfherfhu36i</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NBDebugModelKey</key>
@@ -45,7 +63,7 @@
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>NextBody connects to your band to read heart rate, steps and sleep.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a photo of your meal so NextBody can log it.</string>
+	<string>Photograph your meal so NextBody can log the food.</string>
 	<!-- F5 §03 · the string is the board's own; its two "never"s are promises. Four read types, nothing written back. -->
 	<key>NSHealthShareUsageDescription</key>
 	<string>HOOP reads your sex, date of birth, height and weight from Health to set up your baseline. It never writes to Health, and never shares this data.</string>
@@ -54,7 +72,7 @@
 	<key>NSMotionUsageDescription</key>
 	<string>Count steps when your band is out of range.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Pick a photo of your meal so NextBody can log it.</string>
+	<string>Pick a photo of your meal so NextBody can log the food.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Turn what you say into a logged meal.</string>
 	<!-- 14 · the session on the Dynamic Island and the Lock Screen. The activity carries

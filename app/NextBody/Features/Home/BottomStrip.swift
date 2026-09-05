@@ -26,7 +26,8 @@ struct TrainingCard: View {
     let m: DailyMetrics
 
     private var toGo: String {
-        guard let t = m.targetLoad, let l = m.trainingLoad else { return L("NO TARGET") }
+        guard let l = m.trainingLoad else { return L("ACTIVITY DATA NEEDED") }
+        guard let t = m.targetLoad else { return L("AWAITING MORNING") }
         return L("%.1f TO GO", max(0, t - l))
     }
 
@@ -39,7 +40,9 @@ struct TrainingCard: View {
                 Spacer(minLength: 0)
                 Text(toGo)
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                    .foregroundStyle(m.targetLoad == nil ? NB.text3Prod : NB.cyanPale)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .foregroundStyle(m.targetLoad != nil && m.trainingLoad != nil ? NB.cyanPale : NB.text3Prod)
             }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
@@ -116,9 +119,9 @@ struct FuelCard: View {
             }
             Spacer(minLength: 0)
             VStack(spacing: 6) {
-                MacroBar(label: L("PRO"),  eaten: m.protein?.eaten, target: m.protein?.target, tint: NB.violet1)
-                MacroBar(label: L("CARB"), eaten: m.carb?.eaten,    target: m.carb?.target,    tint: NB.optimal2)
-                MacroBar(label: L("FAT"),  eaten: m.fat?.eaten,     target: m.fat?.target,     tint: NB.run1)
+                MacroBar(label: L("PRO"),  eaten: m.protein?.eaten ?? m.proteinIn, target: m.protein?.target, tint: NB.violet1)
+                MacroBar(label: L("CARB"), eaten: m.carb?.eaten ?? m.carbIn,    target: m.carb?.target,    tint: NB.optimal2)
+                MacroBar(label: L("FAT"),  eaten: m.fat?.eaten ?? m.fatIn,     target: m.fat?.target,     tint: NB.run1)
             }
         }
         .padding(12)
@@ -145,8 +148,8 @@ struct MacroBar: View {
     /// The numerator is blank and the denominator is already there — that is the line
     /// between "no answer yet" and "broken".
     private var value: String {
-        guard let t = target else { return Fmt.dash }
-        guard let e = eaten, e > 0 else { return "—/\(t)" }
+        guard let t = target, t > 0 else { return eaten.map { "\($0) g" } ?? Fmt.dash }
+        guard let e = eaten else { return "—/\(t)" }
         return "\(e)/\(t)"
     }
 
@@ -156,13 +159,17 @@ struct MacroBar: View {
                 .font(NBFont.ui(500, 11)).tracking(0.02 * 11)
                 .foregroundStyle(NB.macroLabel)
                 .frame(width: 32, alignment: .leading)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(NB.barTrack)
-                    Capsule().fill(tint).frame(width: geo.size.width * fraction)
+            if let target, target > 0 {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(NB.barTrack)
+                        Capsule().fill(tint).frame(width: geo.size.width * fraction)
+                    }
                 }
+                .frame(height: 4)
+            } else {
+                Spacer(minLength: 0)
             }
-            .frame(height: 4)
             Text(value)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)   // F5 C11 · the card is a fixed 174; at xLarge the number gives a little rather than clip

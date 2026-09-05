@@ -19,6 +19,9 @@ struct Dock: View {
     var onSend: (String) -> Void
     var onCamera: () -> Void
     var onPlus: () -> Void
+    /// Hold the resting orb to skip the plus menu and photograph a meal. Fires on the lift,
+    /// not the arm: the hold swells the key and hums, the lift taps and opens the camera.
+    var onPlusLongPress: (() -> Void)? = nil
     /// 06 · 02 · while the menu is open the plus is the close mark: turned 45°, lime, dark ink.
     var menuOpen = false
     /// 05 · the middle key's two edges. The dock does not own the microphone — it reports the
@@ -75,12 +78,14 @@ struct Dock: View {
                 .disabled(!armed)
                 .transition(.scale.combined(with: .opacity))
             } else {
-                DockCircleButton(filled: menuOpen, action: onPlus) {
+                DockCircleButton(filled: menuOpen, action: onPlus, onLongPress: onPlusLongPress) {
                     ZStack {
                         // The key at rest is the orb, not a camera outline: it opens 06's
                         // sheet, where the photo rows are one option among the band's own.
                         // It fills the key edge to edge — under about 40 pt the two shells
                         // stop reading as shells and the ball is just texture.
+                        // A hold skips the sheet and goes straight to Photograph your meal —
+                        // swell + hum while held, tap on the lift (DockCircleButton).
                         OrbGlyph(side: NB.Layout.dockSideButton)
                             .opacity(menuOpen ? 0 : 1)
                             .scaleEffect(menuOpen ? 0.6 : 1)
@@ -91,7 +96,9 @@ struct Dock: View {
                     }
                     .animation(.easeOut(duration: 0.14), value: menuOpen)
                 }
-                .accessibilityLabel(menuOpen ? "Close" : "Camera")
+                .accessibilityLabel(menuOpen ? L("Close") : L("Camera"))
+                .accessibilityHint(menuOpen ? "" : L("Long press to photograph your meal."))
+                .accessibilityAction(named: Text(L("Photograph your meal"))) { onPlusLongPress?() }
                 .opacity(mode == .listening ? 0 : 1)
                 .allowsHitTesting(mode != .listening)
             }
@@ -241,20 +248,83 @@ struct DockCircleButton<Glyph: View>: View {
     var ringed = false
     var filled = false
     let action: () -> Void
+    /// When set, tap and hold share one UIKit recognizer (ADR-0001). A SwiftUI
+    /// `onLongPressGesture` under the page drag never arms until the finger lifts.
+    ///
+    /// Lock-screen camera grammar for the hold. The finger lands and the key dips (0.96);
+    /// at the threshold it swells past its own frame (1.22) on a soft spring and a low hum
+    /// starts under the pad; the *lift* is what fires — one sharp tap, the key snaps home,
+    /// then the camera. Nothing opens while the finger is still down, so the person can
+    /// still back out: sliding off the key past `holdEscape` lets the air out (key home,
+    /// hum off) and the lift does nothing.
+    var onLongPress: (() -> Void)? = nil
     @ViewBuilder let glyph: Glyph
+    @State private var pressing = false
+    /// Armed and still under the finger — the threshold pulse has fired.
+    @State private var holding = false
+    /// Travel from the arming point past which the hold deflates without firing.
+    private let holdEscape: CGFloat = 44
 
     var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle().fill(filled ? NB.lime1 : NB.carbon4)
-                    .animation(.easeOut(duration: 0.14), value: filled)
-                Circle().stroke(ringed ? NB.lime1.opacity(0.6) : filled ? Color.clear : NB.hairline,
-                                lineWidth: ringed ? 1.5 : 1)
-                glyph
-            }
-            .frame(width: NB.Layout.dockSideButton, height: NB.Layout.dockSideButton)
+        if let onLongPress {
+            face
+                .scaleEffect(holding ? 1.22 : pressing ? 0.96 : 1)
+                .shadow(color: NB.lime1.opacity(holding ? 0.28 : 0), radius: holding ? 14 : 0)
+                .animation(holding
+                           ? .spring(response: 0.42, dampingFraction: 0.62)
+                           : .spring(response: 0.26, dampingFraction: 0.78), value: holding)
+                .animation(.easeOut(duration: 0.12), value: pressing)
+                .overlay {
+                    PressHold(
+                        minimumDuration: 0.4,
+                        onTouch: { down in
+                            pressing = down
+                            if down { HoldHaptics.shared.prepare() }
+                        },
+                        onArm: {
+                            pressing = false
+                            holding = true
+                            HoldHaptics.shared.beginHold()
+                        },
+                        onMove: { travel in
+                            guard holding,
+                                  hypot(travel.width, travel.height) > holdEscape else { return }
+                            holding = false
+                            HoldHaptics.shared.cancel()
+                        },
+                        onLift: { interrupted in
+                            pressing = false
+                            guard holding else { return }
+                            holding = false
+                            if interrupted {
+                                HoldHaptics.shared.cancel()
+                            } else {
+                                HoldHaptics.shared.release()
+                                onLongPress()
+                            }
+                        },
+                        onTap: action
+                    )
+                    .contentShape(Circle())
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(.default, action)
+        } else {
+            Button(action: action) { face }
+                .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    private var face: some View {
+        ZStack {
+            Circle().fill(filled ? NB.lime1 : NB.carbon4)
+                .animation(.easeOut(duration: 0.14), value: filled)
+            Circle().stroke(ringed ? NB.lime1.opacity(0.6) : filled ? Color.clear : NB.hairline,
+                            lineWidth: ringed ? 1.5 : 1)
+            glyph
+        }
+        .frame(width: NB.Layout.dockSideButton, height: NB.Layout.dockSideButton)
+        .contentShape(Circle())
     }
 }
 

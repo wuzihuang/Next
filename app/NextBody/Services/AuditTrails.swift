@@ -13,12 +13,15 @@ extension Repository {
     /// 12 · what this HOOP reports it can do. Stored so the device page and 07's
     /// capabilities() gate work before the band has answered — or when it is out of range.
     func loadCapabilities(into store: DataStore) async {
+        let account = SupabaseClient.currentUserIdSnapshot()
+        let generation = sessionGeneration
         let rows = (try? await db.select("device_capabilities", query: [
             .init(name: "select",
                   value: "functions,body_component,ecg,hrv,stress,auto_measure,watch_data_day_number,read_at"),
             .init(name: "limit", value: "1"),
         ])) ?? []
-        guard let row = rows.first else { return }
+        guard account != nil, account == SupabaseClient.currentUserIdSnapshot(),
+              generation == sessionGeneration, let row = rows.first else { return }
 
         var caps = BandCapabilities()
         func status(_ any: Any?) -> FunctionStatus {

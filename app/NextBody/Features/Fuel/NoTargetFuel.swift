@@ -17,7 +17,7 @@ struct NoTargetFuel: View {
 
     var body: some View {
         // Same header as the page with a target, so the two never feel like two apps.
-        DetailScroll(glow: NB.ember1, title: L("FUEL"), trailing: {
+        DetailScroll(glow: NB.ember1, title: L("CALORIES"), trailing: {
             Text(L("%@ TARGET", Fmt.dash)).font(NBFont.dot(700, 12)).tracking(0.04 * 12).foregroundStyle(NB.emberPale)
         }) {
             VStack(alignment: .leading, spacing: 22) {
@@ -57,9 +57,9 @@ struct NoTargetFuel: View {
                         Text(mealsLine).font(NBFont.ui(300, 13)).foregroundStyle(sub)
                     }
                     HStack(spacing: 0) {
-                        gram(L("PROTEIN"), m.protein?.eaten).frame(width: 102, alignment: .leading)
-                        gram(L("CARBS"), m.carb?.eaten).frame(width: 91, alignment: .leading)
-                        gram(L("FAT"), m.fat?.eaten).frame(width: 80, alignment: .leading)
+                        gram(L("PROTEIN"), m.protein?.eaten ?? m.proteinIn).frame(width: 102, alignment: .leading)
+                        gram(L("CARBS"), m.carb?.eaten ?? m.carbIn).frame(width: 91, alignment: .leading)
+                        gram(L("FAT"), m.fat?.eaten ?? m.fatIn).frame(width: 80, alignment: .leading)
                     }
                     Text(L("No targets to compare them to yet.")).font(NBFont.ui(300, 13)).foregroundStyle(sub)
                 }
@@ -105,6 +105,7 @@ struct NoTargetFuel: View {
                 .padding(22)
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
                 .cardSkin()
+                FastingAction(day: m.day)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 30)
@@ -114,6 +115,7 @@ struct NoTargetFuel: View {
     }
 
     private var mealsLine: String {
+        if m.fuelState == .fasted { return L("Recorded: nothing eaten today") }
         let n = data.meals.filter { $0.status == .confirmed }.count
         return n == 0 ? L("nothing yet") : n == 1 ? L("from %d meal", n) : L("from %d meals", n)
     }

@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 
 /// 04 · THE ROOT. The only root in the product; every detail page returns here.
 struct HomeView: View {
@@ -32,7 +33,9 @@ struct HomeView: View {
     @State private var rootShift: CGFloat = 0
     /// 05 · C · the photo waits for the caption; they leave as one message.
     @State private var photoItem: PhotosPickerItem?
-    @State private var showCamera = false
+    /// Plus · Photograph your meal sends the plate as soon as the shutter returns.
+    /// The keyboard-field camera key still attaches and waits for a caption.
+    @State private var cameraSendsFood = false
     @State private var attachment: Attachment?
     struct Attachment: Equatable {
         var image: UIImage
@@ -53,7 +56,17 @@ struct HomeView: View {
     // 04B · page two. 0 is the root, 1 is the instruments. The header and the home indicator
     // stay; the panel, the strip and the dock slide out together, and the drag is a plain
     // offset so the first frame follows the finger 1:1.
-    @State private var pageDrag: CGFloat = 0
+    /// ⚠️ The ONE thing both pages are drawn against: the root's x, 0 on page one and
+    /// −width on page two, finger included. `router.homePage` records which page the user is
+    /// on (it has to survive a detail push) but the offset is never computed from it. It used
+    /// to be `-homePage * width + drag`, and the router is an @EnvironmentObject: on the frame
+    /// the turn landed, the local drag was already 0 while the published page was still 1, so
+    /// page one drew at −width for one frame and then slid in from the left. Two publishers,
+    /// two frames. One number cannot disagree with itself.
+    @State private var pageX: CGFloat = 0
+    /// Where `pageX` stood when the finger went down, so the drag is added to a fixed base
+    /// instead of to a value the same drag is changing.
+    @State private var pageXAtTouch: CGFloat = 0
     #if DEBUG
     /// `SIMCTL_CHILD_NB_DEBUG_HOME_DRAG=0.45` freezes a mid-swipe frame — page one 45 % out,
     /// page two 45 % in, dots mid-handover — so the handover can be screenshotted.
@@ -85,7 +98,7 @@ struct HomeView: View {
     private var panelHeight: CGFloat {
         screen.height - panelTop - 12 - NB.Layout.stripHeight - 12 - NB.Layout.dockHeight - dockBottom
     }
-    private var pageShift: CGFloat { -CGFloat(router.homePage) * screen.width + pageDrag }
+    private var pageShift: CGFloat { pageX }
     /// 1 on the root, 0 on page two — continuous through the drag and the snap spring, so
     /// the two dot sets crossfade in place instead of jumping when homePage flips.
     private var pageFade: Double { 1 - min(1, abs(pageShift) / screen.width) }
@@ -99,16 +112,31 @@ struct HomeView: View {
     /// over it, the readout runs and the HR / STRESS row is the wrist measuring now instead
     /// of the last stored tick. Everything that covers that face ends it: a widget landing
     /// on the panel, the plus menu, a takeover, a detail page, the keyboard, the listening
-    /// chamber, page two, the app going to the background.
+    /// chamber. App-level lifecycle policy separately retains streaming in background.
     /// ⚠️ Every one of those is a reason to stop measuring, not a style choice — a live
     /// readout nobody is looking at is a band flat by lunchtime. And without consent the
     /// band is not read at all (补屏 rule 01): pairing is not permission.
-    private var liveReadoutWanted: Bool {
+    private var liveReadoutAllowed: Bool {
         firstRun.dockVisible && firstRun.playing == false
-            && router.homePage == 0 && router.path.isEmpty && router.takeover == nil
+            && router.path.isEmpty && router.takeover == nil
             && widget == nil && !plusOpen && keyboard.height == 0 && dockMode == .idle
-            && scenePhase == .active && liveSession.session == nil
+            && liveSession.session == nil
             && data.band.connected && ConsentStore.shared.granted
+    }
+    /// 04B · page two is the one cover that does not end the session on the spot. Tearing it
+    /// down for a page turn put the numbers out and lit them again a beat after the page had
+    /// landed — the panel visibly refreshing itself in the user's hand, one word (LIVE →
+    /// 3 MIN AGO → REACHING FOR A BEAT → LIVE), two numbers and the pip, all on the readout's
+    /// own clock rather than the finger's. A flip to the instruments and back is the same
+    /// person looking at the same face, so the session simply stays open for it.
+    /// ⚠️ Seconds, not minutes. Past the window the band is put down exactly as before —
+    /// this buys a page turn, not a second place to leave the sensor running.
+    private static let pageTwoReadoutGrace: TimeInterval = 20
+    /// True while page two is holding a session that was running when the page turned.
+    @State private var readoutHeldOnPageTwo = false
+    @State private var readoutHold: Task<Void, Never>?
+    private var liveReadoutWanted: Bool {
+        liveReadoutAllowed && (router.homePage == 0 || readoutHeldOnPageTwo)
     }
     /// 04B · from the panel's top to 12 pt over the dots' lane; the page's own foot carries
     /// LAST TICK. The dots themselves are furniture, drawn by the root, not by the page.
@@ -132,11 +160,12 @@ struct HomeView: View {
                 .overlay(Color(hex: 0x09090B).opacity(keyboard.height > 0 ? 0.55 : 0).allowsHitTesting(false))
                 .allowsHitTesting(!swiping)
 
-            // 04B · the second page rides in from the right, one column wide, at the panel's
+            // 04C · the second page rides in from the right, one column wide, at the panel's
             // top. Eight cards and not one read of the band — it is the same ticks laid out
-            // another way.
+            // another way. Night HRV sits on the sleep page; RESPONSE occupies the old HRV slot.
             VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
-                       syncedOnce: data.lastSync != nil,
+                       mealResponsePoints: data.mealResponsePoints,
+                       mealResponseZerosToday: data.mealResponseZerosToday,
                        width: columnWidth, height: pageTwoHeight,
                        onOpen: { metric in
                            Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": metric.cardKey]) }
@@ -176,7 +205,8 @@ struct HomeView: View {
                     .transition(.opacity)
                     .zIndex(3)
                 PlusMenuSheet(inline: true, onClose: { closePlus() },
-                              onCamera: { openCamera(afterMenu: true) }, onLibrary: { showPicker = true })
+                              onCamera: { openCamera(afterMenu: true, sendFood: true) },
+                              onLibrary: { showPicker = true })
                     // The sheet keeps the dock's own gutters for its rows, and its ground runs
                     // to the screen's edges — a bottom sheet that stops short of them is a card.
                     .padding(.horizontal, NB.Layout.gutter - 8)
@@ -234,6 +264,26 @@ struct HomeView: View {
         // still guards touches that BEGAN mid-swipe, which precedence does not cover.
         .highPriorityGesture(pageGesture, including: pagingEnabled ? .all : .subviews)
         .onChange(of: router.homePage) { _, p in
+            // The page can also be set from outside the gesture — a detail page returning the
+            // user to the page they left. The offset follows it there, without an animation:
+            // the turn's own spring has already put `pageX` where it belongs before it sets
+            // this, so this only fires for a jump the user did not make with their finger.
+            let want = -CGFloat(p) * screen.width
+            if dragAxis == nil, pageX != want { pageX = want }
+            // 04 · the readout is handed to page two for `pageTwoReadoutGrace`, and only if it
+            // was actually running — the grace holds a session open, it never opens one.
+            readoutHold?.cancel()
+            readoutHold = nil
+            if p == 1, liveReadoutAllowed {
+                readoutHeldOnPageTwo = true
+                readoutHold = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(Self.pageTwoReadoutGrace))
+                    guard !Task.isCancelled else { return }
+                    readoutHeldOnPageTwo = false
+                }
+            } else {
+                readoutHeldOnPageTwo = false
+            }
             if p == 1 {
                 pageTwoSince = Date()
                 trackPageTwoOpen()
@@ -242,6 +292,15 @@ struct HomeView: View {
                 let ms = Int(Date().timeIntervalSince(since) * 1000)
                 Task { await Analytics.shared.track("HOME_PAGE2_DWELL", ["MS": ms]) }
             }
+        }
+        // Backgrounding is never graced: the hold is a page turn's, and a page turn happens
+        // with the app on screen. Without this, coming back to a foreground on page two would
+        // find the window still open and read the wrist behind the instruments.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active else { return }
+            readoutHold?.cancel()
+            readoutHold = nil
+            readoutHeldOnPageTwo = false
         }
         .onChange(of: router.measuredWidget) { _, w in
             guard let w else { return }
@@ -275,27 +334,22 @@ struct HomeView: View {
             guard item != nil else { return }
             Task { await attachFromPicker() }
         }
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraCapture(
-                onCapture: { image in Task { await attach(image: image) } },
-                onCancel: { showCamera = false })
-            .ignoresSafeArea()
-        }
         .statusBarHidden(firstRun.statusBarHidden)
         // Any tap at all lands on ◇11 — there is no "skip?" to answer.
+        // After idle this gesture must not exist: a parent TapGesture cancels
+        // the dock orb's UIKit PressHold, so a tap never opened the plus sheet.
         .contentShape(Rectangle())
-        .onTapGesture { firstRun.skip() }
+        .gesture(
+            TapGesture().onEnded { firstRun.skip() },
+            including: firstRun.playing ? .all : .none
+        )
         // 05M · ANSWER 0.18S — the frame arrives in the panel at the board's speed.
         .animation(.easeInOut(duration: 0.18), value: widget)
-        // 04 · the live readout lasts exactly as long as the condition it is keyed on:
-        // `.task(id:)` starts it the moment the panel's resting face is what the user is
-        // looking at, and cancels it the moment it is not — which is also what a pushed
-        // detail page does to this view's tasks. Cancellation is how the band's test is
-        // stopped (F1 rule 05), so there is no stop call to forget.
-        .task(id: liveReadoutWanted) {
-            guard liveReadoutWanted else { return }
-            await LiveReadout.shared.run()
+        // The app owns the stream. This page contributes demand, not task lifetime.
+        .onChange(of: liveReadoutWanted, initial: true) { _, wanted in
+            BandLiveLifecycle.shared.setForegroundWanted(wanted)
         }
+        .onDisappear { BandLiveLifecycle.shared.setForegroundWanted(false) }
         .task {
             // DEBUG · 05 edges on a simulator with no microphone story of its own.
             switch DebugEdge.name {
@@ -315,8 +369,8 @@ struct HomeView: View {
             if ProcessInfo.processInfo.environment["NB_DEBUG_HOME_PAGE"] == "1" {
                 router.homePage = 1
             }
-            if let f = debugDragFraction, router.homePage == 0, pageDrag == 0 {
-                pageDrag = -min(1, f) * screen.width
+            if let f = debugDragFraction, router.homePage == 0, pageX == 0 {
+                pageX = -min(1, f) * screen.width
             }
             // `SIMCTL_CHILD_NB_DEBUG_ASR_FILE=/path/clip.wav` · push one known clip through the
             // real transcribe path with the app's own session and log what asr answered.
@@ -339,9 +393,12 @@ struct HomeView: View {
             // pushed over this view, and a cancelled load fell back to the offline seed —
             // opening any page in the first seconds silently turned the whole app into a mock.
             let store = data
+            let sync = Task { @MainActor in
+                await OriginDataSync.refreshNow(into: store, minimumInterval: SyncCadence.interval,
+                    fullHistory: false, reuseRecentLiveReceipt: true)
+            }
             let load = Task { @MainActor in
-                try? await Repository.shared.openSession()
-                await Repository.shared.loadToday(into: store)
+                await Repository.shared.bootstrapHome(into: store)
             }
             await load.value
 
@@ -389,6 +446,8 @@ struct HomeView: View {
                     try? await Task.sleep(for: .seconds(4))
                     if want == "thinking" {
                         widget = .thinking("Why am I so tired today?")
+                    } else if want == "balance-result" {
+                        widget = WidgetCatalogue.balanceResult
                     } else if let t = PanelType(rawValue: want) {
                         widget = WidgetCatalogue.sample(t)
                     }
@@ -396,28 +455,7 @@ struct HomeView: View {
             }
             #endif
 
-            // F1 · A · the gate was walked once. Every launch after that reconnects on its
-            // own; being asked to pair again is how a user learns their history is gone.
-            await Band.live.reconnectIfBound()
-            data.band.connected = Band.live.state == .connected
-            // The band's own facts — link, battery, firmware, what it can do — on the header
-            // and in the store, off the band, for the life of the process. Until now nothing
-            // wrote them after the gate, and a device kept the simulator's 82%.
-            BandPresence.shared.start(store: store)
-            let presence = Task { @MainActor in await BandPresence.shared.refresh(store: store) }
-            await presence.value
-
-            // P2 · background. Pulling the band's day is the lowest priority in the queue:
-            // anything the user presses jumps in front of it.
-            // 补屏 rule 01 · 「02 板配对成功不构成取数许可」. The band stays paired; without consent
-            // startReadOriginData() is never called.
-            guard data.band.connected, ConsentStore.shared.granted else { return }
-            // Same reason as the load above: the pull must outlive this view's `.task`.
-            let sync = Task { @MainActor in
-                await OriginDataSync.refreshNow(into: store, minimumInterval: 0)
-                // First time on this phone: the days the band still holds, behind today's.
-                await OriginDataSync().backfillIfNeeded(into: store)
-            }
+            // The shared pull started alongside cloud hydration and still retains all history.
             _ = await sync.value
 
             // A tick is five minutes wide, so that is the fastest the day can change; the
@@ -473,6 +511,11 @@ struct HomeView: View {
                      onPlus: {
                         if plusOpen { closePlus() }
                         else { sheetDrag = 0; withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { plusOpen = true } }
+                     },
+                     onPlusLongPress: {
+                        let wait = plusOpen
+                        if wait { closePlus() }
+                        openCamera(afterMenu: wait, sendFood: true)
                      },
                      menuOpen: plusOpen,
                      onListen: beginListening,
@@ -596,6 +639,8 @@ struct HomeView: View {
                 y: full ? 0 : panelTop)
             // F5 §09 · 「整屏接管」in the accessibility layer: while a frame is up, VoiceOver's
             // focus stays inside the panel, the way the eye does.
+            // Keep modality on the panel container rather than its summary or dismiss leaf.
+            .accessibilityElement(children: .contain)
             .accessibilityAddTraits(widget == nil ? [] : .isModal)
     }
 
@@ -608,28 +653,36 @@ struct HomeView: View {
         DragGesture(minimumDistance: 12)
             .onChanged { v in
                 let dx = v.translation.width, dy = v.translation.height
-                if dragAxis == nil { dragAxis = abs(dx) >= abs(dy) ? .horizontal : .vertical }
+                if dragAxis == nil {
+                    dragAxis = abs(dx) >= abs(dy) ? .horizontal : .vertical
+                    // The 12 pt the recognizer spent deciding are not travel: the base is set
+                    // back by them so the first drawn frame is exactly where the finger is.
+                    if dragAxis == .horizontal { pageXAtTouch = pageX - dx }
+                }
                 guard dragAxis == .horizontal else { return }
-                pageDrag = router.homePage == 0 ? min(0, dx) : max(0, dx)
+                // No overscroll: the root stops at its own two positions.
+                pageX = min(0, max(-screen.width, pageXAtTouch + dx))
                 swiping = true
             }
             .onEnded { v in
                 let dx = v.translation.width
                 let horizontal = dragAxis != .vertical
+                let from = router.homePage
                 swiping = false
                 dragAxis = nil
-                guard horizontal else { pageDrag = 0; return }
+                guard horizontal else { pageX = -CGFloat(from) * screen.width; return }
                 let far = abs(dx) > screen.width * 0.4
                 let fast = abs(v.velocity.width) > 300
-                var target = router.homePage
-                if router.homePage == 0, dx < 0, far || fast { target = 1 }
-                if router.homePage == 1, dx > 0, far || fast { target = 0 }
-                let turned = target != router.homePage
+                var target = from
+                if from == 0, dx < 0, far || fast { target = 1 }
+                if from == 1, dx > 0, far || fast { target = 0 }
+                // The spring moves the offset and nothing else. `homePage` is set outside it,
+                // because no position is drawn from it — so it cannot land a frame late.
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
-                    router.homePage = target
-                    pageDrag = 0
+                    pageX = -CGFloat(target) * screen.width
                 }
-                if turned {
+                if target != from {
+                    router.homePage = target
                     Task { await Analytics.shared.track("HOME_PAGE_SWIPE", ["DIR": target == 1 ? "right" : "left", "MS": 350]) }
                 }
             }
@@ -663,18 +716,90 @@ struct HomeView: View {
 
     @State private var showPicker = false
 
-    /// Plus · Take a photo opens the camera; the keyboard-field camera key does the same.
+    /// Plus · Photograph your meal, and a hold on the dock orb, open the camera and send
+    /// the plate; the keyboard-field camera key attaches and waits for a caption.
     /// Simulator / no camera → say so, rather than silently opening the library.
     /// `afterMenu` waits for the plus sheet's dismiss (0.22 s) so the camera cover is not fighting it.
-    private func openCamera(afterMenu: Bool = false) {
+    private func openCamera(afterMenu: Bool = false, sendFood: Bool = false) {
+        cameraSendsFood = sendFood
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            cameraSendsFood = false
             note(DockNote(line: L("CAMERA UNAVAILABLE"), text: L("Use Photo library from the plus menu.")), clearAfter: 4)
             return
         }
         if afterMenu {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) { showCamera = true }
+            Task {
+                try? await Task.sleep(for: .milliseconds(240))
+                presentCamera()
+            }
         } else {
-            showCamera = true
+            presentCamera()
+        }
+    }
+
+    private func presentCamera() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            presentSystemCamera()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        presentSystemCamera()
+                    } else {
+                        cameraSendsFood = false
+                        noteCameraDenied()
+                    }
+                }
+            }
+        default:
+            cameraSendsFood = false
+            noteCameraDenied()
+        }
+    }
+
+    private func presentSystemCamera() {
+        let sendFood = cameraSendsFood
+        CameraGate.present(
+            onCapture: { image in
+                cameraSendsFood = false
+                Task {
+                    if sendFood { await sendFoodPhoto(image) }
+                    else { await attach(image: image) }
+                }
+            },
+            onCancel: { cameraSendsFood = false })
+    }
+
+    private func noteCameraDenied() {
+        note(DockNote(
+            line: L("CAMERA OFF"),
+            text: L("Turn the camera on in Settings to photograph a meal."),
+            action: L("Open Settings")))
+    }
+
+    /// Default caption for a plus-menu food photo. The vision model still reads the plate;
+    /// this sentence is only the turn's words.
+    private static var foodPhotoPrompt: String {
+        L("Log this food from the photo.")
+    }
+
+    /// Shutter → prepare → send. No caption step: photographing the meal is the send.
+    private func sendFoodPhoto(_ raw: UIImage) async {
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { dockNote = nil }
+        do {
+            guard let payload = AIImagePayload.prepare(raw) else { throw CocoaError(.fileWriteUnknown) }
+            if DebugEdge.on("uploadfailed") { throw CocoaError(.fileWriteUnknown) }
+            attachment = Attachment(image: payload.preview, dataURL: payload.dataURL, progress: 1)
+            await Analytics.shared.track("PHOTO_ATTACH", [:])
+            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": payload.byteCount, "OK": true])
+            handleSend(Self.foodPhotoPrompt)
+        } catch {
+            attachment = Attachment(image: raw, dataURL: "", progress: 0, failed: true)
+            note(DockNote(
+                line: L("UPLOAD FAILED"),
+                text: L("Tap the photo to retry, or remove it.")))
+            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": 0, "OK": false])
         }
     }
 
@@ -739,7 +864,6 @@ struct HomeView: View {
             let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotFor(day: day),
                                   status: .confirmed, text: text,
                                   kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
-            data.logMeal(entry)
             if let frame = await ai.estimate(entry: entry, into: data) {
                 guard panelRequestID == requestID else { return }
                 withAnimation { widget = frame }
@@ -780,12 +904,16 @@ struct HomeView: View {
     /// (the same one the foot line prints, once per user day).
     private func trackPageTwoOpen() {
         let m = data.today, vitals = data.vitals, lastSync = data.lastSync
-        let states = VitalsPage.cardStates(m: m, vitals: vitals)
+        let states = VitalsPage.cardStates(
+            m: m, vitals: vitals, history: data.history,
+            mealResponsePoints: data.mealResponsePoints,
+            mealResponseZerosToday: data.mealResponseZerosToday)
         let gap = VitalsMath.offWrist(m.vitalsCurve)
         Task {
-            for card in ["SLEEP", "HEART", "HRV", "STRESS", "TEMP", "STEPS", "DISTANCE", "ACTIVE"] {
+            for card in ["SLEEP", "HEART", "RESPONSE", "STRESS", "TEMP", "STEPS", "DISTANCE", "ACTIVE"] {
                 await Analytics.shared.track("PAGE2_CARD_STATE", ["CARD": card, "STATE": states[card] ?? "EMPTY"])
             }
+            await Analytics.shared.track("PAGE2_RESPONSE_STATE", ["STATE": states["RESPONSE"] ?? "EMPTY"])
             if lastSync == nil {
                 await Analytics.shared.track("PAGE2_NOT_SYNCED", ["PLATFORM": "ios"])
             }
@@ -941,7 +1069,6 @@ struct HomeView: View {
                 let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotFor(day: day),
                                       status: .confirmed, text: text,
                                       kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
-                data.logMeal(entry)
                 if let frame = await ai.estimate(entry: entry, into: data) {
                     guard panelRequestID == requestID else { return }
                     withAnimation { widget = frame }

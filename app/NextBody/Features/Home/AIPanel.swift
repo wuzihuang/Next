@@ -10,6 +10,7 @@ struct AIPanel: View {
     /// looking at, HomeView keeps the session open (`liveReadoutWanted`) and HR / STRESS are
     /// the wrist, not the library. The tick is what they fall back to the moment it closes.
     @ObservedObject private var live = LiveReadout.shared
+    @ObservedObject private var syncActivity = BandSyncActivity.shared
     /// 补屏 · the NOT COLLECTING button. The panel does not own the router.
     var onTurnOn: () -> Void = {}
     let m: DailyMetrics
@@ -30,68 +31,100 @@ struct AIPanel: View {
     private var ceremony: Bool { firstRun?.playing == true }
     var body: some View {
         ZStack {
-            if let firstRun, ceremony {
-                HalftoneScreen {
-                    FirstRunArt(coreLit: firstRun.coreLit,
-                                orbitFraction: firstRun.orbitFraction,
-                                spinning: firstRun.orbitSpinning)
+            // Idle planet and an AI frame must not share this ZStack. Two sibling
+            // if-chains used to disagree (photo still drew StandbyArt) and the
+            // widget's opacity transition composited them — that is the overlap.
+            Group {
+                if let firstRun, ceremony {
+                    ceremonyPlate(firstRun)
+                } else if let widget {
+                    occupiedPlate(widget)
+                } else {
+                    idlePlate
                 }
-            } else if let widget, widget.title != "THINKING", widget.composition == nil, widget.photo == nil {
-                // 07 · the widget is printed, not lit. Board 07 draws every chart as LEDs on a
-                // field of unlit dots — so the chart layer goes *behind* the dot screen, over
-                // --led-off, and the words are drawn in front of it (see `filledWidget`). The
-                // planet is the panel's idle face; a curve drawn over it read as a sticker.
+            }
+            .transaction { $0.animation = nil }
+
+            if widget != nil, !ceremony {
+                Button(action: onDismissWidget) {
+                    PixelCloseMark()
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(L("Return to standby"))
+                .accessibilityIdentifier("panel-dismiss")
+                .accessibilitySortPriority(100)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, 8)
+                .padding(.trailing, 2)
+                .zIndex(10)
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .background(NB.panelInk)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .stroke(widget?.composition != nil ? NB.lime1.opacity(0.18)
+                    : NB.white.opacity(ceremony ? 0 : 0.08), lineWidth: 1))
+    }
+
+    @ViewBuilder private func ceremonyPlate(_ firstRun: FirstRun) -> some View {
+        ZStack {
+            HalftoneScreen {
+                FirstRunArt(coreLit: firstRun.coreLit,
+                            orbitFraction: firstRun.orbitFraction,
+                            spinning: firstRun.orbitSpinning)
+            }
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                // ◇5 · the hairline pulls open from the centre over 0.3s.
+                Rectangle().fill(NB.hairline)
+                    .frame(width: firstRun.hairlineOpen ? 236 : 0, height: 1)
+                    .animation(.easeOut(duration: 0.3), value: firstRun.hairlineOpen)
+                    .padding(.bottom, 22)
+                FirstRunSubtitle(typed: firstRun.typed,
+                                 bandPaired: band.connected,
+                                 showsCursor: firstRun.beat >= .type && firstRun.beat < .idle)
+                Spacer(minLength: 0).frame(height: size.height * 0.16)
+            }
+        }
+    }
+
+    /// One surface. The planet is not in this tree.
+    @ViewBuilder private func occupiedPlate(_ widget: PanelWidget) -> some View {
+        ZStack {
+            if widget.title != "THINKING", widget.composition == nil, widget.photo == nil, widget.balance == nil {
+                // 07 · the widget is printed, not lit. Chart behind the dot screen, words in front.
                 HalftoneScreen {
                     ZStack {
                         NB.ledOff
                         widgetLayer(widget, .chart)
                     }
                 }
-            } else if let widget, widget.title == "THINKING" {
-                // 07 · 16 · 02 · the singularity draws on a bare field. The planet is the
-                // thing being pulled in; leaving it behind the arms read as two objects.
+            } else {
                 HalftoneScreen { NB.ledOff }
-            } else if widget?.composition == nil {
-                // A composition result draws its own LED ground and fills the panel.
-                // Standby art behind a 358×470 card is what made the reading look like
-                // a tile sitting in the middle of the display.
-                HalftoneScreen {
-                    StandbyArt(
-                        charge: m.bodyBattery.map { Double($0) / 100 } ?? 0,
-                        chargeKnown: m.bodyBattery != nil
-                    )
-                }
             }
 
-            if let firstRun, ceremony {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    // ◇5 · the hairline pulls open from the centre over 0.3s.
-                    Rectangle().fill(NB.hairline)
-                        .frame(width: firstRun.hairlineOpen ? 236 : 0, height: 1)
-                        .animation(.easeOut(duration: 0.3), value: firstRun.hairlineOpen)
-                        .padding(.bottom, 22)
-                    FirstRunSubtitle(typed: firstRun.typed,
-                                     bandPaired: band.connected,
-                                     showsCursor: firstRun.beat >= .type && firstRun.beat < .idle)
-                    Spacer(minLength: 0).frame(height: size.height * 0.16)
-                }
-            } else
-            // 07 · 03 · the widget owns the whole 358 × 470 surface, top row included:
-            // its title and tag live at y16, exactly where STANDBY and the clock sit when
-            // there is nothing to say. Only one of the two is ever drawn.
-            if let widget, widget.title == "THINKING" {
-                // 07 · 16 · 02 · the singularity owns the whole panel: its own header, the
-                // question echoed at the top, what she is reading at the foot.
+            if widget.title == "THINKING" {
                 ThinkingStage(question: widget.sentence, reading: ai.reading, thoughts: ai.thoughts, startedAt: widget.startedAt)
-            } else if let widget {
-                // 07 · the widget is drawn on the board's 358 × 470 canvas with absolute slots.
-                // Scale to fill the panel the phone actually left — up or down — so a taller
-                // screen does not leave the reading as a card floating in the middle.
+            } else {
                 filledWidget(widget)
-            } else if !consent.granted {
-                // 补屏 edge 1 / 2 · NOT COLLECTING. 「—— 是沉默」 at its limit: the panel says what
-                // is not happening and offers the one way to change it. No widget, no readout.
+            }
+        }
+    }
+
+    @ViewBuilder private var idlePlate: some View {
+        ZStack {
+            HalftoneScreen {
+                StandbyArt(
+                    charge: m.bodyBattery.map { Double($0) / 100 } ?? 0,
+                    chargeKnown: m.bodyBattery != nil
+                )
+            }
+            if !consent.granted {
+                // 补屏 edge 1 / 2 · NOT COLLECTING. 「—— 是沉默」 at its limit.
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
                         Text(L("NOT COLLECTING"))
@@ -128,36 +161,12 @@ struct AIPanel: View {
                 }
                 .padding(.vertical, 16)
             }
-
-            if widget != nil, !ceremony {
-                Button(action: onDismissWidget) {
-                    PixelCloseMark()
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(L("Return to standby"))
-                .accessibilityIdentifier("panel-dismiss")
-                .accessibilitySortPriority(100)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.top, 8)
-                .padding(.trailing, 2)
-                .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                .zIndex(10)
-            }
         }
-        .frame(width: size.width, height: size.height)
-        .background(NB.panelInk)
-        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .stroke(widget?.composition != nil ? NB.lime1.opacity(0.18)
-                    : NB.white.opacity(ceremony ? 0 : 0.08), lineWidth: 1))
     }
 
     private func filledWidget(_ widget: PanelWidget) -> some View {
-        // Photo and composition answers carry their own canvases and draw flat, as before.
-        widgetLayer(widget, widget.composition == nil && widget.photo == nil ? .text : .all)
+        // Self-contained result canvases draw once above the shared LED surface.
+        widgetLayer(widget, widget.composition == nil && widget.photo == nil && widget.balance == nil ? .text : .all)
     }
 
     /// One layer of the widget on the board's 358 × 470 canvas, scaled to the panel the
@@ -167,11 +176,12 @@ struct AIPanel: View {
         let bw = NB.Layout.boardContentWidth
         let bh = NB.Layout.panelHeight
         let scale = min(size.width / bw, size.height / bh)
-        return PanelWidgetView(widget: widget, onTap: onWidget, layer: layer, showsCloseControl: true)
-            .frame(width: bw, height: bh)
+        let canvasHeight = widget.balance != nil ? size.height / scale : bh
+        return PanelWidgetView(widget: widget, onTap: onWidget, layer: layer,
+                               showsCloseControl: true, canvasHeight: canvasHeight)
+            .frame(width: bw, height: canvasHeight)
             .scaleEffect(scale)
             .frame(width: size.width, height: size.height)
-            .transition(.opacity)
     }
 
     private var header: some View {
@@ -271,16 +281,20 @@ struct AIPanel: View {
     /// 04 · the state word. OFFLINE is the link, NO CONTACT is the wrist, and LIVE is only
     /// said while the band is actually answering — never as a label for a stored number.
     private var headerLine: String {
-        guard band.connected else { return L("OFFLINE") }
+        let phase: String
         switch live.phase {
-        case .live where live.liveHR != nil, .stress: return L("LIVE")
-        case .reaching, .live:                        return L("REACHING")
-        case .noContact:                              return L("NO CONTACT")
-        case .off, .offline:                          return L("STANDBY")
+        case .live: phase = live.liveHR == nil ? "reaching" : "live"
+        case .stress: phase = "stress"
+        case .reaching: phase = "reaching"
+        case .noContact: phase = "noContact"
+        case .off, .offline: phase = "off"
         }
+        return L(BandSyncPolicy.header(activity: syncActivity.phase,
+                                      connected: band.connected, live: phase))
     }
 
     private var headerTint: Color {
+        if syncActivity.phase != "idle" { return NB.lime1 }
         guard band.connected else { return NB.white.opacity(0.55) }
         switch live.phase {
         case .live where live.liveHR != nil, .stress: return NB.lime1

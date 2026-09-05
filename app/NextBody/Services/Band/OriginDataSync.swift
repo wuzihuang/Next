@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import os
 
 /// F2 §01 · work out the window first, then decide how many pages to pull.
@@ -23,37 +24,72 @@ final class OriginDataSync {
     // MARK: asking again
 
     private static var inFlight: Task<Void, Never>?
+    private static var fullHistoryRequested = false
     private static var lastAttempt: Date?
     private static var lastAttemptUserId: String?
 
     /// The one entry point for "pull today again": the app coming back to the foreground, the
-    /// device page opening, the home screen's own five-minute tick. Two of those firing
-    /// together used to mean two full pulls of the same day fighting for the same serial
-    /// queue; here the second one waits for the first and then finds nothing to do.
+    /// device page opening, a tap on Device's SYNC, the home screen's own five-minute tick.
+    /// Two of those firing together used to mean two full pulls of the same day fighting for
+    /// the same serial queue; here the second one waits for the first and then finds nothing
+    /// to do. A tap passes `minimumInterval: 0` so cadence does not swallow it.
     ///
     /// 补屏 rule 01 · pairing is not permission. Without consent the band is never read.
-    static func refreshNow(into store: DataStore, minimumInterval: TimeInterval = SyncCadence.throttle) async {
-        guard Band.live.state == .connected, ConsentStore.shared.granted,
-              let userId = await SupabaseClient.shared.currentUserId else { return }
+    static func refreshNow(into store: DataStore, minimumInterval: TimeInterval = SyncCadence.throttle,
+                           fullHistory: Bool = false, reuseRecentLiveReceipt: Bool = false) async {
+        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation, ConsentStore.shared.granted,
+              let userId = await SupabaseClient.shared.currentUserId,
+              let binding = BoundBand.identifier else { return }
+        guard await BandReadiness.shared.ensureReady(into: store, reason: "sync", reuseRecentLiveReceipt: reuseRecentLiveReceipt),
+              SupabaseClient.currentUserIdSnapshot() == userId, BoundBand.identifier == binding else { return }
+        if let running = inFlight {
+            if fullHistory { fullHistoryRequested = true }
+            await running.value
+            return
+        }
         if lastAttemptUserId != userId {
             lastAttempt = nil
             lastAttemptUserId = userId
         }
-        if let running = inFlight { await running.value; return }
-        // A tick is five minutes wide. Asking twice inside one is asking for the same answer.
         if let last = lastAttempt, Date().timeIntervalSince(last) < minimumInterval { return }
-        lastAttempt = Date()
-        // 04 · the panel's live readout holds the same command channel while someone is
-        // watching it. The pull is the one that must not be dropped — it is the day itself —
-        // so the readout is stopped first and let back in when this returns.
-        await LiveReadout.shared.standDown {
-            let task = Task { @MainActor in
-                _ = await OriginDataSync().sync(day: UserDay.containing(Date()), into: store)
+        fullHistoryRequested = fullHistory
+        // The short readiness flight has finished; coalesce the separate historical/cloud lane.
+        let task = Task { @MainActor in
+            defer { BandSyncActivity.shared.phase = "idle" }
+            BandPresence.shared.start(store: store)
+            BandSyncActivity.shared.phase = "connecting"
+            store.band.connected = Band.live.state == .connected
+            guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation, store.band.connected, ConsentStore.shared.granted,
+                  await SupabaseClient.shared.currentUserId == userId, BoundBand.identifier == binding else { return }
+            BandSyncActivity.shared.phase = "syncing"
+            do {
+                await BandPresence.shared.refresh(store: store, prepared: BandReadiness.shared.snapshot)
+                guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
+                      BoundBand.identifier == binding, LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
+                _ = try? await BandReadiness.read(account: userId, binding: binding) {
+                    await Band.live.prepareFreshSync()
+                }
+                guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
+                      BoundBand.identifier == binding, LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
+                let sync = OriginDataSync()
+                let today = UserDay.containing(Date())
+                _ = await sync.sync(day: today.adding(days: -1), into: store, settle: false)
+                guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
+                      BoundBand.identifier == binding, LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
+                _ = await sync.sync(day: today, into: store)
+                guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
+                      BoundBand.identifier == binding, LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
+                if fullHistoryRequested { await sync.backfillIfNeeded(into: store, force: true) }
+                lastAttempt = Date()
             }
-            inFlight = task
-            await task.value
-            inFlight = nil
         }
+        inFlight = task
+        await task.value
+        inFlight = nil
+    }
+
+    static func waitForCurrentPull() async {
+        if let task = inFlight { await task.value }
     }
 
     /// Whether a full cadence has passed since the band was last asked. The home screen's
@@ -81,53 +117,120 @@ final class OriginDataSync {
         return HealthSampleMapping.deviceDayOffsets(daysBack: daysBack, straddles: straddles)
     }
 
+    static func nightPageOffsets(start: Date, wake: Date, now: Date,
+                                 calendar: Calendar) -> [Int] {
+        guard start < wake, wake <= now else { return [] }
+        let today = calendar.startOfDay(for: now)
+        var cursor = calendar.startOfDay(for: start)
+        let finalDay = calendar.startOfDay(for: wake.addingTimeInterval(-1))
+        var offsets: [Int] = []
+        while cursor <= finalDay {
+            if let offset = calendar.dateComponents([.day], from: cursor, to: today).day,
+               offset >= 0 { offsets.append(offset) }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor), next > cursor else { break }
+            cursor = next
+        }
+        return offsets
+    }
+
+    static func auxiliarySamples(temperatureTicks: [Date: Double],
+                                 hrvTicks: [Date: Double]) -> [VitalSample] {
+        Set(temperatureTicks.keys).union(hrvTicks.keys).sorted().map {
+            VitalSample(ts: $0, hr: nil, stress: nil, temp: temperatureTicks[$0], hrv: hrvTicks[$0])
+        }
+    }
+
     /// Pull a user day and store it. Returns how many points were written.
     /// `settle` · ask the server for the day's row straight after, and reload it. Off during
     /// a backfill, which settles its whole window once at the end.
     @discardableResult
     func sync(day: UserDay, into store: DataStore, settle: Bool = true) async -> Int {
         let now = Date()
+        let iso = ISO8601DateFormatter()
         // ⚠️ raw_samples.user_id is NOT NULL and its insert policy checks it against
         // auth.uid(), exactly like sync_runs and sleep_nights below — and like both of those
         // once were, the rows went up without one. Every upload was refused with a
         // not-null violation, swallowed into BandLog, and the run was still filed as
         // "success": the table stayed empty for as long as the band had been read at all.
-        guard let userId = await db.currentUserId else {
+        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation, ConsentStore.shared.granted, let userId = await db.currentUserId else {
             Self.log.error("sync: no session, nothing can be uploaded")
             lastOutcome = "failed"
             return 0
         }
+        await Self.flushPendingEvidence(userId: userId)
         var calendar = Calendar.current
         calendar.timeZone = .current
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: day.start)!
+        let readEnd = min(dayEnd, now.addingTimeInterval(5 * 60))
         var points: [DatedPoint] = []
         /// Every measured HRV tick of this user day, by instant. Both a column on the rows
         /// this sync inserts and the payload that fills the rows earlier syncs already stored.
         var hrvTicks: [Date: Double] = [:]
+        var hrvMinuteTicks: [Date: Double] = [:]
+        var hrvMinuteReadComplete = false
         var temperatureTicks: [Date: Double] = [:]
         var auxiliaryUploaded = true
+        var hrvStatus: BandDomainReadStatus = .complete
+        var temperatureStatus: BandDomainReadStatus = .complete
+        var oxygenStatus: BandDomainReadStatus = .complete
+        var oxygenTicks: [Date: Int] = [:]
+        var respirationTicks: [Date: Double] = [:]
+        var healthPages: [Int: BandHealthData] = [:]
+        var nightAuxiliary: [VitalSample] = []
+        var opticalStatus: BandDomainReadStatus = .complete
+        var opticalTicks: [Date: Double] = [:]
+        var opticalDroppedZeros = 0
+        var rrRows: [[String: Any]] = []
+        guard let deviceKey = BoundBand.identifier else { lastOutcome = "failed"; return 0 }
+        var domainStates: [BandDomainSyncState] = []
         var pagesReturned = 0
         let wanted = Self.pages(for: day)
         let run = await beginRun(userId: userId, requested: wanted.count)
 
         for offset in wanted {
+            guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { lastOutcome = "failed"; return 0 }
             let calendarDay = calendar.startOfDay(for:
                 calendar.date(byAdding: .day, value: -offset, to: now) ?? now)
             let page: [OriginPoint]
             do {
-                page = try await band.readOriginData(dayOffset: offset)
+                page = try await BandReadiness.read(account: userId, binding: deviceKey) { try await band.readOriginData(dayOffset: offset) }
                 pagesReturned += 1
             } catch {
                 BandLog.shared.record("readOriginData(\(offset))", error: error)
-                continue
+                page = []
             }
             let health: BandHealthData
             do {
-                health = try await band.readHealthData(dayOffset: offset)
+                health = try await BandReadiness.read(account: userId, binding: deviceKey) { try await band.readHealthData(dayOffset: offset) }
             } catch {
                 auxiliaryUploaded = false
                 BandLog.shared.record("readHealthData(\(offset))", error: error)
-                health = BandHealthData(temperatures: [], hrv: [])
+                health = BandHealthData(temperatures: [], hrv: [], oxygen: [],
+                                        temperatureStatus: .failed, hrvStatus: .failed,
+                                        oxygenStatus: .failed, opticalStatus: .failed)
+            }
+            healthPages[offset] = health
+            if health.respirationStatus == .failed { auxiliaryUploaded = false }
+            if health.hrvStatus != .complete && hrvStatus != .failed { hrvStatus = health.hrvStatus }
+            if health.temperatureStatus != .complete && temperatureStatus != .failed { temperatureStatus = health.temperatureStatus }
+            if health.oxygenStatus != .complete && oxygenStatus != .failed { oxygenStatus = health.oxygenStatus }
+            if health.opticalStatus != .complete && opticalStatus != .failed { opticalStatus = health.opticalStatus }
+            if health.hrvStatus == .failed || health.temperatureStatus == .failed
+                || health.oxygenStatus == .failed || health.opticalStatus == .failed { auxiliaryUploaded = false }
+            for (time, value) in HealthSampleMapping.hrvByMinute(health.hrv) {
+                guard let ts = HealthSampleMapping.instant(time: time, calendarDay: calendarDay,
+                                                           calendar: calendar), ts <= now else { continue }
+                hrvMinuteTicks[ts] = value
+            }
+            for sample in health.hrv where !sample.rrMilliseconds.isEmpty {
+                guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay, calendar: calendar),
+                      ts >= day.start, ts < dayEnd, ts <= now else { continue }
+                rrRows.append(["ts": iso.string(from: ts), "rr_ms": sample.rrMilliseconds])
+            }
+            for sample in health.temperatures {
+                guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay, calendar: calendar),
+                      ts >= day.start, ts < dayEnd, ts <= now else { continue }
+                temperatureTicks[ts] = sample.celsius
             }
             let temperatures = Dictionary(grouping: health.temperatures, by: \.time)
                 .compactMapValues { $0.last?.celsius }
@@ -142,6 +245,24 @@ final class OriginDataSync {
                       ts >= day.start, ts < dayEnd else { continue }
                 hrvTicks[ts] = value
             }
+            for sample in health.oxygen {
+                guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay,
+                                                           calendar: calendar),
+                      ts <= now else { continue }
+                oxygenTicks[ts] = sample.percent
+            }
+            for sample in health.respiration {
+                guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay,
+                                                           calendar: calendar), ts <= now else { continue }
+                respirationTicks[ts] = sample.breathsPerMinute
+            }
+            opticalDroppedZeros += health.opticalDroppedZeros
+            for sample in health.optical {
+                guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay,
+                                                           calendar: calendar),
+                      ts >= day.start, ts < dayEnd, ts <= now else { continue }
+                opticalTicks[ts] = sample.optical
+            }
             points.append(contentsOf: page.map { point in
                 DatedPoint(calendarDay: calendarDay, point: OriginPoint(
                     time: point.time, heart: point.heart, step: point.step, cal: point.cal,
@@ -152,19 +273,90 @@ final class OriginDataSync {
             })
         }
 
-        // A batch is stamped with the phone's timezone at the moment it syncs. One batch never
-        // mixes two zones, and a row already stored is never re-stamped.
+        // Read every real sync: an earlier sleep record may have extended after the user woke.
+        var night: SleepNight?
+        var sleepStatus: BandDomainReadStatus = .notCollected
+        do {
+            night = try await BandReadiness.read(account: userId, binding: deviceKey) {
+                try await band.readSleep(dayOffset: wanted.max() ?? 0)
+            }
+        } catch {
+            sleepStatus = .failed
+            auxiliaryUploaded = false
+            BandLog.shared.record("readSleep(\(wanted.max() ?? 0))", error: error)
+        }
+        // Sleep owns its recorded clock, including pre-04:00 and previous calendar pages.
+        // Reuse already-read pages and fetch any missing pages serially on the BLE queue.
+        if let (start, wake) = Self.nightWindow(day: day, night: night, store: store) {
+            let requiredHrvPages = Self.nightPageOffsets(start: start, wake: wake, now: now, calendar: calendar)
+            for offset in requiredHrvPages {
+                let health: BandHealthData
+                if let cached = healthPages[offset] { health = cached }
+                else {
+                    do {
+                        health = try await BandReadiness.read(account: userId, binding: deviceKey) {
+                            try await band.readHealthData(dayOffset: offset)
+                        }
+                        healthPages[offset] = health
+                    } catch {
+                        hrvStatus = .failed
+                        oxygenStatus = .failed
+                        auxiliaryUploaded = false
+                        BandLog.shared.record("read sleep health page(\(offset))", error: error)
+                        continue
+                    }
+                }
+                if health.hrvStatus != .complete && hrvStatus != .failed { hrvStatus = health.hrvStatus }
+                if health.oxygenStatus != .complete && oxygenStatus != .failed { oxygenStatus = health.oxygenStatus }
+                if health.hrvStatus == .failed || health.oxygenStatus == .failed
+                    || health.respirationStatus == .failed { auxiliaryUploaded = false }
+                let calendarDay = calendar.startOfDay(for:
+                    calendar.date(byAdding: .day, value: -offset, to: now) ?? now)
+                for sample in health.oxygen {
+                    guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay,
+                                                               calendar: calendar), ts >= start, ts < wake else { continue }
+                    oxygenTicks[ts] = sample.percent
+                }
+                for sample in health.respiration {
+                    guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay,
+                                                               calendar: calendar), ts >= start, ts < wake else { continue }
+                    respirationTicks[ts] = sample.breathsPerMinute
+                }
+                for (time, value) in HealthSampleMapping.hrvByMinute(health.hrv) {
+                    guard let ts = HealthSampleMapping.instant(time: time, calendarDay: calendarDay,
+                                                               calendar: calendar), ts >= start, ts < wake else { continue }
+                    hrvMinuteTicks[ts] = value
+                }
+                let temperature = health.temperatures.compactMap { sample -> VitalSample? in
+                    guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay,
+                                                               calendar: calendar), ts >= start, ts < wake else { return nil }
+                    return VitalSample(ts: ts, hr: nil, stress: nil, temp: sample.celsius)
+                }
+                let hrv = HealthSampleMapping.hrvBySlot(health.hrv).compactMap { clock, value -> VitalSample? in
+                    guard let ts = HealthSampleMapping.instant(time: clock, calendarDay: calendarDay,
+                                                               calendar: calendar), ts >= start, ts < wake else { return nil }
+                    return VitalSample(ts: ts, hr: nil, stress: nil, hrv: value)
+                }
+                nightAuxiliary = VitalSample.merging(nightAuxiliary, with: temperature + hrv)
+            }
+            // A missing/failed extra page is unknown, not proof of an empty RR night.
+            hrvMinuteReadComplete = !requiredHrvPages.isEmpty && requiredHrvPages.allSatisfy {
+                guard let status = healthPages[$0]?.hrvStatus else { return false }
+                return status == .complete || status == .unsupported
+            }
+        }
+
+        // SDK times have no timezone. Preserve the mapping timezone used for this batch;
+        // it is a reconstruction assumption, not a device-reported historical timezone.
         let tz = TimeZone.current.identifier
         // ⚠️ One formatter, not one per tick. A day is 288 points and each one was allocating
         // its own ISO8601DateFormatter — the single most expensive thing in a sync that
         // otherwise just moves a few kilobytes.
-        let iso = ISO8601DateFormatter()
         // How far this day has already been uploaded. The band only ever appends to a day, and
         // a stored tick is never rewritten (collected data is insert-only), so everything at or
         // before the mark is already on the server and sending it again buys nothing.
         // ⚠️ Advanced only when every chunk of a sync landed. A partial upload that moved the
         // mark would leave a hole no later sync ever fills.
-        let mark = Self.watermark(for: day, userId: userId)
         // The latest tick this pull carried, kept aside so the panel can show it the moment it
         // is off the band rather than after the server has settled the day (12 · LIVE).
         var newest: Date?
@@ -173,7 +365,6 @@ final class OriginDataSync {
         var localSamples: [VitalSample] = []
         // Ticks already past the watermark cannot be inserted again; fill_dis writes metres
         // into the zeros Int(km) left behind. Collected here, before the mark drops them.
-        var distanceTicks: [(ts: Date, metres: Int)] = []
         let rows = points.compactMap { dated -> [String: Any]? in
             let point = dated.point
             guard let ts = HealthSampleMapping.instant(time: point.time,
@@ -184,9 +375,6 @@ final class OriginDataSync {
             // slots. A tick that has not happened is not a sample (04 · the readout's "last
             // tick" query already refuses the future; the table should not hold it either).
             guard ts <= now.addingTimeInterval(5 * 60) else { return nil }
-            if let metres = point.distance, metres > 0 {
-                distanceTicks.append((ts, metres))
-            }
             if let temperature = point.temperature {
                 temperatureTicks[ts] = temperature
             }
@@ -196,7 +384,7 @@ final class OriginDataSync {
                 stress: point.stress,
                 temp: point.temperature,
                 steps: point.step,
-                cal: point.cal.map(Double.init),
+                vendorCalories: point.cal.map(Double.init),
                 dis: point.distance.map(Double.init),
                 hrv: point.hrv
             )
@@ -207,13 +395,27 @@ final class OriginDataSync {
                 newest = ts
                 latestBatteryTick = (ts, point)
                 // ⚠️ A tick the band recorded off the wrist has no heart and no stress. That
-                // is not a zero and not the previous tick's number — it is the absence the
-                // readout draws as ——, so it is carried through exactly as it came.
+                // is not a zero — it is the absence the readout draws as ——. Heart stays
+                // that tick's own reading. Stress is often missing on a worn sleep tick that
+                // still has PPG heart, so the last positive stress in 24h is joined rather
+                // than dashed.
                 if point.heart != nil || point.stress != nil {
-                    latest = LiveVitals(hr: point.heart, stress: point.stress, at: ts)
+                    latest = LiveVitals(
+                        hr: point.heart ?? latest?.hr,
+                        stress: VitalsTimelinePolicy.currentStress(
+                            latest: point.stress,
+                            previous: latest.flatMap { reading in
+                                guard let value = reading.stress, let at = reading.at else { return nil }
+                                return (value, at)
+                            },
+                            at: ts),
+                        at: ts)
                 }
             }
-            if let mark, ts <= mark { return nil }
+            // Re-read the bounded SDK day to repair late facts and holes before any cursor.
+            // The server acknowledges unchanged observations without rewriting them.
+            guard point.heart != nil || point.step != nil || point.cal != nil || point.distance != nil
+                || point.met != nil || point.stress != nil || point.sleepState != nil else { return nil }
             var row: [String: Any] = [
                 "user_id": userId,
                 "ts": iso.string(from: ts),
@@ -242,17 +444,51 @@ final class OriginDataSync {
             return row
         }
 
-        // Not one page came back: the band was asked and answered nothing.
-        guard pagesReturned > 0 else {
-            await record(run, outcome: "failed", requested: wanted.count, returned: pagesReturned)
+        localSamples = VitalSample.merging(localSamples, with:
+            Self.auxiliarySamples(temperatureTicks: temperatureTicks, hrvTicks: hrvTicks) + nightAuxiliary)
+        guard ConsentStore.shared.granted, await db.currentUserId == userId,
+              BoundBand.identifier == deviceKey, !Task.isCancelled else { lastOutcome = "failed"; return 0 }
+        Self.clearWrongDaySleep(for: day, store: store)
+        let measuredSleep = Self.sleepSummary(night: night, day: day, store: store,
+                                             oxygen: oxygenTicks, respiration: respirationTicks,
+                                             hrv: hrvMinuteTicks, hrvReadComplete: hrvMinuteReadComplete)
+        if let measuredSleep { Self.apply(measuredSleep, for: day, to: store) }
+        let samplesByDay = Dictionary(grouping: localSamples) { UserDay.containing($0.ts, calendar: calendar) }
+        // Durable measured observations precede every measurement upload and server refresh.
+        do {
+            for measuredDay in Set(samplesByDay.keys).union([day]) {
+                let samples = samplesByDay[measuredDay] ?? []
+                Self.apply(samples, for: measuredDay, to: store)
+                try HomeSnapshot.saveBandObservations(day: measuredDay, samples: samples,
+                    sleep: measuredDay == day ? measuredSleep : nil, userId: userId)
+            }
+        } catch {
+            auxiliaryUploaded = false
+            BandLog.shared.record("persist band observations", error: error)
+            lastOutcome = "failed"
             return 0
+        }
+
+        do {
+            _ = try persistEvidence(samples: rows, args: [
+                "p_device_key": deviceKey, "p_domain": "origin", "p_day": Self.dayString(day.start),
+                "p_timezone": tz, "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
+                "p_status": "partial", "p_mapping_version": "veepoo-rmssd-v1",
+            ], userId: userId)
+            _ = try persistEvidence(samples: rrRows, args: [
+                "p_device_key": deviceKey, "p_domain": "rr", "p_day": Self.dayString(day.start),
+                "p_timezone": tz, "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
+                "p_status": "partial", "p_mapping_version": "veepoo-rmssd-v1",
+            ], userId: userId)
+        } catch {
+            auxiliaryUploaded = false
+            BandLog.shared.record("persist RR evidence", error: error)
         }
 
         // The band is the immediate source for raw curves. Do not hold its 12:45 tick behind
         // settle_now: derived daily values remain server-authoritative, while measured points
         // can be shown as soon as they leave the wrist. The timestamp merge also preserves
         // HRV or temperature already loaded from their auxiliary SDK streams.
-        Self.apply(localSamples, for: day, to: store)
         Self.apply(latest, to: store)
         if let tick = latestBatteryTick {
             store.applyLiveBodyBattery(
@@ -279,170 +515,425 @@ final class OriginDataSync {
         // `wanted` is [0, 1], but this still is yesterday's user day; page 0 is tonight's
         // unfinished sleep and belongs to the next user day. The oldest requested device day
         // is always the calendar date represented by `day.start`.
-        var night: SleepNight?
-        if !Self.sleepStored(for: day, userId: userId) {
-            do { night = try await band.readSleep(dayOffset: wanted.max() ?? 0) }
-            catch { BandLog.shared.record("readSleep(\(wanted.max() ?? 0))", error: error) }
-        }
-        if let night {
+        if let sleep = measuredSleep, night != nil {
+            guard ConsentStore.shared.granted, await db.currentUserId == userId else { lastOutcome = "failed"; return 0 }
             do {
                 // 04B rule 04 · the sleepLine rides along as compact "stage:minutes" runs, so
                 // the SLEEP strip draws the band's own staging instead of re-deriving it.
                 var row: [String: Any] = [
                     "user_id": userId,
                     "user_day": Self.dayString(day.start),
-                    "total_minutes": night.totalMinutes,
-                    "deep_minutes": night.deepMinutes,
-                    "light_minutes": night.lightMinutes,
-                    "wake_count": night.wakeCount,
-                    "sleep_line": night.line.map { "\($0.stage):\($0.minutes)" }.joined(separator: ","),
+                    "total_minutes": sleep.totalMinutes,
+                    "deep_minutes": sleep.deepMinutes,
+                    "light_minutes": sleep.lightMinutes,
+                    "wake_count": sleep.wakeCount,
+                    "sleep_line": sleep.line.map { "\($0.stage):\($0.minutes)" }.joined(separator: ","),
                 ]
                 // The night's window feeds nb.night_rhr (migration 20260903090000). Until that
                 // migration is on the server PostgREST refuses unknown columns, so the row
                 // goes up once more without them rather than not at all.
-                if let start = night.sleepStart, let wake = night.wakeAt {
+                if let start = sleep.sleepStart, let wake = sleep.wakeAt {
                     row["sleep_start"] = iso.string(from: start)
                     row["wake_at"] = iso.string(from: wake)
                 }
-                _ = try await db.upsert("sleep_nights", row: row, onConflict: "user_id,user_day")
-                Self.markSleepStored(for: day, userId: userId)
+                let respirationRows: [[String: Any]] = (measuredSleep?.respiration ?? []).map {
+                    ["ts": iso.string(from: $0.ts), "breaths_per_minute": $0.breathsPerMinute]
+                }
+                let intervals: [[String: Any]] = (measuredSleep?.intervals ?? []).map {
+                    ["start": iso.string(from: $0.start), "end": iso.string(from: $0.end)]
+                }
+                let stageRows: [[String: Any]] = sleep.line.map {
+                    ["stage": $0.stage, "minutes": $0.minutes, "offset_minutes": $0.offsetMinutes ?? NSNull()]
+                }
+                var raw: [String: Any] = ["respiration": respirationRows,
+                                          "intervals": intervals, "line": stageRows]
+                if let hrv = measuredSleep?.hrv {
+                    raw["hrv"] = hrv.map { ["ts": iso.string(from: $0.ts), "rmssd_ms": $0.rmssdMS] }
+                }
+                row["raw"] = raw
+                let local = try LocalDataStore.shared()
+                let payload = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
+                let id = "sleep-" + SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+                try local.enqueue(operation: LocalOperation(id: id, account: userId, kind: "band-sleep", payload: payload))
+                try await Self.uploadSleep(row, userId: userId)
+                try local.acknowledge(account: userId, id: id)
+                sleepStatus = .complete
             } catch {
                 auxiliaryUploaded = false
+                sleepStatus = .failed
                 BandLog.shared.record("upsert sleep_nights", error: error)
             }
         }
 
-        // HRV is its own SDK history domain and can land a sync behind the tick it belongs
-        // to — by then that tick is stored, and raw_samples is insert-only, so there is no
-        // insert left to carry the value. fill_hrv writes into those rows and only where the
-        // column is still null: a number already stored is never rewritten. This sits above
-        // the early return on purpose, because a sync with no new ticks is exactly the one
-        // that has a backlog to fill.
-        if !hrvTicks.isEmpty {
+        // Every domain is acknowledged independently. Read failures keep a repair range and
+        // cannot inherit another domain's success. Full-day overlap is bounded by SDK pages.
+        let originStatus: BandDomainReadStatus = pagesReturned == wanted.count ? .complete : .partial
+        let domains: [(String, [[String: Any]], BandDomainReadStatus)] = [
+            ("origin", rows, originStatus),
+            ("hrv", hrvTicks.sorted { $0.key < $1.key }.map {
+                ["ts": iso.string(from: $0.key), "hrv": ($0.value * 10).rounded() / 10]
+            }, hrvStatus),
+            ("temperature", temperatureTicks.sorted { $0.key < $1.key }.map {
+                ["ts": iso.string(from: $0.key), "temp": ($0.value * 10).rounded() / 10]
+            }, temperatureStatus),
+            ("rr", rrRows, hrvStatus),
+            ("sleep", [], sleepStatus),
+        ]
+        var changedCount = 0
+        for (domain, samples, readStatus) in domains {
+            guard ConsentStore.shared.granted, await db.currentUserId == userId else {
+                lastOutcome = "failed"; return changedCount
+            }
+            var status = readStatus
             do {
-                let payload = hrvTicks.sorted { $0.key < $1.key }.map { tick in
-                    ["ts": iso.string(from: tick.key),
-                     "hrv": (tick.value * 10).rounded() / 10] as [String: Any]
+                let args: [String: Any] = [
+                    "p_device_key": deviceKey, "p_domain": domain,
+                    "p_day": Self.dayString(day.start), "p_timezone": tz,
+                    "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
+                    "p_samples": samples, "p_status": readStatus.rawValue,
+                    "p_mapping_version": "veepoo-rmssd-v1",
+                ]
+                let pending = try persistEvidence(samples: samples, args: args, userId: userId)
+                let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
+                guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return changedCount }
+                let data = try JSONSerialization.data(withJSONObject: response)
+                let ack = try JSONDecoder().decode(BandIngestionAcknowledgment.self, from: data)
+                changedCount += ack.inserted + ack.completed
+                if ack.confirms(offered: samples.count) {
+                    let local = try LocalDataStore.shared()
+                    try local.acknowledge(account: userId, ids: pending)
                 }
-                let answer = try await db.rpc("fill_hrv", args: ["p_samples": payload])
-                let filled = ((answer as? [String: Any])?["filled"] as? NSNumber)?.intValue
-                Self.log.notice("fill_hrv \(Self.dayString(day.start), privacy: .public): \(hrvTicks.count) offered, \(filled.map(String.init) ?? "?", privacy: .public) filled")
+                if !ack.confirms(offered: samples.count) { status = .partial }
+                else if samples.isEmpty && readStatus == .complete && domain != "sleep" { status = .notCollected }
             } catch {
-                auxiliaryUploaded = false
-                BandLog.shared.record("fill_hrv", error: error)
+                status = .failed
+                BandLog.shared.record("ingest \(domain)", error: error)
             }
+            let confirmed = status == .complete || status == .notCollected || status == .unsupported
+            if !confirmed { auxiliaryUploaded = false }
+            domainStates.append(BandDomainSyncState(domain: domain, status: status, attemptedAt: now,
+                acknowledgedStart: confirmed ? day.start : nil, acknowledgedEnd: confirmed ? readEnd : nil,
+                repairStart: confirmed ? nil : day.start, repairEnd: confirmed ? nil : readEnd))
         }
+        let oxygenWindow = Self.nightWindow(day: day, night: night, store: store)
+        var oxygenRead = oxygenStatus
+        let oxygenStart: Date
+        let oxygenEnd: Date
+        let oxygenSamples: [[String: Any]]
+        if let (start, wake) = oxygenWindow {
+            oxygenStart = start
+            oxygenEnd = max(wake, start.addingTimeInterval(60))
+            oxygenSamples = (measuredSleep?.spo2 ?? []).map {
+                ["ts": iso.string(from: $0.ts), "spo2": $0.percent]
+            }
+            if oxygenSamples.isEmpty && oxygenRead == .complete { oxygenRead = .notCollected }
 
-        // Temperature comes from the same auxiliary health-history read as HRV. If that read
-        // lagged behind an already stored origin row, complete only its null temperature.
-        if !temperatureTicks.isEmpty {
+        } else {
+            oxygenStart = day.start
+            oxygenEnd = readEnd
+            oxygenSamples = []
+            if oxygenRead == .complete { oxygenRead = .notCollected }
+        }
+        if ConsentStore.shared.granted, await db.currentUserId == userId {
+            var status = oxygenRead
             do {
-                let payload = temperatureTicks.sorted { $0.key < $1.key }.map { tick in
-                    ["ts": iso.string(from: tick.key),
-                     "temp": (tick.value * 10).rounded() / 10] as [String: Any]
+                let args: [String: Any] = [
+                    "p_device_key": deviceKey, "p_domain": "oxygen",
+                    "p_day": Self.dayString(day.start), "p_timezone": tz,
+                    "p_start": iso.string(from: oxygenStart), "p_end": iso.string(from: oxygenEnd),
+                    "p_samples": oxygenSamples, "p_status": oxygenRead.rawValue,
+                    "p_mapping_version": "veepoo-spo2-v1",
+                ]
+                let pending = try persistEvidence(samples: oxygenSamples, args: args, userId: userId)
+                let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
+                guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return changedCount }
+                let data = try JSONSerialization.data(withJSONObject: response)
+                let ack = try JSONDecoder().decode(BandIngestionAcknowledgment.self, from: data)
+                changedCount += ack.inserted + ack.completed
+                if ack.confirms(offered: oxygenSamples.count) {
+                    let local = try LocalDataStore.shared()
+                    try local.acknowledge(account: userId, ids: pending)
                 }
-                let answer = try await db.rpc("fill_temp", args: ["p_samples": payload])
-                let filled = ((answer as? [String: Any])?["filled"] as? NSNumber)?.intValue
-                Self.log.notice("fill_temp \(Self.dayString(day.start), privacy: .public): \(temperatureTicks.count) offered, \(filled.map(String.init) ?? "?", privacy: .public) filled")
+                if !ack.confirms(offered: oxygenSamples.count) { status = .partial }
+                else if oxygenSamples.isEmpty && oxygenRead == .complete { status = .notCollected }
             } catch {
-                // Backward compatible with a backend that has not deployed fill_temp yet.
-                // Current rows already carry temperature; this RPC only repairs older nulls.
-                BandLog.shared.record("fill_temp", error: error)
+                status = .failed
+                BandLog.shared.record("ingest oxygen", error: error)
             }
+            let confirmed = status == .complete || status == .notCollected || status == .unsupported
+            if !confirmed { auxiliaryUploaded = false }
+            domainStates.append(BandDomainSyncState(domain: "oxygen", status: status, attemptedAt: now,
+                acknowledgedStart: confirmed ? oxygenStart : nil, acknowledgedEnd: confirmed ? oxygenEnd : nil,
+                repairStart: confirmed ? nil : oxygenStart, repairEnd: confirmed ? nil : oxygenEnd))
         }
-
-        // ⚠️ disValue was kilometres truncated to 0. New ticks insert metres; these are the
-        // ticks already stored. fill_dis only overwrites null/zero, so a still hour stays 0.
-        if !distanceTicks.isEmpty {
+        if store.today.day == day {
+            store.mealResponseZerosToday = opticalDroppedZeros > 0 && opticalTicks.isEmpty
+        }
+        let incomingOptical = opticalTicks.keys.sorted().map {
+            MealResponseIndex.Point(ts: $0, optical: opticalTicks[$0]!)
+        }
+        store.mealResponsePoints = Self.mergeOptical(store.mealResponsePoints, with: incomingOptical)
+        var opticalRead = opticalStatus
+        let opticalSamples = opticalTicks.sorted { $0.key < $1.key }
+            .map { ["ts": iso.string(from: $0.key), "optical": $0.value] }
+        if opticalSamples.isEmpty && opticalRead == .complete { opticalRead = .notCollected }
+        if ConsentStore.shared.granted, await db.currentUserId == userId {
+            var status = opticalRead
             do {
-                let payload = distanceTicks.sorted { $0.ts < $1.ts }.map { tick in
-                    ["ts": iso.string(from: tick.ts), "dis": tick.metres] as [String: Any]
+                let args: [String: Any] = [
+                    "p_device_key": deviceKey, "p_domain": "response",
+                    "p_day": Self.dayString(day.start), "p_timezone": tz,
+                    "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
+                    "p_samples": opticalSamples, "p_status": opticalRead.rawValue,
+                    "p_mapping_version": "veepoo-optical-v1",
+                ]
+                let pending = try persistEvidence(samples: opticalSamples, args: args, userId: userId)
+                let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
+                guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return changedCount }
+                let data = try JSONSerialization.data(withJSONObject: response)
+                let ack = try JSONDecoder().decode(BandIngestionAcknowledgment.self, from: data)
+                changedCount += ack.inserted + ack.completed
+                if ack.confirms(offered: opticalSamples.count) {
+                    let local = try LocalDataStore.shared()
+                    try local.acknowledge(account: userId, ids: pending)
                 }
-                let answer = try await db.rpc("fill_dis", args: ["p_samples": payload])
-                let filled = ((answer as? [String: Any])?["filled"] as? NSNumber)?.intValue
-                Self.log.notice("fill_dis \(Self.dayString(day.start), privacy: .public): \(distanceTicks.count) offered, \(filled.map(String.init) ?? "?", privacy: .public) filled")
+                if !ack.confirms(offered: opticalSamples.count) { status = .partial }
+                else if opticalSamples.isEmpty && opticalRead == .complete { status = .notCollected }
             } catch {
-                auxiliaryUploaded = false
-                BandLog.shared.record("fill_dis", error: error)
+                status = .failed
+                BandLog.shared.record("ingest response", error: error)
             }
+            let confirmed = status == .complete || status == .notCollected || status == .unsupported
+            if !confirmed { auxiliaryUploaded = false }
+            domainStates.append(BandDomainSyncState(domain: "response", status: status, attemptedAt: now,
+                acknowledgedStart: confirmed ? day.start : nil, acknowledgedEnd: confirmed ? readEnd : nil,
+                repairStart: confirmed ? nil : day.start, repairEnd: confirmed ? nil : readEnd))
         }
-
-        // The band answered and had nothing to add — the common case, since a sync five
-        // minutes after a sync finds one new tick or none at all. This is a success, not a
-        // failure, and it costs no upload, no settle and no reload: those three are the whole
-        // reason a repeat sync used to take as long as the first one.
-        if rows.isEmpty {
-            if let first = points.first {
-                Self.log.notice("sync \(Self.dayString(day.start), privacy: .public): \(points.count) points read, none new · first \(first.point.time, privacy: .public) · mark \(mark.map { iso.string(from: $0) } ?? "none", privacy: .public)")
-            }
-            let outcome = pagesReturned == wanted.count && auxiliaryUploaded ? "success" : "partial"
-            await record(run, outcome: outcome, requested: wanted.count, returned: pagesReturned)
-            if outcome == "success" {
-                store.lastSync = now
-                await Repository.shared.markDeviceSynced(at: now)
-            }
-            if settle, auxiliaryUploaded {
-                await Repository.shared.settleNow(days: day == UserDay.containing(now) ? 1 : 2)
-                await Repository.shared.load(days: 1, endingAt: day, into: store)
-            }
-            return 0
-        }
-
-        // Collected data is insert-only and never updated: what the band measured is not ours
-        // to change. Re-syncing the same day is a no-op, not a duplicate.
-        // ⚠️ The key is (user_id, ts, src). A plain insert was refused wholesale on the first
-        // tick already stored — every sync after the first one, since the band only adds —
-        // so the ticks that were new never arrived. Duplicates are ignored, row by row.
-        let chunks = stride(from: 0, to: rows.count, by: 400).map {
-            Array(rows[$0..<min($0 + 400, rows.count)])
-        }
-        // Chunks are independent inserts into an insert-only table: sending them one after
-        // another only added round trips. A backfill day is one chunk; the first sync of a
-        // week is the only place this is several, and that is exactly where the wait was.
-        let uploaded = await withTaskGroup(of: Bool.self) { group in
-            for chunk in chunks {
-                group.addTask { [db] in
-                    do {
-                        _ = try await db.insert("raw_samples", rows: chunk,
-                                                ignoringDuplicatesOn: "user_id,ts,src")
-                        return true
-                    } catch {
-                        BandLog.shared.record("insert raw_samples", error: error)
-                        return false
-                    }
-                }
-            }
-            return await group.reduce(into: true) { $0 = $0 && $1 }
-        }
-        // Only a clean upload moves the mark. A chunk that failed must be sent again by the
-        // next sync, and it will be, because the day is still unmarked behind it.
-        if uploaded, auxiliaryUploaded, pagesReturned == wanted.count, let newest {
-            Self.setWatermark(newest, for: day, userId: userId)
-        }
-        Self.log.notice("sync \(Self.dayString(day.start), privacy: .public): \(rows.count) new ticks, upload \(uploaded ? "ok" : "FAILED", privacy: .public)")
-        // A day read off the band and refused by the server is not a sync. The row says
-        // so, so the device page cannot print SYNCED over an empty table.
-        guard uploaded else {
-            await record(run, outcome: "failed", requested: wanted.count, returned: pagesReturned, error: "upload")
-            return 0
-        }
-
-        // outcome = 'partial' does not move last_origin_sync_at, but the row is still written:
-        // that row is the whole basis for the word SYNCED.
+        guard ConsentStore.shared.granted, await db.currentUserId == userId else { lastOutcome = "failed"; return changedCount }
+        do { try BandDomainSyncState.save(domainStates, userId: userId, deviceKey: deviceKey, day: Self.dayString(day.start)) }
+        catch { BandLog.shared.record("save domain acknowledgments", error: error) }
         let outcome = pagesReturned == wanted.count && auxiliaryUploaded ? "success" : "partial"
         await record(run, outcome: outcome, requested: wanted.count, returned: pagesReturned)
-
-        if outcome == "success" {
+        if outcome == "success", await db.currentUserId == userId {
             store.lastSync = now
+            if let newest { Self.setWatermark(newest, for: day, userId: userId) }
             await Repository.shared.markDeviceSynced(at: now)
         }
-        if settle {
-            // The page is on the server; now the day's row, and then the screen. Without
-            // this the numbers waited for the hourly cron while the band sat synced.
+        if settle, await db.currentUserId == userId {
             await Repository.shared.settleNow(days: day == UserDay.containing(now) ? 1 : 2)
             await Repository.shared.load(days: 1, endingAt: day, into: store)
         }
-        return rows.count
+        return changedCount
+    }
+
+    /// Old cache rows sometimes filed a valid sleep under the previous user day. Sleep
+    /// belongs to the calendar date of its wake, including wakes after noon.
+    private static func sleepOnCalendarDay(_ sleep: SleepSummary?, day: UserDay) -> SleepSummary? {
+        guard let wake = sleep?.wakeAt else { return sleep }
+        return Calendar.current.isDate(wake, inSameDayAs: day.start) ? sleep : nil
+    }
+
+    private static func clearWrongDaySleep(for day: UserDay, store: DataStore) {
+        if store.today.day == day {
+            store.today.sleep = Self.sleepOnCalendarDay(store.today.sleep, day: day)
+        }
+        store.history = store.history.map { stored in
+            guard stored.day == day else { return stored }
+            var result = stored
+            result.sleep = Self.sleepOnCalendarDay(stored.sleep, day: day)
+            return result
+        }
+    }
+
+    private static func sleepSummary(night: SleepNight?, day: UserDay, store: DataStore,
+                                     oxygen: [Date: Int], respiration: [Date: Double],
+                                     hrv: [Date: Double] = [:], hrvReadComplete: Bool = false) -> SleepSummary? {
+        let existing = Self.sleepOnCalendarDay(
+            (store.today.day == day ? store.today : store.history.first { $0.day == day })?.sleep, day: day)
+        let sameWindow = night?.sleepStart == existing?.sleepStart && night?.wakeAt == existing?.wakeAt
+        let incomingIsContained: Bool = {
+            guard let oldStart = existing?.sleepStart, let oldWake = existing?.wakeAt,
+                  let newStart = night?.sleepStart, let newWake = night?.wakeAt else { return false }
+            return oldStart <= newStart && oldWake >= newWake
+                && (existing?.totalMinutes ?? 0) >= (night?.totalMinutes ?? 0)
+                && (oldStart < newStart || oldWake > newWake
+                    || (existing?.totalMinutes ?? 0) > (night?.totalMinutes ?? 0))
+        }()
+        let summary = incomingIsContained ? existing : night.map {
+            SleepSummary(totalMinutes: $0.totalMinutes, deepMinutes: $0.deepMinutes,
+                         lightMinutes: $0.lightMinutes, wakeCount: $0.wakeCount,
+                         line: $0.line.isEmpty && sameWindow ? existing?.line ?? [] : $0.line,
+                         sleepStart: $0.sleepStart, wakeAt: $0.wakeAt)
+        } ?? existing
+        guard var result = summary, let start = result.sleepStart, let wake = result.wakeAt else { return summary }
+        if !incomingIsContained {
+            if let intervals = night?.intervals { result.intervals = intervals }
+            else if sameWindow && result.intervals == nil { result.intervals = existing?.intervals }
+        }
+        let intervals = result.intervals ?? [SleepInterval(start: start, end: wake)]
+        func inSleep(_ ts: Date) -> Bool { intervals.contains { ts >= $0.start && ts < $0.end } }
+        let savedOxygen = Dictionary((existing?.spo2 ?? []).filter { inSleep($0.ts) }
+            .map { ($0.ts, $0.percent) }, uniquingKeysWith: { _, fresh in fresh })
+        result.spo2 = savedOxygen.merging(oxygen.filter { inSleep($0.key) }, uniquingKeysWith: { _, fresh in fresh })
+            .sorted { $0.key < $1.key }.map { OvernightOxygenPoint(ts: $0.key, percent: $0.value) }
+        let savedRespiration = Dictionary((existing?.respiration ?? []).filter { inSleep($0.ts) }
+            .map { ($0.ts, $0.breathsPerMinute) }, uniquingKeysWith: { _, fresh in fresh })
+        result.respiration = savedRespiration.merging(respiration.filter { inSleep($0.key) },
+            uniquingKeysWith: { _, fresh in fresh }).sorted { $0.key < $1.key }
+            .map { SleepRespirationPoint(ts: $0.key, breathsPerMinute: $0.value) }
+        let savedHRV = Dictionary((existing?.hrv ?? []).filter { inSleep($0.ts) }
+            .map { ($0.ts, $0.rmssdMS) }, uniquingKeysWith: { _, fresh in fresh })
+        let combinedHRV = savedHRV.merging(hrv.filter { inSleep($0.key) },
+            uniquingKeysWith: { _, fresh in fresh }).sorted { $0.key < $1.key }
+            .map { SleepHRVPoint(ts: $0.key, rmssdMS: $0.value) }
+        result.hrv = combinedHRV.isEmpty && !hrvReadComplete && existing?.hrv == nil ? nil : combinedHRV
+        return result
+    }
+
+    private static func apply(_ sleep: SleepSummary, for day: UserDay, to store: DataStore) {
+        if store.today.day == day { store.today.sleep = sleep }
+        if let index = store.history.firstIndex(where: { $0.day == day }) {
+            store.history[index].sleep = sleep
+        } else {
+            var metrics = DailyMetrics(day: day)
+            metrics.sleep = sleep
+            store.history.append(metrics)
+            store.history.sort { $0.day < $1.day }
+        }
+    }
+
+    /// The recorded night on this user day: this sync's row, or the one already on the store.
+    private static func nightWindow(day: UserDay, night: SleepNight?, store: DataStore) -> (Date, Date)? {
+        let metrics = store.today.day == day ? store.today : store.history.first { $0.day == day }
+        let storedSleep = Self.sleepOnCalendarDay(metrics?.sleep, day: day)
+        if let start = night?.sleepStart, let wake = night?.wakeAt, wake > start {
+            if let oldStart = storedSleep?.sleepStart, let oldWake = storedSleep?.wakeAt,
+               oldStart <= start, oldWake >= wake { return (oldStart, oldWake) }
+            return (start, wake)
+        }
+        if let start = storedSleep?.sleepStart, let wake = storedSleep?.wakeAt, wake > start {
+            return (start, wake)
+        }
+        return nil
+    }
+
+    private static func uploadSleep(_ row: [String: Any], userId: String) async throws {
+        let db = SupabaseClient.shared
+        guard ConsentStore.shared.granted, await db.currentUserId == userId,
+              row["user_id"] as? String == userId else { throw BandError.rejected("ACCOUNT CHANGED") }
+        let accepted = try await db.upsert("sleep_nights", row: row, onConflict: "user_id,user_day", expectedOwner: userId)
+        guard let saved = accepted.first, saved["user_id"] as? String == userId,
+              saved["user_day"] as? String == row["user_day"] as? String,
+              saved["total_minutes"] as? Int == row["total_minutes"] as? Int else {
+            throw BandError.rejected("SLEEP UPLOAD NOT CONFIRMED")
+        }
+    }
+
+    /// Keep each unacknowledged observation once, independently of SDK retention.
+    /// A stable payload-derived identifier also covers a response lost after server commit.
+    private func persistEvidence(samples: [[String: Any]], args: [String: Any], userId: String) throws -> [String] {
+        let local = try LocalDataStore.shared()
+        let iso = ISO8601DateFormatter()
+        let operations = try samples.map { sample in
+            var single = args
+            single["p_samples"] = [sample]
+            single["p_status"] = "partial"
+            // The stable measured-minute interval prevents a later sync clock from duplicating it.
+            if let raw = sample["ts"] as? String, let ts = iso.date(from: raw) {
+                single["p_start"] = raw
+                single["p_end"] = iso.string(from: ts.addingTimeInterval(60))
+            }
+            let data = try JSONSerialization.data(withJSONObject: single, options: [.sortedKeys])
+            let id = "band-" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            return LocalOperation(id: id, account: userId, kind: "band-domain", payload: data)
+        }
+        try local.enqueue(operations: operations)
+        return operations.map(\.id)
+    }
+
+    private static var evidenceDrains: [String: Task<Void, Never>] = [:]
+
+    static func flushPendingEvidence(userId: String) async {
+        guard !Task.isCancelled, ConsentStore.shared.granted,
+              SupabaseClient.currentUserIdSnapshot() == userId else { return }
+        if let running = evidenceDrains[userId] { await running.value; return }
+        let task = Task { @MainActor in await drainEvidence(userId: userId) }
+        evidenceDrains[userId] = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: { task.cancel() }
+        evidenceDrains[userId] = nil
+    }
+
+    private static func mayDrainEvidence(_ userId: String) -> Bool {
+        !Task.isCancelled && ConsentStore.shared.granted
+            && SupabaseClient.currentUserIdSnapshot() == userId
+    }
+
+    private static func drainEvidence(userId: String) async {
+        do {
+            let local = try LocalDataStore.shared()
+            // Snapshot once: a producer cannot keep this pass alive indefinitely.
+            let sleeps = try local.operations(account: userId, kind: "band-sleep")
+            let observations = try local.operations(account: userId, kind: "band-domain")
+            Self.log.notice("evidence drain start: \(sleeps.count) sleep, \(observations.count) observations")
+            for batch in EvidenceDrainPolicy.batches(sleeps, limit: 30) {
+                var acknowledged = 0
+                for operation in batch {
+                    guard mayDrainEvidence(userId) else { return }
+                    guard let row = try JSONSerialization.jsonObject(with: operation.payload) as? [String: Any] else { continue }
+                    try await uploadSleep(row, userId: userId)
+                    guard mayDrainEvidence(userId) else { return }
+                    try local.acknowledge(account: userId, id: operation.id)
+                    acknowledged += 1
+                }
+                guard EvidenceDrainPolicy.shouldContinue(acknowledged: acknowledged) else { break }
+            }
+            for batch in EvidenceDrainPolicy.batches(observations, limit: 200) {
+                guard mayDrainEvidence(userId) else { return }
+                let acknowledged = try await drainDomainBatch(batch, userId: userId)
+                Self.log.notice("evidence drain batch: \(acknowledged)/\(batch.count) acknowledged")
+                guard EvidenceDrainPolicy.shouldContinue(acknowledged: acknowledged) else { break }
+            }
+        } catch {
+            if case SupabaseClient.Failure.http(let status, _) = error {
+                Self.log.error("evidence drain stopped: HTTP \(status)")
+            } else { Self.log.error("evidence drain stopped: \(String(describing: type(of: error)), privacy: .public)") }
+            BandLog.shared.record("retry band observations", error: error)
+        }
+    }
+
+    private static func drainDomainBatch(_ pending: [LocalOperation], userId: String) async throws -> Int {
+        let decoded = try pending.compactMap { operation -> (LocalOperation, [String: Any])? in
+            guard let args = try JSONSerialization.jsonObject(with: operation.payload) as? [String: Any],
+                  let samples = args["p_samples"] as? [[String: Any]], !samples.isEmpty else { return nil }
+            return (operation, args)
+        }
+        let groups = Dictionary(grouping: decoded) { item in
+            ["p_device_key", "p_domain", "p_day", "p_timezone", "p_mapping_version"].map {
+                item.1[$0] as? String ?? ""
+            }.joined(separator: "|")
+        }
+        var acknowledged = 0
+        for key in groups.keys.sorted() {
+            guard mayDrainEvidence(userId), let group = groups[key], var args = group.first?.1 else { return acknowledged }
+            let samples = group.flatMap { $0.1["p_samples"] as? [[String: Any]] ?? [] }
+            args["p_samples"] = samples
+            args["p_start"] = group.compactMap { $0.1["p_start"] as? String }.min()
+            args["p_end"] = group.compactMap { $0.1["p_end"] as? String }.max()
+            let response = try await SupabaseClient.shared.rpc("ingest_band_domain", args: args, expectedOwner: userId)
+            let ack = try JSONDecoder().decode(BandIngestionAcknowledgment.self,
+                from: JSONSerialization.data(withJSONObject: response))
+            guard mayDrainEvidence(userId) else { return acknowledged }
+            let ids = EvidenceDrainPolicy.confirmedIDs(group.map { $0.0.id }, offeredSamples: samples.count,
+                                                      acknowledgment: ack)
+            try LocalDataStore.shared().acknowledge(account: userId, ids: ids)
+            if ids.isEmpty {
+                Self.log.error("evidence drain unconfirmed: \(samples.count) offered, \(ack.inserted) inserted, \(ack.completed) completed, \(ack.unchanged) unchanged, \(ack.rejected) rejected")
+            }
+            acknowledged += ids.count
+        }
+        return acknowledged
     }
 
     /// A first sync on this phone pulls what the band still holds — `watchDataDayNumber`
@@ -450,7 +941,7 @@ final class OriginDataSync {
     /// from the first evening rather than from the second week. Once per bound band, lowest
     /// priority; the server ignores what it already has, so a re-run costs a transfer and
     /// changes nothing.
-    func backfillIfNeeded(into store: DataStore) async {
+    func backfillIfNeeded(into store: DataStore, force: Bool = false) async {
         guard let bound = BoundBand.identifier,
               let userId = await db.currentUserId else { return }
         // ⚠️ "v2": the first version of this mark was set whether or not a single day had
@@ -460,21 +951,33 @@ final class OriginDataSync {
         // tick the backfill had already written carries a null no later sync would ever fill —
         // fill_hrv only reaches the days a sync actually asks for. One more pass writes them.
         // ⚠️ "v5": origin disValue is km; those days stored 0 m. fill_dis repairs them.
-        let key = "nb.band.backfilled.v5.\(userId).\(bound)"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        // 04 · the panel's live readout steps aside for the whole backfill. It is minutes of
-        // pages coming off the band, it happens once per band, and a live test opened in the
-        // middle of it corrupts the page being read.
-        let everyDayAnswered = await LiveReadout.shared.standDown { () -> Bool in
-            let identity = try? await band.readIdentity()
+        // v9 also replays cached history into the exact-minute sleep HRV archive.
+        let key = "nb.band.backfilled.v9.\(userId).\(bound).\(Self.dayString(Date()))"
+        guard force || !UserDefaults.standard.bool(forKey: key) else { return }
+        // Each native transfer reserves the sensor; upload/settlement leave live data running.
+        let everyDayAnswered = await { () async -> Bool in
+            let identity = try? await BandReadiness.read(account: userId, binding: bound) {
+                try await band.readIdentity()
+            }
             // saveDays of 0 is the band not having said; asking for the SDK's usual seven costs
             // nothing, because a page the band does not hold answers empty.
             let held = (identity?.watchDataDayNumber).flatMap { $0 > 0 ? $0 : nil } ?? 7
             let today = UserDay.containing(Date())
-            let days = max(0, min(held, 14) - 1)
+            let cachedOffsets: [Int]
+            do {
+                cachedOffsets = try await BandReadiness.read(account: userId, binding: bound) {
+                    try await band.cachedHistoryDayOffsets(limit: 6)
+                }
+            } catch {
+                BandLog.shared.record("cachedHistoryDayOffsets", error: error)
+                return false
+            }
+            let offsets = BandSyncPolicy.historyDayOffsets(retained: held, cachedOffsets: cachedOffsets)
+            let days = offsets.max() ?? 0
             var everyDayAnswered = true
             if days > 0 {
-                for back in 1...days {
+                for back in offsets {
+                    guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return false }
                     await sync(day: today.adding(days: -back), into: store, settle: false)
                     if lastOutcome != "success" { everyDayAnswered = false }
                 }
@@ -482,10 +985,17 @@ final class OriginDataSync {
                 await Repository.shared.load(days: days, endingAt: today, into: store)
             }
             return everyDayAnswered
-        }
+        }()
         // Only a backfill in which every day answered is over. A day the band did not
         // answer is asked again on the next launch — the mark is not a record of trying.
         if everyDayAnswered { UserDefaults.standard.set(true, forKey: key) }
+    }
+
+    private static func mergeOptical(_ stored: [MealResponseIndex.Point],
+                                     with fresh: [MealResponseIndex.Point]) -> [MealResponseIndex.Point] {
+        var byTime: [Date: Double] = [:]
+        for point in stored + fresh { byTime[point.ts] = point.optical }
+        return byTime.keys.sorted().map { MealResponseIndex.Point(ts: $0, optical: byTime[$0]!) }
     }
 
     private static func clock(_ raw: String) -> String {
@@ -552,26 +1062,6 @@ final class OriginDataSync {
                                   forKey: watermarkKey(day, userId: userId))
     }
 
-    /// The night for a day that is over is read once and never again. Today's is re-read every
-    /// two hours, because a night stored at 05:00 is a night that was still being slept.
-    private static func sleepKey(_ day: UserDay, userId: String) -> String {
-        // "v2": the row gained sleep_start/wake_at on 2026-09-03; nights stored under the old
-        // key are read once more so the window reaches the server.
-        "nb.sync.sleep.v3.\(userId).\(BoundBand.identifier ?? "none").\(dayString(day.start))"
-    }
-
-    static func sleepStored(for day: UserDay, userId: String, now: Date = Date()) -> Bool {
-        let seconds = UserDefaults.standard.double(forKey: sleepKey(day, userId: userId))
-        guard seconds > 0 else { return false }
-        guard day == UserDay.containing(now) else { return true }
-        return now.timeIntervalSince1970 - seconds < 2 * 3600
-    }
-
-    static func markSleepStored(for day: UserDay, userId: String, now: Date = Date()) {
-        UserDefaults.standard.set(now.timeIntervalSince1970,
-                                  forKey: sleepKey(day, userId: userId))
-    }
-
     private struct SyncRun { let id: String?; let startedAt: Date }
 
     private func beginRun(userId: String, requested: Int) async -> SyncRun {
@@ -611,7 +1101,7 @@ final class OriginDataSync {
         if let error { completion["error_code"] = error }
         do {
             if let id = run.id {
-                _ = try await db.patch("sync_runs", id: id, row: completion)
+                _ = try await db.patch("sync_runs", id: id, row: completion, expectedOwner: userId)
             } else {
                 completion["user_id"] = userId
                 completion["started_at"] = ISO8601DateFormatter().string(from: run.startedAt)

@@ -5,7 +5,7 @@
 import { generateObject } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import { model, MODEL_VERSION, visionModel, VISION_MODEL_VERSION } from "../_shared/model.ts";
-import { currentUserId, cors, json } from "../_shared/db.ts";
+import { currentUserId, userClient, cors, json } from "../_shared/db.ts";
 import { MEDICAL, normalizeLocale, tagSafe } from "../_shared/contract.ts";
 
 const Draft = z.object({
@@ -22,6 +22,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const userId = await currentUserId(req);
   if (!userId) return json({ error: "UNAUTHENTICATED" }, 401);
+  const { data: consent, error: consentError } = await userClient(req).from("consents")
+    .select("choice").eq("user_id", userId).order("decided_at", { ascending: false }).limit(1).maybeSingle();
+  if (consentError) return json({ error: "PREFLIGHT_UNAVAILABLE" }, 503);
+  if (consent?.choice !== "granted") return json({ error: "consent_withdrawn" }, 403);
 
   const { text, slot, locale: rawLocale, image } = await req.json();
   const locale = normalizeLocale(rawLocale);

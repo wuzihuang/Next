@@ -21,6 +21,11 @@ struct VitalsReadout {
     var bands: [VitalsSplit.Band]
     var statLeft: VitalsStatPair.Model
     var statRight: VitalsStatPair.Model
+    /// Sleep carries a second pair (min SpO2 · wakes). Other pages leave this empty.
+    var extraLeft: VitalsStatPair.Model? = nil
+    var extraRight: VitalsStatPair.Model? = nil
+    var respirationLeft: VitalsStatPair.Model? = nil
+    var respirationRight: VitalsStatPair.Model? = nil
     /// The physiological band drawn behind the trace, in the chart's own units — the resting
     /// pulse, the stable temperature window. It is a reference, never a target.
     var referenceBand: ClosedRange<Double>?
@@ -37,8 +42,9 @@ struct VitalsReadout {
 // MARK: - the day's three totals
 
 extension VitalsReadout {
-    /// Steps, metres and active kcal, each resolved the one way page two's cards resolve
-    /// them: the settled figure when the server has one, the ticks' own sum until then.
+    /// Steps and metres may be summed from measured tick increments. Active kcal may not:
+    /// the archived vendor calorie field is a differently-defined counter, so energy waits
+    /// for the server's weight-aware settled value.
     ///
     /// ⚠️ These are shared rather than re-derived per page on purpose. The steps page used
     /// `m.distanceM` alone for its distance tile while the distance page fell back to the
@@ -56,7 +62,9 @@ extension VitalsReadout {
     }
 
     static func dayActiveKcal(_ m: DailyMetrics) -> Double? {
-        m.eActive ?? VitalsMath.total(VitalsMath.hourSum(m.vitalsCurve, day: m.day, value: \.cal))
+        ActivityEnergyPolicy.displayTotal(
+            settledActiveKcal: m.eActive,
+            archivedVendorCalories: m.vitalsCurve.compactMap(\.vendorCalories))
     }
 
     /// Metres under a kilometre read as metres. "0.0 KM" for a real 40-metre walk looks like
@@ -74,11 +82,13 @@ extension VitalsReadout {
                      m: DailyMetrics,
                      history: [DailyMetrics],
                      vitals: LiveVitals,
-                     profile: Profile) -> VitalsReadout {
+                     profile: Profile,
+                     mealResponse: MealResponseIndex.Result? = nil) -> VitalsReadout {
         switch metric {
         case .heart:    heart(m: m, history: history, vitals: vitals, profile: profile)
         case .sleep:    sleep(m: m)
         case .hrv:      hrv(m: m, history: history)
+        case .response: response(mealResponse)
         case .stress:   stress(m: m, vitals: vitals)
         case .temp:     temp(m: m, history: history)
         case .steps:    steps(m: m, history: history)
@@ -130,10 +140,11 @@ extension VitalsReadout {
                                         unit: "BPM", suffix: "vs 7d", lowerIsBetter: true).text,
                             tint: delta(resting.map(Double.init), vs: sevenDayResting,
                                         unit: "BPM", suffix: "vs 7d", lowerIsBetter: true).tint),
-            statRight: .init(label: L("HRV RMSSD"), value: m.nightInputs?.hrv.map { String(Int($0.rounded())) },
-                             unit: "MS",
-                             foot: m.nightInputs?.hrvBase.map { L("BASE %d MS", Int($0.rounded())) } ?? L("NO BASELINE YET"),
-                             tint: NB.blue1))
+            statRight: .init(label: L("24H MEAN"), value: mean(hrs.map(Double.init)).map { String(Int($0.rounded())) },
+                             unit: "BPM",
+                             foot: hrs.isEmpty ? L("NO TICKS YET")
+                                 : L("LOW %d · HIGH %d", hrs.min()!, hrs.max()!),
+                             tint: NB.lime1))
         out.referenceBand = restingBand
         out.referenceLabel = restingBand.map { L("RESTING BAND %d–%d", Int($0.lowerBound), Int($0.upperBound)) }
         return out
@@ -180,24 +191,39 @@ extension VitalsReadout {
 
     // MARK: 02 · sleep
 
+    static func sleepHRVSamples(night: SleepSummary?, fallback: [VitalSample]) -> [VitalSample] {
+        guard let night else { return [] }
+        let samples = night.hrv.map { points in
+            points.map { VitalSample(ts: $0.ts, hr: nil, stress: nil, hrv: $0.rmssdMS) }
+        } ?? fallback
+        return samples.filter {
+            guard night.containsSleepTimestamp($0.ts), let value = $0.hrv else { return false }
+            return value.isFinite && value > 0
+        }.sorted { $0.ts < $1.ts }
+    }
+
     private static func sleep(m: DailyMetrics) -> VitalsReadout {
         guard let night = m.sleep, night.totalMinutes > 0 else {
-            return empty(unit: L("ASLEEP"),
-                         foot: L("NO NIGHT ON RECORD"),
-                         chartNote: L("4 STAGES"),
-                         splitTitle: L("STAGE PROPORTIONS"),
-                         statLeft: .init(label: L("DEEP SLEEP"), value: nil, unit: nil,
-                                         foot: L("WEAR IT TONIGHT"), tint: nil),
-                         statRight: .init(label: L("WAKE EVENTS"), value: nil, unit: nil,
-                                          foot: L("WEAR IT TONIGHT"), tint: nil))
+            var out = empty(unit: L("ASLEEP"),
+                            foot: L("NO NIGHT ON RECORD"),
+                            chartNote: L("4 STAGES"),
+                            splitTitle: L("STAGE PROPORTIONS"),
+                            statLeft: .init(label: L("NIGHT HRV"), value: nil, unit: "MS",
+                                            foot: L("WEAR IT TONIGHT"), tint: nil),
+                            statRight: .init(label: L("NIGHT SPO2"), value: nil, unit: "%",
+                                             foot: L("WEAR IT TONIGHT"), tint: nil))
+            out.extraLeft = .init(label: L("SPO2 MIN"), value: nil, unit: "%",
+                                  foot: L("WEAR IT TONIGHT"), tint: nil)
+            out.extraRight = .init(label: L("WAKE EVENTS"), value: nil, unit: nil,
+                                   foot: L("WEAR IT TONIGHT"), tint: nil)
+            return out
         }
 
         let total = night.totalMinutes
-        let deepShare = Double(night.deepMinutes) / Double(max(1, total))
-        // 「不算分、不评价」 — the badge names the night's deep share, which is a measurement,
-        // and stops there. It is not a sleep score.
-        let badgeText = deepShare >= 0.20 ? L("RESTORATIVE") : (deepShare >= 0.13 ? L("ADEQUATE") : L("LIGHT NIGHT"))
-        let badgeTint = deepShare >= 0.20 ? NB.optimal2 : (deepShare >= 0.13 ? NB.violet1 : NB.ember1)
+        let spo2Percents = night.spo2.filter { night.containsSleepTimestamp($0.ts) }.map(\.percent)
+        let spo2 = HealthSampleMapping.overnightOxygenSummary(spo2Percents)
+        let hrv = mean(sleepHRVSamples(night: night, fallback: m.vitalsCurve).compactMap(\.hrv))
+        let hrvBase = m.nightInputs?.hrvBase
 
         // A deep episode is one run of stage 0. The band files them; counting them is not
         // the same as claiming a 90-minute cycle model the device never used.
@@ -227,14 +253,14 @@ extension VitalsReadout {
         }
 
         let window: String
-        if let start = night.sleepStart, let wake = night.wakeAt {
+        if let start = night.sleepStart, let wake = night.wakeAt, wake > start {
             window = L("BED %@ · WAKE %@", Fmt.clock(start), Fmt.clock(wake))
         } else {
             window = L("WINDOW NOT ON RECORD")
         }
 
-        return VitalsReadout(
-            badge: .init(text: badgeText, tint: badgeTint),
+        var out = VitalsReadout(
+            badge: nil,
             value: Fmt.duration(total),
             unit: L("ASLEEP"),
             gauge: nil,
@@ -244,15 +270,94 @@ extension VitalsReadout {
             splitTitle: L("STAGE PROPORTIONS"),
             splitTrailing: L("TOTAL %@", Fmt.duration(total)),
             bands: bands,
-            statLeft: .init(label: L("DEEP SLEEP"), value: Fmt.duration(night.deepMinutes), unit: nil,
-                            foot: L("%d%% OF THE NIGHT", Int((deepShare * 100).rounded())), tint: NB.violet1),
-            // Never the hero's own number again: the tile used to repeat TIME ASLEEP, which
-            // is the one thing the page has already said in 52 pt type.
-            statRight: .init(label: L("WAKE EVENTS"), value: String(night.wakeCount),
-                             unit: night.wakeCount == 1 ? L("WAKE") : L("WAKES"),
-                             foot: night.awakeMinutes > 0 ? L("%@ AWAKE", Fmt.duration(night.awakeMinutes))
-                                                          : L("NONE STAGED AWAKE"),
-                             tint: night.wakeCount > 2 ? NB.ember1 : nil))
+            statLeft: .init(label: L("NIGHT HRV"), value: hrv.map { String(Int($0.rounded())) },
+                            unit: "MS",
+                            foot: hrvBase.map { L("BASE %d MS", Int($0.rounded())) } ?? L("NO BASELINE YET"),
+                            tint: NB.blue1),
+            statRight: .init(label: L("NIGHT SPO2"), value: spo2.map { String($0.mean) },
+                             unit: "%",
+                             foot: spo2.map { _ in L("%d READINGS", spo2Percents.count) }
+                                 ?? L("NO OVERNIGHT OXYGEN"),
+                             tint: NB.cyan1))
+        out.extraLeft = .init(label: L("SPO2 MIN"), value: spo2.map { String($0.min) },
+                              unit: "%",
+                              foot: spo2 == nil ? L("NO OVERNIGHT OXYGEN")
+                                  : L("IN THE NIGHT WINDOW"),
+                              tint: NB.cyan1)
+        out.extraRight = .init(label: L("WAKE EVENTS"), value: String(night.wakeCount),
+                               unit: night.wakeCount == 1 ? L("WAKE") : L("WAKES"),
+                               foot: night.awakeMinutes > 0 ? L("%@ AWAKE", Fmt.duration(night.awakeMinutes))
+                                                            : L("NONE STAGED AWAKE"),
+                               tint: nil)
+        let respiration = (night.respiration ?? []).filter {
+            night.containsSleepTimestamp($0.ts) && $0.breathsPerMinute.isFinite && $0.breathsPerMinute > 0
+        }.map(\.breathsPerMinute)
+        let respirationMean = respiration.isEmpty ? nil : respiration.reduce(0, +) / Double(respiration.count)
+        out.respirationLeft = .init(label: L("MEAN RESPIRATION"),
+                                    value: respirationMean.map { String(format: "%.1f", $0) },
+                                    unit: L("BREATHS / MIN"),
+                                    foot: respiration.isEmpty ? L("NO SLEEP RESPIRATION") : L("%d READINGS", respiration.count),
+                                    tint: NB.violet2)
+        out.respirationRight = .init(label: L("RESPIRATION RANGE"),
+                                     value: respiration.min().flatMap { low in
+                                         respiration.max().map { String(format: "%.1f–%.1f", low, $0) }
+                                     }, unit: L("BREATHS / MIN"),
+                                     foot: L("IN THE NIGHT WINDOW"), tint: NB.violet2)
+        return out
+    }
+
+    // MARK: 03b · meal response
+
+    private static func response(_ index: MealResponseIndex.Result?) -> VitalsReadout {
+        let result = index ?? MealResponseIndex.make(
+            points: [], sleepWindows: [], now: Date())
+        let hero = result.hero.map(MealResponseIndex.signedPercent)
+        // 04C / issue #3 · OWN MEDIAN is the scale origin. When the five-day gate has
+        // passed it prints 0, not the vendor median and not ——: 0 means "me".
+        let ownMedian = result.ownMedianReady ? "0" : nil
+        let bands: [VitalsSplit.Band]
+        if result.below + result.near + result.above == 0 {
+            bands = []
+        } else {
+            bands = [
+                .init(name: L("Below"), tint: NB.ember1, share: Double(result.below),
+                      detail: "\(result.below)"),
+                .init(name: L("Near"), tint: NB.compareAmber, share: Double(result.near),
+                      detail: "\(result.near)"),
+                .init(name: L("Above"), tint: NB.optimal2, share: Double(result.above),
+                      detail: "\(result.above)"),
+            ]
+        }
+        let foot: String
+        switch result.empty {
+        case .needs5Days: foot = L("NEEDS 5 DAYS")
+        case .switchOff:  foot = L("SWITCH OFF")
+        case .allZeros:   foot = L("ALL ZEROS")
+        case .empty:      foot = L("NO TICKS TODAY")
+        case nil:         foot = L("VS OWN MEDIAN")
+        }
+        return VitalsReadout(
+            badge: nil,
+            value: hero,
+            unit: nil,
+            gauge: nil,
+            footLeft: foot,
+            footRight: result.percents.isEmpty ? nil : L("%d POINTS", result.percents.count),
+            chartNote: L("POINTS ONLY · NO LINE"),
+            splitTitle: L("VS OWN MEDIAN"),
+            splitTrailing: result.percents.isEmpty ? nil : L("%d POINTS", result.percents.count),
+            bands: bands,
+            statLeft: .init(label: L("24H MEDIAN"),
+                            value: result.median24h.map(MealResponseIndex.signedPercent),
+                            unit: nil,
+                            foot: result.median24h == nil ? L("NO TICKS TODAY")
+                                : L("TODAY'S POINTS"),
+                            tint: NB.compareAmber),
+            statRight: .init(label: L("OWN MEDIAN"),
+                             value: ownMedian,
+                             unit: nil,
+                             foot: result.ownMedianReady ? L("DAYTIME POINTS") : L("NEEDS 5 DAYS"),
+                             tint: result.ownMedianReady ? NB.compareAmber : nil))
     }
 
     // MARK: 03 · HRV
@@ -578,9 +683,6 @@ extension VitalsReadout {
         // The board's hero is the whole burn; the card that opened this page showed the
         // active part, which is why that number is repeated in the badge and the foot.
         let total = m.eOutNow ?? sum([bmr, move, train])
-        let bins = VitalsMath.hourSum(m.vitalsCurve, day: m.day, value: \.cal)
-        let peak = VitalsMath.peak(bins)
-
         var bands: [VitalsSplit.Band] = []
         let parts: [(String, Color, Double?)] = [
             (L("Resting"), NB.macroValue, bmr),
@@ -612,10 +714,9 @@ extension VitalsReadout {
             // The peak hour rather than the active-minute count: 補屏 B leaves activeMinutes
             // nil on a day with no weight, and a nil tile whose foot read "PEAK 19 KCAL/H"
             // was two unrelated facts stacked on each other.
-            statLeft: .init(label: L("PEAK BURN HOUR"), value: peak.map { Fmt.kcal($0.value) },
+            statLeft: .init(label: L("PEAK BURN HOUR"), value: nil,
                             unit: "KCAL",
-                            foot: peak.map { L("AT %@", VitalsMath.clock(day: m.day, minute: $0.index * 60)) }
-                                ?? L("NO TICKS YET"),
+                            foot: L("HOURLY ENERGY NOT AVAILABLE"),
                             tint: NB.run1),
             // ⚠️ bmrFull is the whole day's baseline and bmr is the part that has elapsed.
             // The tile used to print —— for bmrFull with the foot "NEEDS YOUR WEIGHT" while

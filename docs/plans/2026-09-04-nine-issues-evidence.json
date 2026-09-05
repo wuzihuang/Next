@@ -1,0 +1,29 @@
+{
+  "final-verification.json": {
+    "current_account_pending_operations": [],
+    "other_account_operations_preserved": 1190,
+    "cached_meal_count": 2,
+    "post_fix_http_statuses": {
+      "200": 162,
+      "201": 4
+    },
+    "derived_values_verified_present": true
+  },
+  "night-perf-summary.json": {
+    "baseline_ms": 2461.404,
+    "optimized_ms": 542.276,
+    "daily_results_equal_excluding_sequence_revision": true,
+    "night_inputs_equal": true,
+    "input_rows": 559,
+    "days": 3,
+    "baseline_hr_rest_calls": 8723,
+    "optimized_hr_rest_calls": 7,
+    "formula_changes": false
+  },
+  "production-perf-rollback.json": {
+    "passed": true,
+    "statement_timeout": "8s",
+    "wall_seconds": 4.115,
+    "days": 3
+  }
+}

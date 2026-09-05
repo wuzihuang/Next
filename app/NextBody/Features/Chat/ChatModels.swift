@@ -5,39 +5,6 @@ enum MessageSender: String, Codable {
     case assistant
 }
 
-enum VerdictLevel: String, Codable {
-    case alert
-    case optimal
-    case steady
-
-    var color: Color {
-        switch self {
-        case .alert:   return NB.alert2
-        case .optimal: return NB.lime1
-        case .steady:  return NB.cyan1
-        }
-    }
-}
-
-struct TelemetryMetricItem: Identifiable, Hashable {
-    let id = UUID()
-    let name: String
-    let value: String
-    let delta: String
-    let level: VerdictLevel
-}
-
-struct CyberTelemetryData: Hashable {
-    var category: String = "CLINICAL & STRAIN SYNTHESIS"
-    var confidence: String = "CONFIDENCE 96.4%"
-    var verdict: String
-    var verdictTag: String
-    var verdictLevel: VerdictLevel = .alert
-    var analysis: String
-    var metrics: [TelemetryMetricItem]
-    var prescriptions: [String]
-}
-
 struct ChatMessage: Identifiable, Hashable {
     let id: UUID
     let sender: MessageSender
@@ -45,16 +12,40 @@ struct ChatMessage: Identifiable, Hashable {
     var image: UIImage?
     var dataURL: String?
     let at: Date
-    var telemetry: CyberTelemetryData?
+    var widget: PanelWidget?
 
-    init(id: UUID = UUID(), sender: MessageSender, text: String, image: UIImage? = nil, dataURL: String? = nil, at: Date = Date(), telemetry: CyberTelemetryData? = nil) {
+    init(id: UUID = UUID(), sender: MessageSender, text: String, image: UIImage? = nil, dataURL: String? = nil, at: Date = Date(), widget: PanelWidget? = nil) {
         self.id = id
         self.sender = sender
         self.text = text
         self.image = image
         self.dataURL = dataURL
         self.at = at
-        self.telemetry = telemetry
+        self.widget = widget
+    }
+
+    var contextText: String {
+        [text, widget?.headline?.sub, widget?.hero, widget?.footer]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    @MainActor
+    init(archive: ChatArchiveMessage) {
+        let envelope = archive.envelope.flatMap {
+            (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
+        }
+        self.init(id: archive.id, sender: MessageSender(rawValue: archive.sender) ?? .assistant,
+                  text: archive.text, dataURL: archive.imageDataURL, at: archive.at,
+                  widget: envelope.flatMap { AIService.shared.widget(from: $0) })
+        if let url = archive.imageDataURL, let comma = url.firstIndex(of: ","),
+           let data = Data(base64Encoded: String(url[url.index(after: comma)...])) {
+            image = UIImage(data: data)
+        }
+    }
+
+    var archive: ChatArchiveMessage {
+        ChatArchiveMessage(id: id, sender: sender.rawValue, text: text,
+                           imageDataURL: dataURL, at: at, envelope: widget?.envelopeData)
     }
 
     func hash(into hasher: inout Hasher) {
@@ -87,5 +78,20 @@ struct ChatSession: Identifiable, Hashable {
 
     static func == (lhs: ChatSession, rhs: ChatSession) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+
+extension ChatSession {
+    @MainActor
+    init(archive: ChatArchiveSession) {
+        self.init(id: archive.id, title: archive.title, subtitle: archive.subtitle,
+                  updatedAt: archive.updatedAt, tags: archive.tags,
+                  photosCount: archive.photosCount, messages: archive.messages.map(ChatMessage.init(archive:)))
+    }
+
+    var archive: ChatArchiveSession {
+        ChatArchiveSession(id: id, title: title, subtitle: subtitle, updatedAt: updatedAt,
+                           tags: tags, photosCount: photosCount, messages: messages.map(\.archive))
     }
 }

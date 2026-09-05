@@ -27,14 +27,14 @@ struct PlusMenuSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             GroupHeader(L("ADD TO THE MESSAGE"))
-            MenuRow(icon: .camera, title: L("Take a photo"),
-                    detail: L("Camera, straight into the message.")) { close(); onCamera?() }
+            MenuRow(icon: .camera, title: L("Photograph your meal"),
+                    detail: L("Opens the camera. The plate is logged as soon as you shoot.")) { close(); onCamera?() }
             MenuRow(icon: .library, title: L("Photo library"),
                     detail: L("Pick one you already have.")) { close(); onLibrary?() }
 
             Hairline().padding(.vertical, 8)
             GroupHeader(L("SPORT MODE"))
-            let sportOffline: String? = data.band.connected ? nil : "The band isn't connected."
+            let sportOffline: String? = data.band.connected ? nil : L("The band isn't connected.")
             MenuRow(icon: .sport, title: L("Start a session"),
                     detail: L("Pick a mode · the band runs it."),
                     unavailable: sportOffline) {
@@ -52,7 +52,7 @@ struct PlusMenuSheet: View {
                 // second "are you sure, 60 seconds?" box would be asking a question already answered.
                 // 06 edge 6 · NO BAND: the two band rows are dimmed in the sheet with the reason;
                 // the measuring screen is never entered.
-                let offline: String? = data.band.connected ? nil : "The band isn't connected."
+                let offline: String? = data.band.connected ? nil : L("The band isn't connected.")
                 if canHeartRate {
                     // 06 · the balance check replaced the battery check. The old one could
                     // only ever produce a heart rate — the firmware refused its stress and HRV

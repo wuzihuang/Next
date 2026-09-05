@@ -131,9 +131,13 @@ struct TrainingDetailView: View {
                 EdgeNote(line: L("RING FULL · %.1f OVER TARGET", 21 - (m.targetLoad ?? 21)),
                          text: L("Way past %@. Tomorrow's target will already know about this.", Fmt.load(m.targetLoad)))
             }
+            Text(L("Daily movement and exercise build this load. Night HRV informs your suggested target. Movement calories are estimates."))
+                .font(NBFont.ui(400, 12))
+                .foregroundStyle(NB.text3Prod)
+                .fixedSize(horizontal: false, vertical: true)
             if autoHROff {
                 EdgeNote(line: L("AUTO HR IS OFF"),
-                         text: L("Steps alone can't move the ring. Turn continuous heart rate back on and today rebuilds itself."),
+                         text: L("Steps still contribute to daily load. Enable continuous heart rate to capture exercise intensity."),
                          action: { router.open(.deviceAutoMonitor, from: .home) })
             }
             if gapMinutes >= 60, let g = longestGap {

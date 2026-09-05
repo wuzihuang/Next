@@ -36,6 +36,7 @@ const TAGS = ["MOVE", "FUEL", "RECOVER", "ALERT"] as const;
 function wordsFor(locale: string) {
   const en = locale.startsWith("en");
   return {
+    claims: z.array(z.object({id:z.string(),metric:z.string(),unit:z.string().nullable(),from:z.string().nullable(),to:z.string(),value:z.number().finite()})).max(32).optional().describe("Measured claims must cite exact current evidence ID, metric, unit and range. Mismatches are rejected."),
     title: z.string().describe(en ? "≤ 18 characters, upper-cased on screen; 'METRIC · WINDOW'" : "≤ 18 个字符，屏上会转大写；写「指标 · 窗口」"),
     tag: z.string().optional().describe(en ? `One of ${TAGS.join(" / ")}, optional` : `只取 ${TAGS.join(" / ")} 之一，可省略`),
     sentence: z.string().describe(en ? "≤ 48 characters, two lines at most, required, in English; every number comes from a tool return this turn" : "≤ 48 字，两行封顶，必填；数字必须来自本轮读到的值"),
@@ -46,7 +47,7 @@ function wordsFor(locale: string) {
   };
 }
 
-export type Rendered = { rendered: true; type: string; hero?: string } | { rendered: false; error: "NO_DATA"; say: string };
+export type Rendered = { rendered: true; type: string; hero?: string } | { rendered: false; error: "NO_DATA" | "QUERY_FAILED" | "INVALID_EVIDENCE"; say: string };
 
 export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: Envelope) => void,
                                 locale = "en-US", sourceScope?: string[]) {
@@ -76,9 +77,19 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
           if (!skillSources.includes(String(args.source))) {
             return { rendered: false, error: "NO_DATA", say: `${args.source} is not a source for this chart. Use one of: ${skillSources.join(", ")}.` };
           }
-          const r = await fetchAs(args.source, kind, ctx);
+          let r: SourceResult | null;
+          try { r = await fetchAs(args.source, kind, ctx); } catch {
+            return { rendered:false, error:"QUERY_FAILED", say:"Source query failed. Do not describe this as no measurements; explain that data could not be loaded." };
+          }
           if (!r) {
             return { rendered: false, error: "NO_DATA", say: `${args.source} has no data. Pick another source or another chart; if none fits, use screen.render.text and write —— for the missing number.` };
+          }
+          if (r.evidence) {
+            const evidence = r.evidence as unknown as import("./ledger.ts").MeasurementEvidence;
+            ledger.registerEvidence(evidence, {agg:r.agg,data:r.data,hero:numbersIn(r.hero)});
+            if (args.hero && numbersIn(args.hero).some(value=>!ledger.hasClaim({...evidence,value}))) {
+              return {rendered:false,error:"INVALID_EVIDENCE",say:"The hero value is not supported by this source snapshot. Omit hero to use the server value."};
+            }
           }
           data = shape(r.data);
           hero = hero ?? r.hero;
@@ -98,6 +109,10 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
         } else {
           data = literalData(skill, args);
         }
+        if (args.claims?.some((claim: import("./ledger.ts").MeasurementClaim)=>!ledger.hasClaim(claim))) {
+          return {rendered:false,error:"INVALID_EVIDENCE",say:"A measured claim does not match the cited current metric, unit, interval, revision or value. Read the correct evidence and retry."};
+        }
+
         if (hero) data.hero = hero;
 
         const tag = (TAGS as readonly string[]).includes(String(args.tag)) ? args.tag as (typeof TAGS)[number] : undefined;

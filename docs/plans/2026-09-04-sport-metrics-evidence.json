@@ -1,0 +1,56 @@
+{
+  "date": "2026-09-04",
+  "fixed_50_jump_reproduced": false,
+  "artifacts_directory": "/tmp/nextbody-sport-validation",
+  "core_tests": {
+    "passed": 26,
+    "new_core_files_line_coverage_percent": 99.02
+  },
+  "physical_matrix": {
+    "result_bundle": "/tmp/nextbody-sport-validation/metrics-final-device.xcresult",
+    "passed_test_cases": 3,
+    "readings": [
+      {
+        "attachment": "sport-metric-readings-0_0_C0E14E4A-770B-4234-BC50-578AA4A7EF80.json",
+        "samples": 20,
+        "max_hr_step": 2,
+        "max_kcal_step": 1.0
+      },
+      {
+        "attachment": "sport-metric-readings-8_0_70A1DD15-8AEB-44B8-904E-1E4E1281700B.json",
+        "samples": 20,
+        "max_hr_step": 5,
+        "max_kcal_step": 1.0
+      },
+      {
+        "attachment": "sport-metric-readings-2_0_5C165198-B1BA-4001-9B6E-05BA17ED1CEA.json",
+        "samples": 20,
+        "max_hr_step": 9,
+        "max_kcal_step": 1.0
+      }
+    ]
+  },
+  "final_bluetooth_recovery": {
+    "result_bundle": "/tmp/nextbody-sport-validation/metrics-release-radio.xcresult",
+    "passed": true,
+    "profile_ack": true,
+    "reconnected_fresh_hr_at": "2026-09-05 01:33:52.753920+0800",
+    "stop_ack": true,
+    "note": "Real radio OFF/ON and new HR verified; energy gap invariant is covered by core tests, not an on-device calorie assertion."
+  },
+  "normal_launch": {
+    "ready": true,
+    "battery_ack": true,
+    "log": "/tmp/nextbody-sport-validation/metrics-final-baseline.log"
+  },
+  "diagnostic_capture": {
+    "source_removed": true,
+    "device_trace_emptied": true
+  },
+  "limits": [
+    "Exact user-reported fixed +50 change not reproduced",
+    "Only modes 0,2,8 sampled physically",
+    "Realtime SDK calorie unit remains undocumented; UI uses explicitly labeled estimate",
+    "No physiological validation across all exercise types"
+  ]
+}

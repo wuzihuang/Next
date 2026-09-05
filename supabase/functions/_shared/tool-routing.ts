@@ -68,7 +68,7 @@ const ROUTES: DomainRoute[] = [
     sources: (text) => {
       if (/(蛋白质|protein)/i.test(text)) return ["protein.today"];
       if (/(营养|macro)/i.test(text)) return ["macros.today"];
-      if (WEEK.test(text)) return ["mealsLogged.7d"];
+      if (WEEK.test(text)) return ["intakeKcal.7d"];
       return ["kcal.today", "meals.today", "mealsBySlot.today"];
     },
   },

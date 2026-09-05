@@ -14,6 +14,13 @@ final class Repository {
     /// it, and neither is worth a round trip of its own.
     private(set) var deviceId: String?
 
+    private var homeFastTask: Task<Void, Never>?
+    private var evidencePublicationTask: Task<Void, Never>?
+    private var homeFastDone = false
+    private var readGeneration: UInt = 0
+    private(set) var sessionGeneration: UInt = 0
+    private var summaryRevisions: [String: [String: String]] = [:]
+
     /// Open a session before Home reads. A real session from the gate is never replaced.
     /// Simulator: restore, or sign in as the seeded demo account.
     /// Device: restore only; a leftover demo@ session is dropped so the gate comes back.
@@ -28,55 +35,183 @@ final class Repository {
         try await db.signIn(email: DemoAccount.email, password: DemoAccount.password)
     }
 
+    func resetBootstrap() {
+        deviceId = nil
+        summaryRevisions = [:]
+        homeFastTask?.cancel()
+        evidencePublicationTask?.cancel()
+        evidencePublicationTask = nil
+        readGeneration &+= 1
+        sessionGeneration &+= 1
+        homeFastTask = nil
+        homeFastDone = false
+    }
+
+    /// Session plus today's row. History, composition and capability tables follow in the
+    /// background so Home is not held behind 182 days of `daily_results`.
+    func bootstrapHome(into store: DataStore) async {
+        if let homeFastTask { await homeFastTask.value }
+        if homeFastDone { return }
+        let task = Task { @MainActor in
+            let started = Date()
+            try? await openSession()
+            let account = SupabaseClient.currentUserIdSnapshot()
+            guard account != nil, !Task.isCancelled else { return }
+            await loadHomeFast(into: store)
+            guard account == SupabaseClient.currentUserIdSnapshot(), !Task.isCancelled else { return }
+            HomeSnapshot.save(from: store)
+            #if DEBUG
+            NSLog("Repository.bootstrapHome fast %.0f ms",
+                  Date().timeIntervalSince(started) * 1000)
+            #endif
+            guard !store.isOffline else { return }
+            homeFastDone = true
+            Task { @MainActor in
+                guard account == SupabaseClient.currentUserIdSnapshot() else { return }
+                await loadHomeRest(into: store)
+                guard account == SupabaseClient.currentUserIdSnapshot() else { return }
+                HomeSnapshot.save(from: store)
+            }
+        }
+        homeFastTask = task
+        await task.value
+    }
+
     func loadToday(into store: DataStore) async {
+        await bootstrapHome(into: store)
+    }
+
+    private func loadHomeFast(into store: DataStore) async {
         let today = UserDay.containing(Date())
-        await loadProfile(into: store)
+        async let profile: Void = loadProfile(into: store, ensureRow: false)
+        async let day: Void = load(days: HomeLaunchPolicy.fastLoadLookbackDays,
+                                   endingAt: today, into: store)
+        _ = await (profile, day)
+    }
+
+    private func loadHomeRest(into store: DataStore) async {
+        let generation = sessionGeneration
+        let today = UserDay.containing(Date())
+        guard generation == sessionGeneration else { return }
+        await loadProfile(into: store, ensureRow: true)
         // 11 · the heat map is twenty-six columns of seven days.
-        await load(days: 182, endingAt: today, into: store)
+        guard generation == sessionGeneration else { return }
+        await loadHistorySummaries(days: 182, endingAt: today, into: store)
+        guard generation == sessionGeneration else { return }
         await loadComposition(into: store)
+        guard generation == sessionGeneration else { return }
         await loadCapabilities(into: store)
+        guard generation == sessionGeneration else { return }
         await loadLastSync(into: store)
-        // Reachability may never change while a user signs out and later returns. Flush the
-        // account-owned outboxes on session restore as well as on network transitions.
+        guard generation == sessionGeneration else { return }
         await WeighInQueue.shared.flush()
+        guard generation == sessionGeneration else { return }
         await BodyCompositionQueue.shared.flush()
+        guard generation == sessionGeneration else { return }
+        await flushPendingEvidence()
+    }
+
+    /// Account-owned outboxes can retry without a connected band or an active sensor read.
+    func flushPendingEvidence() async {
+        guard let account = SupabaseClient.currentUserIdSnapshot(), Reachability.shared.isOnline else { return }
+        if let running = evidencePublicationTask { await running.value; return }
+        let generation = sessionGeneration
+        let task = Task { @MainActor in
+            await publishPendingEvidence(account: account, generation: generation)
+        }
+        evidencePublicationTask = task
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        if generation == sessionGeneration { evidencePublicationTask = nil }
+    }
+
+    private func publishPendingEvidence(account: String, generation: UInt) async {
+        guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
+              !Task.isCancelled else { return }
+        await MealQueue.shared.flush()
+        guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+        await OriginDataSync.flushPendingEvidence(userId: account)
+        guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
+              !Task.isCancelled else { return }
+        let today = UserDay.containing(Date())
+        do {
+            let status = try await calculationStatusIfAvailable(from: today.key, to: today.key)
+            let pending: [Bool?]? = status.map { rows in
+                rows.map { row in
+                    guard row["result_revision"] as? String != nil else { return nil }
+                    return row["pending"] as? Bool
+                }
+            }
+            guard HomeLaunchPolicy.needsEvidenceSettlement(pending: pending),
+                  account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
+                  !Task.isCancelled else { return }
+            // The server drains its persisted dirty range, even when this retry uploaded
+            // no new facts. Its revision check avoids replaying already-current days.
+            _ = try await db.rpc("settle_now", args: ["p_days": 0], expectedOwner: account)
+            guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
+                  !Task.isCancelled else { return }
+            // loadToday is a cached bootstrap and would keep showing the old result.
+            await load(days: HomeLaunchPolicy.fastLoadLookbackDays, endingAt: today, into: DataStore.shared)
+            guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+            HomeSnapshot.save(from: DataStore.shared)
+        } catch { BandLog.shared.record("publish drained evidence", error: error) }
     }
 
     func loadLastSync(into store: DataStore) async {
+        let generation = sessionGeneration
+        let account = SupabaseClient.currentUserIdSnapshot()
         guard let rows = try? await db.select("devices", query: [
             .init(name: "select", value: "id,last_origin_sync_at"),
             .init(name: "unbound_at", value: "is.null"),
             .init(name: "limit", value: "1"),
         ]), let row = rows.first else { return }
+        guard account != nil, account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
         if let id = row["id"] as? String { deviceId = id }
         store.lastSync = (row["last_origin_sync_at"] as? String).flatMap(Self.timestamp)
     }
 
     /// The profile exists from onboarding onwards; failing to read it is a serious fault,
     /// so the screen keeps whatever it already had rather than blanking the identity card.
-    func loadProfile(into store: DataStore) async {
-        let found = try? await db.select("profiles", query: [
+    func loadProfile(into store: DataStore, ensureRow: Bool = true) async {
+        let generation = sessionGeneration
+        let account = SupabaseClient.currentUserIdSnapshot()
+        async let profileRows = db.select("profiles", query: [
             .init(name: "select", value: "display_name,sex,height_cm,birth_date,goal,units_metric,timezone"),
             .init(name: "limit", value: "1"),
-        ]).first
-        // The row must exist and carry this phone's zone before anything can be computed.
-        await ensureProfileRow(existingTimezone: found?["timezone"] as? String)
-        guard let row = found else { return }
-
-        if let name = row["display_name"] as? String, !name.isEmpty { store.profile.name = name }
-        if let d = try? await db.select("devices", query: [
-            .init(name: "select", value: "id,firmware_version,battery_percent,device_number"),
+        ])
+        async let deviceRows = db.select("devices", query: [
+            .init(name: "select", value: "id,firmware_version,battery_percent,device_number,last_origin_sync_at"),
             // The bound one. A forgotten HOOP keeps its row (12 · "your history stays") and
             // must not lend the header its last battery reading.
             .init(name: "unbound_at", value: "is.null"),
             .init(name: "limit", value: "1"),
-        ]).first {
-            deviceId = d["id"] as? String
-            if let fw = d["firmware_version"] as? String { store.band.firmware = fw }
-            if let pct = number(d["battery_percent"]) { store.band.batteryPercent = Int(pct) }
+        ])
+        let found = (try? await profileRows)?.first
+        let device = (try? await deviceRows)?.first
+        guard account != nil, account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+        // The row must exist and carry this phone's zone before anything can be computed.
+        if ensureRow {
+            await ensureProfileRow(existingTimezone: found?["timezone"] as? String)
         }
+        guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+        let mail = await db.signedInEmail()
+        guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+        if let d = device {
+            deviceId = d["id"] as? String
+            // Network hydration may finish after early BLE readiness. Never replace a
+            // session's real device observation with a cached cloud row.
+            if store.bandObservationRevision == 0, !store.band.connected {
+                if let fw = d["firmware_version"] as? String { store.band.firmware = fw }
+                if let pct = number(d["battery_percent"]) { store.band.batteryPercent = Int(pct) }
+            }
+            if store.lastSync == nil {
+                store.lastSync = (d["last_origin_sync_at"] as? String).flatMap(Self.timestamp)
+            }
+        }
+        guard let row = found else { return }
+
+        if let name = row["display_name"] as? String, !name.isEmpty { store.profile.name = name }
         // The address is whoever is signed in — never a placeholder next to real numbers.
-        if let mail = await db.signedInEmail() { store.profile.email = mail }
+        if let mail { store.profile.email = mail }
         if let h = number(row["height_cm"]) { store.profile.heightCm = h }
         if let sex = row["sex"] as? String { store.profile.sexIsMale = (sex == "male") }
         if let goal = (row["goal"] as? String).flatMap(Goal.init(rawValue:)) { store.profile.goal = goal }
@@ -90,12 +225,15 @@ final class Repository {
     /// F0 rule 09 · every field carries its own source. MEASURED re-anchors the EMA;
     /// weight × body-fat % is DERIVED and never written back over history.
     func loadComposition(into store: DataStore) async {
+        let generation = sessionGeneration
+        let account = SupabaseClient.currentUserIdSnapshot()
         guard let rows = try? await db.select("body_composition", query: [
             .init(name: "select", value: "measured_at,body_fat_pct,fat_mass_kg,lean_body_mass_kg,measurement_source"),
             .init(name: "order", value: "measured_at.desc"),
             .init(name: "limit", value: "90"),
         ]), let latest = rows.first else { return }
 
+        guard account != nil, account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
         store.today.fatKg = number(latest["fat_mass_kg"])
         store.today.leanKg = number(latest["lean_body_mass_kg"])
         store.today.fatSource = (latest["measurement_source"] as? String) == "manual" ? .derived : .measured
@@ -152,10 +290,47 @@ final class Repository {
         store.bodyFatPercent = number(latest["body_fat_pct"])
     }
 
-    /// The bound HOOP's row. The demo account has one from the seed; a real phone had none —
-    /// nothing wrote it after pairing — so `deviceId` stayed nil, sync_runs named no device,
-    /// device_capabilities were never stored, and the header's battery came from a mock.
-    /// One bound row per user (unbound_at is null): patched when it exists, inserted when not.
+    /// F1 §02 facts for the gate. RLS scopes both reads; a missing row is "not yet", not an error.
+    func fetchAccountGate() async -> AccountGate {
+        var facts = AccountGate()
+        async let deviceRows = db.select("devices", query: [
+            .init(name: "select", value: "id"),
+            .init(name: "unbound_at", value: "is.null"),
+            .init(name: "limit", value: "1"),
+        ])
+        async let profileRows = db.select("profiles", query: [
+            .init(name: "select", value: "display_name,sex,height_cm,birth_date,goal"),
+            .init(name: "limit", value: "1"),
+        ])
+        async let weighRows = db.select("weigh_ins", query: [
+            .init(name: "select", value: "weight_kg"),
+            .init(name: "order", value: "measured_at.desc"),
+            .init(name: "limit", value: "1"),
+        ])
+        if let device = (try? await deviceRows)?.first {
+            facts.hasBoundBand = true
+            if let id = device["id"] as? String { deviceId = id }
+        }
+        if let row = (try? await profileRows)?.first {
+            facts.displayName = row["display_name"] as? String
+            facts.sex = row["sex"] as? String
+            facts.heightCm = number(row["height_cm"])
+            if let birth = row["birth_date"] as? String {
+                let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+                facts.birthDate = f.date(from: String(birth.prefix(10)))
+            }
+            if let raw = row["goal"] as? String { facts.goal = Goal(rawValue: raw) }
+        }
+        if let weigh = (try? await weighRows)?.first {
+            facts.weightKg = number(weigh["weight_kg"])
+        }
+        return facts
+    }
+
+    /// The bound HOOP's row. Written at the end of pairing, not only after Home reconnects
+    /// — a kill on the onboarding screens used to leave the account with no devices row.
+    /// One bound row per user (unbound_at is null): patched when it is the same band,
+    /// unbound + inserted when the ble identifier changed.
     func registerDevice(identity: BandIdentity?, battery: BandBattery?) async {
         guard let userId = await db.currentUserId else { return }
         var row: [String: Any] = [:]
@@ -169,16 +344,28 @@ final class Repository {
             if let p = battery.percent { row["battery_percent"] = p }
             if let l = battery.level { row["battery_level"] = l }
         }
+        let ble = identity?.bleIdentifier ?? BoundBand.identifier
         do {
             let bound = try await db.select("devices", query: [
-                .init(name: "select", value: "id"),
+                .init(name: "select", value: "id,ble_identifier"),
                 .init(name: "unbound_at", value: "is.null"),
                 .init(name: "limit", value: "1"),
             ]).first
             if let id = bound?["id"] as? String {
-                deviceId = id
-                if !row.isEmpty { _ = try await db.patch("devices", id: id, row: row) }
-            } else if let ble = identity?.bleIdentifier ?? BoundBand.identifier {
+                if let ble, (bound?["ble_identifier"] as? String) != ble {
+                    _ = try await db.patch("devices", id: id, row: [
+                        "unbound_at": ISO8601DateFormatter().string(from: Date()),
+                    ])
+                    var insert = row
+                    insert["user_id"] = userId
+                    insert["ble_identifier"] = ble
+                    insert["ble_identifier_kind"] = "uuid"
+                    deviceId = try await db.insert("devices", row: insert).first?["id"] as? String
+                } else {
+                    deviceId = id
+                    if !row.isEmpty { _ = try await db.patch("devices", id: id, row: row) }
+                }
+            } else if let ble {
                 row["user_id"] = userId
                 row["ble_identifier"] = ble
                 row["ble_identifier_kind"] = "uuid"
@@ -187,6 +374,28 @@ final class Repository {
         } catch {
             #if DEBUG
             NSLog("Repository.registerDevice failed: %@", "\(error)")
+            #endif
+        }
+    }
+
+    /// F3 · Forget this HOOP writes unbound_at. The row stays so history still has a device
+    /// to name; the unique "one bound per user" slot opens for the next pair.
+    func unbindBoundDevice() async {
+        do {
+            let bound = try await db.select("devices", query: [
+                .init(name: "select", value: "id"),
+                .init(name: "unbound_at", value: "is.null"),
+                .init(name: "limit", value: "1"),
+            ]).first
+            let id = bound?["id"] as? String ?? deviceId
+            guard let id else { return }
+            _ = try await db.patch("devices", id: id, row: [
+                "unbound_at": ISO8601DateFormatter().string(from: Date()),
+            ])
+            deviceId = nil
+        } catch {
+            #if DEBUG
+            NSLog("Repository.unbindBoundDevice failed: %@", "\(error)")
             #endif
         }
     }
@@ -220,10 +429,139 @@ final class Repository {
     /// BMR is stored as a reference and never enters the budget.
     func recordBodyComposition(_ r: BodyCompositionReading, at date: Date = Date()) async {
         guard let userId = await db.userId else { return }
-        BodyCompositionQueue.shared.enqueue(r, at: date, ownerUserId: userId)
+        do { try BodyCompositionQueue.shared.enqueue(r, at: date, ownerUserId: userId) }
+        catch { BandLog.shared.record("persist body composition", error: error); return }
+    }
+
+    /// Heat map and week summaries never download historical training curves.
+    func loadHistorySummaries(days: Int, endingAt day: UserDay, into store: DataStore) async {
+        let account = SupabaseClient.currentUserIdSnapshot()
+        let generation = readGeneration
+        do {
+            guard let account else { return }
+            let from = day.adding(days: -min(days, 182)).key
+            let status = try await calculationStatusIfAvailable(from: from, to: day.key)
+            let known = summaryRevisions[account] ?? [:]
+            var range = [URLQueryItem(name: "user_day", value: "gte.\(from)")]
+            if let status {
+                let changed = status.compactMap { row -> String? in
+                    guard let key = row["user_day"] as? String else { return nil }
+                    let hasCachedRow = store.today.day.key == key || store.history.contains { $0.day.key == key }
+                    return HomeLaunchPolicy.shouldRefreshSummary(revision: row["result_revision"] as? String,
+                        cachedRevision: known[key], hasCachedRow: hasCachedRow) ? key : nil
+                }
+                guard let changedFilter = HomeLaunchPolicy.postgrestIn(changed) else { return }
+                range = [.init(name: "user_day", value: changedFilter)]
+            }
+            let selection = try await selectDailyResultsCompat(query: [
+                .init(name: "select", value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version,result_revision"),
+                .init(name: "user_day", value: "lte.\(day.key)"),
+                .init(name: "order", value: "user_day.asc"),
+            ] + range)
+            let rows = selection.rows
+            let fuel = try await selectByResultId("day_fuel",
+                columns: "result_id,kcal_in,kcal_out,protein_in_g,carb_in_g,fat_in_g,weight_kg,intake_state,slot_states",
+                ids: rows.compactMap { $0["id"] as? String })
+            if status != nil && selection.versioned {
+                guard let latestStatus = try await calculationStatusIfAvailable(from: from, to: day.key),
+                    rows.allSatisfy({ row in latestStatus.contains {
+                        ($0["user_day"] as? String) == (row["user_day"] as? String)
+                            && ($0["result_revision"] as? String) == (row["result_revision"] as? String)
+                    } }) else { return }
+            }
+            guard HomeLaunchPolicy.acceptsRead(account: account,
+                currentAccount: SupabaseClient.currentUserIdSnapshot(), generation: generation,
+                currentGeneration: readGeneration), !Task.isCancelled else { return }
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
+            let summaries: [DailyMetrics] = rows.compactMap { row in
+                guard let key = row["user_day"] as? String, let date = f.date(from: key) else { return nil }
+                let d = UserDay(date: Calendar.current.date(bySettingHour: UserDay.boundaryHour,
+                    minute: 0, second: 0, of: date) ?? date)
+                let asOf = (row["computed_at"] as? String).flatMap(Self.timestamp)
+                // Preserve an already loaded detail only when its result is the same or newer.
+                if let existing = store.metrics(for: d), let at = existing.asOf,
+                   let asOf, at >= asOf {
+                    var retained = existing
+                    retained.sleep = Self.sleepOnWakeDay(existing.sleep, day: d)
+                    return retained
+                }
+                var m = DailyMetrics(day: d)
+                m.trainingLoad = number(row["training_load"])
+                m.bodyBattery = number(row["reserve_score"]).map(Int.init)
+                m.balance = number(row["fuel_balance_kcal"])
+                m.asOf = asOf; m.calcVersion = row["algo_version"] as? String ?? "?"
+                m.serverDirection = (row["daily_direction"] as? String).flatMap {
+                    switch $0 {
+                    case "DEFICIT": .deficit
+                    case "LEVEL": .level
+                    case "SURPLUS": .surplus
+                    case "GREY_NO_BURN": .greyNoBurn
+                    default: .greyNothing
+                    }
+                }
+                m.serverCall = (row["the_call"] as? String).flatMap {
+                    $0 == "NO_CHANGE" ? .noChange : TheCall(rawValue: $0)
+                }
+                m.confidence = Confidence(rawValue: row["the_call_confidence"] as? String ?? "") ?? .pending
+                m.fatEmaDelta7d = number(row["fat_delta_7d"])
+                m.leanEmaDelta7d = number(row["lean_delta_7d"])
+                m.scans7d = Int(number(row["scans_7d"]) ?? 0)
+                if let energy = fuel.first(where: { ($0["result_id"] as? String) == (row["id"] as? String) }) {
+                    m.eIn = number(energy["kcal_in"]); m.eOutNow = number(energy["kcal_out"])
+                    m.proteinIn = number(energy["protein_in_g"]).map(Int.init)
+                    m.carbIn = number(energy["carb_in_g"]).map(Int.init)
+                    m.fatIn = number(energy["fat_in_g"]).map(Int.init)
+                    m.weightKg = number(energy["weight_kg"])
+                    switch energy["intake_state"] as? String {
+                    case "FASTED": m.fuelState = .fasted
+                    case "CONFIRMED": m.fuelState = .confirmed
+                    case "PARTIAL": m.fuelState = .partial(slots: (energy["slot_states"] as? [String: String])?.values.filter { $0 == "CONFIRMED" }.count ?? 0)
+                    default: m.fuelState = .unlogged
+                    }
+                }
+                // Summary revisions invalidate computed details, not device observations.
+                if let existing = store.metrics(for: d) {
+                    m.sleep = Self.sleepOnWakeDay(existing.sleep, day: d)
+                    m.vitalsCurve = existing.vitalsCurve
+                    m.fatKg = existing.fatKg
+                    m.leanKg = existing.leanKg
+                }
+                return m
+            }
+            summaryRevisions[account] = known.merging(Dictionary(uniqueKeysWithValues: rows.compactMap { row in
+                guard let key = row["user_day"] as? String, let revision = row["result_revision"] as? String else { return nil }
+                return (key, revision)
+            }), uniquingKeysWith: { _, new in new })
+            store.history = (store.history.filter { old in !summaries.contains { $0.day == old.day } }
+                + summaries).sorted { $0.day < $1.day }
+            HomeSnapshot.save(from: store)
+        } catch {
+            // Keep valid cached history when an independent background read fails.
+            NSLog("History summary refresh failed: %@", String(describing: error))
+        }
+    }
+
+    func loadDetail(day: UserDay, into store: DataStore) async {
+        guard let account = SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId else { return }
+        if var cached = HomeSnapshot.loadDetail(day: day, userId: account),
+           store.metrics(for: day)?.asOf == nil || (store.metrics(for: day)?.asOf ?? .distantPast) < (cached.asOf ?? .distantPast) {
+            cached.sleep = Self.sleepOnWakeDay(cached.sleep, day: day)
+            if day == UserDay.containing(Date()) { store.today = cached }
+            store.history = (store.history.filter { $0.day != day } + [cached]).sorted { $0.day < $1.day }
+        }
+        guard !store.isOffline else { return }
+        await load(days: 0, endingAt: day, into: store)
     }
 
     func load(days: Int, endingAt day: UserDay, into store: DataStore) async {
+        readGeneration &+= 1
+        let generation = readGeneration
+        let account = SupabaseClient.currentUserIdSnapshot()
+        func isCurrent() -> Bool {
+            HomeLaunchPolicy.acceptsRead(account: account,
+                currentAccount: SupabaseClient.currentUserIdSnapshot(),
+                generation: generation, currentGeneration: readGeneration)
+        }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = .current
@@ -231,13 +569,14 @@ final class Repository {
         let to = f.string(from: day.start)
 
         do {
-            let rows = try await db.select("daily_results", query: [
+            let dailyRead = try await selectDailyResultsCompat(query: [
                 .init(name: "select",
-                      value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version"),
+                      value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version,result_revision"),
                 .init(name: "user_day", value: "gte.\(from)"),
                 .init(name: "user_day", value: "lte.\(to)"),
                 .init(name: "order", value: "user_day.asc"),
             ])
+            let rows = dailyRead.rows
             #if DEBUG
             NSLog("Repository.load: %d daily_results rows", rows.count)
             #endif
@@ -246,23 +585,28 @@ final class Repository {
             // must still load: otherwise a successful 12:45 band upload leaves an 08:00 curve
             // on screen merely because the derived row is late. These independent requests
             // run together so that correctness does not add serial round trips.
+            // Child tables are keyed to the rows just returned — an unfiltered select used
+            // to download every day's fuel/training curve before Home could paint.
+            async let formalRead = metricReadIfAvailable(from: from, to: to)
+            let resultIds = rows.compactMap { $0["id"] as? String }
             let stamp = ISO8601DateFormatter()
-            async let fuelRows = db.select("day_fuel", query: [
-                .init(name: "select", value: "result_id,intake_state,kcal_in,kcal_out,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,protein_in_g,carb_in_g,fat_in_g,weight_kg"),
-            ])
-            async let reserveRows = db.select("reserve_daily", query: [
-                .init(name: "select", value: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs"),
-            ])
-            async let trainingRows = db.select("daily_training", query: [
-                .init(name: "select", value: "result_id,zone_minutes,peak_hr,curve,segments"),
-            ])
+            async let fuelRows = selectByResultId(
+                "day_fuel",
+                columns: "result_id,intake_state,kcal_in,kcal_out,protein_in_g,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,carb_in_g,fat_in_g,weight_kg",
+                ids: resultIds)
+            async let reserveRows = selectByResultId(
+                "reserve_daily",
+                columns: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs",
+                ids: resultIds)
+            async let trainingRows = selectByResultId(
+                "daily_training",
+                columns: "result_id,zone_minutes,peak_hr,curve,segments",
+                ids: resultIds)
             // 补屏 B · active_minutes / distance_m arrive with migration 20260902040000. Asked
             // for separately so a project without them still loads the day — naming an
             // unknown column is a 400 for the whole select, and that 400 took the home
             // screen offline.
-            async let trainingExtras = try? await db.select("daily_training", query: [
-                .init(name: "select", value: "result_id,active_minutes,distance_m"),
-            ])
+            async let trainingExtras = selectTrainingExtras(ids: resultIds)
             async let weighInRows = db.select("weigh_ins", query: [
                 .init(name: "select", value: "id,measured_at,weight_kg,source"),
                 .init(name: "order", value: "measured_at.desc"),
@@ -296,7 +640,7 @@ final class Repository {
             // back into its own 04:00 window after the response arrives.
             async let vitalRowsAsync = db.select("raw_samples", query: [
                 .init(name: "select", value: "ts,heart,stress,temp,step,cal,dis,hrv"),
-                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -1).start))"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -max(days, 1) - 1).start))"),
                 .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
                 .init(name: "order", value: "ts.asc"),
             ])
@@ -307,6 +651,33 @@ final class Repository {
                 .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
                 .init(name: "order", value: "ts.desc"),
                 .init(name: "limit", value: "1"),
+            ])
+            // The newest row is often a sleep PPG tick with heart and no stress. The
+            // STRESS card's "now" is the last positive reading, not that newest null.
+            async let liveStressRowsAsync = db.select("raw_samples", query: [
+                .init(name: "select", value: "ts,stress"),
+                .init(name: "stress", value: "gt.0"),
+                .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
+                .init(name: "order", value: "ts.desc"),
+                .init(name: "limit", value: "1"),
+            ])
+            // 04B · SLEEP card. Prefetched with the rest so Home does not wait a serial hop.
+            async let nightRowsAsync = db.select("sleep_nights", query: [
+                .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line,sleep_start,wake_at,raw"),
+                .init(name: "user_day", value: "gte.\(from)"),
+                .init(name: "user_day", value: "lte.\(to)"),
+            ])
+            async let oxygenRowsAsync = db.select("oxygen_samples", query: [
+                .init(name: "select", value: "ts,spo2"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -max(days, 1) - 1).start))"),
+                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
+                .init(name: "order", value: "ts.asc"),
+            ])
+            async let responseRowsAsync = db.select("response_samples", query: [
+                .init(name: "select", value: "ts,optical"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -21).start))"),
+                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
+                .init(name: "order", value: "ts.asc"),
             ])
 
             let fuel = try await fuelRows
@@ -320,6 +691,46 @@ final class Repository {
                 }
             }
             let weighIns = try await weighInRows
+            let weekRows = try await weekMealRows
+            let sampleRows = try await sampleRowsAsync
+            let vitalRows = try await vitalRowsAsync
+            let nightRows = try? await nightRowsAsync
+            let oxygenRows = try? await oxygenRowsAsync
+            let responseRows = try? await responseRowsAsync
+            let liveRows = try await liveRowsAsync
+            let liveStressRows = try? await liveStressRowsAsync
+            let formal = try await formalRead
+            let formalMetrics: [[String: Any]]?
+            if let formal {
+                guard formal["ok"] as? Bool == true,
+                      let metrics = formal["data"] as? [[String: Any]] else {
+                    throw SupabaseClient.Failure.http(503, "Metric read unavailable")
+                }
+                formalMetrics = metrics
+            } else {
+                formalMetrics = nil
+            }
+            if dailyRead.versioned {
+                for metric in formalMetrics ?? [] where metric["metric"] as? String != "sleepMinutes" {
+                    for point in metric["points"] as? [[String: Any]] ?? [] {
+                        if let row = rows.first(where: { $0["user_day"] as? String == point["dayKey"] as? String }),
+                           row["result_revision"] as? String != point["resultRevision"] as? String {
+                            throw SupabaseClient.Failure.http(409, "Metric revision changed during read")
+                        }
+                    }
+                }
+                if let status = try await calculationStatusIfAvailable(from: from, to: to) {
+                    guard rows.allSatisfy({ row in
+                        status.contains { ($0["user_day"] as? String) == (row["user_day"] as? String)
+                            && ($0["result_revision"] as? String) == (row["result_revision"] as? String) }
+                    }) else { throw SupabaseClient.Failure.http(409, "Calculation changed during read") }
+                }
+            }
+            guard isCurrent(), !Task.isCancelled else { return }
+            func formalValue(_ metric: String, _ key: String) -> Double? {
+                let points = formalMetrics?.first { $0["metric"] as? String == metric }?["points"] as? [[String: Any]]
+                return number(points?.first { $0["dayKey"] as? String == key }?["value"])
+            }
 
             let fuelBy = Dictionary(uniqueKeysWithValues:
                 fuel.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
@@ -347,7 +758,7 @@ final class Repository {
                     default: DailyDirection.greyNothing
                     }
                 }
-                m.balance = number(row["fuel_balance_kcal"])
+                m.balance = formalMetrics == nil ? number(row["fuel_balance_kcal"]) : formalValue("deltaKcal", userDay.key)
                 m.calcVersion = row["algo_version"] as? String ?? "?"
                 m.confidence = Confidence(rawValue: row["the_call_confidence"] as? String ?? "") ?? .pending
                 // F3 · computed in Postgres like everything else; the local derivation is
@@ -420,9 +831,9 @@ final class Repository {
                     }
                 }
                 if let fu = fuelBy[id] {
-                    m.eIn = number(fu["kcal_in"])
-                    m.eOutNow = number(fu["kcal_out"])
-                    m.proteinIn = number(fu["protein_in_g"]).map { Int($0) }
+                    m.eIn = formalMetrics == nil ? number(fu["kcal_in"]) : formalValue("intakeKcal", userDay.key)
+                    m.eOutNow = formalMetrics == nil ? number(fu["kcal_out"]) : formalValue("burnKcal", userDay.key)
+                    m.proteinIn = (formalMetrics == nil ? number(fu["protein_in_g"]) : formalValue("proteinG", userDay.key)).map { Int($0) }
                     m.carbIn = number(fu["carb_in_g"]).map { Int($0) }
                     m.fatIn = number(fu["fat_in_g"]).map { Int($0) }
                     m.weightKg = number(fu["weight_kg"]) ?? m.weightKg
@@ -457,13 +868,18 @@ final class Repository {
                     default: m.fuelState = .unlogged
                     }
                 }
+                if m.nightInputs != nil, formalMetrics != nil {
+                    m.nightInputs?.hrv = formalValue("nightHRV", userDay.key)
+                    m.nightInputs?.hrvBase = formalValue("hrvBaseline", userDay.key)
+                    m.nightInputs?.rhr = formalValue("nightRHR", userDay.key)
+                }
                 history.append(m)
             }
 
             // A just-synced day can have raw_samples before it has a daily_results row.
             // Preserve any local metrics for the two chart days and add only the missing
             // shells; the raw response below will fill their curves.
-            for requiredDay in [day.adding(days: -1), day] where
+            for requiredDay in (0...max(days, 1)).map({ day.adding(days: -$0) }) where
                 !history.contains(where: { $0.day == requiredDay }) {
                 if let existing = store.history.first(where: { $0.day == requiredDay }) {
                     history.append(existing)
@@ -479,8 +895,7 @@ final class Repository {
             // server says UNLOGGED, an old locally-seeded meal must not survive on screen.
             // 12 · WEEK needs the week's meals, not just today's. Fetched once for the
             // window; `store.meals` stays today's so 09 keeps reading exactly what it did.
-            let weekRows = try await weekMealRows
-            store.recentMeals = weekRows.compactMap { row in
+            let loadedMeals: [MealEntry] = weekRows.compactMap { row in
                 guard let slot = MealEntry.Slot(rawValue: row["slot"] as? String ?? ""),
                       let iso = row["logged_at"] as? String,
                       let at = Self.timestamp(iso),
@@ -502,9 +917,15 @@ final class Repository {
             // Today's list is the shown day's rows out of the week just fetched — the same
             // columns, the same filter, one fewer request. `store.meals` stays today's so 09
             // keeps reading exactly what it did.
-            store.meals = store.recentMeals.filter { $0.day == day }
+            if day != UserDay.containing(Date()) {
+                let loadedDays = Set(loadedMeals.map(\.day))
+                store.recentMeals = store.recentMeals.filter { !loadedDays.contains($0.day) } + loadedMeals
+            }
+            if day == UserDay.containing(Date()) {
+                store.recentMeals = loadedMeals
+                store.meals = loadedMeals.filter { $0.day == day }
+            }
 
-            let sampleRows = try await sampleRowsAsync
             let curve: [ReserveSample] = sampleRows.compactMap { row in
                 guard let t = row["ts"] as? String,
                       let at = Self.timestamp(t),
@@ -515,7 +936,6 @@ final class Repository {
 
             // ⚠️ A tick with neither heart nor stress is the band off the wrist. It is dropped
             // here rather than drawn as a zero, so the two traces stop where the wearing did.
-            let vitalRows = try await vitalRowsAsync
             let vitals: [VitalSample] = vitalRows.compactMap { row in
                 guard let t = row["ts"] as? String, let at = Self.timestamp(t) else { return nil }
                 let hr = number(row["heart"]).map { Int($0) }
@@ -531,7 +951,7 @@ final class Repository {
                 return VitalSample(ts: at, hr: hr, stress: stress,
                                    temp: temp,
                                    steps: steps,
-                                   cal: number(row["cal"]),
+                                   vendorCalories: number(row["cal"]),
                                    dis: number(row["dis"]),
                                    hrv: hrv)
             }
@@ -547,37 +967,90 @@ final class Repository {
                 history[index].vitalsCurve = VitalSample.merging(remoteSamples, with: localSamples)
             }
 
-            // 04B · SLEEP card. The night OriginDataSync stored under this user day. Asked on
-            // its own and swallowed on failure — a project without the table must still load,
-            // and a night the band has not answered is a "——", not an error.
-            if !history.isEmpty,
-               let nightRows = try? await db.select("sleep_nights", query: [
-                   .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line,sleep_start,wake_at"),
-                   .init(name: "user_day", value: "eq.\(f.string(from: day.start))"),
-                   .init(name: "limit", value: "1"),
-               ]),
-               let night = nightRows.first, let total = number(night["total_minutes"]) {
-                // 04B rule 04 · the band's own staging, stored as "stage:minutes" runs. A row
-                // from before the column existed reads as no line, and the strip falls back
-                // to the totals.
+            // Raw device sleep is independent of settled sleepMinutes. A pending formal
+            // calculation must not hide a night already received from the band.
+            for index in history.indices {
+                let key = history[index].day.key
+                let local = Self.sleepOnWakeDay(store.metrics(for: history[index].day)?.sleep, day: history[index].day)
+                guard let night = nightRows?.first(where: {
+                    guard $0["user_day"] as? String == key else { return false }
+                    guard let wake = ($0["wake_at"] as? String).flatMap(Self.timestamp) else { return true }
+                    return Calendar.current.isDate(wake, inSameDayAs: history[index].day.start)
+                }),
+                      let total = number(night["total_minutes"]), total.isFinite, total > 0 else {
+                    history[index].sleep = local
+                    continue
+                }
                 let line = ((night["sleep_line"] as? String) ?? "").split(separator: ",").compactMap { pair -> SleepStageRun? in
                     let parts = pair.split(separator: ":")
                     guard parts.count == 2, let stage = Int(parts[0]), let minutes = Int(parts[1]), minutes > 0 else { return nil }
                     return SleepStageRun(stage: stage, minutes: minutes)
                 }
-                history[history.count - 1].sleep = SleepSummary(
+                let start = (night["sleep_start"] as? String).flatMap(Self.timestamp)
+                let wake = (night["wake_at"] as? String).flatMap(Self.timestamp)
+                // Cloud publication can lag the completed SDK night. A shorter remote
+                // window must not truncate observations already confirmed on this device.
+                if let local, let localStart = local.sleepStart, let localWake = local.wakeAt,
+                   let start, let wake, localStart <= start, localWake >= wake,
+                   (localStart < start || localWake > wake) {
+                    history[index].sleep = local
+                    continue
+                }
+                let sameWindow = start != nil && wake != nil && local?.sleepStart == start && local?.wakeAt == wake
+                let oxygen = Self.overnightOxygen(rows: oxygenRows, start: start, wake: wake)
+                let respiration = Self.sleepRespiration(raw: night["raw"], start: start, wake: wake)
+                let hrv = Self.sleepHRV(raw: night["raw"], start: start, wake: wake)
+                let rawIntervals = ((night["raw"] as? [String: Any])?["intervals"] as? [[String: Any]] ?? []).compactMap { row -> SleepInterval? in
+                    guard let intervalStart = (row["start"] as? String).flatMap(Self.timestamp),
+                          let intervalEnd = (row["end"] as? String).flatMap(Self.timestamp),
+                          intervalEnd > intervalStart,
+                          let start, let wake, intervalStart >= start, intervalEnd <= wake else { return nil }
+                    return SleepInterval(start: intervalStart, end: intervalEnd)
+                }.sorted { $0.start < $1.start }
+
+                // Absence predates segmented sleep: retain nil so old records use their
+                // measured start/wake window. Explicit empty or malformed intervals stay
+                // empty; converting them to nil would invent continuous sleep evidence.
+                let hasIntervals = (night["raw"] as? [String: Any])?["intervals"] != nil
+                let intervals: [SleepInterval]? = hasIntervals ? rawIntervals : sameWindow ? local?.intervals : nil
+                let rawLine = ((night["raw"] as? [String: Any])?["line"] as? [[String: Any]] ?? []).compactMap { row -> SleepStageRun? in
+                    guard let stage = number(row["stage"]), let minutes = number(row["minutes"]),
+                          stage.isFinite, minutes.isFinite, minutes > 0 else { return nil }
+                    let offset = number(row["offset_minutes"]).flatMap { $0.isFinite && $0 >= 0 ? Int($0) : nil }
+                    return SleepStageRun(stage: Int(stage), minutes: Int(minutes), offsetMinutes: offset)
+                }
+                func inSleep(_ at: Date) -> Bool {
+                    guard let start, let wake, at >= start, at < wake else { return false }
+                    guard let intervals else { return true }
+                    return intervals.contains { at >= $0.start && at < $0.end }
+                }
+                let displayLine = !rawLine.isEmpty ? rawLine : sameWindow &&
+                    (line.isEmpty || local?.line.contains(where: { $0.offsetMinutes != nil }) == true)
+                    ? local?.line ?? [] : line
+                // A corrected reading at the same timestamp is one observation. Local
+                // observations win while their cloud publication is still catching up.
+                let combinedOxygen = Dictionary((oxygen + (sameWindow ? local?.spo2 ?? [] : []))
+                    .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
+                    .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
+                let combinedRespiration = Dictionary((respiration + (sameWindow ? local?.respiration ?? [] : []))
+                    .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
+                    .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
+                let combinedHRV: [SleepHRVPoint]? = hrv == nil && (!sameWindow || local?.hrv == nil) ? nil :
+                    Dictionary(((hrv ?? []) + (sameWindow ? local?.hrv ?? [] : []))
+                        .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
+                        .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
+                history[index].sleep = SleepSummary(
                     totalMinutes: Int(total),
                     deepMinutes: number(night["deep_minutes"]).map { Int($0) } ?? 0,
                     lightMinutes: number(night["light_minutes"]).map { Int($0) } ?? 0,
                     wakeCount: number(night["wake_count"]).map { Int($0) } ?? 0,
-                    line: line,
-                    // The window the band recorded. A row written before the two columns
-                    // existed has neither, and 02's clock line is simply not drawn.
-                    sleepStart: (night["sleep_start"] as? String).flatMap(Self.timestamp),
-                    wakeAt: (night["wake_at"] as? String).flatMap(Self.timestamp))
+                    line: displayLine, sleepStart: start, wakeAt: wake,
+                    spo2: combinedOxygen,
+                    respiration: combinedRespiration,
+                    hrv: combinedHRV,
+                    intervals: intervals)
             }
 
-            let liveRows = try await liveRowsAsync
             if let live = liveRows.first,
                let at = (live["ts"] as? String).flatMap(Self.timestamp) {
                 // ⚠️ The sync writes the tick it just pulled off the band into `store.vitals`
@@ -586,9 +1059,17 @@ final class Repository {
                 // when it is at least as recent — otherwise the panel jumps backwards to the
                 // previous tick a second after showing the current one.
                 if store.vitals.at == nil || at >= store.vitals.at! {
+                    let lastStress = liveStressRows?.first.flatMap { row -> (Int, Date)? in
+                        guard let ts = (row["ts"] as? String).flatMap(Self.timestamp),
+                              let value = number(row["stress"]).map({ Int($0) }) else { return nil }
+                        return (value, ts)
+                    }
                     store.vitals = LiveVitals(
                         hr: number(live["heart"]).map { Int($0) },
-                        stress: number(live["stress"]).map { Int($0) },
+                        stress: VitalsTimelinePolicy.currentStress(
+                            latest: number(live["stress"]).map { Int($0) },
+                            previous: lastStress,
+                            at: at),
                         at: at)
                 }
             }
@@ -602,7 +1083,13 @@ final class Repository {
             merged.append(contentsOf: history)
             merged.sort { $0.day < $1.day }
             store.history = merged
-            if let last = history.last {
+            if let responseRows {
+                let loaded = Self.opticalResponse(rows: responseRows)
+                if !loaded.isEmpty || store.mealResponsePoints.isEmpty {
+                    store.mealResponsePoints = loaded
+                }
+            }
+            if let last = history.first(where: { $0.day == UserDay.containing(Date()) }) {
                 // 04 · a slot is open until it has a conclusion — logged or SKIPPED.
                 let settled = Set(store.meals.filter { $0.status != .open }.map(\.slot))
                 store.today = merge(last, into: store.today,
@@ -613,10 +1100,13 @@ final class Repository {
             // The macro rows are the day's own meals added up. The targets are computed
             // locally from bodyweight and goal (F2 §04, P → F → C); what was eaten is not
             // a target minus a guess, it is the sum of the rows the user can go and read.
-            if !store.meals.isEmpty {
+            if day == UserDay.containing(Date()), !store.meals.isEmpty {
                 let eatenP = store.meals.reduce(0) { $0 + $1.protein }
                 let eatenC = store.meals.reduce(0) { $0 + $1.carb }
                 let eatenF = store.meals.reduce(0) { $0 + $1.fat }
+                store.today.proteinIn = eatenP
+                store.today.carbIn = eatenC
+                store.today.fatIn = eatenF
                 store.today.protein = store.today.protein.map { MacroSlot(target: $0.target, eaten: eatenP) }
                 store.today.carb    = store.today.carb.map    { MacroSlot(target: $0.target, eaten: eatenC) }
                 store.today.fat     = store.today.fat.map     { MacroSlot(target: $0.target, eaten: eatenF) }
@@ -635,6 +1125,11 @@ final class Repository {
                                origin: (row["source"] as? String) == "health" ? .health : .manual)
             }
             store.isOffline = false
+            if let account {
+                MealQueue.shared.overlayPending(into: store, ownerUserId: account)
+                if let detail = store.metrics(for: day) { HomeSnapshot.saveDetail(detail, userId: account) }
+            }
+            HomeSnapshot.save(from: store)
             await WeighInQueue.shared.flush()
         } catch {
             #if DEBUG
@@ -642,7 +1137,12 @@ final class Repository {
             #endif
             // Offline shows the last row that was successfully stored, with AS OF HH:MM
             // on the card header. The client never computes a substitute.
-            store.isOffline = true
+            if case SupabaseClient.Failure.http(409, _) = error {
+                // A concurrent settlement is not a loss of connectivity. Keep the prior
+                // coherent snapshot; the next refresh will observe the new revision.
+                return
+            }
+            if isCurrent() { store.isOffline = true }
         }
     }
 
@@ -685,7 +1185,13 @@ final class Repository {
         let pTarget = server.protein ?? local.protein
         let cTarget = server.carb ?? local.carb
         let fTarget = server.fat ?? local.fat
-        if case .unlogged = server.fuelState {
+        if server.fuelState == .fasted {
+            m.proteinIn = 0; m.carbIn = 0; m.fatIn = 0
+            m.protein = pTarget.map { MacroSlot(target: $0.target, eaten: 0) }
+            m.carb = cTarget.map { MacroSlot(target: $0.target, eaten: 0) }
+            m.fat = fTarget.map { MacroSlot(target: $0.target, eaten: 0) }
+            m.nextMeal = nil
+        } else if case .unlogged = server.fuelState {
             m.protein = pTarget.map { MacroSlot(target: $0.target, eaten: 0) }
             m.carb = cTarget.map { MacroSlot(target: $0.target, eaten: 0) }
             m.fat = fTarget.map { MacroSlot(target: $0.target, eaten: 0) }
@@ -724,6 +1230,71 @@ final class Repository {
         return m
     }
 
+    /// Overnight automatic SpO2 clipped to the recorded night. A row written before
+    /// `oxygen_samples` existed, or a select that 400s on an unmigrated project, is empty.
+    static func overnightOxygen(rows: [[String: Any]]?, start: Date?, wake: Date?) -> [OvernightOxygenPoint] {
+        guard let start, let wake, wake > start else { return [] }
+        return (rows ?? []).compactMap { row -> OvernightOxygenPoint? in
+            guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
+                  let percent = numberStatic(row["spo2"]).map({ Int($0) }),
+                  (50...100).contains(percent) else { return nil }
+            guard at >= start && at < wake else { return nil }
+            return OvernightOxygenPoint(ts: at, percent: percent)
+        }
+    }
+
+    /// Sleep belongs to its calendar wake date, independent of the 04:00 activity cut.
+    /// Preserve pre-window legacy records, but never attach a known different night's
+    /// measurements to a stale server user_day or a previously mis-keyed local cache.
+    private static func sleepOnWakeDay(_ sleep: SleepSummary?, day: UserDay) -> SleepSummary? {
+        guard let sleep else { return nil }
+        guard let wake = sleep.wakeAt else { return sleep }
+        return Calendar.current.isDate(wake, inSameDayAs: day.start) ? sleep : nil
+    }
+
+    static func sleepRespiration(raw: Any?, start: Date?, wake: Date?) -> [SleepRespirationPoint] {
+        guard let start, let wake, wake > start else { return [] }
+        let rows = (raw as? [String: Any])?["respiration"] as? [[String: Any]] ?? []
+        return rows.compactMap { row in
+            guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
+                  at >= start, at < wake,
+                  let rate = numberStatic(row["breaths_per_minute"]), rate.isFinite,
+                  rate > 0, rate < 255 else { return nil }
+            return SleepRespirationPoint(ts: at, breathsPerMinute: rate)
+        }.sorted { $0.ts < $1.ts }
+    }
+
+    /// nil is a legacy row without minute-resolution HRV; [] is an observed empty night.
+    static func sleepHRV(raw: Any?, start: Date?, wake: Date?) -> [SleepHRVPoint]? {
+        guard let payload = raw as? [String: Any], payload["hrv"] != nil else { return nil }
+        guard let start, let wake, wake > start else { return [] }
+        let rows = payload["hrv"] as? [[String: Any]] ?? []
+        return rows.compactMap { row in
+            guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
+                  at >= start, at < wake,
+                  let value = numberStatic(row["rmssd_ms"]), value.isFinite, value > 0 else { return nil }
+            return SleepHRVPoint(ts: at, rmssdMS: value)
+        }.sorted { $0.ts < $1.ts }
+    }
+
+    /// Wrist optical meal-response scalars. The column is `optical`; zeros never arrive.
+    static func opticalResponse(rows: [[String: Any]]?) -> [MealResponseIndex.Point] {
+        (rows ?? []).compactMap { row -> MealResponseIndex.Point? in
+            guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
+                  let optical = numberStatic(row["optical"]),
+                  optical.isFinite, optical > 0 else { return nil }
+            return MealResponseIndex.Point(ts: at, optical: optical)
+        }
+    }
+
+    private static func numberStatic(_ any: Any?) -> Double? {
+        if let d = any as? Double { return d }
+        if let i = any as? Int { return Double(i) }
+        if let s = any as? String { return Double(s) }
+        if let n = any as? NSNumber { return n.doubleValue }
+        return nil
+    }
+
     /// PostgREST hands back fractional seconds and no zone suffix on some columns;
     /// the plain ISO parser rejects both, so try the strict form first and fall back.
     static func timestamp(_ raw: String) -> Date? {
@@ -742,11 +1313,109 @@ final class Repository {
         return nil
     }
 
+    /// Additive server releases may lag an app update. Only a positively identified
+    /// missing capability permits legacy reads; authorization and service failures do not.
+    static func isMissingReadCapability(_ error: Error, capability: String) -> Bool {
+        guard case let SupabaseClient.Failure.http(status, body) = error,
+              status == 400 || status == 404 else { return false }
+        let text = body.lowercased()
+        switch capability {
+        case "result_revision":
+            return text.contains("result_revision") &&
+                (text.contains("42703") || text.contains("does not exist") ||
+                 (text.contains("pgrst204") && text.contains("column")))
+        case "metric-read":
+            return status == 404 && (text.contains("requested function was not found") ||
+                text.contains("function not found"))
+        case "calculation_status":
+            return text.contains("calculation_status") &&
+                (text.contains("pgrst202") || text.contains("could not find") ||
+                 (text.contains("42883") && text.contains("does not exist")))
+        default:
+            return false
+        }
+    }
+
+    private func selectDailyResultsCompat(query: [URLQueryItem]) async throws
+        -> (rows: [[String: Any]], versioned: Bool) {
+        do {
+            return (try await db.select("daily_results", query: query), true)
+        } catch {
+            guard Self.isMissingReadCapability(error, capability: "result_revision") else { throw error }
+            let legacy = query.map { item in
+                item.name == "select" ? URLQueryItem(name: item.name, value:
+                    item.value?.split(separator: ",").filter { $0 != "result_revision" }.joined(separator: ",")) : item
+            }
+            return (try await db.select("daily_results", query: legacy), false)
+        }
+    }
+
+    private func metricReadIfAvailable(from: String, to: String) async throws -> [String: Any]? {
+        do {
+            return try await db.callFunction("metric-read", payload: [
+                "metrics": ["intakeKcal", "burnKcal", "deltaKcal", "proteinG", "nightHRV", "hrvBaseline", "nightRHR", "sleepMinutes"],
+                "from": from, "to": to, "timezone": TimeZone.current.identifier,
+            ])
+        } catch {
+            guard Self.isMissingReadCapability(error, capability: "metric-read") else { throw error }
+            return nil
+        }
+    }
+
+    private func calculationStatusIfAvailable(from: String, to: String) async throws -> [[String: Any]]? {
+        do {
+            guard let status = try await db.rpc("calculation_status", args: ["p_from": from, "p_to": to]) as? [[String: Any]] else {
+                throw SupabaseClient.Failure.http(503, "Invalid calculation status")
+            }
+            return status
+        } catch {
+            guard Self.isMissingReadCapability(error, capability: "calculation_status") else { throw error }
+            return nil
+        }
+    }
+
     private func number(_ any: Any?) -> Double? {
         if let d = any as? Double { return d }
         if let i = any as? Int { return Double(i) }
         if let s = any as? String { return Double(s) }
         if let n = any as? NSNumber { return n.doubleValue }
         return nil
+    }
+
+    private func selectByResultId(_ table: String, columns: String,
+                                  ids: [String]) async throws -> [[String: Any]] {
+        var rows: [[String: Any]] = []
+        for chunk in Self.resultIdChunks(ids) {
+            guard let filter = HomeLaunchPolicy.postgrestIn(chunk) else { continue }
+            rows += try await db.select(table, query: [
+                .init(name: "select", value: columns),
+                .init(name: "result_id", value: filter),
+            ])
+        }
+        return rows
+    }
+
+    private func selectTrainingExtras(ids: [String]) async -> [[String: Any]]? {
+        let chunks = Self.resultIdChunks(ids)
+        guard !chunks.isEmpty else { return [] }
+        var rows: [[String: Any]] = []
+        for chunk in chunks {
+            guard let filter = HomeLaunchPolicy.postgrestIn(chunk) else { continue }
+            guard let part = try? await db.select("daily_training", query: [
+                .init(name: "select", value: "result_id,active_minutes,distance_m"),
+                .init(name: "result_id", value: filter),
+            ]) else { return nil }
+            rows += part
+        }
+        return rows
+    }
+
+    private static func resultIdChunks(_ ids: [String]) -> [[String]] {
+        let clean = ids.filter { !$0.isEmpty }
+        guard !clean.isEmpty else { return [] }
+        let size = 80
+        return stride(from: 0, to: clean.count, by: size).map {
+            Array(clean[$0..<min($0 + size, clean.count)])
+        }
     }
 }

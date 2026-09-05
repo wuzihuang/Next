@@ -1,0 +1,5 @@
+{"p50_ms": 172.333, "p95_ms": 181.637, "replays_per_request": 1.0, "rows_touched_per_request": 1.0, "runs": 32, "strategy": "current_writer_forced_recompute", "type": "calculation"}
+{"p50_ms": 315.953, "p95_ms": 330.173, "replays_per_request": 2.0, "rows_touched_per_request": 1.0, "runs": 32, "strategy": "legacy_recompute_strategy", "type": "calculation"}
+{"p50_ms": 0.192, "p95_ms": 0.223, "replays_per_request": 0.0, "rows_touched_per_request": 0.0, "runs": 32, "strategy": "revision_skip", "type": "calculation"}
+{"json_bytes": 125782, "p50_ms": 0.943, "p95_ms": 1.199, "runs": 32, "source_rows": 182, "strategy": "summary_182_days", "type": "reads"}
+{"json_bytes": 601130, "p50_ms": 8.064, "p95_ms": 9.366, "runs": 32, "source_rows": 2912, "strategy": "summary_and_detail_182_days", "type": "reads"}

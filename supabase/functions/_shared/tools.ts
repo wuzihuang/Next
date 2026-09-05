@@ -1,3 +1,5 @@
+import { compareMetrics, metricComparisonSchema } from "./metric-compare.ts";
+import { queryMetrics, metricRequestSchema } from "./metric-query.ts";
 import { tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
@@ -22,9 +24,11 @@ export async function readSeriesSource(source: string, ctx: Ctx): Promise<Record
   const result = await fetchAs(source, src.kind, ctx);
   if (!result) return null;
   const data = result.data as Record<string, unknown>;
-  const tail = (value: unknown) => (Array.isArray(value) ? value.slice(-8) : undefined);
+  const tail = (value: unknown) => (Array.isArray(value) ? value : undefined);
   return {
     agg: result.agg,
+    evidence: result.evidence ?? { metric: source, dayKey: ctx.dayKey, timezone: ctx.tz, unit: result.unit ?? null },
+    paired: data.kind === "pair" ? { hi: data.hi, lo: data.lo } : undefined,
     hero: result.hero ?? null,
     unit: result.unit ?? null,
     window: result.window,
@@ -35,8 +39,8 @@ export async function readSeriesSource(source: string, ctx: Ctx): Promise<Record
 
 export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLedger,
                            cal: { dayKey: string; tz: string } = { dayKey: new Date().toISOString().slice(0, 10), tz: "UTC" },
-                           sourceScope?: string[]) {
-  const ctx: Ctx = { db, userId, dayKey: cal.dayKey, tz: cal.tz };
+                           sourceScope?: string[], sharedCtx?: Ctx) {
+  const ctx: Ctx = sharedCtx ?? { db, userId, dayKey: cal.dayKey, tz: cal.tz, cache: new Map() };
   const requestedSourceIDs = sourceScope?.filter((id) => SOURCE_BY_ID.has(id)) ?? [];
   const scopedSourceIDs = (requestedSourceIDs.length ? requestedSourceIDs : SOURCE_IDS) as [string, ...string[]];
   // F7 rule 11 · 「账本容量硬上限 N ≤ 60，服务端实时计数，超配按固定顺序降级并带 trimmed:true」.
@@ -71,9 +75,10 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
         if (error) return { ok: false } as Err;
         if (!data) return record("day.get", { ok: true, data: null });
 
-        const { data: fuel } = await db.from("day_fuel")
+        const { data: fuel, error: fuelError } = await db.from("day_fuel")
           .select("intake_state, kcal_in, kcal_out, slot_states, target_in")
           .eq("result_id", data.id).maybeSingle();
+        if (fuelError) return { ok: false } as Err;
         // F7 §08 · the numbers she will want to say are computed here, not derived by her.
         const targetKcal = fuel?.target_in ?? null;
         const remainingKcal = (targetKcal != null && fuel?.kcal_in != null) ? targetKcal - fuel.kcal_in : null;
@@ -107,64 +112,37 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
       },
     }),
 
-    "range.get": tool({
-      description: "一段时间的某个指标序列。跨度硬上限 90 天，超了服务端自己截断。",
-      parameters: z.object({
-        metric: z.enum(["trainingLoad", "bodyBattery", "intakeKcal", "deltaKcal", "weight"]),
-        from: z.string(), to: z.string(),
-      }),
-      execute: async ({ metric, from, to }) => {
-        const column = {
-          trainingLoad: "training_load", bodyBattery: "reserve_score",
-          intakeKcal: "fuel_balance_kcal", deltaKcal: "fuel_balance_kcal", weight: "",
-        }[metric];
-
-        if (metric === "weight") {
-          const { data, error } = await db.from("weigh_ins")
-            .select("measured_at, weight_kg").eq("user_id", userId)
-            .gte("measured_at", from).lte("measured_at", to)
-            .order("measured_at").limit(90);
-          if (error) return { ok: false } as Err;
-          return record("range.get", {
-            ok: true,
-            data: {
-              points: (data ?? []).map((r) => ({ dayKey: r.measured_at, value: r.weight_kg })),
-              truncated: (data?.length ?? 0) >= 90,
-            },
-          });
+    "metric.compare": tool({
+      description:"Compare two metrics on aligned user days. Server computes compatible-unit differences and correlation only with at least seven overlapping nonconstant days; never claims causation. Timestamped measurements use last recorded value per user day.",
+      parameters:metricComparisonSchema,
+      execute:async(args)=>{
+        const result=await compareMetrics(ctx,args);
+        if(result.ok){
+          for(const reading of result.data.readings)ledger.registerEvidence(reading.evidence,{stats:reading.stats,points:reading.points});
+          ledger.registerEvidence(result.data.evidence.association,{value:result.data.association.pearsonR});
+          if(result.data.evidence.difference)ledger.registerEvidence(result.data.evidence.difference,result.data.difference);
         }
-
-        const { data, error } = await db.from("daily_results")
-          .select(`user_day, ${column}`).eq("user_id", userId)
-          .gte("user_day", from).lte("user_day", to)
-          .order("user_day").limit(90);
-        if (error) return { ok: false } as Err;
-        const rows = (data ?? []) as unknown as Record<string, unknown>[];
-        const points = rows.map((r) => ({ dayKey: r.user_day, value: (r[column] as number | null) ?? null }));
-        // F7 §08 · 「她想说的差值，服务端必须提前替她算好」. With pairwise derivation gone from the
-        // ledger, "today vs the seven-day mean" has to arrive as a number, or it is not said.
-        // null stays null: an absent day does not become 0 in a mean, and a delta against
-        // nothing is nothing (补屏 rule 09).
-        const vals = points.map((p) => p.value).filter((v): v is number => v != null);
-        const latest = points.length ? points[points.length - 1].value : null;
-        const mean = vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null;
-        const half = Math.floor(points.length / 2);
-        const meanOf = (ps: typeof points) => { const v = ps.map((p) => p.value).filter((x): x is number => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
-        const prevMean = half ? meanOf(points.slice(0, half)) : null, thisMean = half ? meanOf(points.slice(half)) : null;
-        const r1 = (x: number | null) => (x == null ? null : Math.round(x * 10) / 10);
-        return record("range.get", {
-          ok: true,
-          data: {
-            // A missing day is a null point, never a 0, and never interpolated.
-            points,
-            agg: { latest, mean, min: vals.length ? Math.min(...vals) : null, max: vals.length ? Math.max(...vals) : null, days: vals.length },
-            dlt: {
-              latestVsMean: latest != null && mean != null ? r1(latest - mean) : null,
-              thisHalfVsPrevHalf: thisMean != null && prevMean != null ? r1(thisMean - prevMean) : null,
-            },
-            truncated: rows.length >= 90,
-          },
-        });
+        return result;
+      },
+    }),
+    "metric.query": tool({
+      description: "Read up to eight aligned metrics over an explicit inclusive user-day range (max 366 days). Full valid observations supply statistics; null days remain missing. Includes source, unit, timezone, coverage and evidence revision. Use for cross-metric analysis and follow-up reads.",
+      parameters: metricRequestSchema,
+      execute: async (args) => {
+        const result = await queryMetrics(ctx, args);
+        if (result.ok) for (const reading of result.data) ledger.registerEvidence(reading.evidence, {stats:reading.stats, points:reading.points});
+        return result;
+      },
+    }),
+    "range.get": tool({
+      description: "Read a daily metric for an inclusive date range with complete statistics and explicit missing days (max 366 days).",
+      parameters: z.object({ metric: z.enum(["trainingLoad", "bodyBattery", "intakeKcal", "deltaKcal", "weight"]), from: z.string(), to: z.string() }),
+      execute: async ({ metric, from, to }) => {
+        const result = await queryMetrics(ctx, {metrics:[metric],from,to});
+        if (!result.ok) return result;
+        const reading = result.data[0];
+        ledger.registerEvidence(reading.evidence, {stats:reading.stats, points:reading.points});
+        return {ok:true, data:{...reading, agg:reading.stats, truncated:false}};
       },
     }),
 
@@ -290,11 +268,13 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
     // is drawn by screen.render.<type> naming the same source — the series never has to
     // be copied through the model.
     "series.get": tool({
-      description: "按数据源读一组数：agg 里的 latest/mean/min/max/count 用来写字，points 是最后几个点。要画图时把同一个 source 交给 screen.render.*。数据源：\n" + sourceList(scopedSourceIDs),
+      description: "按数据源读一组数：agg 里的 latest/mean/min/max/count 用来写字，points 是完整图表采样点，精细分析使用 metric.query。要画图时把同一个 source 交给 screen.render.*。数据源：\n" + sourceList(scopedSourceIDs),
       parameters: z.object({ source: z.enum(scopedSourceIDs) }),
       execute: async ({ source }) => {
-        const data = await readSeriesSource(source, ctx);
+        let data;
+        try { data = await readSeriesSource(source, ctx); } catch { return { ok: false, error: "QUERY_FAILED" }; }
         if (!data) return record("series.get", { ok: true, data: null });
+        if (data.evidence) ledger.registerEvidence(data.evidence as import("./ledger.ts").MeasurementEvidence,{agg:data.agg,points:data.points,paired:data.paired});
         return record("series.get", {
           ok: true,
           data,

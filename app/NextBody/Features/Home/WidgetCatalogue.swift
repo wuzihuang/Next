@@ -12,6 +12,22 @@ import SwiftUI
 /// ⚠️ DEBUG only, and reachable only from a long press on the wordmark. It is not a
 /// product surface: there is no route to it, and it ships in no release build.
 struct WidgetCatalogue: View {
+    /// Pin the band's result layout without starting a BLE measurement.
+    static var balanceResult: PanelWidget {
+        let points: [CGPoint] = (0..<22).map { i in
+            let interval = CGFloat(850 + i * 4)
+            let variation = CGFloat((i % 3 - 1) * 9)
+            return CGPoint(x: interval, y: interval + variation)
+        }
+        return PanelWidget(type: .balance, title: L("BALANCE"), sentence: "", data: .none,
+                           balance: BalanceAnswer(
+                            headline: L("Drive is leading."),
+                            note: L("Your beats came at a steadier spacing, which is what effort, caffeine or a busy head all look like from here."),
+                            restShare: 0.19,
+                            footer: "67 BPM · SD1 7 MS · SD2 30 MS · 22 BEATS",
+                            points: points))
+    }
+
     @Environment(\.dismiss) private var dismiss
 
     /// All 27. The night's three came back on 2026-09-03 with the user's own ruling, so the
@@ -132,7 +148,7 @@ struct WidgetCatalogue: View {
                      .parts([("DEEP", 108, NB.violet1), ("LIGHT", 324, NB.violet1.opacity(0.6)),
                              ("AWAKE", 26, NB.white.opacity(0.5))]))
         case .o2night:
-            return w(type, "NIGHT O2", "Two brief dips — worth watching",
+            return w(type, "NIGHT O2", "Mean 95% · lowest 89%",
                      .series([97, 96, 96, 95, 97, 96, 89, 94, 96, 97, 91, 96]))
         case .wave:
             return w(type, "ECG", "avg 68 bpm", .trace(samples: series, hz: 4))

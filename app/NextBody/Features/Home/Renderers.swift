@@ -353,15 +353,15 @@ struct StripRenderer: View {
 /// one block per run. The night reads as a shape rather than a bar: where the deep blocks
 /// sit is the whole point, and a stacked bar throws that away.
 struct LaneRenderer: View {
-    /// (lane, minutes) in order. Lane 0 = awake, 1 = light, 2 = deep.
+    /// (lane, minutes) in order. Lane 0 = awake, 1 = light, 2 = deep, 3 = REM.
     let runs: [(Int, Double)]
     let from: String
     let to: String
     var showBlocks = true
     var showLabels = true
 
-    private let names = ["AWAKE", "LIGHT", "DEEP"]
-    private var tint: [Color] { [NB.white.opacity(0.75), NB.violet1.opacity(0.65), NB.violet1] }
+    private let names = ["AWAKE", "LIGHT", "DEEP", "REM"]
+    private var tint: [Color] { [NB.white.opacity(0.75), NB.violet1.opacity(0.65), NB.violet1, NB.violet1.opacity(0.85)] }
 
     var body: some View {
         GeometryReader { geo in
@@ -369,11 +369,11 @@ struct LaneRenderer: View {
             // 12 · the strip starts under the hero and ends over the clock labels; three
             // lanes share what is left, label tight above its own blocks.
             let top: CGFloat = 34
-            let laneH = (geo.size.height - top - 22) / 3
+            let laneH = (geo.size.height - top - 22) / CGFloat(names.count)
             let blockH: CGFloat = 14
             ZStack(alignment: .topLeading) {
                 if showLabels {
-                    ForEach(0..<3, id: \.self) { l in
+                    ForEach(0..<names.count, id: \.self) { l in
                         Text(names[l])
                             .font(NBFont.dot(600, 9)).tracking(0.12 * 9)
                             .foregroundStyle(NB.white.opacity(0.34))
@@ -386,7 +386,7 @@ struct LaneRenderer: View {
                     ForEach(laid.indices, id: \.self) { i in
                         let b = laid[i]
                         RoundedRectangle(cornerRadius: 2, style: .continuous)
-                            .fill(tint[min(b.lane, 2)])
+                            .fill(tint[max(0, min(b.lane, names.count - 1))])
                             .frame(width: max(b.width, 2), height: blockH)
                             .offset(x: b.x, y: top + laneH * CGFloat(b.lane) + 15)
                     }
@@ -409,7 +409,7 @@ struct LaneRenderer: View {
         return runs.map { run in
             let w = width * CGFloat(run.1 / total)
             defer { x += w }
-            return Block(lane: run.0, x: x, width: w - 1)
+            return Block(lane: max(0, min(run.0, names.count - 1)), x: x, width: w - 1)
         }
     }
 }

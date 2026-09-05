@@ -45,12 +45,10 @@ struct VitalsWindow {
         return make(range: range, endsNow: now >= day.start && now < day.end)
     }
 
-    /// The night the band recorded, clock at both ends. Falls back to the day window when
-    /// the row carries no sleep_start / wake_at — a night whose ends nobody measured.
+    /// Only a recorded sleep interval can supply a night clock or admit overnight points.
     static func night(start: Date?, end: Date?, fallback: UserDay) -> VitalsWindow {
         guard let start, let end, end > start else {
-            let range = VitalsTimelineRange(start: fallback.start, end: fallback.end)
-            return make(range: range, endsNow: false)
+            return VitalsWindow(start: fallback.start, span: 0, labels: [], endsNow: false)
         }
         let range = VitalsTimelineRange(start: start, end: end)
         return make(range: range, endsNow: false)
@@ -78,7 +76,7 @@ struct VitalsWindow {
     }
 
     func contains(_ ts: Date) -> Bool {
-        ts >= start && ts.timeIntervalSince(start) <= span
+        span > 0 && ts >= start && ts.timeIntervalSince(start) <= span
     }
 }
 
@@ -102,6 +100,8 @@ struct VitalsTrace: View {
     /// True to mark the highest point, false the lowest.
     var marksMaximum = true
     var height: CGFloat = 124
+    /// Additional measured series share the same chart without impersonating another vital.
+    var measuredPoints: [(ts: Date, value: Double)]? = nil
 
     var body: some View {
         Canvas { ctx, size in
@@ -143,8 +143,12 @@ struct VitalsTrace: View {
             var run: [CGPoint] = []
             var lastTs: Date?
             var extreme: (ts: Date, v: Double)?
-            for s in samples {
-                guard window.contains(s.ts), let v = value(s) else { continue }
+            let points = measuredPoints ?? samples.compactMap { sample in
+                value(sample).map { (ts: sample.ts, value: $0) }
+            }
+            for s in points {
+                let v = s.value
+                guard window.contains(s.ts), v.isFinite else { continue }
                 if let lastTs, s.ts.timeIntervalSince(lastTs) > 10 * 60, !run.isEmpty {
                     runs.append(run); run = []
                 }
@@ -174,7 +178,7 @@ struct VitalsTrace: View {
             }
 
             // The extreme, called out where it happened rather than in a caption.
-            if let extreme, let extremeLabel, samples.count > 2 {
+            if let extreme, let extremeLabel, points.count > 2 {
                 let at = point(extreme.ts, extreme.v)
                 ctx.fill(Path(ellipseIn: CGRect(x: at.x - 3, y: at.y - 3, width: 6, height: 6)),
                          with: .color(NB.alert2))
@@ -195,12 +199,100 @@ struct VitalsTrace: View {
     }
 }
 
+/// Overnight automatic SpO2 on the same night clock as the hypnogram. The ruler is fixed
+/// 85–100 so a quiet night cannot look like a crash; a missing reading is a gap, never a 0.
+/// ADR-0002 · no 90 % clinical line, no apnea grade.
+struct VitalsOxygenTrace: View {
+    let points: [OvernightOxygenPoint]
+    let window: VitalsWindow
+    let tint: Color
+    var height: CGFloat = 124
+
+    private let low: Double = 85
+    private let high: Double = 100
+
+    var body: some View {
+        Canvas { ctx, size in
+            let span = max(0.001, high - low)
+            func y(_ v: Double) -> CGFloat {
+                let clamped = min(high, max(low, v))
+                return size.height - 1 - (clamped - low) / span * (size.height - 2)
+            }
+            func point(_ ts: Date, _ v: Double) -> CGPoint {
+                CGPoint(x: size.width * window.fraction(of: ts), y: y(v))
+            }
+
+            for f in [0.15, 0.45, 0.75] {
+                var line = Path()
+                line.move(to: CGPoint(x: 0, y: size.height * f))
+                line.addLine(to: CGPoint(x: size.width, y: size.height * f))
+                ctx.stroke(line, with: .color(NB.white.opacity(0.05)), lineWidth: 1)
+            }
+            var floor = Path()
+            floor.move(to: CGPoint(x: 0, y: size.height - 0.5))
+            floor.addLine(to: CGPoint(x: size.width, y: size.height - 0.5))
+            ctx.stroke(floor, with: .color(NB.white.opacity(0.08)), lineWidth: 1)
+
+            var runs: [[CGPoint]] = []
+            var run: [CGPoint] = []
+            var lastTs: Date?
+            var extreme: (ts: Date, v: Double)?
+            for sample in points {
+                guard window.contains(sample.ts), (50...100).contains(sample.percent) else { continue }
+                let v = Double(sample.percent)
+                if let lastTs, sample.ts.timeIntervalSince(lastTs) > 12 * 60, !run.isEmpty {
+                    runs.append(run); run = []
+                }
+                run.append(point(sample.ts, v))
+                lastTs = sample.ts
+                if extreme == nil || v < extreme!.v { extreme = (sample.ts, v) }
+            }
+            if !run.isEmpty { runs.append(run) }
+            guard !runs.isEmpty else { return }
+
+            for (i, r) in runs.enumerated() {
+                var p = Path()
+                p.move(to: r[0])
+                for pt in r.dropFirst() { p.addLine(to: pt) }
+                if r.count == 1 { p.addLine(to: CGPoint(x: r[0].x + 0.5, y: r[0].y)) }
+                ctx.stroke(p, with: .color(tint),
+                           style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                if i + 1 < runs.count {
+                    var gap = Path()
+                    gap.move(to: r[r.count - 1])
+                    gap.addLine(to: runs[i + 1][0])
+                    ctx.stroke(gap, with: .color(tint.opacity(0.30)),
+                               style: StrokeStyle(lineWidth: 1.2, dash: [2, 3]))
+                }
+            }
+
+            if let extreme, points.count > 2 {
+                let at = point(extreme.ts, extreme.v)
+                ctx.fill(Path(ellipseIn: CGRect(x: at.x - 3, y: at.y - 3, width: 6, height: 6)),
+                         with: .color(NB.alert2))
+                let anchorX = min(max(at.x, 26), size.width - 26)
+                plate(&ctx, Text(L("MIN %d%%", Int(extreme.v.rounded()))).font(NBFont.ui(600, 9))
+                    .foregroundStyle(NB.alert2),
+                      at: CGPoint(x: anchorX, y: max(8, at.y - 12)), in: size, anchor: .center)
+            }
+
+            if let end = runs.last?.last {
+                ctx.fill(Path(ellipseIn: CGRect(x: end.x - 4, y: end.y - 4, width: 8, height: 8)),
+                         with: .color(tint))
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+}
+
 /// 02 · the night as four lanes — AWAKE · REM · LIGHT · DEEP — stepped in the order the band
 /// filed it. The app never re-segments the line (04B rule 04): a run is drawn at its own
 /// lane for its own minutes, and the vertical joins are the transitions themselves.
 struct VitalsHypnogram: View {
     let runs: [SleepStageRun]
     let tint: Color
+    var windowMinutes: Double? = nil
     var height: CGFloat = 124
 
     /// SDK stages: 0 deep, 1 light, 2 REM, 3 insomnia, 4 awake. Four lanes, deepest at the
@@ -232,7 +324,9 @@ struct VitalsHypnogram: View {
             .frame(width: 34, height: height)
 
             Canvas { ctx, size in
-                let total = runs.reduce(0) { $0 + $1.minutes }
+                let hasOffsets = runs.allSatisfy { $0.offsetMinutes != nil }
+                let total = hasOffsets ? max(windowMinutes ?? 0, Double(runs.map { ($0.offsetMinutes ?? 0) + $0.minutes }.max() ?? 0))
+                    : Double(runs.reduce(0) { $0 + $1.minutes })
                 guard total > 0 else { return }
                 let laneHeight = size.height / 4
 
@@ -248,9 +342,12 @@ struct VitalsHypnogram: View {
                 var path = Path()
                 var previousY: CGFloat?
                 for run in runs {
+                    let runX = hasOffsets ? size.width * CGFloat(run.offsetMinutes ?? 0) / CGFloat(total) : x
                     let w = size.width * CGFloat(run.minutes) / CGFloat(total)
+                    let followsPrevious = abs(runX - x) < 0.1
+                    x = runX
                     let y = laneHeight * (CGFloat(Self.lane(run.stage)) + 0.5)
-                    if let previousY {
+                    if let previousY, followsPrevious {
                         path.addLine(to: CGPoint(x: x, y: y))
                         _ = previousY
                     } else {
@@ -319,10 +416,17 @@ struct VitalsScatter: View {
             // trend is the shape, the dots are the measurements.
             var trend = Path()
             var started = false
+            var previousTimestamp: Date?
             for s in samples {
                 guard window.contains(s.ts), let v = s.hrv else { continue }
                 let p = CGPoint(x: size.width * window.fraction(of: s.ts), y: y(v))
-                if started { trend.addLine(to: p) } else { trend.move(to: p); started = true }
+                if let previousTimestamp, s.ts.timeIntervalSince(previousTimestamp) <= 10 * 60 {
+                    trend.addLine(to: p)
+                } else {
+                    trend.move(to: p)
+                }
+                previousTimestamp = s.ts
+                started = true
             }
             if started {
                 ctx.stroke(trend, with: .color(tint.opacity(0.45)),
@@ -331,6 +435,41 @@ struct VitalsScatter: View {
             for s in samples {
                 guard window.contains(s.ts), let v = s.hrv else { continue }
                 let p = CGPoint(x: size.width * window.fraction(of: s.ts), y: y(v))
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)),
+                         with: .color(tint))
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Rolling-24h meal-response index. Points only, compare-amber, a dashed own-median at 0.
+/// No polyline, no meal marks, no envelope, no MAX callout.
+struct VitalsIndexScatter: View {
+    let points: [MealResponseIndex.ScatterPoint]
+    let window: VitalsWindow
+    let tint: Color
+    var height: CGFloat = 124
+
+    var body: some View {
+        Canvas { ctx, size in
+            let visible = points.filter { window.contains($0.ts) }
+            guard !visible.isEmpty else { return }
+            let values = visible.map(\.percent)
+            let lo = min(Double(values.min()!), -8) - 6
+            let hi = max(Double(values.max()!), 8) + 6
+            let span = max(1, hi - lo)
+            func y(_ v: Int) -> CGFloat {
+                size.height - 2 - CGFloat((min(hi, max(lo, Double(v))) - lo) / span) * (size.height - 4)
+            }
+            var zero = Path()
+            zero.move(to: CGPoint(x: 0, y: y(0)))
+            zero.addLine(to: CGPoint(x: size.width, y: y(0)))
+            ctx.stroke(zero, with: .color(NB.white.opacity(0.28)),
+                       style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            for point in visible {
+                let p = CGPoint(x: size.width * window.fraction(of: point.ts), y: y(point.percent))
                 ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)),
                          with: .color(tint))
             }

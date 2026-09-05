@@ -1,23 +1,23 @@
 import XCTest
 
 /// 04 · 8 大指标二级页 · every card on home page two is a hot zone, and each one opens its
-/// own second level. Before this, six of the eight were dead and the other two both landed on
-/// Body Battery — so the thing worth asserting is not "a page opened" but "the page that
-/// opened is the one the card names".
+/// own second level. Night HRV is no longer a card; it lives on the sleep page. RESPONSE
+/// occupies the retired HRV slot.
 final class VitalsSecondLevelTests: XCTestCase {
 
-    /// The eight cards, in the order 04B lays them out, each with the sensor line its own
+    /// The eight cards, in the order page two lays them out, each with the sensor line its own
     /// hero prints. The sensor line is what proves the right page arrived: it is unique per
-    /// metric and it sits on the page rather than on the card that opened it.
-    private static let cards: [(card: String, sensor: String, period: String)] = [
-        ("SLEEP",    "OVERNIGHT STAGING",          "LAST NIGHT"),
-        ("HEART",    "OPTICAL PPG SENSOR",         "LAST 24H"),
-        ("HRV",      "RMSSD AUTONOMIC TONE",       "LAST 24H"),
-        ("STRESS",   "PHYSIOLOGICAL STRAIN",       "LAST 24H"),
-        ("TEMP",     "SKIN BASELINE OFFSET",       "LAST 24H"),
-        ("STEPS",    "DAILY CADENCE ACCUMULATED",  "TODAY · 04→NOW"),
-        ("DISTANCE", "SPATIAL DISPLACEMENT",       "TODAY · 04→NOW"),
-        ("ACTIVE",   "DAILY METABOLIC BURN",       "TODAY · 04→NOW"),
+    /// metric and it sits on the page rather than on the card that opened it. `title` is the
+    /// nav word — the metric's own name, never a `VITALS ·` prefix.
+    private static let cards: [(card: String, title: String, sensor: String, period: String)] = [
+        ("SLEEP",    "SLEEP",          "OVERNIGHT STAGING",           "LAST NIGHT"),
+        ("HEART",    "HEART",          "OPTICAL PPG SENSOR",          "LAST 24H"),
+        ("RESPONSE", "RESPONSE",       "WRIST OPTICAL MEAL RESPONSE", "LAST 24H"),
+        ("STRESS",   "STRESS",         "PHYSIOLOGICAL STRAIN",        "LAST 24H"),
+        ("TEMP",     "TEMP",           "SKIN BASELINE OFFSET",        "LAST 24H"),
+        ("STEPS",    "STEPS",          "DAILY CADENCE ACCUMULATED",   "TODAY · 04→NOW"),
+        ("DISTANCE", "DISTANCE",       "SPATIAL DISPLACEMENT",        "TODAY · 04→NOW"),
+        ("ACTIVE",   "ACTIVE ENERGY",  "DAILY METABOLIC BURN",        "TODAY · 04→NOW"),
     ]
 
     override func setUpWithError() throws {
@@ -39,6 +39,8 @@ final class VitalsSecondLevelTests: XCTestCase {
 
             XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 6),
                           "tapping \(entry.card) pushed no page")
+            XCTAssertEqual(app.buttons["Back"].value as? String, entry.title,
+                           "\(entry.card) should title the page \(entry.title), not a VITALS prefix")
             // 04 · the hero's own sensor line. A wrong page would show a different one.
             let hero = app.descendants(matching: .any).matching(
                 NSPredicate(format: "label BEGINSWITH %@", entry.sensor)).firstMatch

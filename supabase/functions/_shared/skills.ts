@@ -95,11 +95,11 @@ export const CHART_SKILLS: ChartSkill[] = [
     target: "bodyBattery",
   },
   {
-    type: "o2night", family: "curve", shape: "SPO2 + APNEA",
-    use: "问的是夜间血氧：一整夜的曲线、均值、最低点、掉到 90 以下几次。",
-    avoid: "手环没写 SpO2 时这张图没有数据，改用 split 或 text。",
+    type: "o2night", family: "curve", shape: "NIGHT SPO2",
+    use: "问的是夜间血氧：一整夜的曲线、均值、最低点。不是呼吸暂停分级，不数掉到 90 以下几次。",
+    avoid: "手环没写夜间自动血氧时这张图没有数据，改用 split 或 text。白天点测不上这张图。",
     sources: ["o2.night"],
-    copy: "hero 写均值百分比；sentence 说有没有掉点；footer 写 guide 90 与最低值。",
+    copy: "hero 写均值百分比；sentence 说曲线的形状；footer 写最低值。不要写 guide 90，不要数 dips。",
     target: "bodyBattery",
   },
   {

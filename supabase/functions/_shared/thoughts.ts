@@ -66,6 +66,15 @@ export class ThoughtStream {
     private max = 48,
   ) {}
 
+  /// Both chat and voice consume the same provider events. Flush a short reasoning tail
+  /// as soon as the model starts answering or calling a tool, before that work finishes.
+  accept(part: { type: string; textDelta?: string }) {
+    if (part.type === "reasoning" && part.textDelta) this.push(part.textDelta);
+    else if (["text-delta", "tool-call", "tool-call-streaming-start", "step-finish", "error"].includes(part.type)) {
+      this.flush();
+    }
+  }
+
   push(delta: string) {
     this.buf += delta;
     for (;;) {

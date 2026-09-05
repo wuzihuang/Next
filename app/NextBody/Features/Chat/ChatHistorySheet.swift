@@ -15,11 +15,11 @@ struct ChatHistorySheet: View {
 
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(L("CONSULTATION ARCHIVE"))
+                    Text(L("CHAT HISTORY"))
                         .font(NBFont.dot(700, 14))
                         .tracking(0.04 * 14)
                         .foregroundStyle(NB.text1)
-                    Text("\(chatStore.sessions.count) " + (L("SESSIONS RECORDED · TELEMETRY LOGS")))
+                    Text("\(chatStore.sessions.count) " + (L("SAVED CONVERSATIONS")))
                         .font(NBFont.ui(400, 12))
                         .foregroundStyle(NB.lime1)
                 }
@@ -113,7 +113,7 @@ struct ChatHistorySheet: View {
             }
 
             HStack {
-                Text(L("AUTO-SAVED TO NEXTBODY CLOUD"))
+                Text(L("SAVED ON THIS DEVICE"))
                     .font(NBFont.dot(400, 10))
                     .foregroundStyle(NB.text3Prod)
                 Spacer()

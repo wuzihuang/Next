@@ -31,11 +31,15 @@ struct DeviceView: View {
     /// How often this phone asks the band for the day. Mirrors SyncCadence so the row
     /// re-renders when the sheet changes it.
     @State private var cadence = SyncCadence.minutes
+    /// Device SYNC is in flight — the capsule holds a spinner until battery, identity,
+    /// and today's origin pull have all come back.
+    @State private var syncing = false
     /// What Automatic measurement actually read — not a guess from capability bits.
     @State private var autoRead: AutoMonitoringRead?
     #if DEBUG
     /// The sport-mode probe sheet. Release builds carry neither the button nor the code.
     @State private var sportProbe = false
+    @State private var healthLightProbe = false
     #endif
 
     private var connected: Bool { data.band.connected }
@@ -93,7 +97,7 @@ struct DeviceView: View {
                 // Five dead facts, no box: they are not settings.
                 // ⚠️ DEVICE NO. is DeviceVersion.deviceNumber — the SDK has no serial number.
                 VStack(spacing: 0) {
-                    IdentityRow(name: "MODEL", value: identity?.model ?? "KR96 PRO")
+                    IdentityRow(name: "MODEL", value: identity?.model ?? "NEXTBODY HOOP")
                     IdentityRow(name: "HARDWARE", value: identity?.hardware ?? "1.2")
                     IdentityRow(name: "SOFTWARE", value: identity?.firmware ?? data.band.firmware)
                     // ⚠️ DeviceVersion.deviceNumber. The SDK has no serial number and no
@@ -118,7 +122,10 @@ struct DeviceView: View {
                 RowCard {
                     NavRow(title: L("Sport mode probe"),
                            detail: L("TAP A TYPE · THE BAND OPENS IT, THEN CLOSES IT"),
-                           value: identity?.sportMode ?? "—", last: true) { sportProbe = true }
+                           value: identity?.sportMode ?? "—") { sportProbe = true }
+                    NavRow(title: L("Health light"),
+                           detail: L("TEST THE FOUR LIGHT STATES"),
+                           value: "", last: true) { healthLightProbe = true }
                 }
                 #endif
 
@@ -128,7 +135,7 @@ struct DeviceView: View {
                         // Disconnecting is reversible, so the safe button is not red.
                         DestructiveRow(title: L("Disconnect"),
                                        detail: L("It keeps recording. Nothing reaches the app."),
-                                       tint: NB.text1) { sheet = .unbind }
+                                       tint: NB.text1) { sheet = .disconnect }
                     } else {
                         DestructiveRow(title: L("Why won't it connect?"),
                                        detail: L("Bluetooth, distance, or a flat battery."),
@@ -175,7 +182,10 @@ struct DeviceView: View {
             // tick reads nothing off the band.
             await OriginDataSync.refreshNow(into: data)
             if connected {
-                do { autoRead = try await Band.live.readAutoMonitoring() }
+                do {
+                    autoRead = try await Band.live.readAutoMonitoring()
+                    rememberOpticalSwitch(autoRead)
+                }
                 catch { autoRead = .failed(error) }
             }
         }
@@ -192,7 +202,10 @@ struct DeviceView: View {
                     identity = fresh; data.band.firmware = fresh.firmware
                 }
                 if check == .idle { await checkForUpdate() }
-                do { autoRead = try await Band.live.readAutoMonitoring() }
+                do {
+                    autoRead = try await Band.live.readAutoMonitoring()
+                    rememberOpticalSwitch(autoRead)
+                }
                 catch { autoRead = .failed(error) }
             }
         }
@@ -202,6 +215,7 @@ struct DeviceView: View {
                 case .bandAutoMonitor: AutoMeasurementSheet(initial: autoRead) { autoRead = $0 }
                 case .syncCadence:     SyncCadenceSheet(minutes: $cadence)
                 case .unbind:          ForgetHoopSheet()
+                case .disconnect:      DisconnectSheet()
                 default:               WhyWontItConnectSheet()
                 }
             }
@@ -211,6 +225,13 @@ struct DeviceView: View {
             .presentationCornerRadius(NB.R.panel)
         }
         #if DEBUG
+        .sheet(isPresented: $healthLightProbe) {
+            HealthLightDebugSheet()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(NB.carbon2)
+                .presentationCornerRadius(NB.R.panel)
+        }
         .sheet(isPresented: $sportProbe) {
             SportProbeSheet()
                 .presentationDetents([.large])
@@ -350,12 +371,14 @@ struct DeviceView: View {
         return battery?.chargeState ?? .unknown
     }
 
-    private var chargeLine: String {
+    /// Charge state only. Remaining days are not on this card — the SDK
+    /// does not report them, and a guessed count is the sentence 12 banned.
+    private var chargeLine: String? {
         guard connected else { return L("Still recording on your wrist") }
         switch displayedCharge {
         case .charging: return L("Charging")
         case .full:     return L("Charged")
-        default:        return L("About 3 days of charge left")
+        default:        return nil
         }
     }
 
@@ -395,38 +418,96 @@ struct DeviceView: View {
         switch kind {
         case .heartRate:       "HR"
         case .bloodPressure:   "BP"
-        case .bloodGlucose:    "GLU"
+        case .bloodGlucose:    "RESP"
         case .stress:          "STRESS"
         case .bloodOxygen:     "SPO2"
         case .temperature:     "TEMP"
         case .lorentz:         "LORENTZ"
         case .hrv:             "HRV"
+        case .scientificSleep: "SLEEP"
         case .bloodComponents: "BLOOD"
         }
     }
 
-    /// The ring and the sentence answer two different questions: 82 is a number, and
-    /// "about 3 days of charge left" is what a normal person wanted to know.
-    /// ⚠️ Days are our own estimate — the SDK gives percent / level / chargeState only.
+    /// Same capsule as FIRMWARE's CHECK / UPDATE, parked to the right of the battery
+    /// ring so a tap can ask the band again without waiting for cadence.
+    private var deviceSyncButton: some View {
+        Button {
+            Task { await pullBandNow() }
+        } label: {
+            Group {
+                if syncing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(NB.carbon)
+                } else {
+                    Text(L("SYNC"))
+                        .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
+                        .foregroundStyle(connected ? NB.carbon : NB.text3Prod)
+                }
+            }
+            .frame(minWidth: 64)
+            .padding(.horizontal, 18)
+            .frame(height: 36)
+            .background(connected ? NB.lime1 : Color.clear, in: Capsule())
+            .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(minWidth: 44, minHeight: 44)
+        .disabled(BoundBand.identifier == nil || syncing)
+        .accessibilityLabel(L("Sync now"))
+        .accessibilityHint(L("Pull the latest readings from this HOOP."))
+        .accessibilityValue(syncing ? L("SYNCING…") : "")
+    }
+
+    /// Battery, identity, then today's origin pages — cadence throttle does not apply,
+    /// because the button exists to ask again now. A pull already in flight is joined
+    /// rather than started twice.
+    private func pullBandNow() async {
+        guard BoundBand.identifier != nil, !syncing else { return }
+        syncing = true
+        defer { syncing = false }
+        await Analytics.shared.track("DEV_SYNC_TAP", ["CONNECTED": connected])
+        await OriginDataSync.refreshNow(into: data, minimumInterval: 0, fullHistory: true)
+        guard Band.live.state == .connected else { return }
+        if !DebugEdge.on("levelonly"), let fresh = try? await Band.live.readBattery() {
+            battery = fresh
+            data.band.applyBattery(fresh)
+        }
+        if let fresh = try? await Band.live.readIdentity() {
+            identity = fresh
+            data.band.name = fresh.name
+            data.band.mac = fresh.bleIdentifier
+            data.band.firmware = fresh.firmware
+        }
+        await Repository.shared.registerDevice(identity: identity, battery: battery)
+    }
+
+    /// The ring is the number. Remaining days are not written — 12 forbade a
+    /// guessed count, and this page does not invent one.
     private var batteryCard: some View {
         VStack(spacing: 16) {
             if let battery, !battery.isPercent {
                 // 12 edge 1 · LEVEL ONLY · NO PERCENT TO SHOW. Four bars, and the days line is
                 // not rendered — a bar count × 25 is a percentage nobody measured.
-                VStack(spacing: 12) {
-                    HStack(spacing: 5) {
-                        ForEach(0..<4, id: \.self) { i in
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(i < (battery.level ?? 0) ? NB.lime1 : Color(hex: 0x2A2A32))
-                                .frame(width: 22, height: 34)
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(spacing: 12) {
+                        HStack(spacing: 5) {
+                            ForEach(0..<4, id: \.self) { i in
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(i < (battery.level ?? 0) ? NB.lime1 : Color(hex: 0x2A2A32))
+                                    .frame(width: 22, height: 34)
+                            }
                         }
+                        Text(L("%d OF 4 BARS", battery.level ?? 0))
+                            .font(NBFont.dot(700, 14)).tracking(0.14 * 14).foregroundStyle(Color(hex: 0xB0B0BA))
+                        Text(L("This firmware reports level, not percent."))
+                            .font(NBFont.ui(300, 11.5)).tracking(0.03 * 11.5).foregroundStyle(NB.text3Prod)
                     }
-                    Text(L("%d OF 4 BARS", battery.level ?? 0))
-                        .font(NBFont.dot(700, 14)).tracking(0.14 * 14).foregroundStyle(Color(hex: 0xB0B0BA))
-                    Text(L("This firmware reports level, not percent."))
-                        .font(NBFont.ui(300, 11.5)).tracking(0.03 * 11.5).foregroundStyle(NB.text3Prod)
+                    .frame(maxWidth: .infinity)
+                    deviceSyncButton
                 }
-                .frame(maxWidth: .infinity)
             } else {
             HStack(spacing: 18) {
                 ZStack {
@@ -450,16 +531,17 @@ struct DeviceView: View {
                     Text(data.band.name)
                         .font(NBFont.ui(600, 18)).tracking(0.02 * 18)
                         .foregroundStyle(NB.text1)
-                    Text(L("KR96 PRO"))
+                    Text(L("NEXTBODY HOOP"))
                         .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
                         .foregroundStyle(NB.white.opacity(0.34))
-                    // The ring gives a number; this line gives what a person wanted to know.
-                    // ⚠️ Days are our own estimate — the SDK reports percent / level / chargeState.
-                    Text(chargeLine)
-                        .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
-                        .foregroundStyle(connected ? NB.lime1 : NB.text2)
+                    if let chargeLine {
+                        Text(chargeLine)
+                            .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
+                            .foregroundStyle(connected ? NB.lime1 : NB.text2)
+                    }
                 }
                 Spacer(minLength: 0)
+                deviceSyncButton
             }
             }
 
@@ -664,6 +746,12 @@ struct DeviceView: View {
             Spacer(minLength: 0)
         }
         .padding(.leading, 4)
+    }
+}
+
+private func rememberOpticalSwitch(_ read: AutoMonitoringRead?) {
+    if let slot = read?.slots.first(where: { $0.kind == .bloodGlucose }) {
+        OpticalAutoSwitch.record(on: slot.on)
     }
 }
 
@@ -885,6 +973,9 @@ struct AutoMeasurementSheet: View {
         if case .switches = read { return true }
         return false
     }
+    private var hasScientificSleep: Bool {
+        slots.contains { $0.kind == .scientificSleep }
+    }
 
     var body: some View {
         ScrollView {
@@ -908,7 +999,7 @@ struct AutoMeasurementSheet: View {
                     VStack(spacing: 0) {
                         ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
                             MeasureToggle(
-                                title: Self.title(slot.kind),
+                                title: L(Self.title(slot.kind)),
                                 detail: Self.detail(slot, firmwareOwnsInterval: firmwareOwnsInterval),
                                 // 12S decision 2 · isSlotModify / isIntervalModify: a chip the firmware
                                 // will not let you change is not rendered — a read-only grey chip gets
@@ -922,7 +1013,9 @@ struct AutoMeasurementSheet: View {
                                     update(slot, interval: interval)
                                 },
                                 isWriting: writingKinds.contains(slot.kind),
-                                detailIsLime: firmwareOwnsInterval
+                                detailIsLime: slot.kind == .scientificSleep
+                                    ? slot.on
+                                    : firmwareOwnsInterval
                                     ? slot.on
                                     : slot.on && slot.supportsRange && slot.slotModifiable && slot.intervalModifiable,
                                 isOn: Binding(
@@ -963,13 +1056,21 @@ struct AutoMeasurementSheet: View {
     }
 
     private var subtitle: String {
-        firmwareOwnsInterval
-            ? "This HOOP only lets you turn each sensor on or off. How often it measures is decided by the firmware."
-            : "Choose each sensor's own interval. Shorter intervals use more battery."
+        if firmwareOwnsInterval {
+            return hasScientificSleep
+                ? L("This HOOP lets you turn each sensor or sleep mode on or off. How often it measures is decided by the firmware.")
+                : L("This HOOP only lets you turn each sensor on or off. How often it measures is decided by the firmware.")
+        }
+        return hasScientificSleep
+            ? L("Choose each sensor's own interval. Scientific sleep uses automatic PPG.")
+            : L("Choose each sensor's own interval. Shorter intervals use more battery.")
     }
 
     private var footer: String {
-        firmwareOwnsInterval
+        if hasScientificSleep {
+            return L("Scientific sleep applies to future nights and may use more battery.")
+        }
+        return firmwareOwnsInterval
             ? L("The interval itself is not a setting on this firmware.")
             : L("Only what this HOOP can measure is listed")
     }
@@ -995,6 +1096,7 @@ struct AutoMeasurementSheet: View {
         do {
             let result = try await Band.live.readAutoMonitoring()
             read = result
+            rememberOpticalSwitch(result)
             onRead(result)
         } catch {
             let result = AutoMonitoringRead.failed(error)
@@ -1028,6 +1130,7 @@ struct AutoMeasurementSheet: View {
     }
 
     private func apply(_ slot: AutoMonitorSlot) {
+        if slot.kind == .bloodGlucose { OpticalAutoSwitch.record(on: slot.on) }
         switch read {
         case .interval(let slots):
             read = .interval(slots.map { $0.id == slot.id ? slot : $0 })
@@ -1042,17 +1145,21 @@ struct AutoMeasurementSheet: View {
         switch kind {
         case .heartRate:       "Heart rate"
         case .bloodPressure:   "Blood pressure"
-        case .bloodGlucose:    "Blood glucose"
+        case .bloodGlucose:    "Meal response"
         case .stress:          "Stress"
         case .bloodOxygen:     "Blood oxygen"
         case .temperature:     "Skin temperature"
         case .lorentz:         "Lorentz"
         case .hrv:             "HRV"
+        case .scientificSleep: "Scientific sleep"
         case .bloodComponents: "Blood components"
         }
     }
 
     private static func detail(_ slot: AutoMonitorSlot, firmwareOwnsInterval: Bool) -> String {
+        if slot.kind == .scientificSleep {
+            return slot.on ? L("REM STAGING · AUTOMATIC PPG ON") : L("DEEP AND LIGHT ONLY")
+        }
         guard slot.on else { return L("OFF") }
         if firmwareOwnsInterval { return L("FIRMWARE INTERVAL") }
         if slot.supportsRange {
@@ -1210,6 +1317,7 @@ struct SyncCadenceSheet: View {
 /// "Forget this HOOP" is possible; "factory reset" is not, and the two must never blur.
 struct ForgetHoopSheet: View {
     @EnvironmentObject private var data: DataStore
+    @EnvironmentObject private var session: SessionStore
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1224,13 +1332,16 @@ struct ForgetHoopSheet: View {
             Spacer(minLength: 0)
             LimePillButton(title: L("Keep it paired")) { dismiss() }
             Button {
-                // ⚠️ The SDK only offers disconnect(). "Forget" is the app dropping its own
-                // device id — "factory reset" is not something we can do, and the difference
-                // between those two sentences has to be kept word for word.
-                BoundBand.forget()
-                Task { await Band.live.disconnect() }
-                data.band.connected = false
-                dismiss()
+                // F3 · Forget writes unbound_at so the account is UNPAIRED. Clearing only
+                // the local UUID left the server claiming a band and no way back to Connect.
+                Task {
+                    await Repository.shared.unbindBoundDevice()
+                    BoundBand.forget()
+                    await Band.live.disconnect()
+                    data.band = .unknown
+                    session.stage = .gateConnect
+                    dismiss()
+                }
             } label: {
                 Text(L("FORGET THIS HOOP"))
                     .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
@@ -1265,8 +1376,11 @@ struct DisconnectSheet: View {
             Spacer(minLength: 0)
             LimePillButton(title: L("Stay connected")) { dismiss() }
             Button {
-                data.band.connected = false
-                dismiss()
+                Task {
+                    await Band.live.disconnect()
+                    data.band.connected = false
+                    dismiss()
+                }
             } label: {
                 Text(L("DISCONNECT"))
                     .font(NBFont.ui(500, 12)).tracking(0.2 * 12)

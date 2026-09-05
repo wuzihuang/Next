@@ -10,7 +10,7 @@ import Foundation
 enum AutoMeasurementSwitchFallback {
     enum Kind: String, Equatable, CaseIterable {
         case heartRate, bloodPressure, bloodGlucose, stress
-        case bloodOxygen, temperature, hrv, bloodComponents
+        case bloodOxygen, temperature, hrv, scientificSleep, bloodComponents
     }
 
     struct Reading: Equatable {
@@ -33,6 +33,9 @@ enum AutoMeasurementSwitchFallback {
         if let on = flag(switchData, index: 4) { out.append(Reading(kind: .heartRate, on: on)) }
         if let on = flag(switchData, index: 5) { out.append(Reading(kind: .bloodPressure, on: on)) }
         if let on = flag(switchData, index: 12) { out.append(Reading(kind: .hrv, on: on)) }
+        // VPSettingAutomaticPPGTest. The SDK documents this as the real controller for
+        // scientific sleep; VPSettingAccurateSleep itself is currently ineffective.
+        if let on = flag(switchData, index: 16) { out.append(Reading(kind: .scientificSleep, on: on)) }
         if oxygenSupported { out.append(Reading(kind: .bloodOxygen, on: oxygenOn)) }
         if let on = flag(switchTwoData, index: 4) { out.append(Reading(kind: .temperature, on: on)) }
         if let on = flag(switchTwoData, index: 7) { out.append(Reading(kind: .bloodGlucose, on: on)) }

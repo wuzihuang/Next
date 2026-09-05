@@ -63,3 +63,24 @@ Deno.test("a runaway reasoning block is capped", () => {
   const flood = Array.from({ length: 200 }, (_, i) => `Thought number ${i} about the week.`).join("");
   assertEquals(collect([flood], [], 5).length, 5);
 });
+
+Deno.test("model reasoning reaches both surfaces before the final answer", () => {
+  const out: string[] = [];
+  const stream = new ThoughtStream((text) => out.push(text));
+  stream.accept({ type: "reasoning", textDelta: "先看昨夜睡眠。" });
+  assertEquals(out, ["先看昨夜睡眠"]);
+  stream.accept({ type: "reasoning", textDelta: "再看训练量" });
+  stream.accept({ type: "text-delta", textDelta: "最终回答" });
+  assertEquals(out, ["先看昨夜睡眠", "再看训练量"]);
+});
+
+Deno.test("reasoning tail appears before tool execution and is not duplicated at step end", () => {
+  const out: string[] = [];
+  const stream = new ThoughtStream((text) => out.push(text));
+  stream.accept({ type: "reasoning", textDelta: "Checking recovery" });
+  stream.accept({ type: "tool-call" });
+  assertEquals(out, ["Checking recovery"]);
+  stream.accept({ type: "step-finish" });
+  stream.accept({ type: "text-delta", textDelta: "Final answer" });
+  assertEquals(out, ["Checking recovery"]);
+});

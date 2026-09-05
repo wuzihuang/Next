@@ -27,4 +27,12 @@ enum VitalsTimelinePolicy {
         let visibleEnd = min(end, max(start, now))
         return VitalsTimelineRange(start: start, end: visibleEnd)
     }
+
+    /// Stress is often missing on the newest worn tick — sleep PPG still has heart.
+    /// Join the last positive reading if it still sits inside the rolling 24h window.
+    static func currentStress(latest: Int?, previous: (value: Int, at: Date)?, at tickAt: Date) -> Int? {
+        if let latest { return latest }
+        guard let previous else { return nil }
+        return rolling24Hours(endingAt: tickAt).contains(previous.at) ? previous.value : nil
+    }
 }

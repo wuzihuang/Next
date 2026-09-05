@@ -1,18 +1,17 @@
 import SwiftUI
 
-/// 04B · PAGE TWO · 往右一滑是仪表，不是判断. Eight of the strip's own 174-wide cards, two
-/// columns by four rows, one colour each: SLEEP · HEART / HRV · STRESS / TEMP · STEPS /
-/// DISTANCE · ACTIVE. No dock, no buttons, no adjectives — and not one read of the band:
-/// every number here is a tick Body Battery already pulled (04B rule 09).
+/// 04C · PAGE TWO · 往右一滑是仪表，不是判断. Eight of the strip's own 174-wide cards:
+/// SLEEP · HEART / RESPONSE · STRESS / TEMP · STEPS / DISTANCE · ACTIVE. Night HRV
+/// lives on the sleep page. RESPONSE is the wrist optical meal-response index, never
+/// a blood test. No dock, no buttons, no adjectives — and not one read of the band.
 struct VitalsPage: View {
     let m: DailyMetrics
-    /// The nights behind today, for the cards that carry a baseline. Not plotted: the HRV
-    /// card draws the day's own ticks, and one point per night is what it drew before.
+    /// Rolling 24h stress on the STRESS card uses nights behind today so the bars and
+    /// "now" share one window.
     let history: [DailyMetrics]
     let vitals: LiveVitals
-    /// 04B F1 · false until the first sync has ever landed. Before that, the cards that read
-    /// the library say 「还没同步」 instead of printing an empty baseline.
-    var syncedOnce: Bool = true
+    var mealResponsePoints: [MealResponseIndex.Point] = []
+    var mealResponseZerosToday = false
     var width: CGFloat = NB.Layout.contentWidth
     /// The height the root frames the page to (panel top → over the dots' lane). The cards
     /// grow into it: row gaps stay a constant 10 and the card height takes the rest, the way
@@ -46,7 +45,7 @@ struct VitalsPage: View {
                     zone(.heart) { heartCard }
                 }
                 HStack(spacing: NB.Layout.cardGap) {
-                    zone(.hrv) { hrvCard }
+                    zone(.response) { responseCard }
                     zone(.stress) { stressCard }
                 }
                 HStack(spacing: NB.Layout.cardGap) {
@@ -112,59 +111,70 @@ struct VitalsPage: View {
         }
     }
 
-    private var hrvCard: some View {
-        let n = m.nightInputs
-        let base = n?.hrvBase
-        // 04B · the band measures HRV every ten minutes, all day, and each of those ticks is
-        // stored. The card draws the day the way HEART and TEMP draw theirs — one bar per
-        // recorded night could only ever be as long as the nights on file, which on a new
-        // band is one bar and reads as a broken chart.
-        // ⚠️ The number above it stays LAST NIGHT: the night's median is what the multiplier
-        // weighs, and it is not the curve's last point.
-        let values = ticks.compactMap(\.hrv)
-        // HRV's personal range is far wider than skin temperature's, so the axis comes from
-        // the day rather than from a constant that would flatten one wrist and clip another.
-        let lo = max(0, (values.min() ?? 20) - 8)
-        let hi = (values.max() ?? 100) + 8
-        // 04B F1 · NOT SYNCED. Before the first sync there is no library to read — the card
-        // holds its frame and says 「还没同步」 rather than printing an empty baseline.
-        // ⚠️ Never retried from here: an empty library re-read is empty again, at the
-        // band's battery.
-        let notSynced = !syncedOnce && n == nil
-        return InstrumentCard(label: L("HRV"), tag: L("LAST NIGHT"), tint: NB.blue1,
-                              height: cardHeight,
-                              value: n?.hrv.map { String(Int($0.rounded())) }, unit: "MS",
-                              foot: values.isEmpty
-                                  ? L("BASE %@ · %d/14 NIGHTS", base.map { String(Int($0.rounded())) } ?? Fmt.dash, n?.hrvNights ?? 0)
-                                  : L("BASE %@ · LOW %d · HIGH %d", base.map { String(Int($0.rounded())) } ?? Fmt.dash, Int(values.min()!.rounded()), Int(values.max()!.rounded())),
-                              status: notSynced ? ("NOT SYNCED YET", "SYNC RUNS ON OPEN") : nil) {
-            DaySpark(samples: ticks, day: day, value: \.hrv,
-                     low: lo, high: hi, tint: NB.blue1)
+    private var mealIndex: MealResponseIndex.Result {
+        MealResponsePresentation.index(
+            today: m,
+            history: history,
+            points: mealResponsePoints,
+            zerosToday: mealResponseZerosToday)
+    }
+
+    private var responseCard: some View {
+        let index = mealIndex
+        let hero = index.hero.map(MealResponseIndex.signedPercent)
+        let status: (String, String)?
+        switch index.empty {
+        case .needs5Days: status = (L("NEEDS 5 DAYS"), L("OWN MEDIAN NOT READY"))
+        case .switchOff:  status = (L("SWITCH OFF"), L("AUTO MEASURE IS OFF"))
+        case .allZeros:   status = (L("ALL ZEROS"), L("NOT A READING"))
+        case .empty:      status = (L("NO TICKS TODAY"), L("OWN MEDIAN READY"))
+        case nil:         status = nil
+        }
+        return InstrumentCard(
+            label: L("RESPONSE"), tag: "NOW", tint: NB.compareAmber,
+            height: cardHeight,
+            value: hero, unit: nil,
+            foot: L("VS OWN MEDIAN"),
+            status: status,
+            spokenHint: L("Meal-response index versus own median")) {
+            ResponseSpark(points: index.percents, day: day, tint: NB.compareAmber)
         }
     }
 
     private var stressCard: some View {
-        let bins = VitalsMath.halfHourMean(ticks, day: day, value: { $0.stress.map(Double.init) })
+        let now = Date()
+        let window = VitalsTimelinePolicy.rolling24Hours(endingAt: now)
+        let samples = VitalSample.rolling(
+            VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks),
+            endingAt: now)
+        let bins = VitalsMath.halfHourMean(samples, range: window, value: { $0.stress.map(Double.init) })
         let peak = VitalsMath.peak(bins)
+        // The newest tick often has heart from PPG and no stress. The number is the last
+        // stress reading in the same 24h window the bars are drawn from — same rule as
+        // the detail page — not only LiveVitals.stress on that newest row.
+        let latest = gone ? nil : (vitals.stress ?? samples.last(where: { $0.stress != nil })?.stress)
         return InstrumentCard(label: L("STRESS"), tag: L("TODAY"), tint: NB.ember1,
                               height: cardHeight,
-                              value: gone ? nil : vitals.stress.map(String.init), unit: L("/100 NOW"),
-                              foot: peak.map { L("PEAK %d AT %@", Int($0.value.rounded()), VitalsMath.clock(day: day, minute: $0.index * 30)) } ?? L("NO TICKS YET"),
+                              value: latest.map(String.init), unit: L("/100 NOW"),
+                              foot: peak.map { L("PEAK %d AT %@", Int($0.value.rounded()), Fmt.clock(window.start.addingTimeInterval(TimeInterval($0.index * 30 * 60)))) } ?? L("NO TICKS YET"),
                               dim: dim, unitWhenEmpty: gone) {
             FineBars(values: bins, tint: NB.ember1, highlight: { $0 > 60 })
         }
     }
 
     private var tempCard: some View {
-        let temps = ticks.compactMap(\.temp)
-        let last = gone ? nil : ticks.last(where: { $0.temp != nil })?.temp
+        let window = VitalsTimelinePolicy.rolling24Hours(endingAt: Date())
+        let samples = VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks)
+            .filter { window.contains($0.ts) }
+        let temps = samples.compactMap(\.temp)
+        let last = gone ? nil : samples.last(where: { $0.temp != nil })?.temp
         return InstrumentCard(label: L("TEMP"), tag: L("NOW"), tint: NB.cyan1,
                               height: cardHeight,
                               value: last.map { String(format: "%.1f", $0) }, unit: L("°C SKIN"),
                               foot: temps.isEmpty ? L("NO TICKS YET")
                                   : L("LOW %.1f · HIGH %.1f", temps.min()!, temps.max()!),
                               dim: dim, unitWhenEmpty: gone) {
-            DaySpark(samples: ticks, day: day, value: \.temp, low: 35.5, high: 37.0, tint: NB.cyan1)
+            DaySpark(samples: samples, day: day, value: \.temp, low: 35.5, high: 37.0, tint: NB.cyan1, range: window)
         }
     }
 
@@ -193,13 +203,16 @@ struct VitalsPage: View {
     }
 
     private var activeCard: some View {
-        let bins = VitalsMath.hourSum(ticks, day: day, value: \.cal)
-        let kcal = m.eActive ?? VitalsMath.total(bins)
-        let peak = VitalsMath.peak(bins)
+        let archived = ticks.compactMap(\.vendorCalories)
+        let bins = ActivityEnergyPolicy.hourlyBins(count: 24, archivedVendorCalories: archived)
+        let kcal = ActivityEnergyPolicy.displayTotal(
+            settledActiveKcal: m.eActive,
+            archivedVendorCalories: archived)
         return InstrumentCard(label: L("ACTIVE ENERGY"), tag: L("TODAY"), tint: NB.run1,
                               height: cardHeight,
                               value: kcal.map { Fmt.kcal($0) }, unit: "KCAL",
-                              foot: peak.map { L("PEAK %@ · %@ KCAL", VitalsMath.clock(day: day, minute: $0.index * 60), Fmt.kcal($0.value)) } ?? L("NO TICKS YET")) {
+                              foot: kcal == nil ? L("WAITING FOR VERIFIED ENERGY")
+                                                : L("MOVEMENT ONLY · SETTLED")) {
             HourBars(values: bins, tint: NB.run1)
         }
     }
@@ -218,11 +231,11 @@ struct VitalsPage: View {
         return line
     }
 
-    /// 04B 上线前 · PAGE2_CARD_STATE{CARD,STATE}. What each of the eight cards is showing at
-    /// this instant — a live number (FRESH), a dimmed one (STALE), a dash where a number was
-    /// (GONE), or nothing ever (EMPTY) — so 「滑过来看到的是数还是 ——」 is answerable from
-    /// the logs instead of from guesses.
-    static func cardStates(m: DailyMetrics, vitals: LiveVitals) -> [String: String] {
+    /// 04C · PAGE2_CARD_STATE{CARD,STATE} plus PAGE2_RESPONSE_STATE. RESPONSE uses its
+    /// own empty vocabulary (FRESH / NEEDS5 / OFF / ZERO / EMPTY), never STALE/GONE.
+    static func cardStates(m: DailyMetrics, vitals: LiveVitals, history: [DailyMetrics] = [],
+                           mealResponsePoints: [MealResponseIndex.Point] = [],
+                           mealResponseZerosToday: Bool = false) -> [String: String] {
         func nowCard(_ value: Bool) -> String {
             guard vitals.at != nil else { return "EMPTY" }
             switch vitals.freshness {
@@ -232,15 +245,23 @@ struct VitalsPage: View {
             }
         }
         let day = m.day, ticks = m.vitalsCurve
+        let rollingStress = VitalSample.rolling(
+            VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks),
+            endingAt: Date())
         let steps = m.steps.map(Double.init) ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: { $0.steps.map(Double.init) }))
         let metres = m.distanceM.map(Double.init) ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: \.dis))
-        let kcal = m.eActive ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: \.cal))
+        let kcal = ActivityEnergyPolicy.displayTotal(
+            settledActiveKcal: m.eActive,
+            archivedVendorCalories: ticks.compactMap(\.vendorCalories))
+        let response = MealResponsePresentation.index(
+            today: m, history: history, points: mealResponsePoints,
+            zerosToday: mealResponseZerosToday)
         return [
             "SLEEP": m.sleep == nil ? "EMPTY" : "FRESH",
             "HEART": nowCard(vitals.hr != nil),
-            "HRV": m.nightInputs?.hrv == nil ? "EMPTY" : "FRESH",
-            "STRESS": nowCard(vitals.stress != nil),
-            "TEMP": nowCard(ticks.contains { $0.temp != nil }),
+            "RESPONSE": response.analyticsState,
+            "STRESS": nowCard(vitals.stress != nil || rollingStress.contains { $0.stress != nil }),
+            "TEMP": nowCard(rollingStress.contains { $0.temp != nil }),
             "STEPS": steps == nil ? "EMPTY" : "FRESH",
             "DISTANCE": metres == nil ? "EMPTY" : "FRESH",
             "ACTIVE": kcal == nil ? "EMPTY" : "FRESH",
@@ -267,6 +288,7 @@ struct InstrumentCard<Chart: View>: View {
     /// 04B F1 / F5 · the two-line state foot. When set it replaces the chart and the foot:
     /// the first line names the state, the second says what happens next.
     var status: (line: String, sub: String)? = nil
+    var spokenHint: String? = nil
     @ViewBuilder let chart: () -> Chart
 
     /// The page-two cards pass `height` right after `tint`, ahead of `value` — an explicit
@@ -274,6 +296,7 @@ struct InstrumentCard<Chart: View>: View {
     init(label: String, tag: String, tint: Color, height: CGFloat = NB.Layout.stripHeight,
          value: String?, unit: String?, foot: String, dim: Double = 1,
          unitWhenEmpty: Bool = false, status: (line: String, sub: String)? = nil,
+         spokenHint: String? = nil,
          @ViewBuilder chart: @escaping () -> Chart) {
         self.label = label
         self.tag = tag
@@ -285,6 +308,7 @@ struct InstrumentCard<Chart: View>: View {
         self.height = height
         self.unitWhenEmpty = unitWhenEmpty
         self.status = status
+        self.spokenHint = spokenHint
         self.chart = chart
     }
 
@@ -344,14 +368,13 @@ struct InstrumentCard<Chart: View>: View {
         .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.hairline, lineWidth: 1))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label), \(tag)")
+        .accessibilityLabel(spokenHint.map { "\(label), \(tag), \($0)" } ?? "\(label), \(tag)")
         .accessibilityValue(status.map { "\($0.line), \($0.sub)" }
             ?? value.map { "\($0) \(unit ?? ""), \(foot)" } ?? "no data, \(foot)")
     }
 }
 
-// The two hot zones press like the strip's cards (HotZoneTap, ADR-0001); the other six have
-// no press state at all — 「做一个按压态等于承诺一个不存在的页面」.
+// The eight cards press like the strip's cards (HotZoneTap, ADR-0001).
 
 /// 04 · 04B · the two 4 pt page dots. The current page is the bright one.
 struct PageDots: View {
@@ -370,6 +393,38 @@ struct PageDots: View {
 
 // MARK: charts · 148 × 28 in the board, whatever the card's inner width is on device.
 
+/// Sparse meal-response ticks, points only. A line would read as a CGM.
+struct ResponseSpark: View {
+    let points: [MealResponseIndex.ScatterPoint]
+    let day: UserDay
+    let tint: Color
+
+    var body: some View {
+        Canvas { ctx, size in
+            let values = points.map(\.percent)
+            guard let loRaw = values.min(), let hiRaw = values.max() else { return }
+            let lo = min(Double(loRaw), -8) - 4
+            let hi = max(Double(hiRaw), 8) + 4
+            let span = max(1, hi - lo)
+            func y(_ v: Int) -> CGFloat {
+                size.height - 2 - CGFloat((Double(v) - lo) / span) * (size.height - 4)
+            }
+            var zero = Path()
+            zero.move(to: CGPoint(x: 0, y: y(0)))
+            zero.addLine(to: CGPoint(x: size.width, y: y(0)))
+            ctx.stroke(zero, with: .color(NB.white.opacity(0.18)),
+                       style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            for point in points {
+                let t = point.ts.timeIntervalSince(day.start) / 86_400
+                guard t >= 0, t <= 1 else { continue }
+                let p = CGPoint(x: size.width * t, y: y(point.percent))
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3)),
+                         with: .color(tint))
+            }
+        }
+    }
+}
+
 /// A day of one tick series, 04:00 → 04:00 across the width, y on a fixed scale — the ruler
 /// never changes with the day (04B rule 04). A gap in the ticks is a dashed gap in the line,
 /// never a straight segment across it; the last tick carries a dot.
@@ -380,12 +435,13 @@ struct DaySpark: View {
     let low: Double
     let high: Double
     let tint: Color
+    var range: VitalsTimelineRange? = nil
 
     var body: some View {
         Canvas { ctx, size in
             let span = max(0.001, high - low)
             func point(_ s: VitalSample, _ v: Double) -> CGPoint {
-                let t = min(1, max(0, s.ts.timeIntervalSince(day.start) / 86_400))
+                let t = min(1, max(0, s.ts.timeIntervalSince(range?.start ?? day.start) / max(1, range?.span ?? 86_400)))
                 let clamped = min(high, max(low, v))
                 let y = size.height - 2 - (clamped - low) / span * (size.height - 4)
                 return CGPoint(x: size.width * t, y: y)
@@ -514,9 +570,13 @@ struct SleepStrip: View {
     var body: some View {
         Canvas { ctx, size in
             if !sleep.line.isEmpty {
-                let total = max(1, sleep.line.reduce(0) { $0 + $1.minutes })
+                let hasOffsets = sleep.line.allSatisfy { $0.offsetMinutes != nil }
+                let recordedSpan = sleep.wakeAt.flatMap { wake in sleep.sleepStart.map { wake.timeIntervalSince($0) / 60 } } ?? 0
+                let total = max(1, hasOffsets ? max(recordedSpan, Double(sleep.line.map { ($0.offsetMinutes ?? 0) + $0.minutes }.max() ?? 0))
+                    : Double(sleep.line.reduce(0) { $0 + $1.minutes }))
                 var x: CGFloat = 0
                 for run in sleep.line {
+                    if hasOffsets { x = size.width * CGFloat(run.offsetMinutes ?? 0) / CGFloat(total) }
                     let w = size.width * CGFloat(run.minutes) / CGFloat(total)
                     // SDK stages: 0 deep, 1 light, 2 REM, 3 insomnia, 4 awake.
                     let (h, a): (CGFloat, Double) = switch run.stage {
@@ -593,6 +653,20 @@ enum VitalsMath {
             sum[i] += v; n[i] += 1
         }
         return (0..<48).map { n[$0] == 0 ? nil : sum[$0] / Double(n[$0]) }
+    }
+
+    static func halfHourMean(_ samples: [VitalSample], range: VitalsTimelineRange,
+                             value: (VitalSample) -> Double?) -> [Double?] {
+        let count = max(1, Int(ceil(range.span / 1800)))
+        var sum = [Double](repeating: 0, count: count), n = [Int](repeating: 0, count: count)
+        for sample in samples {
+            guard range.contains(sample.ts), let measured = value(sample) else { continue }
+            let elapsed = max(0, sample.ts.timeIntervalSince(range.start))
+            let index = min(count - 1, Int(elapsed / 1800))
+            sum[index] += measured
+            n[index] += 1
+        }
+        return (0..<count).map { n[$0] == 0 ? nil : sum[$0] / Double(n[$0]) }
     }
 
     static func peak(_ bins: [Double?]) -> (index: Int, value: Double)? {

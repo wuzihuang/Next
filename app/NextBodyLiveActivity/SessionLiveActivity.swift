@@ -30,7 +30,7 @@ struct SessionLiveActivity: Widget {
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    IslandStat(value: String(state.kcal), unit: "KCAL",
+                    IslandStat(value: state.energyText, unit: "KCAL",
                                tint: stale ? Island.white.opacity(0.32) : Island.white.opacity(0.86))
                         .padding(.trailing, 4)
                 }
@@ -176,7 +176,7 @@ private struct LockScreenSession: View {
 
                 column("BURNED") {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(String(state.kcal))
+                        Text(state.energyText)
                             .font(Island.brand(28))
                             .foregroundStyle(Island.white.opacity(0.86))
                             .monospacedDigit()

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 01 · 登录注册 Sign In. Gate → Email → Code → brand animation.
 /// The word "sign up" appears nowhere: the server decides new vs returning, not the user.
@@ -16,7 +17,6 @@ struct SignInFlow: View {
     enum CodeError: Equatable { case wrong, locked, expired, rateLimited, noNetwork }
     @State private var codeError: CodeError?
     @State private var sending = false
-    @State private var wrongCount = 0
     @State private var authFailed = false
     @State private var appleSignIn = AppleSignIn()
     /// 02M ◇5 · where the film hands the screen over: Connect, unless this account already
@@ -26,13 +26,22 @@ struct SignInFlow: View {
     var body: some View {
         ZStack {
             switch step {
-            case .gate:  GateScreen(failed: authFailed, onEmail: { step = .email },
-                                    onApple: { signInWithApple() }, onGoogle: { provider() })
+            case .gate:  GateScreen(failed: authFailed, onEmail: {
+                                    Task { await Analytics.shared.track("AUTH_METHOD_TAP", ["METHOD": "EMAIL"]) }
+                                    step = .email
+                                },
+                                    onApple: { signInWithApple() }, onGoogle: { signInWithGoogle() })
             case .email: EmailScreen(email: $email, sending: sending, error: codeError,
-                                     onBack: { step = .gate }, onSend: sendCode)
+                                     onBack: {
+                                         Task { await Analytics.shared.track("AUTH_DROP", ["STEP": "EMAIL"]) }
+                                         step = .gate
+                                     }, onSend: sendCode)
             case .code:  CodeScreen(email: email, code: $code, resendIn: $resendIn,
                                     verifying: verifying, error: codeError,
-                                    onBack: { step = .email }, onVerify: verify,
+                                    onBack: {
+                                        Task { await Analytics.shared.track("AUTH_DROP", ["STEP": "CODE"]) }
+                                        step = .email
+                                    }, onVerify: verify,
                                     onNewCode: { codeError = nil; code = ""; sendCode() })
             }
 
@@ -47,14 +56,28 @@ struct SignInFlow: View {
         .carbonPage()
     }
 
-    /// Google is not wired yet. On the simulator this still lands on the seeded demo
-    /// session; on a device it must not skip the gate into invented numbers.
-    private func provider() {
+    /// The same shape as Apple, one endpoint later: the account picker mints an identity
+    /// token, Supabase turns it into the session the whole app reads, and the wordmark plays.
+    /// Cancelling the picker is silent (01 edge 5); only a real token failure moves email up.
+    private func signInWithGoogle() {
         if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
-        if Band.allowsSeed {
-            finish()
-        } else {
-            withAnimation { authFailed = true }
+        guard !verifying else { return }
+        verifying = true
+        Task {
+            await Analytics.shared.track("AUTH_METHOD_TAP", ["METHOD": "GOOGLE"])
+            do {
+                let cred = try await GoogleAuth.request()
+                try await SupabaseClient.shared.signInWithGoogle(idToken: cred.idToken, nonce: cred.nonce)
+                email = await SupabaseClient.shared.signedInEmail() ?? ""
+                await adoptName(cred.fullName)
+                await authSucceeded()
+                verifying = false
+            } catch GoogleAuth.Failure.cancelled {
+                verifying = false
+            } catch {
+                verifying = false
+                withAnimation { authFailed = true }
+            }
         }
     }
 
@@ -93,17 +116,31 @@ struct SignInFlow: View {
         guard let components else { return }
         let f = PersonNameComponentsFormatter()
         f.style = .default
-        let name = f.string(from: components).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, DataStore.shared.profile.name.isEmpty else { return }
+        await adoptName(f.string(from: components))
+    }
+
+    /// Google offers the profile name on every sign-in rather than only the first, but the
+    /// rule is the same either way: a name already on the server wins.
+    private func adoptName(_ raw: String?) async {
+        guard let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return }
+        // The in-memory profile is blank at the gate; a rename already on the server
+        // must win over Apple offering the name again after a revoke.
+        await Repository.shared.loadProfile(into: DataStore.shared)
+        guard DataStore.shared.profile.name.isEmpty else { return }
         DataStore.shared.profile.name = name
         await Repository.shared.saveDisplayName(name)
     }
 
     private func sendCode() {
         codeError = nil
+        if AuthLock.isLocked(email) {
+            withAnimation { codeError = .locked }
+            step = .code
+            return
+        }
         // 01 edge 3 · five a hour per email; the sixth sends nothing and explains nothing more.
         let key = "nb.auth.sends.\(email.lowercased())"
-        var sends = (UserDefaults.standard.array(forKey: key) as? [Double] ?? []).filter { Date().timeIntervalSince1970 - $0 < 3600 }
+        let sends = (UserDefaults.standard.array(forKey: key) as? [Double] ?? []).filter { Date().timeIntervalSince1970 - $0 < 3600 }
         if sends.count >= 5 || DebugEdge.on("ratelimited") { withAnimation { codeError = .rateLimited }; return }
         // 01 edge 4 · no network: the button turns to Sending in place, 8 s, then one line.
         if !Reachability.shared.isOnline || DebugEdge.on("nonetwork") {
@@ -115,11 +152,10 @@ struct SignInFlow: View {
             }
             return
         }
-        sends.append(Date().timeIntervalSince1970)
-        UserDefaults.standard.set(sends, forKey: key)
         // The seeded demo account has no mailbox: it skips the mail and any six digits
         // open it (verify signs in with its password). Everyone else gets a real code.
         if Self.isDemo(email) {
+            recordSend(key: key, previous: sends)
             Task { await Analytics.shared.track("AUTH_CODE_SENT", [:]) }
             step = .code; resendIn = 60
             if DebugEdge.on("expired") { codeError = .expired }
@@ -129,6 +165,7 @@ struct SignInFlow: View {
         Task {
             do {
                 try await SupabaseClient.shared.requestCode(email: email)
+                recordSend(key: key, previous: sends)
                 sending = false
                 await Analytics.shared.track("AUTH_CODE_SENT", [:])
                 withAnimation { step = .code }
@@ -144,6 +181,12 @@ struct SignInFlow: View {
         }
     }
 
+    private func recordSend(key: String, previous: [Double]) {
+        var sends = previous
+        sends.append(Date().timeIntervalSince1970)
+        UserDefaults.standard.set(sends, forKey: key)
+    }
+
     static func isDemo(_ email: String) -> Bool {
         Band.allowsSeed && DemoAccount.matches(email)
     }
@@ -151,11 +194,11 @@ struct SignInFlow: View {
     /// 01 edge 1 · red outline, a 6 px shake, one haptic, then back to the first cell.
     /// The digits are cleared, the email is not.
     private func rejectCode() {
-        wrongCount += 1
         UINotificationFeedbackGenerator().notificationOccurred(.error)
-        withAnimation { codeError = wrongCount >= 5 ? .locked : .wrong }
+        let locked = AuthLock.registerWrong(email)
+        withAnimation { codeError = locked ? .locked : .wrong }
         Task {
-            await Analytics.shared.track("AUTH_CODE_ERROR", ["REASON": wrongCount >= 5 ? "LOCKED" : "WRONG"])
+            await Analytics.shared.track("AUTH_CODE_ERROR", ["REASON": locked ? "LOCKED" : "WRONG"])
             try? await Task.sleep(for: .milliseconds(420))
             code = ""
         }
@@ -165,7 +208,12 @@ struct SignInFlow: View {
     /// The code is checked against Supabase auth (`/auth/v1/verify`, type email); the demo
     /// account signs in with its password instead, since it has no mailbox.
     private func verify() {
-        if DebugEdge.on("wrongcode") || codeError == .locked { rejectCode(); return }
+        guard !verifying else { return }
+        if AuthLock.isLocked(email) {
+            withAnimation { codeError = .locked }
+            return
+        }
+        if DebugEdge.on("wrongcode") { rejectCode(); return }
         verifying = true
         Task {
             do {
@@ -174,6 +222,7 @@ struct SignInFlow: View {
                 } else {
                     try await SupabaseClient.shared.verifyCode(email: email, token: code)
                 }
+                AuthLock.clearWrongs(email)
                 // The button stays in its verifying state across the one question the
                 // returning path asks the server, so nothing sits dead on screen.
                 await authSucceeded()
@@ -182,7 +231,7 @@ struct SignInFlow: View {
                 verifying = false
                 // 01 edge 2 · a code past its ten minutes says so and offers a new one;
                 // anything else the server refuses is a wrong code.
-                if body.localizedCaseInsensitiveContains("expired") && !body.localizedCaseInsensitiveContains("invalid") {
+                if GateDecision.isExpiredCode(status: status, body: body) {
                     withAnimation { codeError = .expired }
                 } else if status == 429 {
                     withAnimation { codeError = .rateLimited }
@@ -201,27 +250,16 @@ struct SignInFlow: View {
     /// Everyone else — a returning address, a second sign-in on a new phone — walks straight
     /// through to whichever screen is actually next for them.
     private func authSucceeded() async {
-        let isNew = await SupabaseClient.shared.isNewUser
-        await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": isNew])
-        // A brand-new account cannot have a band yet, so it is never asked — the flash has
-        // to land on the same beat as the last digit, not after a round trip.
-        nextStage = (isNew ? false : await Self.hasBoundBand()) ? .root : .gateConnect
-        if isNew, Self.claimFilmForToday() {
+        let facts = await Repository.shared.fetchAccountGate()
+        await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": facts.isFirstRun])
+        // Band + finished About You → home. Band without a profile → onboarding.
+        // No band → Connect, even when the account already has a name.
+        nextStage = facts.stage
+        if facts.isFirstRun, Self.claimFilmForToday() {
             playingWordmark = true
         } else {
             finish()
         }
-    }
-
-    /// 02M ◇5 · 「如果该账号已经有了配对的手环，就直接进入到主页」. A forgotten HOOP keeps its
-    /// row and its `unbound_at`, so only a row still bound counts as paired.
-    private static func hasBoundBand() async -> Bool {
-        let rows = try? await SupabaseClient.shared.select("devices", query: [
-            .init(name: "select", value: "id"),
-            .init(name: "unbound_at", value: "is.null"),
-            .init(name: "limit", value: "1"),
-        ])
-        return !(rows ?? []).isEmpty
     }
 
     /// 02M · 「不许倒放、不许循环、更不许当加载动画反复用——它一天最多出现一次」.
@@ -250,7 +288,13 @@ private struct GateScreen: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            GateAurora().frame(width: NB.Layout.screenWidth, height: 520)
+            // The aurora is the page's ground, not a panel on it: it has to reach the
+            // physical top edge, or the status bar sits on a band of bare carbon while the
+            // dot lattice starts 48pt lower. The overhang keeps the glow and the bottom
+            // fade at the same absolute height they had before.
+            GateAurora(overhang: Chrome.statusBarBlock)
+                .frame(width: NB.Layout.screenWidth, height: 520 + Chrome.statusBarBlock)
+                .ignoresSafeArea(edges: .top)
 
             VStack(spacing: 0) {
                 Color.clear.frame(height: Chrome.gateTopInset)
@@ -329,11 +373,16 @@ private struct GateScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { Task { await Analytics.shared.track("AUTH_GATE_VIEW", [:]) } }
     }
 }
 
 /// The 4×4 LED field with one lime bloom behind the wordmark, fading into carbon by y520.
 struct GateAurora: View {
+    /// How far above the safe area this draws. Everything positioned inside is pushed down
+    /// by it, so growing the canvas upward moves nothing that was already placed.
+    var overhang: CGFloat = 0
+
     var body: some View {
         ZStack(alignment: .top) {
             Canvas { ctx, size in
@@ -358,7 +407,7 @@ struct GateAurora: View {
                     .init(color: NB.lime1.opacity(0), location: 1),
                 ], center: .center, startRadius: 0, endRadius: 230))
                 .frame(width: 460, height: 360)
-                .offset(x: 1, y: 188)
+                .offset(x: 1, y: 188 + overhang)
 
             VStack {
                 Spacer(minLength: 0)
@@ -571,8 +620,18 @@ private struct CodeScreen: View {
     let onVerify: () -> Void
     var onNewCode: () -> Void = {}
     @State private var shake: CGFloat = 0
+    @State private var now = Date()
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var lockLine: String {
+        _ = now
+        guard let left = AuthLock.remaining(email) else {
+            return "Too many tries. Try again in 15:00."
+        }
+        let seconds = Int(left.rounded(.up))
+        return String(format: "Too many tries. Try again in %02d:%02d.", seconds / 60, seconds % 60)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -599,6 +658,9 @@ private struct CodeScreen: View {
             CodeBoxes(code: code, error: error == .wrong || error == .locked)
                 .padding(.horizontal, 24)
                 .padding(.top, 40)
+                .overlay {
+                    OTPCaptureField(code: $code) { if code.count == 6 { onVerify() } }
+                }
                 .offset(x: shake)
                 .onChange(of: error) { _, e in
                     guard e == .wrong || e == .locked else { return }
@@ -610,7 +672,7 @@ private struct CodeScreen: View {
             // 01 edges 1 / 2 · the line under the cells. Expired is not red — it is not an error.
             if let error {
                 Text(error == .wrong ? "That code didn't work."
-                     : error == .locked ? "Too many tries. Try again in 15:00."
+                     : error == .locked ? lockLine
                      : error == .expired ? "That code has expired." : "")
                     .font(NBFont.ui(error == .expired ? 300 : 400, error == .expired ? 13.5 : 14)).tracking(0.01 * 14)
                     .foregroundStyle(error == .expired ? NB.white.opacity(0.50) : NB.alert1)
@@ -631,7 +693,7 @@ private struct CodeScreen: View {
                         .font(NBFont.dot(700, 13.5)).tracking(0.14 * 13.5)
                         .foregroundStyle(NB.lime1)
                 } else {
-                    Button("Resend") { resendIn = 60 }
+                    Button("Resend") { onNewCode() }
                         .font(NBFont.ui(500, 13.5))
                         .foregroundStyle(NB.lime1)
                 }
@@ -685,7 +747,10 @@ private struct CodeScreen: View {
 
             Color.clear.frame(height: 16)
         }
-        .onReceive(timer) { _ in if resendIn > 0 { resendIn -= 1 } }
+        .onReceive(timer) { _ in
+            if resendIn > 0 { resendIn -= 1 }
+            now = Date()
+        }
     }
 }
 
@@ -795,5 +860,51 @@ struct StepBar: View {
         .padding(.horizontal, 16)
         .padding(.top, 2)
         .frame(height: 46)
+    }
+}
+
+/// Hidden field so iOS can paste a six-digit code and offer the SMS autofill.
+/// The custom keypad stays on screen: the system keyboard is replaced by an empty view.
+private struct OTPCaptureField: UIViewRepresentable {
+    @Binding var code: String
+    var onFilled: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(code: $code, onFilled: onFilled) }
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.keyboardType = .numberPad
+        field.textContentType = .oneTimeCode
+        field.inputView = UIView()
+        field.tintColor = .clear
+        field.textColor = .clear
+        field.backgroundColor = .clear
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.code = $code
+        context.coordinator.onFilled = onFilled
+        if field.text != code { field.text = code }
+        if !field.isFirstResponder { field.becomeFirstResponder() }
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var code: Binding<String>
+        var onFilled: () -> Void
+
+        init(code: Binding<String>, onFilled: @escaping () -> Void) {
+            self.code = code
+            self.onFilled = onFilled
+        }
+
+        @objc func changed(_ field: UITextField) {
+            let digits = String((field.text ?? "").filter(\.isNumber).prefix(6))
+            field.text = digits
+            if code.wrappedValue != digits { code.wrappedValue = digits }
+            if digits.count == 6 { onFilled() }
+        }
     }
 }

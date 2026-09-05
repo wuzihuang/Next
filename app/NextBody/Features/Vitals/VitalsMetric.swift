@@ -1,20 +1,24 @@
 import SwiftUI
 
-/// 04 · 8 大指标二级页 · which of page two's eight instruments a second-level page is showing.
-///
-/// The board (`04 · 8 大指标二级页全览`) draws all eight against **one** anatomy — a hero, a
-/// 24-hour chart, a distribution and two stat tiles — so this is an identity, not eight
-/// pages: the metric names itself and the one page renders it.
+/// 04 · page-two instruments plus a deep-link alias. Page two shows eight cards; `.hrv`
+/// is kept so `vitals.hrv` still parses, and the router sends it to the sleep page.
 ///
 /// ⚠️ The tint is the home card's tint, not the board's swatch. The overview board draws
 /// several of the eight in cyan; 04B gives each card its own colour and F0 rule 01 has one
 /// concept carrying one name and one accent. A card that turns from lime to cyan as it opens
 /// reads as a different object, which is the one thing a tap-through must not do.
 enum VitalsMetric: String, Hashable, CaseIterable {
-    case heart, sleep, hrv, stress, temp, steps, distance, active
+    case heart, sleep, hrv, response, stress, temp, steps, distance, active
 
-    /// What `DetailScroll` prints — the board's own `‹ VITALS · HEART`.
-    var title: String { L("VITALS · %@", L(shortName)) }
+    /// What `DetailScroll` prints — the card's own name (`‹ HEART`), never a
+    /// `VITALS ·` section prefix. The second level is the instrument, not the page.
+    var title: String {
+        switch self {
+        case .distance: L("DISTANCE")
+        case .active:   L("ACTIVE ENERGY")
+        default:        L(shortName)
+        }
+    }
 
     /// The card's label on page two, which is also the board's nav word.
     var shortName: String {
@@ -22,6 +26,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         case .heart:    "HEART"
         case .sleep:    "SLEEP"
         case .hrv:      "HRV"
+        case .response: "RESPONSE"
         case .stress:   "STRESS"
         case .temp:     "TEMP"
         case .steps:    "STEPS"
@@ -45,6 +50,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         case .heart:    NB.lime1
         case .sleep:    NB.violet1
         case .hrv:      NB.blue1
+        case .response: NB.compareAmber
         case .stress:   NB.ember1
         case .temp:     NB.cyan1
         case .steps:    NB.optimal2
@@ -59,6 +65,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         case .heart:    L("OPTICAL PPG SENSOR")
         case .sleep:    L("OVERNIGHT STAGING")
         case .hrv:      L("RMSSD AUTONOMIC TONE")
+        case .response: L("WRIST OPTICAL MEAL RESPONSE")
         case .stress:   L("PHYSIOLOGICAL STRAIN")
         case .temp:     L("SKIN BASELINE OFFSET")
         case .steps:    L("DAILY CADENCE ACCUMULATED")
@@ -74,6 +81,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         case .heart:    L("LAST 24H TELEMETRY")
         case .sleep:    L("STAGES HYPNOGRAM")
         case .hrv:      L("LAST 24H RMSSD SCATTER")
+        case .response: L("LAST 24H RESPONSE SCATTER")
         case .stress:   L("LAST 24H AUTONOMIC LOAD")
         case .temp:     L("LAST 24H BASELINE DEVIATION")
         case .steps:    L("TODAY'S CADENCE HISTOGRAM")
@@ -89,7 +97,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         switch self {
         case .sleep:
             .lastNight
-        case .heart, .hrv, .stress, .temp:
+        case .heart, .hrv, .response, .stress, .temp:
             .rolling24Hours
         case .steps, .distance, .active:
             .userDayToNow

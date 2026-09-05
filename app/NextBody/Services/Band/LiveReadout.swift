@@ -1,25 +1,9 @@
 import Foundation
 import os
 
-/// 04 · THE LIVE READOUT. What the panel's resting face shows while that face is the thing
-/// on screen: the band measuring now, not the last five-minute tick it happened to store.
-///
-/// ⚠️ Not `LiveVitals`. That one is a tick the day already contains — pulled by
-/// `OriginDataSync`, stored, plotted, and named on every other screen. This one exists only
-/// for as long as someone is looking at the panel, is never written to a table, and never
-/// reaches a curve: two numbers and the instant each was measured.
-///
-/// The band has one sensor and one command channel, so this is not two measurements running
-/// side by side. Heart rate is the continuous one — `veepooSDKTestHeartStart` reports a rate
-/// every second or two for as long as it is open. The band's own stress test is *inserted*:
-/// the heart stream is stopped, the test runs to its single value, the stream is opened
-/// again. Nothing is interpolated across that gap; the last heart rate keeps the instant it
-/// was measured and the panel dims it on its own clock.
-///
-/// It runs only while the panel's resting face is what the user is looking at (HomeView's
-/// `liveReadoutWanted`): leaving the page, a widget landing on the panel, a takeover, or the
-/// app going to the background all end it, and the band goes back to its own auto-monitoring.
-/// A live readout left running is a band flat by lunchtime.
+/// App-owned heart stream. Foreground demand follows the panel; background collection
+/// retains the existing stream while consent, account, binding and sensor ownership allow.
+/// Stress remains available in the foreground and never inserts a new background test.
 @MainActor
 final class LiveReadout: ObservableObject {
     static let shared = LiveReadout()
@@ -76,6 +60,37 @@ final class LiveReadout: ObservableObject {
     @Published private(set) var stressProgress: Int?
 
     private var running = false
+    private var background = false
+    private var sessionOwner: BandLivePolicy.Owner?
+    private var heartDeadline: Date?
+    private var receivedSamples = 0
+
+    static var currentOwner: BandLivePolicy.Owner? {
+        guard let account = SupabaseClient.currentUserIdSnapshot(),
+              let binding = BoundBand.identifier, !binding.isEmpty else { return nil }
+        return BandLivePolicy.Owner(account: account, binding: binding)
+    }
+
+    private var acceptsSample: Bool {
+        !Task.isCancelled && sessionOwner != nil && sessionOwner == Self.currentOwner
+            && ConsentStore.shared.granted && Band.live.state == .connected
+            && LiveSessionStore.shared.session == nil && !LiveSessionStore.shared.opening
+    }
+
+    /// Only a recently received sample in this exact account/binding can prove warm readiness.
+    func hasRecentReceipt(maxAge: TimeInterval) -> Bool {
+        guard acceptsSample, let hrAt else { return false }
+        let age = Date().timeIntervalSince(hrAt)
+        return BandReadinessReceiptPolicy.canReuse(requested: true,
+            connected: Band.live.state == .connected,
+            exclusive: BandLiveLifecycle.shared.hasExclusiveOperation,
+            ownerMatches: acceptsSample, age: age, maxAge: maxAge)
+    }
+
+    func setBackground(_ value: Bool) {
+        background = value
+        if !value, let heartDeadline, Date() >= heartDeadline { bandTask?.cancel() }
+    }
     /// Set when the band answers "no such test". A capability read says the same thing, but
     /// only the attempt is authoritative — and once it has answered, the cadence drops it
     /// rather than asking every three seconds for the life of the process.
@@ -106,14 +121,20 @@ final class LiveReadout: ObservableObject {
     /// Whether the panel is showing the band rather than the library.
     var isLive: Bool { liveHR != nil || phase == .stress }
 
-    /// Held open by HomeView's `.task(id:)`: it returns when that task is cancelled, which is
-    /// the moment the panel's resting face stops being what the user is looking at.
+    /// Held by BandLiveLifecycle for the current account and device.
     func run() async {
         // One session per process. Two would fight over the same command channel, and the
         // second one's `stop` would end the first one's test.
-        guard !running else { return }
+        guard !running, let owner = Self.currentOwner, ConsentStore.shared.granted else { return }
+        sessionOwner = owner
         running = true
+        receivedSamples = 0
+        heartUnsupported = false
+        stressUnsupported = false
+        Self.log.notice("stream start background=\(self.background, privacy: .public)")
         defer {
+            Self.log.notice("stream stop samples=\(self.receivedSamples, privacy: .public)")
+            sessionOwner = nil
             running = false
             phase = .off
             // ⚠️ The numbers are dropped with the session on purpose. Kept, they would
@@ -123,7 +144,7 @@ final class LiveReadout: ObservableObject {
         }
 
         var nextStress = Date().addingTimeInterval(Cadence.firstStress)
-        while !Task.isCancelled, !heartUnsupported {
+        while !Task.isCancelled, !heartUnsupported, acceptsSample {
             guard Band.live.state == .connected else {
                 phase = .offline
                 hr = nil; hrAt = nil
@@ -168,20 +189,24 @@ final class LiveReadout: ObservableObject {
     /// F3 §06 · everything that talks to the band goes through here: exactly one child task
     /// at a time, ended by the deadline, by `standDown`, or with the session.
     /// ⚠️ Unstructured on purpose — the task has to be cancellable from outside this loop —
-    /// so the cancellation handler is what carries "the user left the page" into it.
+    /// so the cancellation handler carries lifecycle revocation into the SDK stream.
     private func hold(until deadline: Date? = nil, _ work: @escaping @MainActor () async -> Void) async {
         let task = Task { @MainActor in await work() }
         bandTask = task
+        heartDeadline = deadline
         let timer = deadline.map { at in
             Task {
                 let seconds = min(Cadence.heartRun, max(0, at.timeIntervalSinceNow))
                 try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled, !self.background else { return }
                 task.cancel()
             }
         }
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         timer?.cancel()
         bandTask = nil
+        heartDeadline = nil
+        await drainNativeStop()
     }
 
     /// Take the band away from the readout for the length of `work`. The day pull calls this
@@ -189,12 +214,20 @@ final class LiveReadout: ObservableObject {
     /// goes out to a band that is not in the middle of anything.
     func standDown<T>(_ work: () async -> T) async -> T {
         suspended += 1
+        defer { suspended -= 1 }
         let held = bandTask
         held?.cancel()
         await held?.value
-        let result = await work()
-        suspended -= 1
-        return result
+        await drainNativeStop()
+        return await work()
+    }
+
+    /// AsyncStream termination schedules the SDK stop onto main; cross that FIFO boundary
+    /// before a new consumer installs its callback or sends its first command.
+    private func drainNativeStop() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     /// Only the band's own answer takes the stress test off the cadence.
@@ -205,7 +238,7 @@ final class LiveReadout: ObservableObject {
     /// the shape of "STRESS is always ——". The test itself answers `noFunction` when there is
     /// none, and that answer — not a guessed bit — is what sets `stressUnsupported`.
     private func stressDue(_ at: Date) -> Bool {
-        guard !stressUnsupported else { return false }
+        guard !stressUnsupported, !background else { return false }
         return Date() >= at
     }
 
@@ -213,12 +246,12 @@ final class LiveReadout: ObservableObject {
 
     /// Publish every rate the band reports for as long as the stream is open. Returning —
     /// or being cancelled — terminates it, and each `BandService` stops the test in its
-    /// `onTermination`: F1 rule 05, the test is never left running behind a closed screen.
+    /// `onTermination`; revoking collection always stops the physical test.
     private func consumeHeart() async {
         phase = .reaching
         do {
             for try await progress in Band.live.measureHeartRate() {
-                if Task.isCancelled { return }
+                if !acceptsSample { return }
                 switch progress {
                 case .waitingForContact:
                     phase = .reaching
@@ -256,7 +289,10 @@ final class LiveReadout: ObservableObject {
     // MARK: stress · the inserted one
 
     private func acceptHeart(_ beat: Int) {
+        guard acceptsSample else { return }
         let now = Date()
+        receivedSamples += 1
+        Self.log.notice("sample received count=\(self.receivedSamples, privacy: .public) at=\(now.timeIntervalSince1970, privacy: .public) background=\(self.background, privacy: .public)")
         hr = beat
         hrAt = now
         phase = .live
@@ -275,16 +311,18 @@ final class LiveReadout: ObservableObject {
         // (device log: state 5 came straight back, never `deviceBusy`), so this is insurance
         // and not a fix for anything observed. It is the band's beat, not the screen's.
         try? await Task.sleep(for: .seconds(Cadence.settle))
-        guard !Task.isCancelled else { return }
+        guard acceptsSample, !background else { return }
         Self.log.notice("stress test due · asking the band")
         stressProgress = 0
         defer { stressProgress = nil }
         do {
             let value = try await Band.live.measureStress { [weak self] done in
-                self?.stressProgress = done
+                guard let self, self.acceptsSample else { return }
+                self.stressProgress = done
             }
+            guard acceptsSample else { return }
             stressAnswered = true
-            Self.log.notice("stress ← \(value)")
+            Self.log.notice("stress sample received")
             guard value > 0 else { return }
             stress = value
             stressAt = Date()

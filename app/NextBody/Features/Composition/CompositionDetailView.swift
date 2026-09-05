@@ -241,7 +241,7 @@ struct CompositionDetailView: View {
                   trailingTint: !late.isEmpty && !isWeek ? NB.ember1.opacity(0.85) : nil) {
             HStack(spacing: 6) {
                 ForEach(weekDays, id: \.self) { d in
-                    let metrics = data.history.first { $0.day == d }
+                    let metrics = data.metrics(for: d)
                     VStack(spacing: 7) {
                         DirectionCell(direction: metrics?.direction ?? .greyNothing,
                                       today: d == day, height: 34)

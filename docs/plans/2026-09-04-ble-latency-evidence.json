@@ -1,0 +1,444 @@
+{
+  "date": "2026-09-04",
+  "scope": "research only; no production optimization implemented",
+  "environment": {
+    "device": "iPhone 16 Pro Max",
+    "ios": "26.6.1 (23G83)",
+    "configuration": "Debug",
+    "console": "OS_ACTIVITY_DT_MODE=YES",
+    "radio_conditions": "Same nearby band; distance, RF interference and band workload not independently controlled"
+  },
+  "measurement": {
+    "old_host_poll_seconds": 1,
+    "new_host_poll_seconds": 0.1,
+    "host_clock": "monotonic from devicectl invocation to observed fresh battery success",
+    "phase_clock": "device log timestamps; no cross-clock subtraction",
+    "endpoint": "password verified plus fresh readBattery success",
+    "caveat": "Host invocation includes tool/device launch overhead, not touch-to-ready timing"
+  },
+  "previous_cold_rounds": [
+    {
+      "cycle": 1,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 6.02,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 3.298
+    },
+    {
+      "cycle": 2,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 17.07,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 13.991
+    },
+    {
+      "cycle": 3,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 11.06,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 8.423
+    },
+    {
+      "cycle": 4,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 3.03,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 1.805
+    },
+    {
+      "cycle": 5,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 4.03,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 1.797
+    },
+    {
+      "cycle": 6,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 4.03,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 2.197
+    },
+    {
+      "cycle": 7,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 5.05,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 2.704
+    },
+    {
+      "cycle": 8,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 5.05,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 2.484
+    },
+    {
+      "cycle": 9,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 4.04,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 1.561
+    },
+    {
+      "cycle": 10,
+      "verified": true,
+      "battery": true,
+      "elapsed_seconds": 5.05,
+      "launch_failed": false,
+      "timeouts": 0,
+      "handshake_seconds": 2.672
+    }
+  ],
+  "new_alternating_dwell_rounds": [
+    {
+      "round": 1,
+      "prelaunch_dwell_seconds": 2,
+      "success": true,
+      "host_launch_to_battery_seconds": 3.132,
+      "scan_to_connect_seconds": 0.0025,
+      "physical_connect_seconds": 0.024,
+      "handshake_seconds": 1.5371,
+      "verified_to_battery_seconds": 0.0929,
+      "gatt_battery_seconds": 0.0655,
+      "scan_to_battery_seconds": 1.6565,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:04:00.250274",
+        "connect": "2026-09-04T22:04:00.252810",
+        "physical": "2026-09-04T22:04:00.276775",
+        "verified": "2026-09-04T22:04:01.813910",
+        "battery_start": "2026-09-04T22:04:01.841287",
+        "battery": "2026-09-04T22:04:01.906781"
+      }
+    },
+    {
+      "round": 2,
+      "prelaunch_dwell_seconds": 20,
+      "success": true,
+      "host_launch_to_battery_seconds": 4.304,
+      "scan_to_connect_seconds": 0.0017,
+      "physical_connect_seconds": 0.0271,
+      "handshake_seconds": 1.1935,
+      "verified_to_battery_seconds": 0.0896,
+      "gatt_battery_seconds": 0.0732,
+      "scan_to_battery_seconds": 1.3119,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:04:24.939408",
+        "connect": "2026-09-04T22:04:24.941126",
+        "physical": "2026-09-04T22:04:24.968208",
+        "verified": "2026-09-04T22:04:26.161692",
+        "battery_start": "2026-09-04T22:04:26.178047",
+        "battery": "2026-09-04T22:04:26.251282"
+      }
+    },
+    {
+      "round": 3,
+      "prelaunch_dwell_seconds": 2,
+      "success": true,
+      "host_launch_to_battery_seconds": 4.226,
+      "scan_to_connect_seconds": 0.0009,
+      "physical_connect_seconds": 0.0277,
+      "handshake_seconds": 1.7869,
+      "verified_to_battery_seconds": 0.0862,
+      "gatt_battery_seconds": 0.0684,
+      "scan_to_battery_seconds": 1.9017,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:04:30.646753",
+        "connect": "2026-09-04T22:04:30.647682",
+        "physical": "2026-09-04T22:04:30.675354",
+        "verified": "2026-09-04T22:04:32.462235",
+        "battery_start": "2026-09-04T22:04:32.480094",
+        "battery": "2026-09-04T22:04:32.548459"
+      }
+    },
+    {
+      "round": 4,
+      "prelaunch_dwell_seconds": 20,
+      "success": true,
+      "host_launch_to_battery_seconds": 3.342,
+      "scan_to_connect_seconds": 0.0009,
+      "physical_connect_seconds": 0.0263,
+      "handshake_seconds": 1.848,
+      "verified_to_battery_seconds": 0.0902,
+      "gatt_battery_seconds": 0.0672,
+      "scan_to_battery_seconds": 1.9654,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:04:53.938694",
+        "connect": "2026-09-04T22:04:53.939584",
+        "physical": "2026-09-04T22:04:53.965866",
+        "verified": "2026-09-04T22:04:55.813863",
+        "battery_start": "2026-09-04T22:04:55.836889",
+        "battery": "2026-09-04T22:04:55.904101"
+      }
+    },
+    {
+      "round": 5,
+      "prelaunch_dwell_seconds": 2,
+      "success": true,
+      "host_launch_to_battery_seconds": 3.239,
+      "scan_to_connect_seconds": 0.0011,
+      "physical_connect_seconds": 0.0251,
+      "handshake_seconds": 1.6483,
+      "verified_to_battery_seconds": 0.1337,
+      "gatt_battery_seconds": 0.1122,
+      "scan_to_battery_seconds": 1.8081,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:04:59.224936",
+        "connect": "2026-09-04T22:04:59.226008",
+        "physical": "2026-09-04T22:04:59.251059",
+        "verified": "2026-09-04T22:05:00.899322",
+        "battery_start": "2026-09-04T22:05:00.920872",
+        "battery": "2026-09-04T22:05:01.033038"
+      }
+    },
+    {
+      "round": 6,
+      "prelaunch_dwell_seconds": 20,
+      "success": true,
+      "host_launch_to_battery_seconds": 3.867,
+      "scan_to_connect_seconds": 0.001,
+      "physical_connect_seconds": 0.0231,
+      "handshake_seconds": 2.2484,
+      "verified_to_battery_seconds": 0.1363,
+      "gatt_battery_seconds": 0.1189,
+      "scan_to_battery_seconds": 2.4089,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:05:22.611990",
+        "connect": "2026-09-04T22:05:22.612945",
+        "physical": "2026-09-04T22:05:22.636081",
+        "verified": "2026-09-04T22:05:24.884521",
+        "battery_start": "2026-09-04T22:05:24.901971",
+        "battery": "2026-09-04T22:05:25.020863"
+      }
+    },
+    {
+      "round": 7,
+      "prelaunch_dwell_seconds": 2,
+      "success": true,
+      "host_launch_to_battery_seconds": 3.024,
+      "scan_to_connect_seconds": 0.0009,
+      "physical_connect_seconds": 0.0254,
+      "handshake_seconds": 1.2271,
+      "verified_to_battery_seconds": 0.1336,
+      "gatt_battery_seconds": 0.1158,
+      "scan_to_battery_seconds": 1.387,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:05:28.630685",
+        "connect": "2026-09-04T22:05:28.631561",
+        "physical": "2026-09-04T22:05:28.656948",
+        "verified": "2026-09-04T22:05:29.884083",
+        "battery_start": "2026-09-04T22:05:29.901924",
+        "battery": "2026-09-04T22:05:30.017708"
+      }
+    },
+    {
+      "round": 8,
+      "prelaunch_dwell_seconds": 20,
+      "success": true,
+      "host_launch_to_battery_seconds": 3.532,
+      "scan_to_connect_seconds": 0.0021,
+      "physical_connect_seconds": 0.0312,
+      "handshake_seconds": 1.0327,
+      "verified_to_battery_seconds": 0.0889,
+      "gatt_battery_seconds": 0.0719,
+      "scan_to_battery_seconds": 1.155,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:05:52.394868",
+        "connect": "2026-09-04T22:05:52.396996",
+        "physical": "2026-09-04T22:05:52.428235",
+        "verified": "2026-09-04T22:05:53.460954",
+        "battery_start": "2026-09-04T22:05:53.477989",
+        "battery": "2026-09-04T22:05:53.549880"
+      }
+    },
+    {
+      "round": 9,
+      "prelaunch_dwell_seconds": 2,
+      "success": true,
+      "host_launch_to_battery_seconds": 2.943,
+      "scan_to_connect_seconds": 0.0011,
+      "physical_connect_seconds": 0.0222,
+      "handshake_seconds": 1.1758,
+      "verified_to_battery_seconds": 0.0883,
+      "gatt_battery_seconds": 0.0644,
+      "scan_to_battery_seconds": 1.2874,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:05:57.255943",
+        "connect": "2026-09-04T22:05:57.257047",
+        "physical": "2026-09-04T22:05:57.279260",
+        "verified": "2026-09-04T22:05:58.455042",
+        "battery_start": "2026-09-04T22:05:58.478962",
+        "battery": "2026-09-04T22:05:58.543331"
+      }
+    },
+    {
+      "round": 10,
+      "prelaunch_dwell_seconds": 20,
+      "success": true,
+      "host_launch_to_battery_seconds": 3.243,
+      "scan_to_connect_seconds": 0.0009,
+      "physical_connect_seconds": 0.0377,
+      "handshake_seconds": 1.7466,
+      "verified_to_battery_seconds": 0.0829,
+      "gatt_battery_seconds": 0.0644,
+      "scan_to_battery_seconds": 1.8682,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:06:19.894985",
+        "connect": "2026-09-04T22:06:19.895884",
+        "physical": "2026-09-04T22:06:19.933633",
+        "verified": "2026-09-04T22:06:21.680201",
+        "battery_start": "2026-09-04T22:06:21.698772",
+        "battery": "2026-09-04T22:06:21.763144"
+      }
+    },
+    {
+      "round": 11,
+      "prelaunch_dwell_seconds": 2,
+      "success": true,
+      "host_launch_to_battery_seconds": 3.132,
+      "scan_to_connect_seconds": 0.0009,
+      "physical_connect_seconds": 0.026,
+      "handshake_seconds": 1.73,
+      "verified_to_battery_seconds": 0.1338,
+      "gatt_battery_seconds": 0.1153,
+      "scan_to_battery_seconds": 1.8907,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:06:25.048650",
+        "connect": "2026-09-04T22:06:25.049576",
+        "physical": "2026-09-04T22:06:25.075588",
+        "verified": "2026-09-04T22:06:26.805566",
+        "battery_start": "2026-09-04T22:06:26.823995",
+        "battery": "2026-09-04T22:06:26.939316"
+      }
+    },
+    {
+      "round": 12,
+      "prelaunch_dwell_seconds": 20,
+      "success": true,
+      "host_launch_to_battery_seconds": 4.063,
+      "scan_to_connect_seconds": 0.0019,
+      "physical_connect_seconds": 0.0277,
+      "handshake_seconds": 2.3152,
+      "verified_to_battery_seconds": 0.1364,
+      "gatt_battery_seconds": 0.1095,
+      "scan_to_battery_seconds": 2.4812,
+      "connect_timeouts": 0,
+      "launch_failed": false,
+      "timestamps": {
+        "scan": "2026-09-04T22:06:48.534120",
+        "connect": "2026-09-04T22:06:48.535972",
+        "physical": "2026-09-04T22:06:48.563690",
+        "verified": "2026-09-04T22:06:50.878845",
+        "battery_start": "2026-09-04T22:06:50.905788",
+        "battery": "2026-09-04T22:06:51.015295"
+      }
+    }
+  ],
+  "background": [
+    {
+      "round": 1,
+      "background_seconds": 2,
+      "foreground_command_ok": true,
+      "fresh_battery": false,
+      "host_return_to_battery_seconds": 45.047,
+      "new_connect_count": 0,
+      "disconnect_count": 0,
+      "same_console_process_live": true
+    }
+  ],
+  "new_summary": {
+    "host_launch_to_battery_seconds": {
+      "n": 12,
+      "mean": 3.5039,
+      "median": 3.2925,
+      "p95_nearest_rank": 4.304,
+      "max": 4.304,
+      "under_3_seconds": 1
+    },
+    "scan_to_connect_seconds": {
+      "n": 12,
+      "mean": 0.0013,
+      "median": 0.0011,
+      "p95_nearest_rank": 0.0025,
+      "max": 0.0025,
+      "under_3_seconds": 12
+    },
+    "physical_connect_seconds": {
+      "n": 12,
+      "mean": 0.027,
+      "median": 0.0261,
+      "p95_nearest_rank": 0.0377,
+      "max": 0.0377,
+      "under_3_seconds": 12
+    },
+    "handshake_seconds": {
+      "n": 12,
+      "mean": 1.6241,
+      "median": 1.6892,
+      "p95_nearest_rank": 2.3152,
+      "max": 2.3152,
+      "under_3_seconds": 12
+    },
+    "verified_to_battery_seconds": {
+      "n": 12,
+      "mean": 0.1077,
+      "median": 0.0915,
+      "p95_nearest_rank": 0.1364,
+      "max": 0.1364,
+      "under_3_seconds": 12
+    },
+    "scan_to_battery_seconds": {
+      "n": 12,
+      "mean": 1.7602,
+      "median": 1.8382,
+      "p95_nearest_rank": 2.4812,
+      "max": 2.4812,
+      "under_3_seconds": 12
+    }
+  },
+  "hashes": {
+    "app/NextBody/Services/Band/VeepooBand.swift": "f0a72ce936ecbb8b5619a7f60b3e788671ae8a6f25a90e1b13208f6b26c9c5a2",
+    "app/NextBody/Features/Home/HomeView.swift": "9fbbee692c912e2a72314aa44bc8c345c30db5c8e54c98793c2ab9881706d446",
+    "/tmp/nextbody-ble-build/Build/Products/Debug-iphoneos/NextBody.app/NextBody.debug.dylib": "155944a1c35b91f42196e6b1f5148d275c1a8d79d8663aca3a87622cb3a8b0e0"
+  }
+}

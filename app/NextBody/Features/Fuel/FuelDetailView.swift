@@ -6,6 +6,7 @@ struct FuelDetailView: View {
     init(focus: UserDay? = nil) { _day = State(initialValue: focus ?? UserDay.containing(Date())) }
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
+    @ObservedObject private var mealQueue = MealQueue.shared
 
     @State private var editing: MealEntry?
     /// 09 edge 5 · PAST DAY. The page pages back like 10 does; a closed day shows what was
@@ -70,7 +71,37 @@ struct FuelDetailView: View {
     }
 
     var body: some View {
-        if noTarget { NoTargetFuel() } else { fuelPage }
+        Group {
+            if noTarget { NoTargetFuel() } else { fuelPage }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if !mealQueue.rejected.isEmpty { rejectedMeals }
+            else if mealQueue.pendingCount > 0, mealQueue.lastError != nil {
+                Text(L("Meal changes are saved on this device and waiting to sync."))
+                    .font(NBFont.ui(400, 12)).padding(12).background(NB.carbon4)
+            }
+        }
+        .task(id: day) {
+            if let owner = SupabaseClient.currentUserIdSnapshot() { mealQueue.refreshStatus(owner: owner) }
+            guard !Band.allowsSeed else { return }
+            await Repository.shared.loadDetail(day: day, into: data)
+        }
+    }
+
+    private var rejectedMeals: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(mealQueue.rejected) { failure in
+                Text(failure.name).font(NBFont.ui(600, 13))
+                Text(failure.reason).font(NBFont.ui(400, 12))
+                HStack {
+                    Button(L("Retry")) { mealQueue.retryRejected(failure.id) }
+                    Spacer()
+                    Button(L("Remove pending change")) { mealQueue.discardRejected(failure.id, into: data) }
+                }
+                .font(NBFont.ui(500, 12)).tint(NB.ember1)
+            }
+        }
+        .padding(16).background(NB.carbon4).foregroundStyle(NB.text3Prod)
     }
 
     private var fuelPage: some View {
@@ -79,7 +110,7 @@ struct FuelDetailView: View {
         // ⚠️ DAY / WEEK / MONTH is absent on purpose — see 08. VAF · "留一个点了没反应的分段
         // 控件比没有更糟", and 1EIH rules delete for both pages. THIS WEEK at the foot of
         // this page is what WEEK was for.
-        DetailScroll(glow: NB.ember1, title: L("FUEL"), headline: isPast ? pastTitle : nil, trailing: {
+        DetailScroll(glow: NB.ember1, title: L("CALORIES"), headline: isPast ? pastTitle : nil, trailing: {
             if isPast {
                 Text(overBy.map { L("+%@ OVER", Fmt.kcal($0)) } ?? L("CLOSED"))
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
@@ -93,7 +124,7 @@ struct FuelDetailView: View {
             } else {
                 // Deliberately the same number as the one on the home card: you tap it
                 // in the upper half and it is still there when you have scrolled down.
-                Text(logged ? (overBy.map { L("+%@ OVER", Fmt.kcal($0)) } ?? L("%@ LEFT", Fmt.kcal(m.nextMeal)))
+                Text(m.fuelState == .fasted ? L("Recorded: nothing eaten today") : logged ? (overBy.map { L("+%@ OVER", Fmt.kcal($0)) } ?? L("%@ LEFT", Fmt.kcal(m.nextMeal)))
                             : L("%@ TARGET", Fmt.kcal(m.targetIn)))
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .foregroundStyle(NB.emberPale)
@@ -120,6 +151,7 @@ struct FuelDetailView: View {
                     .padding(.horizontal, 14)
                     .frame(width: NB.Layout.contentWidth)
                 }
+                if !isPast { FastingAction(day: day) }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 30)
@@ -172,7 +204,7 @@ struct FuelDetailView: View {
                 HStack(alignment: .firstTextBaseline) {
                     // "an empty page" and "a broken page" must not look the same:
                     // NOTHING COUNTED YET — A BLANK, NOT A ZERO.
-                    Text(isPast ? (logged ? (overBy.map { L("+%@ OVER — STILL A FINE DAY", Fmt.kcal($0)) } ?? L("CLOSED — NOTHING LEFT TO PLACE"))
+                    Text(m.fuelState == .fasted ? L("Recorded: nothing eaten today") : isPast ? (logged ? (overBy.map { L("+%@ OVER — STILL A FINE DAY", Fmt.kcal($0)) } ?? L("CLOSED — NOTHING LEFT TO PLACE"))
                                           : L("NOTHING COUNTED — A BLANK, NOT A ZERO"))
                          : logged ? (overBy.map { L("+%@ OVER — STILL A FINE DAY", Fmt.kcal($0)) }
                                    ?? L("%@ LEFT — %@", Fmt.kcal(m.nextMeal), leftInWords))
@@ -195,7 +227,8 @@ struct FuelDetailView: View {
     /// can scroll down and read — a count that disagrees with the list below it is the
     /// fastest way to lose the page.
     private var mealSummary: String {
-        let today = data.meals.filter { $0.status == .confirmed }
+        if m.fuelState == .fasted { return L("Recorded: nothing eaten today") }
+        let today = dayMeals
         guard let last = today.map(\.at).max() else { return L("NOTHING LOGGED YET") }
         return today.count == 1
             ? L("%d MEAL · LAST %@", today.count, Fmt.clock(last))
@@ -218,12 +251,14 @@ struct FuelDetailView: View {
     /// does not give: F2 §04 anchors the whole split on protein and takes carbs out of
     /// what is left. The sentence has to agree with the arithmetic above it.
     private var macroNote: String {
+        if m.fuelState == .fasted { return L("Recorded: nothing eaten today") }
         let slots: [(String, MacroSlot?)] = [("PROTEIN", m.protein), ("CARBS", m.carb), ("FAT", m.fat)]
         let gaps = slots.compactMap { name, slot -> (String, Int, Double)? in
             guard let slot, slot.target > 0 else { return nil }
             let short = max(0, slot.target - slot.eaten)
             return (name, short, Double(short) / Double(slot.target))
         }
+        guard gaps.count == slots.count else { return L("No targets to compare them to yet.") }
         let protein = gaps.first { $0.0 == "PROTEIN" }
         let worst = (protein.map { $0.1 > 0 } == true) ? protein : gaps.max { $0.2 < $1.2 }
         guard let worst, worst.1 > 0 else { return L("EVERY TARGET IS MET — NOTHING LEFT TO CHASE TODAY.") }
@@ -246,19 +281,24 @@ struct FuelDetailView: View {
         CardBlock(title: L("MACROS"), trailing: L("VS TARGET")) {
             VStack(spacing: 14) {
                 MacroDetailRow(name: L("PRO"), slot: m.protein, tint: NB.violet1,
-                               note: proteinNote)
+                               note: proteinNote, intake: m.proteinIn, logged: logged)
                 MacroDetailRow(name: L("CARB"), slot: m.carb, tint: NB.optimal2,
-                               note: toGo(m.carb))
+                               note: toGo(m.carb), intake: m.carbIn, logged: logged)
                 MacroDetailRow(name: L("FAT"), slot: m.fat, tint: NB.run1,
-                               note: toGo(m.fat))
+                               note: toGo(m.fat), intake: m.fatIn, logged: logged)
             }
             Hairline()
-            Text(logged ? macroNote
+            Text(!hasMacroTargets ? L("No targets to compare them to yet.")
+                 : logged ? macroNote
                  : L("THESE TARGETS COME FROM YOUR WEIGHT AND YOUR GOAL — THEY ARE READY BEFORE YOU LOG ANYTHING."))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .lineSpacing(5)
                 .foregroundStyle(NB.text3Prod)
         }
+    }
+
+    private var hasMacroTargets: Bool {
+        [m.protein, m.carb, m.fat].allSatisfy { ($0?.target ?? 0) > 0 }
     }
 
     private var proteinNote: String {
@@ -296,33 +336,16 @@ struct FuelDetailView: View {
             // 09 edge 5 · OPEN slots and suggestions are for a day that is still running.
             ForEach(isPast ? [] : openSlots, id: \.self) { slot in
                 OpenSlotRow(slot: slot,
-                            hint: slot == nextSlot ? (logged ? L("AIM FOR 60 G PROTEIN IN IT") : L("START WITH 40 G PROTEIN")) : L("NOT LOGGED"),
-                            kcal: slot == nextSlot ? (logged ? Fmt.kcal(m.nextMeal) : "~500") : Fmt.dash,
+                            hint: L("NOT LOGGED"),
+                            kcal: slot == nextSlot && m.targetIn != nil ? Fmt.kcal(m.nextMeal) : Fmt.dash,
                             lit: slot == nextSlot)
             }
-            if !logged, !isPast {
-                // B4 · one of the four ways to let a user say "I didn't eat".
-                // ⚠️ It appears only in the empty state.
-                HStack {
-                    Text(L("Fasting, or nothing so far?"))
-                        .font(NBFont.ui(300, 12)).tracking(0.02 * 12)
-                        .foregroundStyle(NB.text3Prod)
-                    Spacer(minLength: 0)
-                    Button {
-                        data.today.fuelState = .fasted
-                        data.today.eIn = 0
-                    } label: {
-                        Text(L("MARK AS FASTED"))
-                            .font(NBFont.ui(500, 11)).tracking(0.12 * 11)
-                            .foregroundStyle(NB.white.opacity(0.55))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+
         }
     }
 
     private var openSlots: [MealEntry.Slot] {
+        if m.fuelState == .fasted { return [] }
         let taken = Set(data.meals.filter { $0.status == .confirmed }.map(\.slot))
         return MealEntry.Slot.allCases.filter { !taken.contains($0) }
     }
@@ -482,10 +505,12 @@ struct MacroDetailRow: View {
     let slot: MacroSlot?
     let tint: Color
     let note: String
+    var intake: Int? = nil
+    var logged: Bool = false
 
     private var macroValue: String {
-        guard let s = slot else { return Fmt.dash }
-        return s.eaten > 0 ? "\(s.eaten)/\(s.target)" : "—/\(s.target)"
+        guard let s = slot else { return intake.map { "\($0) g" } ?? Fmt.dash }
+        return logged || s.eaten > 0 ? "\(s.eaten)/\(s.target)" : "—/\(s.target)"
     }
 
     var body: some View {
@@ -786,7 +811,7 @@ struct EditMealSheet: View {
             Spacer(minLength: 0)
 
             LimePillButton(title: L("Save")) {
-                data.updateMeal(entry.id, kcal: Double(kcal) ?? entry.kcal, text: text)
+                data.amendMeal(entry.id, kcal: Double(kcal) ?? entry.kcal, text: text)
                 dismiss()
             }
 

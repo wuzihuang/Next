@@ -65,18 +65,21 @@ enum DailyDirection: String, Codable, Hashable {
     case greyNothing    // UNLOGGED, or PARTIAL with a single slot
     case greyNoBurn     // logged food, but band coverage < 50%
 
-    static func from(balance: Double?, fuel: FuelState, bandCoverage: Double, closed: Bool) -> DailyDirection {
-        guard closed else { return .greyNothing }
+    static func from(balance: Double?, fuel: FuelState, bandCoverage: Double) -> DailyDirection {
+        let policyFuel: DailyDirectionPolicy.Fuel
         switch fuel {
-        case .unlogged: return .greyNothing
-        case .partial(let slots) where slots < 2: return .greyNothing
-        default: break
+        case .unlogged: policyFuel = .unlogged
+        case .partial(let slots): policyFuel = .partial(slots: slots)
+        case .fasted: policyFuel = .fasted
+        case .confirmed: policyFuel = .confirmed
         }
-        guard bandCoverage >= 0.5 else { return .greyNoBurn }
-        guard let b = balance else { return .greyNothing }
-        if b <= -150 { return .deficit }
-        if b >= 150 { return .surplus }
-        return .level
+        switch DailyDirectionPolicy.color(balance: balance, fuel: policyFuel, bandCoverage: bandCoverage) {
+        case .deficit: return .deficit
+        case .level: return .level
+        case .surplus: return .surplus
+        case .greyNothing: return .greyNothing
+        case .greyNoBurn: return .greyNoBurn
+        }
     }
 }
 
@@ -208,6 +211,11 @@ struct ReserveSample: Codable, Hashable {
 /// 04B · SLEEP card. The night OriginDataSync stored under this user day — what the band
 /// reported, unscored: 「不算分、不评价」. The whole reason it is a struct of its own is
 /// that 13 板 forbids sleep on the battery page while 04B prints it first; both read one row.
+struct SleepInterval: Codable, Hashable {
+    var start: Date
+    var end: Date
+}
+
 struct SleepSummary: Codable, Hashable {
     var totalMinutes: Int
     var deepMinutes: Int
@@ -227,6 +235,38 @@ struct SleepSummary: Codable, Hashable {
     /// deep and light, and the remainder is not one stage. Zero when there is no line.
     var remMinutes: Int { line.filter { $0.stage == 2 }.reduce(0) { $0 + $1.minutes } }
     var awakeMinutes: Int { line.filter { $0.stage >= 3 }.reduce(0) { $0 + $1.minutes } }
+    /// Overnight automatic SpO2 inside this night's window. Empty when the band filed none.
+    var spo2: [OvernightOxygenPoint] = []
+    /// Automatic respiratory measurements in the recorded sleep window; nil in older archives.
+    var respiration: [SleepRespirationPoint]? = nil
+    /// RMSSD at the actual recorded RR minute, independent of the five-minute origin grid.
+    var hrv: [SleepHRVPoint]? = nil
+    /// Actual recorded sessions; the gaps between them are not sleep measurements.
+    var intervals: [SleepInterval]? = nil
+
+    func containsSleepTimestamp(_ timestamp: Date) -> Bool {
+        guard let sleepStart, let wakeAt, wakeAt > sleepStart,
+              timestamp >= sleepStart, timestamp < wakeAt else { return false }
+        guard let intervals else { return true }
+        return intervals.contains { $0.end > $0.start && timestamp >= $0.start && timestamp < $0.end }
+    }
+}
+
+struct SleepHRVPoint: Codable, Hashable {
+    var ts: Date
+    var rmssdMS: Double
+}
+
+/// One respiratory reading from the SDK's automatic history, retained on the night's clock.
+struct SleepRespirationPoint: Codable, Hashable {
+    var ts: Date
+    var breathsPerMinute: Double
+}
+
+/// One automatic oxygen reading clipped to the recorded night. Not an apnea event.
+struct OvernightOxygenPoint: Codable, Hashable {
+    var ts: Date
+    var percent: Int
 }
 
 /// F2 §02 · one row of daily_metrics. Everything is computed server-side; the app only lays it out.
@@ -305,12 +345,13 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var asOf: Date?
 
     /// F2 rule 02 · the direction is computed server-side and written to daily_results.
-    /// The local calculation only exists for the provisional, offline view of today.
+    /// The local calculation is the live view of today (and the offline fallback):
+    /// calendar close is not a gate, or the heat map stays empty until 04:00.
     var serverDirection: DailyDirection?
 
     var direction: DailyDirection {
         serverDirection ?? DailyDirection.from(balance: balance, fuel: fuelState,
-                                               bandCoverage: bandCoverage, closed: day.isClosed)
+                                               bandCoverage: bandCoverage)
     }
 
     // optimalZone is a range; it stays out of the wire format and is rebuilt server-side.

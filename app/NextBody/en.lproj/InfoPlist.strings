@@ -1,0 +1,2 @@
+NSCameraUsageDescription = "Photograph your meal so NextBody can log the food.";
+NSPhotoLibraryUsageDescription = "Pick a photo of your meal so NextBody can log the food.";

@@ -1,0 +1,117 @@
+{
+  "scenario": "physical device, 10 foreground/background cycles before final stress-cancellation bridge install",
+  "foreground_seconds": 3,
+  "background_seconds": 15,
+  "cycles": [
+    {
+      "cycle": 1,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 15,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 2,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 16,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 3,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 15,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 4,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 15,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 5,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 16,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 6,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 16,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 7,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 15,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 8,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 16,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 9,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 15,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    },
+    {
+      "cycle": 10,
+      "foreground_launch_exit": 0,
+      "background_launch_exit": 0,
+      "background_events": 2,
+      "foreground_events": 2,
+      "background_HR_receipts": 5,
+      "live_receipt_reuse": 1,
+      "new_connect_starts": 0,
+      "disconnect_events": 0
+    }
+  ]
+}

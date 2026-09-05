@@ -17,6 +17,7 @@ final class AIService: ObservableObject {
     @Published var lastError: String?
     @Published var dailyCallsUsed = 0
     @Published var thinking = false
+    private var activeTurnID: UUID?
 
     /// F4 · the app is free forever, so the cost ceiling is a rate limit, not a paywall.
     let hourlyCap = 60
@@ -71,10 +72,67 @@ final class AIService: ObservableObject {
     }
     #endif
 
+    /// Only acknowledgment and server calculation readiness can promote a pending record.
+    /// Local live estimates are never submitted as authoritative health facts.
+    private func prepareFreshness(question: String, day: UserDay, owner: String) async -> [String: Any] {
+        let kinds = ["meal", "weigh-in", "body-composition", "band-domain", "band-sleep"]
+        @MainActor func pendingCount() -> Int? {
+            do {
+                let local = try LocalDataStore.shared()
+                return try kinds.reduce(0) { $0 + (try local.operations(account: owner, kind: $1)).count }
+            } catch { return nil }
+        }
+        let pendingBefore = pendingCount()
+        var calculationPending: Bool?
+        let status: AIFreshnessStatus
+        if !Reachability.shared.isOnline { status = .offline }
+        else if !AIFreshnessPolicy.requiresRefresh(question: question, pending: pendingBefore) { status = .notRequested }
+        else {
+            status = await AIFreshnessPolicy.prepare {
+                @MainActor func eligible() -> Bool {
+                    !Task.isCancelled && ConsentStore.shared.granted
+                        && SupabaseClient.currentUserIdSnapshot() == owner
+                }
+                guard eligible() else { return .cancelled }
+                await WeighInQueue.shared.flush()
+                guard eligible() else { return .cancelled }
+                await BodyCompositionQueue.shared.flush()
+                guard eligible() else { return .cancelled }
+                await Repository.shared.flushPendingEvidence()
+                guard eligible() else { return .cancelled }
+                do {
+                    let db = SupabaseClient.shared
+                    _ = try await db.rpc("settle_now", args: ["p_days": 1], expectedOwner: owner)
+                    guard eligible() else { return .cancelled }
+                    let rows = try await db.rpc("calculation_status", args: ["p_from": day.key, "p_to": day.key], expectedOwner: owner) as? [[String: Any]]
+                    guard eligible() else { return .cancelled }
+                    guard let rows, !rows.isEmpty else { return .failed }
+                    calculationPending = rows.contains { ($0["pending"] as? Bool) != false }
+                    guard let pending = pendingCount() else { return .failed }
+                    return pending == 0 && calculationPending == false ? .ready : .pending
+                } catch { return Task.isCancelled ? .cancelled : .failed }
+            }
+        }
+        let domains = BandDomainSyncState.load(userId: owner, deviceKey: BoundBand.identifier ?? "unknown", day: day.key)
+        let iso = ISO8601DateFormatter()
+        return [
+            "status": status.rawValue,
+            "pending_operations": pendingCount().map { $0 as Any } ?? NSNull(),
+            "calculation_pending": calculationPending.map { $0 as Any } ?? NSNull(),
+            "checked_at": iso.string(from: Date()),
+            "domains": domains.prefix(5).map { state -> [String: Any] in
+                ["domain": state.domain, "status": state.status.rawValue,
+                 "attempted_at": iso.string(from: state.attemptedAt),
+                 "acknowledged_end": state.acknowledgedEnd.map { iso.string(from: $0) } ?? NSNull()]
+            },
+        ]
+    }
+
     // MARK: a conversational turn
 
     func turn(_ text: String, day: UserDay, store: DataStore,
-              imageDataURL: String? = nil) async -> PanelWidget? {
+              imageDataURL: String? = nil, surface: String = "panel",
+              history: [[String: String]] = [], conversationID: UUID? = nil, turnID: UUID = UUID()) async -> PanelWidget? {
         guard dailyCallsUsed < dailyCap else {
             lastError = L("That was today’s last turn. It resets at 04:00.")
             return nil
@@ -88,11 +146,28 @@ final class AIService: ObservableObject {
             .notice("NB latency · turn start")
         #endif
         dailyCallsUsed += 1
+        activeTurnID = turnID
         thinking = true
         thoughts = []
-        defer { thinking = false }
+        reading = nil
+        lastError = nil
+        defer {
+            if activeTurnID == turnID {
+                thinking = false
+                reading = nil
+                activeTurnID = nil
+            }
+        }
 
         let dayKey = Self.dayFormatter.string(from: day.start)
+        guard ConsentStore.shared.granted, let requestOwner = await SupabaseClient.shared.currentUserId else {
+            guard activeTurnID == turnID else { return nil }
+            lastError = L("Please sign in and allow access to your data.")
+            return nil
+        }
+        let freshness = await prepareFreshness(question: text, day: day, owner: requestOwner)
+        guard activeTurnID == turnID, !Task.isCancelled, ConsentStore.shared.granted,
+              SupabaseClient.currentUserIdSnapshot() == requestOwner else { return nil }
 
         do {
             // ⚠️ `turn` streams. It had been called as though it returned one JSON object,
@@ -100,11 +175,17 @@ final class AIService: ObservableObject {
             // including the ones the server logged as OK — fell through to the offline
             // frame. The DEBUG path masked it by answering in its place.
             var frame: [String: Any]?
+            var responseFailed = false
             var payload: [String: Any] = [
                 "text": text, "dayKey": dayKey, "locale": AppLanguage.locale,
+                "surface": surface, "freshness": freshness,
             ]
+            if surface == "chat" { payload["history"] = history }
+            if let conversationID { payload["conversation_id"] = conversationID.uuidString }
             if let imageDataURL { payload["image"] = imageDataURL }
-            for try await chunk in SupabaseClient.shared.streamFunction("turn", payload: payload) {
+            for try await chunk in SupabaseClient.shared.streamFunction("turn", payload: payload, expectedOwner: requestOwner, requestID: turnID) {
+                guard activeTurnID == turnID, !Task.isCancelled, ConsentStore.shared.granted,
+                      SupabaseClient.currentUserIdSnapshot() == requestOwner else { return nil }
                 let parts = chunk.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parts.count == 2,
                       let data = parts[1].data(using: .utf8),
@@ -138,8 +219,7 @@ final class AIService: ObservableObject {
                 case "thought":
                     // 07 · 16 · 02 · one line of her reasoning, whole, in the moment it was.
                     if let t = obj["text"] as? String, !t.isEmpty {
-                        thoughts.append(Thought(text: t, at: Date()))
-                        if thoughts.count > Self.thoughtsKept { thoughts.removeFirst(thoughts.count - Self.thoughtsKept) }
+                        thoughts = Array((thoughts + [Thought(text: t, at: Date())]).suffix(Self.thoughtsKept))
                     }
                 case "screen.render":
                     frame = obj["envelope"] as? [String: Any]
@@ -148,6 +228,7 @@ final class AIService: ObservableObject {
                         .notice("NB latency · turn render ms=\(elapsedMs, privacy: .public)")
                     #endif
                 case "error":
+                    responseFailed = true
                     // A degraded frame is still a frame — S4's absence law, not a failure.
                     if let fb = obj["fallback_frame"] as? [String: Any], frame == nil { frame = fb }
                     if let reason = obj["reason"] as? String { lastError = reason }
@@ -155,12 +236,14 @@ final class AIService: ObservableObject {
                     break
                 }
             }
+            guard activeTurnID == turnID else { return nil }
             reading = nil
             #if DEBUG
             let completedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
             os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
                 .notice("NB latency · turn done ms=\(completedMs, privacy: .public)")
             #endif
+            if surface == "chat", responseFailed { return nil }
             if let frame {
                 let w = widget(from: frame)
                 #if DEBUG
@@ -170,60 +253,49 @@ final class AIService: ObservableObject {
                 return w
             }
         } catch {
+            guard activeTurnID == turnID else { return nil }
             reading = nil
             // ⚠️ DEBUG path is simulator-only. On a real phone a failed /turn must not
             // answer from whatever happens to sit in the store — that is how seed rows
             // outlive a DB cleanup and keep showing up in the panel.
             #if DEBUG
-            if Band.allowsSeed, let local = await debugTurn(text, day: day, store: store) { return local }
+            if surface != "chat", Band.allowsSeed, let local = await debugTurn(text, day: day, store: store) { return local }
             #endif
             lastError = error.localizedDescription
         }
-        return offlineFrame(text)
+        return surface == "chat" ? nil : offlineFrame(text)
     }
 
     /// F4 §02 · the draft the model produced this turn is the only thing that can be
     /// committed, and the draft's own id is the idempotency key — a retry is a no-op, never
     /// a second meal. Until this ran, a logged meal lived only in this process.
-    private func commit(entry: MealEntry, out: [String: Any]) async {
-        guard let draft = out["draft_id"] as? String, let kcal = numberOf(out["kcal"]), kcal > 0 else { return }
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
-        do {
-            _ = try await SupabaseClient.shared.callFunction("meal-commit", payload: [
-                "draft_id": draft,
-                "user_day": f.string(from: entry.day.start),
-                "slot": entry.slot.rawValue,
-                "name": out["name"] as? String ?? entry.text,
-                "kcal": Int(kcal),
-                "protein_g": Int(numberOf(out["protein_g"]) ?? 0),
-                "carb_g": Int(numberOf(out["carb_g"]) ?? 0),
-                "fat_g": Int(numberOf(out["fat_g"]) ?? 0),
-                "confidence": out["confidence"] as? String ?? "MEDIUM",
-                "model_version": out["model_version"] as? String ?? "",
-            ])
-            await Analytics.shared.track("MEAL_COMMITTED", ["SLOT": entry.slot.rawValue])
-        } catch {
-            #if DEBUG
-            NSLog("meal-commit failed: %@", "\(error)")
-            #endif
-            lastError = error.localizedDescription
-        }
+    private func commit(entry: MealEntry, out: [String: Any], owner: String) throws {
+        guard SupabaseClient.currentUserIdSnapshot() == owner else { throw LocalDataStore.Failure.invalidOwner }
+        try MealQueue.shared.promoteEstimate(mealID: entry.id, output: out, owner: owner)
     }
 
     /// Turns "半碗面加一个鸡蛋" into a logged meal.
     @discardableResult
     func estimate(entry: MealEntry, into store: DataStore) async -> PanelWidget? {
         do {
-            let out = try await SupabaseClient.shared.callFunction("meal", payload: [
+            guard let owner = SupabaseClient.currentUserIdSnapshot() else { throw LocalDataStore.Failure.invalidOwner }
+            let request: [String: Any] = [
                 "text": entry.text,
                 "slot": entry.slot.rawValue,
                 "locale": AppLanguage.locale,
-            ])
+            ]
+            try MealQueue.shared.beginEstimate(entry: entry, request: request, owner: owner)
+            var pendingEntry = entry
+            pendingEntry.status = .open
+            store.logMeal(pendingEntry)
+            defer { MealQueue.shared.releaseEstimate(entry.id) }
+            let out = try await SupabaseClient.shared.callFunction("meal", payload: request, expectedOwner: owner)
+            guard SupabaseClient.currentUserIdSnapshot() == owner, !Task.isCancelled else { return nil }
             if let kcal = numberOf(out["kcal"]) {
+                try commit(entry: entry, out: out, owner: owner)
                 store.updateMeal(entry.id, kcal: kcal, text: out["name"] as? String ?? entry.text)
                 store.applyMacros(entry.id, protein: Int(numberOf(out["protein_g"]) ?? 0),
                                   carb: Int(numberOf(out["carb_g"]) ?? 0), fat: Int(numberOf(out["fat_g"]) ?? 0))
-                Task { await commit(entry: entry, out: out) }
                 return loggedFrame(name: out["name"] as? String ?? entry.text, kcal: kcal, store: store)
             }
         } catch {
@@ -240,35 +312,41 @@ final class AIService: ObservableObject {
     func photoMeal(image: UIImage, dataURL: String, caption: String, slot: MealEntry.Slot,
                    into store: DataStore) async -> PanelWidget? {
         let entry = MealEntry(id: UUID(), day: UserDay.containing(Date()), at: Date(), slot: slot,
-                              status: .confirmed, text: caption, kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
+                              status: .confirmed, text: caption, kcal: 0, protein: 0, carb: 0, fat: 0, source: .photo)
         do {
-            let out = try await SupabaseClient.shared.callFunction("meal", payload: [
-                "text": caption, "slot": slot.rawValue, "locale": AppLanguage.locale, "image": dataURL,
-            ])
+            guard let owner = SupabaseClient.currentUserIdSnapshot() else { throw LocalDataStore.Failure.invalidOwner }
+            let request: [String: Any] = ["text": caption, "slot": slot.rawValue, "locale": AppLanguage.locale, "image": dataURL]
+            try MealQueue.shared.beginEstimate(entry: entry, request: request, owner: owner)
+            defer { MealQueue.shared.releaseEstimate(entry.id) }
+            let out = try await SupabaseClient.shared.callFunction("meal", payload: request, expectedOwner: owner)
+            guard SupabaseClient.currentUserIdSnapshot() == owner, !Task.isCancelled else { return nil }
             guard let kcal = numberOf(out["kcal"]) else { lastError = "\(out["error"] ?? "MODEL_UNAVAILABLE")"; return nil }
             let name = out["name"] as? String ?? caption
             let protein = Int(numberOf(out["protein_g"]) ?? 0)
+            try commit(entry: entry, out: out, owner: owner)
             store.logMeal(entry)
             store.updateMeal(entry.id, kcal: kcal, text: name)
             store.applyMacros(entry.id, protein: protein,
                               carb: Int(numberOf(out["carb_g"]) ?? 0), fat: Int(numberOf(out["fat_g"]) ?? 0))
-            Task { await commit(entry: entry, out: out) }
             let target = store.today.protein?.target ?? 0
             let eaten = store.today.protein?.eaten ?? protein
             let left = max(0, target - eaten)
             let pulled = target > 0
-                ? "Pulled from photo — PRO \(eaten)/\(target) g · \(left) g still to place"
-                : "Pulled from photo — \(protein) g protein · \(Fmt.kcal(kcal)) kcal"
+                ? L("Pulled from photo — PRO %d/%d g · %d g still to place", eaten, target, left)
+                : L("Pulled from photo — %d g protein · %@ kcal", protein, Fmt.kcal(kcal))
             let footer = target > 0
-                ? (left == 0 ? "PROTEIN IS CLOSED FOR TODAY" : "\(left) G STILL TO PLACE")
-                : "\(Fmt.kcal(kcal)) KCAL ON THE PLATE"
+                ? (left == 0
+                    ? L("PROTEIN IS CLOSED FOR TODAY")
+                    : L("%d G STILL TO PLACE", left))
+                : L("%@ KCAL ON THE PLATE", Fmt.kcal(kcal))
             return PanelWidget(
                 type: .meal, title: L("FROM YOUR PHOTO"), tag: .fuel,
-                sentence: (out["answer"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "\(protein) g protein on that plate.",
+                sentence: (out["answer"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    ?? L("%d g protein on that plate.", protein),
                 footer: footer, action: nil, targetOverride: .fuel,
                 data: .rows([.init(label: name, value: Fmt.kcal(kcal))]),
                 photo: PhotoAnswer(thumbnail: image, chip: "IMG · PLATE · PARSED OK", quote: caption,
-                                   pulled: pulled, logged: "LOGGED TO TODAY'S FUEL"))
+                                   pulled: pulled, logged: L("LOGGED TO TODAY'S FUEL")))
         } catch {
             lastError = error.localizedDescription
             return nil
@@ -421,7 +499,8 @@ final class AIService: ObservableObject {
             headline: headline,
             plate: plate,
             ttlMinutes: (env["ttl_min"] as? Int) ?? 20,
-            priority: (env["priority"] as? String) == "alert" ? .alert : .normal)
+            priority: (env["priority"] as? String) == "alert" ? .alert : .normal,
+            envelopeData: try? JSONSerialization.data(withJSONObject: env))
     }
 
     /// ⚠️ Tolerant on purpose, in both directions. The contract's shape is pairs —

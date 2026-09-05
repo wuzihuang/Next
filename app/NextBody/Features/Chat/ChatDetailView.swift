@@ -9,7 +9,7 @@ struct ChatDetailView: View {
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var dataStore: DataStore
     @StateObject private var chatStore = ChatStore.shared
-    @ObservedObject private var ai = AIService.shared
+    @ObservedObject private var ai = ChatStore.shared.ai
 
     @State private var inputText: String = ""
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -17,6 +17,7 @@ struct ChatDetailView: View {
     @State private var attachedDataURL: String?
     @State private var showPhotoPicker: Bool = false
     @State private var showHistorySheet: Bool = false
+    @State private var didOpenSession = false
     @FocusState private var isInputFocused: Bool
     var body: some View {
         // ⚠️ The scroll view is the root, not a middle row of a VStack: inside NavigationStack
@@ -86,6 +87,9 @@ struct ChatDetailView: View {
                 handlePhotoSelection(item)
             }
             .task {
+                guard !didOpenSession else { return }
+                didOpenSession = true
+                chatStore.prepareForCurrentAccount()
                 if let sessionID {
                     chatStore.selectSession(sessionID)
                 } else if chatStore.sessions.isEmpty {
@@ -104,20 +108,28 @@ struct ChatDetailView: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 18) {
+                    if let error = chatStore.persistenceError {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(error)
+                            Button(L("Retry")) { chatStore.retryPersistence() }
+                        }
+                        .font(NBFont.ui(400, 13))
+                        .foregroundStyle(NB.text2)
+                    }
                     if let session = chatStore.currentSession {
                         ForEach(session.messages) { message in
                             if message.sender == .user {
                                 UserBubbleView(message: message)
                                     .id(message.id.uuidString)
                             } else {
-                                AiTelemetryCardView(message: message)
+                                ChatAnswerView(message: message, onTap: { router.open($0) })
                                     .id(message.id.uuidString)
                             }
                         }
                     }
 
-                    if chatStore.isSending {
-                        ThinkingStatusView(thoughtText: ai.thoughts.last?.text)
+                    if chatStore.isSendingCurrentSession {
+                        ThinkingStatusView(thoughts: ai.thoughts)
                             .id("thinking-indicator")
                     }
 
@@ -142,7 +154,11 @@ struct ChatDetailView: View {
                     proxy.scrollTo(targetID, anchor: .bottom)
                 }
             }
-            .onChange(of: chatStore.isSending) { _, sending in
+            .onChange(of: ai.thoughts.last?.id) { _, _ in
+                guard chatStore.isSendingCurrentSession else { return }
+                withAnimation { proxy.scrollTo("thinking-indicator", anchor: .bottom) }
+            }
+            .onChange(of: chatStore.isSendingCurrentSession) { _, sending in
                 if sending {
                     withAnimation { proxy.scrollTo("thinking-indicator", anchor: .bottom) }
                 }
@@ -213,7 +229,7 @@ private struct ChatTopBarView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text(L("DIAGNOSTIC TERMINAL"))
+                    Text(L("AI COACH"))
                         .font(NBFont.dot(700, 13))
                         .tracking(0.06 * 13)
                         .foregroundStyle(NB.text1)
@@ -221,7 +237,7 @@ private struct ChatTopBarView: View {
                         .fill(NB.lime1)
                         .frame(width: 7, height: 7)
                 }
-                Text(L("LINKED: VEEPOO-BAND · PPG 50HZ"))
+                Text(L("ASK ANYTHING · YOUR AI COACH"))
                     .font(NBFont.dot(500, 10))
                     .tracking(0.04 * 10)
                     .foregroundStyle(NB.lime1)
@@ -301,126 +317,48 @@ private struct UserBubbleView: View {
     }
 }
 
-// MARK: - AI Cyber Telemetry Card
-private struct AiTelemetryCardView: View {
+// MARK: - Query-selected answer
+private struct ChatAnswerView: View {
     let message: ChatMessage
+    let onTap: (Destination) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let t = message.telemetry {
-                HStack(spacing: 8) {
-                    Text(t.category)
-                        .font(NBFont.dot(600, 10))
-                        .tracking(0.04 * 10)
-                        .foregroundStyle(NB.lime1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(NB.lime1.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-
-                    Text(t.confidence)
-                        .font(NBFont.dot(400, 10))
-                        .foregroundStyle(NB.text3Prod)
+        Group {
+            if let widget = message.widget, widget.type != .text {
+                GeometryReader { geometry in
+                    PanelWidgetView(widget: widget, onTap: onTap)
+                        .frame(width: 358, height: 470)
+                        .scaleEffect(geometry.size.width / 358, anchor: .topLeading)
                 }
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                if let t = message.telemetry {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(t.verdict)
-                            .font(NBFont.dot(700, 15))
-                            .tracking(0.02 * 15)
-                            .foregroundStyle(t.verdictLevel.color)
-                        Spacer()
-                        Text(t.verdictTag)
-                            .font(NBFont.dot(700, 10))
-                            .foregroundStyle(t.verdictLevel.color)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(t.verdictLevel.color.opacity(0.15), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .aspectRatio(358.0 / 470.0, contentMode: .fit)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    if !message.text.isEmpty {
+                        Text(message.text)
+                            .font(NBFont.ui(400, 15))
+                            .foregroundStyle(NB.text1)
                     }
-
-                    Text(t.analysis)
-                        .font(NBFont.ui(400, 13))
-                        .foregroundStyle(NB.text1)
-                        .lineSpacing(4)
-
-                    telemetryTable(t.metrics)
-
-                    prescriptionsList(t.prescriptions)
-                } else if !message.text.isEmpty {
-                    Text(message.text)
-                        .font(NBFont.ui(400, 14))
-                        .foregroundStyle(NB.text1)
-                        .lineSpacing(4)
+                    if let detail = message.widget?.headline?.sub,
+                       !detail.isEmpty, detail != message.text {
+                        Text(detail)
+                            .font(NBFont.ui(400, 14))
+                            .foregroundStyle(NB.text2)
+                    }
                 }
+                .lineSpacing(5)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color(hex: 0x111116), in: RoundedRectangle(cornerRadius: 14))
             }
-            .padding(14)
-            .background(Color(hex: 0x111116), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(NB.lime1.opacity(0.25), lineWidth: 1)
-            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func telemetryTable(_ metrics: [TelemetryMetricItem]) -> some View {
-        VStack(spacing: 8) {
-            HStack {
-                Text(L("TELEMETRY METRICS"))
-                    .font(NBFont.dot(600, 10))
-                    .tracking(0.06 * 10)
-                    .foregroundStyle(NB.text3Prod)
-                Spacer()
-                Text(L("DELTA (14D)"))
-                    .font(NBFont.dot(600, 10))
-                    .tracking(0.06 * 10)
-                    .foregroundStyle(NB.text3Prod)
-            }
-
-            ForEach(metrics) { m in
-                HStack {
-                    Text(m.name)
-                        .font(NBFont.brand(500, 13))
-                        .foregroundStyle(NB.text2)
-                    Spacer()
-                    HStack(spacing: 6) {
-                        Text(m.value)
-                            .font(NBFont.dot(700, 13))
-                            .foregroundStyle(m.level.color)
-                        Text(m.delta)
-                            .font(NBFont.dot(400, 11))
-                            .foregroundStyle(NB.text3Prod)
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(NB.hairline, lineWidth: 1))
-    }
-
-    private func prescriptionsList(_ list: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(L("PRESCRIPTION · ACTION STEPS:"))
-                .font(NBFont.dot(700, 11))
-                .tracking(0.04 * 11)
-                .foregroundStyle(NB.lime1)
-
-            ForEach(list, id: \.self) { p in
-                Text(p)
-                    .font(NBFont.ui(400, 13))
-                    .foregroundStyle(NB.text2)
-                    .lineSpacing(3)
-            }
-        }
-        .padding(.top, 4)
     }
 }
 
 // MARK: - Thinking View
 private struct ThinkingStatusView: View {
-    let thoughtText: String?
+    let thoughts: [AIService.Thought]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -428,18 +366,19 @@ private struct ThinkingStatusView: View {
                 Circle()
                     .fill(NB.lime1)
                     .frame(width: 7, height: 7)
-                Text(L("SYNCHRONIZING BAND SENSORS..."))
+                Text(L("THINKING..."))
                     .font(NBFont.dot(600, 11))
                     .tracking(0.04 * 11)
                     .foregroundStyle(NB.lime1)
             }
 
-            if let thoughtText, !thoughtText.isEmpty {
-                Text(thoughtText)
+            ForEach(thoughts.suffix(4)) { thought in
+                Text(thought.text)
                     .font(NBFont.ui(400, 13))
                     .foregroundStyle(NB.text2)
             }
         }
+        .accessibilityIdentifier("chat.thinking")
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(hex: 0x111116), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -551,10 +490,11 @@ private struct ChatBottomDockView: View {
             TextField(
                 "",
                 text: $inputText,
-                prompt: Text(L("Ask advice, command or attach photo..."))
+                prompt: Text(L("Ask anything, or share a photo..."))
                     .font(NBFont.brand(400, 14))
                     .foregroundColor(NB.text3Prod)
             )
+            .accessibilityIdentifier("coach-input")
             .focused(isInputFocused)
             .font(NBFont.brand(400, 14))
             .foregroundStyle(NB.text1)
@@ -575,6 +515,8 @@ private struct ChatBottomDockView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("coach-send")
+            .accessibilityLabel(L("Send"))
             .disabled(!canSend)
         }
         .padding(.horizontal, 12)

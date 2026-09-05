@@ -40,6 +40,7 @@ final class HealthSampleMappingTests: XCTestCase {
         switchData[4] = 1
         switchData[5] = 2
         switchData[12] = 1
+        switchData[16] = 2
         var switchTwoData = [UInt8](repeating: 0, count: 20)
         switchTwoData[4] = 2
         switchTwoData[9] = 1
@@ -51,9 +52,10 @@ final class HealthSampleMappingTests: XCTestCase {
             oxygenOn: false)
 
         XCTAssertEqual(readings.map(\.kind), [
-            .heartRate, .bloodPressure, .hrv, .bloodOxygen, .temperature, .stress
+            .heartRate, .bloodPressure, .hrv, .scientificSleep,
+            .bloodOxygen, .temperature, .stress
         ])
-        XCTAssertEqual(readings.map(\.on), [true, false, true, false, false, true])
+        XCTAssertEqual(readings.map(\.on), [true, false, true, false, false, false, true])
     }
 
     func testSwitchFallbackTreatsShortBlobsAsMissingTables() {
@@ -111,6 +113,30 @@ final class HealthSampleMappingTests: XCTestCase {
         XCTAssertNil(HealthSampleMapping.temperature(from: [
             "hour": 6, "minute": 5, "originalValue": 99.0,
         ]))
+    }
+
+    func testOxygenReadsTimeAndPercentAndIgnoresApneaFlags() {
+        let sample = HealthSampleMapping.oxygen(from: [
+            "Time": "02:15",
+            "OxygenValue": 96,
+            "ApneaResult": 2,
+        ])
+        XCTAssertEqual(sample?.time, "02:15")
+        XCTAssertEqual(sample?.percent, 96)
+    }
+
+    func testOxygenRejectsEmptyAndOutOfRangePercents() {
+        XCTAssertNil(HealthSampleMapping.oxygen(from: ["Time": "02:15", "OxygenValue": 0]))
+        XCTAssertNil(HealthSampleMapping.oxygen(from: ["Time": "02:15", "OxygenValue": 49]))
+        XCTAssertNil(HealthSampleMapping.oxygen(from: ["Time": "02:15", "OxygenValue": 101]))
+        XCTAssertNil(HealthSampleMapping.oxygen(from: ["OxygenValue": 96]))
+    }
+
+    func testOvernightOxygenSummaryIsNilWhenEmpty() {
+        XCTAssertNil(HealthSampleMapping.overnightOxygenSummary([]))
+        let summary = HealthSampleMapping.overnightOxygenSummary([96, 94, 91, 97])
+        XCTAssertEqual(summary?.mean, 95)
+        XCTAssertEqual(summary?.min, 91)
     }
 
     func testHRVComputesRMSSDFromTenMillisecondRRUnits() {
@@ -419,7 +445,7 @@ final class HealthSampleMappingTests: XCTestCase {
         let timestamp = Date(timeIntervalSince1970: 1_788_453_900)
         let stored = VitalSample(
             ts: timestamp, hr: 62, stress: 17,
-            temp: 33.8, steps: 24, cal: 1.2, dis: 18, hrv: 51
+            temp: 33.8, steps: 24, vendorCalories: 1.2, dis: 18, hrv: 51
         )
         let fresh = VitalSample(ts: timestamp, hr: 64, stress: nil)
 
@@ -454,6 +480,53 @@ final class HealthSampleMappingTests: XCTestCase {
         XCTAssertFalse(window.contains(now.addingTimeInterval(60)))
     }
 
+    func testCurrentStressJoinsLastPositiveReadingInside24h() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let earlier = now.addingTimeInterval(-3 * 3600)
+        let value = VitalsTimelinePolicy.currentStress(
+            latest: nil,
+            previous: (28, earlier),
+            at: now)
+
+        XCTAssertEqual(value, 28)
+    }
+
+    func testCurrentStressDoesNotJoinReadingOlderThan24h() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let earlier = now.addingTimeInterval(-25 * 3600)
+        let value = VitalsTimelinePolicy.currentStress(
+            latest: nil,
+            previous: (28, earlier),
+            at: now)
+
+        XCTAssertNil(value)
+    }
+
+    func testCurrentStressPrefersTheLatestTick() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let value = VitalsTimelinePolicy.currentStress(
+            latest: 41,
+            previous: (28, now.addingTimeInterval(-3600)),
+            at: now)
+
+        XCTAssertEqual(value, 41)
+    }
+
+    func testRollingSamplesKeepYesterdayAfternoonStress() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let yesterdayAfternoon = now.addingTimeInterval(-12 * 3600)
+        let thisMorning = now.addingTimeInterval(-1 * 3600)
+        let samples = [
+            VitalSample(ts: yesterdayAfternoon, hr: 70, stress: 33),
+            VitalSample(ts: thisMorning, hr: 54, stress: nil),
+        ]
+
+        let rolling = VitalSample.rolling(samples, endingAt: now)
+
+        XCTAssertEqual(rolling.count, 2)
+        XCTAssertEqual(rolling.compactMap(\.stress), [33])
+    }
+
     func testRawVitalsLoadIsNotGatedByDailyResultsSettlement() throws {
         let repository = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -465,7 +538,7 @@ final class HealthSampleMappingTests: XCTestCase {
         )
 
         XCTAssertFalse(source.contains("guard !rows.isEmpty else { return }"))
-        XCTAssertTrue(source.contains("day.adding(days: -1).start"))
+        XCTAssertTrue(source.contains("day.adding(days: -max(days, 1) - 1).start"))
         XCTAssertTrue(source.contains("VitalSample.merging(remoteSamples, with: localSamples)"))
     }
 

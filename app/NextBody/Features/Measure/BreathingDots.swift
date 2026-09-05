@@ -34,26 +34,45 @@ struct BreathingDots: View {
     var held = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// ⚠️ The phase is ACCUMULATED, never computed from the clock. `now × rate` looks
+    /// equivalent and is not: the epoch is 1.8 billion seconds, so a rate moving from 1.10 to
+    /// 1.15 moves that product by ninety million cycles and the field jumps. Every reported
+    /// beat changes the rate, so the jump was on every callback — the stutter. Accumulating
+    /// dt × rate bends the tempo instead, which is what the original does and why it says so.
+    @State private var clock = Phase()
+
+    final class Phase {
+        var cycles = 0.0
+        var last: Date?
+    }
 
     // MARK: the shape of the breath
 
-    /// Rows of dots across the frame's height. The panel's halftone screen draws ~2 600 dots
-    /// a frame, so three lanes of this size sit inside a budget the app already pays.
-    private static let rows = 30.0
+    /// Rows of dots across the frame's height.
+    /// ⚠️ Sized for the WHOLE SCREEN. At 30 — the figure from when this drew into a 240 pt
+    /// box — a full-height phone gets 28 pt cells, and the field reads as a sparse polka dot
+    /// rather than the original's fine mesh. The original runs 90 rows over a viewport; 52
+    /// is as close as three lanes get while staying inside the ~3 700 ellipses a frame that
+    /// the panel's own halftone screen already proves is affordable.
+    private static let rows = 52.0
     /// Fraction of its own offset each dot travels at full intensity.
     private static let amplitude = 0.44
-    /// Seconds of phase lag per unit of distance from the centre. At one beat a second the
-    /// ring crosses a 30-row field in about a second and a half, so two or three rings are
-    /// in the air at once — the pattern the original is known for.
-    private static let lag = 0.045
+    /// Seconds of phase lag per unit of distance from the centre.
+    /// ⚠️ This sets how MANY rings are in the air at once, and at a heartbeat's tempo the
+    /// original's spacing puts three or four across the field — which reads as several
+    /// patterns fighting rather than one thing breathing. Halved: one ring travelling out,
+    /// the next just leaving the centre.
+    private static let lag = 0.022
     /// Seconds between the three channel copies.
     /// ⚠️ The original runs this at about a frame (0.016 s) on a PINK base, where the three
     /// channels are close in strength and the fringe reads as a shimmer. Lime is (0.85, 0.95,
     /// 0.29): its blue lane is nearly black, so the same delay reads as separate red and
     /// green fields rather than a fringe on one lime one. Half a frame keeps the copies
     /// overlapping for most of the cycle and leaves the colour only on the moving edge.
-    /// One constant — raise it if you want the original's louder separation back.
-    private static let chromaDelay = 0.018
+    /// ⚠️ Also read as "two animations overlapping" at the earlier value: three copies far
+    /// enough apart stop being a fringe on one field and become three fields. This is the
+    /// edge-only setting; raise it for the original's louder separation.
+    private static let chromaDelay = 0.007
     private static let restingBPM = 54.0
 
     var body: some View {
@@ -72,11 +91,15 @@ struct BreathingDots: View {
         let rows = Int(Self.rows.rounded(.up)) + 2
         let centre = CGPoint(x: size.width / 2, y: size.height / 2)
 
-        // One breath per heartbeat. The wave is accumulated from wall time rather than a
-        // stored phase, so a rate that changes mid-measurement bends the tempo instead of
-        // jumping it — the field never skips a beat because the band read a new number.
+        // One breath per heartbeat, and the rate the band last reported is what sets it.
         let rate = Double(bpm ?? Int(Self.restingBPM)) / 60
-        let t = now.timeIntervalSinceReferenceDate * rate
+        var dt = clock.last.map { now.timeIntervalSince($0) } ?? 0
+        clock.last = now
+        // A backgrounded screen must not fast-forward the breath when it comes back.
+        if !dt.isFinite || dt < 0 { dt = 0 }
+        if dt > 0.05 { dt = 0.05 }
+        clock.cycles = (clock.cycles + dt * rate).truncatingRemainder(dividingBy: 1)
+        let t = clock.cycles
         let amp = Self.amplitude * (0.45 + 0.55 * min(1, max(0, intensity)))
         let radius = unit * 0.22
 

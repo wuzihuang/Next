@@ -11,6 +11,17 @@ struct ProfileView: View {
 
     private var hasScans: Bool { !data.weighIns.isEmpty }
 
+    /// Lime / outline / red — not the two greys. Weigh-ins never colour this map
+    /// (F0 D05); an empty grid with five morning scans was the copy lying.
+    private var hasLitSquares: Bool {
+        ([data.today] + data.history).contains {
+            switch $0.direction {
+            case .deficit, .level, .surplus: return true
+            case .greyNothing, .greyNoBurn: return false
+            }
+        }
+    }
+
     var body: some View {
         DetailScroll(glow: NB.lime1, title: L("ME")) {
             VStack(alignment: .leading, spacing: 14) {
@@ -48,13 +59,11 @@ struct ProfileView: View {
                     SettingRow(title: L("UNITS"), value: data.profile.usesMetric ? L("METRIC · KG") : L("IMPERIAL · LB")) {
                         router.sheet = .units
                     }
-                    // 11 edge 1 · a source that stopped answering: the value goes amber and the row
-                    // carries the last read. ⚠️ Read permission cannot be probed, so the row says what
-                    // is known — when something last came back — never "you turned it off".
+                    // SYNCED means an import completed; the date is the last successful read.
                     SettingRow(title: L("APPLE HEALTH"),
                                value: data.profile.appleHealthLinked ? "SYNCED" : "NOT CONNECTED",
                                valueTint: data.profile.appleHealthLinked ? nil : NB.ember1,
-                               detail: healthLastRead.map { "LAST READ \($0) · NOTHING NEW" }) {
+                               detail: healthLastRead.map { "LAST READ \($0)" }) {
                         router.sheet = .appleHealth
                     }
                     SettingRow(title: L("LANGUAGE"), value: language.locale.rowLabel) { router.sheet = .language }
@@ -114,11 +123,9 @@ struct ProfileView: View {
     private var goalChangedToday: Bool {
         UserDefaults.standard.string(forKey: "nb.goal.changedDay") == UserDay.containing(Date()).key
     }
-    /// The day Health last answered with anything, or nil if it never has. Shown only while
-    /// the latest read came back empty.
+    /// The day Health last answered with anything, or nil if it never has.
     private var healthLastRead: String? {
-        guard !data.profile.appleHealthLinked, HealthService.shared.asked,
-              let at = UserDefaults.standard.object(forKey: "nb.health.lastRead") as? Date else { return nil }
+        guard let at = UserDefaults.standard.object(forKey: "nb.health.lastRead") as? Date else { return nil }
         return Fmt.displayDate(at, format: "MMM d").uppercased()
     }
 
@@ -181,23 +188,25 @@ struct ProfileView: View {
                     .foregroundStyle(hasScans ? NB.macroValue : NB.text3Prod)
             }
             MonthAxis()
-            DirectionHeatMap(history: data.history) { day in
+            DirectionHeatMap(history: data.history, today: data.today) { day in
                 router.open(.composition(date: day.start), from: .profile)
             }
             DirectionLegend()
-            if !hasScans {
+            if !hasLitSquares {
                 HStack(alignment: .center) {
-                    Text(L("WEIGH IN ON 5 MORNINGS AND\nTHE FIRST SQUARE LIGHTS UP"))
+                    Text(L("LOG TWO MEALS ON A DAY YOU WEAR THE BAND\nAND THE FIRST SQUARE LIGHTS UP"))
                         .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                         .lineSpacing(4)
                         .foregroundStyle(NB.text3Prod)
                     Spacer(minLength: 0)
-                    Button { router.sheet = .weighIn } label: {
-                        Text(L("ADD A WEIGH-IN"))
-                            .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                            .foregroundStyle(NB.lime1)
+                    if !hasScans {
+                        Button { router.sheet = .weighIn } label: {
+                            Text(L("ADD A WEIGH-IN"))
+                                .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
+                                .foregroundStyle(NB.lime1)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -378,6 +387,7 @@ private struct MonthAxis: View {
 /// Every cell is tappable and lands on that day's composition detail.
 struct DirectionHeatMap: View {
     let history: [DailyMetrics]
+    var today: DailyMetrics? = nil
     let onDay: (UserDay) -> Void
 
     private let rows = 7
@@ -398,7 +408,7 @@ struct DirectionHeatMap: View {
                 VStack(spacing: gap) {
                     ForEach(0..<rows, id: \.self) { r in
                         let day = dayFor(week: w, row: r)
-                        let metrics = history.first { $0.day == day }
+                        let metrics = metrics(for: day)
                         Button { onDay(day) } label: {
                             DirectionCell(direction: metrics?.direction ?? .greyNothing,
                                           height: cell, radius: 2)
@@ -409,6 +419,11 @@ struct DirectionHeatMap: View {
                 }
             }
         }
+    }
+
+    private func metrics(for day: UserDay) -> DailyMetrics? {
+        if let today, today.day == day { return today }
+        return history.first { $0.day == day }
     }
 
     private func dayFor(week: Int, row: Int) -> UserDay {

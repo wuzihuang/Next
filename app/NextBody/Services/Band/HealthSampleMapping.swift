@@ -1,5 +1,10 @@
 import Foundation
 
+struct RespirationSample: Equatable {
+    let time: String
+    let breathsPerMinute: Double
+}
+
 struct TemperatureSample: Equatable {
     let time: String
     let celsius: Double
@@ -32,6 +37,48 @@ struct OpticalResponseSample: Equatable {
 /// Pure conversion at the closed-source SDK boundary. Keeping this free of Veepoo types makes
 /// the unit and missing-value rules testable without a band or the arm64-only framework.
 enum HealthSampleMapping {
+    /// SDK sleep timestamps use both slash and hyphen calendar dates in the phone's zone.
+    static func sleepInstant(_ stamp: String?, calendar: Calendar = .current) -> Date? {
+        guard let stamp else { return nil }
+        let normalized = stamp.replacingOccurrences(of: "/", with: "-")
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        formatter.isLenient = false
+        guard let instant = formatter.date(from: normalized),
+              formatter.string(from: instant) == normalized else { return nil }
+        return instant
+    }
+
+    /// The same sleep segment can appear in both queried SDK calendar pages.
+    /// Keep one copy of each valid interval, ordered by its actual start instant.
+    static func sleepRecordIndices(stamps: [(String?, String?)], wakeDay: String,
+                                   now: Date = Date(), calendar: Calendar = .current) -> [Int] {
+        guard let day = sleepInstant(wakeDay + " 00:00", calendar: calendar),
+              let end = calendar.date(byAdding: .day, value: 1, to: day) else { return [] }
+        let valid = stamps.enumerated().compactMap { index, stamps -> (Int, Date, Date)? in
+            guard let start = sleepInstant(stamps.0, calendar: calendar),
+                  let wake = sleepInstant(stamps.1, calendar: calendar),
+                  start < wake, wake <= now, wake >= day, wake < end else { return nil }
+            return (index, start, wake)
+        }.sorted { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 < $1.1 }
+        return valid.enumerated().filter { position, row in
+            !valid.prefix(position).contains { $0.1 == row.1 && $0.2 == row.2 }
+        }.map { $0.element.0 }
+    }
+
+    /// Respiration is independent of the oxygen measurement in the same history row.
+    /// 255 is the vendor's empty example encoding; this is a payload boundary, not a
+    /// physiological threshold. Retain positive measurements below that reserved value.
+    static func respiration(from raw: [String: Any]) -> RespirationSample? {
+        guard let time = clock(raw["Time"] as? String ?? raw["time"] as? String),
+              let rate = number(raw["RespirationRate"] ?? raw["respirationRate"]),
+              rate.isFinite, rate > 0, rate < 255 else { return nil }
+        return RespirationSample(time: time, breathsPerMinute: rate)
+    }
+
     static func deviceDayOffsets(daysBack: Int, straddles: Bool) -> [Int] {
         guard straddles else { return [max(0, daysBack)] }
         // A user day D 04:00 → D+1 04:00 spans calendar day D and the following day.
@@ -103,6 +150,18 @@ enum HealthSampleMapping {
         }() : nil
         return HrvMinuteSample(time: time, rmssdMS: rmssd,
                                vendorValue: number(raw["hrvValue"]), rrCount: rr.count, rrMilliseconds: rr)
+    }
+
+    /// Exact measured minutes for the sleep surface. The five-minute origin/server grid
+    /// must not shift a reading across a sleep boundary or add a second weighted copy.
+    static func hrvByMinute(_ samples: [HrvMinuteSample]) -> [String: Double] {
+        let valid = samples.compactMap { sample -> (time: String, value: Double)? in
+            guard let time = clock(sample.time), let value = sample.rmssdMS,
+                  value.isFinite, (1...300).contains(value) else { return nil }
+            return (time, value)
+        }
+        return Dictionary(grouping: valid, by: \.time)
+            .compactMapValues { median($0.map(\.value)) }
     }
 
     /// The day's HRV placed on the five-minute grid the sample table uses. The band measures

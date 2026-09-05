@@ -85,6 +85,7 @@ struct SportModeView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("sport-mode-\(mode.rawValue)")
                     .disabled(!connected || starting != nil || dead)
                     if index < SportModeCatalog.modes.count - 1 {
                         Hairline().padding(.leading, 16)

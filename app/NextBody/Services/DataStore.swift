@@ -15,6 +15,19 @@ final class DataStore: ObservableObject {
     @Published var recentMeals: [MealEntry] = []
     @Published var weighIns: [WeighIn] = []
     @Published var band: BandState = Band.allowsSeed ? .mock : .unknown
+    /// Session-local freshness guard: cloud hydration must not overwrite a BLE observation.
+    private(set) var bandObservationRevision = 0
+
+    func applyBandObservation(identity: BandIdentity? = nil, battery: BandBattery? = nil) {
+        guard identity != nil || battery != nil else { return }
+        if let identity {
+            band.name = identity.name
+            band.mac = identity.bleIdentifier
+            band.firmware = identity.firmware
+        }
+        if let battery { band.applyBattery(battery) }
+        bandObservationRevision += 1
+    }
     @Published var profile: Profile = Band.allowsSeed ? .mock : .blank
     /// F3 rule 09 · the moment of the last readOriginData that succeeded. nil until one has:
     /// a phone that has never synced says so, it does not say "12 MIN AGO".
@@ -31,6 +44,10 @@ final class DataStore: ObservableObject {
     @Published var capabilities = BandCapabilities()
     @Published var capabilitiesReadAt: Date?
     @Published var isOffline = false
+    /// Wrist optical meal-response points, last ~21 days. Dedicated series, never origin ticks.
+    @Published var mealResponsePoints: [MealResponseIndex.Point] = []
+    /// True when today's vendor table had rows but every value was a zero / empty slot.
+    @Published var mealResponseZerosToday = false
     /// 11 edge 3 · the export row says PREPARING… while export_all runs; the page can be left.
     @Published var exportPreparing = false
 
@@ -52,6 +69,14 @@ final class DataStore: ObservableObject {
         return metrics
     }
 
+    /// Today's merged row, otherwise the history row. The heat map used to look only
+    /// at `history`, so the current user day stayed GREY_NOTHING while Fuel already
+    /// had the live balance.
+    func metrics(for day: UserDay) -> DailyMetrics? {
+        if today.day == day { return today }
+        return history.first { $0.day == day }
+    }
+
     private init() {
         // The seeded demo account is a returning user: the gate was walked, the band is
         // bound, and the app reconnects to it the way it would on any later launch.
@@ -69,8 +94,10 @@ final class DataStore: ObservableObject {
             history = DataStore.seedHistory()
             meals = MealEntry.seed
             weighIns = WeighIn.seed
+            mealResponsePoints = DataStore.seedMealResponse()
         } else {
             today = DailyMetrics(day: UserDay.containing(Date()))
+            HomeSnapshot.hydrate(into: self)
         }
     }
 
@@ -81,11 +108,21 @@ final class DataStore: ObservableObject {
     /// ⚠️ `isOffline` is not the account's, it is the radio's — Reachability owns it, and
     /// clearing it here would print ONLINE at the gate of a phone in a lift.
     func purge() {
+        clearAccountDisplay()
+        HomeSnapshot.removeAll()
+    }
+
+    /// Signing out clears visible identity and readings, while account-owned disk data
+    /// and pending operations remain available when their owner signs in again.
+    func clearAccountDisplay() {
+        bandObservationRevision = 0
         today = DailyMetrics(day: UserDay.containing(Date()))
         history = []
         meals = []
         recentMeals = []
         weighIns = []
+        mealResponsePoints = []
+        mealResponseZerosToday = false
         band = .unknown
         profile = .blank
         lastSync = nil
@@ -100,6 +137,7 @@ final class DataStore: ObservableObject {
         netFatMass12w = nil
         netLeanMass12w = nil
         bodyFatPercent = nil
+        Repository.shared.resetBootstrap()
     }
 
     /// The server replay is authoritative. Every successful load replaces the preview's
@@ -190,21 +228,22 @@ final class DataStore: ObservableObject {
         m.fuelState = .partial(slots: 3)
         m.bandCoverage = 0.86
         m.asOf = Date()
-        // The ticks the board's 72 was made of: five minutes apart from the 04:00 cut to now,
-        // asleep and low until the peak, awake and moving after it, with one hour missing
-        // where the band came off — so the trace on 13 has a gap to draw rather than a
-        // straight line across an hour nobody wore it.
+        // The ticks the board's 72 was made of: five minutes apart from the earlier of
+        // the user-day cut and last night's bed time, so the sleep page has RMSSD to plot.
         var ticks: [VitalSample] = []
-        var t = m.day.start
         var seed: UInt64 = 0x2545F4914F6CDD1D
         func rnd() -> Double {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
             return Double((seed >> 33) % 1_000) / 1_000
         }
+        let wakeAt = Calendar.current.date(bySettingHour: 7, minute: 12, second: 0, of: Date())
+            ?? m.day.start.addingTimeInterval(3 * 3600 + 12 * 60)
+        let sleepStart = wakeAt.addingTimeInterval(-432 * 60)
+        var t = min(m.day.start, sleepStart)
         while t <= Date() {
             let hour = Calendar.current.component(.hour, from: t)
             let offWrist = hour == 13
-            let asleep = hour < 7
+            let asleep = t >= sleepStart && t < wakeAt
             if !offWrist {
                 // 04B · the second page reads the same ticks: a skin temperature that climbs
                 // through the day, and the five minutes' steps, kcal and metres — heavy in
@@ -217,8 +256,9 @@ final class DataStore: ObservableObject {
                     stress: Int((asleep ? 12 : 26) + rnd() * (asleep ? 8 : 30)),
                     temp: (asleep ? 35.9 : session ? 36.7 : 36.4) + rnd() * 0.2,
                     steps: steps,
-                    cal: Double(steps) * 0.04 + (asleep ? 0.2 : 0.6),
-                    dis: Double(steps) * 0.72))
+                    vendorCalories: Double(steps) * 0.04 + (asleep ? 0.2 : 0.6),
+                    dis: Double(steps) * 0.72,
+                    hrv: (asleep ? 48 : 38) + rnd() * (asleep ? 18 : 16)))
             }
             t = t.addingTimeInterval(300)
         }
@@ -231,11 +271,23 @@ final class DataStore: ObservableObject {
         }
         // 04B · SLEEP · 7H 12M, DEEP 1H 48M, 2 WAKES — the board's card, with the band's own
         // line behind it (total = deep + light; the two wakes are minutes off the count).
+        var spo2: [OvernightOxygenPoint] = []
+        var minute = 0
+        while minute < 432 {
+            let wave = sin(Double(minute) / 80)
+            var percent = 96 + Int((wave * 2).rounded())
+            if minute == 180 { percent = 91 }
+            spo2.append(OvernightOxygenPoint(
+                ts: sleepStart.addingTimeInterval(Double(minute) * 60),
+                percent: min(100, max(50, percent))))
+            minute += 5
+        }
         m.sleep = SleepSummary(totalMinutes: 432, deepMinutes: 108, lightMinutes: 324, wakeCount: 2,
                                line: [SleepStageRun(stage: 1, minutes: 84), SleepStageRun(stage: 0, minutes: 60),
                                       SleepStageRun(stage: 1, minutes: 110), SleepStageRun(stage: 4, minutes: 4),
                                       SleepStageRun(stage: 0, minutes: 48), SleepStageRun(stage: 1, minutes: 130),
-                                      SleepStageRun(stage: 4, minutes: 4)])
+                                      SleepStageRun(stage: 4, minutes: 4)],
+                               sleepStart: sleepStart, wakeAt: wakeAt, spo2: spo2)
         return m
     }
 
@@ -277,6 +329,25 @@ final class DataStore: ObservableObject {
         return out
     }
 
+    /// Seven days of daytime optical points so the RESPONSE card's own median is ready.
+    static func seedMealResponse() -> [MealResponseIndex.Point] {
+        let today = UserDay.containing(Date())
+        var points: [MealResponseIndex.Point] = []
+        for back in stride(from: 6, through: 1, by: -1) {
+            let start = today.adding(days: -back).start
+            for hour in [11, 13, 16] {
+                points.append(.init(
+                    ts: start.addingTimeInterval(Double(hour) * 3600),
+                    optical: 100))
+            }
+        }
+        let start = today.start
+        points.append(.init(ts: start.addingTimeInterval(11 * 3600), optical: 100))
+        points.append(.init(ts: start.addingTimeInterval(13 * 3600), optical: 100))
+        points.append(.init(ts: start.addingTimeInterval(15 * 3600), optical: 108))
+        return points.filter { $0.ts <= Date() }
+    }
+
     // MARK: mutations the UI performs
 
     func logMeal(_ entry: MealEntry) {
@@ -287,8 +358,38 @@ final class DataStore: ObservableObject {
     func updateMeal(_ id: UUID, kcal: Double, text: String) {
         guard let i = meals.firstIndex(where: { $0.id == id }) else { return }
         meals[i].kcal = kcal
+        meals[i].status = .confirmed
         meals[i].text = text
         meals[i].revisions += 1
+        recomputeFuel()
+    }
+
+    /// A correction appends a replacement and soft-deletes the old cloud record.
+    func amendMeal(_ id: UUID, kcal: Double, text: String) {
+        guard let entry = meals.first(where: { $0.id == id }), canEdit(entry), kcal.isFinite, kcal > 0,
+              let owner = SupabaseClient.currentUserIdSnapshot() else { return }
+        let replacementID = UUID()
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let replacement: [String: Any] = [
+            "id": replacementID.uuidString.lowercased(), "user_day": f.string(from: entry.day.start),
+            "slot": entry.slot.rawValue, "name": text, "kcal": Int(kcal),
+            "protein_g": entry.protein, "carb_g": entry.carb, "fat_g": entry.fat,
+            "confidence": "HIGH", "model_version": "manual-amendment-v1",
+        ]
+        do { try MealQueue.shared.enqueueAmend(mealID: id, replacement: replacement, ownerUserId: owner) }
+        catch { AIService.shared.lastError = error.localizedDescription; return }
+        meals = meals.filter { $0.id != id } + [MealEntry(
+            id: replacementID, day: entry.day, at: entry.at, slot: entry.slot, status: .confirmed,
+            text: text, kcal: kcal, protein: entry.protein, carb: entry.carb, fat: entry.fat,
+            revisions: entry.revisions + 1, source: entry.source)]
+        recomputeFuel()
+    }
+
+    func overlayPendingMeals(_ entries: [MealEntry], removedIDs: Set<UUID>) {
+        let replacementIDs = Set(entries.map(\.id))
+        meals = meals.filter { !removedIDs.contains($0.id) && !replacementIDs.contains($0.id) }
+            + entries.filter { $0.day == UserDay.containing(Date()) }
+        recentMeals = recentMeals.filter { !removedIDs.contains($0.id) && !replacementIDs.contains($0.id) } + entries
         recomputeFuel()
     }
 
@@ -302,6 +403,9 @@ final class DataStore: ObservableObject {
 
     /// F0 right column: 09 needs an edit/delete entry point. Range-limited to 7 user days (F2 §08).
     func deleteMeal(_ id: UUID) {
+        guard let owner = SupabaseClient.currentUserIdSnapshot() else { return }
+        do { try MealQueue.shared.enqueueDelete(mealID: id, ownerUserId: owner) }
+        catch { AIService.shared.lastError = error.localizedDescription; return }
         meals.removeAll { $0.id == id }
         recomputeFuel()
     }
@@ -313,13 +417,24 @@ final class DataStore: ObservableObject {
     private func recomputeFuel() {
         let day = UserDay.containing(Date())
         let confirmed = meals.filter { $0.day == day && $0.status == .confirmed }
-        today.eIn = confirmed.isEmpty ? nil : confirmed.reduce(0) { $0 + $1.kcal }
+        let isFasted: Bool
+        if case .fasted = today.fuelState { isFasted = confirmed.isEmpty } else { isFasted = false }
+        today.eIn = confirmed.isEmpty ? (isFasted ? 0 : nil) : confirmed.reduce(0) { $0 + $1.kcal }
+        today.proteinIn = confirmed.isEmpty && !isFasted ? nil : confirmed.reduce(0) { $0 + $1.protein }
+        today.carbIn = confirmed.isEmpty && !isFasted ? nil : confirmed.reduce(0) { $0 + $1.carb }
+        today.fatIn = confirmed.isEmpty && !isFasted ? nil : confirmed.reduce(0) { $0 + $1.fat }
         if let eIn = today.eIn, let out = today.eOutNow { today.balance = eIn - out }
+        else { today.balance = nil }
+        if confirmed.isEmpty {
+            today.protein = today.protein.map { MacroSlot(target: $0.target, eaten: 0) }
+            today.carb = today.carb.map { MacroSlot(target: $0.target, eaten: 0) }
+            today.fat = today.fat.map { MacroSlot(target: $0.target, eaten: 0) }
+        }
         // What is left moves with the row, the same instant — the tile and the LOGGED frame
         // both read it, and both used to wait for the next reload.
         if let t = today.targetIn { today.nextMeal = max(0, t - (today.eIn ?? 0)) }
         let slots = Set(confirmed.map(\.slot)).count
-        today.fuelState = confirmed.isEmpty ? .unlogged : (slots >= 4 ? .confirmed : .partial(slots: slots))
+        today.fuelState = confirmed.isEmpty ? (isFasted ? .fasted : .unlogged) : (slots >= 4 ? .confirmed : .partial(slots: slots))
         // The macro rows are the day's own meals added up (same rule as Repository.load):
         // a plate logged just now moves the tile the same instant, not on the next reload.
         if !confirmed.isEmpty {
@@ -334,12 +449,10 @@ final class DataStore: ObservableObject {
     }
 
     func addWeighIn(_ w: WeighIn) {
-        weighIns.append(w)
-        weighIns.sort { $0.date > $1.date }
-        // 10S rule 09 · optimistic: the page updates now, the row goes up when it can.
-        if let ownerUserId = SupabaseClient.currentUserIdSnapshot() {
-            WeighInQueue.shared.enqueue(w, ownerUserId: ownerUserId)
-        }
+        guard let ownerUserId = SupabaseClient.currentUserIdSnapshot() else { return }
+        do { try WeighInQueue.shared.enqueue(w, ownerUserId: ownerUserId) }
+        catch { AIService.shared.lastError = error.localizedDescription; return }
+        weighIns = (weighIns + [w]).sorted { $0.date > $1.date }
         today.weightKg = w.weightKg
         if let bf = w.bodyFatPercent {
             today.fatKg = w.weightKg * bf / 100
@@ -349,9 +462,9 @@ final class DataStore: ObservableObject {
     }
 }
 
-struct MealEntry: Identifiable, Hashable {
-    enum Slot: String, CaseIterable, Hashable { case breakfast = "BREAKFAST", lunch = "LUNCH", dinner = "DINNER", snack = "SNACK" }
-    enum Status: String, Hashable { case open = "OPEN", skipped = "SKIPPED", confirmed = "CONFIRMED" }
+struct MealEntry: Identifiable, Hashable, Codable {
+    enum Slot: String, CaseIterable, Hashable, Codable { case breakfast = "BREAKFAST", lunch = "LUNCH", dinner = "DINNER", snack = "SNACK" }
+    enum Status: String, Hashable, Codable { case open = "OPEN", skipped = "SKIPPED", confirmed = "CONFIRMED" }
 
     let id: UUID
     var day: UserDay
@@ -366,7 +479,7 @@ struct MealEntry: Identifiable, Hashable {
     var revisions: Int = 0
     var source: Source = .voice
 
-    enum Source: String, Hashable { case voice = "VOICE", typed = "TYPED", photo = "PHOTO" }
+    enum Source: String, Hashable, Codable { case voice = "VOICE", typed = "TYPED", photo = "PHOTO" }
 
     /// Board 09 · the four meal slots printed on the axis, including the 01:20 +1 late snack
     /// that only exists because the day is cut at 04:00.
@@ -423,7 +536,7 @@ struct WeighIn: Identifiable, Hashable {
     }
 }
 
-struct Profile: Hashable {
+struct Profile: Hashable, Codable {
     var name: String
     var email: String
     var birthdate: Date
@@ -453,11 +566,23 @@ struct Profile: Hashable {
     /// A device before the profile row has been read: no name (the header says YOU) and no
     /// invented birthday. hrMax off this means nothing, which is fine — no zone is computed
     /// on the phone (F2 rule 02); the row from onboarding replaces it on the first load.
-    static let blank = Profile(
-        name: "", email: "",
-        birthdate: Calendar.current.date(byAdding: .year, value: -30, to: Date())!,
-        heightCm: 170, sexIsMale: true, goal: .recomp,
-        usesMetric: true, appleHealthLinked: false)
+    static var blank: Profile {
+        Profile(
+            name: "", email: "",
+            birthdate: Calendar.current.date(byAdding: .year, value: -30, to: Date())!,
+            heightCm: 170, sexIsMale: true, goal: .recomp,
+            usesMetric: true, appleHealthLinked: false
+        ).restoringHealthSync()
+    }
+
+    /// SYNCED records a completed import on this device, not today's read permission.
+    /// Reuse the existing receipt so upgrades also restore past successful imports.
+    func restoringHealthSync() -> Profile {
+        var restored = self
+        restored.appleHealthLinked = appleHealthLinked
+            || UserDefaults.standard.object(forKey: "nb.health.lastRead") is Date
+        return restored
+    }
 
     static let mock = Profile(
         name: "ZEPH",
@@ -469,7 +594,7 @@ struct Profile: Hashable {
 
 /// The most recent five-minute tick. Nothing here is extrapolated: if the band has been
 /// off the wrist for six hours these are simply absent (13 · CURVE STOPS AT THE LAST REAL TICK).
-struct LiveVitals: Hashable {
+struct LiveVitals: Hashable, Codable {
     var hr: Int?
     var stress: Int?
     var at: Date?
@@ -532,16 +657,74 @@ final class SessionStore: ObservableObject {
     @Published var isSignedIn = false
 
     init() {
-        let raw = UserDefaults.standard.string(forKey: Self.key)
-        stage = raw.flatMap(Stage.init(rawValue:)) ?? .gateSignIn
         #if DEBUG
         // `SIMCTL_CHILD_NB_DEBUG_STAGE=gateConnect` opens the app at that gate for a walk.
-        if let s = ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"], let st = Stage(rawValue: s) { stage = st }
+        if let s = ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"], let st = Stage(rawValue: s) {
+            stage = st
+            return
+        }
         #endif
+        let persisted = UserDefaults.standard.string(forKey: Self.key)
+            .flatMap(Stage.init(rawValue:)) ?? .gateSignIn
+        // No refresh token means there is no session to restore. A leftover `root` in
+        // UserDefaults would otherwise flash Home over the anon key.
+        if SessionKeychain.refreshToken == nil && !Band.allowsSeed {
+            stage = .gateSignIn
+        } else {
+            stage = persisted
+        }
+    }
+
+    /// F1 §02 · re-read the four facts on every cold start. The last screen is a hint,
+    /// not the decision. Debug stage pins stay put.
+    func resolveLaunch() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"] != nil { return }
+        #endif
+        guard await ensureSession() else {
+            if Band.allowsSeed { return }
+            stage = .gateSignIn
+            isSignedIn = false
+            email = ""
+            return
+        }
+        if !Band.allowsSeed, DemoAccount.matches(await SupabaseClient.shared.signedInEmail() ?? "") {
+            await SupabaseClient.shared.signOut()
+            stage = .gateSignIn
+            isSignedIn = false
+            email = ""
+            return
+        }
+        if stage == .root {
+            Task { await Repository.shared.bootstrapHome(into: DataStore.shared) }
+        }
+        let facts = await Repository.shared.fetchAccountGate()
+        stage = facts.stage
+        if stage == .root {
+            Task { await Repository.shared.bootstrapHome(into: DataStore.shared) }
+        }
+    }
+
+    /// Restore the Keychain refresh token. Does not invent the demo session — that
+    /// stays Home's walk-through, after this gate has already decided.
+    @discardableResult
+    func ensureSession() async -> Bool {
+        if await SupabaseClient.shared.currentUserId != nil {
+            isSignedIn = true
+            if email.isEmpty { email = await SupabaseClient.shared.signedInEmail() ?? "" }
+            Task { await Repository.shared.flushPendingEvidence() }
+            return true
+        }
+        guard await SupabaseClient.shared.restoreSession() else { return false }
+        isSignedIn = true
+        email = await SupabaseClient.shared.signedInEmail() ?? email
+        Task { await Repository.shared.flushPendingEvidence() }
+        return true
     }
 
     func reset() {
         stage = .gateSignIn; isSignedIn = false; email = ""
+        DataStore.shared.clearAccountDisplay()
         // The Keychain copy of the session goes too, or the next launch would restore it
         // straight past the gate.
         Task { await SupabaseClient.shared.signOut() }
@@ -558,6 +741,11 @@ final class SessionStore: ObservableObject {
     /// skip the days it has already read. The three in-memory stores are cleared by hand
     /// because they would each write their copy back over the sweep.
     func purgeAfterAccountDelete() {
+        if let account = SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId {
+            BandDomainSyncState.purge(userId: account)
+            do { try MealQueue.shared.purge(ownerUserId: account) }
+            catch { AIService.shared.lastError = error.localizedDescription }
+        }
         DataStore.shared.purge()
         WeighInQueue.shared.purge()
         BodyCompositionQueue.shared.purge()

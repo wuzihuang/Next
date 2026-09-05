@@ -24,10 +24,13 @@ final class MockBand: BandService, @unchecked Sendable {
               startHour: 22, endHour: 7, intervalMinutes: 60, intervalStepMinutes: 5),
         .init(kind: .hrv, on: true, supportsRange: false,
               startHour: 0, endHour: 24, intervalMinutes: 60, intervalStepMinutes: 1),
+        .firmwareOwned(kind: .scientificSleep, on: true),
         .init(kind: .stress, on: true, supportsRange: true,
               startHour: 9, endHour: 22, intervalMinutes: 30, intervalStepMinutes: 5),
         .init(kind: .temperature, on: false, supportsRange: false,
               startHour: 0, endHour: 24, intervalMinutes: 60, intervalStepMinutes: 5),
+        .init(kind: .bloodGlucose, on: true, supportsRange: true,
+              startHour: 8, endHour: 22, intervalMinutes: 30, intervalStepMinutes: 5),
     ]
 
     func startScan() async {
@@ -134,15 +137,23 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func readSleep(dayOffset: Int) async throws -> SleepNight? {
         try await requireConnection()
-        // 6H 50M as the band's own line: light → deep → light → one wake → deep → light.
-        let calendar = Calendar.current
-        let day = calendar.date(byAdding: .day, value: -dayOffset,
-                                to: calendar.startOfDay(for: Date())) ?? Date()
-        let wake = calendar.date(byAdding: .hour, value: 7, to: day)
-        let start = wake?.addingTimeInterval(-410 * 60)
-        var night = SleepNight(
-            totalMinutes: 410, deepMinutes: 98, lightMinutes: 306, wakeCount: 1,
-            line: [
+        // Scientific sleep adds the band's own REM runs. Turning its automatic PPG off
+        // deliberately falls back to the basic deep/light line, just like the real firmware.
+        let scientificSleep = autoMonitoringSlots
+            .first(where: { $0.kind == .scientificSleep })?.on ?? false
+        let line = scientificSleep
+            ? [
+                SleepStageRun(stage: 1, minutes: 70),
+                SleepStageRun(stage: 0, minutes: 55),
+                SleepStageRun(stage: 1, minutes: 42),
+                SleepStageRun(stage: 2, minutes: 32),
+                SleepStageRun(stage: 1, minutes: 50),
+                SleepStageRun(stage: 4, minutes: 6),
+                SleepStageRun(stage: 0, minutes: 43),
+                SleepStageRun(stage: 2, minutes: 24),
+                SleepStageRun(stage: 1, minutes: 88),
+            ]
+            : [
                 SleepStageRun(stage: 1, minutes: 70),
                 SleepStageRun(stage: 0, minutes: 55),
                 SleepStageRun(stage: 1, minutes: 92),
@@ -150,6 +161,17 @@ final class MockBand: BandService, @unchecked Sendable {
                 SleepStageRun(stage: 0, minutes: 43),
                 SleepStageRun(stage: 1, minutes: 144),
             ]
+        let calendar = Calendar.current
+        let day = calendar.date(byAdding: .day, value: -dayOffset,
+                                to: calendar.startOfDay(for: Date())) ?? Date()
+        let wake = calendar.date(byAdding: .hour, value: 7, to: day)
+        let start = wake?.addingTimeInterval(-410 * 60)
+        var night = SleepNight(
+            totalMinutes: 410,
+            deepMinutes: 98,
+            lightMinutes: scientificSleep ? 250 : 306,
+            wakeCount: 1,
+            line: line
         )
         night.sleepStart = start
         night.wakeAt = wake
@@ -167,7 +189,19 @@ final class MockBand: BandService, @unchecked Sendable {
                             rmssdMS: 48 + 5 * sin(Double(minute) / 45),
                             vendorValue: nil, rrCount: 40)
         }
-        return BandHealthData(temperatures: temperatures, hrv: hrv)
+        // Overnight automatic oxygen only — daytime minutes are not filed, matching Q6.
+        let oxygen = stride(from: 0, to: 7 * 60, by: 5).map { minute in
+            OxygenSample(time: String(format: "%02d:%02d", minute / 60, minute % 60),
+                         percent: 95 + (minute / 30) % 3)
+        }
+        // Daytime optical meal-response slots. Night hours are left empty so the own
+        // median is a daytime number, matching the RESPONSE card.
+        let optical: [OpticalResponseSample] = stride(from: 10 * 60, to: 22 * 60, by: 30).map { (minute: Int) in
+            let value: Double = 100 + 8 * sin(Double(minute) / 90)
+            return OpticalResponseSample(time: String(format: "%02d:%02d", minute / 60, minute % 60),
+                                         optical: value)
+        }
+        return BandHealthData(temperatures: temperatures, hrv: hrv, oxygen: oxygen, optical: optical)
     }
 
     func measureHeartRate() -> AsyncThrowingStream<MeasurementProgress, Error> {
@@ -379,7 +413,7 @@ final class MockBand: BandService, @unchecked Sendable {
                     let target = 118 + 26 * (1 - exp(-t / 90)) + 6 * sin(t / 11)
                     beat += (target - beat) * 0.3 + Double.random(in: -1.5...1.5)
                     kcal += beat / 60 * 0.09
-                    c.yield(SportLiveInfo(heartRate: Int(beat.rounded()), calories: Int(kcal),
+                    c.yield(SportLiveInfo(heartRate: Int(beat.rounded()), caloriesKcal: kcal,
                                           distanceM: Int(t * 2.6), durationSec: Int(t), runState: 1))
                     try? await Task.sleep(for: .seconds(1))
                 }
@@ -461,6 +495,7 @@ final class MockBand: BandService, @unchecked Sendable {
                 let mean = intervals.reduce(0, +) / Double(intervals.count)
                 c.yield(.finished(PulseStudy(heartRate: Int((60_000 / mean).rounded()),
                                              intervals: intervals,
+                                             source: .intervals,
                                              durationSeconds: seconds,
                                              vendorHRV: 47)))
                 c.finish()

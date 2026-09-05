@@ -285,10 +285,12 @@ enum ScreenMetrics {
 
 /// Every detail page is one scroll with a coloured bloom behind the top, and **one** title.
 /// At rest it is the headline the boards drew: `‹ TRAINING`, big, the chevron and the word
-/// one button. As the page scrolls that row lifts off — the chevron, the eyebrow and the
-/// trailing figure go with it — and the word itself shrinks and slides into the centre of
-/// the 44pt bar. One title, not two copies that cut. The bar is glass at rest; a carbon
-/// ground fades in so a headline never collides with the clock.
+/// one button. As the page scrolls that row lifts off — the eyebrow and the trailing
+/// figure go with it — and the word itself shrinks and slides into the centre of the
+/// 44pt bar. The chevron stays pinned at the bar's left so every second level keeps a
+/// back mark in the top-left, including after the title has docked. One title, not two
+/// copies that cut. The bar is glass at rest; a carbon ground fades in so a headline
+/// never collides with the clock.
 struct DetailScroll<Trailing: View, Content: View>: View {
     let glow: Color
     /// The page's own name — what the bar prints once the page has scrolled.
@@ -415,7 +417,8 @@ struct DetailScroll<Trailing: View, Content: View>: View {
     }
 
     /// The sticky title. One word, interpolating from the large-left slot into the bar's
-    /// centre. The chevron and trailing live in `departingRow`, under the ground.
+    /// centre. Trailing lives in `departingRow`, under the ground; the chevron stays here
+    /// so the top-left back mark never leaves with the large row.
     private var chrome: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -432,6 +435,9 @@ struct DetailScroll<Trailing: View, Content: View>: View {
         let endY = barHeight / 2
         let hitW = mix(titleLeading + largeTitleWidth, 44, t)
 
+        let chevronH = mix(largeChevronH, 13, t)
+        let chevronW = 8 * chevronH / 13
+
         return ZStack(alignment: .top) {
             if sameWord {
                 morphingTitle(t: t, startX: startX, startY: startY, endX: endX, endY: endY)
@@ -446,6 +452,11 @@ struct DetailScroll<Trailing: View, Content: View>: View {
                     .allowsHitTesting(false)
             }
 
+            BackChevron(height: chevronH, line: mix(2.2, 1.6, t))
+                .offset(y: mix(1, 0, t))
+                .allowsHitTesting(false)
+                .position(x: NB.Layout.gutter + chevronW / 2, y: mix(startY, endY, t))
+
             Button(action: onBack) {
                 Color.white.opacity(0.001)
                     .frame(width: max(hitW, 44), height: 44)
@@ -453,13 +464,14 @@ struct DetailScroll<Trailing: View, Content: View>: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(L("Back"))
+            .accessibilityValue(title)
             .position(x: hitW / 2, y: mix(startY, endY, t))
         }
     }
 
-    /// Chevron, eyebrow, trailing, and (when it is a different word) the large headline.
-    /// They scroll away with the page; the docked title is not among them. Drawn under the
-    /// bar ground so they never paint over the clock.
+    /// Eyebrow, trailing, and (when it is a different word) the large headline.
+    /// They scroll away with the page; the docked title and the back chevron are not
+    /// among them. Drawn under the bar ground so they never paint over the clock.
     private var departingRow: some View {
         let t = collapse
         return VStack(alignment: .leading, spacing: 8) {
@@ -470,8 +482,8 @@ struct DetailScroll<Trailing: View, Content: View>: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 HStack(spacing: 10) {
-                    BackChevron(height: largeChevronH, line: 2.2)
-                        .offset(y: 1)
+                    Color.clear
+                        .frame(width: largeChevronW, height: largeChevronH)
                     if sameWord {
                         Text(largeWord)
                             .font(NBFont.brand(700, largeSize)).tracking(-0.02 * largeSize)
@@ -620,7 +632,7 @@ extension View {
 }
 
 /// The back chevron. The 8 × 13 mark the boards drew, scaled. 19pt tall beside the
-/// large headline; it lifts with that row and is gone once the title has docked.
+/// large headline; it stays in the 44pt bar's left once the title has docked.
 struct BackChevron: View {
     var height: CGFloat = 13
     var line: CGFloat = 1.6

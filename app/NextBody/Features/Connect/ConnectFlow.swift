@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 02 · Connect 手环配对. No back key out of the flow and no "later":
 /// the success screen has exactly one button and it hands straight over to onboarding.
@@ -13,13 +14,14 @@ struct ConnectFlow: View {
     @State private var found: DiscoveredBand?
     @State private var scanTask: Task<Void, Never>?
     /// 02 edges · every failure degrades on the screen it happened on: colour and two lines.
-    enum ScanEdge { case nothingFound, bluetoothOff }
+    enum ScanEdge { case nothingFound, bluetoothOff, permission }
     enum PairEdge { case stopped, taken }
     @State private var scanEdge: ScanEdge?
     @State private var pairEdge: PairEdge?
     @State private var pairFailures = 0
     /// 02 rule 05 · low battery never blocks pairing; one amber line on the success screen.
     @State private var lowBatteryLine: String?
+    @State private var scanBegan: Date?
 
     /// 04 · the percentage maps to four real steps; never a fake tween.
     private static let stages = ["CONNECT", "AUTHORISE", "READ CAPABILITIES", "READ FIRMWARE"]
@@ -36,7 +38,7 @@ struct ConnectFlow: View {
                                      onSearchAgain: { go(.searching) })
             case .pairing:   Pairing(progress: progress, stage: pairStage, edge: pairEdge, failures: pairFailures,
                                      onRetry: { go(.pairing) }, onSearchAgain: { go(.searching) })
-            case .connected: Connected(lowBattery: lowBatteryLine) { session.stage = .gateOnboarding }
+            case .connected: Connected(lowBattery: lowBatteryLine) { handOffAfterPair() }
             }
         }
         .carbonPage()
@@ -46,6 +48,12 @@ struct ConnectFlow: View {
             if off { scanTask?.cancel(); Task { await Band.live.stopScan() }; scanEdge = .bluetoothOff }
             else if scanEdge == .bluetoothOff { runScan() }
         }
+        .onReceive(BluetoothState.shared.$permissionDenied.dropFirst()) { denied in
+            guard step == .searching else { return }
+            if denied { scanTask?.cancel(); Task { await Band.live.stopScan() }; scanEdge = .permission }
+            else if scanEdge == .permission { runScan() }
+        }
+        .task { await session.ensureSession() }
         .transaction { $0.animation = nil }
         #if DEBUG
         // `SIMCTL_CHILD_NB_DEBUG_CONNECT_STEP=3` opens the flow on that screen for a walk —
@@ -66,6 +74,15 @@ struct ConnectFlow: View {
         }
     }
 
+    /// UNPAIRED · a finished About You is not asked again. NEW / PROFILE GAP go to onboarding.
+    private func handOffAfterPair() {
+        Task {
+            await session.ensureSession()
+            let facts = await Repository.shared.fetchAccountGate()
+            session.stage = facts.profileComplete ? .root : .gateOnboarding
+        }
+    }
+
     /// 02 · 02 · the first band found ends the scan. One account owns one band, so a list
     /// would be a list of things you cannot choose between.
     private func runScan() {
@@ -74,9 +91,15 @@ struct ConnectFlow: View {
         scanTask?.cancel()
         // DEBUG · 02 edges 1 and 2 on a simulator whose mock band always answers.
         if DebugEdge.on("nothingfound") { scanEdge = .nothingFound; return }
-        BluetoothState.shared.start()
-        if DebugEdge.on("btoff") || BluetoothState.shared.poweredOff { scanEdge = .bluetoothOff; return }
+        if DebugEdge.on("btoff") { scanEdge = .bluetoothOff; return }
+        if DebugEdge.on("permission") { scanEdge = .permission; return }
+        scanBegan = Date()
+        Task { await Analytics.shared.track("PAIR_START", [:]) }
         scanTask = Task {
+            await BluetoothState.shared.waitForState()
+            guard !Task.isCancelled, step == .searching else { return }
+            if BluetoothState.shared.poweredOff { scanEdge = .bluetoothOff; return }
+            if BluetoothState.shared.permissionDenied { scanEdge = .permission; return }
             await Band.live.startScan()
             // 02 rule 01 · scan 15 s (provisional). Edge 1 · the ripples stop, the line changes,
             // the screen stays: 「空态不是新页面，就是 02 屏本身」.
@@ -104,6 +127,8 @@ struct ConnectFlow: View {
                         guard !Task.isCancelled, let pick = best, step == .searching else { return }
                         found = pick
                         await Band.live.stopScan()
+                        let ms = Int((scanBegan.map { Date().timeIntervalSince($0) } ?? 0) * 1000)
+                        await Analytics.shared.track("PAIR_DEVICE_FOUND", ["MS": ms, "RSSI": pick.rssi])
                         go(.found)
                     }
                 }
@@ -116,9 +141,11 @@ struct ConnectFlow: View {
     /// it reached: stopping is more honest than snapping back to zero.
     private func runPairing() {
         progress = 0; pairStage = 0; pairEdge = nil
+        let began = Date()
         Task {
             do {
                 guard let device = found else { throw BandError.notConnected }
+                await session.ensureSession()
 
                 // 02 rule 02 · four fixed segments: connect 0–35, authorise 35–60, capabilities
                 // 60–85, version and battery 85–100. Whichever does not return, the bar stops there.
@@ -148,6 +175,16 @@ struct ConnectFlow: View {
                     firmware: identity.firmware,
                     lastSync: Date(),
                     capabilities: Self.capabilitySet(caps))
+                await Repository.shared.registerDevice(identity: identity, battery: battery)
+                if let deviceId = Repository.shared.deviceId,
+                   let userId = await SupabaseClient.shared.currentUserId {
+                    await Repository.shared.saveCapabilities(caps, deviceId: deviceId, userId: userId,
+                                                              holdsDays: identity.watchDataDayNumber)
+                }
+                let ms = Int(Date().timeIntervalSince(began) * 1000)
+                await Analytics.shared.track("PAIR_SUCCESS", [
+                    "MS": ms, "FW": identity.firmware, "BATTERY": battery.percent ?? -1,
+                ])
                 step = .connected
             } catch {
                 // Every failure degrades in place, on the screen it happened on. That rule
@@ -453,6 +490,24 @@ private struct Searching: View {
                 }
                 .frame(width: NB.Layout.screenWidth)
                 .offset(y: Chrome.boardY(660))
+
+            case .permission:
+                VStack(spacing: 14) {
+                    Text("PERMISSION NEEDED")
+                        .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
+                        .foregroundStyle(NB.ember1.opacity(0.85))
+                    Text("Bluetooth access is off. I can’t look for the band without it.")
+                        .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    } label: {
+                        Text("Open Settings →").font(NBFont.ui(500, 14)).tracking(0.04 * 14).foregroundStyle(NB.lime1)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+                }
+                .frame(width: NB.Layout.screenWidth)
+                .offset(y: Chrome.boardY(660))
             }
 
         }
@@ -751,45 +806,105 @@ private struct Collapse: View {
 private struct Connected: View {
     var lowBattery: String? = nil
     let onNext: () -> Void
-    @State private var burst: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var began: Date?
+
+    /// The picture is the board's width, 520 tall on the board — the asset's own 3:4.
+    /// It is centred in the band it has: the safe area's top edge is board y = 62 and the
+    /// first line sits at 592, so 530pt of room for a 520pt picture puts it at 67. At 40 it
+    /// began above the status bar, which is what was cutting the upper arm off at the top.
+    private static let handsTop: CGFloat = 67
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        // F5 C11 · Reduce Motion gets the finished picture, not a paused one.
+        TimelineView(.animation(paused: reduceMotion)) { tl in
+            let elapsed = began.map { tl.date.timeIntervalSince($0) } ?? 0
+            let t = reduceMotion ? LinkChoreo.finished : LinkChoreo.looped(elapsed)
+            stage(at: t)
+                // A looped replay re-fires the score from its first beat.
+                .onChange(of: LinkChoreo.cycle(elapsed)) { _, _ in
+                    LinkHaptics.shared.play(still: reduceMotion)
+                }
+        }
+        .onAppear {
+            LinkHaptics.shared.prepare()
+            began = Date()
+            LinkHaptics.shared.play(still: reduceMotion)
+        }
+        .onDisappear { LinkHaptics.shared.stop() }
+    }
+
+    private func stage(at t: Double) -> some View {
+        let w = NB.Layout.screenWidth
+        let top = Chrome.boardY(Self.handsTop)
+        // 520 on the board; compressed with the column on a short phone so the lines
+        // under it keep their room.
+        let h = Chrome.boardY(Self.handsTop + 520) - top
+        let pictureHeight = w * 4 / 3
+        let touch = CGPoint(x: w * LinkChoreo.touchUV.x,
+                            y: pictureHeight * LinkChoreo.touchUV.y - (pictureHeight - h) / 2)
+        let footer = LinkChoreo.footer(t)
+
+        return ZStack(alignment: .topLeading) {
             NB.panelInk
 
-            Burst(progress: burst)
-                .frame(width: NB.Layout.screenWidth, height: 560)
-                .offset(y: Chrome.boardY(90))
+            // The rays leave the point where the fingertips meet — one burst, one implementation.
+            // They sit at the very back; the print above them is clear between its cells.
+            Burst(progress: LinkChoreo.burst(t))
+                .frame(width: w, height: 560)
+                .offset(x: touch.x - w / 2, y: top + touch.y - 280)
+                .opacity(LinkChoreo.burstAlpha(t) * 0.55)
 
-            Text(L("CONNECTED"))
-                .font(NBFont.dot(700, 20)).tracking(0.34 * 20)
-                .foregroundStyle(NB.lime1)
-                .frame(width: NB.Layout.screenWidth, alignment: .center)
-                .offset(y: Chrome.boardY(356))
+            HandsLink(clock: t, size: CGSize(width: w, height: h))
+                .frame(width: w, height: h)
+                .offset(y: top)
+
+            TypeIn(text: L("YOU'RE CONNECTED"), progress: LinkChoreo.title(t),
+                   font: NBFont.dot(700, 20), tracking: 0.34 * 20, size: 20, color: NB.lime1)
+                .frame(width: w, alignment: .center)
+                .offset(y: Chrome.boardY(592))
+
+            TypeIn(text: L("You're now linked to the future you."), progress: LinkChoreo.subtitle(t),
+                   font: NBFont.ui(300, 14), tracking: 0.02 * 14, size: 14, color: NB.white.opacity(0.72))
+                .frame(width: w, alignment: .center)
+                .offset(y: Chrome.boardY(628))
 
             Text(L("LINK LOCKED · DOUBLE TAP"))
                 .font(NBFont.dot(500, 10.5)).tracking(0.24 * 10.5)
                 .foregroundStyle(NB.white.opacity(0.40))
-                .frame(width: NB.Layout.screenWidth, alignment: .center)
-                .offset(y: Chrome.boardY(390))
+                .frame(width: w, alignment: .center)
+                .offset(y: Chrome.boardY(664))
+                .opacity(footer)
 
             // 02 rule 05 · low battery does not block pairing; it gets one amber line here.
             if let lowBattery {
                 Text(lowBattery)
                     .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.ember1)
-                    .frame(width: NB.Layout.screenWidth, alignment: .center)
-                    .offset(y: Chrome.boardY(414))
+                    .frame(width: w, alignment: .center)
+                    .offset(y: Chrome.boardY(684))
+                    .opacity(footer)
             }
 
             // No header, no back key, one button — pairing to profile is a straight line.
             LimePillButton(title: L("Now let me get to know you"), action: onNext)
-                .offset(x: 16, y: Chrome.boardY(700))
+                .offset(x: 16, y: Chrome.boardY(700) + 14 * (1 - footer))
+                .opacity(footer)
+                .allowsHitTesting(footer > 0.9)
 
         }
-        .frame(width: NB.Layout.screenWidth, alignment: .topLeading)
+        .frame(width: w, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear { withAnimation(.easeOut(duration: 0.9)) { burst = 1 } }
+        // Hardware with no Taptic Engine keeps the blunt version: the score cannot be
+        // carried by the canned generators, but the contact should not be silent either.
+        .onChange(of: LinkChoreo.hapticStage(t)) { _, stage in
+            guard !LinkHaptics.shared.isSupported else { return }
+            switch stage {
+            case 1: UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            case 2: UINotificationFeedbackGenerator().notificationOccurred(.success)
+            default: break
+            }
+        }
     }
 }
 

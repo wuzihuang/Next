@@ -324,8 +324,10 @@ struct AppleHealthSheet: View {
             LimePillButton(title: data.profile.appleHealthLinked ? "Re-check now" : "Connect Apple Health") {
                 Task {
                     await HealthService.shared.requestRead()
-                    // Linked means "asked and something came back" — the only thing we can know.
-                    data.profile.appleHealthLinked = !(await HealthService.shared.readBaseline()).isEmpty
+                    let baseline = await HealthService.shared.readBaseline()
+                    // An empty re-check cannot undo a completed import or prove revocation.
+                    if !baseline.isEmpty { data.profile.appleHealthLinked = true }
+                    data.profile = data.profile.restoringHealthSync()
                 }
             }
         }
@@ -392,12 +394,14 @@ struct ExportSheet: View {
             do {
                 data.exportPreparing = true
                 defer { data.exportPreparing = false }
-                let out = try await SupabaseClient.shared.rpc("export_all")
-                let row = (out as? [String: Any]) ?? [:]
-                counts = [("Settled days", (row["days"] as? [Any])?.count ?? 0),
-                          ("Weigh-ins", (row["weigh_ins"] as? [Any])?.count ?? 0),
-                          ("Body scans", (row["composition"] as? [Any])?.count ?? 0),
-                          ("Meals", (row["meals"] as? [Any])?.count ?? 0)]
+                guard let owner = SupabaseClient.currentUserIdSnapshot() else { return }
+                let row = try await SupabaseClient.shared.callFunction("export", payload: [:], expectedOwner: owner)
+                guard let files = row["payload"] as? [String: String] else { throw SupabaseClient.Failure.http(502, "Export incomplete") }
+                func rows(_ filename: String) -> Int { files[filename]?.split(separator: "\n").count ?? 0 }
+                counts = [("Settled days", rows("daily_rollup.ndjson")),
+                          ("Weigh-ins", rows("weigh_ins.ndjson")),
+                          ("Body scans", rows("measurements.ndjson")),
+                          ("Meals", rows("meals.ndjson"))]
                 await Analytics.shared.track("EXPORT_ASSEMBLED",
                                              ["ROWS": counts.reduce(0) { $0 + $1.1 }])
             } catch {
@@ -497,12 +501,12 @@ struct DeleteAccountSheet: View {
     /// promising there is no undo. If the endpoint cannot be reached the account is still
     /// there, and the sheet has to say so rather than look like it worked.
     private func deleteEverything() async {
+        guard let owner = SupabaseClient.currentUserIdSnapshot() else { return }
         await Analytics.shared.track("ACCOUNT_DELETE_CONFIRMED", [:])
         do {
             // ⚠️ The confirmation is a literal the server checks, so a mis-routed call
             // cannot delete an account. It is the same second ask this sheet just made.
-            let out = try await SupabaseClient.shared.rpc("account_delete", args: ["confirm": "DELETE"])
-            let row = (out as? [[String: Any]])?.first ?? (out as? [String: Any]) ?? [:]
+            let row = try await SupabaseClient.shared.callFunction("account-delete", payload: ["confirm": "DELETE"], expectedOwner: owner)
             guard row["deleted"] as? Bool == true else {
                 // F5 C8 · the failure sentence is fixed, and the same whichever half failed.
                 failure = Self.failureCopy(ref: "\(row["error"] ?? "unknown")")

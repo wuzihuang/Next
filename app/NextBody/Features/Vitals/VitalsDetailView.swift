@@ -36,9 +36,10 @@ struct VitalsDetailView: View {
     /// A rolling window crosses the 04:00 boundary, so today's row alone is insufficient.
     /// Merge history with the immediately synced local curve and then clip to the exact ruler.
     private var ticks: [VitalSample] {
+        guard metric.timeline != .lastNight || window.span > 0 else { return [] }
         let stored = data.history.flatMap(\.vitalsCurve)
         return VitalSample.merging(stored, with: m.vitalsCurve)
-            .filter { window.contains($0.ts) }
+            .filter { window.contains($0.ts) && (metric.timeline != .lastNight || m.sleep?.containsSleepTimestamp($0.ts) == true) }
     }
 
     private var displayMetrics: DailyMetrics {
@@ -55,7 +56,17 @@ struct VitalsDetailView: View {
 
     private var readout: VitalsReadout {
         VitalsReadout.make(metric, m: displayMetrics, history: data.history,
-                           vitals: data.vitals, profile: data.profile)
+                           vitals: data.vitals, profile: data.profile,
+                           mealResponse: mealIndex)
+    }
+
+    private var mealIndex: MealResponseIndex.Result {
+        MealResponsePresentation.index(
+            today: m,
+            history: data.history,
+            points: data.mealResponsePoints,
+            zerosToday: data.mealResponseZerosToday,
+            now: now)
     }
 
     var body: some View {
@@ -72,12 +83,15 @@ struct VitalsDetailView: View {
                            tint: metric.tint, gauge: r.gauge,
                            footLeft: r.footLeft, footRight: r.footRight)
 
-                CardBlock(title: metric.chartTitle, trailing: r.chartNote) {
-                    chart(r)
-                    VitalsAxis(labels: axisLabels,
-                               highlightsLast: window.endsNow,
-                               tint: metric.tint)
-                        .padding(.leading, metric == .sleep ? VitalsHypnogram.labelGutter : 0)
+                if metric == .sleep {
+                    sleepBoard(r)
+                } else {
+                    CardBlock(title: metric.chartTitle, trailing: r.chartNote) {
+                        chart(r)
+                        VitalsAxis(labels: axisLabels,
+                                   highlightsLast: window.endsNow,
+                                   tint: metric.tint)
+                    }
                 }
 
                 CardBlock(title: r.splitTitle, trailing: r.splitTrailing) {
@@ -85,6 +99,9 @@ struct VitalsDetailView: View {
                 }
 
                 VitalsStatPair(left: r.statLeft, right: r.statRight)
+                if let extraLeft = r.extraLeft, let extraRight = r.extraRight {
+                    VitalsStatPair(left: extraLeft, right: extraRight)
+                }
 
                 footer
             }
@@ -96,10 +113,19 @@ struct VitalsDetailView: View {
         .task {
             // The card and the page file the same key, so 「点了哪张卡、看到的是数还是 ——」
             // is one join rather than two guesses.
+            let states = VitalsPage.cardStates(
+                m: m, vitals: data.vitals, history: data.history,
+                mealResponsePoints: data.mealResponsePoints,
+                mealResponseZerosToday: data.mealResponseZerosToday)
             await Analytics.shared.track("VITALS_DETAIL_OPEN", [
                 "CARD": metric.cardKey,
-                "STATE": VitalsPage.cardStates(m: m, vitals: data.vitals)[metric.cardKey] ?? "EMPTY",
+                "STATE": states[metric.cardKey] ?? "EMPTY",
             ])
+            if metric == .response {
+                await Analytics.shared.track("RESPONSE_DETAIL_OPEN", [
+                    "STATE": states["RESPONSE"] ?? "EMPTY",
+                ])
+            }
         }
     }
 
@@ -121,12 +147,75 @@ struct VitalsDetailView: View {
         // No staircase means no ruler: a night stored as totals only has nothing laid out
         // along an axis, and a clock under an empty card describes nothing.
         guard let night = m.sleep, night.totalMinutes > 0, !night.line.isEmpty else { return [] }
-        if let start = night.sleepStart, let wake = night.wakeAt, wake > start {
+        if let start = night.sleepStart, let wake = night.wakeAt, wake > start,
+           (night.intervals?.count ?? 1) <= 1 || night.line.allSatisfy({ $0.offsetMinutes != nil }) {
             let span = wake.timeIntervalSince(start)
             return (0...4).map { Fmt.clock(start.addingTimeInterval(span * Double($0) / 4)) }
         }
         return (0...4).map { i in
             i == 0 ? "0H" : Fmt.duration(night.totalMinutes * i / 4)
+        }
+    }
+
+    // MARK: sleep board — hypnogram, then night HRV, then overnight SpO2 on one clock
+
+    @ViewBuilder
+    private func sleepBoard(_ r: VitalsReadout) -> some View {
+        CardBlock(title: metric.chartTitle, trailing: r.chartNote) {
+            if let line = m.sleep?.line, !line.isEmpty {
+                VitalsHypnogram(runs: line, tint: metric.tint, windowMinutes: window.span / 60)
+            } else {
+                VitalsChartEmpty(line: m.sleep == nil ? L("NO NIGHT ON RECORD") : L("TOTALS ONLY"),
+                                 sub: m.sleep == nil ? L("WEAR IT TONIGHT")
+                                                     : L("THE BAND FILED NO STAGE LINE"))
+            }
+            VitalsAxis(labels: axisLabels, highlightsLast: false, tint: metric.tint)
+                .padding(.leading, VitalsHypnogram.labelGutter)
+        }
+
+        CardBlock(title: L("NIGHT HRV"), trailing: L("RMSSD IN THE WINDOW")) {
+            let sleepHRV = VitalsReadout.sleepHRVSamples(night: m.sleep, fallback: ticks)
+            if !sleepHRV.isEmpty {
+                let nightly = data.history.suffix(15).dropLast().compactMap { $0.nightInputs?.hrv }
+                VitalsScatter(samples: sleepHRV, window: window,
+                              envelope: nightly.count >= 5 ? nightly.min()!...nightly.max()! : nil,
+                              baseline: m.nightInputs?.hrvBase, tint: NB.blue1)
+            } else {
+                VitalsChartEmpty(line: L("NO RMSSD IN THE WINDOW"),
+                                 sub: L("NO VALID HRV SAMPLES FOR THIS SLEEP"))
+            }
+            VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.blue1)
+        }
+
+        CardBlock(title: L("NIGHT SPO2"), trailing: L("FIXED 85–100 %")) {
+            let points = (m.sleep?.spo2 ?? []).filter { m.sleep?.containsSleepTimestamp($0.ts) == true }
+            if !points.isEmpty {
+                VitalsOxygenTrace(points: points, window: window, tint: NB.cyan1)
+            } else {
+                VitalsChartEmpty(line: L("NO OVERNIGHT OXYGEN"),
+                                 sub: L("AUTO NIGHT MEASUREMENT WAS OFF OR EMPTY"))
+            }
+            VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.cyan1)
+        }
+
+        CardBlock(title: L("SLEEP RESPIRATION"), trailing: L("FIXED 0–60 /MIN")) {
+            let points = (m.sleep?.respiration ?? []).filter {
+                m.sleep?.containsSleepTimestamp($0.ts) == true && $0.breathsPerMinute.isFinite && $0.breathsPerMinute > 0
+            }
+            if !points.isEmpty {
+                VitalsTrace(samples: [], value: { _ in nil }, window: window,
+                            low: 0, high: 60,
+                            tint: NB.violet2,
+                            measuredPoints: points.map { (ts: $0.ts, value: $0.breathsPerMinute) })
+            } else {
+                VitalsChartEmpty(line: L("NO SLEEP RESPIRATION"),
+                                 sub: window.span > 0 ? L("THE BAND FILED NO RESPIRATION READINGS")
+                                                     : L("WINDOW NOT ON RECORD"))
+            }
+            VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.violet2)
+        }
+        if let left = r.respirationLeft, let right = r.respirationRight {
+            VitalsStatPair(left: left, right: right)
         }
     }
 
@@ -164,13 +253,7 @@ struct VitalsDetailView: View {
             }
 
         case .sleep:
-            if let line = m.sleep?.line, !line.isEmpty {
-                VitalsHypnogram(runs: line, tint: metric.tint)
-            } else {
-                VitalsChartEmpty(line: m.sleep == nil ? L("NO NIGHT ON RECORD") : L("TOTALS ONLY"),
-                                 sub: m.sleep == nil ? L("WEAR IT TONIGHT")
-                                                     : L("THE BAND FILED NO STAGE LINE"))
-            }
+            EmptyView()
 
         case .hrv:
             if ticks.contains(where: { $0.hrv != nil }) {
@@ -183,15 +266,24 @@ struct VitalsDetailView: View {
                                  sub: L("THE BAND MEASURES IT EVERY TEN MINUTES"))
             }
 
+        case .response:
+            if !mealIndex.percents.isEmpty {
+                VitalsIndexScatter(points: mealIndex.percents, window: window, tint: metric.tint)
+            } else {
+                VitalsChartEmpty(line: L("NO RESPONSE POINTS IN 24H"),
+                                 sub: mealIndex.empty == .needs5Days
+                                    ? L("OWN MEDIAN TAKES FIVE DAYS")
+                                    : L("THE NEXT SYNC FILLS THE POINTS"))
+            }
+
         case .steps:
             histogram(value: { $0.steps.map(Double.init) },
                       peak: { L("PEAK %@/H", Fmt.kcal($0)) },
                       empty: (L("NO STEPS TODAY"), L("THE NEXT SYNC FILLS THE HOURS")))
 
         case .active:
-            histogram(value: \.cal,
-                      peak: { L("PEAK %@ KCAL/H", Fmt.kcal($0)) },
-                      empty: (L("NO BURN TICKS TODAY"), L("THE NEXT SYNC FILLS THE HOURS")))
+            VitalsChartEmpty(line: L("HOURLY ENERGY NOT AVAILABLE"),
+                             sub: L("DAILY ACTIVE ENERGY IS WEIGHT-AWARE AND SETTLED"))
 
         case .distance:
             let bins = VitalsMath.hourSum(ticks, range: window.range, value: \.dis)
@@ -241,6 +333,8 @@ struct VitalsDetailView: View {
             m.sleep?.wakeAt
         case .hrv:
             ticks.last(where: { $0.hrv != nil })?.ts
+        case .response:
+            mealIndex.percents.last?.ts
         case .stress:
             ticks.last(where: { $0.stress != nil })?.ts
         case .temp:
@@ -250,7 +344,7 @@ struct VitalsDetailView: View {
         case .distance:
             ticks.last(where: { $0.dis != nil })?.ts
         case .active:
-            ticks.last(where: { $0.cal != nil })?.ts
+            ticks.last(where: { $0.steps != nil || $0.dis != nil })?.ts
         }
     }
 
@@ -263,7 +357,7 @@ struct VitalsDetailView: View {
                 ?? L("FROM THE LAST NIGHT THE BAND FILED")
         } else if let at = latestTickAt {
             line = L("LAST TICK %@ · %@", Fmt.clock(at), VitalsMath.age(of: at, now: now))
-            if [.heart, .stress, .temp].contains(metric),
+            if [.heart, .stress, .temp, .response].contains(metric),
                let gap = VitalsMath.offWrist(ticks), gap.minutes >= 60 {
                 line += L(" · %@ OFF WRIST", Fmt.duration(gap.minutes))
             }

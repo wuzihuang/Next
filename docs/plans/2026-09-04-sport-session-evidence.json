@@ -1,0 +1,498 @@
+{
+  "device": "Wired iPhone 17 Pro Max, iOS 26.5",
+  "status": "Physical regression complete; final app launched and fresh battery verified",
+  "final_build": "Signed build-for-testing succeeded; final-test-cleanup-build.log",
+  "installation": "Final production source installed by XCTest and relaunched normally; only OS_ACTIVITY_DT_MODE enabled for log capture",
+  "focused_tests_passed": 42,
+  "sport_ten_cycles": {
+    "sessions": [
+      {
+        "started_epoch": 1788538694.348634,
+        "mode": 0,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788538729.133737,
+            "end": 1788538734.732839,
+            "duration_seconds": 5.599,
+            "new_receipts": 2,
+            "largest_receipt_gap_seconds": 2.52
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.90416
+        ],
+        "receipt_count": 6
+      },
+      {
+        "started_epoch": 1788538751.368692,
+        "mode": 2,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788538770.047303,
+            "end": 1788538775.671351,
+            "duration_seconds": 5.624,
+            "new_receipts": 2,
+            "largest_receipt_gap_seconds": 1.665
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.903195
+        ],
+        "receipt_count": 6
+      },
+      {
+        "started_epoch": 1788538814.306204,
+        "mode": 0,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788538839.989127,
+            "end": 1788538845.600196,
+            "duration_seconds": 5.611,
+            "new_receipts": 3,
+            "largest_receipt_gap_seconds": 1.719
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.9021
+        ],
+        "receipt_count": 6
+      },
+      {
+        "started_epoch": 1788538862.226132,
+        "mode": 2,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788538891.960217,
+            "end": 1788538897.570836,
+            "duration_seconds": 5.611,
+            "new_receipts": 2,
+            "largest_receipt_gap_seconds": 1.624
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.903161
+        ],
+        "receipt_count": 6
+      },
+      {
+        "started_epoch": 1788538909.429187,
+        "mode": 0,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788538948.172774,
+            "end": 1788538978.792044,
+            "duration_seconds": 30.619,
+            "new_receipts": 14,
+            "largest_receipt_gap_seconds": 2.565
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.900925
+        ],
+        "receipt_count": 18
+      },
+      {
+        "started_epoch": 1788539021.286943,
+        "mode": 2,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788539055.970689,
+            "end": 1788539061.585793,
+            "duration_seconds": 5.615,
+            "new_receipts": 2,
+            "largest_receipt_gap_seconds": 1.667
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.903855
+        ],
+        "receipt_count": 6
+      },
+      {
+        "started_epoch": 1788539073.423476,
+        "mode": 0,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788539092.122906,
+            "end": 1788539097.73332,
+            "duration_seconds": 5.61,
+            "new_receipts": 3,
+            "largest_receipt_gap_seconds": 2.426
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.903016
+        ],
+        "receipt_count": 6
+      },
+      {
+        "started_epoch": 1788539115.376287,
+        "mode": 2,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788539146.037712,
+            "end": 1788539151.655237,
+            "duration_seconds": 5.618,
+            "new_receipts": 2,
+            "largest_receipt_gap_seconds": 2.248
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.903364
+        ],
+        "receipt_count": 5
+      },
+      {
+        "started_epoch": 1788539191.16453,
+        "mode": 0,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788539201.816005,
+            "end": 1788539207.433105,
+            "duration_seconds": 5.617,
+            "new_receipts": 2,
+            "largest_receipt_gap_seconds": 2.565
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.902804
+        ],
+        "receipt_count": 6
+      },
+      {
+        "started_epoch": 1788539224.883496,
+        "mode": 2,
+        "start_ack": 1,
+        "joined": false,
+        "stop_ack": 1,
+        "background": [
+          {
+            "start": 1788539257.548814,
+            "end": 1788539288.163501,
+            "duration_seconds": 30.615,
+            "new_receipts": 15,
+            "largest_receipt_gap_seconds": 3.018
+          }
+        ],
+        "connect_starts": 0,
+        "session_reconnect_attempts": 0,
+        "hold_commit_seconds": [
+          0.903121
+        ],
+        "receipt_count": 18
+      }
+    ],
+    "session_count": 10,
+    "all_have_live_receipts": true,
+    "all_have_stop_ack": true,
+    "all_started_or_joined": true
+  },
+  "sustained_background": {
+    "started_epoch": 1788539471.891862,
+    "mode": 0,
+    "start_ack": 1,
+    "joined": false,
+    "stop_ack": 1,
+    "background": [
+      {
+        "start": 1788539482.590935,
+        "end": 1788539603.208038,
+        "duration_seconds": 120.617,
+        "new_receipts": 58,
+        "largest_receipt_gap_seconds": 3.238
+      }
+    ],
+    "connect_starts": 0,
+    "hold_commit_seconds": [
+      0.904672
+    ],
+    "receipt_count": 61
+  },
+  "navigation": {
+    "result": "passed",
+    "relaunches": 5,
+    "background_returns": 10,
+    "device_page_checks": 20,
+    "profile_roundtrips": 20,
+    "connect_starts_total": 6,
+    "background_windows": [
+      {
+        "start": 1788540248.858966,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 2.613
+      },
+      {
+        "start": 1788540260.02507,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 2.643
+      },
+      {
+        "start": 1788540271.343144,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 2.61
+      },
+      {
+        "start": 1788540282.545199,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 2.609
+      },
+      {
+        "start": 1788540293.775539,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 15.598
+      },
+      {
+        "start": 1788540318.031877,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 2.6
+      },
+      {
+        "start": 1788540329.34712,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 2.601
+      },
+      {
+        "start": 1788540340.634588,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 2.589
+      },
+      {
+        "start": 1788540351.74202,
+        "new_logged_samples": 0,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 2.597
+      },
+      {
+        "start": 1788540363.025855,
+        "new_logged_samples": 1,
+        "connect_starts": 0,
+        "stream_stops": 0,
+        "duration_seconds": 15.593
+      }
+    ],
+    "bundle": "/tmp/nextbody-sport-validation/resume-navigation.xcresult"
+  },
+  "active_process_relaunch": {
+    "passed": true,
+    "semantics": "Join band workout only after fresh running-state confirmation; fresh receipt and final native STOP ACK",
+    "bundle": "/tmp/nextbody-sport-validation/resume-edge-cases.xcresult"
+  },
+  "final_hold_regression": {
+    "bundle": "/tmp/nextbody-sport-validation/final-hold-regression.xcresult",
+    "rapid_reopen_passed": 3,
+    "short_tap_and_swipe_safety_passed": true,
+    "native_receipts": {
+      "sessions": [
+        {
+          "started_epoch": 1788540698.975902,
+          "mode": 0,
+          "start_ack": 1,
+          "joined": false,
+          "stop_ack": 1,
+          "background": [],
+          "connect_starts": 0,
+          "session_reconnect_attempts": 0,
+          "hold_commit_seconds": [
+            1.297524
+          ],
+          "receipt_count": 0
+        },
+        {
+          "started_epoch": 1788540715.126406,
+          "mode": 0,
+          "start_ack": 1,
+          "joined": false,
+          "stop_ack": 1,
+          "background": [],
+          "connect_starts": 0,
+          "session_reconnect_attempts": 0,
+          "hold_commit_seconds": [
+            1.201285
+          ],
+          "receipt_count": 0
+        },
+        {
+          "started_epoch": 1788540730.16063,
+          "mode": 0,
+          "start_ack": 1,
+          "joined": false,
+          "stop_ack": 1,
+          "background": [],
+          "connect_starts": 0,
+          "session_reconnect_attempts": 0,
+          "hold_commit_seconds": [
+            1.248479
+          ],
+          "receipt_count": 2
+        },
+        {
+          "started_epoch": 1788540766.512359,
+          "mode": 0,
+          "start_ack": 1,
+          "joined": false,
+          "stop_ack": 1,
+          "background": [
+            {
+              "start": 1788540778.539163,
+              "end": 1788540793.723122,
+              "duration_seconds": 15.184,
+              "new_receipts": 2,
+              "largest_receipt_gap_seconds": 1.799
+            }
+          ],
+          "connect_starts": 0,
+          "session_reconnect_attempts": 2,
+          "hold_commit_seconds": [
+            0.972644
+          ],
+          "receipt_count": 6
+        },
+        {
+          "started_epoch": 1788541033.642401,
+          "mode": 0,
+          "start_ack": 1,
+          "joined": false,
+          "stop_ack": 1,
+          "background": [],
+          "connect_starts": 0,
+          "session_reconnect_attempts": 0,
+          "hold_commit_seconds": [
+            0.952498
+          ],
+          "receipt_count": 5
+        }
+      ],
+      "session_count": 5,
+      "all_have_live_receipts": false,
+      "all_have_stop_ack": true,
+      "all_started_or_joined": true
+    },
+    "radio_case": "Native recovery and first STOP ACK verified; failed in obsolete Settings cleanup AX query. Test-only cleanup corrected; final isolated radio regression passed.",
+    "radio_reconnect_attempts": 2,
+    "radio_recovered_after_on_seconds": 22.774871,
+    "qualified_release_branch_observed": false
+  },
+  "final_radio_regression": {
+    "passed": true,
+    "radio_off_and_on_verified": true,
+    "first_new_receipt_after_on_seconds": 25.088,
+    "first_intended_hold_stop_ack": true,
+    "native_receipts": {
+      "sessions": [
+        {
+          "started_epoch": 1788541137.864142,
+          "mode": 0,
+          "start_ack": 1,
+          "joined": false,
+          "stop_ack": 1,
+          "background": [
+            {
+              "start": 1788541171.024111,
+              "end": 1788541188.558778,
+              "duration_seconds": 17.535,
+              "new_receipts": 2,
+              "largest_receipt_gap_seconds": 1.748
+            }
+          ],
+          "connect_starts": 0,
+          "session_reconnect_attempts": 1,
+          "hold_commit_seconds": [
+            1.021153
+          ],
+          "receipt_count": 8
+        }
+      ],
+      "session_count": 1,
+      "all_have_live_receipts": true,
+      "all_have_stop_ack": true,
+      "all_started_or_joined": true
+    },
+    "bundle": "/tmp/nextbody-sport-validation/final-radio-cleanup.xcresult"
+  },
+  "baseline": {
+    "password_verified": true,
+    "fresh_battery_reply": true,
+    "readiness_seconds": 2.181409,
+    "log": "/tmp/nextbody-sport-validation/final-verified-baseline.log",
+    "new_live_receipts_observed": 5,
+    "app_process_id": 888
+  },
+  "implementation": {
+    "background_connection_owner": "app lifecycle",
+    "sport_callback_owner": "shared subscription with generation and last-reader fences",
+    "stop": "0.9s native hold, unchanged threshold, STOP-only qualified-release fallback",
+    "storage": "Per-batch formatters; atomic FULL-durability batch writes"
+  },
+  "limitations": [
+    "Measured sustained sport background window is120.617seconds; not an indefinite or force-quit continuity claim.",
+    "Radio recovery varied:6.374s initially,22.775s with retry,and25.088s in final run. No instant-reconnect guarantee.",
+    "First sport receipt in final run arrived28.484s after native start ACK.",
+    "Native holds and short-tap/swipe safety passed; the qualified-release fallback branch was not observed in the final device logs.",
+    "Earlier initial render/wait stall remains without a proven root cause; selected successful stress runs do not establish absence of all hangs.",
+    "42 focused passing tests are not whole-app80%coverage."
+  ],
+  "log_directory": "/tmp/nextbody-sport-validation",
+  "remaining": []
+}

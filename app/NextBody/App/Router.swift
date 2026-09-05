@@ -11,8 +11,9 @@ enum Destination: Hashable {
     /// 09 edge 5 · a closed day, reached from THIS WEEK's day labels.
     case fuelDay(UserDay)
     case bodyBattery
-    /// 04 · one of page two's eight instruments, opened from its own card. One case, not
-    /// eight: the board draws all eight against a single anatomy.
+    /// 04 · one of page two's instruments, opened from its own card. One case, not
+    /// eight: the board draws them against a single anatomy. `.hrv` is a deep-link alias
+    /// for sleep.
     case vitals(VitalsMetric)
     case composition(date: Date?)
     case profile
@@ -39,9 +40,12 @@ extension Destination {
         // 04's eight are addressable by name: `vitals.heart`, `vitals.sleep`. They are
         // pages the model may legitimately point at — unlike `device`, which stays absent.
         default:
-            guard raw.hasPrefix("vitals."),
-                  let metric = VitalsMetric(rawValue: String(raw.dropFirst("vitals.".count)))
-            else { return nil }
+            guard raw.hasPrefix("vitals.") else { return nil }
+            let name = String(raw.dropFirst("vitals.".count))
+            // Night HRV lives on the sleep page. An old envelope that still names
+            // `vitals.hrv` must land there rather than on a card that no longer exists.
+            if name == "hrv" { self = .vitals(.sleep); return }
+            guard let metric = VitalsMetric(rawValue: name) else { return nil }
             self = .vitals(metric)
         }
     }
@@ -72,7 +76,7 @@ enum SheetRoute: Hashable, Identifiable {
     // 11 · profile
     case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, export, deleteAccount, signOut
     // 12S · device
-    case bandAutoMonitor, findBand, unbind, firmware, syncCadence
+    case bandAutoMonitor, findBand, unbind, disconnect, firmware, syncCadence
     // dock
     case plusMenu
     var id: String { String(describing: self) }
@@ -92,7 +96,7 @@ final class Router: ObservableObject {
     @Published var measuredWidget: PanelWidget?
     /// 04B · which home pager page is showing. 0 = panel + strip, 1 = vitals. Lives on the
     /// router (not on `HomeView` `@State`) so a NavigationStack push/pop cannot wipe it —
-    /// page two's eight cards must return to those cards, not bounce back to the panel strip.
+    /// pager page the user left. Page two's cards must return to those cards, not bounce
     @Published var homePage = 0
     /// Taken the moment the root is left. Every dismiss path restores this, so a stray
     /// mutation while a detail is up cannot strand the user on the wrong home page.
@@ -103,7 +107,9 @@ final class Router: ObservableObject {
         // Snapshot once when leaving the root; nested pushes (profile → device) keep it.
         if path.isEmpty { homePageOnLeave = homePage }
         entry = from
-        path.append(d)
+        var dest = d
+        if case .vitals(.hrv) = dest { dest = .vitals(.sleep) }
+        path.append(dest)
     }
 
     /// All detail pages return to the root — not to a nested previous screen. The home

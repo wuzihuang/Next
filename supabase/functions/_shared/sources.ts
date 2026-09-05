@@ -1,3 +1,4 @@
+import { readSnapshot, acceptSnapshot } from "./metric-snapshot.ts";
 // 07 · 09 · the data behind every chart, fetched by the server rather than copied by the model.
 //
 // A chart tool names a source; the source reads this user's rows through the turn's own JWT
@@ -8,6 +9,7 @@
 // null means "no data": the panel writes —— and the model picks another chart. Never 0.
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
+import { readSampleHistory } from "./archive.ts";
 import { SEED_MEAL_VERSION } from "./db.ts";
 
 export type Point = [string, number];
@@ -26,6 +28,7 @@ export type ChartData =
 export type Kind = ChartData["kind"];
 
 export interface SourceResult {
+  evidence?: Record<string, unknown>;
   data: ChartData;
   /// The numbers the model may say out loud about this chart. Harvested into the ledger.
   agg: Record<string, number | null>;
@@ -42,6 +45,9 @@ export interface Ctx {
   /// The user day being asked about, YYYY-MM-DD in the user's calendar.
   dayKey: string;
   tz: string;
+  from?: string;
+  to?: string;
+  cache?: Map<string, Promise<SourceResult | null>>;
 }
 
 export interface Source {
@@ -105,7 +111,7 @@ function hhmm(iso: string, tz: string): string {
 function mmdd(dayKey: string): string { return dayKey.slice(5); }
 
 /// Which user day an instant belongs to, as a key. Before 04:00 is still yesterday.
-function dayOf(iso: string, tz: string): string {
+export function dayOf(iso: string, tz: string): string {
   const at = new Date(iso);
   const p = tzParts(at, tz);
   const midnight = Date.UTC(p.year, p.month - 1, p.day);
@@ -136,19 +142,17 @@ async function pageAll<T>(q: (from: number, to: number) => PromiseLike<{ data: T
   const out: T[] = [];
   for (let from = 0; from < 20_000; from += 1000) {
     const { data, error } = await q(from, from + 999);
-    if (error) return null;
+    if (error) throw new Error("SOURCE_QUERY_FAILED");
     out.push(...(data ?? []));
-    if ((data?.length ?? 0) < 1000) break;
+    if ((data?.length ?? 0) < 1000) return out;
   }
-  return out;
+  throw new Error("SOURCE_RANGE_TOO_DENSE");
 }
 
 async function rawSamples(ctx: Ctx, fromDay: string, toDay: string): Promise<RawRow[] | null> {
   const lo = dayBounds(fromDay, ctx.tz).start.toISOString();
   const hi = dayBounds(toDay, ctx.tz).end.toISOString();
-  return await pageAll<RawRow>((from, to) =>
-    ctx.db.from("raw_samples").select("ts, heart, stress, step")
-      .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi).order("ts").range(from, to));
+  return await readSampleHistory(ctx.db, ctx.userId, lo, hi) as unknown as RawRow[];
 }
 
 interface DayRow {
@@ -164,15 +168,19 @@ async function dayRows(ctx: Ctx, fromDay: string, toDay: string): Promise<DayRow
     .select("user_day, training_load, reserve_score, fuel_balance_kcal, " +
       "day_fuel(kcal_in, kcal_out, target_in, protein_g, carb_g, fat_g, protein_in_g, carb_in_g, fat_in_g), " +
       "daily_training(zone_minutes, peak_hr, segments, session_count), " +
-      "reserve_daily(current_value, wake_value, min_value)")
+      "reserve_daily(current_value, wake_value, min_value, night_inputs)")
     .eq("user_id", ctx.userId).gte("user_day", fromDay).lte("user_day", toDay).order("user_day");
-  if (error) return null;
+  if (error) throw new Error("SOURCE_QUERY_FAILED");
   return (data ?? []) as unknown as DayRow[];
 }
 
 /// Every day of the window, present or not — a missing day is a null point, never a 0.
 function window(ctx: Ctx, days: number): string[] {
-  return Array.from({ length: days }, (_, i) => addDays(ctx.dayKey, i - (days - 1)));
+  const end = ctx.to ?? ctx.dayKey;
+  const start = ctx.from ?? addDays(end, 1-days);
+  const count = Math.floor((Date.parse(end)-Date.parse(start))/864e5)+1;
+  if (!Number.isFinite(count) || count < 1 || count > 366) throw new Error("INVALID_RANGE");
+  return Array.from({ length: count }, (_, i) => addDays(start, i));
 }
 
 // ---------------------------------------------------------------- intraday buckets
@@ -193,7 +201,7 @@ function bucketIntraday(rows: RawRow[], ctx: Ctx, col: "heart" | "stress" | "ste
   acc.forEach((xs, i) => { if (xs.length) lastFilled = i; });
   for (let i = 0; i <= lastFilled; i++) {
     const xs = acc[i];
-    if (!xs.length) { if (how === "sum") points.push([labelOf(i), 0]); continue; }
+    if (!xs.length) continue;
     points.push([labelOf(i), how === "sum" ? xs.reduce((a, b) => a + b, 0) : Math.round(mean(xs)!)]);
   }
   return points;
@@ -235,7 +243,7 @@ export const SOURCES: Source[] = [
       const { data, error } = await ctx.db.from("reserve_samples").select("ts, value")
         .eq("user_id", ctx.userId).gte("ts", start.toISOString()).lt("ts", end.toISOString())
         .order("ts").limit(1000);
-      if (error) return null;
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
       const rows = (data ?? []) as { ts: string; value: number }[];
       if (rows.length < 2) return null;
       const series = bucketIntraday(rows.map((r) => ({ ts: r.ts, heart: r.value, stress: null, step: null })), ctx, "heart", 30, "mean");
@@ -277,14 +285,15 @@ export const SOURCES: Source[] = [
       const rows = await rawSamples(ctx, days[0], ctx.dayKey);
       if (!rows) return null;
       const sums = new Map<string, number>();
-      for (const r of rows) if (r.step) sums.set(dayOf(r.ts, ctx.tz), (sums.get(dayOf(r.ts, ctx.tz)) ?? 0) + r.step);
+      for (const r of rows) if (r.step != null && r.step >= 0) sums.set(dayOf(r.ts, ctx.tz), (sums.get(dayOf(r.ts, ctx.tz)) ?? 0) + r.step);
       if (!sums.size) return null;
-      const bins: Point[] = days.map((d) => [weekday(d), sums.get(d) ?? 0]);
+      const bins: Point[] = days.filter(d=>sums.has(d)).map((d) => [weekday(d), sums.get(d)!]);
       const vals = days.map((d) => sums.get(d)).filter((v): v is number => v != null);
       const s = stats(vals);
       return {
         data: { kind: "column", bins, unit: "steps", total: vals.reduce((a, b) => a + b, 0) },
-        agg: { ...s, today: sums.get(ctx.dayKey) ?? null, days: vals.length, windowDays: 7, total: vals.reduce((a, b) => a + b, 0) },
+        agg: { ...s, today: sums.get(ctx.dayKey) ?? null, days: vals.length, windowDays: days.length, total: vals.reduce((a, b) => a + b, 0) },
+        evidence:{missingDays:days.filter(d=>!sums.has(d)),status:sums.size<days.length?"partial":"complete"},
         hero: `${s.mean0} avg`, unit: "steps", window: "7 DAYS",
       };
     },
@@ -315,10 +324,9 @@ export const SOURCES: Source[] = [
   ...[30, 90].map<Source>((n) => ({
     id: `weight.${n}d`, kind: "curve", says: `最近 ${n} 天的体重（kg）`,
     async fetch(ctx) {
-      const from = zoned(addDays(ctx.dayKey, 1 - n), 4, ctx.tz).toISOString();
-      const { data, error } = await ctx.db.from("weigh_ins").select("measured_at, weight_kg")
-        .eq("user_id", ctx.userId).gte("measured_at", from).order("measured_at").limit(200);
-      if (error) return null;
+      const from = zoned(ctx.from ?? addDays(ctx.dayKey, 1 - n), 4, ctx.tz).toISOString();
+      const data = await pageAll<{measured_at:string;weight_kg:number}>((lo,hi) => ctx.db.from("weigh_ins").select("measured_at, weight_kg")
+        .eq("user_id", ctx.userId).gte("measured_at", from).lt("measured_at",dayBounds(ctx.to ?? ctx.dayKey,ctx.tz).end.toISOString()).order("measured_at").order("id").range(lo,hi));
       const rows = (data ?? []) as { measured_at: string; weight_kg: number }[];
       if (rows.length < 2) return null;
       const series: Point[] = rows.map((r) => [mmdd(dayOf(r.measured_at, ctx.tz)), Number(r.weight_kg)]);
@@ -456,7 +464,8 @@ export const SOURCES: Source[] = [
       const { data, error } = await ctx.db.from("raw_samples").select("ts, stress")
         .eq("user_id", ctx.userId).gte("ts", start.toISOString()).lt("ts", end.toISOString())
         .gt("stress", 0).order("ts", { ascending: false }).limit(1).maybeSingle();
-      if (error || !data) return null;
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
+      if (!data) return null;
       const v = data.stress as number;
       const zone = v < 40 ? "REST" : v < 70 ? "MID" : "HIGH";
       return { data: { kind: "gauge", value: v, zones: [[0, 40, "REST"], [40, 70, "MID"], [70, 100, "HIGH"]] }, agg: { value: v }, hero: `${v} · ${zone}`, window: hhmm(data.ts, ctx.tz) };
@@ -468,7 +477,8 @@ export const SOURCES: Source[] = [
       const { data, error } = await ctx.db.from("meals").select("slot, logged_at, text_input, kcal, protein_g")
         .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).is("deleted_at", null)
         .neq("model_version", SEED_MEAL_VERSION).order("logged_at");
-      if (error || !data?.length) return null;
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
+      if (!data?.length) return null;
       const rows = data.slice(0, 5).map((m) => ({ label: `${m.slot} · ${m.text_input ?? ""}`.slice(0, 28), value: m.kcal == null ? "——" : `${m.kcal}` }));
       const total = data.reduce((a, m) => a + (m.kcal ?? 0), 0);
       const agg: Record<string, number | null> = { total, meals: data.length, protein: data.reduce((a, m) => a + (m.protein_g ?? 0), 0) };
@@ -482,7 +492,8 @@ export const SOURCES: Source[] = [
       const { data, error } = await ctx.db.from("meals").select("slot, kcal")
         .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).is("deleted_at", null)
         .neq("model_version", SEED_MEAL_VERSION);
-      if (error || !data?.length) return null;
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
+      if (!data?.length) return null;
       const order = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"];
       const by = new Map<string, number>();
       for (const m of data) if (m.kcal != null) by.set(m.slot, (by.get(m.slot) ?? 0) + m.kcal);
@@ -529,7 +540,7 @@ export const SOURCES: Source[] = [
       const days = window(ctx, 7);
       const from = dayBounds(days[0], ctx.tz).start.toISOString();
       const { data, error } = await ctx.db.from("weigh_ins").select("measured_at").eq("user_id", ctx.userId).gte("measured_at", from);
-      if (error) return null;
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
       const have = new Set((data ?? []).map((w) => dayOf(w.measured_at, ctx.tz)));
       const cells: number[][] = [days.map((d) => (have.has(d) ? 1 : 0))];
       const filled = cells[0].reduce((a, b) => a + b, 0);
@@ -544,7 +555,7 @@ export const SOURCES: Source[] = [
       const { data, error } = await ctx.db.from("meals").select("user_day")
         .eq("user_id", ctx.userId).is("deleted_at", null).neq("model_version", SEED_MEAL_VERSION)
         .gte("user_day", days[0]).lte("user_day", ctx.dayKey);
-      if (error) return null;
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
       const have = new Set((data ?? []).map((m) => m.user_day));
       const cells: number[][] = [days.map((d) => (have.has(d) ? 1 : 0))];
       const filled = cells[0].reduce((a, b) => a + b, 0);
@@ -581,80 +592,73 @@ export const SOURCES: Source[] = [
     id: "sleep.mix", kind: "stack", says: "上一夜的深睡 / 浅睡 / 清醒各多少分钟",
     async fetch(ctx) {
       const { data, error } = await ctx.db.from("sleep_nights")
-        .select("user_day, total_minutes, deep_minutes, light_minutes, wake_count")
-        .eq("user_id", ctx.userId).lte("user_day", ctx.dayKey)
+        .select("user_day, total_minutes, deep_minutes, light_minutes, wake_count, sleep_line")
+        .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey)
         .order("user_day", { ascending: false }).limit(1).maybeSingle();
-      if (error || !data?.total_minutes) return null;
-      const deep = data.deep_minutes ?? 0, light = data.light_minutes ?? 0;
-      const awake = Math.max(0, data.total_minutes - deep - light);
-      const parts: Point[] = [["DEEP", deep], ["LIGHT", light], ["AWAKE", awake]];
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
+      if (!data?.total_minutes) return null;
+      const deep = data.deep_minutes, light = data.light_minutes;
+      if (deep == null || light == null) return null;
+      const runs = data.sleep_line ? String(data.sleep_line).split(",").map(run=>run.split(":").map(Number)) : [];
+      const validRuns = runs.length > 0 && runs.every(([stage,minutes])=>Number.isInteger(stage)&&stage>=0&&stage<=4&&Number.isFinite(minutes)&&minutes>0);
+      const awake = validRuns ? runs.filter(([stage])=>stage===3||stage===4).reduce((n,run)=>n+run[1],0) : null;
+      const rem = validRuns ? runs.filter(([stage])=>stage===2).reduce((n,run)=>n+run[1],0) : null;
+      const parts: Point[] = [["DEEP", deep], ["LIGHT", light], ...(rem===null?[]:[["REM",rem] as Point]), ...(awake===null?[]:[["AWAKE",awake] as Point])];
       const h = Math.floor(data.total_minutes / 60), m = data.total_minutes % 60;
       return {
         data: { kind: "stack", parts },
         agg: {
-          total: data.total_minutes, hours: h, minutes: m, deep, light, awake,
+          total: data.total_minutes, hours: h, minutes: m, deep, light, awake, rem,
           wakes: data.wake_count ?? 0,
           deepPct: Math.round(deep / data.total_minutes * 100),
           lightPct: Math.round(light / data.total_minutes * 100),
         },
-        hero: `${h}H${String(m).padStart(2, "0")}`, unit: "min", window: "LAST NIGHT",
+        hero: `${h}H${String(m).padStart(2, "0")}`, unit: "min", window: ctx.dayKey,
       };
     },
   },
   {
     id: "sleep.stages", kind: "strip", says: "上一夜的睡眠分期，按分钟画成清醒 / 浅睡 / 深睡三条泳道",
     async fetch(ctx) {
-      // 07 · 12 · run-length lanes. The band writes one state per five-minute tick:
-      // 1 deep · 2 light · 3 awake in bed · 0 not asleep. ⚠️ Only the ticks that carry a
-      // state count; a night the band summarised but did not sample tick by tick has a
-      // sleep.mix and no hypnogram, and that is the honest answer rather than a flat bar.
-      const lo = zoned(addDays(ctx.dayKey, -1), 18, ctx.tz).toISOString();
-      const hi = zoned(ctx.dayKey, 12, ctx.tz).toISOString();
-      const rows = await pageAll<{ ts: string; sleep_states: number | null }>((from, to) =>
-        ctx.db.from("raw_samples").select("ts, sleep_states")
-          .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi)
-          .gt("sleep_states", 0).order("ts").range(from, to));
-      if (!rows || rows.length < 6) return null;
-      // level 0 = awake, 1 = light, 2 = deep — the lane order the board draws top to bottom.
-      const lane = (v: number) => (v === 1 ? 2 : v === 2 ? 1 : 0);
-      const segs: [number, number][] = [];
-      for (const r of rows) {
-        const l = lane(r.sleep_states!);
-        const last = segs[segs.length - 1];
-        if (last && last[0] === l) last[1] += 5; else segs.push([l, 5]);
-      }
-      const minutes = [0, 0, 0];
-      for (const [l, m] of segs) minutes[l] += m;
-      const total = minutes[0] + minutes[1] + minutes[2];
-      const h = Math.floor(total / 60), m = total % 60;
-      return {
-        // 07 · 12 · run-length lanes, level then minutes. `zones` uses `minutes` instead.
-        data: { kind: "strip", lanes: segs, from: hhmm(rows[0].ts, ctx.tz), to: hhmm(rows[rows.length - 1].ts, ctx.tz) },
-        agg: {
-          total, hours: h, minutes: m, awake: minutes[0], light: minutes[1], deep: minutes[2],
-          blocks: segs.length, deepPct: total ? Math.round(minutes[2] / total * 100) : null,
-        },
-        hero: `${h}H${String(m).padStart(2, "0")}`, window: `${hhmm(rows[0].ts, ctx.tz)} → ${hhmm(rows[rows.length - 1].ts, ctx.tz)}`,
-      };
+      const { data: night, error } = await ctx.db.from("sleep_nights")
+        .select("user_day,sleep_line,sleep_start,wake_at")
+        .eq("user_id",ctx.userId).eq("user_day",ctx.dayKey).maybeSingle();
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
+      if (!night?.sleep_line || !night.sleep_start || !night.wake_at) return null;
+      const runs = String(night.sleep_line).split(",").map(run => run.split(":").map(Number));
+      if (runs.some(([stage,minutes]) => !Number.isInteger(stage)||stage<0||stage>4||!Number.isFinite(minutes)||minutes<=0)) return null;
+      // SDK 0 deep, 1 light, 2 REM, 3 insomnia, 4 awake. Preserve REM explicitly.
+      const lanes: [number,number][] = runs.map(([stage,minutes]) => [stage===0?2:stage===1?1:stage===2?3:0,minutes]);
+      const total = runs.reduce((sum,run)=>sum+run[1],0);
+      const sum = (level:number) => lanes.filter(run=>run[0]===level).reduce((n,run)=>n+run[1],0);
+      return {data:{kind:"strip",lanes,from:hhmm(night.sleep_start,ctx.tz),to:hhmm(night.wake_at,ctx.tz)},
+        agg:{total,deep:sum(2),light:sum(1),rem:sum(3),awake:sum(0)},unit:"min",window:ctx.dayKey,
+        evidence:{metric:"sleepStages",dayKey:ctx.dayKey,source:"sleep_nights.sleep_line",timezone:ctx.tz}};
+
     },
   },
   {
-    id: "o2.night", kind: "curve", says: "上一夜的血氧曲线（需要手环写入 SpO2，目前多半为空）",
+    id: "o2.night", kind: "curve", says: "上一夜睡眠窗口内的自动血氧曲线（均值与最低，不是呼吸暂停分级）",
     async fetch(ctx) {
-      // 19 · o2night. `raw_samples.spo2` was dropped in 20260902020000; when a build starts
-      // writing it again this source lights up on its own. Until then: no data, not a zero.
-      const lo = zoned(addDays(ctx.dayKey, -1), 18, ctx.tz).toISOString();
-      const hi = zoned(ctx.dayKey, 12, ctx.tz).toISOString();
-      const { data, error } = await ctx.db.from("raw_samples").select("ts, spo2")
-        .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi).gt("spo2", 0).order("ts").limit(400);
-      if (error || !data || data.length < 6) return null;
+      const { data: night, error: nightError } = await ctx.db.from("sleep_nights")
+        .select("sleep_start,wake_at")
+        .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).maybeSingle();
+      if (nightError) throw new Error("SOURCE_QUERY_FAILED");
+      const lo = (night?.sleep_start as string | undefined)
+        ?? zoned(addDays(ctx.dayKey, -1), 18, ctx.tz).toISOString();
+      const hi = (night?.wake_at as string | undefined)
+        ?? zoned(ctx.dayKey, 12, ctx.tz).toISOString();
+      const { data, error } = await ctx.db.from("oxygen_samples").select("ts, spo2")
+        .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi).order("ts").limit(400);
+      if (error) throw new Error("SOURCE_QUERY_FAILED");
+      if (!data || data.length < 6) return null;
       const rows = data as { ts: string; spo2: number }[];
       const series: Point[] = rows.map((r) => [hhmm(r.ts, ctx.tz), r.spo2]);
       const vals = rows.map((r) => r.spo2);
       const st = stats(vals);
       return {
         data: { kind: "curve", series },
-        agg: { ...st, dips: vals.filter((v) => v < 90).length, guide: 90 },
+        agg: { ...st },
         hero: `${st.mean0}%`, unit: "%", window: "LAST NIGHT",
       };
     },
@@ -663,14 +667,10 @@ export const SOURCES: Source[] = [
     id: "hrv.7d", kind: "curve", says: "最近 7 天每天的 HRV（ms）",
     async fetch(ctx) {
       const days = window(ctx, 7);
-      const lo = dayBounds(days[0], ctx.tz).start.toISOString();
-      const hi = dayBounds(ctx.dayKey, ctx.tz).end.toISOString();
-      const rows = await pageAll<{ ts: string; hrv: number | null }>((from, to) =>
-        ctx.db.from("raw_samples").select("ts, hrv")
-          .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi).gt("hrv", 0).order("ts").range(from, to));
-      if (!rows || rows.length < 2) return null;
-      const by = new Map<string, number[]>();
-      for (const r of rows) { const d = dayOf(r.ts, ctx.tz); (by.get(d) ?? by.set(d, []).get(d)!).push(Number(r.hrv)); }
+      const rows = await dayRows(ctx,days[0],days.at(-1)!);
+      if (!rows) return null;
+      const by = new Map<string,number[]>();
+      for(const row of rows){const inputs=one(one(row.reserve_daily)?.night_inputs);if(typeof inputs?.hrv==="number")by.set(row.user_day,[inputs.hrv]);}
       const present = days.filter((d) => by.has(d));
       if (!present.length) return null;
       const series: Point[] = present.map((d) => [weekday(d), Math.round(mean(by.get(d)!)!)]);
@@ -747,11 +747,10 @@ function dailySeries(id: string, label: string, unit: string, pick: (r: DayRow) 
 function composition(): Source[] {
   interface Comp { measured_at: string; body_fat_pct: number | null; fat_mass_kg: number | null; lean_body_mass_kg: number | null }
   const load = async (ctx: Ctx, weeks: number): Promise<Comp[] | null> => {
-    const from = zoned(addDays(ctx.dayKey, -7 * weeks), 4, ctx.tz).toISOString();
-    const { data, error } = await ctx.db.from("body_composition")
+    const from = zoned(ctx.from ?? addDays(ctx.dayKey, -7 * weeks), 4, ctx.tz).toISOString();
+    const data = await pageAll<Comp>((lo,hi) => ctx.db.from("body_composition")
       .select("measured_at, body_fat_pct, fat_mass_kg, lean_body_mass_kg")
-      .eq("user_id", ctx.userId).gte("measured_at", from).order("measured_at").limit(200);
-    if (error) return null;
+      .eq("user_id", ctx.userId).gte("measured_at", from).lt("measured_at",dayBounds(ctx.to ?? ctx.dayKey,ctx.tz).end.toISOString()).order("measured_at").order("id").range(lo,hi));
     return (data ?? []).map((r) => ({ ...r, body_fat_pct: r.body_fat_pct == null ? null : Number(r.body_fat_pct), fat_mass_kg: r.fat_mass_kg == null ? null : Number(r.fat_mass_kg), lean_body_mass_kg: r.lean_body_mass_kg == null ? null : Number(r.lean_body_mass_kg) }));
   };
   return [
@@ -777,7 +776,7 @@ function composition(): Source[] {
         if (!rows || rows.length < 3) return null;
         const bins: Point[] = [];
         for (let i = 1; i < rows.length; i++) bins.push([mmdd(dayOf(rows[i].measured_at, ctx.tz)), r1(rows[i].fat_mass_kg! - rows[i - 1].fat_mass_kg!)]);
-        const last = bins.slice(-14);
+        const last = bins;
         const vals = last.map((b) => b[1]);
         const net = r1(vals.reduce((a, b) => a + b, 0));
         return {
@@ -824,7 +823,24 @@ export function sourceList(ids: string[] = SOURCE_IDS): string {
 export async function fetchAs(id: string, kind: Kind, ctx: Ctx): Promise<SourceResult | null> {
   const src = SOURCE_BY_ID.get(id);
   if (!src) return null;
-  const r = await src.fetch(ctx);
+  const key = JSON.stringify([ctx.userId, id, ctx.dayKey, ctx.tz, ctx.from, ctx.to]);
+  let pending = ctx.cache?.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const to = ctx.to ?? ctx.dayKey;
+      const span = id.startsWith("composition.") ? 84 : Number(id.match(/\.(\d+)d$/)?.[1] ?? 1);
+      const from = ctx.from ?? addDays(to,1-span);
+      const before = await readSnapshot(ctx,from,to);
+      const result = await src.fetch(ctx);
+      acceptSnapshot(ctx,before,await readSnapshot(ctx,from,to));
+      if (!result) return null;
+      const digest = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify([key,result])));
+      const revision = Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
+      return {...result,evidence:{...result.evidence,id:revision,metric:id,dayKey:ctx.dayKey,from,to,timezone:ctx.tz,unit:result.unit??null,observedAt:new Date().toISOString()}};
+    })();
+    ctx.cache?.set(key, pending);
+  }
+  const r = await pending;
   if (!r) return null;
   if (r.data.kind === kind) return r;
   if (r.data.kind === "curve" && kind === "column") return { ...r, data: { kind: "column", bins: r.data.series, unit: r.unit }, hero: r.agg.mean != null ? `${r.agg.mean} avg` : r.hero };

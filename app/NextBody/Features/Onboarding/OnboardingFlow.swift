@@ -9,7 +9,7 @@ struct OnboardingFlow: View {
 
     // 补屏 A · 六屏变七屏. Consent comes first: before HealthKit's dialog, before the first
     // band read. An account that has already answered this version skips straight past it.
-    enum Step: Hashable { case consent, healthSync, confirm, goal, fingersOn, scanning, baseline }
+    enum Step: String, Hashable { case consent, healthSync, confirm, goal, fingersOn, scanning, baseline }
     /// 03 edge 3 · after the band dropped mid-scan and Connect ran again, the profile is on
     /// record and the run resumes at BASELINE 01, not at the first question.
     @State private var step: Step = {
@@ -127,6 +127,9 @@ struct OnboardingFlow: View {
             if underage { AgeGate { underage = false } }
         }
         .carbonPage()
+        .task { await restoreProgress() }
+        .onChange(of: step) { _, _ in persistDraft() }
+        .onChange(of: filled) { _, _ in persistDraft() }
         .sheet(item: $sheet) { route in
             Group {
                 switch route {
@@ -195,7 +198,108 @@ struct OnboardingFlow: View {
             data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: weightKg, bodyFatPercent: nil,
                                     source: .measured, origin: weightFromHealth ? .health : .manual))
         }
+        Task {
+            if let userId = await SupabaseClient.shared.currentUserId {
+                OnboardingDraft.clear(userId: userId)
+            }
+        }
         session.stage = .root
+    }
+
+    /// F1 KILLED MID-GATE / PROFILE GAP. A draft on this account, or a partial profiles
+    /// row, lands on ABOUT YOU 02 with the values still in. A finished profile should
+    /// not be here — Connect already sent those users home.
+    private func restoreProgress() async {
+        await session.ensureSession()
+        await Analytics.shared.track("ONBOARD_ENTER", [:])
+        if DebugEdge.name != nil { return }
+        if UserDefaults.standard.bool(forKey: "nb.onboarding.resumeAtBaseline") {
+            UserDefaults.standard.removeObject(forKey: "nb.onboarding.resumeAtBaseline")
+            return
+        }
+
+        if let userId = await SupabaseClient.shared.currentUserId,
+           let draft = OnboardingDraft.load(userId: userId) {
+            apply(draft)
+            if ConsentStore.shared.decided {
+                let restored = Step(rawValue: draft.step) ?? .confirm
+                if restored == .scanning || restored == .baseline { step = .fingersOn }
+                else if restored == .consent { step = draft.filled.isEmpty ? .healthSync : .confirm }
+                else { step = restored }
+            }
+            return
+        }
+
+        let facts = await Repository.shared.fetchAccountGate()
+        if facts.profileComplete {
+            if let userId = await SupabaseClient.shared.currentUserId {
+                OnboardingDraft.clear(userId: userId)
+            }
+            session.stage = .root
+            return
+        }
+        if facts.hasAnyProfileField || facts.weightKg != nil {
+            apply(facts)
+            if ConsentStore.shared.decided { step = .confirm }
+        }
+    }
+
+    private func persistDraft() {
+        Task {
+            guard let userId = await SupabaseClient.shared.currentUserId else { return }
+            let persistStep = step == .scanning ? Step.fingersOn : step
+            OnboardingDraft(
+                userId: userId,
+                step: persistStep.rawValue,
+                sex: sex,
+                year: born.year ?? 1998,
+                month: born.month ?? 6,
+                day: born.day ?? 12,
+                heightCm: heightCm,
+                weightKg: weightKg,
+                filled: Array(filled),
+                synced: synced,
+                sexFromHealth: sexFromHealth,
+                bornFromHealth: bornFromHealth,
+                heightFromHealth: heightFromHealth,
+                weightFromHealth: weightFromHealth,
+                goal: goal.rawValue
+            ).save()
+        }
+    }
+
+    private func apply(_ draft: OnboardingDraft) {
+        sex = draft.sex
+        born = DateComponents(year: draft.year, month: draft.month, day: draft.day)
+        heightCm = draft.heightCm
+        weightKg = draft.weightKg
+        filled = Set(draft.filled)
+        synced = draft.synced
+        sexFromHealth = draft.sexFromHealth
+        bornFromHealth = draft.bornFromHealth
+        heightFromHealth = draft.heightFromHealth
+        weightFromHealth = draft.weightFromHealth
+        if let g = Goal(rawValue: draft.goal) { goal = g }
+    }
+
+    private func apply(_ facts: AccountGate) {
+        if let s = facts.sex {
+            sex = s == "male" ? "Male" : "Female"
+            filled.insert("sex")
+        }
+        if let h = facts.heightCm {
+            heightCm = h
+            filled.insert("height")
+        }
+        if let d = facts.birthDate {
+            born = Calendar.current.dateComponents([.year, .month, .day], from: d)
+            filled.insert("born")
+        }
+        if let w = facts.weightKg {
+            weightKg = w
+            filled.insert("weight")
+        }
+        if let g = facts.goal { goal = g }
     }
 }
 

@@ -15,7 +15,29 @@
 //  4 verdict — one miss rejects the entire frame. No partial render, no "drop that widget
 //    and resend": the frame is replaced by a degraded envelope.
 
+export interface MeasurementEvidence { id: string; metric: string; unit: string | null; from: string | null; to: string }
+export interface MeasurementClaim extends MeasurementEvidence { value: number }
 export class NumberLedger {
+  private evidence = new Map<string, {scope: MeasurementEvidence; values: number[]}>();
+  registerEvidence(scope: MeasurementEvidence, data: unknown) {
+    const values: number[] = [];
+    const visit = (node: unknown) => {
+      if (typeof node === "number" && Number.isFinite(node)) values.push(node);
+      else if (Array.isArray(node)) node.forEach(visit);
+      else if (node && typeof node === "object") Object.values(node).forEach(visit);
+    };
+    visit(data);
+    this.evidence.set(scope.id, {scope: {...scope}, values});
+    values.forEach(value=>this.add(value, `evidence.${scope.id}`));
+  }
+  hasClaim(claim: MeasurementClaim): boolean {
+    const entry = this.evidence.get(claim.id);
+    if (!entry || !Number.isFinite(claim.value)) return false;
+    const s = entry.scope;
+    if (s.metric !== claim.metric || s.unit !== claim.unit || s.from !== claim.from || s.to !== claim.to) return false;
+    return entry.values.some(v => Math.abs(v-claim.value)<=0.05 || Math.round(v)===claim.value || Math.round(v*10)/10===claim.value);
+  }
+
   private values: number[] = [];
   private sources = new Map<number, string>();
 

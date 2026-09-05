@@ -59,14 +59,42 @@ struct MeasureTakeover: View {
         ZStack {
             NB.panelInk.ignoresSafeArea()
 
+            // 06 · the field is the SCREEN, not a panel in the middle of one. A rectangle of
+            // animation with the page's ground on either side reads as a component that
+            // failed to fill; this is a window onto something the whole surface is part of.
+            // ⚠️ Drawn behind everything and never taking a touch — the close mark is still
+            // the only way out of this screen (F1 rule 05).
+            if isBalance, balanceFieldVisible {
+                BreathingDots(bpm: balanceTempo,
+                              intensity: 0.25 + 0.75 * studyProgress,
+                              held: phase == .lost)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    // The words sit over the field, so the field gives them a ground: darkest
+                    // where the type is, open through the middle where the pattern lives.
+                    // ⚠️ NO scrim over the field. Two attempts at one — 92 % ink over a
+                    // short ramp, then 72 % over a long one — both read as black bars against
+                    // the status bar and the home indicator, because any darkening that
+                    // reaches the edge IS an edge. The words carry their own ground instead
+                    // (`overFieldShadow`), and the field runs to all four sides.
+                    .transition(.opacity)
+            }
+
+            // 06 · the three alternative layouts, for comparing on the wrist rather than as
+            // pictures — `NB_DEBUG_BALANCE_STYLE`. They replace the column below entirely;
+            // the field, the close mark and every rule about what may be printed are shared.
+            if isBalance, BalanceLayout.current != .original {
+                balanceVariant
+            } else {
             // 06 · E/F · the board's column, centred: the eyebrow and the close mark, one
             // sentence, the band, the count, and the two lines at the foot. Nothing here is
             // left-aligned — the instruction is about the band, and the band is the middle.
             VStack(spacing: 0) {
-                Color.clear.frame(height: Chrome.gateTopInset)
+                Color.clear.frame(height: ScreenMetrics.safeArea.top + Chrome.gateTopInset)
                 header
                 instruction
                     .padding(.top, 32)
+                    .modifier(OverFieldShadow(on: isBalance && balanceFieldVisible))
                 settled
                 stage
                     .frame(maxHeight: .infinity)
@@ -78,20 +106,34 @@ struct MeasureTakeover: View {
                     .multilineTextAlignment(.center)
                     .foregroundStyle(statusTint)
                     .frame(width: NB.Layout.contentWidth)
+                    .modifier(OverFieldShadow(on: isBalance && balanceFieldVisible))
                 // Grey, in front — what to do if it breaks, said before it breaks.
                 Text(helpLine)
                     .font(NBFont.ui(300, 12.5))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(NB.white.opacity(0.42))
+                    .modifier(OverFieldShadow(on: isBalance && balanceFieldVisible))
                     .frame(width: 318)
                     .padding(.top, 18)
                 Color.clear.frame(height: 26)
             }
             .animation(.easeInOut(duration: 0.24), value: phase)
             .opacity(grown ? 1 : 0)
+            }
         }
         .scaleEffect(grown ? 1 : 0.92)
+        // ⚠️ The clip has to ignore the safe area too. It exists for the 460 ms fold, when
+        // this screen is still panel-shaped and needs the panel's corner radius — but it
+        // clips to THIS view's bounds, and those stop at the safe area. Everything inside
+        // that said `ignoresSafeArea` was expanding into a region the clip then cut off,
+        // which is the black band under the status bar and over the home indicator. Three
+        // attempts went into the scrim before the cut turned out to be here.
         .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : NB.R.hero, style: .continuous))
+        // ⚠️ The CLIP is what has to ignore the safe area, so the field can reach the screen's
+        // edges — but this modifier applies to the whole subtree, and the first version of it
+        // took the type along: the eyebrow slid up under the system clock. Everything that is
+        // words puts the inset back for itself (`Chrome.gateTopInset` plus the real one).
+        .ignoresSafeArea()
         .onAppear { open() }
         .onReceive(secondHand) { _ in tick() }
         .onChange(of: remaining) { beatAt = Date() }
@@ -104,7 +146,11 @@ struct MeasureTakeover: View {
         HStack(spacing: 0) {
             Text(eyebrow)
                 .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
-                .foregroundStyle(NB.lime1)
+                // ⚠️ White over the field, not the usual lime. Lime on a lime-heavy point
+                // cloud with a red/green/blue fringe was unreadable — the one colour the
+                // field never produces on its own is white, so it is the only one that still
+                // reads as text rather than as more of the pattern.
+                .foregroundStyle(isBalance && balanceFieldVisible ? NB.white.opacity(0.92) : NB.lime1)
             Spacer(minLength: 0)
             Button(action: leave) { CloseMark() }
                 .buttonStyle(.plain)
@@ -136,6 +182,7 @@ struct MeasureTakeover: View {
             Text(String(format: "00:%02d", max(0, remaining)))
                 .font(NBFont.dot(700, 52)).tracking(0.04 * 52)
                 .foregroundStyle(phase == .lost ? NB.ember1 : NB.text1)
+                .modifier(OverFieldShadow(on: isBalance && balanceFieldVisible))
                 .frame(height: 56)
                 .contentTransition(.numericText(countsDown: true))
         }
@@ -254,29 +301,107 @@ struct MeasureTakeover: View {
         }
     }
 
-    /// 06 · THE FIELD. What the wearer looks at for forty seconds.
+    /// 06 · what is left in the stage slot once the field became the whole screen: the one
+    /// line that says where the tempo is coming from. The field itself is drawn behind
+    /// everything — see `body`.
     ///
-    /// ⚠️ Deliberately NOT a heart trace. Drawing one would make this a different kind of
-    /// product in the United States, so the measurement's own signal drives an abstract field
-    /// instead: the dots breathe once per measured beat, and brighten as the run gathers.
-    /// The rate is the band's — when it stops reporting, the field holds a resting tempo and
-    /// dims rather than inventing a pulse.
+    /// ⚠️ The field is deliberately NOT a heart trace. Drawing one would make this a
+    /// different kind of product in the United States, so the measurement's own signal drives
+    /// an abstract field instead: the dots breathe once per measured beat. When the band
+    /// stops reporting a rate the field holds a resting tempo and dims — it never invents a
+    /// pulse to keep the motion going.
     private var balanceStage: some View {
-        VStack(spacing: 12) {
-            BreathingDots(bpm: reading?.heartRate,
-                          intensity: 0.25 + 0.75 * studyProgress,
-                          held: phase == .lost)
-                .frame(height: 240)
-                // The field has no edge of its own — it is a window onto something larger —
-                // so a hard rectangular cut would read as a component that failed to fill.
-                .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
-                                             .init(color: .black, location: 0.14),
-                                             .init(color: .black, location: 0.86),
-                                             .init(color: .clear, location: 1)],
-                                     startPoint: .top, endPoint: .bottom))
-            Text(reading?.heartRate.map { L("%d BPM · FROM YOUR WRIST", $0) } ?? L("FINDING YOUR PULSE"))
+        VStack {
+            Spacer(minLength: 0)
+            Text(balanceSourceLine)
                 .font(NBFont.dot(500, 9.5)).tracking(0.18 * 9.5)
-                .foregroundStyle(NB.white.opacity(0.34))
+                .foregroundStyle(NB.white.opacity(0.42))
+                .modifier(OverFieldShadow(on: isBalance && balanceFieldVisible))
+        }
+    }
+
+    /// One of the three alternatives, each keeping the eyebrow and the close mark at the top
+    /// and the help line at the foot — those are the way out and the way to fix it, and no
+    /// layout experiment gets to move them.
+    @ViewBuilder private var balanceVariant: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: ScreenMetrics.safeArea.top + Chrome.gateTopInset)
+            header
+                // The eyebrow sits on the field like everything else, so it gets the same halo.
+                .modifier(OverFieldShadow(on: balanceFieldVisible))
+            switch BalanceLayout.current {
+            case .header:
+                BalanceHeader(bpm: balanceTempo, source: balanceSourceLine,
+                              remaining: remaining, total: total, status: statusLine,
+                              tint: phase == .lost ? NB.ember1 : NB.lime1,
+                              over: balanceFieldVisible)
+                    .padding(.top, 24)
+                Spacer(minLength: 0)
+            case .dashboard:
+                BalanceDashboard(bpm: balanceTempo, remaining: remaining, total: total,
+                                 contact: phase != .lost && phase != .notWearing,
+                                 over: balanceFieldVisible,
+                                 tint: NB.lime1)
+                    .padding(.top, 22)
+                Spacer(minLength: 0)
+                Text(headlineText)
+                    .font(NBFont.brand(500, 18)).tracking(-0.01 * 18)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(NB.text1)
+                    .frame(width: 318)
+                    .modifier(OverFieldShadow(on: balanceFieldVisible))
+            case .monolith:
+                Spacer(minLength: 0)
+                BalanceMonolith(bpm: balanceTempo, source: balanceSourceLine,
+                                remaining: remaining,
+                                tint: phase == .lost ? NB.ember1 : NB.lime1,
+                                over: balanceFieldVisible)
+                Spacer(minLength: 0)
+                // The sentence lives at the foot, directly over the help line — the two read
+                // as one block there, where under the number it was a third centred thing
+                // competing with the count.
+                BalanceFootLine(headline: headlineText, over: balanceFieldVisible)
+                    .padding(.bottom, 10)
+            case .original:
+                EmptyView()
+            }
+            Text(helpLine)
+                .font(NBFont.ui(300, 12.5))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(NB.white.opacity(0.42))
+                .modifier(OverFieldShadow(on: balanceFieldVisible))
+                .frame(width: 318)
+                .padding(.top, 18)
+            Color.clear.frame(height: ScreenMetrics.safeArea.bottom + 18)
+        }
+        .animation(.easeInOut(duration: 0.24), value: phase)
+        .opacity(grown ? 1 : 0)
+    }
+
+    /// What the field breathes at.
+    ///
+    /// ⚠️ This firmware reports NOTHING during the run: `muHearts` stays empty and `aveHeart`
+    /// is a dash for all forty seconds, and then the rate and forty-one intervals arrive
+    /// together in the final callback. Gating the field on "a rate from this measurement"
+    /// therefore left the screen empty until second thirty-five.
+    /// So the tempo is the most recent rate this wrist actually produced — the panel's own
+    /// live readout, measuring seconds before the plus key was pressed — until this run has
+    /// one of its own. Both are measured; neither is invented; the line under it says which.
+    private var balanceTempo: Int? { reading?.heartRate ?? LiveReadout.shared.hr }
+
+    private var balanceSourceLine: String {
+        if let hr = reading?.heartRate { return "\(hr) BPM · FROM THIS READING" }
+        if let hr = LiveReadout.shared.hr { return "\(hr) BPM · YOUR LAST READING" }
+        return balanceFieldVisible ? "FINDING YOUR PULSE" : "WAITING FOR THE KEY"
+    }
+
+    /// The field runs while the band is being read, and only then. It is not a background
+    /// the screen wears — it is the measurement, so it arrives with contact and goes when the
+    /// reading is over.
+    private var balanceFieldVisible: Bool {
+        switch phase {
+        case .contact, .counting, .halfway, .lost, .computing: true
+        default: false
         }
     }
 
@@ -405,8 +530,15 @@ struct MeasureTakeover: View {
             // and 「Index finger on the side key」 stood there for the whole minute on a band that
             // was perfectly willing to measure. So the readout is stood down and awaited first,
             // and the band gets the same settling second the inserted stress test gets.
+            // Close admission synchronously: router observation may not have fired yet.
+            // Let an already admitted native read finish before replacing SDK callbacks.
+            guard !Task.isCancelled else { nudge.cancel(); return }
+            BandLiveLifecycle.shared.setExclusiveOperation(true)
+            await BandReadiness.shared.awaitNativeIdle()
+            guard !Task.isCancelled else { nudge.cancel(); return }
             await LiveReadout.shared.standDown {
                 try? await Task.sleep(for: .seconds(LiveReadout.Cadence.settle))
+                guard !Task.isCancelled else { nudge.cancel(); return }
                 await measure(nudge: nudge)
             }
         }
@@ -474,6 +606,10 @@ struct MeasureTakeover: View {
                 apply(.contact)
             case .measuring(let percent, let heartRate):
                 nudge.cancel()
+                // ⚠️ The band's percentage is the only clock here. Without this the phone's
+                // own second hand kept decrementing `remaining` underneath it and the count
+                // bounced between 38, 39 and 40 — two clocks writing one number.
+                bandClock = true
                 // ⚠️ Only a rate the band actually reported. Without one the field keeps its
                 // resting tempo — it never fills the gap with the last number it saw.
                 if let heartRate { reading = PartialReading(heartRate: heartRate) }
@@ -843,7 +979,8 @@ struct MeasureTakeover: View {
                 var w = PanelWidget(
                     type: .metric, title: L("BALANCE"), tag: nil,
                     sentence: "The band didn't send enough beats to read the balance. Nothing was made up to fill it.",
-                    footer: study.heartRate.map { "HEART RATE \($0) BPM" } ?? "NO READING",
+                    footer: study.heartRate.map { "HEART RATE \($0) BPM · \(study.intervals.count) INTERVALS" }
+                        ?? "NO READING · \(study.intervals.count) INTERVALS",
                     action: "TRY IT AGAIN WHEN YOU'RE STILL", data: .none)
                 w.hero = Fmt.dash
                 w.accentOverride = NB.lime1
@@ -864,7 +1001,12 @@ struct MeasureTakeover: View {
                 footer: [(study.heartRate ?? balance.beatsPerMinute).description + " BPM",
                          "SD1 \(Int(balance.sd1.rounded())) MS",
                          "SD2 \(Int(balance.sd2.rounded())) MS",
-                         "\(balance.points.count) BEATS"].joined(separator: " · "),
+                         // ⚠️ Says which series it read. Per-second rates blunt the fast half
+                         // of the cloud, and a footer that hid that would make two different
+                         // measurements look like the same one.
+                         study.source == .intervals ? "\(balance.points.count) BEATS"
+                                                    : "\(balance.points.count) SAMPLES · PER SECOND"]
+                    .joined(separator: " · "),
                 points: balance.points.map { CGPoint(x: $0.x, y: $0.y) })
             w.replyPrompt = L("Just did a balance check: rest %d%%, drive %d%%, SD1 %d ms, SD2 %d ms. What does that suggest for today?",
                               balance.split.rest, balance.split.drive, Int(balance.sd1.rounded()), Int(balance.sd2.rounded()))
@@ -1134,6 +1276,18 @@ private struct BandFigure: View {
 /// value lands the sweep is flat — a beating wave with nothing being read is a picture of a
 /// measurement that is not happening. The complex is drawn from the number (Battery Check
 /// does not open the ECG channel; F5); the timing is the measurement's.
+/// 06 · what lets type sit on the field without a bar behind it. A tight dark halo travels
+/// with the glyphs, so the ground is only ever under the words — a scrim big enough to darken
+/// a whole edge is indistinguishable from a black bar, which is what two of them turned into.
+struct OverFieldShadow: ViewModifier {
+    var on: Bool
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: NB.panelInk.opacity(on ? 0.95 : 0), radius: 5)
+            .shadow(color: NB.panelInk.opacity(on ? 0.75 : 0), radius: 14)
+    }
+}
+
 struct LiveECG: View {
     /// The band's latest rate. nil: nothing read yet, flat sweep, no invented beats.
     var bpm: Int?

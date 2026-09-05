@@ -14,6 +14,8 @@ protocol BandService: AnyObject {
     /// reconnects to it on its own — being asked to pair again is how a user learns their
     /// history is gone.
     func reconnectIfBound() async
+    func reconnectForSport() async
+    func prepareFreshSync() async
     /// ⚠️ The SDK only offers disconnect(). "Forget this HOOP" is the app clearing its own
     /// device id — "factory reset" is not something we can do, and the two must never blur.
     func disconnect() async
@@ -21,6 +23,8 @@ protocol BandService: AnyObject {
     func readIdentity() async throws -> BandIdentity
     func readCapabilities() async throws -> BandCapabilities
     func readBattery() async throws -> BandBattery
+    func readHealthLight() async throws -> BandHealthLightState
+    func writeHealthLight(_ state: BandHealthLightState) async throws -> BandHealthLightState
 
     /// F2 §05 · the band's BIA numbers are computed from the weight we push down.
     /// Every startBodyCompositionTest must be preceded by this, or the sample is discarded.
@@ -29,8 +33,12 @@ protocol BandService: AnyObject {
     /// F2 §01 · dayOffset is a paging parameter and nothing else.
     /// It never becomes a primary key and never reaches a sentence the user reads.
     func readOriginData(dayOffset: Int) async throws -> [OriginPoint]
-    /// HRV and temperature live in separate SDK databases. Reading them through one command
-    /// keeps the BLE operations serialized and preserves their distinct units and semantics.
+    /// Existing SDK database dates, independent of the band's shorter live retention.
+    /// This probe performs no Bluetooth transfer; offsets refer to user days to recover.
+    func cachedHistoryDayOffsets(limit: Int) async throws -> [Int]
+    /// HRV, temperature and overnight oxygen live in separate SDK databases. Reading them
+    /// through one command keeps the BLE operations serialized and preserves their distinct
+    /// units and semantics.
     func readHealthData(dayOffset: Int) async throws -> BandHealthData
     func readSleep(dayOffset: Int) async throws -> SleepNight?
 
@@ -123,6 +131,16 @@ protocol BandService: AnyObject {
 }
 
 extension BandService {
+    func cachedHistoryDayOffsets(limit: Int) async throws -> [Int] { [] }
+    func readHealthLight() async throws -> BandHealthLightState { throw BandError.unsupported("Health light") }
+    func writeHealthLight(_ state: BandHealthLightState) async throws -> BandHealthLightState {
+        throw BandError.unsupported("Health light")
+    }
+    func reconnectForSport() async {
+        guard !Task.isCancelled else { return }
+        await reconnectIfBound()
+    }
+    func prepareFreshSync() async {}
     /// 14 · one answer from the band about its sport state: 0 not started, 1 running,
     /// 2 paused; nil if it says nothing within three seconds.
     func sportRunState() async -> Int? {
@@ -156,6 +174,15 @@ enum PulseStudyStep {
 
 /// What a completed pulse study carries. No waveform, by design — see `measurePulseStudy`.
 struct PulseStudy {
+    enum Source: String {
+        /// The band's own beat-to-beat intervals.
+        case intervals
+        /// One heart rate a second, converted to the interval it implies. ⚠️ Coarser: the
+        /// sampling blunts exactly the fast variation the balance read is about, so a result
+        /// built on this says so on screen.
+        case perSecondRates
+    }
+
     /// The band's own average over the run.
     let heartRate: Int?
     /// Beat-to-beat intervals in milliseconds, in the order they were measured. This is the
@@ -164,6 +191,9 @@ struct PulseStudy {
     /// ⚠️ May be empty. A firmware that reports no intervals gets a result screen that says
     /// so — an autonomic split computed from nothing is the worst thing this screen could do.
     let intervals: [Double]
+    /// Where `intervals` came from. The band does not always send beat-to-beat timing, and a
+    /// screen that reads one thing off another has to say which it read.
+    let source: Source
     /// Seconds the band actually ran, from the SDK.
     let durationSeconds: Int?
     /// The SDK's own HRV figure, kept for the log only.
@@ -393,6 +423,16 @@ struct OriginPoint {
 struct BandHealthData {
     let temperatures: [TemperatureSample]
     let hrv: [HrvMinuteSample]
+    var oxygen: [OxygenSample] = []
+    var optical: [OpticalResponseSample] = []
+    /// Vendor rows that mapped to nothing (zeros / non-finite). ALL ZEROS uses this.
+    var opticalDroppedZeros: Int = 0
+    var temperatureStatus: BandDomainReadStatus = .complete
+    var hrvStatus: BandDomainReadStatus = .complete
+    var oxygenStatus: BandDomainReadStatus = .complete
+    var opticalStatus: BandDomainReadStatus = .complete
+    var respiration: [RespirationSample] = []
+    var respirationStatus: BandDomainReadStatus = .notCollected
 }
 
 /// 04B rule 04 · one run of the band's own sleepLine: a stage and how many minutes it held.
@@ -401,6 +441,8 @@ struct BandHealthData {
 struct SleepStageRun: Codable, Hashable {
     let stage: Int
     let minutes: Int
+    /// Offset from the first recorded sleep start; absent in older stored curves.
+    var offsetMinutes: Int? = nil
 }
 
 struct SleepNight {
@@ -416,20 +458,11 @@ struct SleepNight {
     /// carries no sleep flag on this SDK, so without these two the number cannot exist.
     var sleepStart: Date? = nil
     var wakeAt: Date? = nil
+    var intervals: [SleepInterval]? = nil
 }
 
 /// The states the measurement takeover renders. `lead == false` is the amber nudge:
 /// it means "we need you to move", never "you failed".
-/// 14 · one report from the band during a sport mode (`VPDeviceSportControlModel`). Zero
-/// in a field is the band not having it yet, so every field is optional and 0 is nil.
-struct SportLiveInfo: Hashable {
-    var heartRate: Int?
-    var calories: Int?
-    var distanceM: Int?
-    var durationSec: Int?
-    /// 0 not started · 1 running · 2 paused
-    var runState: Int?
-}
 
 enum MeasurementProgress {
     case waitingForContact
@@ -485,7 +518,7 @@ enum BandSetting {
 struct AutoMonitorSlot: Identifiable, Hashable {
     enum Kind: String, CaseIterable {
         case heartRate, bloodPressure, bloodGlucose, stress
-        case bloodOxygen, temperature, lorentz, hrv, bloodComponents
+        case bloodOxygen, temperature, lorentz, hrv, scientificSleep, bloodComponents
     }
     var id: Kind { kind }
     let kind: Kind

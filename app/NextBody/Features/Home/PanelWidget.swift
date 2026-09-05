@@ -148,6 +148,8 @@ struct PanelWidget: Identifiable, Hashable {
     var priority: Priority = .normal
     /// When this frame went up. The thinking state counts on it; nothing else looks.
     var startedAt = Date()
+    /// Original server payload retained for faithful chat history replay.
+    var envelopeData: Data?
 
     enum Priority: String, Hashable { case normal, alert }
 
@@ -219,6 +221,8 @@ struct PanelWidgetView: View {
     /// AIPanel reserves the top-right lane for its dismiss key. Flat catalogue renders do
     /// not show that control, so they keep the board's original full-width tag lane.
     var showsCloseControl = false
+    /// Balance results use the full available panel height in board coordinates.
+    var canvasHeight: CGFloat = 470
     enum Layer { case all, chart, text }
 
     private enum Slot {
@@ -264,7 +268,14 @@ struct PanelWidgetView: View {
 
     private var canvas: some View {
         ZStack(alignment: .topLeading) {
-            Color.clear
+            // Photo answers used to sit on Color.clear, so the idle planet showed
+            // through the reading. An opaque unlit plate is the ground; the words
+            // sit on it, never on the orbit.
+            if widget.photo != nil {
+                unlitField
+            } else {
+                Color.clear
+            }
 
             if let photo = widget.photo {
                 photoCanvas(photo)
@@ -333,7 +344,7 @@ struct PanelWidgetView: View {
                 Color(hex: 0xEF4444, opacity: 0.12).allowsHitTesting(false)
             }
         }
-        .frame(width: 358, height: 470, alignment: .topLeading)
+        .frame(width: 358, height: canvasHeight, alignment: .topLeading)
     }
 
     // MARK: 07 · rule 6 · TEXT — the one big word
@@ -492,25 +503,11 @@ struct PanelWidgetView: View {
     /// exactly what the two bars below are the ratio of. Nothing is smoothed, nothing is
     /// fitted; a short run simply makes a small cloud.
     @ViewBuilder private func balanceCanvas(_ b: BalanceAnswer) -> some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous).fill(NB.panelInk)
-            Canvas { ctx, size in
-                var grid = Path()
-                var y: CGFloat = 1.4
-                while y < size.height {
-                    var x: CGFloat = 1.4
-                    while x < size.width {
-                        grid.addRoundedRect(in: CGRect(x: x, y: y, width: 3.2, height: 3.2),
-                                            cornerSize: CGSize(width: 0.8, height: 0.8))
-                        x += 4
-                    }
-                    y += 4
-                }
-                ctx.fill(grid, with: .color(Color(hex: 0x131318)))
-            }
-            .clipShape(RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous))
+        // AIPanel owns the edge-to-edge LED surface. Only standalone catalogue
+        // renders need a local ground; a second plate leaves seams on tall panels.
+        if !showsCloseControl {
+            unlitField
         }
-        .frame(width: 358, height: 470)
 
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -576,7 +573,32 @@ struct PanelWidgetView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 18)
-        .frame(width: 358, height: 470, alignment: .topLeading)
+        .frame(width: 358, height: canvasHeight, alignment: .topLeading)
+    }
+
+    /// Opaque unlit LED plate. Photo answers used to sit on `Color.clear`, so the
+    /// idle planet showed through the reading. Same ground composition paints for itself.
+    private var unlitField: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous).fill(NB.panelInk)
+            Canvas { ctx, size in
+                var grid = Path()
+                var y: CGFloat = 1.4
+                while y < size.height {
+                    var x: CGFloat = 1.4
+                    while x < size.width {
+                        grid.addRoundedRect(in: CGRect(x: x, y: y, width: 3.2, height: 3.2),
+                                            cornerSize: CGSize(width: 0.8, height: 0.8))
+                        x += 4
+                    }
+                    y += 4
+                }
+                ctx.fill(grid, with: .color(Color(hex: 0x131318)))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: NB.R.hero, style: .continuous))
+        }
+        .frame(width: 358, height: 470)
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder private func compositionCanvas(_ c: CompositionAnswer) -> some View {

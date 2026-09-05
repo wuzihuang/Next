@@ -7,6 +7,7 @@
 // lock still leaks Chinese onto the screen; the language of the instructions is the language
 // of the frame.
 
+import { coachPrompt } from "./coach.ts";
 import { chartChoicePrompt } from "./skills.ts";
 
 export const METRIC_NAMES = {
@@ -17,11 +18,14 @@ export const METRIC_NAMES = {
   day: "USER DAY",
 } as const;
 
-export function systemPrompt(locale = "en-US", sourceScope?: string[]): string {
+export function systemPrompt(locale = "en-US", sourceScope?: string[], surface: "panel" | "chat" = "panel"): string {
+  if (surface === "chat") return coachPrompt(locale) + "\n\n" + evidenceGuidance(locale);
   const en = !String(locale).toLowerCase().startsWith("zh");
   return [
     ...(en ? promptEnglish() : promptChinese()),
     chartChoicePrompt(sourceScope, en),
+    evidenceGuidance(locale),
+
   ].join("\n\n");
 }
 
@@ -36,9 +40,9 @@ The only output is one screen.render.<type> tool call. One turn, one widget. Any
     `S2 READ FIRST
 Before answering any question that involves a number, call the matching read tool.
 Before any screen.render call that names a source, read that exact source first; the first step cannot draw a source.
-If the prompt already has source_data, the server has already read that source this turn — render from it, do not look for another read tool.
+If the prompt already has source_data, reuse that snapshot; read additional evidence when the question needs it.
 If the prompt already has photo_extract, the server has already read this turn's image — answer the photo, do not look for a data source.
-Pick the single best-matching source; do not read a second source unless the user explicitly asks to compare metrics.
+Start with relevant evidence, then use metric.query to investigate related metrics or missing date ranges.
 You have no prior knowledge of this user. Numbers from a previous turn do not carry over.`,
 
     `S3 NUMBER LAW
@@ -91,9 +95,9 @@ function promptChinese(): string[] {
     `S2 READ FIRST
 回答任何涉及数字的问题之前，必须先调用相应的读工具。
 任何带 source 的 screen.render 调用之前，必须先用读工具读取完全相同的 source；第一步不能画 source。
-如果 prompt 带 source_data，服务端已经完成该 source 的本轮读取；直接据此渲染，不要再找读工具。
+如果 prompt 带 source_data，复用该快照；问题需要更多证据时可以继续读取。
 如果 prompt 带 photo_extract，服务端已经读完本轮图片；直接回答图片内容，不要寻找数据 source。
-一次只选最匹配的一个 source；除非用户明确要求比较多个指标，不要读取第二个 source。
+先读相关证据，再按需用 metric.query 调查关联指标或缺少的日期范围。
 你没有关于这个用户的任何先验知识。上一轮的数字不能带到这一轮。`,
 
     `S3 NUMBER LAW
@@ -134,4 +138,12 @@ title ≤ 18，sentence ≤ 48（必填，两行封顶），footer ≤ 42，acti
 用户报一顿吃的时，渲染 type=food 的草稿帧，action 固定写「确认记录」，由屏幕那一侧提交。
 在这之前不许说「已记录」「已记入」「已保存」「记好了」或任何等价的话。`,
   ];
+}
+
+function evidenceGuidance(locale: string): string {
+  return String(locale).toLowerCase().startsWith("zh")
+    ? `PERSONAL EVIDENCE
+涉及用户个人测量时，用 metric.query 查询所需日期范围和相关指标。预取数据不阻止继续查询；解释变化可以跨指标细查。使用完整范围的 stats 与覆盖率，不从最后几个图表点推断完整历史。超过查询预算时分段读取，失败不是没有测量。个人测量图表中的 claims 要填写本轮证据的 id、metric、unit、from、to、value；不能把某个指标或日期的数字当成另一个。保持云端未同步、缺失和查询失败的区别。普通聊天、常识解释和用户明确要求的算术沿用聊天规则，不要求个人测量证据。`
+    : `PERSONAL EVIDENCE
+For personal measurements, use metric.query for the requested dates and relevant metrics. Prefetch does not prohibit follow-up reads; explanations may investigate multiple metrics. Use full-range statistics and coverage, not only the last chart points. Split requests exceeding the range budget; a failed query is not absent measurements. In personal-measurement chart claims, cite this turn's exact evidence id, metric, unit, from, to and value. Never substitute another metric or interval merely because a number matches. Distinguish pending synchronization, missing observations and query failures. General conversation, factual explanations and arithmetic explicitly requested by the user retain the existing chat rules and do not require personal-measurement evidence.`;
 }

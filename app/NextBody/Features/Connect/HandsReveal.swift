@@ -185,6 +185,7 @@ final class LinkHaptics {
     /// `still` is Reduce Motion: the screen shows the finished picture at once, so there is
     /// no approach to track and only the contact is played.
     func play(still: Bool) {
+        guard HapticsSetting.shared.enabled else { return }
         prepare()
         guard let engine else { return }
         do {

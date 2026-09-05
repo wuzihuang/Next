@@ -6,6 +6,7 @@ import SwiftUI
 struct ProfileView: View {
     @ObservedObject private var language = AppLanguage.shared
     @ObservedObject private var consent = ConsentStore.shared
+    @ObservedObject private var haptics = HapticsSetting.shared
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
@@ -56,6 +57,15 @@ struct ProfileView: View {
                 GroupLabel(L("PREFERENCES"))
                 RowGroup {
                     SettingRow(title: L("NOTIFICATIONS"), value: L("ON")) { router.sheet = .notifications }
+                    // Every motor in the product behind one switch: the typing stream on the
+                    // screen and under the keyboard, the orb's hold, the tap that marks an
+                    // answer. Toggled in place — a switch with a page behind it is a lie.
+                    SettingRow(title: L("HAPTICS"), value: haptics.enabled ? L("ON") : L("OFF"),
+                               showsChevron: false) {
+                        haptics.toggle()
+                        // Turning it on answers in the hand; turning it off says nothing.
+                        if haptics.enabled { HoldHaptics.shared.release() }
+                    }
                     SettingRow(title: L("UNITS"), value: data.profile.usesMetric ? L("METRIC · KG") : L("IMPERIAL · LB")) {
                         router.sheet = .units
                     }
@@ -260,6 +270,8 @@ private struct SettingRow: View {
     var titleTint: Color? = nil
     /// 11 edges · 「最多加一行副文案」. The row is the alarm; the sub-line is its reason.
     var detail: String? = nil
+    /// A row that settles in place — a switch — has nothing to point at.
+    var showsChevron = true
     let action: () -> Void
 
     var body: some View {
@@ -281,7 +293,7 @@ private struct SettingRow: View {
                         .font(NBFont.dot(500, 10.5)).tracking(0.14 * 10.5)
                         .foregroundStyle(valueTint ?? NB.text3Prod)
                 }
-                Chevron()
+                if showsChevron { Chevron() }
             }
             .padding(.horizontal, 16)
             .frame(height: detail == nil ? 48 : 60)

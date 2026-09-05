@@ -202,6 +202,14 @@ extension VitalsReadout {
         }.sorted { $0.ts < $1.ts }
     }
 
+    static func hasHRVOutsideSleep(night: SleepSummary?, samples: [VitalSample]) -> Bool {
+        guard let night, let start = night.sleepStart, let wake = night.wakeAt, wake > start else { return false }
+        return samples.contains {
+            guard let value = $0.hrv, value.isFinite, value > 0 else { return false }
+            return !night.containsSleepTimestamp($0.ts)
+        }
+    }
+
     private static func sleep(m: DailyMetrics) -> VitalsReadout {
         guard let night = m.sleep, night.totalMinutes > 0 else {
             var out = empty(unit: L("ASLEEP"),
@@ -311,10 +319,7 @@ extension VitalsReadout {
     private static func response(_ index: MealResponseIndex.Result?) -> VitalsReadout {
         let result = index ?? MealResponseIndex.make(
             points: [], sleepWindows: [], now: Date())
-        let hero = result.hero.map(MealResponseIndex.signedPercent)
-        // 04C / issue #3 · OWN MEDIAN is the scale origin. When the five-day gate has
-        // passed it prints 0, not the vendor median and not ——: 0 means "me".
-        let ownMedian = result.ownMedianReady ? "0" : nil
+        let hero = result.latestPoint.map(MealResponseIndex.pointValue)
         let bands: [VitalsSplit.Band]
         if result.below + result.near + result.above == 0 {
             bands = []
@@ -329,12 +334,18 @@ extension VitalsReadout {
             ]
         }
         let foot: String
-        switch result.empty {
-        case .needs5Days: foot = L("NEEDS 5 DAYS")
-        case .switchOff:  foot = L("SWITCH OFF")
-        case .allZeros:   foot = L("ALL ZEROS")
-        case .empty:      foot = L("NO TICKS TODAY")
-        case nil:         foot = L("VS OWN MEDIAN")
+        if result.latestPoint != nil {
+            foot = result.ownMedianReady
+                ? L("FOOD RESPONSE POINT")
+                : L("%d / 5 BASELINE DAYS", result.baselineDays)
+        } else {
+            switch result.empty {
+            case .needs5Days: foot = L("NEEDS 5 DAYS")
+            case .switchOff:  foot = L("SWITCH OFF")
+            case .allZeros:   foot = L("ALL ZEROS")
+            case .empty:      foot = L("NO TICKS TODAY")
+            case nil:         foot = L("NO TICKS TODAY")
+            }
         }
         return VitalsReadout(
             badge: nil,
@@ -342,21 +353,23 @@ extension VitalsReadout {
             unit: nil,
             gauge: nil,
             footLeft: foot,
-            footRight: result.percents.isEmpty ? nil : L("%d POINTS", result.percents.count),
-            chartNote: L("POINTS ONLY · NO LINE"),
+            footRight: result.trendPoints.isEmpty ? nil : L("%d POINTS", result.trendPoints.count),
+            chartNote: L("MEASURED POINTS · LINE"),
             splitTitle: L("VS OWN MEDIAN"),
             splitTrailing: result.percents.isEmpty ? nil : L("%d POINTS", result.percents.count),
             bands: bands,
-            statLeft: .init(label: L("24H MEDIAN"),
-                            value: result.median24h.map(MealResponseIndex.signedPercent),
+            statLeft: .init(label: L("24H MEDIAN POINT"),
+                            value: result.median24hPoint.map(MealResponseIndex.pointValue),
                             unit: nil,
-                            foot: result.median24h == nil ? L("NO TICKS TODAY")
-                                : L("TODAY'S POINTS"),
+                            foot: result.median24hPoint == nil ? L("NO TICKS TODAY")
+                                : L("MEASURED POINTS"),
                             tint: NB.compareAmber),
-            statRight: .init(label: L("OWN MEDIAN"),
-                             value: ownMedian,
+            statRight: .init(label: L("VS OWN MEDIAN"),
+                             value: result.hero.map(MealResponseIndex.signedPercent),
                              unit: nil,
-                             foot: result.ownMedianReady ? L("DAYTIME POINTS") : L("NEEDS 5 DAYS"),
+                             foot: result.ownMedianReady
+                                ? L("LATEST POINT")
+                                : L("%d / 5 BASELINE DAYS", result.baselineDays),
                              tint: result.ownMedianReady ? NB.compareAmber : nil))
     }
 

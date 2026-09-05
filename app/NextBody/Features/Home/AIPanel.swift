@@ -421,7 +421,27 @@ struct ThinkingStage: View {
                     .frame(maxHeight: .infinity)
                 stream(now: now)
             }
+            // 07 · 16 · 02 · the stream you can feel. One hair-light tap under the characters
+            // as the live line types itself out, a rounder one when a line is whole.
+            .onChange(of: typedCount(now: now)) { old, new in
+                if new > old { StreamHaptics.shared.type() }
+            }
+            .onChange(of: thoughts.last?.id) { _, _ in StreamHaptics.shared.lineLanded() }
         }
+        .onAppear { StreamHaptics.shared.activate() }
+        .onDisappear {
+            StreamHaptics.shared.deactivate()
+            // Leaving THINKING means the frame is drawn: one crisp tap for the answer.
+            StreamHaptics.shared.settled()
+        }
+    }
+
+    /// How much of the live line has been typed, as a number the view can watch. The rest of
+    /// the stack is already whole, so only the newest line can produce a character.
+    private func typedCount(now: Date) -> Int {
+        guard let last = thoughts.last else { return 0 }
+        if reduceMotion { return last.text.count }
+        return min(last.text.count, Int(max(0, now.timeIntervalSince(last.at)) * Self.typeRate))
     }
 
     private func header(elapsed: Double) -> some View {

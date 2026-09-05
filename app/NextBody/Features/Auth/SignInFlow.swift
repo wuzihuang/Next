@@ -11,7 +11,19 @@ struct SignInFlow: View {
     @State private var email = ""
     @State private var code = ""
     @State private var resendIn = 60
-    @State private var verifying = false
+    /// Which door is waiting on the server. One flag for all three, because it is the same
+    /// wait behind each of them: nothing on the gate may look tappable while a sign-in is
+    /// in flight, and the door the finger chose is the one that has to say so.
+    enum Door: Hashable { case apple, google, email }
+    @State private var busy: Door?
+    /// Eight seconds in, the copy stops implying it is nearly there. The request is *not*
+    /// abandoned: a token the server already granted would leave the account signed in
+    /// behind a screen that claimed it failed. We keep waiting, we just stop pretending.
+    @State private var slow = false
+    @State private var slowTimer: Task<Void, Never>?
+    /// The account facts, asked for exactly once and awaited by whichever arrives last —
+    /// the film, or the code that started it.
+    @State private var gateTask: Task<AccountGate, Never>?
     @State private var playingWordmark = false
     /// 01 edges · 「出错的时候，不清屏」. The email and the digits are never cleared by an error.
     enum CodeError: Equatable { case wrong, locked, expired, rateLimited, noNetwork }
@@ -26,7 +38,9 @@ struct SignInFlow: View {
     var body: some View {
         ZStack {
             switch step {
-            case .gate:  GateScreen(failed: authFailed, onEmail: {
+            case .gate:  GateScreen(failed: authFailed, busy: waitPreview ?? busy,
+                                    slow: waitPreview != nil ? DebugEdge.on("slowauth") : slow, onEmail: {
+                                    guard busy == nil else { return }
                                     Task { await Analytics.shared.track("AUTH_METHOD_TAP", ["METHOD": "EMAIL"]) }
                                     step = .email
                                 },
@@ -37,7 +51,7 @@ struct SignInFlow: View {
                                          step = .gate
                                      }, onSend: sendCode)
             case .code:  CodeScreen(email: email, code: $code, resendIn: $resendIn,
-                                    verifying: verifying, error: codeError,
+                                    verifying: busy == .email, slow: slow, error: codeError,
                                     onBack: {
                                         Task { await Analytics.shared.track("AUTH_DROP", ["STEP": "CODE"]) }
                                         step = .email
@@ -50,7 +64,7 @@ struct SignInFlow: View {
             // arrived as a glow while the haptic arrived at full strength — the two came
             // apart, and the light was the half that was late.
             if playingWordmark {
-                WordmarkAnimation { finish() }
+                WordmarkAnimation { Task { await filmFinished() } }
             }
         }
         .carbonPage()
@@ -61,21 +75,20 @@ struct SignInFlow: View {
     /// Cancelling the picker is silent (01 edge 5); only a real token failure moves email up.
     private func signInWithGoogle() {
         if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
-        guard !verifying else { return }
-        verifying = true
+        guard busy == nil else { return }
+        beginWait(.google)
         Task {
             await Analytics.shared.track("AUTH_METHOD_TAP", ["METHOD": "GOOGLE"])
             do {
                 let cred = try await GoogleAuth.request()
                 try await SupabaseClient.shared.signInWithGoogle(idToken: cred.idToken, nonce: cred.nonce)
                 email = await SupabaseClient.shared.signedInEmail() ?? ""
-                await adoptName(cred.fullName)
-                await authSucceeded()
-                verifying = false
+                await completeSignIn(offeredName: cred.fullName)
+                endWait()
             } catch GoogleAuth.Failure.cancelled {
-                verifying = false
+                endWait()
             } catch {
-                verifying = false
+                endWait()
                 withAnimation { authFailed = true }
             }
         }
@@ -87,48 +100,103 @@ struct SignInFlow: View {
     /// the same `finish()` as the six-digit path, so the server decides new vs returning here too.
     private func signInWithApple() {
         if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
-        guard !verifying else { return }
-        verifying = true
+        guard busy == nil else { return }
+        beginWait(.apple)
         Task {
             await Analytics.shared.track("AUTH_METHOD_TAP", ["METHOD": "APPLE"])
             do {
                 let cred = try await appleSignIn.request()
                 try await SupabaseClient.shared.signInWithApple(idToken: cred.idToken, nonce: cred.nonce)
                 email = await SupabaseClient.shared.signedInEmail() ?? ""
-                await adoptAppleName(cred.fullName)
-                await authSucceeded()
-                verifying = false
+                let f = PersonNameComponentsFormatter()
+                f.style = .default
+                await completeSignIn(offeredName: cred.fullName.map { f.string(from: $0) })
+                endWait()
             } catch AppleSignIn.Failure.cancelled {
-                verifying = false
+                endWait()
             } catch {
-                verifying = false
+                endWait()
                 withAnimation { authFailed = true }
             }
         }
     }
 
-    /// The one moment this product is handed a real name. It arrives on the first Apple
-    /// authorization and never again, so it goes to the server here rather than waiting for
-    /// a screen to ask for it — nothing ever asks. A name the user has already set is not
-    /// overwritten: Apple only offers this on a first authorization, but a reinstall after
-    /// revoking would otherwise undo a rename.
-    private func adoptAppleName(_ components: PersonNameComponents?) async {
-        guard let components else { return }
-        let f = PersonNameComponentsFormatter()
-        f.style = .default
-        await adoptName(f.string(from: components))
+    /// The gate is inert for as long as the server takes, so the wait needs a place to
+    /// live. It lives in the button that was pressed — the same in-place idiom the email
+    /// screen uses for Sending — and never in a spinner floating over the brand.
+    /// DEBUG · `NB_DEBUG_EDGE=waitauth` (and `slowauth` for the eight-second copy) pins the
+    /// gate in its waiting state so the three doors can be read without a live slow network.
+    private var waitPreview: Door? {
+        #if DEBUG
+        if DebugEdge.on("waitauth") || DebugEdge.on("slowauth") { return .google }
+        #endif
+        return nil
     }
 
-    /// Google offers the profile name on every sign-in rather than only the first, but the
-    /// rule is the same either way: a name already on the server wins.
-    private func adoptName(_ raw: String?) async {
+    private func beginWait(_ door: Door) {
+        busy = door
+        slow = false
+        slowTimer?.cancel()
+        slowTimer = Task {
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, busy == door else { return }
+            withAnimation { slow = true }
+        }
+    }
+
+    private func endWait() {
+        slowTimer?.cancel()
+        slowTimer = nil
+        busy = nil
+        slow = false
+    }
+
+    /// The one tail all three doors share. Everything past the token is identical, so the
+    /// latency is hidden the same way for each.
+    ///
+    /// ◇ The account is asked for once. `fetchAccountGate` already returns `display_name`,
+    ///   which is the only thing the name-adoption rule needs, so the extra `loadProfile`
+    ///   round trip this used to make is gone and the write is no longer waited on: four
+    ///   serial requests between the sheet closing and the next screen became two.
+    /// ◇ The film starts *before* the facts arrive, not after. A fresh registration is
+    ///   knowable from the token itself (`isNewUser`), so 2.6 s of designed motion covers
+    ///   the fetch instead of queueing behind it.
+    private func completeSignIn(offeredName: String?) async {
+        let gate = Task { await Repository.shared.fetchAccountGate() }
+        gateTask = gate
+
+        if await SupabaseClient.shared.isNewUser, Self.claimFilmForToday() {
+            playingWordmark = true
+        }
+
+        let facts = await gate.value
+        nextStage = facts.stage
+        await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": facts.isFirstRun])
+        adoptName(offeredName, existingOnServer: facts.displayName)
+        // The film owns the hand-off when it is up; finishing here too would cut it short.
+        if !playingWordmark { finish() }
+    }
+
+    /// The film ends on its own clock, which may be before or after the facts land. It
+    /// waits on the same task rather than starting a second one.
+    private func filmFinished() async {
+        if let gate = gateTask { nextStage = await gate.value.stage }
+        finish()
+    }
+
+    /// The one moment this product is handed a real name — Apple offers it on the first
+    /// authorization and never again, Google offers it every time, and nothing in the
+    /// product ever asks for it. A name already on the server wins: Apple re-offering it
+    /// after a revoke must not undo a rename.
+    ///
+    /// The comparison is against the `display_name` the gate fetch already carried back,
+    /// so this costs no request, and the write is not waited on — the next screen is
+    /// entitled to appear before a name nobody is looking at has finished saving.
+    private func adoptName(_ raw: String?, existingOnServer: String?) {
         guard let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return }
-        // The in-memory profile is blank at the gate; a rename already on the server
-        // must win over Apple offering the name again after a revoke.
-        await Repository.shared.loadProfile(into: DataStore.shared)
-        guard DataStore.shared.profile.name.isEmpty else { return }
+        guard (existingOnServer ?? "").trimmingCharacters(in: .whitespaces).isEmpty else { return }
         DataStore.shared.profile.name = name
-        await Repository.shared.saveDisplayName(name)
+        Task { await Repository.shared.saveDisplayName(name) }
     }
 
     private func sendCode() {
@@ -194,7 +262,7 @@ struct SignInFlow: View {
     /// 01 edge 1 · red outline, a 6 px shake, one haptic, then back to the first cell.
     /// The digits are cleared, the email is not.
     private func rejectCode() {
-        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        Haptics.notification(.error)
         let locked = AuthLock.registerWrong(email)
         withAnimation { codeError = locked ? .locked : .wrong }
         Task {
@@ -208,13 +276,13 @@ struct SignInFlow: View {
     /// The code is checked against Supabase auth (`/auth/v1/verify`, type email); the demo
     /// account signs in with its password instead, since it has no mailbox.
     private func verify() {
-        guard !verifying else { return }
+        guard busy == nil else { return }
         if AuthLock.isLocked(email) {
             withAnimation { codeError = .locked }
             return
         }
         if DebugEdge.on("wrongcode") { rejectCode(); return }
-        verifying = true
+        beginWait(.email)
         Task {
             do {
                 if Self.isDemo(email) {
@@ -225,10 +293,10 @@ struct SignInFlow: View {
                 AuthLock.clearWrongs(email)
                 // The button stays in its verifying state across the one question the
                 // returning path asks the server, so nothing sits dead on screen.
-                await authSucceeded()
-                verifying = false
+                await completeSignIn(offeredName: nil)
+                endWait()
             } catch SupabaseClient.Failure.http(let status, let body) {
-                verifying = false
+                endWait()
                 // 01 edge 2 · a code past its ten minutes says so and offers a new one;
                 // anything else the server refuses is a wrong code.
                 if GateDecision.isExpiredCode(status: status, body: body) {
@@ -239,7 +307,7 @@ struct SignInFlow: View {
                     rejectCode()
                 }
             } catch {
-                verifying = false
+                endWait()
                 withAnimation { codeError = .noNetwork }
             }
         }
@@ -249,19 +317,6 @@ struct SignInFlow: View {
     /// it plays once, for the session the server itself calls new, and at most once in a day.
     /// Everyone else — a returning address, a second sign-in on a new phone — walks straight
     /// through to whichever screen is actually next for them.
-    private func authSucceeded() async {
-        let facts = await Repository.shared.fetchAccountGate()
-        await Analytics.shared.track("AUTH_SUCCESS", ["IS_NEW_USER": facts.isFirstRun])
-        // Band + finished About You → home. Band without a profile → onboarding.
-        // No band → Connect, even when the account already has a name.
-        nextStage = facts.stage
-        if facts.isFirstRun, Self.claimFilmForToday() {
-            playingWordmark = true
-        } else {
-            finish()
-        }
-    }
-
     /// 02M · 「不许倒放、不许循环、更不许当加载动画反复用——它一天最多出现一次」.
     private static func claimFilmForToday() -> Bool {
         let key = "nb.wordmark.playedOn"
@@ -282,6 +337,9 @@ struct SignInFlow: View {
 
 private struct GateScreen: View {
     var failed = false
+    /// The door the finger chose, while the server is still thinking.
+    var busy: SignInFlow.Door?
+    var slow = false
     let onEmail: () -> Void
     let onApple: () -> Void
     let onGoogle: () -> Void
@@ -325,27 +383,43 @@ private struct GateScreen: View {
                 Spacer(minLength: 0)
 
                 VStack(spacing: 10) {
-                    GateButton(style: .solid, action: onApple) {
-                        AppleGlyph(); Text(L("Continue with Apple"))
-                            .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
-                            .foregroundStyle(NB.carbon)
+                    GateButton(style: .solid, dimmed: busy != nil && busy != .apple,
+                               disabled: busy != nil, action: onApple) {
+                        if busy == .apple {
+                            GateSpinner(color: NB.carbon.opacity(0.55))
+                            Text(L(slow ? "Still connecting" : "Signing in"))
+                                .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
+                                .foregroundStyle(NB.carbon.opacity(0.6))
+                        } else {
+                            AppleGlyph(); Text(L("Continue with Apple"))
+                                .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
+                                .foregroundStyle(NB.carbon)
+                        }
                     }
                     // 01 edge 5 · only a token that really failed says so, and then email moves
                     // up to second. A cancel on the system sheet is silent.
                     if failed {
-                        GateButton(style: .outline, action: onEmail) {
+                        GateButton(style: .outline, dimmed: busy != nil, disabled: busy != nil, action: onEmail) {
                             EnvelopeGlyph(); Text(L("Continue with email"))
                                 .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                                 .foregroundStyle(NB.text1)
                         }
                     }
-                    GateButton(style: .outline, action: onGoogle) {
-                        GoogleGlyph(); Text(L("Continue with Google"))
-                            .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
-                            .foregroundStyle(NB.text1)
+                    GateButton(style: .outline, dimmed: busy != nil && busy != .google,
+                               disabled: busy != nil, action: onGoogle) {
+                        if busy == .google {
+                            GateSpinner(color: NB.text1.opacity(0.55))
+                            Text(L(slow ? "Still connecting" : "Signing in"))
+                                .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
+                                .foregroundStyle(NB.text1.opacity(0.7))
+                        } else {
+                            GoogleGlyph(); Text(L("Continue with Google"))
+                                .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
+                                .foregroundStyle(NB.text1)
+                        }
                     }
                     if !failed {
-                        GateButton(style: .outline, action: onEmail) {
+                        GateButton(style: .outline, dimmed: busy != nil, disabled: busy != nil, action: onEmail) {
                             EnvelopeGlyph(); Text(L("Continue with email"))
                                 .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                                 .foregroundStyle(NB.text1)
@@ -423,6 +497,10 @@ struct GateAurora: View {
 private struct GateButton<Content: View>: View {
     enum Style { case solid, outline }
     let style: Style
+    /// The two doors not being used step back rather than disappear — the choice is still
+    /// legible, it is just not available for the next second.
+    var dimmed = false
+    var disabled = false
     let action: () -> Void
     @ViewBuilder let content: Content
 
@@ -433,8 +511,27 @@ private struct GateButton<Content: View>: View {
                 .frame(height: 56)
                 .background(style == .solid ? NB.white : NB.carbon4, in: Capsule())
                 .overlay(style == .outline ? Capsule().stroke(NB.hairline, lineWidth: 1) : nil)
+                .opacity(dimmed ? 0.45 : 1)
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
+        .animation(.easeOut(duration: 0.18), value: dimmed)
+    }
+}
+
+/// The one waiting mark on these screens: a quarter ring, 0.9 s a turn. A ring that does
+/// not turn reads as a frozen screen, which is the exact thing the wait needs to deny.
+private struct GateSpinner: View {
+    var color: Color
+    @State private var spin = false
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.25)
+            .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            .frame(width: 14, height: 14)
+            .rotationEffect(.degrees(spin ? 360 : 0))
+            .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spin)
+            .onAppear { spin = true }
     }
 }
 
@@ -615,6 +712,7 @@ private struct CodeScreen: View {
     @Binding var code: String
     @Binding var resendIn: Int
     let verifying: Bool
+    var slow = false
     var error: SignInFlow.CodeError? = nil
     let onBack: () -> Void
     let onVerify: () -> Void
@@ -719,7 +817,8 @@ private struct CodeScreen: View {
                     .buttonStyle(.plain)
                 } else {
                 HStack(spacing: 10) {
-                    Text(verifying ? "Verifying…" : "Verify and continue")
+                    if verifying { GateSpinner(color: NB.carbon.opacity(0.55)) }
+                    Text(verifying ? L(slow ? "Still connecting" : "Verifying") : L("Verify and continue"))
                         .font(NBFont.ui(500, 15)).tracking(0.06 * 15)
                         .foregroundStyle(code.count == 6 ? NB.carbon : NB.white.opacity(0.38))
                 }

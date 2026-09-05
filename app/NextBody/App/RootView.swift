@@ -70,7 +70,7 @@ struct RootView: View {
                router.path.isEmpty {
                 // A push landing while the stack is still settling is dropped on a device,
                 // so it is retried until it sticks.
-                for delay in [1.5, 3.5, 6.0, 9.0] {
+                for delay in [1.5, 3.5, 6.0, 9.0, 12.0, 18.0] {
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                         if router.path.isEmpty { router.open(d, from: .home) }
                     }

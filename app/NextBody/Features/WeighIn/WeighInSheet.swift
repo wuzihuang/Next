@@ -145,7 +145,7 @@ struct WeighInSheet: View {
         guard let kg = parsed else { return }
         data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: kg,
                                 bodyFatPercent: nil, source: .measured, origin: .manual))
-        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        Haptics.impact(.rigid)
         dismiss()
     }
 
@@ -248,6 +248,6 @@ struct DecimalPad: View {
             if let dot = text.firstIndex(of: "."), text.distance(from: dot, to: text.endIndex) > 1 { return }
             if text.count < 6 { text.append(key) }
         }
-        UISelectionFeedbackGenerator().selectionChanged()
+        Haptics.selection()
     }
 }

@@ -55,7 +55,7 @@ final class MealResponseIndexTests: XCTestCase {
         XCTAssertFalse(MealResponseIndex.signedPercent(-3).contains("/100"))
     }
 
-    func testFewerThanFiveDaysLeavesTheHeroEmpty() {
+    func testFewerThanFiveDaysStillExposesMeasuredTrend() {
         let points = (8...9).map { point(day: $0, hour: 12, optical: 100) }
             + [point(day: 10, hour: 15, optical: 108)]
         let result = MealResponseIndex.make(
@@ -65,9 +65,13 @@ final class MealResponseIndexTests: XCTestCase {
             calendar: calendar)
 
         XCTAssertNil(result.hero)
+        XCTAssertEqual(result.latestPoint, 108)
+        XCTAssertEqual(result.trendPoints.map(\.optical), [108])
+        XCTAssertEqual(result.median24hPoint, 108)
+        XCTAssertEqual(result.baselineDays, 3)
         XCTAssertFalse(result.ownMedianReady)
-        XCTAssertEqual(result.empty, .needs5Days)
-        XCTAssertEqual(result.analyticsState, "NEEDS5")
+        XCTAssertNil(result.empty)
+        XCTAssertEqual(result.analyticsState, "FRESH")
         XCTAssertTrue(result.percents.isEmpty)
     }
 

@@ -147,6 +147,17 @@ final class OriginDataSync {
     func sync(day: UserDay, into store: DataStore, settle: Bool = true) async -> Int {
         let now = Date()
         let iso = ISO8601DateFormatter()
+        #if DEBUG
+        var diagnosticCompleted = false
+        NightDiagnostics.shared.record("sync.started", fields: ["day": day.key, "settle": String(settle)])
+        defer {
+            NightDiagnostics.shared.record("sync.finished", fields: [
+                "day": day.key, "status": diagnosticCompleted ? lastOutcome : "exited_early",
+                "cancelled": String(Task.isCancelled),
+                "durationSeconds": String(Int(Date().timeIntervalSince(now)))
+            ])
+        }
+        #endif
         // ⚠️ raw_samples.user_id is NOT NULL and its insert policy checks it against
         // auth.uid(), exactly like sync_runs and sleep_nights below — and like both of those
         // once were, the rows went up without one. Every upload was refused with a
@@ -196,6 +207,11 @@ final class OriginDataSync {
                 page = try await BandReadiness.read(account: userId, binding: deviceKey) { try await band.readOriginData(dayOffset: offset) }
                 pagesReturned += 1
             } catch {
+                #if DEBUG
+                NightDiagnostics.shared.record("sync.origin_read_failed", fields: [
+                    "day": day.key, "offset": String(offset), "errorType": String(describing: type(of: error))
+                ])
+                #endif
                 BandLog.shared.record("readOriginData(\(offset))", error: error)
                 page = []
             }
@@ -203,6 +219,11 @@ final class OriginDataSync {
             do {
                 health = try await BandReadiness.read(account: userId, binding: deviceKey) { try await band.readHealthData(dayOffset: offset) }
             } catch {
+                #if DEBUG
+                NightDiagnostics.shared.record("sync.health_read_failed", fields: [
+                    "day": day.key, "offset": String(offset), "errorType": String(describing: type(of: error))
+                ])
+                #endif
                 auxiliaryUploaded = false
                 BandLog.shared.record("readHealthData(\(offset))", error: error)
                 health = BandHealthData(temperatures: [], hrv: [], oxygen: [],
@@ -452,6 +473,20 @@ final class OriginDataSync {
         let measuredSleep = Self.sleepSummary(night: night, day: day, store: store,
                                              oxygen: oxygenTicks, respiration: respirationTicks,
                                              hrv: hrvMinuteTicks, hrvReadComplete: hrvMinuteReadComplete)
+        #if DEBUG
+        NightDiagnostics.shared.record("sync.mapped", fields:
+            HomeSnapshot.diagnosticFields(day: day, samples: localSamples, sleep: measuredSleep).merging([
+                "hrvFiveMinuteSlots": String(hrvTicks.count),
+                "hrvMinuteTicksAcrossReadPages": String(hrvMinuteTicks.count),
+                "nightHRVReadComplete": String(hrvMinuteReadComplete),
+                "hrvReadStatus": hrvStatus.rawValue,
+                "temperatureReadStatus": temperatureStatus.rawValue,
+                "oxygenReadStatus": oxygenStatus.rawValue,
+                "sleepReadStatus": sleepStatus == .failed ? "failed" : (night != nil ? "returned" : "empty"),
+                "sdkSleepPresent": String(night != nil),
+                "pagesRequested": String(wanted.count), "pagesReturned": String(pagesReturned)
+            ], uniquingKeysWith: { _, fresh in fresh }))
+        #endif
         if let measuredSleep { Self.apply(measuredSleep, for: day, to: store) }
         let samplesByDay = Dictionary(grouping: localSamples) { UserDay.containing($0.ts, calendar: calendar) }
         // Durable measured observations precede every measurement upload and server refresh.
@@ -463,6 +498,11 @@ final class OriginDataSync {
                     sleep: measuredDay == day ? measuredSleep : nil, userId: userId)
             }
         } catch {
+            #if DEBUG
+            NightDiagnostics.shared.record("sync.local_persist_failed", fields: [
+                "day": day.key, "errorType": String(describing: type(of: error))
+            ])
+            #endif
             auxiliaryUploaded = false
             BandLog.shared.record("persist band observations", error: error)
             lastOutcome = "failed"
@@ -723,6 +763,9 @@ final class OriginDataSync {
             await Repository.shared.settleNow(days: day == UserDay.containing(now) ? 1 : 2)
             await Repository.shared.load(days: 1, endingAt: day, into: store)
         }
+        #if DEBUG
+        diagnosticCompleted = true
+        #endif
         return changedCount
     }
 

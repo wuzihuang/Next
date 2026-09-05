@@ -110,6 +110,10 @@ struct VitalsDetailView: View {
         } onBack: {
             router.backToRoot()
         }
+        .onAppear { recordNightPresentation() }
+        .onChange(of: m.sleep) { _, _ in recordNightPresentation() }
+        .onChange(of: ticks) { _, _ in recordNightPresentation() }
+        .onChange(of: m.day) { _, _ in recordNightPresentation() }
         .task {
             // The card and the page file the same key, so 「点了哪张卡、看到的是数还是 ——」
             // is one join rather than two guesses.
@@ -127,6 +131,24 @@ struct VitalsDetailView: View {
                 ])
             }
         }
+    }
+
+    /// Local evidence of the data handed to the visible sleep surface, not a render assertion.
+    private func recordNightPresentation() {
+        #if DEBUG
+        guard metric == .sleep, NightDiagnostics.shared.isEnabled else { return }
+        let samples = VitalsReadout.sleepHRVSamples(night: m.sleep, fallback: ticks)
+        NightDiagnostics.shared.record("ui.sleep_input", fields: [
+            "day": String(m.day.date.timeIntervalSince1970),
+            "sleepPresent": String(m.sleep != nil),
+            "archivedHRVMinutes": String(m.sleep?.hrv?.count ?? 0),
+            "displayHRVPoints": String(samples.count),
+            "respirationPoints": String(m.sleep?.respiration?.count ?? 0),
+            "oxygenPoints": String(m.sleep?.spo2.count ?? 0),
+            "windowStart": String(window.start.timeIntervalSince1970),
+            "windowEnd": String(window.start.addingTimeInterval(window.span).timeIntervalSince1970)
+        ])
+        #endif
     }
 
     private var axisLabels: [String] {
@@ -181,8 +203,13 @@ struct VitalsDetailView: View {
                               envelope: nightly.count >= 5 ? nightly.min()!...nightly.max()! : nil,
                               baseline: m.nightInputs?.hrvBase, tint: NB.blue1)
             } else {
+                let todaySamples = m.vitalsCurve.filter { $0.ts >= m.day.start && $0.ts < m.day.end }
+                let hasOutsideReadings = VitalsReadout.hasHRVOutsideSleep(night: m.sleep, samples: todaySamples)
                 VitalsChartEmpty(line: L("NO RMSSD IN THE WINDOW"),
-                                 sub: L("NO VALID HRV SAMPLES FOR THIS SLEEP"))
+                                 sub: hasOutsideReadings
+                                     ? L("HRV RECEIVED OUTSIDE SLEEP; NO VALID SAMPLES DURING THIS SLEEP")
+                                     : L("NO VALID HRV SAMPLES FOR THIS SLEEP"),
+                                 subLineLimit: 2)
             }
             VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.blue1)
         }
@@ -267,13 +294,11 @@ struct VitalsDetailView: View {
             }
 
         case .response:
-            if !mealIndex.percents.isEmpty {
-                VitalsIndexScatter(points: mealIndex.percents, window: window, tint: metric.tint)
+            if !mealIndex.trendPoints.isEmpty {
+                VitalsResponseTrace(points: mealIndex.trendPoints, window: window, tint: metric.tint)
             } else {
                 VitalsChartEmpty(line: L("NO RESPONSE POINTS IN 24H"),
-                                 sub: mealIndex.empty == .needs5Days
-                                    ? L("OWN MEDIAN TAKES FIVE DAYS")
-                                    : L("THE NEXT SYNC FILLS THE POINTS"))
+                                 sub: L("THE NEXT SYNC FILLS THE POINTS"))
             }
 
         case .steps:
@@ -334,7 +359,7 @@ struct VitalsDetailView: View {
         case .hrv:
             ticks.last(where: { $0.hrv != nil })?.ts
         case .response:
-            mealIndex.percents.last?.ts
+            mealIndex.trendPoints.last?.ts
         case .stress:
             ticks.last(where: { $0.stress != nil })?.ts
         case .temp:

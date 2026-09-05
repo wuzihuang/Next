@@ -81,7 +81,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         case .heart:    L("LAST 24H TELEMETRY")
         case .sleep:    L("STAGES HYPNOGRAM")
         case .hrv:      L("LAST 24H RMSSD SCATTER")
-        case .response: L("LAST 24H RESPONSE SCATTER")
+        case .response: L("LAST 24H FOOD RESPONSE POINTS")
         case .stress:   L("LAST 24H AUTONOMIC LOAD")
         case .temp:     L("LAST 24H BASELINE DEVIATION")
         case .steps:    L("TODAY'S CADENCE HISTOGRAM")

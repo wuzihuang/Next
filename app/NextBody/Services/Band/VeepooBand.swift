@@ -21,7 +21,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
     private let queue = HoopQueue()
 
     private(set) var state: BandConnectionState = .idle {
-        didSet { hub.send(.state(state)) }
+        didSet {
+            NightDiagnostics.shared.record("band.connection", fields: ["state": String(describing: state)])
+            hub.send(.state(state))
+        }
     }
     private let hub = BandEventHub()
     var events: AsyncStream<BandEvent> { hub.stream() }
@@ -54,26 +57,19 @@ final class VeepooBand: BandService, @unchecked Sendable {
         //  · VPPeripheralBaseManage (what the SDK leaves in place): readBasicData, readSleepData
         //    and readStepData are a single `ret`. Two syncs on a real HOOP ran exactly 90 s —
         //    the timeout — and wrote nothing, while battery and BIA worked.
-        //  · VPPeripheralAddManage ("应用层自行持久化"): the commands go out and twenty packages
-        //    came back with nil arrays on a previous device/protocol. The current SDK also
-        //    has a protocol 3/5 terminal parser, audited only in the isolated debug launch.
+        //  · VPPeripheralAddManage uses app-owned persistence. Protocol 5 readBasic sends nil
+        //    progress arrays, then a 0/0 terminal callback with the parsed array. It must not
+        //    be mixed into this SDK-persisted connection's read path.
         //  · VPPeripheralManage ("SDK持久化", what the vendor recommends and the demo uses):
         //    veepooSdkStartReadDeviceAllData reads every day the band holds into the SDK's own
         //    database, and VPDataBaseOperation hands it back keyed by "HH:mm". That is the path.
         // Keep app-owned timing/receipt logs; enable verbose vendor protocol logs explicitly.
         central.isLogEnable = ProcessInfo.processInfo.environment["NB_BLE_VERBOSE"] == "1"
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["NB_HRV_FULL_PROBE"] == "1" {
-            central.peripheralManage = VPPeripheralAddManage.shareVPPeripheralManager()
-        } else {
-            central.peripheralManage = VPPeripheralManage.shareVPPeripheralManager()
-        }
-        #else
         central.peripheralManage = VPPeripheralManage.shareVPPeripheralManager()
-        #endif
         central.vpBleConnectStateChangeBlock = { [weak self] deviceState in
             guard let self else { return }
             Self.log.notice("connect state \(deviceState.rawValue)")
+            NightDiagnostics.shared.record("sdk.connection", fields: ["state": String(deviceState.rawValue)])
             // Real SDK enum is VPDeviceConnectState (imported without the prefix):
             // .connect / .disConnect / .connecting / .verifyPasswordSuccess / .timeout …
             switch deviceState {
@@ -91,64 +87,6 @@ final class VeepooBand: BandService, @unchecked Sendable {
     }
 
     private var peripheral: VPPeripheralBaseManage? { central.peripheralManage }
-
-    #if DEBUG
-    /// Isolated, read-only protocol audit. The debug launch must never start normal sync/live.
-    /// AddManage's terminal array is parsed only after the SDK receives its end marker;
-    /// intermediate callbacks legitimately carry nil, so preserve every callback separately.
-    func debugReadFullDayFromFirstPackage() async throws -> [[String: Any]] {
-        guard ProcessInfo.processInfo.environment["NB_HRV_FULL_PROBE"] == "1",
-              central.peripheralManage is VPPeripheralAddManage,
-              let binding = BoundBand.identifier else {
-            throw BandError.rejected("Full HRV probe requires isolated launch")
-        }
-        return try await queue.run("debugFullDay", priority: .p2) {
-            try Task.checkCancellation()
-            return try await self.sdk("debugFullDay", seconds: 120) { done in
-                guard self.state == .connected, BoundBand.identifier == binding,
-                      let peripheral = self.peripheral,
-                      let model = self.central.peripheralModel,
-                      let identifier = model.peripheral?.identifier.uuidString,
-                      BandSyncPolicy.matchesBoundDevice(discovered: identifier,
-                        bound: binding, boundPeripheral: BoundBand.peripheralIdentifier) else {
-                    done(.failure(BandError.notConnected)); return
-                }
-                let protocolType = model.fiveProtocolType
-                let hrvType = model.hrvType
-                let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                    .appendingPathComponent("hrv-full-callback.json")
-                var callbacks: [[String: Any]] = []
-                func persist() throws {
-                    let payload: [String: Any] = ["fiveProtocolType": protocolType,
-                        "hrvType": hrvType, "callbackCount": callbacks.count,
-                        "callbacks": callbacks]
-                    try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-                        .write(to: url, options: .atomic)
-                }
-                do { try persist() } catch { done(.failure(error)); return }
-                Self.log.notice("full HRV probe protocol=\(protocolType) hrvType=\(hrvType)")
-                peripheral.veepooSDK_readBasicData(withDayNumber: 0, maxPackage: 1) { array, total, current in
-                    guard self.state == .connected, BoundBand.identifier == binding else {
-                        done(.failure(BandError.notConnected)); return
-                    }
-                    callbacks.append(["totalPackage": total, "currentPackage": current,
-                                      "data": array.map { $0 as Any } ?? NSNull()])
-                    do { try persist() } catch { done(.failure(error)); return }
-                    Self.log.notice("full HRV callback count=\(callbacks.count) package=\(current)/\(total) rows=\(array?.count ?? 0)")
-                    guard total > 0, current >= total else { return }
-                    // Progress callbacks can reach total before the separate end marker.
-                    // Nil is not completion; retain it and wait for parsed data or timeout.
-                    guard array != nil else { return }
-                    guard let rows = array as? [[String: Any]], !rows.isEmpty else {
-                        done(.failure(BandError.rejected("Full HRV probe completed without parsed rows")))
-                        return
-                    }
-                    done(.success(rows))
-                }
-            }
-        }
-    }
-    #endif
 
     // MARK: connection
 
@@ -243,6 +181,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 // pairing bar's later reads need the password verified, not just the link up.
                 central.veepooSDKConnectDevice(model) { step in
                     Self.log.notice("connect step \(step.rawValue)")
+                    NightDiagnostics.shared.record("sdk.connect_step", fields: ["state": String(step.rawValue)])
                     switch step {
                     case .BleVerifyPasswordSuccess:
                         if once.claim() { c.resume() }
@@ -270,12 +209,15 @@ final class VeepooBand: BandService, @unchecked Sendable {
     private func sdk<T>(_ name: String, seconds: Double = 12,
                         _ body: @escaping (@escaping (Result<T, Error>) -> Void) -> Void) async throws -> T {
         let once = Once()
+        let commandID = UUID().uuidString
+        NightDiagnostics.shared.record("sdk.command_start", fields: ["command": name, "commandID": commandID])
         Self.log.notice("\(name, privacy: .public) →")
         return try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
             Task {
                 try? await Task.sleep(for: .seconds(seconds))
                 guard once.claim() else { return }
                 Self.log.error("\(name, privacy: .public): no answer in \(seconds) s")
+                NightDiagnostics.shared.record("sdk.command_end", fields: ["command": name, "commandID": commandID, "outcome": "timeout"])
                 c.resume(throwing: BandError.timeout(name))
             }
             DispatchQueue.main.async {
@@ -285,10 +227,89 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     case .success: Self.log.notice("\(name, privacy: .public) ← ok")
                     case .failure(let e): Self.log.error("\(name, privacy: .public) ← \(String(describing: e), privacy: .public)")
                     }
+                    let outcome: String
+                    switch result {
+                    case .success: outcome = "success"
+                    case .failure(let error): outcome = Self.diagnosticError(error)
+                    }
+                    NightDiagnostics.shared.record("sdk.command_end", fields: ["command": name, "commandID": commandID, "outcome": outcome])
                     c.resume(with: result)
                 }
             }
         }
+    }
+
+    // Local overnight evidence only. No additional BLE commands or raw health values.
+    private static func diagnosticError(_ error: Error) -> String {
+        guard let bandError = error as? BandError else {
+            return error is CancellationError ? "cancelled" : "other_failure"
+        }
+        switch bandError {
+        case .notConnected: return "not_connected"
+        case .unsupported: return "unsupported"
+        case .busy: return "busy"
+        case .timeout: return "timeout"
+        case .rejected: return "rejected"
+        }
+    }
+
+    private static func diagnoseSettings(_ slots: [AutoMonitorSlot], source: String) {
+        for slot in slots {
+            NightDiagnostics.shared.record("sdk.setting_snapshot", fields: [
+                "kind": slot.kind.rawValue, "on": String(slot.on), "source": source,
+                "startHour": String(slot.startHour), "endHour": String(slot.endHour),
+                "intervalMinutes": String(slot.intervalMinutes)
+            ])
+        }
+    }
+
+    private static func diagnoseSleep(_ night: SleepNight?, day: String, source: String, rows: Int) {
+        NightDiagnostics.shared.record("sdk.cache_sleep", fields: [
+            "date": day, "source": source, "rows": String(rows),
+            "sleepStart": night?.sleepStart?.ISO8601Format() ?? "unavailable",
+            "wakeAt": night?.wakeAt?.ISO8601Format() ?? "unavailable",
+            "intervalCount": String(night?.intervals?.count ?? 0)
+        ])
+    }
+
+    @MainActor private static func diagnoseHRVCache(_ rows: [[String: Any]], date: String) {
+        #if DEBUG
+        guard NightDiagnostics.shared.isEnabled else { return }
+        let queryID = UUID().uuidString
+        let minutes = rows.compactMap { row -> String? in
+            guard let mapped = HealthSampleMapping.hrv(from: row) else { return nil }
+            let raw = row["hearts"] as? [Any] ?? []
+            let numbers = raw.compactMap { item -> Double? in
+                if let value = item as? NSNumber { return value.doubleValue }
+                if let value = item as? String { return Double(value) }
+                return nil
+            }
+            let sentinelCount = numbers.filter { $0 == 255 }.count
+            let invalidCount = raw.count - mapped.rrCount
+            return "\(mapped.time):\(mapped.rrCount):\(mapped.rmssdMS != nil ? 1 : 0):\(sentinelCount):\(invalidCount)"
+        }.sorted()
+        NightDiagnostics.shared.record("sdk.cache_hrv", fields: [
+            "date": date, "queryID": queryID, "source": "sdk_database_getter",
+            "rawRows": String(rows.count), "mappedRows": String(minutes.count),
+            "schema": "HH:mm:rrCount:rmssdAvailable:sentinel255Count:invalidCount"
+        ])
+        let prior = diagnosticHRVMinutes[date]
+        let previous = Set(prior ?? [])
+        let changed = minutes.filter { !previous.contains($0) }
+        let currentClocks = Set(minutes.map { String($0.prefix(5)) })
+        let removed = (prior ?? []).map { String($0.prefix(5)) }.filter { !currentClocks.contains($0) }
+        diagnosticHRVMinutes[date] = minutes
+        NightDiagnostics.shared.record("sdk.cache_hrv_delta", fields: ["date": date, "queryID": queryID, "mode": prior == nil ? "snapshot" : "delta", "changedRows": String(changed.count), "removedRows": String(removed.count)])
+        for start in stride(from: 0, to: removed.count, by: 60) {
+            NightDiagnostics.shared.record("sdk.cache_hrv_removed", fields: ["date": date, "queryID": queryID, "minutes": removed[start..<min(start + 60, removed.count)].joined(separator: ";")])
+        }
+        for start in stride(from: 0, to: changed.count, by: 60) {
+            NightDiagnostics.shared.record("sdk.cache_hrv_minutes", fields: [
+                "date": date, "queryID": queryID, "offset": String(start),
+                "minutes": changed[start..<min(start + 60, changed.count)].joined(separator: ";")
+            ])
+        }
+        #endif
     }
 
     /// One outcome per connect: whichever of the SDK's callback and the app's timer claims
@@ -433,6 +454,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
     }
 
     func disconnect() async {
+        NightDiagnostics.shared.record("band.disconnect_requested")
         reconnectTask?.cancel()
         await MainActor.run { central.veepooSDKDisconnectDevice() }
         if let running = reconnectTask { await running.value }
@@ -617,18 +639,32 @@ final class VeepooBand: BandService, @unchecked Sendable {
     /// but not the database query, so a two-page 04:00 window does not ask the band for the
     /// same history twice.
     private var auxiliaryDataReadAt: Date?
+    #if DEBUG
+    @MainActor private static var diagnosticHRVMinutes: [String: [String]] = [:]
+    #endif
 
     /// The SDK reads every day the band still holds — sleep, steps, heart, stress, the lot —
     /// into its own database, day by day, and reports progress. One command, and until its
     /// `.complete` nothing else may be sent (doc §四: 「数据没有读取完成的时候不要重复调用」),
     /// which the serial queue already guarantees.
     private func readAllDataIfStale() async throws {
-        if let at = allDataReadAt, Date().timeIntervalSince(at) < 60 { return }
+        if let at = allDataReadAt, Date().timeIntervalSince(at) < 60 {
+            NightDiagnostics.shared.record("sdk.read_all_reused", fields: ["completedAt": at.ISO8601Format()])
+            return
+        }
         guard let peripheral else { throw BandError.notConnected }
+        await recordDiagnosticCachedSettings()
         // Seven days at the band's pace can take a few minutes; the read of a single fresh
         // day is seconds. The timeout is the ceiling, not the expectation.
         try await sdk("readAllData", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
+            var lastProgressKey = ""
+            let readID = UUID().uuidString
             peripheral.veepooSdkStartReadDeviceAllData { state, totalDay, day, progress in
+                let key = "\(state.rawValue):\(day):\(Int(progress) / 10)"
+                if key != lastProgressKey {
+                    lastProgressKey = key
+                    NightDiagnostics.shared.record("sdk.read_all_progress", fields: ["readID": readID, "state": String(state.rawValue), "totalDays": String(totalDay), "day": String(day), "progress": String(progress)])
+                }
                 switch state {
                 case .start:
                     Self.log.notice("readAllData start · \(totalDay) days on the band")
@@ -644,6 +680,31 @@ final class VeepooBand: BandService, @unchecked Sendable {
             }
         }
         allDataReadAt = Date()
+    }
+
+    /// Snapshot existing connection metadata only; never add a native command to history sync.
+    /// Cached settings are not evidence of a fresh device readback.
+    private func recordDiagnosticCachedSettings() async {
+        #if DEBUG
+        guard NightDiagnostics.shared.isEnabled else { return }
+        await MainActor.run {
+            guard let model = central.peripheralModel else { return }
+            NightDiagnostics.shared.record("sdk.device_capabilities", fields: [
+                "firmware": model.deviceVersion ?? "unknown",
+                "testVersion": model.deviceTestVersion ?? "unknown",
+                "hrvType": String(model.hrvType), "sleepType": String(model.sleepType),
+                "protocolType": String(model.fiveProtocolType),
+                "autoMonitSwitchType": String(model.autoMonitSwitchType),
+                "source": "cached_connection_model"
+            ])
+            let readings = AutoMeasurementSwitchFallback.readings(
+                switchData: Self.bytes(model.deviceSwitchData),
+                switchTwoData: Self.bytes(model.deviceSwitchTwoData),
+                oxygenSupported: model.oxygenType != 0,
+                oxygenOn: model.oxygenAutoDetectType == 1)
+            Self.diagnoseSettings(readings.map { Self.slot(from: $0) }, source: "cached_connection_model")
+        }
+        #endif
     }
 
     /// ⚠️ dayOffset is the SDK's paging parameter and nothing else. Which offsets to ask for
@@ -794,9 +855,11 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 let temperatures = ((VPDataBaseOperation
                     .veepooSDKGetDeviceTemperatureData(withDate: date, andTableID: address)
                     as? [[String: Any]]) ?? []).compactMap(HealthSampleMapping.temperature)
-                let hrv = ((VPDataBaseOperation
+                let rawHRV = (VPDataBaseOperation
                     .veepooSDKGetDeviceHrvData(withDate: date, andTableID: address)
-                    as? [[String: Any]]) ?? []).compactMap(HealthSampleMapping.hrv)
+                    as? [[String: Any]]) ?? []
+                let hrv = rawHRV.compactMap(HealthSampleMapping.hrv)
+                Self.diagnoseHRVCache(rawHRV, date: date)
                 let rawOxygen = (VPDataBaseOperation
                     .veepooSDKGetDeviceOxygenData(withDate: date, andTableID: address)
                     as? [[String: Any]]) ?? []
@@ -835,6 +898,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 let rr = measured.map(\.rrCount)
                 let sample = measured.prefix(3).map { "\($0.time) rr\($0.rrCount) v\(Int($0.vendorValue ?? 0)) rmssd\(Int($0.rmssdMS ?? 0))" }.joined(separator: "; ")
                 Self.log.notice("readHealthData(\(dayOffset)) \(date, privacy: .public) · hrv \(hrv.count) minute(s) padded, \(measured.count) measured, \(withRR) with ≥2 RR, \(withVendor) with vendor value · rr/min \(rr.min() ?? 0)–\(rr.max() ?? 0) · measured by hour [\(perHour, privacy: .public)] · e.g. \(sample, privacy: .public) · temp \(temperatures.count) · spo2 \(oxygen.count) · optical \(optical.count)")
+                NightDiagnostics.shared.record("sdk.cache_health", fields: ["date": date, "hrvRows": String(hrv.count), "hrvValidMinutes": String(withRR), "temperatureRows": String(temperatures.count), "oxygenRows": String(oxygen.count), "respirationRows": String(respiration.count), "hrvStatus": String(describing: resolvedHrvStatus)])
                 return BandHealthData(temperatures: temperatures, hrv: hrv, oxygen: oxygen,
                                       optical: optical, opticalDroppedZeros: droppedZeros,
                                       temperatureStatus: resolvedTemperatureStatus,
@@ -885,9 +949,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
             let accurateNight = HealthSampleMapping.sleepRecordIndices(
                 stamps: accurate.map { ($0.sleepTime, $0.wakeTime) }, wakeDay: morning
             ).map { accurate[$0] }
+            if !accurate.isEmpty {
+                Self.probeAccurateSleepFields(accurateNight.isEmpty ? accurate : accurateNight, day: morning)
+            }
             if !accurateNight.isEmpty {
                 let result = Self.summarizeSleep(Self.sleepRecords(accurateNight))
                 Self.log.notice("readSleep(\(dayOffset)) \(morning, privacy: .public) · accurate (sleepType \(sleepType)) · \(result?.totalMinutes ?? 0) min in \(accurateNight.count) segment(s) · line \(result?.line.count ?? 0) runs")
+                Self.diagnoseSleep(result, day: morning, source: "accurate", rows: accurateNight.count)
                 return result
             }
 
@@ -899,6 +967,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 let stamps = (accurate.compactMap(\.wakeTime) + records.compactMap { $0["WAKE_TIME"] as? String })
                     .joined(separator: ",")
                 Self.log.notice("readSleep(\(dayOffset)) \(morning, privacy: .public) · no night · sleepType \(sleepType) · accurate \(accurateTotal) record(s), plain \(records.count) · wake times [\(stamps, privacy: .public)]")
+                Self.diagnoseSleep(nil, day: morning, source: "none", rows: accurateTotal + records.count)
                 return nil
             }
             let plain = night.compactMap { row -> SleepRecord? in
@@ -912,6 +981,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
             }
             let result = Self.summarizeSleep(plain)
             Self.log.notice("readSleep(\(dayOffset)) \(morning, privacy: .public) · plain (sleepType \(sleepType)) · \(result?.totalMinutes ?? 0) min in \(night.count) segment(s)")
+            Self.diagnoseSleep(result, day: morning, source: "plain", rows: night.count)
             return result
         }
     }
@@ -925,6 +995,38 @@ final class VeepooBand: BandService, @unchecked Sendable {
         let wakes: Int
         /// nil retains the minute occupied by an unknown SDK stage.
         let stages: [Int?]
+    }
+
+    /// 🔬 REM probe · `VPAccurateSleepModel` carries two independent REM channels and HOOP reads
+    /// neither: `otherDuration`「其他睡眠时间…快速眼动期」 as a whole-night total, and stage 2 inside
+    /// `sleepLine`. The SDK header states the KH series emits no stage 2/3 *in the line*; it says
+    /// nothing about the totals, and `sleepRecords` currently spends `otherDuration` only as a
+    /// fallback addend for a zero total, so nobody has ever looked at the number. One real night
+    /// of this decides whether the sleep board may show a REM band at all.
+    private static func probeAccurateSleepFields(_ night: [VPAccurateSleepModel], day: String) {
+        func number(_ value: Any?) -> Int {
+            Int((value as? NSNumber)?.doubleValue ?? (value as? String).flatMap(Double.init) ?? 0)
+        }
+        for (index, model) in night.enumerated() {
+            var histogram: [Int: Int] = [:]
+            for point in model.parseSleepLine() ?? [] {
+                let stage = (point["type"] as? NSNumber)?.intValue
+                    ?? (point["type"] as? String).flatMap(Int.init) ?? -1
+                histogram[stage, default: 0] += 1
+            }
+            let stages = histogram.keys.sorted().map { "\($0):\(histogram[$0] ?? 0)" }.joined(separator: " ")
+            let type = String(describing: model.accurateType)
+            let quality = String(describing: model.sleepQuality)
+            Self.log.notice("""
+                sleepProbe \(day, privacy: .public) seg \(index + 1)/\(night.count) · \
+                accurateType \(type, privacy: .public) · quality \(quality, privacy: .public) · \
+                other(REM?) \(number(model.otherDuration)) min · eyeMovement \(model.eyeMovementPercent())% · \
+                deep \(number(model.deepDuration)) light \(number(model.lightDuration)) \
+                total \(number(model.sleepDuration)) min · getUp \(number(model.getUpTimes))× \
+                \(number(model.getUpDuration)) min · insomnia \(number(model.insomniaTimes))× \
+                \(number(model.insomniaDuration)) min · line stages [\(stages, privacy: .public)]
+                """)
+        }
     }
 
     private static func sleepRecords(_ models: [VPAccurateSleepModel]) -> [SleepRecord] {
@@ -1110,6 +1212,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     slot.dead = true
                     guard let self, slot.generation != 0,
                           self.heartTestGeneration == slot.generation else { return }
+                    NightDiagnostics.shared.record("sdk.active_measurement", fields: ["kind": "heart", "action": "stop_submitted", "reason": "stream_termination", "deviceAcknowledged": "unknown"])
                     peripheral.veepooSDKTestHeartStart(false, testResult: { _, _ in })
                 }
             }
@@ -1121,11 +1224,14 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 Self.log.notice("heart test start gen \(gen)")
                 // Clear any leftover LiveReadout test, then install our block. The stop's
                 // empty callback is replaced on the next line — same main-queue turn.
+                NightDiagnostics.shared.record("sdk.active_measurement", fields: ["kind": "heart", "action": "stop_submitted", "reason": "before_start", "deviceAcknowledged": "unknown"])
                 peripheral.veepooSDKTestHeartStart(false, testResult: { _, _ in })
                 guard !slot.dead, self.heartTestGeneration == gen else { return }
+                NightDiagnostics.shared.record("sdk.active_measurement", fields: ["kind": "heart", "action": "start_submitted"])
                 peripheral.veepooSDKTestHeartStart(true, testResult: { [weak self] testState, value in
                     guard self?.heartTestGeneration == gen else { return }
                     Self.log.debug("heart state \(testState.rawValue)")
+                    NightDiagnostics.shared.record("sdk.active_callback", fields: ["kind": "heart", "state": String(testState.rawValue), "hasValue": String(value > 0), "deviceAcknowledged": "unknown"])
                     switch testState {
                     case .start:
                         // VPTestHeartStateStart ·「开始检测心率，还没有测出结果」— the band's own
@@ -1298,10 +1404,15 @@ final class VeepooBand: BandService, @unchecked Sendable {
     /// positive value, or time out with no reading rather than inventing one.
     func measureHRV(timeout: TimeInterval) async throws -> Int {
         guard let peripheral else { throw BandError.notConnected }
-        let stop = { DispatchQueue.main.async { peripheral.veepooSDK_HRVTest(false, callBack: { _, _, _ in }) } }
+        let stop = { DispatchQueue.main.async {
+            NightDiagnostics.shared.record("sdk.active_measurement", fields: ["kind": "hrv", "action": "stop_submitted", "deviceAcknowledged": "unknown"])
+            peripheral.veepooSDK_HRVTest(false, callBack: { _, _, _ in })
+        } }
         return try await withTaskCancellationHandler {
             try await sdk("hrvTest", seconds: timeout) { done in
+                NightDiagnostics.shared.record("sdk.active_measurement", fields: ["kind": "hrv", "action": "start_submitted"])
                 peripheral.veepooSDK_HRVTest(true) { con, ack, hrvValue in
+                    NightDiagnostics.shared.record("sdk.active_callback", fields: ["kind": "hrv", "state": String(ack.rawValue), "hasValue": String(hrvValue > 0), "deviceAcknowledged": "unknown"])
                     Self.log.notice("hrv con \(con) ack \(ack.rawValue) value \(hrvValue)")
                     switch ack {
                     case .testing:
@@ -1815,7 +1926,12 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     oxygenSupported: false,
                     oxygenOn: false
                 ).first { $0.kind == .scientificSleep }
-                if let cachedSleep { slots.append(Self.slot(from: cachedSleep)) }
+                Self.diagnoseSettings(slots, source: "interval_callback")
+                if let cachedSleep {
+                    let slot = Self.slot(from: cachedSleep)
+                    Self.diagnoseSettings([slot], source: "cached_switch_table")
+                    slots.append(slot)
+                }
                 return .interval(await self.includingScientificSleep(in: slots, peripheral: peripheral))
             }
             return try await self.readSwitchFallback(from: model, peripheral: peripheral)
@@ -1855,7 +1971,9 @@ final class VeepooBand: BandService, @unchecked Sendable {
             }
             nativeModel.timeInterval = requestedInterval
             try await self.sdk("writeAutoMonitoring") { (done: @escaping (Result<Void, Error>) -> Void) in
+                NightDiagnostics.shared.record("sdk.setting_write_submitted", fields: ["kind": slot.kind.rawValue, "on": String(slot.on), "api": "interval"])
                 peripheral.veepooSDKSetAutoMonitSwitch(with: nativeModel) { success, accepted in
+                    NightDiagnostics.shared.record("sdk.setting_write_callback", fields: ["kind": slot.kind.rawValue, "success": String(success), "acceptedOn": accepted.map { String($0.on) } ?? "unavailable", "api": "interval"])
                     guard success else {
                         done(.failure(BandError.rejected("AUTO MONITORING REFUSED")))
                         return
@@ -1883,6 +2001,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 oxygenSupported: model.oxygenType != 0,
                 oxygenOn: model.oxygenAutoDetectType == 1)
             let slots = readings.map { Self.slot(from: $0) }
+            Self.diagnoseSettings(slots, source: "cached_switch_table")
             return .switches(await includingScientificSleep(in: slots, peripheral: peripheral))
         }
         var slots: [AutoMonitorSlot] = []
@@ -1908,6 +2027,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         var result = slots
         do {
             guard let on = try await readBaseSwitch(.automaticPPGTest, peripheral: peripheral) else {
+                NightDiagnostics.shared.record("sdk.setting_fallback", fields: ["kind": "scientificSleep", "reason": "not_exposed", "cachedAvailable": String(slots.contains { $0.kind == .scientificSleep })])
                 Self.log.notice("scientific sleep · automatic PPG not exposed")
                 return result
             }
@@ -1919,6 +2039,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 result.append(sleep)
             }
         } catch {
+            NightDiagnostics.shared.record("sdk.setting_fallback", fields: ["kind": "scientificSleep", "reason": Self.diagnosticError(error), "cachedAvailable": String(slots.contains { $0.kind == .scientificSleep })])
             Self.log.error("scientific sleep switch ← \(String(describing: error), privacy: .public)")
         }
         return result
@@ -1930,10 +2051,12 @@ final class VeepooBand: BandService, @unchecked Sendable {
         }
         let wantedOn = slot.on
         try await sdk("writeAutoMonitoringSwitch") { done in
+            NightDiagnostics.shared.record("sdk.setting_write_submitted", fields: ["kind": slot.kind.rawValue, "on": String(wantedOn), "api": "base_switch"])
             peripheral.veepooSDKSettingBaseFunctionType(
                 type,
                 settingState: wantedOn ? .settingFunctionOpen : .settingFunctionClose
             ) { state in
+                NightDiagnostics.shared.record("sdk.setting_write_callback", fields: ["kind": slot.kind.rawValue, "state": String(state.rawValue), "api": "base_switch"])
                 switch state {
                 case .functionCompleteOpen:
                     done(wantedOn ? .success(()) : .failure(BandError.rejected("AUTO MONITORING STAYED ON")))
@@ -1956,6 +2079,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
     ) async throws -> Bool? {
         try await sdk("readAutoMonitoringSwitch.\(type.rawValue)", seconds: 8) { done in
             peripheral.veepooSDKSettingBaseFunctionType(type, settingState: .readFunctionState) { state in
+                NightDiagnostics.shared.record("sdk.setting_read_callback", fields: ["kind": Self.fallbackSwitchTypes.first { $0.type == type }?.kind.rawValue ?? "unknown", "state": String(state.rawValue), "source": "base_switch_callback"])
                 switch state {
                 case .functionCompleteOpen: done(.success(true))
                 case .functionCompleteClose: done(.success(false))

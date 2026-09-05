@@ -12,7 +12,7 @@ for (const providerName of ["dashscope", "vercel-gateway"]) {
       name: providerName,
       baseURL: "https://example.invalid/v1",
       apiKey: "test-only",
-      fetch: async (_url, init) => {
+      fetch: (_url, init) => {
         const body = JSON.parse(String((init as { body?: unknown })?.body));
         assertEquals(body.enable_thinking, true);
         assertEquals(body.thinking_budget, 200);

@@ -12,67 +12,58 @@ struct NextBodyApp: App {
 
     init() {
         Logger(subsystem: "com.nextbody.hoop", category: "lifecycle").notice("app initialized")
+        NightDiagnostics.shared.record("app.launch", fields: NightDiagnostics.shared.status)
     }
 
     var body: some Scene {
         WindowGroup {
-            #if DEBUG
-            if ProcessInfo.processInfo.environment["NB_HRV_FULL_PROBE"] == "1" {
-                HRVFullProbeView()
-            } else {
-                normalRoot
-            }
-            #else
-            normalRoot
-            #endif
+            RootView()
+                .environmentObject(session)
+                .environmentObject(router)
+                .environmentObject(data)
+                .environmentObject(language)
+                .environment(\.locale, language.swiftLocale)
+                .id(language.locale.rawValue)
+                .preferredColorScheme(.dark)
+                .tint(NB.lime1)
+                // 01 · the Google account picker comes back through our reversed-client-ID
+                // scheme; the SDK's continuation is waiting on this hand-off.
+                .onOpenURL { GIDSignIn.sharedInstance.handle($0) }
+                // 14 · an island left counting for a session this process is not in — the app
+                // was killed mid-workout, or replaced under a running one. The store is empty
+                // at launch by definition, so anything still up is an orphan.
+                .onReceive(Reachability.shared.$isOnline.removeDuplicates()) { online in
+                    if online { Task { await Repository.shared.flushPendingEvidence() } }
+                }
+                .task {
+                    BandLiveLifecycle.shared.start()
+                    BandLiveLifecycle.shared.setPhase(phase)
+                    SessionActivity.clearOrphans()
+                    // Restoring the local account gates BLE, not cloud homepage hydration.
+                    if await session.ensureSession() { requestForegroundRefresh(reason: "launch") }
+                    await session.resolveLaunch()
+                    BandLiveLifecycle.shared.refreshEligibility()
+                }
+                .onChange(of: phase) { _, new in
+                    NightDiagnostics.shared.record("app.scene", fields: ["phase": String(describing: new)])
+                    BandLiveLifecycle.shared.setPhase(new)
+                    if new != .active { Task { await Analytics.shared.flush() } }
+                }
+                .onChange(of: router.takeover) { _, takeover in
+                    BandLiveLifecycle.shared.setExclusiveOperation(takeover != nil)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                    BandLiveLifecycle.shared.setPhase(.background)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    BandLiveLifecycle.shared.setPhase(.active)
+                    requestForegroundRefresh(reason: "foreground")
+                }
         }
     }
 
-    private var normalRoot: some View {
-        RootView()
-            .environmentObject(session)
-            .environmentObject(router)
-            .environmentObject(data)
-            .environmentObject(language)
-            .environment(\.locale, language.swiftLocale)
-            .id(language.locale.rawValue)
-            .preferredColorScheme(.dark)
-            .tint(NB.lime1)
-            // 01 · the Google account picker comes back through our reversed-client-ID
-            // scheme; the SDK's continuation is waiting on this hand-off.
-            .onOpenURL { GIDSignIn.sharedInstance.handle($0) }
-            // 14 · an island left counting for a session this process is not in — the app
-            // was killed mid-workout, or replaced under a running one. The store is empty
-            // at launch by definition, so anything still up is an orphan.
-            .onReceive(Reachability.shared.$isOnline.removeDuplicates()) { online in
-                if online { Task { await Repository.shared.flushPendingEvidence() } }
-            }
-            .task {
-                BandLiveLifecycle.shared.start()
-                BandLiveLifecycle.shared.setPhase(phase)
-                SessionActivity.clearOrphans()
-                // Restoring the local account gates BLE, not cloud homepage hydration.
-                if await session.ensureSession() { requestForegroundRefresh(reason: "launch") }
-                await session.resolveLaunch()
-                BandLiveLifecycle.shared.refreshEligibility()
-            }
-            .onChange(of: phase) { _, new in
-                BandLiveLifecycle.shared.setPhase(new)
-                if new != .active { Task { await Analytics.shared.flush() } }
-            }
-            .onChange(of: router.takeover) { _, takeover in
-                BandLiveLifecycle.shared.setExclusiveOperation(takeover != nil)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-                BandLiveLifecycle.shared.setPhase(.background)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                BandLiveLifecycle.shared.setPhase(.active)
-                requestForegroundRefresh(reason: "foreground")
-            }
-    }
-
     private func requestForegroundRefresh(reason: String) {
+        NightDiagnostics.shared.record("app.refresh_requested", fields: ["reason": reason])
         Logger(subsystem: "com.nextbody.hoop", category: "lifecycle")
             .notice("foreground refresh reason=\(reason, privacy: .public)")
         // Publication still happens, but is not a dependency of local BLE readiness.

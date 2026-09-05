@@ -285,6 +285,7 @@ struct VitalsChartEmpty: View {
     let line: String
     let sub: String
     var height: CGFloat = 124
+    var subLineLimit: Int = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -294,7 +295,7 @@ struct VitalsChartEmpty: View {
             Text(sub)
                 .font(NBFont.dot(500, 10)).tracking(0.05 * 10)
                 .foregroundStyle(NB.macroValue)
-                .lineLimit(1).minimumScaleFactor(0.8)
+                .lineLimit(subLineLimit).minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, minHeight: height, alignment: .leading)
     }

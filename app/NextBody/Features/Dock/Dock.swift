@@ -162,7 +162,7 @@ struct Dock: View {
                     // 05M · B·02 · the threshold is crossed → one haptic, mic up.
                     onArm: {
                         armed = true
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Haptics.impact(.medium)
                         onListen()
                     },
                     // 05M · B·04 · slide up past −56 px arms the cancel; back down re-arms send.
@@ -170,7 +170,7 @@ struct Dock: View {
                         let c = armed && t.height < -56
                         if c != cancelling {
                             cancelling = c
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            Haptics.impact(.light)
                         }
                     },
                     onLift: { interrupted in
@@ -270,13 +270,17 @@ struct DockCircleButton<Glyph: View>: View {
             face
                 .scaleEffect(holding ? 1.22 : pressing ? 0.96 : 1)
                 .shadow(color: NB.lime1.opacity(holding ? 0.28 : 0), radius: holding ? 14 : 0)
+                // The swell has to arrive with the click, not after it: at 0.42 s the glow
+                // was still growing while the finger was already deciding to lift.
                 .animation(holding
-                           ? .spring(response: 0.42, dampingFraction: 0.62)
-                           : .spring(response: 0.26, dampingFraction: 0.78), value: holding)
-                .animation(.easeOut(duration: 0.12), value: pressing)
+                           ? .spring(response: 0.22, dampingFraction: 0.7)
+                           : .spring(response: 0.2, dampingFraction: 0.8), value: holding)
+                .animation(.easeOut(duration: 0.09), value: pressing)
                 .overlay {
                     PressHold(
-                        minimumDuration: 0.4,
+                        // 05 · a press, not a wait — but far enough past the slowest
+                        // comfortable tap that opening the sheet never arms the camera.
+                        minimumDuration: 0.3,
                         onTouch: { down in
                             pressing = down
                             if down { HoldHaptics.shared.prepare() }

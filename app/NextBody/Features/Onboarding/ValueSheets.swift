@@ -124,7 +124,7 @@ struct WeightRulerSheet: View {
         .onChange(of: draft) { _, v in
             if Int(v) != lastWhole {
                 lastWhole = Int(v)
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Haptics.impact(.light)
             }
         }
         .alert("Weight", isPresented: $typing) {

@@ -479,6 +479,82 @@ struct VitalsIndexScatter: View {
     }
 }
 
+/// Rolling-24h wrist meal-response points. The vendor scale is opaque, so the chart names
+/// these as points and scales only to the observed range. Gaps stay dashed instead of being
+/// presented as continuous measurement.
+struct VitalsResponseTrace: View {
+    let points: [MealResponseIndex.Point]
+    let window: VitalsWindow
+    let tint: Color
+    var height: CGFloat = 124
+
+    var body: some View {
+        Canvas { ctx, size in
+            let visible = points.filter { window.contains($0.ts) && $0.optical.isFinite && $0.optical > 0 }
+            guard let minimum = visible.map(\.optical).min(),
+                  let maximum = visible.map(\.optical).max() else { return }
+            let padding = max(1, (maximum - minimum) * 0.12)
+            let low = minimum - padding
+            let high = maximum + padding
+            let span = max(1, high - low)
+            func position(_ point: MealResponseIndex.Point) -> CGPoint {
+                let y = size.height - 2 - CGFloat((point.optical - low) / span) * (size.height - 4)
+                return CGPoint(x: size.width * window.fraction(of: point.ts), y: y)
+            }
+
+            for fraction in [0.15, 0.45, 0.75] {
+                var guide = Path()
+                guide.move(to: CGPoint(x: 0, y: size.height * fraction))
+                guide.addLine(to: CGPoint(x: size.width, y: size.height * fraction))
+                ctx.stroke(guide, with: .color(NB.white.opacity(0.05)), lineWidth: 1)
+            }
+
+            var runs: [[MealResponseIndex.Point]] = []
+            var run: [MealResponseIndex.Point] = []
+            for point in visible {
+                if let previous = run.last, point.ts.timeIntervalSince(previous.ts) > 10 * 60 {
+                    runs.append(run)
+                    run = []
+                }
+                run.append(point)
+            }
+            if !run.isEmpty { runs.append(run) }
+
+            for (index, samples) in runs.enumerated() {
+                var line = Path()
+                line.move(to: position(samples[0]))
+                for sample in samples.dropFirst() { line.addLine(to: position(sample)) }
+                if samples.count == 1 {
+                    let point = position(samples[0])
+                    line.addLine(to: CGPoint(x: point.x + 0.5, y: point.y))
+                }
+                ctx.stroke(line, with: .color(tint),
+                           style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                if index + 1 < runs.count {
+                    var gap = Path()
+                    gap.move(to: position(samples[samples.count - 1]))
+                    gap.addLine(to: position(runs[index + 1][0]))
+                    ctx.stroke(gap, with: .color(tint.opacity(0.28)),
+                               style: StrokeStyle(lineWidth: 1.1, dash: [2, 3]))
+                }
+            }
+
+            for sample in visible {
+                let point = position(sample)
+                ctx.fill(Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)),
+                         with: .color(tint))
+            }
+            if let latest = visible.last {
+                let point = position(latest)
+                ctx.fill(Path(ellipseIn: CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)),
+                         with: .color(tint))
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+}
+
 /// 06 · 08 · the day as 24 hourly columns, graded in three tiers against the busiest hour.
 /// An hour with no ticks is left empty rather than drawn as a zero — 04B rule 04 · a missing
 /// hour and a still hour are two different facts, and only one of them is a bar.

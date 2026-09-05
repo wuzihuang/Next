@@ -1,4 +1,5 @@
 {
+  "HRV RECEIVED OUTSIDE SLEEP; NO VALID SAMPLES DURING THIS SLEEP": "已收到睡眠时段外的 HRV，本次睡眠暂无有效采样",
   "NO VALID HRV SAMPLES FOR THIS SLEEP": "本次睡眠暂无有效 HRV 样本",
   "FIXED 0–60 /MIN": "固定 0–60 次/分",
   "SLEEP RESPIRATION": "睡眠呼吸率",
@@ -17,7 +18,6 @@
   "SAVED ON THIS DEVICE": "已保存在本机",
   "Chat history could not be saved or loaded. Please try again.": "聊天记录保存或读取失败，请重试。",
   "Retry": "重试",
-
   "Unable to answer right now. Please try again.": "暂时无法回答，请重试。",
   "NEXTBODY": "NEXTBODY",
   "HOOP": "HOOP",
@@ -334,6 +334,7 @@
   "FROM TOMORROW · TODAY IS UNCHANGED": "明天生效 · 今天不变",
   "DEVICE": "设备",
   "PREFERENCES": "偏好",
+  "HAPTICS": "震动",
   "NOTIFICATIONS": "通知",
   "METRIC · KG": "公制 · KG",
   "IMPERIAL · LB": "英制 · LB",
@@ -1012,8 +1013,16 @@
   "VS OWN MEDIAN": "VS OWN MEDIAN",
   "OWN MEDIAN": "OWN MEDIAN",
   "TODAY'S POINTS": "TODAY'S POINTS",
-  "WRIST OPTICAL MEAL RESPONSE": "腕部光学进餐反应",
-  "LAST 24H RESPONSE SCATTER": "最近 24 小时进餐反应散点",
+  "WRIST OPTICAL MEAL RESPONSE": "腕部光学食物反应点",
+  "RESPONSE": "食物反应点",
+  "LAST 24H FOOD RESPONSE POINTS": "最近 24 小时食物反应点",
+  "FOOD RESPONSE POINT": "食物反应点",
+  "Wrist food response point": "腕部食物反应点",
+  "%d / 5 BASELINE DAYS": "基线天数 %d / 5",
+  "MEASURED POINTS · LINE": "实测点 · 折线",
+  "24H MEDIAN POINT": "24 小时中位点",
+  "MEASURED POINTS": "实测采集点",
+  "LATEST POINT": "最新采集点",
   "Meal-response index versus own median": "进餐反应指数，对照自身中位",
   "NO RESPONSE POINTS IN 24H": "24 小时内没有进餐反应采样",
   "OWN MEDIAN TAKES FIVE DAYS": "自身中位需要五天",
@@ -1405,5 +1414,9 @@
   "The band returned a different state: %@": "设备返回了不同的状态：%@",
   "Operation interrupted. Read again when the band is ready.": "操作已中断，请在设备就绪后重新读取。",
   "The device rejected the health light setting.": "设备拒绝了健康灯设置。",
-  "The device returned an unknown health light state.": "设备返回了未知的健康灯状态。"
+  "The device returned an unknown health light state.": "设备返回了未知的健康灯状态。",
+  "Signing in": "正在登录",
+  "Still connecting": "仍在连接",
+  "Verifying": "验证中",
+  "Verify and continue": "验证并继续"
 }

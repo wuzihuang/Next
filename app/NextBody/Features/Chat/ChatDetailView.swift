@@ -36,6 +36,7 @@ struct ChatDetailView: View {
                         showHistorySheet = true
                     }
                 )
+                .modifier(ChatChromeBand(band: .header))
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ChatBottomDockView(
@@ -56,6 +57,7 @@ struct ChatDetailView: View {
                         submitMessage()
                     }
                 )
+                .modifier(ChatChromeBand(band: .dock))
             }
             .carbonPage()
             .toolbar(.hidden, for: .navigationBar)
@@ -82,6 +84,7 @@ struct ChatDetailView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
+            .onDisappear { StreamHaptics.shared.deactivate() }
             .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
             .onChange(of: selectedPhotoItem) { _, item in
                 handlePhotoSelection(item)
@@ -97,7 +100,7 @@ struct ChatDetailView: View {
                 }
                 if let initialQuery, !initialQuery.isEmpty {
                     await chatStore.send(text: initialQuery, dataURL: initialAttachmentDataURL, dataStore: dataStore)
-                } else {
+                } else if chatStore.currentSession?.messages.isEmpty ?? true {
                     try? await Task.sleep(for: .milliseconds(350))
                     isInputFocused = true
                 }
@@ -121,19 +124,23 @@ struct ChatDetailView: View {
                             if message.sender == .user {
                                 UserBubbleView(message: message)
                                     .id(message.id.uuidString)
+                                    .accessibilityIdentifier(latestMessageID == message.id ? "chat.latest-message" : "chat.message")
                             } else {
                                 ChatAnswerView(message: message, onTap: { router.open($0) })
                                     .id(message.id.uuidString)
+                                    .accessibilityIdentifier(latestMessageID == message.id ? "chat.latest-message" : "chat.message")
                             }
                         }
                     }
 
                     if chatStore.isSendingCurrentSession {
                         ThinkingStatusView(thoughts: ai.thoughts)
-                            .id("thinking-indicator")
+                            .id(ChatScrollTarget.thinking)
                     }
 
-                    Color.clear.frame(height: 4)
+                    Color.clear
+                        .frame(height: 4)
+                        .id(ChatScrollTarget.bottom)
                 }
                 .padding(.horizontal, NB.Layout.gutter)
                 .padding(.top, 6)
@@ -148,23 +155,64 @@ struct ChatDetailView: View {
                     isInputFocused = false
                 }
             )
+            .task(id: chatStore.currentSessionID) {
+                await jumpToLatest(proxy, animated: false)
+            }
             .onChange(of: chatStore.currentSession?.messages.count) { _, _ in
-                withAnimation {
-                    let targetID = chatStore.currentSession?.messages.last?.id.uuidString ?? "thinking-indicator"
-                    proxy.scrollTo(targetID, anchor: .bottom)
-                }
+                Task { await jumpToLatest(proxy, animated: true) }
+            }
+            .onChange(of: isInputFocused) { _, focused in
+                guard focused else { return }
+                Task { await jumpToLatest(proxy, animated: true) }
             }
             .onChange(of: ai.thoughts.last?.id) { _, _ in
                 guard chatStore.isSendingCurrentSession else { return }
-                withAnimation { proxy.scrollTo("thinking-indicator", anchor: .bottom) }
+                withAnimation { proxy.scrollTo(ChatScrollTarget.thinking, anchor: .bottom) }
             }
             .onChange(of: chatStore.isSendingCurrentSession) { _, sending in
                 if sending {
-                    withAnimation { proxy.scrollTo("thinking-indicator", anchor: .bottom) }
+                    // Warm the haptic engine with the turn so the first character is not
+                    // ahead of it, and tap once when the answer takes the floor.
+                    StreamHaptics.shared.activate()
+                    withAnimation { proxy.scrollTo(ChatScrollTarget.thinking, anchor: .bottom) }
+                } else {
+                    StreamHaptics.shared.deactivate()
+                    StreamHaptics.shared.settled()
+                    Task { await jumpToLatest(proxy, animated: true) }
                 }
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    private var latestMessageID: UUID? {
+        chatStore.currentSession?.messages.last?.id
+    }
+
+    private var latestScrollID: String {
+        ChatScrollTarget.id(
+            lastMessageID: latestMessageID,
+            isThinking: chatStore.isSendingCurrentSession
+        )
+    }
+
+    @MainActor
+    private func jumpToLatest(_ proxy: ScrollViewProxy, animated: Bool) async {
+        let run = {
+            if animated {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    proxy.scrollTo(latestScrollID, anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo(latestScrollID, anchor: .bottom)
+            }
+        }
+        // Layout is often still settling on first appear and when the keyboard lifts, so
+        // the same landing is retried until the latest line is actually in view.
+        for delay in [0, 50, 180, 400] as [UInt64] {
+            if delay > 0 { try? await Task.sleep(for: .milliseconds(delay)) }
+            run()
+        }
     }
 
     private var canSend: Bool {
@@ -285,11 +333,15 @@ private struct UserBubbleView: View {
                 }
 
                 if !message.text.isEmpty {
-                    Text(message.text)
-                        .font(NBFont.brand(500, 14))
-                        .foregroundStyle(NB.text1)
-                        .lineSpacing(4)
-                        .multilineTextAlignment(.leading)
+                    ChatMarkdownView(
+                        source: message.text,
+                        family: .brand,
+                        size: 14,
+                        color: NB.text1,
+                        accessibilityName: "chat.user-markdown",
+                        expands: false
+                    )
+                    .multilineTextAlignment(.leading)
                 }
 
                 HStack(spacing: 4) {
@@ -334,15 +386,23 @@ private struct ChatAnswerView: View {
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     if !message.text.isEmpty {
-                        Text(message.text)
-                            .font(NBFont.ui(400, 15))
-                            .foregroundStyle(NB.text1)
+                        ChatMarkdownView(
+                            source: message.text,
+                            family: .ui,
+                            size: 15,
+                            color: NB.text1,
+                            accessibilityName: "chat.markdown"
+                        )
                     }
                     if let detail = message.widget?.headline?.sub,
                        !detail.isEmpty, detail != message.text {
-                        Text(detail)
-                            .font(NBFont.ui(400, 14))
-                            .foregroundStyle(NB.text2)
+                        ChatMarkdownView(
+                            source: detail,
+                            family: .ui,
+                            size: 14,
+                            color: NB.text2,
+                            accessibilityName: "chat.markdown.detail"
+                        )
                     }
                 }
                 .lineSpacing(5)
@@ -359,9 +419,26 @@ private struct ChatAnswerView: View {
 // MARK: - Thinking View
 private struct ThinkingStatusView: View {
     let thoughts: [AIService.Thought]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Characters a second, the panel's rate — the two surfaces print at the same pace.
+    private static let typeRate = 46.0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        TimelineView(.animation(paused: reduceMotion)) { tl in
+            let now = tl.date
+            card(now: now)
+                // The same tick as the panel: one under the characters, one when a line lands.
+                .onChange(of: typedCount(now: now)) { old, new in
+                    if new > old { StreamHaptics.shared.type() }
+                }
+                .onChange(of: thoughts.last?.id) { _, _ in StreamHaptics.shared.lineLanded() }
+        }
+    }
+
+    private func card(now: Date) -> some View {
+        let rows = Array(thoughts.suffix(4))
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Circle()
                     .fill(NB.lime1)
@@ -372,10 +449,18 @@ private struct ThinkingStatusView: View {
                     .foregroundStyle(NB.lime1)
             }
 
-            ForEach(thoughts.suffix(4)) { thought in
-                Text(thought.text)
-                    .font(NBFont.ui(400, 13))
-                    .foregroundStyle(NB.text2)
+            ForEach(rows.indices, id: \.self) { i in
+                // Only the newest line is still arriving; the ones above it are whole.
+                let live = i == rows.count - 1
+                let text = live ? String(rows[i].text.prefix(typedCount(now: now))) : rows[i].text
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(text)
+                        .font(NBFont.ui(400, 13))
+                        .foregroundStyle(NB.text2)
+                    if live, !reduceMotion, typedCount(now: now) < rows[i].text.count {
+                        Rectangle().fill(NB.lime1).frame(width: 5, height: 12)
+                    }
+                }
             }
         }
         .accessibilityIdentifier("chat.thinking")
@@ -383,6 +468,13 @@ private struct ThinkingStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(hex: 0x111116), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(NB.lime1.opacity(0.2), lineWidth: 1))
+    }
+
+    /// How much of the newest line has been typed. Reduce Motion prints it whole.
+    private func typedCount(now: Date) -> Int {
+        guard let last = thoughts.last else { return 0 }
+        if reduceMotion { return last.text.count }
+        return min(last.text.count, Int(max(0, now.timeIntervalSince(last.at)) * Self.typeRate))
     }
 }
 
@@ -523,5 +615,31 @@ private struct ChatBottomDockView: View {
         .padding(.vertical, 10)
         .background(Color(hex: 0x131318), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NB.hairline, lineWidth: 1))
+    }
+}
+
+/// Header and dock sit on the same carbon as the thread, so a fill alone disappears.
+/// A lifted plate, a lime hairline on the inner edge, and a shadow on the messages
+/// are what separate those two bands from the page.
+private struct ChatChromeBand: ViewModifier {
+    enum Band { case header, dock }
+    let band: Band
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                NB.ledOff
+                    .ignoresSafeArea(edges: band == .header ? .top : .bottom)
+                    .shadow(
+                        color: .black.opacity(0.72),
+                        radius: 22,
+                        y: band == .header ? 12 : -12
+                    )
+                    .overlay(alignment: band == .header ? .bottom : .top) {
+                        Rectangle()
+                            .fill(NB.lime1.opacity(0.45))
+                            .frame(height: 1)
+                    }
+            }
     }
 }

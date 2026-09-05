@@ -366,7 +366,7 @@ struct LiveSessionTakeover: View {
         Self.log.notice("session stop committed elapsed=\(elapsed, privacy: .public)")
         holdStartedAt = nil
         holding = false
-        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        Haptics.impact(.rigid)
         Task {
             let widget = await store.stop()
             closing = true

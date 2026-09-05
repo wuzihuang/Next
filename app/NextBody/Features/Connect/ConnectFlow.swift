@@ -900,8 +900,8 @@ private struct Connected: View {
         .onChange(of: LinkChoreo.hapticStage(t)) { _, stage in
             guard !LinkHaptics.shared.isSupported else { return }
             switch stage {
-            case 1: UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-            case 2: UINotificationFeedbackGenerator().notificationOccurred(.success)
+            case 1: Haptics.impact(.rigid)
+            case 2: Haptics.notification(.success)
             default: break
             }
         }

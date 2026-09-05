@@ -23,6 +23,8 @@ struct HomeView: View {
     /// How far the finger has pulled the sheet down. It follows 1:1 and springs back under 120 pt.
     @State private var sheetDrag: CGFloat = 0
     @State private var draft = ""
+
+
     /// 09 edge 5 · the day a back-logged meal belongs to; nil means today.
     @State private var backlogDay: UserDay?
     /// F4 §02 · the model cannot write. When her frame says 「确认记录」 the plate she drafted is
@@ -350,6 +352,7 @@ struct HomeView: View {
             BandLiveLifecycle.shared.setForegroundWanted(wanted)
         }
         .onDisappear { BandLiveLifecycle.shared.setForegroundWanted(false) }
+        .background { NightHomeDiagnosticObserver(metrics: data.today) }
         .task {
             // DEBUG · 05 edges on a simulator with no microphone story of its own.
             switch DebugEdge.name {
@@ -1209,5 +1212,24 @@ extension UIImage {
         guard scale < 1 else { return self }
         let target = CGSize(width: size.width * scale, height: size.height * scale)
         return UIGraphicsImageRenderer(size: target).image { _ in draw(in: CGRect(origin: .zero, size: target)) }
+    }
+}
+
+/// Kept separate so diagnostic observation does not enlarge Home's view-builder expression.
+private struct NightHomeDiagnosticObserver: View {
+    let metrics: DailyMetrics
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .onAppear { record() }
+            .onChange(of: metrics.sleep) { _, _ in record() }
+            .onChange(of: metrics.vitalsCurve) { _, _ in record() }
+            .onChange(of: metrics.day) { _, _ in record() }
+    }
+    private func record() {
+        #if DEBUG
+        guard NightDiagnostics.shared.isEnabled else { return }
+        NightDiagnostics.shared.record("ui.home_input", fields: HomeSnapshot.diagnosticFields(
+            day: metrics.day, samples: metrics.vitalsCurve, sleep: metrics.sleep))
+        #endif
     }
 }

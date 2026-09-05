@@ -18,6 +18,10 @@ final class ChatStore: ObservableObject {
     private var accountID: String?
     private var archiveStore: ChatArchiveStore?
     private var storageReady = false
+    #if DEBUG
+    private var debugFixtureLocksPersistence = false
+    private var debugFixtureApplied = false
+    #endif
 
     private var currentAccountID: String {
         SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId ?? "signed-out"
@@ -27,31 +31,42 @@ final class ChatStore: ObservableObject {
 
     func prepareForCurrentAccount() {
         let account = currentAccountID
-        guard accountID != account else { return }
-        accountID = account
-        sendingScope = nil
-        sessions = []
-        currentSessionID = ""
-        archiveStore = nil
-        storageReady = false
-        persistenceError = nil
-        do {
-            let archive = try ChatArchiveStore(accountID: account)
-            archiveStore = archive
-            if let saved = try archive.load() {
-                sessions = saved.sessions.map(ChatSession.init(archive:))
-                currentSessionID = saved.activeSessionID ?? sessions.first?.id ?? ""
-                if !sessions.contains(where: { $0.id == currentSessionID }) {
-                    currentSessionID = sessions.first?.id ?? ""
+        if accountID != account {
+            accountID = account
+            sendingScope = nil
+            sessions = []
+            currentSessionID = ""
+            archiveStore = nil
+            storageReady = false
+            persistenceError = nil
+            #if DEBUG
+            debugFixtureApplied = false
+            debugFixtureLocksPersistence = false
+            #endif
+            do {
+                let archive = try ChatArchiveStore(accountID: account)
+                archiveStore = archive
+                if let saved = try archive.load() {
+                    sessions = saved.sessions.map(ChatSession.init(archive:))
+                    currentSessionID = saved.activeSessionID ?? sessions.first?.id ?? ""
+                    if !sessions.contains(where: { $0.id == currentSessionID }) {
+                        currentSessionID = sessions.first?.id ?? ""
+                    }
                 }
+                storageReady = true
+            } catch {
+                reportPersistenceError(error)
             }
-            storageReady = true
-        } catch {
-            reportPersistenceError(error)
         }
+        #if DEBUG
+        applyDebugChatFixtureIfNeeded()
+        #endif
     }
 
     private func persist() {
+        #if DEBUG
+        if debugFixtureLocksPersistence { return }
+        #endif
         guard storageReady, let archiveStore else { return }
         do {
             try archiveStore.save(ChatArchiveSnapshot(
@@ -182,4 +197,78 @@ final class ChatStore: ObservableObject {
         }
         return result.reversed()
     }
+
+    #if DEBUG
+    /// `NB_DEBUG_CHAT_FIXTURE=markdown|long` paints a known thread so UI tests can
+    /// check rendering and the landing scroll without calling the model.
+    private func applyDebugChatFixtureIfNeeded() {
+        let fixture = ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_FIXTURE"] ?? ""
+        guard !fixture.isEmpty, !debugFixtureApplied else { return }
+        debugFixtureApplied = true
+        debugFixtureLocksPersistence = true
+        storageReady = true
+        persistenceError = nil
+        let now = Date()
+        switch fixture {
+        case "markdown":
+            let sessionID = "debug-markdown"
+            sessions = [
+                ChatSession(
+                    id: sessionID,
+                    title: "Markdown",
+                    subtitle: "Overnight recovery",
+                    updatedAt: now,
+                    tags: ["DEBUG"],
+                    photosCount: 0,
+                    messages: [
+                        ChatMessage(sender: .user, text: "How did last night look?", at: now.addingTimeInterval(-60)),
+                        ChatMessage(sender: .assistant, text: Self.markdownFixtureBody, at: now),
+                    ]
+                ),
+            ]
+            currentSessionID = sessionID
+        case "long":
+            let sessionID = "debug-long"
+            var messages: [ChatMessage] = [
+                ChatMessage(sender: .user, text: "CHAT_FIXTURE_EARLIEST", at: now.addingTimeInterval(-2_000)),
+            ]
+            for index in 1...18 {
+                messages.append(ChatMessage(
+                    sender: .assistant,
+                    text: """
+                    History line \(index).
+                    The overnight curve held through this hour and the next.
+                    Load stayed inside the planned band and heart rate did not spike.
+                    Recovery notes keep this block tall enough to push the first line off screen.
+                    """,
+                    at: now.addingTimeInterval(TimeInterval(-2_000 + index * 80))
+                ))
+            }
+            messages.append(ChatMessage(sender: .assistant, text: "CHAT_FIXTURE_LATEST", at: now))
+            sessions = [
+                ChatSession(
+                    id: sessionID,
+                    title: "Long thread",
+                    subtitle: "CHAT_FIXTURE_LATEST",
+                    updatedAt: now,
+                    tags: ["DEBUG"],
+                    photosCount: 0,
+                    messages: messages
+                ),
+            ]
+            currentSessionID = sessionID
+        default:
+            break
+        }
+    }
+
+    static let markdownFixtureBody = """
+    ## Overnight recovery
+
+    Heart **rate** looks *steady*. Use `RMSSD` as the overnight marker.
+
+    - Deep sleep held
+    - HRV recovered
+    """
+    #endif
 }

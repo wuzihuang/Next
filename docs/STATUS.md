@@ -65,7 +65,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 12 + 12S | Device, and its two sheets | built, walked on device |
 | 13 | Body Battery detail | built, walked on device |
 | 04B | Home · page two, the eight instruments | built · swipe reworked (direction lock, no mis-taps), edge states F1–F5, sleepLine strip, PAGE2_* events |
-| 04C | Page two RESPONSE (retired HRV slot) | built · unitless meal-response index, compare-amber, PAGE2_RESPONSE_STATE |
+| 04C | Page two RESPONSE (retired HRV slot) | built · latest food-response point plus rolling 24h line; five-day baseline comparison, compare-amber, PAGE2_RESPONSE_STATE |
 
 04B notes:
 
@@ -1134,9 +1134,21 @@ NavigationStack (the root now cancels that shift), and the tray was hanging at t
 frame because the overlay was added after the keyboard `.offset` (the lift now comes last).
 
 ⚠️ Vision goes through `qwen3-vl-flash` (`VISION_MODEL_VERSION = qwen3-vl-flash/2026-09`), not the
-mandated qwen3.8-flash — that model has no image input. `qwen-vl-plus` looped on the JSON schema;
-the flash model answers a relaxed schema which the function coerces to integers and a tier.
+mandated qwen3.8-flash — that model had no image input when this was tried. `qwen-vl-plus` looped
+on the JSON schema; the flash model answers a relaxed schema which the function coerces to
+integers and a tier.
 Photo retry policy is still the board's open question; the client retries once per tap.
+
+⚠️ 2026-09-05 · the "no image input" half of that finding is now contradicted by the current
+model page, which lists qwen3.8-flash as Image / Text / Video with the OpenAI-compatible
+`image_url` content part on the same endpoint. There is no `qwen3.8-vl-*`: the standalone VL line
+stopped iterating once the mainline series went natively multimodal, and `qwen3-vl-flash` does not
+support Function Calling in the Singapore region while the mainline model does. ADR 0007 makes
+qwen3.8-flash the single primary model for text, vision and chat, but **`visionModel()` must not
+be removed on the strength of the documentation alone** — the finding above is empirical. Send one
+real photo through qwen3.8-flash first, and record the returned `usage` while doing it: that same
+call is the only measurement we have to calibrate the image-token and per-turn cost estimates in
+ADR 0007, since `usage` is currently never read anywhere in the codebase.
 
 ### 2026-09-03 · chat attachments now reach vision
 

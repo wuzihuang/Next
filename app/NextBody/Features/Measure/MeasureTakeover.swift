@@ -854,7 +854,7 @@ struct MeasureTakeover: View {
         case .contact:
             // The only haptic in the flow, fired on the first `testing`/`start` state that
             // comes back — never on the fact that we sent `start`.
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            Haptics.impact(.medium)
             // After a lift-off restart the stream yields contact again; do not wipe the
             // minute back to the pre-count contact frame (that hides 00:XX and feels broken).
             if phase != .counting && phase != .halfway {

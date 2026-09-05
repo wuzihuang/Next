@@ -258,6 +258,7 @@ final class WordmarkHaptics {
     }
 
     func play(still: Bool) {
+        guard HapticsSetting.shared.enabled else { return }
         // Reduce Motion holds the last frame instead of playing the fall, so there is no rain
         // to track — only the landing, moved onto that shorter beat.
         let dun1 = still ? 0.50 : 2.30
@@ -328,10 +329,10 @@ final class WordmarkHaptics {
     /// carried by the canned generators, so only the landing survives — blunt, but not silent.
     private func fallback(dun1: Double, dun2: Double) {
         DispatchQueue.main.asyncAfter(deadline: .now() + dun1) {
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.7)
+            Haptics.impact(.soft, intensity: 0.7)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + dun2) {
-            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            Haptics.impact(.rigid)
         }
     }
 

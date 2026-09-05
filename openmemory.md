@@ -62,7 +62,7 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
-- **Dedicated Chat & Cyber Telemetry** — `app/NextBody/Features/Chat/`: Full-screen Cyber Telemetry terminal from the Dock keyboard key. Keeps DIAGNOSTIC TERMINAL chrome, lime telemetry cards, CMD chips, HISTORY bottom sheet. Spacing/fonts slightly enlarged for readability; tap message area dismisses keyboard; no seeded demo sessions.
+- **Dedicated Chat & Cyber Telemetry** — `app/NextBody/Features/Chat/`: Full-screen Cyber Telemetry terminal from the Dock keyboard key. Assistant and user text go through `ChatMarkdown` (headings, lists, emphasis, fenced code) via `ChatMarkdownView`. Entering the page jumps to the latest line (`ChatScrollTarget` + `ScrollViewReader`). Header and dock are lifted `ledOff` plates with a lime inner hairline and a drop shadow so they do not sit on the same carbon as the thread. DEBUG `NB_DEBUG_CHAT_FIXTURE=markdown|long` seeds UI tests without touching the archive.
 - **BodyBatteryEngine** — Pure five-minute reserve model. Fuses HR/HRV/stress/steps/MET,
   saturates sleep recovery toward 95, allows bounded verified rest recovery, and holds
   off-wrist ticks.

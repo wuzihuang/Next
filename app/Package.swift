@@ -19,8 +19,14 @@ let package = Package(
         .target(
             name: "NextBodyChatCore",
             path: "NextBody/Features/Chat",
-            exclude: ["ChatDetailView.swift", "ChatHistorySheet.swift", "ChatModels.swift", "ChatStore.swift"],
-            sources: ["ChatArchive.swift"]
+            exclude: [
+                "ChatDetailView.swift",
+                "ChatHistorySheet.swift",
+                "ChatMarkdownView.swift",
+                "ChatModels.swift",
+                "ChatStore.swift",
+            ],
+            sources: ["ChatArchive.swift", "ChatMarkdown.swift", "ChatScroll.swift"]
         ),
         .testTarget(
             name: "NextBodyChatTests",

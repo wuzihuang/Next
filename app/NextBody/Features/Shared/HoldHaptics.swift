@@ -1,8 +1,10 @@
 import CoreHaptics
 import UIKit
 
-/// Two short taps: a soft, low-sharpness pulse at the hold threshold and a crisp pulse
-/// on release. Keeping the finger down does not sustain or repeat the vibration.
+/// Two short taps: a brief, high-sharpness click the instant the hold arms, and a crisp
+/// pulse on release. The arm click is deliberately thin and bright — the orb answers the
+/// press like a switch, not like a hum. Keeping the finger down does not sustain or repeat
+/// the vibration, and the person's HAPTICS switch silences both.
 /// Core Haptics falls back to UIKit on hardware without a haptic engine.
 @MainActor
 final class HoldHaptics {
@@ -14,7 +16,9 @@ final class HoldHaptics {
     /// The lift tap must land on the very next frame after the finger goes; a generator that
     /// is already prepared answers in time, a cold one does not.
     private let liftFallback = UIImpactFeedbackGenerator(style: .rigid)
-    private let armFallback = UIImpactFeedbackGenerator(style: .soft)
+    /// The arm click is a switch, not a cushion: rigid, so the fallback matches the
+    /// high-sharpness Core Haptics event rather than undoing it.
+    private let armFallback = UIImpactFeedbackGenerator(style: .rigid)
 
     private init() {}
 
@@ -27,27 +31,29 @@ final class HoldHaptics {
         try? engine?.start()
     }
 
-    /// One low-sharpness transient at the threshold; never a continuous event.
+    /// One short, high-sharpness transient at the threshold; never a continuous event.
     func beginHold() {
         stopHold()
-        guard supported, let engine else { armFallback.impactOccurred(intensity: 0.7); return }
+        guard HapticsSetting.shared.enabled else { return }
+        guard supported, let engine else { armFallback.impactOccurred(intensity: 0.95); return }
         do {
             try engine.start()
             let tap = CHHapticEvent(eventType: .hapticTransient, parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.75),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.15),
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.95),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.9),
             ], relativeTime: 0)
             let player = try engine.makePlayer(with: CHHapticPattern(events: [tap], parameters: []))
             try player.start(atTime: CHHapticTimeImmediate)
             hold = player
         } catch {
-            armFallback.impactOccurred(intensity: 0.7)
+            armFallback.impactOccurred(intensity: 0.95)
         }
     }
 
     /// The finger lifted from an armed hold: one crisp tap.
     func release() {
         stopHold()
+        guard HapticsSetting.shared.enabled else { return }
         guard supported, let engine else { liftFallback.impactOccurred(intensity: 1.0); return }
         do {
             try engine.start()

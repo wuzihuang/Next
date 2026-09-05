@@ -11,6 +11,8 @@ struct SleepHRVPoint { let ts: Date; let rmssdMS: Double }
 struct SleepSummary {
  var hrv: [SleepHRVPoint]?
  var validWindow = true
+ var sleepStart: Date? { validWindow ? Date(timeIntervalSince1970: 0) : nil }
+ var wakeAt: Date? { validWindow ? Date(timeIntervalSince1970: 3600) : nil }
  func containsSleepTimestamp(_ ts: Date) -> Bool { validWindow && (0..<3600).contains(ts.timeIntervalSince1970) }
 }
 """
@@ -21,7 +23,15 @@ let old = VitalsReadout.sleepHRVSamples(night: SleepSummary(hrv: nil), fallback:
 let empty = VitalsReadout.sleepHRVSamples(night: SleepSummary(hrv: []), fallback: fallback)
 let fresh = VitalsReadout.sleepHRVSamples(night: SleepSummary(hrv: [SleepHRVPoint(ts: ts, rmssdMS: 42), SleepHRVPoint(ts: ts.addingTimeInterval(7200), rmssdMS: 88)]), fallback: fallback)
 let missing = VitalsReadout.sleepHRVSamples(night: SleepSummary(hrv: nil, validWindow: false), fallback: fallback)
-let passed = old.first?.hrv == 10 && empty.isEmpty && fresh.count == 1 && fresh.first?.hrv == 42 && missing.isEmpty
+let outside = [VitalSample(ts: ts.addingTimeInterval(7200), hr: nil, stress: nil, hrv: 28)]
+let outsideState = VitalsReadout.hasHRVOutsideSleep(night: SleepSummary(hrv: []), samples: outside)
+let insideOnly = VitalsReadout.hasHRVOutsideSleep(night: SleepSummary(hrv: []), samples: fallback)
+let invalidOnly = VitalsReadout.hasHRVOutsideSleep(night: SleepSummary(hrv: []), samples: [VitalSample(ts: ts.addingTimeInterval(7200), hr: nil, stress: nil, hrv: .nan)])
+let noWindow = VitalsReadout.hasHRVOutsideSleep(night: SleepSummary(hrv: [], validWindow: false), samples: outside)
+let emptyDay = VitalsReadout.hasHRVOutsideSleep(night: SleepSummary(hrv: []), samples: [])
+let statePassed = outsideState && !insideOnly && !invalidOnly && !noWindow && !emptyDay
+print("\(statePassed ? "PASS" : "FAIL"): outside-sleep status requires real valid readings and a recorded sleep window")
+let passed = statePassed && old.first?.hrv == 10 && empty.isEmpty && fresh.count == 1 && fresh.first?.hrv == 42 && missing.isEmpty
 print("\(passed ? "PASS" : "FAIL"): archived HRV wins; explicit empty stays empty; legacy falls back only within sleep")
 exit(passed ? 0 : 1)
 """

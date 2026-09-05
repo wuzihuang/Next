@@ -90,6 +90,43 @@ enum HomeSnapshot {
         var sleep: SleepSummary?
     }
 
+    #if DEBUG
+    /// Counts and windows only: never include account/device identifiers or measured values.
+    static func diagnosticFields(day: UserDay, samples: [VitalSample], sleep: SleepSummary?) -> [String: String] {
+        guard NightDiagnostics.shared.isEnabled else { return [:] }
+        let iso = ISO8601DateFormatter()
+        return [
+            "day": day.key, "sampleCount": String(samples.count),
+            "hrvSampleCount": String(samples.filter { $0.hrv.map { $0.isFinite && $0 > 0 } ?? false }.count),
+            "temperatureSampleCount": String(samples.filter { $0.temp != nil }.count),
+            "sleepPresent": String(sleep != nil),
+            "sleepStart": sleep?.sleepStart.map { iso.string(from: $0) } ?? "unknown",
+            "wakeAt": sleep?.wakeAt.map { iso.string(from: $0) } ?? "unknown",
+            "sleepMinutes": sleep.map { String($0.totalMinutes) } ?? "unknown",
+            "nightHRVKnown": String(sleep?.hrv != nil),
+            "nightHRVCount": sleep?.hrv.map { String($0.count) } ?? "unknown",
+            "sleepRespirationCount": sleep?.respiration.map { String($0.count) } ?? "unknown",
+            "sleepOxygenCount": sleep.map { String($0.spo2.count) } ?? "unknown"
+        ]
+    }
+
+    /// Independent same-account readback; a diagnostic failure never changes production save semantics.
+    private static func recordReadback(expected: Data, event: String, fields: [String: String],
+                                       read: () throws -> Data?) {
+        guard NightDiagnostics.shared.isEnabled else { return }
+        do {
+            let actual = try read()
+            NightDiagnostics.shared.record(event, fields: fields.merging([
+                "status": actual == nil ? "missing" : (actual == expected ? "matched" : "mismatched")
+            ], uniquingKeysWith: { _, fresh in fresh }))
+        } catch {
+            NightDiagnostics.shared.record(event, fields: fields.merging([
+                "status": "failed", "errorType": String(describing: type(of: error))
+            ], uniquingKeysWith: { _, fresh in fresh }))
+        }
+    }
+    #endif
+
     @MainActor
     static func saveBandObservations(day: UserDay, samples: [VitalSample], sleep: SleepSummary?, userId: String) throws {
         let database = try LocalDataStore.shared()
@@ -99,7 +136,17 @@ enum HomeSnapshot {
         let archived = BandDay(day: day,
             samples: VitalSample.merging(existing?.samples ?? [], with: samples),
             sleep: mergedSleep(sleepForDay(existing?.sleep, day: day), with: sleepForDay(sleep, day: day)))
-        try database.writeObservationDocument(account: userId, key: key, data: JSONEncoder().encode(archived))
+        let encoded = try JSONEncoder().encode(archived)
+        try database.writeObservationDocument(account: userId, key: key, data: encoded)
+        #if DEBUG
+        if NightDiagnostics.shared.isEnabled {
+            let fields = diagnosticFields(day: day, samples: archived.samples, sleep: archived.sleep)
+            NightDiagnostics.shared.record("storage.observations_saved", fields: fields)
+            recordReadback(expected: encoded, event: "storage.observations_readback", fields: fields) {
+                try database.readObservationDocument(account: userId, key: key)
+            }
+        }
+        #endif
     }
 
     /// Sleep is filed under its local wake calendar date, independent of the 04:00 user-day boundary.
@@ -174,6 +221,10 @@ enum HomeSnapshot {
                 } else {
                     history.append(restore(DailyMetrics(day: archived.day)))
                 }
+                #if DEBUG
+                NightDiagnostics.shared.record("storage.observations_restored", fields:
+                    diagnosticFields(day: archived.day, samples: archived.samples, sleep: archived.sleep))
+                #endif
             }
             store.history = history.sorted { $0.day < $1.day }
         } catch { NSLog("Band observation archive read failed: %@", String(describing: error)) }
@@ -220,8 +271,20 @@ enum HomeSnapshot {
             try cache.writeDocument(account: userId, key: "home", data: data,
                 expiresAt: now.addingTimeInterval(30 * 86_400))
             try cache.pruneCache(maxBytes: 16 * 1024 * 1024, now: now)
+            #if DEBUG
+            if NightDiagnostics.shared.isEnabled {
+                let fields = diagnosticFields(day: today.day, samples: today.vitalsCurve, sleep: today.sleep)
+                NightDiagnostics.shared.record("storage.home_saved", fields: fields)
+                recordReadback(expected: data, event: "storage.home_readback", fields: fields) {
+                    try cache.readDocument(account: userId, key: "home")
+                }
+            }
+            #endif
             return true
         } catch {
+            #if DEBUG
+            NightDiagnostics.shared.record("storage.home_save_failed", fields: ["errorType": String(describing: type(of: error))])
+            #endif
             NSLog("Home cache save failed: %@", String(describing: error))
             return false
         }

@@ -121,7 +121,7 @@ struct VitalsPage: View {
 
     private var responseCard: some View {
         let index = mealIndex
-        let hero = index.hero.map(MealResponseIndex.signedPercent)
+        let hero = index.latestPoint.map(MealResponseIndex.pointValue)
         let status: (String, String)?
         switch index.empty {
         case .needs5Days: status = (L("NEEDS 5 DAYS"), L("OWN MEDIAN NOT READY"))
@@ -134,10 +134,11 @@ struct VitalsPage: View {
             label: L("RESPONSE"), tag: "NOW", tint: NB.compareAmber,
             height: cardHeight,
             value: hero, unit: nil,
-            foot: L("VS OWN MEDIAN"),
+            foot: index.ownMedianReady ? L("FOOD RESPONSE POINT")
+                : L("%d / 5 BASELINE DAYS", index.baselineDays),
             status: status,
-            spokenHint: L("Meal-response index versus own median")) {
-            ResponseSpark(points: index.percents, day: day, tint: NB.compareAmber)
+            spokenHint: L("Wrist food response point")) {
+            ResponseSpark(points: index.trendPoints, day: day, tint: NB.compareAmber)
         }
     }
 
@@ -393,33 +394,60 @@ struct PageDots: View {
 
 // MARK: charts · 148 × 28 in the board, whatever the card's inner width is on device.
 
-/// Sparse meal-response ticks, points only. A line would read as a CGM.
+/// Measured food-response points. Missing intervals stay dashed.
 struct ResponseSpark: View {
-    let points: [MealResponseIndex.ScatterPoint]
+    let points: [MealResponseIndex.Point]
     let day: UserDay
     let tint: Color
 
     var body: some View {
         Canvas { ctx, size in
-            let values = points.map(\.percent)
-            guard let loRaw = values.min(), let hiRaw = values.max() else { return }
-            let lo = min(Double(loRaw), -8) - 4
-            let hi = max(Double(hiRaw), 8) + 4
-            let span = max(1, hi - lo)
-            func y(_ v: Int) -> CGFloat {
-                size.height - 2 - CGFloat((Double(v) - lo) / span) * (size.height - 4)
+            let visible = points.filter {
+                let t = $0.ts.timeIntervalSince(day.start) / 86_400
+                return t >= 0 && t <= 1
             }
-            var zero = Path()
-            zero.move(to: CGPoint(x: 0, y: y(0)))
-            zero.addLine(to: CGPoint(x: size.width, y: y(0)))
-            ctx.stroke(zero, with: .color(NB.white.opacity(0.18)),
-                       style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
-            for point in points {
+            let values = visible.map(\.optical)
+            guard let loRaw = values.min(), let hiRaw = values.max() else { return }
+            let padding = max(1, (hiRaw - loRaw) * 0.12)
+            let lo = loRaw - padding
+            let hi = hiRaw + padding
+            let span = max(1, hi - lo)
+            func position(_ point: MealResponseIndex.Point) -> CGPoint {
                 let t = point.ts.timeIntervalSince(day.start) / 86_400
-                guard t >= 0, t <= 1 else { continue }
-                let p = CGPoint(x: size.width * t, y: y(point.percent))
-                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3)),
-                         with: .color(tint))
+                let y = size.height - 2 - CGFloat((point.optical - lo) / span) * (size.height - 4)
+                return CGPoint(x: size.width * t, y: y)
+            }
+            var runs: [[MealResponseIndex.Point]] = []
+            var run: [MealResponseIndex.Point] = []
+            for point in visible {
+                if let previous = run.last, point.ts.timeIntervalSince(previous.ts) > 10 * 60 {
+                    runs.append(run)
+                    run = []
+                }
+                run.append(point)
+            }
+            if !run.isEmpty { runs.append(run) }
+            for (index, samples) in runs.enumerated() {
+                var line = Path()
+                line.move(to: position(samples[0]))
+                for point in samples.dropFirst() { line.addLine(to: position(point)) }
+                if samples.count == 1 {
+                    let p = position(samples[0])
+                    line.addLine(to: CGPoint(x: p.x + 0.5, y: p.y))
+                }
+                ctx.stroke(line, with: .color(tint),
+                           style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                if index + 1 < runs.count {
+                    var gap = Path()
+                    gap.move(to: position(samples[samples.count - 1]))
+                    gap.addLine(to: position(runs[index + 1][0]))
+                    ctx.stroke(gap, with: .color(tint.opacity(0.25)),
+                               style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                }
+            }
+            for point in visible {
+                let p = position(point)
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3)), with: .color(tint))
             }
         }
     }

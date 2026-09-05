@@ -32,6 +32,13 @@ enum MealResponseIndex {
     }
 
     struct Result: Equatable, Sendable {
+        /// Latest valid vendor point in today's 04:00 user day. This can be shown before
+        /// the five-day personal baseline is ready.
+        var latestPoint: Double?
+        /// Raw valid points in the rolling 24-hour chart window.
+        var trendPoints: [Point]
+        var median24hPoint: Double?
+        var baselineDays: Int
         var hero: Int?
         var median24h: Int?
         var ownMedianReady: Bool
@@ -42,7 +49,7 @@ enum MealResponseIndex {
         var percents: [ScatterPoint]
 
         var analyticsState: String {
-            if hero != nil { return "FRESH" }
+            if latestPoint != nil { return "FRESH" }
             return empty?.rawValue ?? "EMPTY"
         }
     }
@@ -51,6 +58,13 @@ enum MealResponseIndex {
         if value > 0 { return "+\(value)" }
         if value < 0 { return "−\(abs(value))" }
         return "0"
+    }
+
+    static func pointValue(_ value: Double) -> String {
+        let rounded = value.rounded()
+        return abs(value - rounded) < 0.05
+            ? String(Int(rounded))
+            : String(format: "%.1f", value)
     }
 
     static func make(
@@ -92,6 +106,10 @@ enum MealResponseIndex {
         let heroOptical = todayPoints.last?.optical
         let hero = heroOptical.flatMap(percent)
 
+        let trendPoints = valid.filter { $0.ts >= windowStart && $0.ts <= now }
+            .sorted { $0.ts < $1.ts }
+        let median24hPoint = median(trendPoints.map(\.optical))
+
         let todayPercents = todayPoints.compactMap { point -> Int? in
             percent(of: point.optical)
         }
@@ -120,19 +138,23 @@ enum MealResponseIndex {
         }
 
         let empty: Empty?
-        if hero == nil, switchOff {
+        if heroOptical == nil, switchOff {
             empty = .switchOff
-        } else if hero == nil, allZeros {
+        } else if heroOptical == nil, allZeros {
             empty = .allZeros
+        } else if heroOptical != nil {
+            empty = nil
         } else if !ownMedianReady {
             empty = .needs5Days
-        } else if hero == nil {
-            empty = .empty
         } else {
-            empty = nil
+            empty = .empty
         }
 
         return Result(
+            latestPoint: heroOptical,
+            trendPoints: trendPoints,
+            median24hPoint: median24hPoint,
+            baselineDays: min(daysWithPoints.count, 5),
             hero: hero,
             median24h: median24h,
             ownMedianReady: ownMedianReady,

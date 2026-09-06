@@ -34,6 +34,28 @@ let package = Package(
             path: "NextBodyChatTests"
         ),
         .target(
+            name: "NextBodySleepCore",
+            path: "NextBody/Features/Vitals",
+            sources: ["SleepScoreMath.swift", "VitalsProbeMath.swift", "VitalsDialMath.swift",
+                      "HeartWindowMath.swift"]
+        ),
+        .testTarget(
+            name: "NextBodySleepTests",
+            dependencies: ["NextBodySleepCore"],
+            path: "NextBodySleepTests"
+        ),
+        .target(
+            name: "NextBodyPlanCore",
+            path: "NextBody/Features/Plan",
+            exclude: ["PlanChevron.swift", "PlanLip.swift", "PlanPage.swift"],
+            sources: ["PlanFaceMath.swift"]
+        ),
+        .testTarget(
+            name: "NextBodyPlanTests",
+            dependencies: ["NextBodyPlanCore"],
+            path: "NextBodyPlanTests"
+        ),
+        .target(
             name: "NextBodySyncCore",
             path: "NextBody/Services/Band",
             exclude: [
@@ -49,13 +71,16 @@ let package = Package(
                 "AIFreshnessPolicy.swift",
                 "SessionBoundTransport.swift",
                 "DailyDirectionPolicy.swift",
+                "DeviceCompanionMath.swift",
                 "HealthSampleMapping.swift",
                 "MealResponseIndex.swift",
+                "SkinTempNightRange.swift",
                 "HomeLaunchPolicy.swift",
                 "LaunchGate.swift",
                 "BandReadinessFlight.swift",
                 "SportSessionLifetime.swift",
                 "ActivityEnergyPolicy.swift",
+                "ActiveEnergyMath.swift",
                 "SportMetricAccumulator.swift",
                 "SportLiveInfo.swift",
                 "BandSportSubscription.swift",
@@ -63,8 +88,18 @@ let package = Package(
                 "BandMeasurementReply.swift",
                 "BandHealthLight.swift",
                 "BandPersonalInfoPolicy.swift",
+                "BatteryLog.swift",
                 "VitalSample.swift",
                 "VitalsTimelinePolicy.swift",
+                "WearRun.swift",
+                "UserDay.swift",
+                "RollingPills.swift",
+                "DetailWindow.swift",
+                "FuelWindowMath.swift",
+                "FuelCardMath.swift",
+                "CompositionWindowMath.swift",
+                "TrainingWindowMath.swift",
+                "BodyBatteryWindowMath.swift",
             ]
         ),
         .testTarget(

@@ -3,60 +3,6 @@ import Foundation
 // F2 · The Numbers. Every symbol on screen has an entry here.
 // Rule 05: unknown never degrades to 0 — the data layer writes nil, the screen writes "——".
 
-/// F2 rule 03 · one calendar. A user day runs local 04:00 → 04:00 next day.
-struct UserDay: Hashable, Identifiable, Comparable, Codable {
-    /// The instant the window opens: local 04:00 on the day it starts.
-    let date: Date
-    var id: Date { date }
-
-    /// Two user days are the same day if they start on the same calendar date.
-    /// ⚠️ Comparing the instants directly breaks across a DST change and across the two
-    /// places a UserDay is built — from `now`, and from a `yyyy-MM-dd` string off the wire.
-    static func == (a: UserDay, b: UserDay) -> Bool {
-        Calendar.current.isDate(a.date, inSameDayAs: b.date)
-    }
-
-    func hash(into hasher: inout Hasher) {
-        let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        hasher.combine(c.year); hasher.combine(c.month); hasher.combine(c.day)
-    }
-
-    static let boundaryHour = 4
-
-    static func containing(_ instant: Date, calendar: Calendar = .current) -> UserDay {
-        var cal = calendar
-        cal.timeZone = TimeZone.current
-        let comps = cal.dateComponents([.year, .month, .day, .hour], from: instant)
-        var start = cal.date(from: DateComponents(year: comps.year, month: comps.month, day: comps.day))!
-        if (comps.hour ?? 0) < boundaryHour {
-            start = cal.date(byAdding: .day, value: -1, to: start)!
-        }
-        return UserDay(date: cal.date(byAdding: .hour, value: boundaryHour, to: start)!)
-    }
-
-    var start: Date { date }
-    /// The server's `user_day` string for this day.
-    var key: String { Self.keyFormatter.string(from: date) }
-    private static let keyFormatter: DateFormatter = {
-        let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian)
-        f.dateFormat = "yyyy-MM-dd"; return f
-    }()
-    var end: Date { Calendar.current.date(byAdding: .day, value: 1, to: date)! }
-
-    func adding(days: Int) -> UserDay {
-        UserDay(date: Calendar.current.date(byAdding: .day, value: days, to: date)!)
-    }
-
-    /// Minutes elapsed inside the window at `now`, capped to the full window.
-    func elapsedMinutes(at now: Date = Date()) -> Int {
-        max(0, min(1440, Int(now.timeIntervalSince(start) / 60)))
-    }
-
-    var isClosed: Bool { Date() >= end }
-
-    static func < (a: UserDay, b: UserDay) -> Bool { a.date < b.date }
-}
-
 /// F2 §06 · Daily Direction. Three colours plus two greys — never mixed with The Call's palette.
 enum DailyDirection: String, Codable, Hashable {
     case deficit        // BALANCE ≤ −150 kcal · solid lemon
@@ -209,11 +155,78 @@ struct ReserveSample: Codable, Hashable {
 /// stress index read. Both are optional and neither is ever filled in — a tick taken off
 /// the wrist has no heart and no stress, and that absence is the whole point of the row.
 /// 04B · SLEEP card. The night OriginDataSync stored under this user day — what the band
-/// reported, unscored: 「不算分、不评价」. The whole reason it is a struct of its own is
+/// reported, as measurements. The score built on top of it is a separate, server-settled
+/// row (`SleepScore`, ADR 0008) and never a field here. The whole reason it is a struct of its own is
 /// that 13 板 forbids sleep on the battery page while 04B prints it first; both read one row.
 struct SleepInterval: Codable, Hashable {
     var start: Date
     var end: Date
+}
+
+/// ADR 0008 · the night's settled score, computed server-side once and read back whole.
+/// Four groups, weighted 25 / 25 / 35 / 15; a group is nil when nothing it needs was
+/// recorded, and the total is renormalised over the groups that remain. There is no
+/// client-side arithmetic here on purpose — a score the phone re-derived could disagree
+/// with the same night seen from the week window.
+struct SleepScore: Codable, Hashable {
+    var score: Int
+    var duration: Int?
+    var architecture: Int?
+    var recovery: Int?
+    var regularity: Int?
+    /// 0 = scored against population baselines, 1 = fully against this person's own.
+    /// Ramps between the 14th and 28th night; the board says so while it is below 1.
+    var personalWeight: Double = 0
+    /// The measured values behind the score. Membership is the point: a key that is absent
+    /// is an input the night did not have, and that is what the breakdown prints.
+    var inputs: [String: Double] = [:]
+    var version: String = ""
+
+    var isCalibrating: Bool { personalWeight < 1 }
+
+    func value(of group: SleepScoreGroup) -> Int? {
+        switch group {
+        case .duration:     duration
+        case .architecture: architecture
+        case .recovery:     recovery
+        case .regularity:   regularity
+        }
+    }
+}
+
+/// The four groups, in the order the breakdown prints them. Splitting duration away from
+/// architecture is what lets the board say "you slept enough, the structure was poor" —
+/// one bar carrying both cancels that sentence out.
+enum SleepScoreGroup: String, CaseIterable, Hashable {
+    case duration, architecture, recovery, regularity
+
+    var title: String {
+        switch self {
+        case .duration:     L("DURATION")
+        case .architecture: L("STRUCTURE")
+        case .recovery:     L("RECOVERY")
+        case .regularity:   L("REGULARITY")
+        }
+    }
+
+    var weight: Int {
+        switch self {
+        case .duration:     25
+        case .architecture: 25
+        case .recovery:     35
+        case .regularity:   15
+        }
+    }
+
+    /// The keys this group scores over, named as the server names them in `inputs`.
+    var memberKeys: [String] {
+        switch self {
+        case .duration:     ["duration_min"]
+        case .architecture: ["deep_pct", "rem_pct", "wakes"]
+        case .recovery:     ["hrv_ms", "rhr", "spo2_min", "respiration"]
+        case .regularity:   ["bed_offset"]
+        }
+    }
 }
 
 struct SleepSummary: Codable, Hashable {
@@ -298,6 +311,9 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     /// WHY, so the page shows them as measurements rather than only as attributions.
     var vitalsCurve: [VitalSample] = []
     var nightInputs: NightInputs?
+    /// ADR 0008 · the settled sleep score for the night that ended on this day. nil until
+    /// the server has settled it, which is also what a night with no record looks like.
+    var sleepScore: SleepScore?
     /// 04B · last night, from sleep_nights. nil until the band has answered readSleep.
     var sleep: SleepSummary?
 
@@ -348,6 +364,10 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     /// The local calculation is the live view of today (and the offline fallback):
     /// calendar close is not a gate, or the heat map stays empty until 04:00.
     var serverDirection: DailyDirection?
+    /// ADR 0010 · settled worn day. nil until the server has said.
+    var worn: Bool?
+    var wearRun: Int?
+    var wearMiss: Int?
 
     var direction: DailyDirection {
         serverDirection ?? DailyDirection.from(balance: balance, fuel: fuelState,
@@ -362,6 +382,7 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
         case weightKg, fatKg, leanKg, fatSource
         case fatEmaDelta7d, leanEmaDelta7d, confidence, scans7d, logged7d
         case fuelState, bandCoverage, calcVersion, asOf, serverDirection
+        case worn, wearRun, wearMiss
     }
 
     init(day: UserDay) { self.day = day }
@@ -403,6 +424,11 @@ enum Fmt {
         guard let v else { return dash }
         return (v < 0 ? "−" : "+") + kcal(abs(v))
     }
+    /// Paper 09C pair. Zero is "0", not "+0" — that is the end of TO GO.
+    static func pairKcal(_ v: Double) -> String {
+        if v == 0 { return kcal(0) }
+        return signedKcal(v)
+    }
     static func kg(_ v: Double?, decimals: Int = 1) -> String {
         v.map { String(format: "%.\(decimals)f", $0) } ?? dash
     }
@@ -424,6 +450,10 @@ enum Fmt {
         if minutes < 60 { return L("%d MIN", minutes) }
         let h = minutes / 60, m = minutes % 60
         return m == 0 ? L("%dH", h) : L("%dH %dM", h, m)
+    }
+
+    static func duration(_ minutes: Int?) -> String {
+        minutes.map(duration) ?? dash
     }
 
     static func weekday(_ d: Date) -> String {

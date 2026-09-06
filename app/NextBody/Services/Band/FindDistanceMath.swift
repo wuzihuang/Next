@@ -14,6 +14,17 @@ enum FindDistance: String, Equatable, Sendable, CaseIterable {
         }
     }
 
+    /// Chinese catalog keys. Never `CLOSE` (that key means dismiss → 关闭)
+    /// or `NEAR` (vitals → 近中位). English UI still paints `label`.
+    var copyKey: String {
+        switch self {
+        case .near: "Find · very near"
+        case .close: "Find · nearer"
+        case .away: "Find · farther"
+        case .far: "Find · very far"
+        }
+    }
+
     /// One step farther on the lamp strip. FAR has nowhere left to fall.
     var farther: FindDistance? {
         switch self {

@@ -93,11 +93,23 @@ struct TodayWidgetFace: View {
     var readout: WidgetFaceMath.TodayReadout
     @Environment(\.widgetFamily) private var family
 
+    /// Floor for the face margin. `margin(for:)` grows it with the face so a
+    /// 158 square and a 364 large breathe alike; the wordmark, the band cell
+    /// and the outer rings all start at whatever it returns.
+    private static let edge: CGFloat = 14
+
+    private static func margin(for width: CGFloat) -> CGFloat {
+        max(edge, min(28, width * 0.062))
+    }
+
     var body: some View {
-        switch family {
-        case .systemSmall: small
-        case .systemLarge: large
-        default: medium
+        GeometryReader { geo in
+            let margin = Self.margin(for: geo.size.width)
+            switch family {
+            case .systemSmall: small
+            case .systemLarge: large(margin: margin, height: geo.size.height)
+            default: medium(margin: margin, height: geo.size.height)
+            }
         }
     }
 
@@ -113,21 +125,38 @@ struct TodayWidgetFace: View {
     }
 
     /// Three rings, then the name and the band — same carbon, no second plate.
-    private var medium: some View {
-        VStack(spacing: 0) {
-            rings(valueSize: (20, 18, 15), maxDiameter: 78)
-            identityRail()
+    ///
+    /// One `breath` above the rings and the same below the wordmark, so the
+    /// face reads as a centred block rather than rings jammed against the
+    /// squircle with the brand floating in the leftover. The rail is the
+    /// wordmark's own height here (not the large face's 36) and whatever the
+    /// rings do not use sits between the labels and the rail — the one gap
+    /// that may grow with the phone.
+    ///
+    /// The ring stroke is centred on the circle, so half of it paints outside
+    /// the frame: the top inset carries that overhang, and the bottom gives
+    /// a little back because the wordmark's glyphs sit inside their rail.
+    /// Measured on a 364×170 and a 338×158 face this lands the ring's outer
+    /// edge, the label-to-brand gap and the brand-to-edge gap within 2pt of
+    /// each other; without the correction the rings read 14 from the top
+    /// and the brand 20 from the bottom — still top-heavy.
+    private func medium(margin: CGFloat, height: CGFloat) -> some View {
+        let breath = max(16, min(22, height * 0.115))
+        return VStack(spacing: 0) {
+            rings(margin: margin, valueSize: (22, 20, 16), share: 0.22, topInset: breath + 4)
+            identityRail(margin: margin, bottomInset: breath - 2, railHeight: 22)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Island.carbon)
     }
 
     /// Brand, rings, then last night and today's movers — one carbon.
-    /// TEMP stays off this face; the six cells are page two without it.
-    private var large: some View {
+    /// TEMP stays off this face. The third row is page two's missing
+    /// RESPONSE plus last night's HRV and SpO2.
+    private func large(margin: CGFloat, height: CGFloat) -> some View {
         VStack(spacing: 0) {
-            identityRail()
-            rings(valueSize: (22, 20, 16), maxDiameter: 86)
+            identityRail(margin: margin, topInset: 10)
+            rings(margin: margin, valueSize: (22, 20, 16), share: 0.225, centred: true)
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     vital("SLEEP", readout.sleepText)
@@ -139,36 +168,61 @@ struct TodayWidgetFace: View {
                     vital("STEPS", readout.stepsText)
                     vital("DISTANCE", readout.distanceText)
                 }
+                HStack(spacing: 0) {
+                    vital("RESPONSE", readout.responseText)
+                    vital("HRV", readout.hrvText)
+                    vital("SPO2", readout.spo2Text)
+                }
             }
-            .frame(height: 124)
+            .frame(height: max(150, height * 0.44))
+            .padding(.bottom, 14)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Island.carbon)
     }
 
-    /// Leave air between the three circles. A fixed 108 on a 338-wide
-    /// face made them kiss; the diameter follows the leftover box.
-    private func rings(valueSize: (CGFloat, CGFloat, CGFloat),
-                       maxDiameter: CGFloat) -> some View {
+    /// The outer two rings start at the same margin the wordmark does, and the
+    /// leftover width becomes the air between them. Centring three fixed circles
+    /// instead left a dead band down both sides while the rail hugged the edge.
+    ///
+    /// `share` caps each circle at a fraction of the face width so the rings
+    /// shrink with the face rather than pinning to a constant and crowding the
+    /// margins on the bigger families.
+    ///
+    /// `centred` splits the leftover height above and below the rings instead
+    /// of leaving all of it underneath — the large face wants the rings to
+    /// float between the brand rail and the vitals grid, not hug the rail.
+    private func rings(margin: CGFloat,
+                       valueSize: (CGFloat, CGFloat, CGFloat),
+                       share: CGFloat,
+                       topInset: CGFloat = 0,
+                       centred: Bool = false) -> some View {
         GeometryReader { geo in
-            let gap: CGFloat = 20
-            let pad: CGFloat = 18
+            let minGap = max(14, geo.size.width * 0.05)
             let label: CGFloat = 16
-            let inner = geo.size.width - pad * 2
-            let byWidth = (inner - gap * 2) / 3
-            let byHeight = geo.size.height - label
-            let d = max(56, min(maxDiameter, byWidth, byHeight))
-            let stroke: CGFloat = d >= 80 ? 8 : 7
-            HStack(spacing: gap) {
-                WidgetRing(progress: readout.batteryProgress, value: readout.batteryText,
-                           label: "BATTERY", tint: Island.lime, valueSize: valueSize.0,
-                           diameter: d, stroke: stroke, labelSize: 8)
-                WidgetRing(progress: readout.loadProgress, value: readout.loadText,
-                           label: "LOAD", tint: Island.white, valueSize: valueSize.1,
-                           diameter: d, stroke: stroke, labelSize: 8)
-                WidgetRing(progress: readout.eatenProgress, value: readout.eatenText,
-                           label: "EATEN", tint: Island.ember, valueSize: valueSize.2,
-                           diameter: d, stroke: stroke, labelSize: 8)
+            let inner = geo.size.width - margin * 2
+            let byWidth = (inner - minGap * 2) / 3
+            let byHeight = geo.size.height - label - topInset
+            let d = max(56, min(geo.size.width * share, byWidth, byHeight))
+            let stroke: CGFloat = d >= 84 ? 8 : 7
+            VStack(spacing: 0) {
+                Color.clear.frame(height: topInset)
+                if centred { Spacer(minLength: 0) }
+                HStack(spacing: 0) {
+                    WidgetRing(progress: readout.batteryProgress, value: readout.batteryText,
+                               label: "BATTERY", tint: Island.lime, valueSize: valueSize.0,
+                               diameter: d, stroke: stroke, labelSize: 8)
+                    Spacer(minLength: minGap)
+                    WidgetRing(progress: readout.loadProgress, value: readout.loadText,
+                               label: "LOAD", tint: Island.white, valueSize: valueSize.1,
+                               diameter: d, stroke: stroke, labelSize: 8)
+                    Spacer(minLength: minGap)
+                    WidgetRing(progress: readout.eatenProgress, value: readout.eatenText,
+                               label: "EATEN", tint: Island.ember, valueSize: valueSize.2,
+                               diameter: d, stroke: stroke, labelSize: 8)
+                }
+                .padding(.horizontal, margin)
+                Spacer(minLength: 0)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -178,7 +232,13 @@ struct TodayWidgetFace: View {
     /// Wordmark is white. The lime lives in the body-battery ring and,
     /// when the band is charging, inside the cell — not as a second pip
     /// sitting on the word.
-    private func identityRail() -> some View {
+    ///
+    /// System content margins are off, so a rail sitting at the top of the
+    /// face needs `topInset` to clear the squircle's corner curve.
+    private func identityRail(margin: CGFloat,
+                              topInset: CGFloat = 0,
+                              bottomInset: CGFloat = 0,
+                              railHeight: CGFloat = 36) -> some View {
         HStack {
             Text("NEXTBODY")
                 .font(Island.brand(13))
@@ -189,8 +249,10 @@ struct TodayWidgetFace: View {
                           text: readout.bandText,
                           lit: readout.bandLit)
         }
-        .padding(.horizontal, 14)
-        .frame(height: 36)
+        .padding(.horizontal, margin)
+        .padding(.top, topInset)
+        .padding(.bottom, bottomInset)
+        .frame(height: railHeight + topInset + bottomInset)
     }
 
     private func vital(_ label: String, _ value: String) -> some View {

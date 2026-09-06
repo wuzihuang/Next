@@ -32,6 +32,13 @@ enum BatteryDrainMath {
     static let maxEmptyHours: Double = 14 * 24
     /// Under this, LEFT prints hours. Eighteen hours still reads as 1 DAY.
     static let leftHourCutoff: Double = 18
+    /// Learn from recent wear, not a month of equally weighted packet-to-packet blips.
+    static let learningAge: TimeInterval = 7 * 24 * 3600
+    static let dischargeWindow: TimeInterval = 48 * 3600
+    static let minDischargeHours: Double = 6
+    static let minDischargePercent: Double = 3
+    /// A day without a real reading can hide an entire charge cycle.
+    static let maxReadingAge: TimeInterval = 24 * 3600
 
     static func cliff(isPercent: Bool) -> Double { isPercent ? 8 : 1 }
 
@@ -73,6 +80,7 @@ enum BatteryDrainMath {
             if let last = out.last,
                valued(last), valued(sample),
                last.isPercent == sample.isPercent,
+               last.charge == sample.charge,
                let va = last.plotValue, let vb = sample.plotValue,
                sample.at.timeIntervalSince(last.at) < clash,
                abs(va - vb) >= cliff(isPercent: sample.isPercent) {
@@ -86,6 +94,7 @@ enum BatteryDrainMath {
             let previous = out[index - 1], mid = out[index], next = out[index + 1]
             if valued(previous), valued(mid), valued(next),
                previous.isPercent == mid.isPercent, mid.isPercent == next.isPercent,
+               previous.charge == mid.charge, mid.charge == next.charge,
                let low = mid.plotValue, let left = previous.plotValue, let right = next.plotValue,
                low < left - 0.5, low < right - 0.5,
                mid.at.timeIntervalSince(previous.at) < clash,
@@ -123,51 +132,105 @@ enum BatteryDrainMath {
         return pow(t, 1.65)
     }
 
-    /// Median % (or bars) per hour from consecutive unplugged drops. Chatter
-    /// shorter than the plateau is ignored so a 1 % blip cannot set the slope.
-    static func drainRate(in samples: [BatteryObservation], yMax: Double) -> Double {
-        medianSlope(in: samples, charge: .unplugged, rising: false) ?? yMax / packHours
+    /// The chart alone may fall back to the pack. LEFT and ETA require a learned rate.
+    static func drainRate(
+        in samples: [BatteryObservation], yMax: Double, now: Date? = nil
+    ) -> Double {
+        let end = now ?? samples.map(\.at).max() ?? .distantPast
+        return learnedDrainRate(in: samples, yMax: yMax, now: end) ?? yMax / packHours
     }
 
-    /// Learned % (or bars) per hour. Nil when this log has no usable pair.
-    static func medianSlope(
-        in samples: [BatteryObservation],
-        charge: BatteryObservation.Charge,
-        rising: Bool
+    /// Net loss / full elapsed time includes integer-percent plateaus and is invariant
+    /// to packet frequency. Never join across a charge, a rise, a unit change, or a
+    /// day-long gap. Prefer the latest usable cycle; its last 48h reflect current wear.
+    private static func learnedDrainRate(
+        in samples: [BatteryObservation], yMax: Double, now: Date
     ) -> Double? {
-        let rows = samples
-            .filter { $0.connected && $0.charge == charge && $0.plotValue != nil }
-            .sorted { $0.at < $1.at }
-        var rates: [Double] = []
-        for (a, b) in zip(rows, rows.dropFirst()) {
-            guard a.isPercent == b.isPercent,
-                  let va = a.plotValue, let vb = b.plotValue else { continue }
-            if rising {
-                guard vb > va + 0.05 else { continue }
-            } else {
-                guard vb < va - 0.05 else { continue }
-            }
-            let hours = b.at.timeIntervalSince(a.at) / 3600
-            guard hours >= 0.4 else { continue }
-            rates.append(abs(vb - va) / hours)
+        let rows = collapse(samples.filter {
+            $0.at <= now && now.timeIntervalSince($0.at) <= learningAge
+        })
+        var runs: [[BatteryObservation]] = []
+        var run: [BatteryObservation] = []
+        func finish() {
+            if !run.isEmpty { runs.append(run) }
+            run = []
         }
-        guard !rates.isEmpty else { return nil }
-        let sorted = rates.sorted()
-        return sorted[sorted.count / 2]
+        for row in rows {
+            if row.charge == .charging || row.charge == .full {
+                finish()
+                continue
+            }
+            // Link rows repeat cached values; they must not extend a measured plateau.
+            guard row.connected, let value = row.plotValue else { continue }
+            guard row.charge == .unplugged, row.isPercent == (yMax == 100),
+                  (0...yMax).contains(value) else {
+                finish()
+                continue
+            }
+            if let last = run.last,
+               value > last.plotValue! || row.at.timeIntervalSince(last.at) > maxReadingAge {
+                finish()
+            }
+            run.append(row)
+        }
+        finish()
+        for run in runs.reversed() {
+            guard let last = run.last else { continue }
+            let recent = run.filter { last.at.timeIntervalSince($0.at) <= dischargeWindow }
+            guard let first = recent.first else { continue }
+            let hours = last.at.timeIntervalSince(first.at) / 3600
+            let drop = first.plotValue! - last.plotValue!
+            let minimumDrop = yMax == 100 ? minDischargePercent : 1
+            guard hours >= minDischargeHours, drop >= minimumDrop else { continue }
+            return drop / hours
+        }
+        return nil
+    }
+
+    /// Only the current charge session can teach its full clock. Keep its plateaus too.
+    private static func chargeRate(in samples: [BatteryObservation]) -> Double? {
+        var run: [BatteryObservation] = []
+        for row in samples {
+            if row.charge == .unplugged || row.charge == .full {
+                run = []
+                continue
+            }
+            guard row.connected, let value = row.plotValue else { continue }
+            guard row.isPercent, row.charge == .charging, (0...100).contains(value) else {
+                run = []
+                continue
+            }
+            if let last = run.last,
+               value < last.plotValue! || row.at.timeIntervalSince(last.at) > maxReadingAge {
+                run = []
+            }
+            run.append(row)
+        }
+        guard let first = run.first, let last = run.last else { return nil }
+        let hours = last.at.timeIntervalSince(first.at) / 3600
+        let gain = last.plotValue! - first.plotValue!
+        guard hours >= 0.4, gain >= 1 else { return nil }
+        return gain / hours
     }
 
     /// One rough clock: full if the last heard packet is charging, empty if it
     /// is unplugged. Bars, a full pack, and an unlearned slope stay silent.
     static func eta(in samples: [BatteryObservation], now: Date) -> BatteryEta? {
-        let ordered = collapse(samples)
+        let ordered = collapse(samples.filter { $0.at <= now })
         guard let last = ordered.last(where: {
-            $0.connected && $0.plotValue != nil && $0.isPercent
-        }), let value = last.plotValue else { return nil }
+            $0.connected && $0.plotValue != nil
+        }), last.isPercent, let value = last.plotValue,
+              (0...100).contains(value),
+              now.timeIntervalSince(last.at) <= maxReadingAge else { return nil }
+        // A later state-only event may already have put the band on a charger.
+        guard !ordered.contains(where: {
+            $0.at > last.at && $0.charge != .unknown && $0.charge != last.charge
+        }) else { return nil }
         let aged = max(0, now.timeIntervalSince(last.at) / 3600)
         switch last.charge {
         case .charging:
             guard value < 99.5,
-                  let rate = medianSlope(in: ordered, charge: .charging, rising: true),
+                  let rate = chargeRate(in: ordered),
                   rate > 0 else { return nil }
             let current = min(100, value + rate * aged)
             let hours = (100 - current) / rate
@@ -175,7 +238,7 @@ enum BatteryDrainMath {
             return .full(now.addingTimeInterval(hours * 3600))
         case .unplugged, .unknown:
             guard value > 0.5,
-                  let rate = medianSlope(in: ordered, charge: .unplugged, rising: false),
+                  let rate = learnedDrainRate(in: ordered, yMax: 100, now: now),
                   rate > 0 else { return nil }
             let current = max(0, value - rate * aged)
             let hours = current / rate

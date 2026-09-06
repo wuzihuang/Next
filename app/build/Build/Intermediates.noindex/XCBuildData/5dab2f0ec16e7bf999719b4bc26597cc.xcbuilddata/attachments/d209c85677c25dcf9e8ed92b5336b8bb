@@ -1,0 +1,4 @@
+module GoogleUtilities_Environment {
+umbrella "/Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/GoogleUtilities/GoogleUtilities/Environment/Public"
+export *
+}

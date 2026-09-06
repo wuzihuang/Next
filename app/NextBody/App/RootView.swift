@@ -13,7 +13,12 @@ struct RootView: View {
             case .gateOnboarding: OnboardingFlow()
             case .root:           rootStack
             }
+
+            if session.holdingLaunchStill {
+                LaunchMark()
+            }
         }
+        .statusBarHidden(session.holdingLaunchStill)
         .carbonPage()
         // 05 · A · the keyboard is the dock's business alone; the page never shrinks for it.
         .ignoresSafeArea(.keyboard, edges: .bottom)

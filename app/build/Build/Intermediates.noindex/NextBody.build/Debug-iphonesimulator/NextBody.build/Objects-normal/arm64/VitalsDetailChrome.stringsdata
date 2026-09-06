@@ -1,0 +1,40 @@
+{
+  "source": "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Vitals/VitalsDetailChrome.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "· %@",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 46
+        }
+      },
+      {
+        "comment": "",
+        "key": "%@ %@",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 388
+        }
+      },
+      {
+        "comment": "",
+        "key": "%@ %@, %@",
+        "location": {
+          "startingColumn": 43,
+          "startingLine": 452
+        }
+      },
+      {
+        "comment": "",
+        "key": "no reading, %@",
+        "location": {
+          "startingColumn": 83,
+          "startingLine": 452
+        }
+      }
+    ]
+  },
+  "version": 1
+}

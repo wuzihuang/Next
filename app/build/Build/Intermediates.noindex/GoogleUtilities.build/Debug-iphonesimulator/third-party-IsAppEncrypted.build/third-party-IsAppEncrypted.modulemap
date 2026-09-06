@@ -1,0 +1,4 @@
+module third_party_IsAppEncrypted {
+umbrella "/Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/GoogleUtilities/third_party/IsAppEncrypted/Public"
+export *
+}

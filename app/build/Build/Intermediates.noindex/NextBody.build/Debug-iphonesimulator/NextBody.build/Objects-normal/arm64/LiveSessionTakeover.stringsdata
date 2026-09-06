@@ -1,0 +1,88 @@
+{
+  "source": "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Sport/LiveSessionTakeover.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "DONE",
+        "location": {
+          "startingColumn": 56,
+          "startingLine": 147
+        }
+      },
+      {
+        "comment": "",
+        "key": "REFUSED",
+        "location": {
+          "startingColumn": 65,
+          "startingLine": 147
+        }
+      },
+      {
+        "comment": "",
+        "key": "LIVE",
+        "location": {
+          "startingColumn": 78,
+          "startingLine": 147
+        }
+      },
+      {
+        "comment": "",
+        "key": "HOOP",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 162
+        }
+      },
+      {
+        "comment": "",
+        "key": "OFFLINE",
+        "location": {
+          "startingColumn": 43,
+          "startingLine": 162
+        }
+      },
+      {
+        "comment": "",
+        "key": "STOPPING…",
+        "location": {
+          "startingColumn": 35,
+          "startingLine": 240
+        }
+      },
+      {
+        "comment": "",
+        "key": "SAVED",
+        "location": {
+          "startingColumn": 85,
+          "startingLine": 240
+        }
+      },
+      {
+        "comment": "",
+        "key": "NOT STARTED",
+        "location": {
+          "startingColumn": 95,
+          "startingLine": 240
+        }
+      },
+      {
+        "comment": "",
+        "key": "KEEP HOLDING",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 241
+        }
+      },
+      {
+        "comment": "",
+        "key": "STOP SESSION",
+        "location": {
+          "startingColumn": 47,
+          "startingLine": 241
+        }
+      }
+    ]
+  },
+  "version": 1
+}

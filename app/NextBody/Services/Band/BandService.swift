@@ -63,7 +63,7 @@ protocol BandService: AnyObject {
     func startFindHoop() async throws
     func stopFindHoop() async
     func readConnectedRSSI() async throws -> Int
-    /// New-alarm table. Mode 2 read / 1 set / 0 delete. Scene stays 0.
+    /// Device alarm table. The adapter selects scene or text commands from device capabilities.
     func readAlarms() async throws -> [BandAlarm]
     func writeAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm]
     func deleteAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm]

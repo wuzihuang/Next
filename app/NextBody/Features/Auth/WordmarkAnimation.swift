@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 /// MOTION SPEC · 01 · 像素坠落 → 字标成形.
-/// 2.6s, plays through once, never loops. It exists in exactly two places in the product:
-/// first launch, and the moment the band pairs — one animation, not two.
+/// 2.6s, plays through once, never loops. Two places: a new registration, and
+/// the moment the band pairs. Cold start is `LaunchMark`, not this film.
 ///
 ///  0.00 → 0.35  ease-out       the whole screen goes lime for 120ms then drops to pure black.
 ///                              Not a fade-in — a power-on. Nothing is felt here: a hit on the
@@ -96,6 +96,73 @@ struct WordmarkAnimation: View {
         guard t >= 2.35 else { return 0 }
         return min(1, (t - 2.35) / 0.25)
     }
+}
+
+/// Opening still. Take 1's lime pip on take 2's Doto.
+/// The only move is a typewriter: first line, then the pip, then the second line.
+struct LaunchMark: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var wordCount = 0
+    @State private var lineCount = 0
+    @State private var showPip = false
+
+    var body: some View {
+        let word = L("NEXTBODY")
+        let line = launchLine()
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 20) {
+                HStack(spacing: 8) {
+                    typedSlot(full: word, count: wordCount, size: 28, weight: 700, tracking: 0.14, color: NB.white)
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(NB.lime1)
+                        .frame(width: 6, height: 6)
+                        .opacity(showPip ? 1 : 0)
+                }
+                typedSlot(full: line, count: lineCount, size: 11, weight: 400, tracking: 0.22, color: NB.white.opacity(0.72))
+            }
+        }
+        .statusBarHidden()
+        .task { await play(word: word, line: line) }
+    }
+
+    func play(word: String, line: String) async {
+        if reduceMotion {
+            wordCount = word.count
+            showPip = true
+            lineCount = line.count
+            return
+        }
+        await type(into: { wordCount = $0 }, count: word.count)
+        showPip = true
+        try? await Task.sleep(for: .milliseconds(180))
+        await type(into: { lineCount = $0 }, count: line.count)
+    }
+
+    func type(into set: @escaping (Int) -> Void, count: Int) async {
+        guard count > 0 else { return }
+        for n in 1...count {
+            set(n)
+            try? await Task.sleep(for: .milliseconds(28))
+        }
+    }
+
+    func typedSlot(full: String, count: Int, size: CGFloat, weight: Int, tracking: CGFloat, color: Color) -> some View {
+        ZStack(alignment: .leading) {
+            Text(full)
+                .opacity(0)
+            Text(String(full.prefix(count)))
+                .foregroundStyle(color)
+        }
+        .font(NBFont.dot(weight, size))
+        .tracking(tracking * size)
+    }
+}
+
+func launchLine() -> String {
+    let line = L("Build Your NextBody")
+    if AppLanguage.shared.isEnglish { return line.uppercased() }
+    return line
 }
 
 /// The falling matrix. Each pixel owns a letter cell; the word is legible before it is lit.

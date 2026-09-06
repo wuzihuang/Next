@@ -3,8 +3,10 @@ import SwiftUI
 /// Paper 12Y · 02 仪器 LED (KLF-0 / LFQ-0 live, KXX-0 timeout).
 /// Opens READY with START. The wrist only rings after START.
 /// STOP is a 0.12s hold (tap also works) and must paint instantly.
+/// Chrome is `DeviceSheet`: the same header, gutter and key as Alarms.
 struct FindHoopSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var language = AppLanguage.shared
 
     @State private var beat: Beat = .ready
     @State private var rssi: Int?
@@ -22,6 +24,14 @@ struct FindHoopSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(
+                eyebrow: statusLine,
+                eyebrowTint: beat == .timeout ? NB.ember1 : NB.lime1,
+                eyebrowID: "find.status",
+                title: beat == .timeout ? L("Timed out") : L("Find HOOP"),
+                subtitle: sentence
+            )
+
             if beat == .timeout {
                 timeoutFace
             } else {
@@ -29,22 +39,20 @@ struct FindHoopSheet: View {
             }
 
             if let message, beat != .timeout {
-                Text(message)
-                    .font(NBFont.ui(400, 12))
-                    .foregroundStyle(NB.ember1)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 12)
+                SheetNote(text: message)
+                    .padding(.top, 14)
             }
 
             Spacer(minLength: 0)
 
             actionButton
-                .padding(.horizontal, 24)
                 .padding(.top, 8)
-                .padding(.bottom, 28)
         }
+        .padding(.horizontal, DeviceSheet.gutter)
+        .padding(.top, DeviceSheet.top)
+        .padding(.bottom, DeviceSheet.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NB.carbon4)
+        .background(NB.carbon2)
         .task { await listen() }
         .onDisappear {
             rssiFrozen = true
@@ -52,66 +60,37 @@ struct FindHoopSheet: View {
         }
     }
 
+    /// Hero number, then the four lamps. The number is the only large thing on the face.
     private var liveFace: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(statusLine)
-                    .font(NBFont.dot(600, 11))
-                    .tracking(0.28 * 11)
+            HStack(alignment: .bottom, spacing: 8) {
+                Text(rssi.map(FindDistance.glyph) ?? Fmt.dash)
+                    .font(NBFont.dot(700, 64))
+                    .tracking(-0.05 * 64)
                     .foregroundStyle(NB.lime1)
-                    .accessibilityIdentifier("find.status")
-
-                HStack(alignment: .bottom, spacing: 8) {
-                    Text(rssi.map(FindDistance.glyph) ?? Fmt.dash)
-                        .font(NBFont.dot(700, 88))
-                        .tracking(-0.06 * 88)
-                        .foregroundStyle(NB.lime1)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.45)
-                        .accessibilityIdentifier("find.rssi")
-                    Text(L("dBm"))
-                        .font(NBFont.dot(500, 14))
-                        .tracking(0.12 * 14)
-                        .foregroundStyle(NB.white.opacity(0.42))
-                        .padding(.bottom, 10)
-                }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.45)
+                    .accessibilityIdentifier("find.rssi")
+                Text(L("dBm"))
+                    .font(NBFont.dot(500, 14))
+                    .tracking(0.12 * 14)
+                    .foregroundStyle(NB.white.opacity(0.42))
+                    .padding(.bottom, 8)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
+            .padding(.top, 28)
+            .padding(.bottom, 20)
 
             HStack(spacing: 8) {
                 ForEach(FindDistance.allCases, id: \.self) { lamp in
                     lampCell(lamp)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
         }
     }
 
     /// Paper KXX-0. Last RSSI freezes. DONE is ember, not lime.
     private var timeoutFace: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(L("TIMEOUT"))
-                    .font(NBFont.dot(600, 11))
-                    .tracking(0.28 * 11)
-                    .foregroundStyle(NB.ember1)
-                    .accessibilityIdentifier("find.status")
-                Text(L("Timed out"))
-                    .font(NBFont.ui(700, 32))
-                    .tracking(-0.03 * 32)
-                    .foregroundStyle(NB.text1)
-                Text(timeoutSentence)
-                    .font(NBFont.ui(300, 14))
-                    .lineSpacing(8)
-                    .foregroundStyle(NB.white.opacity(0.50))
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .padding(.bottom, 20)
-
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(L("RSSI"))
                     .font(NBFont.ui(500, 14))
@@ -129,9 +108,9 @@ struct FindHoopSheet: View {
                     .foregroundStyle(NB.white.opacity(0.42))
                     .frame(width: 36, alignment: .trailing)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 18)
-            .overlay(alignment: .top) { Hairline().frame(maxWidth: .infinity) }
+            .padding(.vertical, DeviceSheet.rowInset)
+            .padding(.top, 8)
+            .overlay(alignment: .bottom) { Hairline() }
 
             HStack(spacing: 8) {
                 Text(L("Range"))
@@ -139,22 +118,28 @@ struct FindHoopSheet: View {
                     .foregroundStyle(NB.text1)
                 Spacer(minLength: 0)
                 rangePips
-                Text(distance.map { L($0.label) } ?? Fmt.dash)
+                Text(distance.map(lampPhrase) ?? Fmt.dash)
                     .font(NBFont.dot(600, 11))
                     .tracking(0.14 * 11)
                     .foregroundStyle(NB.lime1)
                     .frame(width: 56, alignment: .trailing)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-            .overlay(alignment: .top) { Hairline().frame(maxWidth: .infinity) }
+            .padding(.vertical, DeviceSheet.rowInset)
+            .overlay(alignment: .bottom) { Hairline() }
 
             Text(L("LAST") + " · " + L("NOT LIVE"))
                 .font(NBFont.dot(500, 11))
                 .tracking(0.16 * 11)
                 .foregroundStyle(NB.white.opacity(0.34))
-                .padding(.horizontal, 24)
-                .padding(.top, 12)
+                .padding(.top, 14)
+        }
+    }
+
+    private var sentence: String {
+        switch beat {
+        case .ready:   return L("Tap START and the wrist buzzes until you stop it.")
+        case .ringing: return L("Ringing. Hold STOP once you have it.")
+        case .timeout: return timeoutSentence
         }
     }
 
@@ -182,7 +167,7 @@ struct FindHoopSheet: View {
         switch beat {
         case .ready:   return L("READY") + " · " + L("LIVE")
         case .ringing: return L("ENTER") + " · " + L("RINGING")
-        case .timeout: return L("LAST") + " · " + L("NOT LIVE")
+        case .timeout: return L("TIMEOUT")
         }
     }
 
@@ -202,22 +187,11 @@ struct FindHoopSheet: View {
         }
     }
 
-    private var actionFill: Color {
-        beat == .timeout ? NB.ember1 : NB.lime1
-    }
-
     private var actionButton: some View {
-        Button(action: tapAction) {
-            Text(actionTitle)
-                .font(NBFont.dot(700, 13))
-                .tracking(0.2 * 13)
-                .foregroundStyle(NB.carbon4)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(actionFill, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(starting && beat == .ready)
+        HoopKey(title: actionTitle,
+                skin: beat == .timeout ? .ember : .lime,
+                enabled: !(starting && beat == .ready),
+                action: tapAction)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.12, maximumDistance: 64)
                 .onEnded { _ in
@@ -229,16 +203,22 @@ struct FindHoopSheet: View {
 
     private func lampCell(_ lamp: FindDistance) -> some View {
         let glow = FindDistance.glow(of: lamp, current: distance)
-        return Text(L(lamp.label))
+        return Text(lampPhrase(lamp))
             .font(NBFont.dot(700, 10))
             .tracking(0.12 * 10)
             .foregroundStyle(lampInk(glow))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .padding(8)
+            .padding(10)
             .frame(height: 64)
-            .background(lampFill(glow))
+            .background(lampFill(glow), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .accessibilityIdentifier("find.lamp.\(lamp.label)")
             .accessibilityAddTraits(glow == .hot ? .isSelected : [])
+    }
+
+    /// English stays the instrument words. Chinese uses dedicated keys so
+    /// CLOSE cannot become 关闭.
+    private func lampPhrase(_ lamp: FindDistance) -> String {
+        language.isEnglish ? lamp.label : L(lamp.copyKey)
     }
 
     private func lampFill(_ glow: FindLampGlow) -> Color {

@@ -1,0 +1,16 @@
+{
+  "source": "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Connect/ConnectFlow.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "%lld%%",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 675
+        }
+      }
+    ]
+  },
+  "version": 1
+}

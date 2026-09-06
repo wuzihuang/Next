@@ -1670,7 +1670,23 @@ final class VeepooBand: BandService, @unchecked Sendable {
         try await refuseIfBusy()
         let name = mode == 2 ? "alarms.read" : mode == 0 ? "alarms.delete" : "alarms.write"
         return try await queue.run(name, priority: mode == 2 ? .p1 : .p0) {
-            try await self.sdk(name) { done in
+            guard let kind = BandAlarmProtocol(functionData: self.central.peripheralModel?.deviceFuctionData) else {
+                throw BandError.unsupported("alarms")
+            }
+            NightDiagnostics.shared.record("alarms.protocol", fields: [
+                "protocol": kind == .text ? "text" : "scene", "operation": String(mode)])
+            if kind == .text {
+                // The vendor limits text alarms to ten. Read before adding so we never
+                // send an eleventh row (the firmware may misbehave rather than reject it).
+                if mode == 1 {
+                    let current = try await self.mutateTextAlarms(peripheral, alarm: .emptyRead(), mode: 2)
+                    guard current.alarms.contains(where: { $0.id == alarm.id }) || current.count < kind.capacity else {
+                        throw BandError.rejected("ALARM TABLE FULL")
+                    }
+                }
+                return try await self.mutateTextAlarms(peripheral, alarm: alarm, mode: mode).alarms
+            }
+            return try await self.sdk(name) { done in
                 peripheral.veepooSDKSettingDeviceNewAlarm(
                     with: Self.sdkAlarm(alarm),
                     settingMode: mode,
@@ -1682,6 +1698,46 @@ final class VeepooBand: BandService, @unchecked Sendable {
                             mode == 2 ? "ALARM READ FAILED" : "ALARM WRITE FAILED")))
                     })
             }
+        }
+    }
+
+    private func mutateTextAlarms(_ peripheral: VPPeripheralBaseManage, alarm: BandAlarm,
+                                  mode: UInt) async throws -> (alarms: [BandAlarm], count: Int) {
+        let model = VPDeviceTextAlarmModel()
+        if mode != 2 {
+            guard alarm.isValidDeviceValue else { throw BandError.rejected("INVALID ALARM") }
+            model.alarmID = String(alarm.id)
+            model.alarmHour = String(alarm.hour)
+            model.alarmMinute = String(alarm.minute)
+            model.alarmState = alarm.on ? "1" : "0"
+            model.repeatState = String(alarm.repeatMask)
+            model.alarmText = alarm.text
+        }
+        let sdkMode = VPDeviceTextAlarmSettingModel(rawValue: BandAlarmProtocol.text.sdkMode(for: mode))!
+        return try await sdk("alarms.text.\(mode == 2 ? "read" : mode == 0 ? "delete" : "write")") { done in
+            peripheral.veepooSDKSettingDeviceTextAlarm(with: model, settingMode: sdkMode,
+                successResult: { array in
+                    let rawRows = array ?? []
+                    let alarms: [BandAlarm] = rawRows.compactMap { raw in
+                        guard let value = raw as? VPDeviceTextAlarmModel else { return nil }
+                        let alarm = BandAlarm(id: Int(value.alarmID) ?? -1,
+                                         hour: Int(value.alarmHour) ?? -1,
+                                         minute: Int(value.alarmMinute) ?? -1,
+                                         on: value.alarmState == "1" || value.alarmState == "01",
+                                         repeatMask: Int(value.repeatState) ?? -1,
+                                         date: BandAlarm.onceDatePlaceholder,
+                                         scene: BandAlarm.silentScene, text: value.alarmText)
+                        return alarm.isValidDeviceValue ? alarm : nil
+                    }
+                    // Malformed firmware rows must not become editable times, but still
+                    // occupy capacity. Leave them on the device; never silently delete data.
+                    NightDiagnostics.shared.record("alarms.text_result", fields: [
+                        "operation": String(mode), "count": String(rawRows.count),
+                        "invalidCount": String(rawRows.count - alarms.count)])
+                    done(.success((alarms, rawRows.count)))
+                }, failureResult: {
+                    done(.failure(BandError.rejected(mode == 2 ? "ALARM READ FAILED" : "ALARM WRITE FAILED")))
+                })
         }
     }
 

@@ -1,0 +1,16 @@
+{
+  "source": "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Auth/SignInFlow.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 592
+        }
+      }
+    ]
+  },
+  "version": 1
+}

@@ -1,6 +1,6 @@
 import Foundation
 
-/// One row of the new-alarm table. Scene stays 0 on a screenless HOOP.
+/// One row of the device alarm table. Preserve text read from text-alarm firmware.
 struct BandAlarm: Identifiable, Equatable, Hashable, Sendable {
     var id: Int
     var hour: Int
@@ -9,6 +9,7 @@ struct BandAlarm: Identifiable, Equatable, Hashable, Sendable {
     var repeatMask: Int
     var date: String
     var scene: Int
+    var text: String = ""
 
     static let onceDatePlaceholder = "0000-00-00"
     static let demoCeiling = 20
@@ -16,6 +17,11 @@ struct BandAlarm: Identifiable, Equatable, Hashable, Sendable {
 
     var repeats: Bool { repeatMask != 0 }
     var showsSwitch: Bool { repeats }
+
+    var isValidDeviceValue: Bool {
+        (1...255).contains(id) && (0...23).contains(hour) && (0...59).contains(minute)
+            && (0...127).contains(repeatMask) && text.utf8.count <= 60
+    }
 
     var clock: String {
         String(format: "%02d:%02d", hour, minute)
@@ -25,6 +31,26 @@ struct BandAlarm: Identifiable, Equatable, Hashable, Sendable {
     static func emptyRead() -> BandAlarm {
         BandAlarm(id: 0, hour: 0, minute: 0, on: false, repeatMask: 0,
                   date: onceDatePlaceholder, scene: silentScene)
+    }
+}
+
+enum BandAlarmProtocol: Equatable, Sendable {
+    case scene, text
+
+    init?(functionData: Data?) {
+        guard let functionData, functionData.count > 17 else { return nil }
+        switch functionData[17] {
+        case 1...4: self = .scene
+        case 5...7: self = .text
+        default: return nil
+        }
+    }
+
+    var capacity: Int { self == .text ? 10 : 20 }
+
+    /// App operations are delete=0, write=1, read=2; text SDK operations start at 1.
+    func sdkMode(for operation: UInt) -> UInt {
+        self == .text ? operation + 1 : operation
     }
 }
 
@@ -84,20 +110,15 @@ enum BandAlarmMath: Sendable {
     }
 
     static func nextID(in alarms: [BandAlarm], ceiling: Int = BandAlarm.demoCeiling) -> Int? {
+        guard ceiling > 0 else { return nil }
         let used = Set(alarms.map(\.id))
-        return (0..<ceiling).first { !used.contains($0) }
+        // Match VPDeviceNewAlarmModel.getMinimumAlarmID: writable IDs start at 1.
+        // Zero belongs to the empty read model, not a newly created alarm.
+        return (1...ceiling).first { !used.contains($0) }
     }
 
     static func isFull(_ alarms: [BandAlarm], ceiling: Int = BandAlarm.demoCeiling) -> Bool {
         alarms.count >= ceiling
-    }
-
-    /// Capacity stays `?` until the first read, and still `?` after it unless this
-    /// HOOP has filled the demo ceiling.
-    static func countLabel(count: Int?, didRead: Bool, capacity: Int?) -> String {
-        guard didRead, let count else { return "— / ?" }
-        if let capacity { return "\(count) / \(capacity)" }
-        return "\(count) / ?"
     }
 
     /// A one-shot needs a date the firmware will still accept. If today's clock

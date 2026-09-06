@@ -79,25 +79,29 @@ struct PlanPage: View {
         .background(NB.lime1)
     }
 
-    private var visibleActions: [PlanFaceMath.Action] {
-        face.actions.filter { action in
-            completing.contains(action.kind) || !done(action.kind)
-        }
+    /// Open rows first, done rows sink to the bottom. A row that is still
+    /// settling (strike drawing, ink greying) holds its place so the eye sees
+    /// the tick land before the row moves; it sinks once `completing` clears.
+    private var orderedActions: [PlanFaceMath.Action] {
+        let open = face.actions.filter { !settled($0.kind) }
+        let sunk = face.actions.filter { settled($0.kind) }
+        return open + sunk
+    }
+
+    private func settled(_ kind: PlanFaceMath.ActionKind) -> Bool {
+        done(kind) && !completing.contains(kind)
     }
 
     private var tasks: some View {
         VStack(spacing: 8) {
-            ForEach(visibleActions, id: \.kind) { action in
+            ForEach(orderedActions, id: \.kind) { action in
                 taskSlab(action)
-                    .transition(.asymmetric(
-                        insertion: .opacity,
-                        removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))))
             }
         }
         .padding(.top, 10)
         .padding(.horizontal, 16)
-        .animation(reduceMotion ? .easeOut(duration: 0.08) : .easeInOut(duration: 0.28),
-                   value: visibleActions.map(\.kind))
+        .animation(reduceMotion ? .easeOut(duration: 0.08) : .spring(duration: 0.42, bounce: 0.12),
+                   value: orderedActions.map(\.kind))
     }
 
     private func taskSlab(_ action: PlanFaceMath.Action) -> some View {
@@ -113,12 +117,13 @@ struct PlanPage: View {
                     Text(title)
                         .font(NBFont.brand(600, 16))
                         .tracking(em: -0.02, size: 16)
-                        .foregroundStyle(NB.text1)
+                        .foregroundStyle(on ? NB.text3Prod : NB.text1)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
+                        .overlay(alignment: .leading) { strike(on: on) }
                     Text(taskDetail(action))
                         .font(NBFont.ui(400, 13))
-                        .foregroundStyle(NB.text2)
+                        .foregroundStyle(on ? NB.text3Prod.opacity(0.6) : NB.text2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -126,23 +131,40 @@ struct PlanPage: View {
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 14)
-            .background(NB.carbon4)
+            .background(NB.carbon4.opacity(on ? 0.6 : 1))
             .contentShape(Rectangle())
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.26), value: on)
         }
         .buttonStyle(HotZoneTap())
-        .disabled(completing.contains(action.kind))
-        .accessibilityLabel(title)
+        .disabled(on)
+        .accessibilityLabel(on ? L("%@, done", title) : title)
         .accessibilityAddTraits(on ? [.isSelected] : [])
         .accessibilityIdentifier("plan.check.\(action.kind.rawValue)")
     }
 
+    /// The strike draws left to right over the title as the ink greys. It is a
+    /// grow, not a fade: a line appearing all at once reads as a render glitch.
+    private func strike(on: Bool) -> some View {
+        Capsule()
+            .fill(NB.text3Prod)
+            .frame(height: 1.5)
+            .scaleEffect(x: on ? 1 : 0, y: 1, anchor: .leading)
+            .opacity(on ? 1 : 0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.28).delay(0.06), value: on)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    /// Tap → two needles → tick fills, strike draws, ink greys → row sinks.
+    /// The hold before `completing` clears is the strike's own duration, so the
+    /// row only moves once the line has reached the end of the title.
     private func complete(_ kind: PlanFaceMath.ActionKind) {
         guard !done(kind), !completing.contains(kind) else { return }
         completing.insert(kind)
         PlanCompleteCue.play()
         onToggle(kind)
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 40 : 420))
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 40 : 520))
             completing.remove(kind)
         }
     }

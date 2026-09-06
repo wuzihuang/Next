@@ -1,7 +1,10 @@
 import SwiftUI
 
-/// Paper 12Y · 04 SWITCH. Times + rocker. First row has no top hairline.
-/// Add an alarm has no rocker. Edit stays on this sheet.
+/// Paper 12Y · 04 SWITCH (KUV-0 list, L0H-0 edit).
+/// Full-width row layout inside the DEVICE sheet gutter (`DeviceSheet`). No outer card container.
+/// Times + custom 68x40 mechanical rocker. First row has no top hairline.
+/// Adding is one capsule key: filled lime on an empty HOOP, outlined under a list.
+/// Capacity is never shown as `2 / ?` — only a real refusal prints both numbers.
 struct AlarmsSheet: View {
     var onCount: (Int) -> Void = { _ in }
 
@@ -18,59 +21,120 @@ struct AlarmsSheet: View {
             if let draft {
                 editor(draft)
             } else {
-                list
+                SheetHeader(
+                    eyebrow: L("CLOCK"),
+                    title: L("Alarms"),
+                    subtitle: L("This HOOP has no screen. An alarm is a buzz on your wrist.")
+                )
+                if didRead, alarms.isEmpty {
+                    emptyState
+                } else {
+                    list
+                }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 24)
-        .padding(.bottom, 26)
+        .padding(.horizontal, DeviceSheet.gutter)
+        .padding(.top, DeviceSheet.top)
+        .padding(.bottom, DeviceSheet.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NB.carbon4)
+        .background(NB.carbon2)
         .task { await reload() }
+    }
+
+    /// No alarms on this HOOP. The header already said what an alarm is; the face is
+    /// one word and one key — nothing to read, nothing to count.
+    private var emptyState: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            Text(L("NO ALARMS YET"))
+                .font(NBFont.dot(700, 11))
+                .tracking(0.24 * 11)
+                .foregroundStyle(NB.white.opacity(0.38))
+
+            addKey(filled: true)
+                .padding(.top, 22)
+
+            errorLine
+
+            Spacer(minLength: 0)
+        }
+        // The sheet sits at a fixed 0.78 detent, so the key really does land in the
+        // middle of the face. Without maxHeight the two Spacers collapse to nothing.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(L("Alarms"))
-                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
-                .foregroundStyle(NB.text1)
-            Text(L("This HOOP vibrates. It has no screen for a label."))
-                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
-                .foregroundStyle(NB.white.opacity(0.38))
-                .padding(.top, 6)
-
             if !didRead {
                 Text(L("ASKING THIS HOOP…"))
-                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                    .font(NBFont.dot(600, 10))
+                    .tracking(0.16 * 10)
                     .foregroundStyle(NB.white.opacity(0.38))
                     .padding(.top, 24)
+                errorLine
+                Spacer(minLength: 0)
             } else {
-                VStack(spacing: 0) {
+                // A real `List` purely for the mechanic every iPhone owner already knows:
+                // swipe a clock left, get a red 删除. Rolling our own drag would be a
+                // worse copy of it. The chrome is stripped back to the SWITCH face.
+                List {
                     ForEach(Array(alarms.enumerated()), id: \.element.id) { index, alarm in
                         alarmRow(alarm, index: index)
-                        if index < alarms.count - 1 {
-                            Hairline()
-                                .accessibilityIdentifier("alarms.hairline.\(index + 1)")
-                        }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparatorTint(NB.hairline)
+                            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                            .alignmentGuide(.listRowSeparatorTrailing) { $0.width }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    Task { await remove(alarm) }
+                                } label: {
+                                    Label(L("DELETE"), systemImage: "trash")
+                                }
+                                // The app tint is lime, which paints even a destructive
+                                // role the same colour as ON. Say red out loud.
+                                .tint(NB.alert2)
+                                .accessibilityIdentifier("alarms.swipeDelete.\(alarm.id)")
+                            }
                     }
-                    if !alarms.isEmpty || hoopIsFull {
-                        Hairline()
-                            .accessibilityIdentifier("alarms.hairline.add")
-                    }
-                    footerRow
                 }
-                .frame(width: NB.Layout.contentWidth)
-                .cardSkin()
-                .padding(.top, 16)
-            }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .environment(\.defaultMinListRowHeight, 0)
+                .padding(.top, 8)
 
-            if let message {
-                Text(message)
-                    .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
-                    .foregroundStyle(NB.ember1)
-                    .padding(.top, 12)
+                errorLine
+
+                // The detent is fixed, so the key belongs on the floor of the sheet
+                // rather than floating a hairline under the last clock.
+                if hoopIsFull {
+                    fullLine.padding(.top, 22)
+                } else {
+                    addKey(filled: false).padding(.top, 22)
+                }
             }
-            Spacer(minLength: 0)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// The only way to add. No `2 / ?` — capacity is not a number the wearer asked for.
+    private func addKey(filled: Bool) -> some View {
+        HoopKey(title: L("Add an alarm"), skin: filled ? .lime : .outline) { addAlarm() }
+            .accessibilityIdentifier("alarms.add")
+    }
+
+    /// Only when the band actually refused. Both numbers are real by then.
+    private var fullLine: some View {
+        SheetNote(text: L("This HOOP is full · %d / %d", alarms.count, capacity ?? BandAlarm.demoCeiling))
+            .accessibilityIdentifier("alarms.full")
+    }
+
+    @ViewBuilder
+    private var errorLine: some View {
+        if let message {
+            SheetNote(text: message)
+                .padding(.top, 14)
         }
     }
 
@@ -81,14 +145,15 @@ struct AlarmsSheet: View {
     private func alarmRow(_ alarm: BandAlarm, index: Int) -> some View {
         HStack(spacing: 12) {
             Button { openEditor(alarm) } label: {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(alarm.clock)
-                        .font(NBFont.dot(700, 36))
-                        .tracking(-0.03 * 36)
-                        .foregroundStyle(alarm.on || !alarm.showsSwitch ? NB.text1 : NB.white.opacity(0.34))
+                        .font(NBFont.dot(700, 28))
+                        .tracking(-0.02 * 28)
+                        .foregroundStyle(alarm.on || !alarm.showsSwitch ? NB.text1 : NB.white.opacity(0.40))
                     Text(L(BandAlarmMath.phrase(alarm.repeatMask)))
-                        .font(NBFont.dot(500, 11)).tracking(0.1 * 11)
-                        .foregroundStyle(NB.white.opacity(0.38))
+                        .font(NBFont.dot(500, 10))
+                        .tracking(0.14 * 10)
+                        .foregroundStyle(alarm.on || !alarm.showsSwitch ? NB.white.opacity(0.42) : NB.white.opacity(0.24))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -102,56 +167,35 @@ struct AlarmsSheet: View {
                     set: { on in Task { await setOn(alarm, on) } }
                 ))
                 .labelsHidden()
-                .tint(NB.lime1)
-                .frame(width: 68)
+                .toggleStyle(HoopSwitchStyle())
                 .disabled(writing)
                 .accessibilityIdentifier("alarms.switch.\(alarm.id)")
             } else {
-                Color.clear.frame(width: 68, height: 1)
+                Color.clear.frame(width: 68, height: 40)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
+        .padding(.vertical, DeviceSheet.rowInset)
     }
 
-    @ViewBuilder
-    private var footerRow: some View {
-        if hoopIsFull {
-            Text(L("This HOOP is full · %d / %d", alarms.count, capacity ?? BandAlarm.demoCeiling))
-                .font(NBFont.ui(500, 14))
-                .foregroundStyle(NB.text2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 18)
-                .accessibilityIdentifier("alarms.full")
-        } else {
-            Button { addAlarm() } label: {
-                HStack {
-                    Text(L("Add an alarm"))
-                        .font(NBFont.ui(500, 15))
-                        .foregroundStyle(NB.text1)
-                    Spacer(minLength: 0)
-                    Text(BandAlarmMath.countLabel(count: didRead ? alarms.count : nil,
-                                                  didRead: didRead, capacity: capacity))
-                        .font(NBFont.dot(600, 12))
-                        .foregroundStyle(NB.white.opacity(0.38))
-                    Color.clear.frame(width: 68, height: 1)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 18)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("alarms.add")
-        }
-    }
-
+    /// One way out that writes (SAVE) and one that does not (Cancel, in the corner where
+    /// iOS always puts it). The old pair said SAVE and DONE, which read as two ways to agree.
     private func editor(_ alarm: BandAlarm) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(alarm.clock)
-                .font(NBFont.dot(700, 44))
-                .tracking(-0.03 * 44)
-                .foregroundStyle(NB.text1)
+        let isNew = !alarms.contains(where: { $0.id == alarm.id })
+        return VStack(alignment: .leading, spacing: 16) {
+            SheetHeader(
+                eyebrow: isNew ? L("NEW ALARM") : L("EDIT ALARM"),
+                title: alarm.clock,
+                subtitle: L("Vibrate only. Scene stays 0.")
+            ) {
+                Button { draft = nil } label: {
+                    Text(L("Cancel"))
+                        .font(NBFont.ui(500, 14))
+                        .foregroundStyle(NB.text2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("alarms.cancel")
+            }
+
             DatePicker("", selection: $time, displayedComponents: .hourAndMinute)
                 .datePickerStyle(.wheel)
                 .labelsHidden()
@@ -172,7 +216,7 @@ struct AlarmsSheet: View {
                             .foregroundStyle(on ? NB.lime1 : NB.text2)
                             .frame(maxWidth: .infinity)
                             .frame(height: 36)
-                            .background(NB.carbon4, in: Capsule())
+                            .background(NB.carbon2, in: Capsule())
                             .overlay(Capsule().stroke(on ? NB.lime1 : NB.hairline, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
@@ -181,52 +225,32 @@ struct AlarmsSheet: View {
             }
 
             Text(L(BandAlarmMath.phrase(alarm.repeatMask)))
-                .font(NBFont.dot(500, 11)).tracking(0.1 * 11)
+                .font(NBFont.dot(500, 11))
+                .tracking(0.1 * 11)
                 .foregroundStyle(NB.white.opacity(0.38))
 
             if let message {
-                Text(message)
-                    .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
-                    .foregroundStyle(NB.ember1)
+                SheetNote(text: message)
             }
 
             Spacer(minLength: 0)
 
-            Button { Task { await saveDraft() } } label: {
-                Text(L("SAVE"))
-                    .font(NBFont.ui(600, 13)).tracking(0.16 * 13)
-                    .foregroundStyle(NB.carbon)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(NB.lime1, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(writing)
-            .accessibilityIdentifier("alarms.save")
+            HoopKey(title: L("SAVE"), enabled: !writing) { Task { await saveDraft() } }
+                .accessibilityIdentifier("alarms.save")
 
-            HStack(spacing: 10) {
-                Button { draft = nil } label: {
-                    Text(L("DONE"))
-                        .font(NBFont.ui(500, 12)).tracking(0.14 * 12)
-                        .foregroundStyle(NB.text2)
+            // Same destination as the swipe, kept here because an alarm you opened to
+            // change is often one you meant to be rid of. Plain text, not a second plate.
+            if !isNew {
+                Button { Task { await remove(alarm) } } label: {
+                    Text(L("Delete alarm"))
+                        .font(NBFont.ui(500, 14))
+                        .foregroundStyle(NB.alert2)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
+                        .frame(height: 44)
                 }
                 .buttonStyle(.plain)
-                if alarms.contains(where: { $0.id == alarm.id }) {
-                    Button { Task { await remove(alarm) } } label: {
-                        Text(L("DELETE"))
-                            .font(NBFont.ui(500, 12)).tracking(0.14 * 12)
-                            .foregroundStyle(NB.alert2)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .overlay(Capsule().stroke(NB.alert2.opacity(0.6), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(writing)
-                    .accessibilityIdentifier("alarms.delete")
-                }
+                .disabled(writing)
+                .accessibilityIdentifier("alarms.delete")
             }
         }
     }
@@ -322,5 +346,30 @@ struct AlarmsSheet: View {
     private func hoopMessage(_ error: Error) -> String {
         if let band = error as? BandError, case .busy = band { return L("DEVICE BUSY") }
         return error.localizedDescription
+    }
+}
+
+/// Paper 12Y · 04 SWITCH bespoke 68x40 rocker.
+/// Lime fill with carbon-4 thumb when ON; translucent white with light thumb when OFF.
+struct HoopSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                Capsule()
+                    .fill(configuration.isOn ? NB.lime1 : Color.white.opacity(0.133))
+                    .frame(width: 68, height: 40)
+                Circle()
+                    .fill(configuration.isOn ? NB.carbon4 : Color.white.opacity(0.60))
+                    .frame(width: 32, height: 32)
+                    .padding(4)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityRepresentation {
+            Toggle(configuration)
+        }
+        .animation(.spring(response: 0.22, dampingFraction: 0.78), value: configuration.isOn)
     }
 }

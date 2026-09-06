@@ -1,0 +1,58 @@
+{
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Measure/BalanceLayouts.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceLayouts.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceLayouts.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceLayouts.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceLayouts.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceLayouts.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Measure/PlusMenu.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlusMenu.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlusMenu.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlusMenu.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlusMenu.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlusMenu.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Measurements/MeasurementSheet.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementSheet.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementSheet.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementSheet.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementSheet.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementSheet.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Measurements/MeasurementsView.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementsView.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementsView.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementsView.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementsView.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/MeasurementsView.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Onboarding/ValueSheets.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ValueSheets.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ValueSheets.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ValueSheets.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ValueSheets.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ValueSheets.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Plan/PlanChevron.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanChevron.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanChevron.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanChevron.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanChevron.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanChevron.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Plan/PlanFaceMath.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanFaceMath.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanFaceMath.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanFaceMath.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanFaceMath.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanFaceMath.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Plan/PlanPage.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanPage.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanPage.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanPage.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanPage.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/PlanPage.swiftdeps"
+  }
+}

@@ -1,0 +1,4 @@
+module AppAuthCore {
+umbrella "/Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/AppAuth-iOS/Sources/AppAuthCore"
+export *
+}

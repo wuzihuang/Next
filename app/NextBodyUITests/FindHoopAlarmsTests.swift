@@ -18,11 +18,8 @@ final class FindHoopAlarmsTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Alarms"].exists)
         XCTAssertTrue(app.staticTexts["WORN"].exists)
         XCTAssertTrue(app.staticTexts["SYNC"].exists || app.buttons["Sync now"].exists)
-        XCTAssertTrue(app.otherElements["device.battery"].waitForExistence(timeout: 4)
-                      || app.staticTexts["POWER"].exists,
-                      "the charge ring stays on the device page")
-        XCTAssertTrue(app.buttons["device.trend"].exists || app.staticTexts["TREND"].exists,
-                      "TREND is the door back into the chart")
+        XCTAssertTrue(app.buttons["device.trend"].waitForExistence(timeout: 4),
+                      "TREND lead corridor should sit on the lime slab")
     }
 
     func testFindOpensReadyThenStartBecomesStop() {
@@ -64,9 +61,59 @@ final class FindHoopAlarmsTests: XCTestCase {
         XCTAssertTrue(app.switches["alarms.switch.1"].exists
                         || app.switches.firstMatch.exists,
                       "a repeating alarm keeps its rocker")
+        XCTAssertFalse(app.staticTexts["2 / ?"].exists,
+                       "the face never prints a running capacity")
     }
 
-    private func launchDevice(sheet: String? = nil) -> XCUIApplication {
+    /// The editor offers one way to agree and one way to walk away. `DONE` used to sit
+    /// next to `SAVE` while meaning "discard", which is the opposite of what it says.
+    func testEditorHasSaveAndCancelAndNeverDone() {
+        let app = launchDevice(sheet: "bandAlarms")
+        XCTAssertTrue(app.buttons["alarms.row.0"].waitForExistence(timeout: 30))
+        app.buttons["alarms.row.0"].tap()
+
+        XCTAssertTrue(app.buttons["alarms.save"].waitForExistence(timeout: 6))
+        XCTAssertTrue(app.buttons["alarms.cancel"].exists, "Cancel is the only way out that writes nothing")
+        XCTAssertFalse(app.staticTexts["DONE"].exists, "DONE read as a second kind of Save")
+        XCTAssertTrue(app.staticTexts["EDIT ALARM"].exists)
+
+        app.buttons["alarms.cancel"].tap()
+        XCTAssertTrue(app.buttons["alarms.add"].waitForExistence(timeout: 4),
+                      "Cancel returns to the list")
+        XCTAssertTrue(app.staticTexts["07:30"].exists, "and changes nothing")
+    }
+
+    /// Apple's Clock deletes an alarm with a left swipe, so this one does too.
+    func testSwipingAClockLeftDeletesIt() {
+        let app = launchDevice(sheet: "bandAlarms")
+        let first = app.buttons["alarms.row.0"]
+        XCTAssertTrue(first.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["07:30"].exists)
+
+        first.swipeLeft()
+        let trash = app.buttons["DELETE"]
+        XCTAssertTrue(trash.waitForExistence(timeout: 4), "a left swipe reveals DELETE")
+        trash.tap()
+
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: app.staticTexts["07:30"], handler: nil)
+        waitForExpectations(timeout: 8)
+        XCTAssertTrue(app.staticTexts["08:45"].exists, "only the swiped clock goes")
+    }
+
+    /// A HOOP that has never been given an alarm gets one key in the middle of the face —
+    /// no list, no eyebrow count, no rocker to misread.
+    func testAnEmptyHoopIsOneCentredKey() {
+        let app = launchDevice(sheet: "bandAlarms", edge: "noalarms")
+        XCTAssertTrue(app.buttons["alarms.add"].waitForExistence(timeout: 30),
+                      "the empty SWITCH face is the Add key")
+        XCTAssertTrue(app.staticTexts["NO ALARMS YET"].exists)
+        XCTAssertFalse(app.staticTexts["— / ?"].exists)
+        XCTAssertFalse(app.staticTexts["0 / ?"].exists)
+        XCTAssertEqual(app.switches.count, 0, "nothing to switch on an empty HOOP")
+    }
+
+    private func launchDevice(sheet: String? = nil, edge: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
@@ -74,6 +121,9 @@ final class FindHoopAlarmsTests: XCTestCase {
         app.launchEnvironment["NB_DEBUG_ROUTE"] = "device"
         if let sheet {
             app.launchEnvironment["NB_DEBUG_DEVICE_SHEET"] = sheet
+        }
+        if let edge {
+            app.launchEnvironment["NB_DEBUG_EDGE"] = edge
         }
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()

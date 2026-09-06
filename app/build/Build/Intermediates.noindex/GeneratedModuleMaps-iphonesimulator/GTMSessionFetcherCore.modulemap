@@ -1,0 +1,4 @@
+module GTMSessionFetcherCore {
+umbrella "/Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/gtm-session-fetcher/Sources/Core/Public"
+export *
+}

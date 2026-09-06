@@ -41,6 +41,10 @@ final class FindDistanceMathTests: XCTestCase {
         XCTAssertEqual(FindDistance.close.label, "CLOSE")
         XCTAssertEqual(FindDistance.away.label, "AWAY")
         XCTAssertEqual(FindDistance.far.label, "FAR")
+        XCTAssertNotEqual(FindDistance.close.copyKey, "CLOSE")
+        XCTAssertNotEqual(FindDistance.near.copyKey, "NEAR")
+        XCTAssertEqual(FindDistance.near.copyKey, "Find · very near")
+        XCTAssertEqual(FindDistance.close.copyKey, "Find · nearer")
     }
 
     func testFirmwarePhasesMatchVendorOrdinals() {

@@ -104,11 +104,17 @@ struct HomeView: View {
     private var safe: UIEdgeInsets { ScreenMetrics.safeArea }
     private var columnWidth: CGFloat { screen.width - 2 * NB.Layout.gutter }
     private var panelTop: CGFloat { safe.top + HomeHeader.height + 12 }
-    /// the dock's foot, measured from the bottom edge of the screen. 04B · it rides clear of
-    /// the page dots' lane (which sits on the home-indicator edge), so the voice key is not
-    /// crowded by the dots.
+    /// Board indicator is 19pt; a real inset is ~34pt. That extra used to sit as a
+    /// black void under PLAN. The lip drops into all of it; the dock drops less, so
+    /// the voice key and the two strip cards ride down and the panel can grow, and
+    /// the chevron is no longer on the voice key (was 8pt of air).
+    private var homeIndicatorExtra: CGFloat { max(0, safe.bottom - Chrome.boardHomeIndicator) }
+    /// the dock's foot, measured from the bottom edge of the screen.
     /// Lip is chevron + page dots + PLAN above the Home Indicator; the dock sits above that lane.
-    private var dockBottom: CGFloat { safe.bottom + 60 }
+    /// The dock and the strip ride 8pt lower than they did so the panel gets that height
+    /// back and the bottom of the page stops reading as a shelf of air (the chevron keeps
+    /// ~18pt under the voice key, the lane itself moves down with it).
+    private var dockBottom: CGFloat { safe.bottom + 60 - homeIndicatorExtra - 4 }
     /// On a short phone the panel is smaller than the board's canvas and the widget scales
     /// down inside it (AIPanel); on a tall one it grows. The strip and the dock never change.
     private var panelHeight: CGFloat {
@@ -156,8 +162,10 @@ struct HomeView: View {
     private var liveReadoutWanted: Bool {
         liveReadoutAllowed && (router.homePage == 0 || readoutHeldOnPageTwo)
     }
-    /// 04D · chevron, the two page dots, then PLAN, just above the Home Indicator.
-    private var planLipLane: CGFloat { safe.bottom + 52 }
+    /// 04D · chevron, the two page dots, then PLAN. Drops further than the dock
+    /// so PLAN sits over the Home Indicator instead of a void, and the chevron
+    /// keeps ~20pt of air under the voice key.
+    private var planLipLane: CGFloat { safe.bottom + 52 - homeIndicatorExtra - 12 }
     private var pageTwoHeight: CGFloat { screen.height - panelTop - planLipLane - 12 }
     private var planFlatten: CGFloat { CGFloat(PlanFaceMath.flatten(translation: Double(planDragDy))) }
     private var planMotionReduced: Bool {
@@ -425,6 +433,12 @@ struct HomeView: View {
         .onChange(of: liveReadoutWanted, initial: true) { _, wanted in
             BandLiveLifecycle.shared.setForegroundWanted(wanted)
         }
+        .onChange(of: session.holdingLaunchStill) { _, holding in
+            if !holding {
+                firstRun.start(reduceMotion: reduceMotion,
+                               lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+            }
+        }
         .onDisappear { BandLiveLifecycle.shared.setForegroundWanted(false) }
         .background { NightHomeDiagnosticObserver(metrics: data.today) }
         .task {
@@ -468,8 +482,10 @@ struct HomeView: View {
                 }
             }
             #endif
-            firstRun.start(reduceMotion: reduceMotion,
-                           lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+            if !session.holdingLaunchStill {
+                firstRun.start(reduceMotion: reduceMotion,
+                               lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+            }
 
             // F3 §05 · the home screen reads one row of daily_results and nothing else.
             // ⚠️ Unstructured on purpose: `.task` is cancelled the moment a detail page is
@@ -558,9 +574,9 @@ struct HomeView: View {
     }
 
     private var page: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
             // the status bar; iOS paints into it
-            Color.clear.frame(height: max(0, safe.top - 12))
+            Color.clear.frame(height: safe.top)
 
             // ◇8 · the top bar slides in from −8px as the card lands.
             HomeHeader(name: data.profile.displayName, initials: data.profile.initials,
@@ -573,8 +589,12 @@ struct HomeView: View {
             .opacity(firstRun.chromeVisible ? 1 : 0)
             .offset(y: firstRun.chromeVisible ? 0 : -8)
 
+            Color.clear.frame(height: 12)
+
             // the room the panel occupies once it has folded
             Color.clear.frame(width: columnWidth, height: panelHeight)
+
+            Color.clear.frame(height: 12)
 
             // ◇9 · the two tiles rise from +16px, left before right by 80ms.
             BottomStrip(m: data.today, width: columnWidth,
@@ -583,6 +603,8 @@ struct HomeView: View {
                 .opacity(firstRun.tilesVisible ? 1 : 0)
                 .offset(y: firstRun.tilesVisible ? 0 : 16)
                 .offset(x: pageShift)
+
+            Color.clear.frame(height: 12)
 
             // ◇10 · the three keys land together: it is one tool, not three.
             // ⚠️ Before that the dock is simply not there — never a greyed-out disabled state.
@@ -690,8 +712,8 @@ struct HomeView: View {
                 Color.clear.frame(height: NB.Layout.dockHeight)
             }
 
-            // iOS draws the home indicator itself; the dock stops above the page-dots lane
-            // (04B rule 02) with enough air that the voice key does not crowd the dots.
+            // iOS draws the home indicator itself. The lip sits in this band;
+            // the voice key keeps ~20pt of air above the chevron.
             Color.clear.frame(height: dockBottom)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

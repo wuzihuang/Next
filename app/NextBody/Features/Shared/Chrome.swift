@@ -9,6 +9,9 @@ enum Chrome {
     /// The board's own status-bar block. Only for converting a board Y into a Y measured
     /// from the top of the safe area (`y - boardStatusBar + gateTopInset`).
     static let boardStatusBar: CGFloat = 62
+    /// The board's own home-indicator block. A real phone is ~34pt; the extra used to
+    /// sit as a black void under PLAN. Home drops the lip into that extra.
+    static let boardHomeIndicator: CGFloat = 19
     /// The device's status bar — what a page that draws under it must leave clear.
     static var statusBarBlock: CGFloat { ScreenMetrics.safeArea.top }
     /// The device's home-indicator inset.
@@ -22,7 +25,7 @@ enum Chrome {
     /// on a phone whose safe area is shorter than that (an SE) the column is compressed to
     /// fit, so nothing the board places near the bottom falls off the screen.
     static func boardY(_ y: CGFloat) -> CGFloat {
-        let boardSafe: CGFloat = 844 - boardStatusBar - 19
+        let boardSafe: CGFloat = 844 - boardStatusBar - boardHomeIndicator
         let s = ScreenMetrics.size, i = ScreenMetrics.safeArea
         let deviceSafe = s.height - i.top - i.bottom
         return (y - boardStatusBar + gateTopInset) * min(1, deviceSafe / boardSafe)

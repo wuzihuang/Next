@@ -11,6 +11,7 @@ struct NextBodyApp: App {
     @Environment(\.scenePhase) private var phase
 
     init() {
+        _ = LaunchFilmPolicy.processStart
         Logger(subsystem: "com.nextbody.hoop", category: "lifecycle").notice("app initialized")
         NightDiagnostics.shared.record("app.launch", fields: NightDiagnostics.shared.status)
     }

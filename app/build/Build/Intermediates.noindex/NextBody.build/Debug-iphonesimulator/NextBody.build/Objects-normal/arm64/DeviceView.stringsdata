@@ -1,0 +1,72 @@
+{
+  "source": "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Device/DeviceView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "%@ %@",
+        "location": {
+          "startingColumn": 49,
+          "startingLine": 506
+        }
+      },
+      {
+        "comment": "",
+        "key": "",
+        "location": {
+          "startingColumn": 79,
+          "startingLine": 506
+        }
+      },
+      {
+        "comment": "",
+        "key": "",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 1281
+        }
+      },
+      {
+        "comment": "",
+        "key": "Measurement interval",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 1308
+        }
+      },
+      {
+        "comment": "",
+        "key": "#%lld",
+        "location": {
+          "startingColumn": 38,
+          "startingLine": 1565
+        }
+      },
+      {
+        "comment": "",
+        "key": "YES",
+        "location": {
+          "startingColumn": 75,
+          "startingLine": 1572
+        }
+      },
+      {
+        "comment": "",
+        "key": "NO",
+        "location": {
+          "startingColumn": 77,
+          "startingLine": 1573
+        }
+      },
+      {
+        "comment": "",
+        "key": "TAP",
+        "location": {
+          "startingColumn": 84,
+          "startingLine": 1573
+        }
+      }
+    ]
+  },
+  "version": 1
+}

@@ -150,9 +150,12 @@ struct BatteryTrendView: View {
             if let etaLine {
                 Rectangle().fill(NB.hairline).frame(height: 1)
                 Text(etaLine)
-                    .font(NBFont.dot(500, 10))
-                    .tracking(0.10 * 10)
+                    // This is a sentence with a weekday and clock. Use one UI face;
+                    // Doto's punctuation/numerals misalign with its Chinese fallback.
+                    .font(NBFont.ui(500, 12))
+                    .tracking(0.02 * 12)
                     .foregroundStyle(NB.white.opacity(0.38))
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -207,13 +210,18 @@ struct BatteryTrendView: View {
 
     private func stamp(_ date: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDate(date, inSameDayAs: now) { return Fmt.clock(date) }
+        let clock = Fmt.clock(date)
+        if calendar.isDate(date, inSameDayAs: now) { return L("TODAY %@", clock) }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
+           calendar.isDate(date, inSameDayAs: tomorrow) {
+            return L("TOMORROW %@", clock)
+        }
         let start = calendar.startOfDay(for: now)
         let days = calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: date)).day ?? 0
         if (1...6).contains(days) {
-            return "\(Fmt.weekday(date)) \(Fmt.clock(date))"
+            return "\(Fmt.weekday(date)) \(clock)"
         }
-        return "\(Fmt.displayDate(date, format: "MM-dd")) \(Fmt.clock(date))"
+        return "\(Fmt.displayDate(date, format: "MM-dd")) \(clock)"
     }
 
     private var lastPlug: String {

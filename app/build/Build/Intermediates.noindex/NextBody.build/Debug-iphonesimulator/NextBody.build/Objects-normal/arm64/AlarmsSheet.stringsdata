@@ -1,0 +1,24 @@
+{
+  "source": "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Device/AlarmsSheet.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 165
+        }
+      },
+      {
+        "comment": "",
+        "key": "",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 199
+        }
+      }
+    ]
+  },
+  "version": 1
+}

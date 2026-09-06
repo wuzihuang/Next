@@ -1,0 +1,16 @@
+{
+  "source": "/Users/zihuangwu/Documents/Next/app/NextBody/Features/Fuel/FuelBoards.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "%@ %@ %@ %@",
+        "location": {
+          "startingColumn": 29,
+          "startingLine": 321
+        }
+      }
+    ]
+  },
+  "version": 1
+}

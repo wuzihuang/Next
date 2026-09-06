@@ -8,10 +8,13 @@
 03 Range constraints are the iOS ∩ Android set: sedentary interval 30–240 min, end > start, interval <
    (end − start); heartRateAlarm 30–250 bpm, lower < upper; healthReminder 1–255. Blocked at input.
 04 Sedentary reminder never shows weekdays (Android lacks the mask). Time window and interval only.
-05 Alarms use the new-alarm API (mode 0 delete / 1 set / 2 read). Capacity is `?` until the first
-   read; demo ceiling 20, this G70's real cap only after a refused write or a full table. Add = write
-   then confirm; on failure roll the table back and state the limit. Scene stays 0 — screenless band
-   alarms vibrate only. Find-the-wrist is a sheet (START then STOP), not `.findBand`.
+05 Alarms select the SDK protocol using deviceFuctionData[17]: 1–4 scene (delete/set/read 0/1/2),
+   5–7 text (1/2/3). The tested HOOP reports 6. Text alarms have a ten-row limit, checked before
+   adding; scene alarms use the demo ceiling of twenty. Only publish writes after the SDK reply.
+   Scene stays 0 and existing text is preserved. Malformed firmware rows are not editable but
+   still count toward capacity; never delete them automatically. A scene read can return cached
+   rows after 0.5 seconds without a device reply, so it cannot prove protocol compatibility.
+   Find-the-wrist is a sheet (START then STOP), not `.findBand`.
 06 Automatic measurement is a second-level page, not one switch: readAutoMeasureSetting() returns one row
    per funType 0–8; isSlotModify / isIntervalModify decide what is editable.
 07 Battery binds the batteryData event, no polling. isPercent === false → 0–4 bars, days / LEFT hidden; never

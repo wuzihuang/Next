@@ -19,8 +19,8 @@ final class BatteryDrainMathTests: XCTestCase {
     func testDrainRateLearnsFromUnpluggedDrops() {
         let samples = [
             obs(t0, 90),
-            obs(t0.addingTimeInterval(3600), 88),
-            obs(t0.addingTimeInterval(7200), 86),
+            obs(t0.addingTimeInterval(3 * 3600), 84),
+            obs(t0.addingTimeInterval(6 * 3600), 78),
         ]
         XCTAssertEqual(BatteryDrainMath.drainRate(in: samples, yMax: 100), 2, accuracy: 0.01)
     }
@@ -31,6 +31,140 @@ final class BatteryDrainMathTests: XCTestCase {
             BatteryDrainMath.drainRate(in: samples, yMax: 100),
             100 / BatteryDrainMath.packHours,
             accuracy: 0.0001)
+    }
+
+    func testDrainLearningIncludesTimeOnAnUnchangedPercent() {
+        let samples = [
+            obs(t0, 80),
+            obs(t0.addingTimeInterval(2 * 3600), 80),
+            obs(t0.addingTimeInterval(2.5 * 3600), 79),
+            obs(t0.addingTimeInterval(8 * 3600), 76),
+        ]
+        XCTAssertEqual(BatteryDrainMath.drainRate(in: samples, yMax: 100), 0.5, accuracy: 0.001)
+    }
+
+    func testFrequentIntegerReadingsGiveTheSameDrainAsSparseReadings() {
+        let sparse = [obs(t0, 90), obs(t0.addingTimeInterval(12 * 3600), 84)]
+        let frequent = (0...24).map { i in
+            obs(t0.addingTimeInterval(Double(i) * 1800), 90 - i / 4)
+        }
+        XCTAssertEqual(BatteryDrainMath.drainRate(in: frequent, yMax: 100),
+                       BatteryDrainMath.drainRate(in: sparse, yMax: 100), accuracy: 0.001)
+    }
+
+    func testChargeBetweenUnpluggedReadingsCannotTeachADrain() {
+        let samples = [
+            obs(t0, 90),
+            obs(t0.addingTimeInterval(3600), 90, .charging),
+            obs(t0.addingTimeInterval(8 * 3600), 86),
+        ]
+        XCTAssertNil(BatteryDrainMath.eta(in: samples, now: samples.last!.at))
+    }
+
+    func testRecentDischargeCycleReplacesOldFasterCycles() {
+        var samples = (0...12).map { i in
+            obs(t0.addingTimeInterval(Double(i) * 3600), 90 - 2 * i)
+        }
+        samples += [
+            obs(t0.addingTimeInterval(13 * 3600), 66, .charging),
+            obs(t0.addingTimeInterval(15 * 3600), 100, .full),
+            obs(t0.addingTimeInterval(16 * 3600), 100),
+            obs(t0.addingTimeInterval(28 * 3600), 94),
+        ]
+        XCTAssertEqual(BatteryDrainMath.drainRate(in: samples, yMax: 100), 0.5, accuracy: 0.001)
+    }
+
+    func testOnePercentDropDoesNotPromiseDaysOfBatteryLife() {
+        let samples = [obs(t0, 80), obs(t0.addingTimeInterval(3600), 79)]
+        XCTAssertNil(BatteryDrainMath.eta(in: samples, now: samples.last!.at))
+    }
+
+    func testDayOldReadingDoesNotKeepPrintingAnEmptyClock() {
+        let samples = [obs(t0, 90), obs(t0.addingTimeInterval(12 * 3600), 84)]
+        XCTAssertNil(BatteryDrainMath.eta(in: samples,
+                                         now: samples.last!.at.addingTimeInterval(25 * 3600)))
+    }
+
+    func testLongCycleLearnsFromItsMostRecentTwoDays() {
+        let samples = (0...6).map { i in
+            let percent = i <= 2 ? 100 - 12 * i : 76 - 3 * (i - 2)
+            return obs(t0.addingTimeInterval(Double(i) * 12 * 3600), percent)
+        }
+        XCTAssertEqual(BatteryDrainMath.drainRate(in: samples, yMax: 100), 0.25, accuracy: 0.001)
+    }
+
+    func testPreviousCycleCanTeachANewlyUnpluggedPack() {
+        let samples = [
+            obs(t0, 90), obs(t0.addingTimeInterval(12 * 3600), 84),
+            obs(t0.addingTimeInterval(13 * 3600), 84, .charging),
+            obs(t0.addingTimeInterval(14 * 3600), 100, .full),
+            obs(t0.addingTimeInterval(15 * 3600), 100),
+        ]
+        guard case .empty(let at) = BatteryDrainMath.eta(in: samples, now: samples.last!.at) else {
+            return XCTFail("a recent completed cycle can teach the newly unplugged pack")
+        }
+        XCTAssertEqual(at.timeIntervalSince(samples.last!.at), 200 * 3600, accuracy: 1)
+    }
+
+    func testWeekOldCycleCannotTeachAFreshReading() {
+        let samples = [
+            obs(t0, 90), obs(t0.addingTimeInterval(12 * 3600), 84),
+            obs(t0.addingTimeInterval(13 * 3600), 84, .charging),
+            obs(t0.addingTimeInterval(9 * 24 * 3600), 80),
+        ]
+        XCTAssertNil(BatteryDrainMath.eta(in: samples, now: samples.last!.at))
+    }
+
+    func testUnobservedRiseAndDayLongGapBreakDischargeLearning() {
+        let rise = [obs(t0, 80), obs(t0.addingTimeInterval(2 * 3600), 82),
+                    obs(t0.addingTimeInterval(7 * 3600), 76)]
+        let gap = [obs(t0, 80), obs(t0.addingTimeInterval(30 * 3600), 76)]
+        XCTAssertNil(BatteryDrainMath.eta(in: rise, now: rise.last!.at))
+        XCTAssertNil(BatteryDrainMath.eta(in: gap, now: gap.last!.at))
+    }
+
+    func testCachedDisconnectValueDoesNotExtendMeasuredWear() {
+        var samples = [obs(t0, 90), obs(t0.addingTimeInterval(6 * 3600), 84)]
+        var disconnect = obs(t0.addingTimeInterval(12 * 3600), 84)
+        disconnect.connected = false
+        samples.append(disconnect)
+        XCTAssertEqual(BatteryDrainMath.drainRate(in: samples, yMax: 100), 1, accuracy: 0.001)
+        guard case .empty(let at) = BatteryDrainMath.eta(in: samples, now: disconnect.at) else {
+            return XCTFail("a short disconnect should age the last real reading")
+        }
+        XCTAssertEqual(at.timeIntervalSince(disconnect.at), 78 * 3600, accuracy: 1)
+    }
+
+    func testNewBarsReadingDoesNotReuseAnOldPercentClock() {
+        var samples = [obs(t0, 90), obs(t0.addingTimeInterval(6 * 3600), 84)]
+        samples.append(BatteryObservation(at: t0.addingTimeInterval(7 * 3600),
+                                          isPercent: false, percent: nil, level: 3,
+                                          charge: .unplugged, connected: true))
+        XCTAssertNil(BatteryDrainMath.eta(in: samples, now: samples.last!.at))
+    }
+
+    func testStateOnlyChargeEventStopsTheEmptyClock() {
+        var samples = [obs(t0, 90), obs(t0.addingTimeInterval(6 * 3600), 84)]
+        samples.append(BatteryObservation(at: t0.addingTimeInterval(7 * 3600),
+                                          isPercent: true, percent: nil, level: nil,
+                                          charge: .charging, connected: true))
+        XCTAssertNil(BatteryDrainMath.eta(in: samples, now: samples.last!.at))
+    }
+
+    func testFutureReadingsDoNotChangeTodaysEstimate() {
+        let samples = [obs(t0, 90), obs(t0.addingTimeInterval(6 * 3600), 84)]
+        let future = obs(t0.addingTimeInterval(7 * 3600), 84, .charging)
+        XCTAssertEqual(BatteryDrainMath.eta(in: samples + [future], now: samples.last!.at),
+                       BatteryDrainMath.eta(in: samples, now: samples.last!.at))
+    }
+
+    func testChargeSessionsAreNotJoinedIntoAnArtificialSlowClimb() {
+        let samples = [
+            obs(t0, 40, .charging), obs(t0.addingTimeInterval(3600), 70, .charging),
+            obs(t0.addingTimeInterval(2 * 3600), 68),
+            obs(t0.addingTimeInterval(24 * 3600), 50, .charging),
+        ]
+        XCTAssertNil(BatteryDrainMath.eta(in: samples, now: samples.last!.at))
     }
 
     func testProjectDropsAnUnpluggedReadingAndLiftsACharge() {
@@ -147,14 +281,14 @@ final class BatteryDrainMathTests: XCTestCase {
     func testEtaNamesAnEmptyClockFromALearnedDrain() {
         let samples = [
             obs(t0, 90),
-            obs(t0.addingTimeInterval(3600), 88),
-            obs(t0.addingTimeInterval(7200), 86),
+            obs(t0.addingTimeInterval(3 * 3600), 84),
+            obs(t0.addingTimeInterval(6 * 3600), 78),
         ]
-        let eta = BatteryDrainMath.eta(in: samples, now: t0.addingTimeInterval(7200))
+        let eta = BatteryDrainMath.eta(in: samples, now: samples.last!.at)
         guard case .empty(let at) = eta else {
             return XCTFail("expected an empty clock")
         }
-        XCTAssertEqual(at.timeIntervalSince(t0.addingTimeInterval(7200)), 43 * 3600, accuracy: 1)
+        XCTAssertEqual(at.timeIntervalSince(samples.last!.at), 39 * 3600, accuracy: 1)
     }
 
     func testEtaStaysSilentWithoutALearnedSlope() {
@@ -182,34 +316,34 @@ final class BatteryDrainMathTests: XCTestCase {
     func testEtaAgesTheLastPacketBeforeItNamesTheClock() {
         let samples = [
             obs(t0, 90),
-            obs(t0.addingTimeInterval(3600), 88),
+            obs(t0.addingTimeInterval(6 * 3600), 78),
         ]
-        let now = t0.addingTimeInterval(2 * 3600)
+        let now = t0.addingTimeInterval(7 * 3600)
         let eta = BatteryDrainMath.eta(in: samples, now: now)
         guard case .empty(let at) = eta else {
             return XCTFail("expected an empty clock after aging")
         }
-        XCTAssertEqual(at.timeIntervalSince(now), 43 * 3600, accuracy: 1)
+        XCTAssertEqual(at.timeIntervalSince(now), 38 * 3600, accuracy: 1)
     }
 
     func testLeftNamesDaysFromALearnedDrain() {
         let samples = [
             obs(t0, 90),
-            obs(t0.addingTimeInterval(3600), 88),
-            obs(t0.addingTimeInterval(7200), 86),
+            obs(t0.addingTimeInterval(3 * 3600), 84),
+            obs(t0.addingTimeInterval(6 * 3600), 78),
         ]
         XCTAssertEqual(
-            BatteryDrainMath.left(in: samples, now: t0.addingTimeInterval(7200)),
+            BatteryDrainMath.left(in: samples, now: samples.last!.at),
             .days(2))
     }
 
     func testLeftNamesHoursWhenEmptyIsToday() {
         let samples = [
-            obs(t0, 10),
-            obs(t0.addingTimeInterval(3600), 8),
+            obs(t0, 20),
+            obs(t0.addingTimeInterval(6 * 3600), 8),
         ]
         XCTAssertEqual(
-            BatteryDrainMath.left(in: samples, now: t0.addingTimeInterval(3600)),
+            BatteryDrainMath.left(in: samples, now: samples.last!.at),
             .hours(4))
     }
 

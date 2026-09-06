@@ -4,11 +4,12 @@ import Foundation
 ///
 /// The glance is a copy of the facts each size is allowed to draw — body battery
 /// (0–100), training load (0–21), EATEN, the band's own charge, the last
-/// heart / stress tick, last night's sleep score, and today's ACTIVE / steps /
-/// metres. Unlogged intake is `nil`, never `0`. FASTED is `0`. After ninety
-/// minutes the live body numbers withdraw; an unlogged EATEN stays "——"
-/// because that is still the truth. Last night's score and the band pip do
-/// not withdraw with them.
+/// heart / stress tick, last night's sleep score, today's ACTIVE / steps /
+/// metres, the latest RESPONSE point, and last night's HRV / SpO2. Unlogged
+/// intake is `nil`, never `0`. FASTED is `0`. After ninety minutes the live
+/// body numbers withdraw; an unlogged EATEN stays "——" because that is
+/// still the truth. Last night's score, HRV, SpO2 and the band pip do not
+/// withdraw with them.
 enum WidgetFaceMath {
     static let staleAfter: TimeInterval = 90 * 60
     static let loadCeiling = 21.0
@@ -31,6 +32,9 @@ enum WidgetFaceMath {
         var activeKcal: Double?
         var steps: Int?
         var distanceM: Int?
+        var responsePoint: Double?
+        var nightHrv: Int?
+        var spo2: Int?
 
         static let empty = Glance(
             numbersAt: .distantPast,
@@ -47,7 +51,10 @@ enum WidgetFaceMath {
             sleepMinutes: nil,
             activeKcal: nil,
             steps: nil,
-            distanceM: nil)
+            distanceM: nil,
+            responsePoint: nil,
+            nightHrv: nil,
+            spo2: nil)
 
         /// Gallery / placeholder — the same board numbers as `DataStore.seedToday`.
         static let placeholder = Glance(
@@ -65,7 +72,10 @@ enum WidgetFaceMath {
             sleepMinutes: 432,
             activeKcal: 320,
             steps: 8_432,
-            distanceM: 6_200)
+            distanceM: 6_200,
+            responsePoint: 108,
+            nightHrv: 54,
+            spo2: 96)
     }
 
     struct TodayReadout: Equatable, Sendable {
@@ -84,6 +94,9 @@ enum WidgetFaceMath {
         var activeText: String
         var stepsText: String
         var distanceText: String
+        var responseText: String
+        var hrvText: String
+        var spo2Text: String
         var stale: Bool
         /// `HH:mm` of `numbersAt` when the live numbers have been withdrawn.
         var clock: String?
@@ -142,6 +155,14 @@ enum WidgetFaceMath {
         return String(format: "%.1f", Double(metres) / 1000)
     }
 
+    static func responseText(_ value: Double?) -> String {
+        guard let value else { return dash }
+        let rounded = value.rounded()
+        return abs(value - rounded) < 0.05
+            ? String(Int(rounded))
+            : String(format: "%.1f", value)
+    }
+
     static func clockText(_ date: Date) -> String {
         clockFormatter.string(from: date)
     }
@@ -187,6 +208,9 @@ enum WidgetFaceMath {
             activeText: hideLive ? dash : kcalText(glance.activeKcal),
             stepsText: hideLive ? dash : groupedText(glance.steps),
             distanceText: hideLive ? dash : kmText(glance.distanceM),
+            responseText: hideLive ? dash : responseText(glance.responsePoint),
+            hrvText: signedOut ? dash : countText(glance.nightHrv),
+            spo2Text: signedOut ? dash : countText(glance.spo2),
             stale: stale,
             clock: stale ? clockText(glance.numbersAt) : nil,
             stamp: signedOut || glance.numbersAt == .distantPast

@@ -1,0 +1,21 @@
+moduledependenciestarget: \
+  /Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/GeneratedModuleMaps-iphonesimulator/AppCheckCore.modulemap \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/AppCheckCore.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheck.h \
+  /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk/System/Library/Frameworks/Foundation.framework/Modules/module.modulemap \
+  /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk/usr/include/DarwinFoundation1.modulemap \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckErrors.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckLogger.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckProvider.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckSettings.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckToken.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckTokenDelegate.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckTokenResult.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckDebugProvider.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACDeviceCheckProvider.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppCheckAvailability.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/GACAppAttestProvider.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/_GACAppCheckAPIService.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/_GACAppCheckBackoffWrapper.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/_GACAppCheckErrorUtil.h \
+  /Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/app-check/AppCheckCore/Sources/Public/AppCheckCore/_GACURLSessionDataResponse.h

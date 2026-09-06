@@ -1,0 +1,109 @@
+{
+  "" : {
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/NextBodyLiveActivity-primary.dia",
+    "emit-module-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/NextBodyLiveActivity-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/NextBodyLiveActivity-primary-emit-module.dia",
+    "pch" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/NextBodyLiveActivity-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/NextBodyLiveActivity-primary.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/FuelCardMath.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/FuelCardMath.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/FuelCardMath.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/FuelCardMath.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/FuelCardMath.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/FuelCardMath.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/FuelCardMath.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/FuelCardMath.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/FuelCardMath~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/WidgetFaceMath.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaceMath.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaceMath.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaceMath.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaceMath.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaceMath.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaceMath.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaceMath.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaceMath~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyLiveActivity/IslandStyle.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/IslandStyle.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/IslandStyle.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/IslandStyle.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/IslandStyle.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/IslandStyle.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/IslandStyle.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/IslandStyle.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/IslandStyle~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyLiveActivity/LiveActivityBundle.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/LiveActivityBundle.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/LiveActivityBundle.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/LiveActivityBundle.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/LiveActivityBundle.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/LiveActivityBundle.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/LiveActivityBundle.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/LiveActivityBundle.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/LiveActivityBundle~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyLiveActivity/SessionAttributes.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionAttributes.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionAttributes.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionAttributes.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionAttributes.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionAttributes.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionAttributes.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionAttributes.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionAttributes~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyLiveActivity/SessionLiveActivity.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionLiveActivity.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionLiveActivity.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionLiveActivity.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionLiveActivity.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionLiveActivity.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionLiveActivity.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionLiveActivity.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/SessionLiveActivity~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyLiveActivity/ShotWidget.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/ShotWidget.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/ShotWidget.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/ShotWidget.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/ShotWidget.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/ShotWidget.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/ShotWidget.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/ShotWidget.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/ShotWidget~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyLiveActivity/TodayWidget.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/TodayWidget.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/TodayWidget.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/TodayWidget.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/TodayWidget.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/TodayWidget.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/TodayWidget.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/TodayWidget.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/TodayWidget~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyLiveActivity/WidgetBridge.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetBridge.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetBridge.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetBridge.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetBridge.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetBridge.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetBridge.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetBridge.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetBridge~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyLiveActivity/WidgetFaces.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaces.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaces.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaces.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaces.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaces.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaces.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaces.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyLiveActivity.build/Objects-normal/arm64/WidgetFaces~partial.swiftmodule"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/AuditTrails.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/AuditTrails.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/AuditTrails.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/AuditTrails.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/AuditTrails.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/AuditTrails.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/BalanceCheckQueue.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceCheckQueue.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceCheckQueue.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceCheckQueue.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceCheckQueue.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BalanceCheckQueue.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/BodyCompositionQueue.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BodyCompositionQueue.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BodyCompositionQueue.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BodyCompositionQueue.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BodyCompositionQueue.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/BodyCompositionQueue.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/ConsentStore.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ConsentStore.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ConsentStore.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ConsentStore.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ConsentStore.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/ConsentStore.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/DebugEdge.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/DebugEdge.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/DebugEdge.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/DebugEdge.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/DebugEdge.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/DebugEdge.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/GoogleSignIn.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/GoogleSignIn.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/GoogleSignIn.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/GoogleSignIn.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/GoogleSignIn.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/GoogleSignIn.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/HealthService.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HealthService.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HealthService.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HealthService.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HealthService.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HealthService.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/HomeSnapshot.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HomeSnapshot.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HomeSnapshot.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HomeSnapshot.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HomeSnapshot.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/HomeSnapshot.swiftdeps"
+  }
+}

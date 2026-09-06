@@ -1,0 +1,239 @@
+{
+  "" : {
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/NextBodyUITests-primary.dia",
+    "emit-module-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/NextBodyUITests-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/NextBodyUITests-primary-emit-module.dia",
+    "pch" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/NextBodyUITests-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/NextBodyUITests-primary.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/BandConnectionStressTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BandConnectionStressTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BandConnectionStressTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BandConnectionStressTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BandConnectionStressTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BandConnectionStressTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BandConnectionStressTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BandConnectionStressTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BandConnectionStressTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/BatteryTrendRangeTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BatteryTrendRangeTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BatteryTrendRangeTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BatteryTrendRangeTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BatteryTrendRangeTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BatteryTrendRangeTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BatteryTrendRangeTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BatteryTrendRangeTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BatteryTrendRangeTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/BodyBatteryEntryTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryEntryTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryEntryTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryEntryTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryEntryTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryEntryTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryEntryTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryEntryTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryEntryTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/BodyBatteryRangeTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryRangeTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryRangeTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryRangeTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryRangeTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryRangeTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryRangeTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryRangeTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/BodyBatteryRangeTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/ChatHistoryTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatHistoryTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatHistoryTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatHistoryTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatHistoryTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatHistoryTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatHistoryTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatHistoryTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatHistoryTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/ChatPageTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatPageTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatPageTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatPageTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatPageTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatPageTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatPageTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatPageTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ChatPageTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/ConsentReconnectTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ConsentReconnectTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ConsentReconnectTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ConsentReconnectTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ConsentReconnectTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ConsentReconnectTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ConsentReconnectTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ConsentReconnectTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/ConsentReconnectTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/DetailBackTapTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DetailBackTapTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DetailBackTapTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DetailBackTapTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DetailBackTapTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DetailBackTapTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DetailBackTapTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DetailBackTapTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DetailBackTapTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/DockOrbPlusMenuTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DockOrbPlusMenuTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DockOrbPlusMenuTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DockOrbPlusMenuTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DockOrbPlusMenuTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DockOrbPlusMenuTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DockOrbPlusMenuTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DockOrbPlusMenuTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/DockOrbPlusMenuTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/EdgeBackNavigationTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/EdgeBackNavigationTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/EdgeBackNavigationTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/EdgeBackNavigationTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/EdgeBackNavigationTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/EdgeBackNavigationTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/EdgeBackNavigationTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/EdgeBackNavigationTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/EdgeBackNavigationTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/FastingActionTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FastingActionTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FastingActionTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FastingActionTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FastingActionTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FastingActionTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FastingActionTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FastingActionTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FastingActionTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/FindHoopAlarmsTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FindHoopAlarmsTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FindHoopAlarmsTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FindHoopAlarmsTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FindHoopAlarmsTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FindHoopAlarmsTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FindHoopAlarmsTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FindHoopAlarmsTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FindHoopAlarmsTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/FuelRangeTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FuelRangeTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FuelRangeTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FuelRangeTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FuelRangeTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FuelRangeTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FuelRangeTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FuelRangeTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/FuelRangeTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/HealthLightDebugTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HealthLightDebugTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HealthLightDebugTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HealthLightDebugTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HealthLightDebugTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HealthLightDebugTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HealthLightDebugTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HealthLightDebugTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HealthLightDebugTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/HeartRangeTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HeartRangeTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HeartRangeTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HeartRangeTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HeartRangeTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HeartRangeTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HeartRangeTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HeartRangeTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HeartRangeTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/HomeDisplayTapTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HomeDisplayTapTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HomeDisplayTapTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HomeDisplayTapTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HomeDisplayTapTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HomeDisplayTapTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HomeDisplayTapTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HomeDisplayTapTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/HomeDisplayTapTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/MeasurementsEntryTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/MeasurementsEntryTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/MeasurementsEntryTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/MeasurementsEntryTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/MeasurementsEntryTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/MeasurementsEntryTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/MeasurementsEntryTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/MeasurementsEntryTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/MeasurementsEntryTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/PagingCardDragTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PagingCardDragTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PagingCardDragTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PagingCardDragTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PagingCardDragTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PagingCardDragTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PagingCardDragTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PagingCardDragTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PagingCardDragTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/PlanEntryTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PlanEntryTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PlanEntryTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PlanEntryTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PlanEntryTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PlanEntryTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PlanEntryTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PlanEntryTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/PlanEntryTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/SportSessionStressTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/SportSessionStressTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/SportSessionStressTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/SportSessionStressTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/SportSessionStressTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/SportSessionStressTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/SportSessionStressTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/SportSessionStressTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/SportSessionStressTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/TrainingRangeTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/TrainingRangeTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/TrainingRangeTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/TrainingRangeTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/TrainingRangeTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/TrainingRangeTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/TrainingRangeTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/TrainingRangeTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/TrainingRangeTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/VitalsProbeTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsProbeTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsProbeTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsProbeTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsProbeTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsProbeTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsProbeTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsProbeTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsProbeTests~partial.swiftmodule"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBodyUITests/VitalsSecondLevelTests.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsSecondLevelTests.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsSecondLevelTests.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsSecondLevelTests.dia",
+    "index-unit-output-path" : "/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsSecondLevelTests.o",
+    "llvm-bc" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsSecondLevelTests.bc",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsSecondLevelTests.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsSecondLevelTests.swiftdeps",
+    "swiftmodule" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBodyUITests.build/Objects-normal/arm64/VitalsSecondLevelTests~partial.swiftmodule"
+  }
+}

@@ -163,7 +163,10 @@ struct AIPanel: View {
                 // The charge cluster sits below the planet's limb. Equal 16pt
                 // vertical padding used to land BODY BATTERY and the 64pt %
                 // on the sphere when the lime band was on the near side.
-                .padding(.bottom, 4)
+                // Home grew the panel into the old void under PLAN; the
+                // source line (LIVE · TAP OR TALK) needs real air under it,
+                // 18pt, without walking the % back onto the planet.
+                .padding(.bottom, 18)
             }
         }
     }

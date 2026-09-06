@@ -1,0 +1,4 @@
+module AppAuth {
+umbrella "/Users/zihuangwu/Documents/Next/app/build/dd/SourcePackages/checkouts/AppAuth-iOS/Sources/AppAuth"
+export *
+}

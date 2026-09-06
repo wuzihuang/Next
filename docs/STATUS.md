@@ -21,7 +21,10 @@ from it, so one build lays out the same anatomy on every iPhone from the SE to t
 - Home is iOS anatomy: a 44pt avatar-and-name header under the status bar, the dock
   (keyboard · voice · camera) above the plan lip — chasing lime chevrons, the two
   page dots, then `PLAN` on the line under them — the strip above the dock, and the panel taking the
-  rest. The Home Indicator is still iOS. The panel's 358 × 470 widget canvas is centred and
+  rest. The Home Indicator is still iOS. A real inset is ~34pt against the board's 19pt;
+  that extra drops the lip (and, less, the dock and strip) so PLAN is not stranded above a
+  void and the voice key keeps ~20pt of air above the chevron. The panel grows into the
+  room. The panel's 358 × 470 widget canvas is centred and
   scales down as one piece when the panel is shorter than the board's.
 - `NB_DEBUG_PLAN=1` opens the plan face after launch.
 - Nothing draws a fake status bar or home indicator; iOS paints both.
@@ -38,6 +41,8 @@ Checked on four simulators at once — iPhone SE 3 (375 × 667, iOS 18.5), 16e (
 Air (420 × 912), 16 Pro Max (440 × 956) — every gate screen, home, the dock edge state and
 the five detail pages. DEBUG launch hooks make that a script: `NB_DEBUG_STAGE`,
 `NB_DEBUG_ROUTE`, `NB_DEBUG_CONNECT_STEP`, `NB_DEBUG_EDGE` (all via `SIMCTL_CHILD_`).
+Cold start types Doto `NEXTBODY` at 28ms a character, lands the lime pip,
+then types the second line. Ready cuts. The 02M film is sign-in / pair only.
 `NB_DEBUG_HOME_PAGE=1` opens on page two; `NB_DEBUG_HOME_DRAG=0.82` freezes a mid-swipe
 frame so the dots' crossfade can be screenshotted.
 
@@ -457,7 +462,7 @@ asked for". Both directions check out.
 | Board | Implementation | Evidence |
 |---|---|---|
 | 01M · first run | `FirstRun.swift` | eleven beats, 0.00 → 7.40, the enum's own values; watched full-screen, typing 「I DON'T COACH. / I READ YOU.」 then folding to 358 × 470 |
-| 02M · connect → wordmark | `WordmarkAnimation.swift`, `ConnectFlow.swift` | five beats at 0.00 / 0.35 / 1.10 / 1.80 / 2.15 / 2.60, `total = 2.60`; the burst and the splash are one implementation, not two |
+| 02M · connect → wordmark | `WordmarkAnimation.swift`, `ConnectFlow.swift`, `LaunchFilmPolicy.swift` | five beats at 0.00 / 0.35 / 1.10 / 1.80 / 2.15 / 2.60, `total = 2.60`; cold start holds ◇5 still and only plays the fall when that wait is already long |
 | 05M · dock input | `Dock.swift` | spring(0.34 / 0.80) idle ↔ listening, spring(0.32 / 0.82) back to idle, spring(0.30 / 0.85) on the draft, easeOut 0.09 on press |
 | 06M · plus key & measure | `MeasureTakeover.swift`, `PlusMenu.swift` | spring(0.46 / 0.86) on grow, easeInOut 0.28 / 0.24 / 0.30 on phase, easeOut 0.12 on press; the 30 s two-contact scan run end to end |
 
@@ -1297,7 +1302,9 @@ All five MOTION artboards were read frame by frame and matched to the code that 
 - **01M / 02M · pixel fall → wordmark** (`WordmarkAnimation.swift`) — the five phases are the
   board's five: 0–0.35 power-on flash, 0.35–1.10 linear-in fall at three speeds, 1.10–1.80
   ease-out-back landing with a 4pt overshoot, 1.80–2.15 the word lights lime at once, 2.15–2.60
-  cross-dissolve to the solid Inter Tight wordmark. Played once after sign-in, then into Connect.
+  cross-dissolve to the solid Inter Tight wordmark. Played after a new registration.
+  Cold start is Doto `NEXTBODY` + the lime pip (`LaunchScreen` + `LaunchMark`), not the fall.
+  FirstRun still owns its own 7.40s opening after the mark drops.
 - **01M · first run** (`FirstRun.swift`) — the panel is the whole screen and unfolds to 358×470
   at the key beat; status bar and wordmark slide in from −8px, tiles and dock follow.
 - **05M · dock keyboard / voice** (`Dock.swift`, `HomeView.swift`) — open 0.38 / send 0.22 /

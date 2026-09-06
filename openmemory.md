@@ -9,7 +9,7 @@ model credentials and tool execution server-side.
 ## Architecture
 
 - `app/NextBody/`: SwiftUI application, BLE/band services, local repository, and the AI client.
-- `app/NextBody/L10n/`: in-app language (`AppLanguage`) and English-as-key catalogs (`L()` → `Tables/zh-Hans.json`, ~1900 keys). The wordmark line is `Find your next body.` → `找你的下一副身体。` Duplicate keys in the table overwrite; the last value wins.
+- `app/NextBody/L10n/`: in-app language (`AppLanguage`) and English-as-key catalogs (`L()` → `Tables/zh-Hans.json`, ~1900 keys). Sign-in / pair film line is `Find your next body.` → `找你的下一副身体。` Launch mark is Doto `NEXTBODY` + lime pip + `Build Your NextBody` → `打造你的下一副身体` (English paints `BUILD YOUR NEXTBODY`). Duplicate keys in the table overwrite; the last value wins. Never reuse `CLOSE` (dismiss → 关闭) or `NEAR` (vitals → 近中位) for Find lamps — those use `Find · very near / nearer / farther / very far` → 特别近 / 较近 / 较远 / 特别远; English still paints NEAR / CLOSE / AWAY / FAR.
 - `supabase/functions/`: authenticated Edge Functions for turns, ASR, meals, settlement,
   exports, and account deletion.
 - `supabase/functions/_shared/`: model provider, prompt, tool catalogue, data sources,
@@ -17,6 +17,10 @@ model credentials and tool execution server-side.
 - `supabase/migrations/`: Postgres schema, RLS policies, and data lifecycle changes.
 - `docs/STATUS.md`: current implementation and verification record.
 - `CONTEXT.md` plus `docs/adr/`: domain vocabulary and architectural decisions.
+- App Store Connect: NextBody `6799623125` (`com.nextbody.hoop`, SKU `nextbody-hoop-ios`,
+  team `BP7F7PYU33`, widget `com.nextbody.hoop.LiveActivity`). No TestFlight build, group,
+  or tester exists yet. Do not confuse with the older phone bundle
+  `com.walnutechnology.nextbody.app`.
 
 ## User Defined Namespaces
 
@@ -74,6 +78,10 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
+- **Launch mark (开机)** — Doto `NEXTBODY` + the 6pt lime pip (take 1+2).
+  `LaunchMark` types the word at 28ms a character (same beat as FirstRun),
+  the pip lands, then the second line types. Ready cuts. Reduce Motion
+  shows the last frame. Harness skips the cover.
 - **Dedicated Chat & Cyber Telemetry** — `app/NextBody/Features/Chat/`: Full-screen Cyber Telemetry terminal from the Dock keyboard key. Assistant and user text go through `ChatMarkdown` (headings, lists, emphasis, fenced code) via `ChatMarkdownView`. Entering the page jumps to the latest line (`ChatScrollTarget` + `ScrollViewReader`). Header and dock are lifted `ledOff` plates with a lime inner hairline and a drop shadow so they do not sit on the same carbon as the thread. DEBUG `NB_DEBUG_CHAT_FIXTURE=markdown|long` seeds UI tests without touching the archive.
 - **BodyBatteryEngine** — Pure five-minute reserve model. Fuses HR/HRV/stress/steps/MET,
   saturates sleep recovery toward 95, allows bounded verified rest recovery, and holds
@@ -118,6 +126,11 @@ model credentials and tool execution server-side.
   `pageFade`). Hiding it on `homeDrag == .horizontal` flashed the chevron and
   dots. The chasing chevron is the lip's resting motion: opening then closing
   Plan must not retire it. `hintPlaying` only stops for Reduce Motion.
+  Home geometry: `homeIndicatorExtra = max(0, safe.bottom − 19)` drops the lip
+  by extra+8 and the dock by extra−4, so PLAN sits over the Home Indicator
+  instead of a void, the voice key keeps ~20pt above the chevron, and the
+  panel / strip ride down into the room. A home-button phone (extra = 0)
+  keeps the old SE packing.
   `PlanPage` is the vertical
   third face. No `/turn` on open. Empty night prints `NO NIGHT YET`. Arithmetic is
   PlanCore-tested. The catalog is five checkable tasks (bed / load /
@@ -243,8 +256,27 @@ model credentials and tool execution server-side.
   ships three families on one carbon, no tile columns: small = body battery
   only; medium = three rings then a rail (`NEXTBODY` white, no lime square,
   plus the home-header band cell); large = that rail on top, rings with
-  air between them, then a 2×3 of SLEEP / ACTIVE / HR and STRESS /
-  STEPS / DISTANCE (no TEMP). Band cell is `WidgetBandPip` (same 12×7 as
+  air between them, then a 3×3 of SLEEP / ACTIVE / HR, STRESS / STEPS /
+  DISTANCE, and RESPONSE / HRV / SPO2 (no TEMP). One margin governs the whole
+  face — the wordmark, the band cell and the two outer rings all start there,
+  and the leftover width becomes the air between the circles. That geometry is
+  now shares of the face, not constants: `TodayWidgetFace.margin(for:)` is
+  `width * 0.062` clamped to 14…28, `Spacer(minLength:)` is `width * 0.05`
+  floored at 14, each circle is capped at `width * share` (medium 0.24, large
+  0.225), and the large 3×3 is `height * 0.44`. `edge` (14) survives only as
+  the margin floor. Fixed `edge: 14` + `maxDiameter: 96` made the large face
+  read crowded — the rings nearly touched both sides. Centring three
+  fixed-diameter circles instead left a dead band down both sides while the
+  rail hugged the edge. System content margins are off
+  (`.contentMarginsDisabled()`), so the large face passes
+  `identityRail(topInset: 10)`; at zero inset `NEXTBODY` and the band cell
+  read as fused with the squircle's corner. The same rule on the bottom
+  edge: medium `identityRail(bottomInset: 6)` keeps a little air under
+  the wordmark; the large 3×3 takes `.padding(.bottom, 14)` so RESPONSE /
+  HRV / SPO2 do not sit on the floor. Medium rings take `topInset: 16`
+  and pin under it — a centred stack put the circles ~8pt from the
+  squircle. Large rings stay centred (no topInset).
+  Band cell is `WidgetBandPip` (same 12×7 as
   `BandBatteryPip`); it does not withdraw at 90 minutes. A second kind,
   Shot (`NextBodyShot`, small only) is Paper 02 LIME: lime viewfinder,
   lime lens, `LOG A MEAL`. Tap opens `nextbody://log?via=photo` and Home
@@ -307,7 +339,8 @@ model credentials and tool execution server-side.
   Forget; `.findBand` is that help sheet, not find-the-wrist.
   **FIND** is `FindHoopSheet` (`.findHoop`, ≤78%): Paper **12Y 02 LED** faces
   KLF-0 / LFQ-0. Opens READY · LIVE with a giant Doto dBm and START; START
-  then ENTER · RINGING and STOP. Four lamps are a stepped lime falloff
+  then ENTER · RINGING and STOP. Top padding is 32pt to clear the bottom
+  sheet grab indicator with comfortable breathing room. Four lamps are a stepped lime falloff
   (current = lime-1, one step farther = lime 40%, the rest hairline), not a
   single isolated cell. Cuts: NEAR `> −60`, CLOSE `−70…−60` inclusive
   (−70 is CLOSE), AWAY `−85…< −70` (−85 is AWAY), FAR `< −85`. Never
@@ -317,23 +350,45 @@ model credentials and tool execution server-side.
   (ember TIMEOUT + Timed out + frozen RSSI + ember DONE). RSSI reads go
   through `HoopQueue` and freeze on Timeout / dismiss. Ring via
   `veepooSDK_searchDeviceFuntionWithState`.
-  **ALARMS** is `AlarmsSheet` (`.bandAlarms`, ≤78%): Paper **12Y 04 SWITCH**.
-  Huge Doto time + week phrase + 68pt rocker only when `repeatState ≠ 0`.
-  The rocker sits beside the row button, not inside it. No hairline above
-  the first clock. Add an alarm has no rocker and shows `2 / ?` until
-  capacity is known. A refused add learns that count as the cap and flips
-  FULL. Busy writes say DEVICE BUSY, not ALARM WRITE FAILED. Week pills
-  are lime stroke, not lime fill — SAVE is the one lime plate. Edit stays
-  on the same sheet. New-alarm API mode 0/1/2; scene locked to 0; write
-  failure rolls the table back. Demo ceiling 20.
+  **ALARMS** is `AlarmsSheet` (`.bandAlarms`, ≤78%): Paper **12Y 04 SWITCH** (KUV-0).
+  Full-width list directly on carbon-4 without cardSkin; top padding 28pt clears
+  the grab handle. Huge Doto 28pt clock + week phrase + bespoke 68x40 mechanical
+  rocker (`HoopSwitchStyle`, lime on / white-opacity off) only when `repeatState ≠ 0`.
+  No hairline above the first clock. Adding is **one capsule key** (`alarms.add`,
+  52pt, `Add an alarm` / 新建闹钟): filled lime-1 centred in the face when the HOOP
+  has no alarms (`NO ALARMS YET` + one sentence, `NB_DEBUG_EDGE=noalarms` walks it),
+  lime-stroke outline pinned to the floor of the sheet under a list. Capacity is
+  **never** on the face as `2 / ?` — that was engineering talk and is deleted. A refused
+  add learns that count as the cap and flips FULL (one centred ember 20 / 20). Busy writes
+  say DEVICE BUSY, not ALARM WRITE FAILED. The rows live in a real `List`
+  (`.plain`, clear row background, hairline separator inset 24) so a left swipe gives
+  Apple's own red 删除 — the swipe action needs an explicit `.tint(NB.alert2)` or the
+  app's lime accent paints destructive the same colour as ON. Editor: eyebrow title
+  (`NEW ALARM` / `EDIT ALARM`) with **Cancel top-right**, one lime `SAVE` plate, and a
+  plain red `Delete alarm` under it for an existing alarm. There is **no `DONE`** — it
+  meant discard while sitting next to SAVE, which read as a second way to agree.
+  Week pills are lime stroke, not lime fill — SAVE is the one lime plate. Edit stays on
+  the same sheet. New-alarm API mode 0/1/2; scene locked to 0; write failure rolls the
+  table back. Demo ceiling 20.
   Band methods: `startFindHoop` / `stopFindHoop` / `readConnectedRSSI` /
   `readAlarms` / `writeAlarm` / `deleteAlarm`. DEBUG `NB_DEBUG_DEVICE_SHEET`
   = `findHoop` | `bandAlarms`. UITest `FindHoopAlarmsTests`. Battery trend
   remains `Destination.battery` from the home pip. SYNC is `pullBandNow`.
   WORN reads `wearFlame`; WITH YOU is `DeviceCompanionMath`. LAST PLUG /
-  LAST LINK come from `BatteryLog`. The charge ring is back on Device
-  (POWER / LEFT / TREND). TREND opens `Destination.battery`. LEFT also
-  sits on the trend card (`BatteryDrainMath.left`).
+  LAST LINK come from `BatteryLog`. TREND is an entry on the lime slab:
+  implemented as Paper **12Z3 12 BRIDGE** (lead corridor). Top line has
+  `TREND · 7D DRAIN CURVE` on the left and `3 DAYS LEFT >` on the right (with
+  a chevron indicating clickability). The qualifier is one muted caption
+  (`7D DRAIN CURVE` / `7日放电曲线`, Jost/Fusion Pixel 600 11pt at carbon-4
+  62%) — not a hero 7. Directly beneath it is a 40pt carbon
+  lead sparkline (`LimeTrendLead`) tracing 7-day drain points across the lime width,
+  ending on a live terminal dot. The corridor does not draw its own floor —
+  the lime grid's full-width hairline under TREND is the only rule. The corridor
+  is deliberately tall (12pt gap above the line, 18pt below) so the whole strip
+  reads as one comfortable tap target, not a thin band. Tapping anywhere in the
+  TREND corridor opens `Destination.battery` to view the full curve.
+  The LEFT unit is singular at 1 (`DAY LEFT` / `HR LEFT`).
+  No separate carbon charge ring on Device.
   100% or 4/4 still on the charger is Charged (`BatteryDrainMath.settle`).
   Automatic measurement still exposes Scientific sleep; Training can still
   open that sheet via `.deviceAutoMonitor`.
@@ -345,6 +400,8 @@ model credentials and tool execution server-side.
   refuses it, `collapse` strips it, hydrate rewrites the stored log without it.
   A small EST · FULL / EST · EMPTY clock under the facts is `BatteryDrainMath.eta`
   from a learned slope only — never the five-day pack, never 150 mAh.
+  Chinese is `预计 %@ 充满` / `预计 %@ 没电` (never `约`, which reads as 预约).
+  The stamp is today / tomorrow / weekday + clock, not a bare time.
   LEFT is the same unplugged slope as hours (< 18) or whole days; silent
   wherever `eta` is silent.
   Reconnect does not stamp `lastBattery` at NOW. Overnight columns and week
@@ -439,13 +496,17 @@ model credentials and tool execution server-side.
 - Vitals second-level titles are the instrument name (`HEART` / 心率), never `VITALS ·` / `体征 ·`. `DetailScroll` pins the back chevron on the large title's baseline on every detail page.
 - User-visible and accessibility defaults are English; explicit Simplified Chinese is selected through app language state (`AppLanguage` + `L()` English-as-key tables in `app/NextBody/L10n/`).
 - Adding a language: add an `AppLocale` case and a `L10n/Tables/<code>.json` mapping English source strings to that language. Missing keys fall back to English. The first table is `zh-Hans.json` (~1900 keys). Do not repeat a key — JSON keeps the last value, which is how `NO NIGHT YET` once leaked English over `还没有夜里`.
-- The sign-in / wordmark line is `Find your next body.` / `找你的下一副身体。`, not Build / 打造 / 去长.
+- The sign-in / pair film line is `Find your next body.` / `找你的下一副身体。`.
+  The launch mark is Doto `NEXTBODY` + lime pip, then `BUILD YOUR NEXTBODY` /
+  `打造你的下一副身体`. Not PingFang. The only motion is a typewriter
+  (28ms per character, same beat as FirstRun): word, pip, second line.
+  Ready cuts even mid-type. Sign-in / pair film stays the pixel-fall.
 - On-screen metric names follow the language (`BODY BATTERY` → `身体电量`). Units and brands (KCAL, HRV, HOOP, NEXTBODY) may stay Latin. Permission `InfoPlist.strings` follow the phone language, not `AppLanguage`.
 - Chinese charge-idle copy is **未充电**, never 未插电. Device page uses `L("Not charging")` → 未充电. Old `Unplugged` / `UNPLUGGED` keys stay mapped to 未充电 so a stale lookup cannot bring 未插电 back.
 - Chinese UI/brand type uses Fusion Pixel 12px proportional zh_hans, cascaded behind Doto/Jost/Inter Tight so numbers stay pixel-dot and CJK stays pixel.
 - AI turns carry `AppLanguage.serverLocale`. The system prompt, meal vision prompt, and chart slot descriptions are written in the selected language and lock the frame to that language regardless of user input.
 - The idle panel is represented by `widget == nil`; THINKING and completed personalized frames are represented by non-nil widgets.
-- `StandbyArt` (the planet) lives only on `idlePlate`. `AIPanel` switches idle / occupied / ceremony as one exclusive tree with animations disabled on the swap, so the orbit cannot cross-fade under a reading. Photo answers paint an opaque unlit LED field under the words (`unlitField`); they used to sit on `Color.clear`. The standby charge cluster (`BODY BATTERY` + the 64pt %) sits below the planet's limb (bottom pad 4, vitals 6 above, hint 8 above) so the lime band on the near side does not cross the hero.
+- `StandbyArt` (the planet) lives only on `idlePlate`. `AIPanel` switches idle / occupied / ceremony as one exclusive tree with animations disabled on the swap, so the orbit cannot cross-fade under a reading. Photo answers paint an opaque unlit LED field under the words (`unlitField`); they used to sit on `Color.clear`. The standby charge cluster (`BODY BATTERY` + the 64pt %) sits below the planet's limb (bottom pad 10, vitals 6 above, hint 8 above) so the lime band on the near side does not cross the hero. Do not restore equal 16pt vertical padding.
 - Every asynchronous panel request carries a request ID; dismissing or starting another request invalidates late results so they cannot replace STANDBY.
 - The panel’s chart layer is drawn behind `HalftoneScreen`, while text remains crisp above it.
 - Home horizontal paging owns recognized drags; panel and card taps must not fire at the end of a page swipe. A 探点 on a vitals detail chart card is the same rule on a different axis: horizontal travel owns the chart, vertical travel stays page scroll.

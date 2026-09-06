@@ -21,7 +21,7 @@ import UIKit
 ///   ◇11 7.40  IDLE      the home indicator last. Two things still move, and only two.
 @MainActor
 final class FirstRun: ObservableObject {
-    private static let key = "nb.firstRunPlayed"
+    private static let key = LaunchFilmPolicy.firstRunPlayedKey
 
     enum Beat: Double, Comparable {
         case black = 0.00, core = 0.40, sweep = 1.20, alive = 1.90, type = 2.60
@@ -47,6 +47,7 @@ final class FirstRun: ObservableObject {
     static func markPlayed() { UserDefaults.standard.set(true, forKey: key) }
 
     func start(reduceMotion: Bool, lowPower: Bool) {
+        if playing { return }
         guard Self.shouldPlay else { finish(); return }
         playing = true
         Self.markPlayed()

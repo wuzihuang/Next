@@ -1,0 +1,58 @@
+{
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/SportLiveInfo.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportLiveInfo.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportLiveInfo.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportLiveInfo.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportLiveInfo.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportLiveInfo.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/SportMetricAccumulator.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportMetricAccumulator.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportMetricAccumulator.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportMetricAccumulator.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportMetricAccumulator.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportMetricAccumulator.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/SportSessionLifetime.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportSessionLifetime.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportSessionLifetime.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportSessionLifetime.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportSessionLifetime.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/SportSessionLifetime.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/TrainingWindowMath.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/TrainingWindowMath.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/TrainingWindowMath.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/TrainingWindowMath.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/TrainingWindowMath.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/TrainingWindowMath.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/UserDay.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/UserDay.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/UserDay.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/UserDay.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/UserDay.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/UserDay.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/VitalSample.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalSample.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalSample.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalSample.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalSample.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalSample.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/VitalsTimelinePolicy.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalsTimelinePolicy.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalsTimelinePolicy.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalsTimelinePolicy.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalsTimelinePolicy.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/VitalsTimelinePolicy.swiftdeps"
+  },
+  "/Users/zihuangwu/Documents/Next/app/NextBody/Services/Band/WearRun.swift" : {
+    "const-values" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/WearRun.swiftconstvalues",
+    "dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/WearRun.d",
+    "diagnostics" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/WearRun.dia",
+    "object" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/WearRun.o",
+    "swift-dependencies" : "/Users/zihuangwu/Documents/Next/app/build/Build/Intermediates.noindex/NextBody.build/Debug-iphonesimulator/NextBody.build/Objects-normal/arm64/WearRun.swiftdeps"
+  }
+}

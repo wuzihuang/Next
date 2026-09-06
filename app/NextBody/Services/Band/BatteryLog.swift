@@ -102,7 +102,7 @@ enum BatteryLog {
         from start: Date,
         to end: Date
     ) -> BatteryPlot {
-        let ordered = BatteryDrainMath.collapse(samples)
+        let ordered = BatteryDrainMath.collapse(samples.filter { $0.at <= end })
         var series: [BatteryObservation] = []
         if let carry = ordered.last(where: { $0.at < start }) {
             var edge = carry
@@ -118,7 +118,9 @@ enum BatteryLog {
         let isPercent = percented >= valued.count - percented
 
         let yMax = isPercent ? 100.0 : 4
-        let drainPerHour = BatteryDrainMath.drainRate(in: series, yMax: yMax)
+        // Learn from actual timestamps, before cropping/carrying the chart window.
+        // Switching DAY/WEEK/MONTH must not change the projected battery at NOW.
+        let drainPerHour = BatteryDrainMath.drainRate(in: ordered, yMax: yMax, now: end)
 
         var runs: [[BatteryPoint]] = []
         var run: [BatteryPoint] = []

@@ -78,6 +78,7 @@ let package = Package(
                 "MealResponseIndex.swift",
                 "SkinTempNightRange.swift",
                 "HomeLaunchPolicy.swift",
+                "LaunchFilmPolicy.swift",
                 "LaunchGate.swift",
                 "BandReadinessFlight.swift",
                 "SportSessionLifetime.swift",

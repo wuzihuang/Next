@@ -1115,12 +1115,16 @@ final class SessionStore: ObservableObject {
     }
     @Published var email = ""
     @Published var isSignedIn = false
+    /// PingFang launch mark until `resolveLaunch` returns. No film.
+    @Published var holdingLaunchStill = false
+    @Published private(set) var launchReady = false
 
     init() {
         #if DEBUG
         // `SIMCTL_CHILD_NB_DEBUG_STAGE=gateConnect` opens the app at that gate for a walk.
         if Band.allowsSeed, let s = ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"], let st = Stage(rawValue: s) {
             stage = st
+            applyLaunchCover()
             return
         }
         #endif
@@ -1133,11 +1137,27 @@ final class SessionStore: ObservableObject {
         } else {
             stage = persisted
         }
+        applyLaunchCover()
+    }
+
+    private func applyLaunchCover() {
+        holdingLaunchStill = LaunchFilmPolicy.shouldHoldStill(
+            environment: ProcessInfo.processInfo.environment)
+    }
+
+    func markLaunchReady() {
+        guard !launchReady else { return }
+        launchReady = true
+        holdingLaunchStill = false
+        let ms = Int((LaunchFilmPolicy.elapsed * 1000).rounded())
+        UserDefaults.standard.set(ms, forKey: LaunchFilmPolicy.lastDurationKey)
+        NSLog("NB launch ready %d ms", ms)
     }
 
     /// F1 §02 · re-read the four facts on every cold start. The last screen is a hint,
     /// not the decision. Debug stage pins stay put.
     func resolveLaunch() async {
+        defer { markLaunchReady() }
         #if DEBUG
         if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"] != nil { return }
         #endif

@@ -59,7 +59,6 @@ struct DeviceView: View {
             .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
         }) {
             VStack(alignment: .leading, spacing: 14) {
-                batteryCard
                 limeHero
                 actionTiles
                 if let syncMessage {
@@ -211,9 +210,7 @@ struct DeviceView: View {
                     ? .fraction(0.78) : .fraction(0.62)
             ])
             .presentationDragIndicator(.visible)
-            .presentationBackground(
-                [.findHoop, .bandAlarms].contains(r) ? NB.carbon4 : NB.carbon2
-            )
+            .presentationBackground(NB.carbon2)
             .presentationCornerRadius(NB.R.panel)
         }
         #if DEBUG
@@ -431,133 +428,22 @@ struct DeviceView: View {
         }
     }
 
-    private var bandBattery: BandBattery? { data.band.lastBattery }
-
-    private var batteryReading: String {
-        if let battery = bandBattery {
-            if battery.isPercent { return battery.percent.map(String.init) ?? Fmt.dash }
-            return battery.level.map { "\($0)/4" } ?? Fmt.dash
-        }
-        return data.band.batteryPercent.map(String.init) ?? Fmt.dash
-    }
-
-    private var batteryUnit: String {
-        guard connected else { return L("LAST SEEN") }
-        if let battery = bandBattery {
-            return battery.isPercent ? L("PERCENT") : L("BARS")
-        }
-        return L("PERCENT")
-    }
-
-    private var displayedCharge: BandBattery.ChargeState {
-        connected ? data.band.displayedCharge : .unknown
-    }
-
-    private var chargeLine: String? {
-        guard connected else { return L("Still recording on your wrist") }
-        switch displayedCharge {
-        case .charging: return L("Charging")
-        case .full:     return L("Charged")
-        default:        return nil
-        }
-    }
-
-    private var powerValue: String {
-        guard connected else { return L("UNKNOWN") }
-        switch displayedCharge {
-        case .charging:  return L("CHARGING")
-        case .full:      return L("FULL")
-        case .unplugged: return L("UNPLUGGED")
-        case .unknown:   return Fmt.dash
-        }
-    }
-
-    private var leftValue: String {
+    private var leftParts: (value: String, unit: String)? {
         guard let left = BatteryDrainMath.left(in: data.batteryLog, now: Date()) else {
-            return Fmt.dash
+            return nil
         }
         switch left {
-        case .hours(let n): return "\(n) \(L("HRS"))"
-        case .days(let n): return "\(n) \(L("DAYS"))"
+        case .hours(let n): return ("\(n)", L(n == 1 ? "HR LEFT" : "HRS LEFT"))
+        case .days(let n): return ("\(n)", L(n == 1 ? "DAY LEFT" : "DAYS LEFT"))
         }
     }
 
-    /// The ring is the number. TREND opens the chart page — the line is still there.
-    private var batteryCard: some View {
-        VStack(spacing: 16) {
-            if let battery = bandBattery, !battery.isPercent {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(spacing: 12) {
-                        HStack(spacing: 5) {
-                            ForEach(0..<4, id: \.self) { i in
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(i < (battery.level ?? 0) ? NB.lime1 : Color(hex: 0x2A2A32))
-                                    .frame(width: 22, height: 34)
-                            }
-                        }
-                        Text(L("%d OF 4 BARS", battery.level ?? 0))
-                            .font(NBFont.dot(700, 14)).tracking(0.14 * 14)
-                            .foregroundStyle(Color(hex: 0xB0B0BA))
-                        Text(L("This firmware reports level, not percent."))
-                            .font(NBFont.ui(300, 11.5)).tracking(0.03 * 11.5)
-                            .foregroundStyle(NB.text3Prod)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            } else {
-                HStack(spacing: 18) {
-                    ZStack {
-                        Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
-                        RingArc(from: 0, to: bandBattery?.ringFraction
-                                ?? Double(data.band.batteryPercent ?? 0) / 100)
-                            .stroke(connected ? NB.lime1 : NB.white.opacity(0.28),
-                                    style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                            .frame(width: 69, height: 69)
-                        VStack(spacing: 2) {
-                            Text(batteryReading)
-                                .font(NBFont.dot(700, 20))
-                                .foregroundStyle(NB.text1)
-                            Text(batteryUnit)
-                                .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
-                                .foregroundStyle(NB.white.opacity(0.34))
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(data.band.name)
-                            .font(NBFont.ui(600, 18)).tracking(0.02 * 18)
-                            .foregroundStyle(NB.text1)
-                        Text(L("NEXTBODY HOOP"))
-                            .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
-                            .foregroundStyle(NB.white.opacity(0.34))
-                        if let chargeLine {
-                            Text(chargeLine)
-                                .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
-                                .foregroundStyle(connected ? NB.lime1 : NB.text2)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-
-            Hairline()
-
-            HStack(spacing: 0) {
-                DeviceFact(label: L("POWER"), value: powerValue)
-                DeviceFact(label: L("LEFT"), value: leftValue)
-                Button { router.open(.battery, from: router.entry) } label: {
-                    DeviceFact(label: L("TREND"), value: L("SEE"))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("device.trend")
-            }
-        }
-        .padding(18)
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-        .accessibilityIdentifier("device.battery")
+    private var glancePlot: BatteryPlot {
+        let window = BatteryLog.window(endingAt: Date(), days: 7)
+        return BatteryLog.plot(data.batteryLog, from: window.start, to: window.end)
     }
 
-    /// Name + SYNC, then WORN / WITH YOU / SYNCED / LAST POINT.
+    /// Name + SYNC, 12 BRIDGE TREND lead corridor, then WORN / WITH YOU / SYNCED / LAST POINT.
     private var limeHero: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
@@ -572,7 +458,52 @@ struct DeviceView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 18)
-            .padding(.bottom, 16)
+            .padding(.bottom, 6)
+
+            Button {
+                router.open(.battery, from: router.entry)
+            } label: {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(L("TREND"))
+                                .font(NBFont.dot(700, 11))
+                                .tracking(0.20 * 11)
+                                .foregroundStyle(NB.carbon4)
+                            Text("· " + L("7D DRAIN CURVE"))
+                                .font(NBFont.ui(600, 11))
+                                .tracking(0.04 * 11)
+                                .foregroundStyle(NB.carbon4.opacity(0.62))
+                        }
+                        Spacer(minLength: 0)
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            if let leftParts {
+                                Text(leftParts.value)
+                                    .font(NBFont.dot(700, 15))
+                                    .foregroundStyle(NB.carbon4)
+                                Text(leftParts.unit)
+                                    .font(NBFont.dot(600, 10))
+                                    .tracking(0.08 * 10)
+                                    .foregroundStyle(NB.carbon4.opacity(0.65))
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(NB.carbon4.opacity(0.50))
+                                .padding(.leading, 2)
+                        }
+                    }
+                    LimeTrendLead(plot: glancePlot)
+                        .frame(height: 40)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+                .padding(.bottom, 18)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("device.trend")
+            .accessibilityLabel(L("TREND"))
+            .accessibilityValue(leftParts.map { "\($0.value) \($0.unit)" } ?? "")
 
             Rectangle().fill(NB.carbon4.opacity(0.15)).frame(height: 1)
 
@@ -597,7 +528,8 @@ struct DeviceView: View {
         .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
     }
 
-    /// Two carbon bricks. PING is the only lime word — Find HOOP is not a lime flood.
+    /// Two carbon bricks cut from one die: lime eyebrow, 18pt title, the same 14pt gap.
+    /// The alarm count rides the eyebrow (`CLOCK · 2`) so both bricks keep one height.
     private var actionTiles: some View {
         HStack(spacing: 10) {
             Button { sheet = .findHoop } label: {
@@ -619,17 +551,10 @@ struct DeviceView: View {
             .accessibilityIdentifier("device.findHoop")
 
             Button { sheet = .bandAlarms } label: {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        Text(L("CLOCK"))
-                            .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
-                            .foregroundStyle(NB.white.opacity(0.38))
-                        if let alarmCount {
-                            Text("\(alarmCount)")
-                                .font(NBFont.dot(700, 18))
-                                .foregroundStyle(NB.text1)
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(alarmCount.map { L("CLOCK") + " · \($0)" } ?? L("CLOCK"))
+                        .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                        .foregroundStyle(NB.lime1)
                     Text(L("Alarms"))
                         .font(NBFont.ui(600, 18))
                         .tracking(-0.02 * 18)
@@ -909,19 +834,75 @@ private struct RowCard<Content: View>: View {
     }
 }
 
-private struct DeviceFact: View {
-    let label: String
-    let value: String
+/// 12 BRIDGE lead corridor sparkline on the lime slab.
+/// Carbon line tracing 7-day drain points across the lime width, ending on a live terminal dot.
+private struct LimeTrendLead: View {
+    let plot: BatteryPlot
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(label)
-                .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
-                .foregroundStyle(NB.text3Prod)
-            Text(value)
-                .font(NBFont.dot(600, 11)).tracking(0.1 * 11)
-                .foregroundStyle(NB.text2)
+        Canvas { ctx, size in
+            let spanY = max(0.001, plot.yMax)
+            let spanX = max(0.001, plot.end.timeIntervalSince(plot.start))
+            let inset: CGFloat = 1
+            func y(_ v: Double) -> CGFloat {
+                let clamped = min(plot.yMax, max(0, v))
+                return size.height - 2 - CGFloat(clamped / spanY) * (size.height - 4)
+            }
+            func x(_ date: Date) -> CGFloat {
+                inset + CGFloat(date.timeIntervalSince(plot.start) / spanX) * (size.width - inset * 2)
+            }
+            func point(_ p: BatteryPoint) -> CGPoint {
+                CGPoint(x: x(p.at), y: y(p.value))
+            }
+
+            var hasPoints = false
+            for (i, run) in plot.runs.enumerated() {
+                guard let first = run.first else { continue }
+                hasPoints = true
+                var heard = Path()
+                var guess = Path()
+                var prev = first
+                if run.count == 1 {
+                    heard.move(to: point(first))
+                    heard.addLine(to: CGPoint(x: point(first).x + 0.5, y: point(first).y))
+                }
+                for p in run.dropFirst() {
+                    var segment = Path()
+                    segment.move(to: point(prev))
+                    segment.addLine(to: point(p))
+                    if prev.estimated || p.estimated { guess.addPath(segment) }
+                    else { heard.addPath(segment) }
+                    prev = p
+                }
+                ctx.stroke(heard, with: .color(NB.carbon4),
+                           style: StrokeStyle(lineWidth: 1.5, lineCap: .square, lineJoin: .miter))
+                ctx.stroke(guess, with: .color(NB.carbon4.opacity(0.35)),
+                           style: StrokeStyle(lineWidth: 1.2, lineCap: .square, lineJoin: .miter, dash: [2, 3]))
+                if i + 1 < plot.runs.count,
+                   let next = plot.runs[i + 1].first,
+                   let last = run.last,
+                   last.estimated || next.estimated {
+                    var join = Path()
+                    join.move(to: point(last))
+                    join.addLine(to: point(next))
+                    ctx.stroke(join, with: .color(NB.carbon4.opacity(0.35)),
+                               style: StrokeStyle(lineWidth: 1.2, dash: [2, 3]))
+                }
+            }
+
+            if let end = plot.runs.last?.last {
+                let at = point(end)
+                ctx.fill(Path(ellipseIn: CGRect(x: at.x - 2, y: at.y - 2, width: 4, height: 4)),
+                         with: .color(NB.carbon4))
+            } else if !hasPoints {
+                var lead = Path()
+                lead.move(to: CGPoint(x: 0, y: size.height / 2))
+                lead.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+                ctx.stroke(lead, with: .color(NB.carbon4.opacity(0.20)),
+                           style: StrokeStyle(lineWidth: 1.2, dash: [2, 3]))
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHidden(true)
     }
 }
 

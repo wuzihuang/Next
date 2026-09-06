@@ -2,6 +2,34 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class BandAlarmMathTests: XCTestCase {
+    func testMalformedFirmwareRowCannotBecomeAnEditableAlarm() {
+        let malformed = BandAlarm(id: 74, hour: 56, minute: 180, on: true,
+                                  repeatMask: 196, date: "2084-06-57", scene: 0)
+        XCTAssertFalse(malformed.isValidDeviceValue)
+        for mask in [0, 31, 96, 127] {
+            let alarm = BandAlarm(id: 1, hour: 7, minute: 30, on: true,
+                                  repeatMask: mask, date: "0000-00-00", scene: 0)
+            XCTAssertTrue(alarm.isValidDeviceValue)
+        }
+    }
+    func testRealHoopCapabilityUsesTextAlarmCommands() {
+        let bytes: [UInt8] = [0xa7, 1, 0, 2, 2, 2, 1, 0, 6, 20, 1, 2, 0, 0, 0, 1, 0, 6, 3, 1]
+        let kind = BandAlarmProtocol(functionData: Data(bytes))
+        XCTAssertEqual(kind, .text)
+        XCTAssertEqual(kind?.sdkMode(for: 0), 1)
+        XCTAssertEqual(kind?.sdkMode(for: 1), 2)
+        XCTAssertEqual(kind?.sdkMode(for: 2), 3)
+        XCTAssertEqual(kind?.capacity, 10)
+        XCTAssertNil(BandAlarmProtocol(functionData: Data(bytes.prefix(17))))
+        XCTAssertNil(BandAlarmProtocol(functionData: nil))
+        for flag: UInt8 in 1...7 {
+            var data = bytes
+            data[17] = flag
+            let protocolKind = BandAlarmProtocol(functionData: Data(data))
+            XCTAssertEqual(protocolKind, flag < 5 ? .scene : .text)
+        }
+    }
+
     func testWeekBitsMatchVendorString() {
         XCTAssertEqual(BandAlarmMath.Weekday.monday.bit, 1)
         XCTAssertEqual(BandAlarmMath.Weekday.tuesday.bit, 2)
@@ -29,6 +57,8 @@ final class BandAlarmMathTests: XCTestCase {
     }
 
     func testNextIDSkipsUsedSlots() {
+        XCTAssertEqual(BandAlarmMath.nextID(in: []), 1)
+        XCTAssertNil(BandAlarmMath.nextID(in: [], ceiling: 0))
         let alarms = [
             BandAlarm(id: 0, hour: 7, minute: 30, on: true, repeatMask: 31,
                       date: BandAlarm.onceDatePlaceholder, scene: 0),
@@ -36,18 +66,23 @@ final class BandAlarmMathTests: XCTestCase {
                       date: BandAlarm.onceDatePlaceholder, scene: 0),
         ]
         XCTAssertEqual(BandAlarmMath.nextID(in: alarms), 1)
-        let full = (0..<20).map {
+        let full = (1...20).map {
             BandAlarm(id: $0, hour: 7, minute: 0, on: true, repeatMask: 31,
                       date: BandAlarm.onceDatePlaceholder, scene: 0)
         }
         XCTAssertNil(BandAlarmMath.nextID(in: full))
         XCTAssertTrue(BandAlarmMath.isFull(full))
+        XCTAssertEqual(BandAlarmMath.nextID(in: Array(full.dropLast())), 20)
+        XCTAssertEqual(BandAlarmMath.nextID(in: full.filter { $0.id != 7 }), 7)
     }
 
-    func testCountStaysUnknownUntilTheFirstRead() {
-        XCTAssertEqual(BandAlarmMath.countLabel(count: nil, didRead: false, capacity: nil), "— / ?")
-        XCTAssertEqual(BandAlarmMath.countLabel(count: 2, didRead: true, capacity: nil), "2 / ?")
-        XCTAssertEqual(BandAlarmMath.countLabel(count: 20, didRead: true, capacity: 20), "20 / 20")
+    /// The SWITCH face never prints a running count. `2 / ?` was engineering talk on a
+    /// wearer's screen — capacity only becomes a sentence when the band actually refuses.
+    func testCapacityOnlyMattersWhenTheHoopIsFull() {
+        let one = [BandAlarm(id: 0, hour: 7, minute: 30, on: true, repeatMask: 31,
+                             date: BandAlarm.onceDatePlaceholder, scene: 0)]
+        XCTAssertFalse(BandAlarmMath.isFull(one, ceiling: 20))
+        XCTAssertTrue(BandAlarmMath.isFull(one, ceiling: 1))
     }
 
     func testOnceDateMovesPastToday() {

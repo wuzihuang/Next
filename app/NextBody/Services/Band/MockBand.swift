@@ -553,9 +553,12 @@ final class MockBand: BandService, @unchecked Sendable {
         return -52
     }
 
+    /// DEBUG · `NB_DEBUG_EDGE=noalarms` walks a HOOP that has never been given one,
+    /// which is the only way to see the SWITCH sheet's centred key.
     func readAlarms() async throws -> [BandAlarm] {
         try await requireConnection()
         try? await Task.sleep(for: .milliseconds(180))
+        if DebugEdge.on("noalarms") { alarms = [] }
         return alarms
     }
 

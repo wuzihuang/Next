@@ -23,6 +23,9 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertEqual(read.activeText, "320")
         XCTAssertEqual(read.stepsText, "8,432")
         XCTAssertEqual(read.distanceText, "6.2")
+        XCTAssertEqual(read.responseText, "108")
+        XCTAssertEqual(read.hrvText, "54")
+        XCTAssertEqual(read.spo2Text, "96")
         XCTAssertEqual(read.stamp, WidgetFaceMath.clockText(glance.numbersAt))
     }
 
@@ -61,6 +64,9 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertEqual(read.activeText, WidgetFaceMath.dash)
         XCTAssertEqual(read.stepsText, WidgetFaceMath.dash)
         XCTAssertEqual(read.distanceText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.responseText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.hrvText, "54")
+        XCTAssertEqual(read.spo2Text, "96")
         XCTAssertEqual(read.stamp, WidgetFaceMath.clockText(glance.numbersAt))
     }
 
@@ -103,6 +109,9 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertEqual(read.activeText, WidgetFaceMath.dash)
         XCTAssertEqual(read.stepsText, WidgetFaceMath.dash)
         XCTAssertEqual(read.distanceText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.responseText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.hrvText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.spo2Text, WidgetFaceMath.dash)
         XCTAssertNil(read.stamp)
     }
 

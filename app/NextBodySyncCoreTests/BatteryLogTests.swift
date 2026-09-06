@@ -83,25 +83,25 @@ final class BatteryLogTests: XCTestCase {
     func testPlotFillsAQuietStretchWithADrainCurve() {
         let samples = [
             obs(t0, 80, .unplugged, true),
-            obs(t0.addingTimeInterval(3600), 78, .unplugged, true),
-            obs(t0.addingTimeInterval(3600), 78, .unplugged, false),
-            obs(t0.addingTimeInterval(7200), 77, .unplugged, true),
+            obs(t0.addingTimeInterval(6 * 3600), 68, .unplugged, true),
+            obs(t0.addingTimeInterval(6 * 3600), 68, .unplugged, false),
+            obs(t0.addingTimeInterval(12 * 3600), 62, .unplugged, true),
         ]
-        let end = t0.addingTimeInterval(10_800)
+        let end = t0.addingTimeInterval(18 * 3600)
         let plot = BatteryLog.plot(samples, from: t0, to: end)
         let points = plot.points
         XCTAssertEqual(points.first?.value, 80)
         XCTAssertEqual(points.last?.at, end)
         XCTAssertEqual(points.last?.estimated, true)
-        XCTAssertEqual(points.last!.value, 75, accuracy: 0.01)
-        XCTAssertTrue(points.contains { $0.value == 77 && !$0.estimated })
+        XCTAssertEqual(points.last!.value, 53, accuracy: 0.01)
+        XCTAssertTrue(points.contains { $0.value == 62 && !$0.estimated })
         XCTAssertGreaterThan(points.filter(\.estimated).count, 2)
         XCTAssertEqual(plot.high, 80)
-        let midAt = t0.addingTimeInterval(1800)
+        let midAt = t0.addingTimeInterval(3 * 3600)
         let mid = points.min {
             abs($0.at.timeIntervalSince(midAt)) < abs($1.at.timeIntervalSince(midAt))
         }
-        XCTAssertNotEqual(mid!.value, 79, accuracy: 0.05)
+        XCTAssertNotEqual(mid!.value, 74, accuracy: 0.05)
     }
 
     func testRecordDropsAValuedUnknownPacket() {
@@ -112,6 +112,21 @@ final class BatteryLogTests: XCTestCase {
                                       charge: .unknown, connected: true)
         XCTAssertEqual(ghost.map(\.percent), [30])
         XCTAssertEqual(ghost.map(\.charge), [.charging])
+    }
+
+    func testChangingChartRangeDoesNotChangeTheProjectedCurrentBattery() {
+        let samples = [
+            obs(t0, 90, .unplugged, true),
+            obs(t0.addingTimeInterval(12 * 3600), 84, .unplugged, true),
+            obs(t0.addingTimeInterval(24 * 3600), 78, .unplugged, true),
+            obs(t0.addingTimeInterval(36 * 3600), 72, .unplugged, true),
+        ]
+        let now = t0.addingTimeInterval(42 * 3600)
+        for range in [RollingPills.day, .week, .month] {
+            let window = BatteryLog.window(endingAt: now, range: range)
+            let plot = BatteryLog.plot(samples, from: window.start, to: window.end)
+            XCTAssertEqual(plot.points.last!.value, 69, accuracy: 0.001, "\(range)")
+        }
     }
 
     func testRecordStillKeepsAnUnknownLinkRowWithNoReading() {

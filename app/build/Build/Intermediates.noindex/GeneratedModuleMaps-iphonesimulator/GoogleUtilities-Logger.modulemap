@@ -1,4 +1,0 @@
-module GoogleUtilities_Logger {
-umbrella "/Users/zihuangwu/Documents/Next/app/build/SourcePackages/checkouts/GoogleUtilities/GoogleUtilities/Logger/Public"
-export *
-}

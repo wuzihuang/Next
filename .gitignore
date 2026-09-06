@@ -26,3 +26,4 @@ app/Local.xcconfig
 key/
 CLAUDE.md
 AGENTS.md
+app/build/

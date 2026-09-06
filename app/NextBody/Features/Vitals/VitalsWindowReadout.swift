@@ -235,12 +235,12 @@ extension VitalsReadout {
             var resting = 0.0, sport = 0.0, walk = 0.0, incidental = 0.0
             let now = VitalsClock.now
             for day in days {
-                let end = day.day.isClosed ? day.day.end : now
+                let end = min(day.day.end, day.asOf ?? now)
                 let split = ActiveEnergyMath.split(
                     dayStart: day.day.start, now: min(end, now),
                     bmr: day.bmr, bmrFull: day.bmrFull,
                     eActive: day.eActive, eTrain: day.eTrain, eOutNow: day.eOutNow,
-                    ticks: day.vitalsCurve.map { ($0.ts, $0.steps) },
+                    ticks: day.vitalsCurve,
                     sportWindows: ActiveEnergyModel.sportWindows(day))
                 resting += split.resting ?? 0
                 sport += split.sport ?? 0
@@ -265,8 +265,7 @@ extension VitalsReadout {
     /// The whole burn for one day — the number the ACTIVE page's hero already prints, named
     /// once so the day page and the window page cannot settle it differently.
     static func dayTotalBurn(_ m: DailyMetrics) -> Double? {
-        if let settled = m.eOutNow { return settled }
-        let parts = [m.bmr, m.eActive, m.eTrain].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.reduce(0, +)
+        ActiveEnergyMath.totals(bmr: m.bmr, eActive: m.eActive,
+                                eTrain: m.eTrain, eOutNow: m.eOutNow).out
     }
 }

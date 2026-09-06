@@ -57,6 +57,13 @@ struct SleepWindowSummary {
 
     static func median(_ values: [Double]) -> Double? { SleepScoreMath.median(values) }
 
+    var scores: [SleepScore] { slots.compactMap(\.score) }
+
+    func groupMedian(_ group: SleepScoreGroup) -> Int? {
+        Self.median(scores.compactMap { $0.value(of: group).map(Double.init) })
+            .map { Int($0.rounded()) }
+    }
+
     /// `bed_offset` is minutes past 18:00 local, which is how a 23:40 and a 01:20 bedtime
     /// stay 100 minutes apart instead of twenty-two hours.
     var bedClock: String? {
@@ -150,7 +157,7 @@ struct SleepScoreBars: View {
                 .init(text: L("40–59"), tint: NB.compareAmber),
                 .init(text: L("UNDER 40"), tint: NB.ember1),
             ],
-            trailing: L("DOTTED · NO RECORD"),
+            trailing: L("DOTTED · NO SETTLED SCORE"),
             trailingTint: NB.white.opacity(0.45)
         )
     }
@@ -192,13 +199,12 @@ struct SleepScoreBreakdown: View {
             ForEach(SleepScoreGroup.allCases, id: \.self) { group in
                 row(group)
             }
-            if score.isCalibrating {
-                Text(L("BASELINES ARE STILL TYPICAL-ADULT; THEY BECOME YOURS BY THE 28TH NIGHT"))
+            Text(L("WEIGHTS ARE SHARES OF THIS SCORE; MISSING GROUPS ARE EXCLUDED"))
                     .font(NBFont.dot(500, 9)).tracking(0.06 * 9)
                     .foregroundStyle(NB.text3Prod)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 2)
-            }
+            SleepScoreCalibration(score: score)
         }
     }
 
@@ -226,7 +232,7 @@ struct SleepScoreBreakdown: View {
                     .font(NBFont.dot(700, 12))
                     .foregroundStyle(value == nil ? NB.text3Prod : NB.text1)
                     .frame(width: 26, alignment: .trailing)
-                Text(note(group, value: value, present: present))
+                Text(note(group, value: value))
                     .font(NBFont.dot(500, 9)).tracking(0.05 * 9)
                     .foregroundStyle(NB.text3Prod)
                     .frame(width: 74, alignment: .trailing)
@@ -241,18 +247,139 @@ struct SleepScoreBreakdown: View {
                 .foregroundStyle(NB.white.opacity(0.34))
                 .lineLimit(2).minimumScaleFactor(0.8)
                 .padding(.leading, 92)
+            if value != nil, present < group.memberKeys.count {
+                Text(L("%d OF %d INPUTS", present, group.memberKeys.count))
+                    .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                    .padding(.leading, 92)
+            }
         }
     }
 
     /// A group that scored on fewer inputs than it has says so. This is the one place the
     /// missing-input note appears — the SLEEP card is glanced at, this page explains.
-    private func note(_ group: SleepScoreGroup, value: Int?, present: Int) -> String {
-        let total = group.memberKeys.count
+    private func note(_ group: SleepScoreGroup, value: Int?) -> String {
         if value == nil {
-            return group == .regularity ? L("NEEDS 14 NIGHTS") : L("NOTHING RECORDED")
+            guard group == .regularity else { return L("NOT SCORED") }
+            return score.inputs["bed_offset"] == nil ? L("NO BEDTIME RECORDED") : L("NO BASELINE YET")
         }
-        if present < total { return L("%d OF %d INPUTS", present, total) }
-        return L("WEIGHT %d%%", group.weight)
+        return score.effectiveWeight(of: group).map { L("WEIGHT %.1f%%", $0) } ?? Fmt.dash
+    }
+}
+
+extension SleepScore {
+    func effectiveWeight(of group: SleepScoreGroup) -> Double? {
+        let groups = SleepScoreGroup.allCases
+        let weights = SleepScoreMath.effectiveWeights(
+            values: groups.map { value(of: $0).map(Double.init) },
+            weights: groups.map { Double($0.weight) })
+        guard let index = groups.firstIndex(of: group) else { return nil }
+        return weights[index]
+    }
+}
+
+struct SleepScoreCalibration: View {
+    let score: SleepScore
+
+    private var lines: [String] {
+        let individual = [("hrv", L("HRV")), ("rhr", L("RESTING"))].compactMap { key, title -> String? in
+            guard let weight = score.inputs["\(key)_personal_weight"], weight < 1 else { return nil }
+            let nights = Int(score.inputs["baseline_\(key)_nights"] ?? 0)
+            return L("%@ BASELINE · %d NIGHTS · %.0f%% PERSONAL", title, nights, weight * 100)
+        }
+        if score.inputs["hrv_personal_weight"] != nil || score.inputs["rhr_personal_weight"] != nil {
+            return individual
+        }
+        guard score.isCalibrating else { return [] }
+        return [L("BASELINE LEARNING · %d NIGHTS · %.0f%% PERSONAL",
+                  Int(score.inputs["baseline_nights"] ?? 0), score.personalWeight * 100)]
+    }
+
+    var body: some View {
+        ForEach(lines, id: \.self) { line in
+            Text(line).font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+struct SleepScoreCoverage: View {
+    let score: SleepScore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(["hrv", "rhr", "spo2", "respiration"], id: \.self) { key in
+                let title = SleepInputLabel.title(key == "hrv" ? "hrv_ms" : key == "spo2" ? "spo2_min" : key)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(title).foregroundStyle(NB.text3Prod)
+                        Spacer()
+                        Text(score.inputs["\(key)_coverage"].map { L("%.1f%% OF SLEEP", $0 * 100) }
+                             ?? L("COVERAGE NOT AVAILABLE"))
+                            .foregroundStyle(NB.text1)
+                    }
+                    .font(NBFont.dot(600, 10))
+                    Text(coverageDetail(key)).font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text(L("ONLY MEASURED PORTIONS CONTRIBUTE; GAPS ARE NOT TREATED AS NORMAL"))
+                .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func coverageDetail(_ key: String) -> String {
+        var parts: [String] = []
+        if let count = score.inputs["\(key)_sample_count"] {
+            parts.append(L("%d READINGS", Int(count)))
+        }
+        if let minutes = score.inputs["\(key)_expected_minutes"] {
+            parts.append(L("RECORDED SLEEP %@", Fmt.duration(Int(minutes.rounded()))))
+        }
+        if let gap = score.inputs["\(key)_longest_gap_min"] {
+            parts.append(L("LONGEST GAP %@", Fmt.duration(Int(gap.rounded()))))
+        }
+        return parts.isEmpty ? L("THIS SCORE HAS NO COVERAGE DETAILS") : parts.joined(separator: " · ")
+    }
+}
+
+/// Group medians explain a window without pretending their weighted sum is its median total.
+struct SleepWindowBreakdown: View {
+    let summary: SleepWindowSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(SleepScoreGroup.allCases, id: \.self) { group in
+                let scored = summary.scores.filter { $0.value(of: group) != nil }
+                let complete = scored.filter { score in group.memberKeys.allSatisfy { score.inputs[$0] != nil } }.count
+                let weights = scored.compactMap { $0.effectiveWeight(of: group) }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(group.title).font(NBFont.ui(500, 10)).foregroundStyle(NB.text3Prod)
+                        Spacer()
+                        Text(summary.groupMedian(group).map(String.init) ?? Fmt.dash)
+                            .font(NBFont.dot(700, 14)).foregroundStyle(NB.violet1)
+                    }
+                    Text(L("SCORED %d OF %d NIGHTS · COMPLETE INPUTS %d", scored.count, summary.slots.count, complete))
+                        .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let low = weights.min(), let high = weights.max() {
+                        Text(low == high ? L("WEIGHT %.1f%%", low) : L("WEIGHT %.1f–%.1f%% BY NIGHT", low, high))
+                            .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                    }
+                }
+            }
+            let calibrating = summary.scores.filter { score in
+                (score.inputs["hrv_personal_weight"] ?? score.personalWeight) < 1 ||
+                (score.inputs["rhr_personal_weight"] ?? score.personalWeight) < 1
+            }.count
+            Text(L("%d NIGHTS STILL LEARNING PERSONAL BASELINES", calibrating))
+                .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(L("GROUP MEDIANS ARE SHOWN SEPARATELY; THE TOTAL IS THE MEDIAN OF NIGHTLY SCORES"))
+                .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -307,6 +434,7 @@ enum SleepInputLabel {
 struct SleepSectionHeader: View {
     let group: SleepScoreGroup
     let score: Int?
+    var effectiveWeight: Double? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -317,7 +445,7 @@ struct SleepSectionHeader: View {
             Text(score.map(String.init) ?? Fmt.dash)
                 .font(NBFont.dot(700, 13))
                 .foregroundStyle(score == nil ? NB.text3Prod : NB.violet1)
-            Text(L("WEIGHT %d%%", group.weight))
+            Text(effectiveWeight.map { L("WEIGHT %.1f%%", $0) } ?? L("NOT SCORED"))
                 .font(NBFont.dot(500, 9)).tracking(0.05 * 9)
                 .foregroundStyle(NB.text3Prod)
         }
@@ -373,86 +501,54 @@ struct SleepDurationBar: View {
 
 // MARK: - regularity
 
-/// Bedtime against this person's own habit. Regularity cannot be scored against a
-/// population — "on time" only means anything relative to yourself — so the chart is a
-/// box of the last fourteen nights: whiskers are the nights that happened, the box is
-/// the habit (Q1–Q3), the line is the median the score already names as "usually", and
-/// tonight is the mark. Fourteen stacked dots were a distribution nobody could read.
+/// The exact baseline returned with the score and its full-marks tolerance.
+/// The axis extends to include the night, including daytime or cross-evening sleep.
 struct SleepBedtimeBox: View {
-    /// (night, minutes past 18:00). Oldest first.
-    let offsets: [(day: String, offset: Double)]
+    let baseline: Double
+    let tonight: Double
     var height: CGFloat = 72
-    /// 18:00 to 06:00 — the window a bedtime can fall in without the axis lying.
-    private static let span = 720.0
 
-    private var box: SleepScoreMath.Box? { SleepScoreMath.box(offsets.map(\.offset)) }
-    private var tonight: Double? { offsets.last?.offset }
+    private var deviation: Double { SleepScoreMath.bedtimeDeviation(bedtime: tonight, baseline: baseline) }
+    private var lower: Double { min(-60, deviation - 30) }
+    private var upper: Double { max(60, deviation + 30) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Canvas { ctx, size in
                 let mid = size.height / 2
                 func x(_ offset: Double) -> CGFloat {
-                    size.width * min(max(offset, 0), Self.span) / Self.span
+                    size.width * (offset - lower) / (upper - lower)
                 }
-
                 ctx.fill(Path(roundedRect: CGRect(x: 0, y: mid - 5, width: size.width, height: 10),
-                              cornerRadius: 5),
-                         with: .color(NB.barTrack))
-
-                guard let box else { return }
-
-                var whisker = Path()
-                whisker.move(to: CGPoint(x: x(box.min), y: mid))
-                whisker.addLine(to: CGPoint(x: x(box.max), y: mid))
-                ctx.stroke(whisker, with: .color(NB.white.opacity(0.38)), lineWidth: 1.5)
-                for cap in [box.min, box.max] {
-                    var tick = Path()
-                    tick.move(to: CGPoint(x: x(cap), y: mid - 7))
-                    tick.addLine(to: CGPoint(x: x(cap), y: mid + 7))
-                    ctx.stroke(tick, with: .color(NB.white.opacity(0.38)), lineWidth: 1.5)
-                }
-
-                let boxLeft = x(box.q1)
-                let boxWidth = max(4, x(box.q3) - boxLeft)
-                ctx.fill(Path(roundedRect: CGRect(x: boxLeft, y: mid - 11, width: boxWidth, height: 22),
-                              cornerRadius: 6),
+                              cornerRadius: 5), with: .color(NB.barTrack))
+                ctx.fill(Path(roundedRect: CGRect(x: x(-30), y: mid - 11,
+                                                  width: x(30) - x(-30), height: 22), cornerRadius: 6),
                          with: .color(NB.violet1.opacity(0.38)))
-
                 var median = Path()
-                median.move(to: CGPoint(x: x(box.median), y: mid - 13))
-                median.addLine(to: CGPoint(x: x(box.median), y: mid + 13))
+                median.move(to: CGPoint(x: x(0), y: mid - 13))
+                median.addLine(to: CGPoint(x: x(0), y: mid + 13))
                 ctx.stroke(median, with: .color(NB.violet1), lineWidth: 2)
-
-                if let tonight {
-                    let px = x(tonight)
-                    ctx.fill(Path(ellipseIn: CGRect(x: px - 5, y: mid - 5, width: 10, height: 10)),
-                             with: .color(NB.violet1))
-                }
+                ctx.fill(Path(ellipseIn: CGRect(x: x(deviation) - 5, y: mid - 5, width: 10, height: 10)),
+                         with: .color(NB.violet1))
             }
             .frame(height: height)
             HStack {
-                Text("18:00").font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                Text(SleepScoreMath.bedClock(offset: baseline + lower))
                 Spacer()
-                Text("00:00").font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                Text(SleepScoreMath.bedClock(offset: baseline + (lower + upper) / 2))
                 Spacer()
-                Text("06:00").font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                Text(SleepScoreMath.bedClock(offset: baseline + upper))
             }
+            .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
             VitalsChartLegend(
                 items: [
-                    .init(text: L("YOUR HABIT"), tint: NB.violet1, isArea: true),
-                    .init(text: L("TONIGHT"), tint: NB.violet1),
-                ],
-                trailing: nil)
+                    .init(text: L("WITHIN 30 MIN OF BASELINE"), tint: NB.violet1, isArea: true),
+                    .init(text: L("LAST NIGHT"), tint: NB.violet1),
+                ], trailing: nil)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L("BEDTIME"))
-        .accessibilityValue(accessValue)
-    }
-
-    private var accessValue: String {
-        let night = tonight.map { SleepScoreMath.bedClock(offset: $0) } ?? Fmt.dash
-        let usual = box.map { SleepScoreMath.bedClock(offset: $0.median) } ?? Fmt.dash
-        return L("%@ · USUALLY %@", night, usual)
+        .accessibilityValue(L("%@ · USUALLY %@", SleepScoreMath.bedClock(offset: tonight),
+                              SleepScoreMath.bedClock(offset: baseline)))
     }
 }

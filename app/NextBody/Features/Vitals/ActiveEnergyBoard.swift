@@ -20,7 +20,8 @@ struct ActiveEnergyModel {
     let dayStart: Date
 
     static func make(m: DailyMetrics, now: Date, history: [DailyMetrics]) -> ActiveEnergyModel {
-        let ticks = m.vitalsCurve.map { ($0.ts, $0.steps) }
+        let now = min(now, min(m.asOf ?? now, m.day.end))
+        let ticks = m.vitalsCurve
         let windows = sportWindows(m)
         let split = ActiveEnergyMath.split(
             dayStart: m.day.start, now: now, bmr: m.bmr, bmrFull: m.bmrFull,
@@ -31,7 +32,7 @@ struct ActiveEnergyModel {
             ticks: ticks, sportWindows: windows)
         let out = split.out.map {
             ActiveEnergyMath.outCurve(dayStart: m.day.start, now: now, burnedNow: $0,
-                                      burnedFull: m.eOutFull, ticks: ticks)
+                                      burnedFull: m.eOutFull, restingNow: split.resting, ticks: ticks)
         }
         let rest = split.resting.map {
             ActiveEnergyMath.restCurve(dayStart: m.day.start, now: now, resting: $0)
@@ -74,7 +75,7 @@ struct ActiveEnergyHero: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L("TODAY · 04→NOW"))
+            Text(L("TODAY · 04→%@", Fmt.clock(model.now)))
                 .font(NBFont.ui(500, 11)).tracking(0.12 * 11)
                 .foregroundStyle(NB.text3Prod)
                 .lineLimit(1)
@@ -121,7 +122,7 @@ struct ActiveEnergyBoard: View {
     private var accumulated: some View {
         CardBlock(title: L("ACCUMULATED"), trailing: "KCAL") {
             VStack(alignment: .leading, spacing: 8) {
-                if model.split.out == nil {
+                if model.outSolid.isEmpty {
                     VitalsChartEmpty(line: L("HOURLY ENERGY NOT AVAILABLE"),
                                      sub: L("DAILY ACTIVE ENERGY IS WEIGHT-AWARE AND SETTLED"),
                                      height: 176)
@@ -139,7 +140,7 @@ struct ActiveEnergyBoard: View {
                         height: 176,
                         mark: model.outSolid.last.map { ($0, NB.lime1) },
                         restMark: model.restSolid.last.map { ($0, NB.macroValue) })
-                    VitalsAxis(labels: ["00", "06", "12", "18", "24"],
+                    VitalsAxis(labels: FuelWindowMath.clockLabels(dayStart: model.dayStart),
                                highlightsLast: false, tint: NB.lime1)
                     HStack(spacing: 14) {
                         legendTick(NB.lime1, L("OUT %@", Fmt.kcal(model.split.out)))
@@ -154,9 +155,9 @@ struct ActiveEnergyBoard: View {
 
     private var leftoverLabel: String {
         guard let last = model.outDashed.last?.y, let now = model.split.out else {
-            return L("+%@ BMR", Fmt.dash)
+            return L("EST +%@", Fmt.dash)
         }
-        return L("+%@ BMR", Fmt.kcal(max(0, last - now)))
+        return L("EST +%@", Fmt.kcal(max(0, last - now)))
     }
 
     private var hourly: some View {
@@ -167,10 +168,10 @@ struct ActiveEnergyBoard: View {
                                                Fmt.kcal($0.kcal)) }) {
             VStack(alignment: .leading, spacing: 8) {
                 LivedHourBars(hours: model.hours, tint: NB.lime1, height: 84)
-                VitalsAxis(labels: ["04", "08", "12", "16", "20", "00", "04"],
+                VitalsAxis(labels: FuelWindowMath.clockLabels(dayStart: model.dayStart),
                            highlightsLast: false, tint: NB.lime1)
                 Text(L("BMR floor %@/h · faded = not lived yet",
-                       Fmt.kcal(model.split.bmrFull.map { $0 / 24 })))
+                       Fmt.kcal(model.split.bmrFull.map { $0 / (FuelWindowMath.dayEnd(dayStart: model.dayStart).timeIntervalSince(model.dayStart) / 3600) })))
                     .font(NBFont.ui(400, 11))
                     .foregroundStyle(NB.text3Prod)
                     .lineLimit(1).minimumScaleFactor(0.8)
@@ -187,7 +188,7 @@ struct ActiveEnergyBoard: View {
                 HStack(alignment: .top, spacing: 12) {
                     splitCell(L("RESTING"), s.resting, NB.white.opacity(0.55),
                               s.bmrFull.flatMap { full in
-                                  s.elapsedMinutes.map { L("%@ × %d / 1,440", Fmt.kcal(full), $0) }
+                                  s.elapsedMinutes.map { L("%@ × %d / %d", Fmt.kcal(full), $0, Int(FuelWindowMath.dayEnd(dayStart: model.dayStart).timeIntervalSince(model.dayStart) / 60)) }
                               } ?? L("NEEDS YOUR WEIGHT"))
                     splitCell(L("SPORT"), s.sport, NB.lime1,
                               sportFoot(s))
@@ -218,7 +219,7 @@ struct ActiveEnergyBoard: View {
                     nowX: model.nowFraction,
                     maxY: max(peak, ActiveEnergyMath.sportMet),
                     height: 84)
-                VitalsAxis(labels: ["00", "06", "12", "18", "24"],
+                VitalsAxis(labels: FuelWindowMath.clockLabels(dayStart: model.dayStart),
                            highlightsLast: false, tint: NB.lime1)
                 Text(L("1.0 still · 3.0 walk · 5.1 the session"))
                     .font(NBFont.ui(400, 11))
@@ -266,6 +267,12 @@ struct ActiveEnergyBoard: View {
                 .font(NBFont.ui(500, 13))
                 .foregroundStyle(NB.text2)
                 .lineLimit(1).minimumScaleFactor(0.7)
+            Text(L("Resting energy is estimated from your body profile; active energy from recorded activity."))
+                .font(NBFont.ui(400, 11))
+                .foregroundStyle(NB.text3Prod)
+            Text(L("Missing activity time is not included."))
+                .font(NBFont.ui(400, 11))
+                .foregroundStyle(NB.text3Prod)
             Text(L("A missing part reads —— not 0."))
                 .font(NBFont.ui(400, 11))
                 .foregroundStyle(NB.text3Prod)
@@ -386,7 +393,10 @@ struct ActiveEnergyLineChart: View {
                 guard item.points.count >= 2 else { continue }
                 var path = Path()
                 path.move(to: px(item.points[0]))
-                for point in item.points.dropFirst() { path.addLine(to: px(point)) }
+                for point in item.points.dropFirst() {
+                    if point.startsSegment { path.move(to: px(point)) }
+                    else { path.addLine(to: px(point)) }
+                }
                 ctx.stroke(path, with: .color(item.tint),
                            style: StrokeStyle(lineWidth: item.width,
                                               dash: item.dashed ? [5, 4] : []))

@@ -18,6 +18,7 @@ final class Repository {
     private var evidencePublicationTask: Task<Void, Never>?
     private var homeFastDone = false
     private var readGeneration: UInt = 0
+    private var sleepScoreGeneration: UInt = 0
     private(set) var sessionGeneration: UInt = 0
     private var summaryRevisions: [String: [String: String]] = [:]
 
@@ -43,6 +44,7 @@ final class Repository {
         evidencePublicationTask = nil
         readGeneration &+= 1
         sessionGeneration &+= 1
+        sleepScoreGeneration &+= 1
         homeFastTask = nil
         homeFastDone = false
     }
@@ -50,6 +52,9 @@ final class Repository {
     /// Session plus today's row. History, composition and capability tables follow in the
     /// background so Home is not held behind 182 days of `daily_results`.
     func bootstrapHome(into store: DataStore) async {
+#if DEBUG
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_EVIDENCE"] == "1" { return }
+#endif
         if let homeFastTask { await homeFastTask.value }
         if homeFastDone { return }
         let task = Task { @MainActor in
@@ -142,6 +147,9 @@ final class Repository {
         await OriginDataSync.flushPendingEvidence(userId: account)
         guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
               !Task.isCancelled else { return }
+        await SportEvidenceQueue.shared.flush()
+        guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
+              !Task.isCancelled else { return }
         let today = UserDay.containing(Date())
         do {
             let status = try await calculationStatusIfAvailable(from: today.key, to: today.key)
@@ -161,6 +169,8 @@ final class Repository {
                   !Task.isCancelled else { return }
             // loadToday is a cached bootstrap and would keep showing the old result.
             await load(days: HomeLaunchPolicy.fastLoadLookbackDays, endingAt: today, into: DataStore.shared)
+            guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+            await loadSleepScores(days: 30, endingAt: today, into: DataStore.shared)
             guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
             HomeSnapshot.save(from: DataStore.shared)
         } catch { BandLog.shared.record("publish drained evidence", error: error) }
@@ -533,22 +543,28 @@ final class Repository {
     /// that make a night legible — per-minute overnight SpO2 and the respiration series
     /// buried in `sleep_nights.raw` — never leave the database.
     func loadSleepScores(days: Int, endingAt day: UserDay, into store: DataStore) async {
-        let generation = readGeneration
+        guard let account = SupabaseClient.currentUserIdSnapshot() else { return }
+        sleepScoreGeneration &+= 1
+        let request = sleepScoreGeneration
+        let session = sessionGeneration
+        let from = day.adding(days: 1 - min(max(days, 1), 30)).key
+        store.sleepScoreLoadState = .loading
         do {
-            guard SupabaseClient.currentUserIdSnapshot() != nil else { return }
             let rows = try await db.select("night_score", query: [
-                .init(name: "select", value: "user_day,score,duration_score,architecture_score,recovery_score,regularity_score,personal_weight,inputs,score_version"),
-                .init(name: "user_day", value: "gte.\(day.adding(days: -max(days, 1)).key)"),
+                .init(name: "select", value: "user_day,score,duration_score,architecture_score,recovery_score,regularity_score,personal_weight,inputs,score_version,computed_at"),
+                .init(name: "user_id", value: "eq.\(account)"),
+                .init(name: "user_day", value: "gte.\(from)"),
                 .init(name: "user_day", value: "lte.\(day.key)"),
                 .init(name: "order", value: "user_day.asc"),
             ])
             var scores: [String: SleepScore] = [:]
             for row in rows {
-                guard let key = row["user_day"] as? String,
-                      let total = Self.integer(row["score"]) else { continue }
+                guard let key = row["user_day"] as? String, key >= from, key <= day.key,
+                      let rawTotal = Self.decimal(row["score"]), rawTotal.isFinite,
+                      (0...100).contains(rawTotal), let total = Self.integer(row["score"]) else { continue }
                 var inputs: [String: Double] = [:]
                 for (name, value) in (row["inputs"] as? [String: Any] ?? [:]) {
-                    if let number = Self.decimal(value) { inputs[name] = number }
+                    if let number = Self.decimal(value), number.isFinite { inputs[name] = number }
                 }
                 scores[key] = SleepScore(
                     score: total,
@@ -558,19 +574,26 @@ final class Repository {
                     regularity: Self.integer(row["regularity_score"]),
                     personalWeight: Self.decimal(row["personal_weight"]) ?? 0,
                     inputs: inputs,
-                    version: row["score_version"] as? String ?? "")
+                    version: row["score_version"] as? String ?? "",
+                    computedAt: (row["computed_at"] as? String).flatMap(Self.timestamp))
             }
-            guard generation == readGeneration else { return }
-            await MainActor.run {
-                store.sleepScores = scores
-                store.today.sleepScore = scores[store.today.day.key]
-                for index in store.history.indices {
-                    store.history[index].sleepScore = scores[store.history[index].day.key]
-                }
+            guard account == SupabaseClient.currentUserIdSnapshot(), session == sessionGeneration,
+                  request == sleepScoreGeneration else { return }
+            guard !Task.isCancelled else {
+                store.sleepScoreLoadState = .idle
+                return
             }
+            store.sleepScores = scores
+            store.today.sleepScore = scores[store.today.day.key]
+            for index in store.history.indices {
+                store.history[index].sleepScore = scores[store.history[index].day.key]
+            }
+            store.sleepScoreLoadState = .ready
+            HomeSnapshot.save(from: store)
         } catch {
-            // A night without a score reads as a night without a score. There is nothing to
-            // fall back to and nothing to tell the user about a window that simply has no row.
+            guard account == SupabaseClient.currentUserIdSnapshot(), session == sessionGeneration,
+                  request == sleepScoreGeneration else { return }
+            store.sleepScoreLoadState = Task.isCancelled ? .idle : .failed
         }
     }
 
@@ -673,6 +696,7 @@ final class Repository {
                     default: m.fuelState = .unlogged
                     }
                 }
+                m.sleepScore = store.sleepScores[d.key]
                 // Summary revisions invalidate computed details, not device observations.
                 if let existing = store.metrics(for: d) {
                     m.sleep = Self.sleepOnWakeDay(existing.sleep, day: d)
@@ -700,6 +724,7 @@ final class Repository {
         if var cached = HomeSnapshot.loadDetail(day: day, userId: account),
            store.metrics(for: day)?.asOf == nil || (store.metrics(for: day)?.asOf ?? .distantPast) < (cached.asOf ?? .distantPast) {
             cached.sleep = Self.sleepOnWakeDay(cached.sleep, day: day)
+            cached.sleepScore = store.sleepScores[day.key]
             if day == UserDay.containing(Date()) { store.today = cached }
             store.history = (store.history.filter { $0.day != day } + [cached]).sorted { $0.day < $1.day }
         }
@@ -729,6 +754,24 @@ final class Repository {
         }
     }
 
+    /// Raw samples exceed PostgREST's 1,000-row cap after about three days. Keep
+    /// both source rows at equal timestamps in stable order and verify the account
+    /// throughout the read so a later page cannot belong to another session.
+    private func selectSamplePages(_ table: String, query: [URLQueryItem]) async throws -> [[String: Any]] {
+        let owner = SupabaseClient.currentUserIdSnapshot()
+        let base = query.filter { !["order", "offset", "limit"].contains($0.name) }
+        return try await SamplePageRead.all { offset in
+            guard SupabaseClient.currentUserIdSnapshot() == owner else { throw CancellationError() }
+            let page = try await self.db.select(table, query: base + [
+                .init(name: "order", value: "ts.asc,src.asc"),
+                .init(name: "offset", value: String(offset)),
+                .init(name: "limit", value: "1000"),
+            ])
+            guard SupabaseClient.currentUserIdSnapshot() == owner else { throw CancellationError() }
+            return page
+        }
+    }
+
     /// HEART week/month needs more than the one day of `raw_samples` Home preloads.
     /// This is not `load(days:)` — that also pulls meals, fuel, training and nights.
     func loadHeartWindow(days: Int, into store: DataStore) async {
@@ -739,8 +782,8 @@ final class Repository {
         let from = day.adding(days: -days - 1)
         let to = day.adding(days: 1)
         do {
-            async let vitalRowsAsync = db.select("raw_samples", query: [
-                .init(name: "select", value: "ts,heart,stress,temp,step,cal,dis,hrv"),
+            async let vitalRowsAsync = selectSamplePages("raw_samples", query: [
+                .init(name: "select", value: "ts,heart,stress,temp,step,met,cal,dis,hrv,domain_sources"),
                 .init(name: "ts", value: "gte.\(stamp.string(from: from.start))"),
                 .init(name: "ts", value: "lt.\(stamp.string(from: to.start))"),
                 .init(name: "order", value: "ts.asc"),
@@ -759,15 +802,21 @@ final class Repository {
                 let stress = number(row["stress"]).map { Int($0) }
                 let temp = number(row["temp"])
                 let steps = number(row["step"]).map { Int($0) }
-                let hrv = number(row["hrv"])
-                guard hr != nil || stress != nil || temp != nil || steps != nil || hrv != nil
+                let met = number(row["met"])
+                let hrvEvidence = (row["domain_sources"] as? [String: Any])?["hrv"] as? [String: Any]
+                let hrvValid = hrvEvidence?["hrv_valid"] as? Bool
+                let hrvObservedAt = (hrvEvidence?["observed_at"] as? String).flatMap(Self.timestamp)
+                let hrv = hrvValid == false ? nil : number(row["hrv"])
+                guard hr != nil || stress != nil || temp != nil || steps != nil || met != nil || hrv != nil || hrvValid == false
                 else { return nil }
                 return VitalSample(ts: at, hr: hr, stress: stress,
                                    temp: temp,
                                    steps: steps,
+                                   met: met,
                                    vendorCalories: number(row["cal"]),
                                    dis: number(row["dis"]),
-                                   hrv: hrv)
+                                   hrv: hrv, hrvValid: hrvValid,
+                                   hrvObservedAt: hrvObservedAt)
             }
             let oxygen: [OvernightOxygenPoint] = (oxygenRows ?? []).compactMap { row in
                 guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
@@ -870,6 +919,8 @@ final class Repository {
             // unknown column is a 400 for the whole select, and that 400 took the home
             // screen offline.
             async let trainingExtras = selectTrainingExtras(ids: resultIds)
+            async let trainingEvidenceRows = try? selectByResultId(
+                "daily_training", columns: "result_id,recorded_steps,evidence", ids: resultIds)
             async let weighInRows = db.select("weigh_ins", query: [
                 .init(name: "select", value: "id,measured_at,weight_kg,source"),
                 .init(name: "order", value: "measured_at.desc"),
@@ -901,8 +952,8 @@ final class Repository {
             // minutes' steps, kcal and metres ride along on the columns the sync already writes.
             // Rolling traces need the preceding user day too; every sample is partitioned
             // back into its own 04:00 window after the response arrives.
-            async let vitalRowsAsync = db.select("raw_samples", query: [
-                .init(name: "select", value: "ts,heart,stress,temp,step,cal,dis,hrv"),
+            async let vitalRowsAsync = selectSamplePages("raw_samples", query: [
+                .init(name: "select", value: "ts,heart,stress,temp,step,met,cal,dis,hrv,domain_sources"),
                 .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -max(days, 1) - 1).start))"),
                 .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
                 .init(name: "order", value: "ts.asc"),
@@ -960,6 +1011,18 @@ final class Repository {
                 training = training.map { row in
                     guard let id = row["result_id"] as? String, let e = by[id] else { return row }
                     var r = row; r["active_minutes"] = e["active_minutes"]; r["distance_m"] = e["distance_m"]; return r
+                }
+            }
+            if let evidenceRows = await trainingEvidenceRows {
+                let by = Dictionary(uniqueKeysWithValues: evidenceRows.compactMap { row in
+                    (row["result_id"] as? String).map { ($0, row) }
+                })
+                training = training.map { row in
+                    guard let id = row["result_id"] as? String, let evidence = by[id] else { return row }
+                    var merged = row
+                    merged["recorded_steps"] = evidence["recorded_steps"]
+                    merged["evidence"] = evidence["evidence"]
+                    return merged
                 }
             }
             let weighIns = try await weighInRows
@@ -1065,7 +1128,30 @@ final class Repository {
                             movement: number(d["movement"]) ?? 0,
                             stress: number(d["stress"]) ?? 0,
                             anchor: Int(number(d["anchor"]) ?? 0),
-                            assumedAnchor: d["assumed_anchor"] as? Bool ?? false)
+                            assumedAnchor: d["assumed_anchor"] as? Bool ?? false,
+                            dayCharge: number(d["day_charge"]),
+                            nightCharge: number(d["night_charge"]),
+                            wakeAt: (d["wake_at"] as? String).flatMap(Self.timestamp),
+                            observedAt: (d["observed_at"] as? String).flatMap(Self.timestamp),
+                            confidence: (d["confidence"] as? String).flatMap {
+                                BodyBatteryConfidence(rawValue: $0.uppercased())
+                            },
+                            algoVersion: d["algo_version"] as? String)
+                        if let c = d["coverage"] as? [String: Any] {
+                            m.reserveDrivers?.coverage = BodyBatteryCoverage(
+                                nightHRV: number(c["night_hrv"]), nightRHR: number(c["night_rhr"]),
+                                nightExpectedMinutes: number(c["night_expected_minutes"]).map(Int.init),
+                                nightHRVMinutes: number(c["night_hrv_minutes"]).map(Int.init),
+                                nightRHRMinutes: number(c["night_rhr_minutes"]).map(Int.init),
+                                nightHRVLongestGap: number(c["night_hrv_longest_gap"]).map(Int.init),
+                                nightRHRLongestGap: number(c["night_rhr_longest_gap"]).map(Int.init),
+                                hrvNights: number(c["hrv_nights"]).map(Int.init),
+                                rhrNights: number(c["rhr_nights"]).map(Int.init),
+                                dayHeart: number(c["day_heart"]), dayHRV: number(c["day_hrv"]),
+                                dayStress: number(c["day_stress"]),
+                                dayExpectedTicks: number(c["day_expected_ticks"]).map(Int.init),
+                                dayObservedTicks: number(c["day_observed_ticks"]).map(Int.init))
+                        }
                     }
                     if let n = r["night_inputs"] as? [String: Any], !n.isEmpty {
                         m.nightInputs = NightInputs(
@@ -1082,6 +1168,19 @@ final class Repository {
                     }
                 }
                 if let t = trainingBy[id] {
+                    m.recordedSteps = number(t["recorded_steps"]).map(Int.init)
+                    if let e = t["evidence"] as? [String: Any],
+                       let elapsed = number(e["elapsed_minutes"]),
+                       let recorded = number(e["recorded_minutes"]),
+                       let heart = number(e["hr_minutes"]),
+                       let movement = number(e["movement_minutes"]) {
+                        m.trainingEvidence = TrainingEvidence(
+                            elapsedMinutes: Int(elapsed), recordedMinutes: Int(recorded),
+                            heartRateMinutes: Int(heart), movementMinutes: Int(movement),
+                            restingHeartRate: number(e["hr_rest"]),
+                            restingBaselineNights: Int(number(e["hr_rest_nights"]) ?? 0),
+                            baselineEstimated: e["baseline_estimated"] as? Bool ?? true)
+                    }
                     m.zoneMinutes = (t["zone_minutes"] as? [Any])?.compactMap { number($0).map(Int.init) }
                     m.peakHR = number(t["peak_hr"]).map { Int($0) }
                     m.activeMinutes = number(t["active_minutes"]).map { Int($0) }
@@ -1113,15 +1212,26 @@ final class Repository {
                     m.weightKg = number(fu["weight_kg"]) ?? m.weightKg
                     m.bmr = number(fu["bmr_kcal"])
                     m.eActive = number(fu["active_kcal"])
+                    if formalMetrics == nil {
+                        // Legacy deployments can publish OUT using an older formula
+                        // than their explicit resting and active components.
+                        m.eOutNow = ActiveEnergyMath.totals(bmr: m.bmr, eActive: m.eActive,
+                                                            eTrain: nil, eOutNow: m.eOutNow).out
+                    } else if m.eOutNow == nil ||
+                                m.bmr.flatMap({ rest in m.eActive.map { rest + $0 } }) != m.eOutNow {
+                        // Formal values, including unknown, are authoritative. Stale
+                        // detail components must not recreate OUT in activity charts.
+                        m.bmr = nil
+                        m.eActive = nil
+                    }
+                    m.balance = m.eIn.flatMap { intake in m.eOutNow.map { intake - $0 } }
                     // 10 · the header is an estimate of where the day lands. Baseline for
                     // the whole day, today's movement carried forward at the rate it has
                     // actually run at, and the session that is still owed.
-                    let elapsed = Double(userDay.elapsedMinutes()) / 1440
+                    let elapsed = Double(userDay.elapsedMinutes(at: m.asOf ?? Date())) / (userDay.end.timeIntervalSince(userDay.start) / 60)
                     let full = number(fu["bmr_full_kcal"])
                     m.bmrFull = full
-                    let forecast = elapsed > 0.05
-                        ? (number(fu["active_kcal"]) ?? 0) / elapsed
-                        : number(fu["active_kcal"]) ?? 0
+                    let forecast = m.eActive.map { elapsed > 0.05 ? $0 / elapsed : $0 }
                     m.activeForecast = forecast
                     m.eTrainPlan = nil
                     // The estimate itself is assembled in merge(), once every row it is
@@ -1142,7 +1252,10 @@ final class Repository {
                     default: m.fuelState = .unlogged
                     }
                 }
-                if m.nightInputs != nil, formalMetrics != nil {
+                // A versioned battery result carries the exact inputs used by its
+                // recovery multiplier. Generic metric summaries can have a different
+                // baseline eligibility rule and must not rewrite that explanation.
+                if m.nightInputs != nil, m.reserveDrivers?.algoVersion == nil, formalMetrics != nil {
                     m.nightInputs?.hrv = formalValue("nightHRV", userDay.key)
                     m.nightInputs?.hrvBase = formalValue("hrvBaseline", userDay.key)
                     m.nightInputs?.rhr = formalValue("nightRHR", userDay.key)
@@ -1208,26 +1321,32 @@ final class Repository {
             }
             if !history.isEmpty { history[history.count - 1].reserveCurve = curve }
 
-            // ⚠️ A tick with neither heart nor stress is the band off the wrist. It is dropped
-            // here rather than drawn as a zero, so the two traces stop where the wearing did.
+            // Missing readings stay absent. Keep explicit HRV retractions even without
+            // another reading so a stored invalid value cannot reappear during merging.
             let vitals: [VitalSample] = vitalRows.compactMap { row in
                 guard let t = row["ts"] as? String, let at = Self.timestamp(t) else { return nil }
                 let hr = number(row["heart"]).map { Int($0) }
                 let stress = number(row["stress"]).map { Int($0) }
                 let temp = number(row["temp"])
                 let steps = number(row["step"]).map { Int($0) }
+                let met = number(row["met"])
                 // ⚠️ hrv counts as a reading of its own here. It arrives on its own ten-minute
                 // cadence and a tick carrying only HRV is still a tick — dropping it would
                 // punch a hole in the very curve it is there to draw.
-                let hrv = number(row["hrv"])
-                guard hr != nil || stress != nil || temp != nil || steps != nil || hrv != nil
+                let hrvEvidence = (row["domain_sources"] as? [String: Any])?["hrv"] as? [String: Any]
+                let hrvValid = hrvEvidence?["hrv_valid"] as? Bool
+                let hrvObservedAt = (hrvEvidence?["observed_at"] as? String).flatMap(Self.timestamp)
+                let hrv = hrvValid == false ? nil : number(row["hrv"])
+                guard hr != nil || stress != nil || temp != nil || steps != nil || met != nil || hrv != nil || hrvValid == false
                 else { return nil }
                 return VitalSample(ts: at, hr: hr, stress: stress,
                                    temp: temp,
                                    steps: steps,
+                                   met: met,
                                    vendorCalories: number(row["cal"]),
                                    dis: number(row["dis"]),
-                                   hrv: hrv)
+                                   hrv: hrv, hrvValid: hrvValid,
+                                   hrvObservedAt: hrvObservedAt)
             }
             for index in history.indices {
                 let remoteSamples = vitals.filter {
@@ -1274,6 +1393,7 @@ final class Repository {
                 let oxygen = Self.overnightOxygen(rows: oxygenRows, start: start, wake: wake)
                 let respiration = Self.sleepRespiration(raw: night["raw"], start: start, wake: wake)
                 let hrv = Self.sleepHRV(raw: night["raw"], start: start, wake: wake)
+                let remoteHRVInvalidations = Self.sleepHRVInvalidations(raw: night["raw"], start: start, wake: wake)
                 let rawIntervals = ((night["raw"] as? [String: Any])?["intervals"] as? [[String: Any]] ?? []).compactMap { row -> SleepInterval? in
                     guard let intervalStart = (row["start"] as? String).flatMap(Self.timestamp),
                           let intervalEnd = (row["end"] as? String).flatMap(Self.timestamp),
@@ -1309,10 +1429,15 @@ final class Repository {
                 let combinedRespiration = Dictionary((respiration + (sameWindow ? local?.respiration ?? [] : []))
                     .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
                     .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
-                let combinedHRV: [SleepHRVPoint]? = hrv == nil && (!sameWindow || local?.hrv == nil) ? nil :
-                    Dictionary(((hrv ?? []) + (sameWindow ? local?.hrv ?? [] : []))
-                        .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
-                        .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
+                let hrvInvalidations = remoteHRVInvalidations
+                    .merging(local?.hrvInvalidatedMinutes ?? [:], uniquingKeysWith: max)
+                    .filter { inSleep($0.key) }
+                let localHRV = (local?.hrv ?? []).filter { inSleep($0.ts) }
+                let hasLocalHRV = !localHRV.isEmpty || (sameWindow && local?.hrv != nil)
+                let combinedHRV: [SleepHRVPoint]? = hrv == nil && !hasLocalHRV
+                    && hrvInvalidations.isEmpty ? nil : SleepHRVPoint.merging(hrv ?? [],
+                        with: localHRV, invalidatedMinutes: hrvInvalidations)
+                        .filter { inSleep($0.ts) }
                 history[index].sleep = SleepSummary(
                     totalMinutes: Int(total),
                     deepMinutes: number(night["deep_minutes"]).map { Int($0) } ?? 0,
@@ -1322,6 +1447,7 @@ final class Repository {
                     spo2: combinedOxygen,
                     respiration: combinedRespiration,
                     hrv: combinedHRV,
+                    hrvInvalidatedMinutes: hrvInvalidations.isEmpty ? nil : hrvInvalidations,
                     intervals: intervals)
             }
 
@@ -1364,6 +1490,9 @@ final class Repository {
             }
             merged.append(contentsOf: history)
             merged.sort { $0.day < $1.day }
+            for index in merged.indices {
+                merged[index].sleepScore = store.sleepScores[merged[index].day.key]
+            }
             store.history = merged
             if let responseRows {
                 let loaded = Self.opticalResponse(rows: responseRows)
@@ -1376,7 +1505,7 @@ final class Repository {
                 let settled = Set(store.meals.filter { $0.status != .open }.map(\.slot))
                 store.today = merge(last, into: store.today,
                                     openSlots: MealEntry.Slot.allCases.count - settled.count)
-                store.rebaseBodyBatteryPreview()
+                store.today.sleepScore = store.sleepScores[store.today.day.key]
             }
 
             // The macro rows are the day's own meals added up. The targets are computed
@@ -1442,9 +1571,9 @@ final class Repository {
         m.fatEmaDelta7d = server.fatEmaDelta7d ?? local.fatEmaDelta7d
         m.leanEmaDelta7d = server.leanEmaDelta7d ?? local.leanEmaDelta7d
         m.targetIn = server.targetIn ?? local.targetIn
-        m.bmr = server.bmr ?? local.bmr
-        m.bmrFull = server.bmrFull ?? local.bmrFull
-        m.eActive = server.eActive ?? local.eActive
+        m.bmr = server.bmr
+        m.bmrFull = server.bmrFull
+        m.eActive = server.eActive
         m.eTrain = local.eTrain
         // A9 · what the planned session would actually cost this person, from their own
         // weight — never a fixed 480. It is the same session board 08 is offering.
@@ -1454,7 +1583,7 @@ final class Repository {
         m.eTrainPlan = plan.flatMap { p in
             m.weightKg.map { (p.met - 1) * 1.05 * $0 * (p.minutes / 60) }
         }
-        m.activeForecast = server.activeForecast ?? local.activeForecast
+        m.activeForecast = server.activeForecast
         m.scans7d = server.scans7d > 0 ? server.scans7d : local.scans7d
         m.proteinIn = server.proteinIn
         m.carbIn = server.carbIn
@@ -1509,8 +1638,10 @@ final class Repository {
         // ⚠️ Assembled last, and out of exactly the three rows board 10 lists. Computing it
         // earlier meant a later assignment overwrote it and the card's header disagreed
         // with the numbers directly beneath it.
-        if let baseline = m.bmrFull {
-            m.eOutFull = baseline + (m.activeForecast ?? 0) + (m.eTrainPlan ?? 0)
+        if let baseline = m.bmrFull, let movement = m.activeForecast {
+            m.eOutFull = baseline + movement + (m.eTrainPlan ?? 0)
+        } else {
+            m.eOutFull = nil
         }
         return m
     }
@@ -1551,15 +1682,32 @@ final class Repository {
 
     /// nil is a legacy row without minute-resolution HRV; [] is an observed empty night.
     static func sleepHRV(raw: Any?, start: Date?, wake: Date?) -> [SleepHRVPoint]? {
-        guard let payload = raw as? [String: Any], payload["hrv"] != nil else { return nil }
+        guard let payload = raw as? [String: Any], payload["hrv"] != nil || payload["hrv_invalidated"] != nil else { return nil }
         guard let start, let wake, wake > start else { return [] }
         let rows = payload["hrv"] as? [[String: Any]] ?? []
-        return rows.compactMap { row in
+        let points: [SleepHRVPoint] = rows.compactMap { row in
             guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
                   at >= start, at < wake,
-                  let value = numberStatic(row["rmssd_ms"]), value.isFinite, value > 0 else { return nil }
-            return SleepHRVPoint(ts: at, rmssdMS: value)
-        }.sorted { $0.ts < $1.ts }
+                  let value = numberStatic(row["rmssd_ms"]), value.isFinite, (1...300).contains(value) else { return nil }
+            let observedAt = (row["observed_at"] as? String).flatMap(Self.timestamp)
+                .flatMap { $0 >= at && $0 <= Date().addingTimeInterval(300) ? $0 : nil }
+            return SleepHRVPoint(ts: at, rmssdMS: value, observedAt: observedAt)
+        }
+        return SleepHRVPoint.merging([], with: points,
+                                     invalidatedMinutes: sleepHRVInvalidations(raw: raw, start: start, wake: wake))
+    }
+
+    static func sleepHRVInvalidations(raw: Any?, start: Date?, wake: Date?) -> [Date: Date] {
+        guard let start, let wake, wake > start else { return [:] }
+        let rows = (raw as? [String: Any])?["hrv_invalidated"] as? [[String: Any]] ?? []
+        let pairs: [(Date, Date)] = rows.compactMap { row in
+            guard row["reason"] as? String == "insufficient_adjacent_rr",
+                  let at = (row["ts"] as? String).flatMap(Self.timestamp), at >= start, at < wake,
+                  let observedAt = (row["observed_at"] as? String).flatMap(Self.timestamp),
+                  observedAt >= at, observedAt <= Date().addingTimeInterval(300) else { return nil }
+            return (at, observedAt)
+        }
+        return Dictionary(pairs, uniquingKeysWith: max)
     }
 
     /// Wrist optical meal-response scalars. The column is `optical`; zeros never arrive.

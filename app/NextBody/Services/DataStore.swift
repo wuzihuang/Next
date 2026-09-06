@@ -11,9 +11,9 @@ final class DataStore: ObservableObject {
     @Published var today: DailyMetrics
     @Published var history: [DailyMetrics] = []
     /// ADR 0008 · the settled sleep score per wake-day, keyed by `UserDay.key`. Thirty rows
-    /// of smallints, fetched once with the rest of history — the sleep board's week and
-    /// month windows read this and never go to the network themselves.
+    /// of smallints, refreshed after settlement and cached with their account's snapshot.
     @Published var sleepScores: [String: SleepScore] = [:]
+    @Published var sleepScoreLoadState: SleepScoreLoadState = .idle
     @Published var meals: [MealEntry] = []
     /// The window 12's WEEK view reads. Today's list stays in `meals` so 09 is untouched.
     @Published var recentMeals: [MealEntry] = []
@@ -125,9 +125,6 @@ final class DataStore: ObservableObject {
     /// 04 · the HR / STRESS row under the readout, and the tick it came from. 13 · the age
     /// of that tick is what decides whether the numbers are shown, dimmed, or dashed.
     @Published var vitals: LiveVitals = Band.allowsSeed ? .mock : LiveVitals()
-    /// A short-lived estimate between two five-minute server settlements. It is rebased from
-    /// the server whenever a stored tick lands; it never becomes a second historical curve.
-    @Published private(set) var bodyBatteryPreview: Int?
     /// 12 · what this HOOP reports it can do, as last stored. The device page and 07's
     /// capabilities() gate read this so they are right before the band answers, and still
     /// right when it is out of range.
@@ -147,15 +144,13 @@ final class DataStore: ObservableObject {
     @Published var netLeanMass12w: Double?
     @Published var bodyFatPercent: Double?
 
-    private var bodyBatteryPreviewAnchor: Double?
-    private var bodyBatteryPreviewAt: Date?
-    private var bodyBatteryPreviewTicks: [BodyBatteryEngine.Tick] = []
-
-    var bodyBatteryNow: Int? { bodyBatteryPreview ?? today.bodyBattery }
+    /// Reserve, explanations and curve always come from the same settlement. Live heart
+    /// callbacks remain measurements; they cannot publish a second reserve calculation.
+    var bodyBatteryNow: Int? { today.bodyBatteryForDisplay() }
 
     var todayForDisplay: DailyMetrics {
         var metrics = today
-        metrics.bodyBattery = bodyBatteryNow
+        metrics.bodyBattery = today.bodyBatteryForDisplay()
         return metrics
     }
 
@@ -206,6 +201,7 @@ final class DataStore: ObservableObject {
             compositionScans = Self.compositionScans(from: measurements)
             mealResponsePoints = DataStore.seedMealResponse()
             sleepScores = DataStore.seedSleepScores()
+            sleepScoreLoadState = .ready
             today.sleepScore = sleepScores[today.day.key]
             for index in history.indices { history[index].sleepScore = sleepScores[history[index].day.key] }
             batteryLog = BatteryLog.seed(now: Date(), percent: band.batteryPercent ?? 82)
@@ -214,8 +210,51 @@ final class DataStore: ObservableObject {
             HomeSnapshot.hydrate(into: self)
             hydrateBatteryLog()
         }
+        #if DEBUG
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_EVIDENCE"] == "1" {
+            seedSleepEvidenceForUITests()
+        }
+        #endif
         WidgetGlancePublisher.publish(from: self)
     }
+
+    #if DEBUG
+    /// Deterministic simulator fixture for missing evidence and peaks above the old ruler.
+    /// It never runs on a physical band or uploads measurements.
+    private func seedSleepEvidenceForUITests() {
+        let wake = Calendar.current.date(bySettingHour: 12, minute: 39, second: 0, of: Date()) ?? Date()
+        let start = wake.addingTimeInterval(-751 * 60)
+        let minutes = Array(0..<129) + Array(217..<751)
+        let hrvMinutes = Array(0..<82) + Array(491..<751)
+        let score = SleepScore(score: 87, duration: 77, architecture: 80, recovery: 99,
+            inputs: ["duration_min": 663, "deep_pct": 24.6, "light_pct": 61.4, "rem_pct": 13.3,
+                     "rem_min": 88, "wakes": 2, "hrv_ms": 67.4, "hrv_base": 40,
+                     "rhr": 54, "rhr_base": 60, "spo2_min": 96, "respiration": 16.9,
+                     "hrv_sample_count": 342, "hrv_coverage": 342.0 / 663,
+                     "hrv_expected_minutes": 663, "hrv_longest_gap_min": 274,
+                     "rhr_sample_count": 133, "rhr_coverage": 1,
+                     "rhr_expected_minutes": 663, "rhr_longest_gap_min": 0,
+                     "spo2_sample_count": 660, "spo2_coverage": 660.0 / 663,
+                     "spo2_expected_minutes": 663, "spo2_longest_gap_min": 3,
+                     "respiration_sample_count": 661, "respiration_coverage": 661.0 / 663,
+                     "respiration_expected_minutes": 663, "respiration_longest_gap_min": 2,
+                     "bed_offset": 368, "baseline_nights": 3, "baseline_hrv_nights": 2, "baseline_rhr_nights": 3,
+                     "hrv_personal_weight": 0, "rhr_personal_weight": 0],
+            version: "sleep-v1.2", computedAt: Date())
+        today.sleep = SleepSummary(totalMinutes: 663, deepMinutes: 163, lightMinutes: 407,
+            wakeCount: 2, sleepStart: start, wakeAt: wake,
+            spo2: minutes.dropFirst(3).map { .init(ts: start.addingTimeInterval(Double($0) * 60), percent: 97) },
+            respiration: minutes.dropFirst(2).map { .init(ts: start.addingTimeInterval(Double($0) * 60), breathsPerMinute: 16.9) },
+            hrv: hrvMinutes.enumerated().map { index, minute in
+                .init(ts: start.addingTimeInterval(Double(minute) * 60), rmssdMS: index == 0 ? 168 : 67)
+            },
+            intervals: [.init(start: start, end: start.addingTimeInterval(129 * 60)),
+                        .init(start: start.addingTimeInterval(217 * 60), end: wake)])
+        sleepScores[today.day.key] = score
+        today.sleepScore = score
+        sleepScoreLoadState = .ready
+    }
+    #endif
 
     /// 11 · DELETE EVERYTHING. By the time this runs the account is gone from the server,
     /// so every number still held here is an orphan — and the gate behind it is a sign-in
@@ -236,6 +275,8 @@ final class DataStore: ObservableObject {
         bandObservationRevision = 0
         today = DailyMetrics(day: UserDay.containing(Date()))
         history = []
+        sleepScores = [:]
+        sleepScoreLoadState = .idle
         meals = []
         recentMeals = []
         weighIns = []
@@ -248,10 +289,6 @@ final class DataStore: ObservableObject {
         lastSync = nil
         boundAt = nil
         vitals = LiveVitals()
-        bodyBatteryPreview = nil
-        bodyBatteryPreviewAnchor = nil
-        bodyBatteryPreviewAt = nil
-        bodyBatteryPreviewTicks = []
         capabilities = BandCapabilities()
         capabilitiesReadAt = nil
         exportPreparing = false
@@ -284,55 +321,6 @@ final class DataStore: ObservableObject {
         compositionScans.insert(scan, at: 0)
     }
 
-    /// The server replay is authoritative. Every successful load replaces the preview's
-    /// anchor so live sensor callbacks can only estimate the unsynced minutes after it.
-    func rebaseBodyBatteryPreview(at date: Date = Date()) {
-        bodyBatteryPreview = nil
-        bodyBatteryPreviewAnchor = today.bodyBattery.map(Double.init)
-        bodyBatteryPreviewAt = today.bodyBattery == nil ? nil : date
-        bodyBatteryPreviewTicks = []
-    }
-
-    /// Heart callbacks arrive every second or two, but reserve is a slow physiological
-    /// estimate. One update a minute feels live without charging the same minute repeatedly.
-    func applyLiveBodyBattery(heartRate: Int?, hrvMS: Double? = nil,
-                              stress: Int?, steps: Int? = nil, met: Double? = nil,
-                              at date: Date = Date()) {
-        guard let anchor = bodyBatteryPreviewAnchor ?? today.bodyBattery.map(Double.init) else { return }
-        let previous = bodyBatteryPreviewAt ?? date
-        let elapsedMinutes = date.timeIntervalSince(previous) / 60
-        guard elapsedMinutes >= 1 else { return }
-
-        let recent = today.vitalsCurve.last.flatMap {
-            date.timeIntervalSince($0.ts) <= 15 * 60 ? $0 : nil
-        }
-        let baseline = BodyBatteryEngine.Baseline(
-            restingHeartRate: today.nightInputs?.rhr ?? 55,
-            maximumHeartRate: Double(profile.hrMax),
-            hrvMS: today.nightInputs?.hrvBase,
-            recoveryMultiplier: today.nightInputs?.multiplier ?? 1
-        )
-        let tick = BodyBatteryEngine.Tick(
-            durationMinutes: min(5, elapsedMinutes),
-            heartRate: heartRate,
-            hrvMS: hrvMS ?? recent?.hrv,
-            stress: stress ?? recent?.stress,
-            steps: steps,
-            met: met
-        )
-        bodyBatteryPreviewTicks.append(tick)
-        // Preserve the quiet run and rest budget across live callbacks. A server reload clears
-        // this list, so under normal cadence it contains only the unsynced interval.
-        let result = BodyBatteryEngine.replay(
-            anchor: anchor,
-            ticks: bodyBatteryPreviewTicks,
-            baseline: baseline
-        )
-        bodyBatteryPreview = Int(result.value.rounded())
-        bodyBatteryPreviewAt = date
-        WidgetGlancePublisher.publish(from: self, numbersAt: date)
-    }
-
     /// Board 04 · 01 默认 — the screen the whole product is measured against.
     static func seedToday() -> DailyMetrics {
         var m = DailyMetrics(day: UserDay.containing(Date()))
@@ -345,7 +333,12 @@ final class DataStore: ObservableObject {
         // 13 · the four rows the board prints, and they add up to the 72 above.
         // 13A · scheme 1: last night +38 from 46, the day spends −12, now is 72.
         m.reserveDrivers = ReserveDrivers(lastNight: 38, awake: -4, movement: -6,
-                                          stress: -2, anchor: 46)
+                                          stress: -2, anchor: 46,
+                                          dayCharge: 38, nightCharge: 38,
+                                          wakeAt: Calendar.current.date(bySettingHour: 7, minute: 12,
+                                              second: 0, of: m.day.start),
+                                          observedAt: Date(), confidence: .medium,
+                                          algoVersion: "bb-2.1")
         m.nightInputs = NightInputs(hrv: 54, hrvBase: 61, rhr: 51, rhrBase: 48,
                                     rhrNights: 9, multiplier: 0.88)
         m.bmr = 1480

@@ -55,8 +55,8 @@ struct FuelDetailView: View {
     private var outUnknown: Bool {
         if DebugEdge.on("outunknown") { return true }
         // A closed day is judged on the whole day it had, not on the clock.
-        let elapsed = isPast ? 24 : Date().timeIntervalSince(m.day.start) / 3600
-        return logged && elapsed > 6 && coverageHours < elapsed * 0.5
+        let elapsed = min(Date(), m.day.end).timeIntervalSince(m.day.start) / 3600
+        return elapsed > 6 && coverageHours < elapsed * 0.5
     }
     /// 补屏 B rule 07 · NO TARGET is for an account that has never had a weight — not one
     /// whose weight is old (edge 4: a 62-day-old weight is still a denominator).
@@ -234,6 +234,8 @@ struct FuelDetailView: View {
                 }
                 FuelDayChart(meals: dayMeals.map { ($0.at, $0.kcal) },
                              burnedNow: outUnknown ? nil : m.eOutNow,
+                             restingNow: m.bmr,
+                             burnedAt: min(day.end, m.asOf ?? Date()),
                              burnedFull: isPast ? m.eOutNow : m.eOutFull,
                              budget: m.targetIn,
                              now: isPast ? day.end : Date(),
@@ -288,7 +290,11 @@ struct FuelDetailView: View {
                         .foregroundStyle(NB.white.opacity(0.34))
                 }
                 FuelWeekBars(days: days, budget: m.targetIn)
-                Text(L("Orange bar is IN. Cyan bar is OUT. Empty bar = no food."))
+                Text(L("Known days: IN %d · OUT %d · DIFF %d", total?.intakeDays ?? 0,
+                       total?.burnedDays ?? 0, total?.pairedDays ?? 0))
+                    .font(NBFont.ui(400, 11)).tracking(0.02 * 11)
+                    .foregroundStyle(NB.text3Prod)
+                Text(L("DIFF only includes days with both intake and burn recorded."))
                     .font(NBFont.ui(400, 11)).tracking(0.02 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -334,7 +340,11 @@ struct FuelDetailView: View {
                         .foregroundStyle(NB.white.opacity(0.34))
                 }
                 FuelMonthBars(days: days, budget: m.targetIn)
-                Text(L("Every number is one day. Bars are each day's IN. Empty bar = no food. Last bar is today."))
+                Text(L("Complete days: IN %d · OUT %d · DIFF %d", typical?.intakeDays ?? 0,
+                       typical?.burnedDays ?? 0, typical?.pairedDays ?? 0))
+                    .font(NBFont.ui(400, 11)).tracking(0.02 * 11)
+                    .foregroundStyle(NB.text3Prod)
+                Text(L("DIFF only includes days with both intake and burn recorded."))
                     .font(NBFont.ui(400, 11)).tracking(0.02 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -366,10 +376,10 @@ struct FuelDetailView: View {
 
     /// Five-minute steps on this user day. The cyan line uses them so a walk is
     /// steeper than sitting — not a ruler from 04:00 to now.
-    private var dayBurnTicks: [(Date, Int?)] {
+    private var dayBurnTicks: [VitalSample] {
         let curve = data.history.first(where: { $0.day == day && !$0.vitalsCurve.isEmpty })?.vitalsCurve
             ?? m.vitalsCurve
-        return curve.map { ($0.ts, $0.steps) }
+        return curve
     }
 
     private var weekFacts: [FuelDayFacts] {
@@ -427,8 +437,8 @@ struct FuelDetailView: View {
         return FuelLedgerRow(
             id: roll.start.key,
             title: newest ? L("THIS WEEK") : span,
-            caption: newest ? span
-                : (roll.fastedDays > 0 ? L("%d FASTED", roll.fastedDays) : L("%d DAYS", roll.days)),
+            caption: L("IN %d days\nOUT %d days\nDIFF %d days", roll.intakeDays,
+                       roll.burnedDays, roll.pairedDays),
             captionTint: newest ? NB.ember1 : NB.text3Prod,
             intake: Fmt.kcal(roll.avgIn),
             burned: Fmt.kcal(roll.avgOut),

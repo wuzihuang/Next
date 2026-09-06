@@ -5,6 +5,12 @@
 //
 // 07 · 16 · 02 · `thought` is her own reasoning, one printable line at a time, streamed
 // while she reasons. The THINKING screen prints these and nothing else at its foot.
+//
+// ADR 0018 · three steps — read → act → render — and the act step runs on the phone. When
+// the model calls a phone tool the turn suspends: tool.request → done{suspended}. The phone
+// runs it and POSTs the same Idempotency-Key again with `tool_result`; the turn resumes from
+// the stored conversation. Memory rides in on every turn; the plan surface prefetches its
+// evidence and renders in one step.
 
 import { generateObject, streamText, type Tool, type CoreMessage } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
@@ -12,7 +18,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { ChatHistory, coachFrame, coachMessages } from "../_shared/coach.ts";
 import { ThoughtStream } from "../_shared/thoughts.ts";
 import { model, MODEL_VERSION, modelChain, primaryModelId } from "../_shared/model.ts";
-import { systemPrompt } from "../_shared/prompt.ts";
+import { systemPrompt, type Surface } from "../_shared/prompt.ts";
 import { buildTools } from "../_shared/tools.ts";
 import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
 import { Envelope, normalizeLocale, batteryFallback, slowDownFrame, tagSafe } from "../_shared/contract.ts";
@@ -21,14 +27,23 @@ import { userClient, currentUserId, cors, json, userDayKey } from "../_shared/db
 import { enforceRequestBudget } from "../_shared/rate-limit.ts";
 import { consumeAiQuota, checkAiSpend, quotaDeniedResponse, recordAiUsage } from "../_shared/ai-quota.ts";
 import { usageFromProvider, type TokenUsage } from "../_shared/cost.ts";
-import { MAX_TURN_STEPS, createTurnWorkflow, finishTurnStep, gateTurnTool, WORKFLOW_READY, WORKFLOW_REREAD } from "../_shared/turn-phase.ts";
+import {
+  MAX_TURN_STEPS, MAX_RESUMES, createTurnWorkflow, finishTurnStep, gateTurnTool, restoreTurnWorkflow,
+  serializeTurnWorkflow, WORKFLOW_READY, WORKFLOW_REREAD, type TurnWorkflow,
+} from "../_shared/turn-phase.ts";
 import { clientFreshness, freshnessContext } from "../_shared/freshness.ts";
-import { createTurnContext, withTurnRange, workflowRangeSchema } from "../_shared/turn-context.ts";
+import { createTurnContext, withTurnRange, workflowRangeSchema, type TurnContext } from "../_shared/turn-context.ts";
 import { estimateMeal, type MealEstimateDraft } from "../_shared/meal-estimate.ts";
 import type { Ctx } from "../_shared/sources.ts";
 import { repairTextToolCall } from "../_shared/tool-repair.ts";
+import { PHONE_TOOLS, phoneToolDescription, phoneToolResult, type PhoneToolRequest } from "../_shared/phone-tools.ts";
+import { loadMemory, memoryContext } from "../_shared/memory.ts";
+import { buildPlanTool, planContext, PLAN_RENDER } from "../_shared/plan.ts";
 
 const HOURLY = 60;
+/// A suspended turn waits this long for the phone. Confirmation dialogs time out at 60 s
+/// on the phone; the rest is transport.
+const SUSPEND_TTL_MS = 5 * 60_000;
 
 export type TurnDependencies = {
   authenticate: (request: Request) => Promise<string | null>;
@@ -60,6 +75,20 @@ const defaults: TurnDependencies = {
     recordAiUsage(db, { endpoint: "turn", modelId, usage, turnId }),
 };
 
+/// What a suspended turn stores between the phone's request and its resume.
+type SuspendedState = {
+  version: 1;
+  surface: Surface;
+  messages: CoreMessage[];
+  workflow: Record<string, unknown>;
+  ledger: Record<string, unknown>;
+  trace: unknown[];
+  resolved: TurnContext;
+  mealDraft: MealEstimateDraft | null;
+  pending: PhoneToolRequest;
+  resumes: number;
+};
+
 export async function handleTurn(
   req: Request,
   deps = defaults,
@@ -79,10 +108,13 @@ export async function handleTurn(
   }
   const freshInput = clientFreshness.optional().safeParse(body.freshness);
   if (!freshInput.success) return json({ error: "E_FRESHNESS_SCHEMA" }, 422);
-  const isChat = body.surface === "chat";
+  const surface: Surface = body.surface === "chat" ? "chat" : body.surface === "plan" ? "plan" : "panel";
+  const isChat = surface === "chat";
+  const isPlan = surface === "plan";
   let history = ChatHistory.safeParse(isChat ? body.history : undefined);
   if (!history.success) return json({ error: "E_HISTORY_SCHEMA" }, 422);
-  const text: string = body.text ?? "";
+  // The plan face sends no words of its own; the request is the request.
+  const text: string = (typeof body.text === "string" && body.text.trim()) ? body.text : (isPlan ? "Plan my day." : "");
   const image = typeof body.image === "string" && body.image.startsWith("data:image/")
     ? body.image
     : undefined;
@@ -93,6 +125,11 @@ export async function handleTurn(
   if (!z.string().uuid().safeParse(turnId).success) return json({ error: "E_TURN_ID" }, 422);
   const conversationId = body.conversation_id ?? null;
   if (conversationId !== null && !z.string().uuid().safeParse(conversationId).success) return json({ error: "E_CONVERSATION_ID" }, 422);
+  const sessionId: string | null = body.session_id ?? null;
+  if (sessionId !== null && !z.string().uuid().safeParse(sessionId).success) return json({ error: "E_SESSION_ID" }, 422);
+  const toolResultInput = phoneToolResult.optional().safeParse(body.tool_result);
+  if (!toolResultInput.success) return json({ error: "E_TOOL_RESULT_SCHEMA" }, 422);
+  const toolResult = toolResultInput.data;
   const recentSince = new Date(Date.now() - 3600_000).toISOString();
 
   // Consent, replay and rate-limit gates precede model access.
@@ -136,13 +173,13 @@ export async function handleTurn(
   const prof = profileResult.data;
   const tz = prof?.timezone ?? "UTC";
   const currentDay: string = body.dayKey ?? userDayKey(tz);
-  let resolved: import("../_shared/turn-context.ts").TurnContext;
+  let resolved: TurnContext;
   try { resolved = createTurnContext(currentDay, text); }
   catch { return json({ error: "E_DATE_RANGE" }, 422); }
   const dayKey = resolved.dayKey;
   const ctx: Ctx = { db, userId, dayKey, tz, cache: new Map(),
     ...(resolved.explicitRange ? { from: resolved.from, to: resolved.to } : {}) };
-  const save = (frame: Envelope, trace: unknown[], latency: number) => persist(db, turnId, text, frame, trace, latency, conversationId, resolved, leaseId);
+  const save = (frame: Envelope, trace: unknown[], latency: number) => persist(db, turnId, text, frame, trace, latency, conversationId, resolved, leaseId, sessionId);
   // 11 · 07 · language is an app-side preference: the app sends it with the turn, and the
   // profile row stands in for a client that does not. Every word on screen follows it.
   const locale = normalizeLocale(body.locale ?? prof?.locale);
@@ -172,6 +209,7 @@ export async function handleTurn(
     if (isChat) return coachFrame(locale === "zh-CN"
       ? "这次回复没有完成，请稍后重试。"
       : "I couldn't complete this reply. Please try again.", locale);
+    if (isPlan) return planFallback(locale);
     if (cachedLevel === undefined) {
       const { data } = await db.from("daily_results")
         .select("id, reserve_daily(current_value)")
@@ -199,28 +237,63 @@ export async function handleTurn(
     return sse(send => {send("screen.render",{envelope:frame.widget_tree,replay:true});send("done",{replay:true});});
   }
   if (claim.data?.status !== "claimed") return json({error:"TURN_UNAVAILABLE"},503);
-  const quota = await deps.quota(db, turnId);
-  if (!quota.allowed) {
+
+  // ADR 0018 · a resume carries the phone's result for the call this turn is waiting on.
+  // It paid its admission when it started; it does not pay again.
+  let suspended: SuspendedState | null = null;
+  const stateResult = await db.rpc("load_ai_turn_state", { p_turn: turnId });
+  const storedState = stateResult.error ? null : (stateResult.data as SuspendedState | null);
+  if (storedState && typeof storedState === "object" && !Array.isArray(storedState) && (storedState as SuspendedState).version === 1) {
+    suspended = storedState as SuspendedState;
+  }
+  if (toolResult) {
+    if (!suspended) { await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId }); return json({ error: "TURN_STATE_LOST" }, 409); }
+    if (suspended.pending.call_id !== toolResult.call_id) { await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId }); return json({ error: "TOOL_RESULT_MISMATCH", expected: suspended.pending.call_id }, 409); }
+  } else if (suspended) {
+    // The phone re-sent the original request while a phone tool is outstanding: it needs
+    // the result, not another model run. Hand the request back.
     await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId });
-    if (isChat || quota.reason === "unavailable") return quotaDeniedResponse(locale, quota);
-    return sse((send) => {
-      send("error", { code: "RATE_LIMITED", fallback_frame: slowDownFrame(locale) });
-    });
+    return json({ error: "TURN_SUSPENDED", tool_request: suspended.pending }, 409);
+  }
+  if (!suspended) {
+    const quota = await deps.quota(db, turnId);
+    if (!quota.allowed) {
+      await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId });
+      if (isChat || quota.reason === "unavailable") return quotaDeniedResponse(locale, quota);
+      return sse((send) => {
+        send("error", { code: "RATE_LIMITED", fallback_frame: slowDownFrame(locale) });
+      });
+    }
+  }
+  if (sessionId) {
+    // Fire and forget: a session row is bookkeeping for memory, never a gate on the turn.
+    db.rpc("touch_ai_session", { p_session: sessionId, p_surface: surface }).then(() => {}, () => {});
   }
   const started = Date.now();
-  const [calculation, domains] = await Promise.all([
+  const [calculation, domains, memory, plan] = await Promise.all([
     db.rpc("calculation_status", {p_from: resolved.from, p_to: resolved.to}),
     db.from("sync_domain_status").select("domain,status,user_day,attempted_at,acknowledged_start,acknowledged_end,repair_start,repair_end")
       .eq("user_id",userId).eq("user_day", dayKey).limit(30),
+    loadMemory(db, userId),
+    isPlan ? planContext(db, userId, dayKey) : Promise.resolve(null),
   ]);
   const availability = { ...freshnessContext(freshInput.data, calculation.data ?? [], !!calculation.error),
     domains: domains.error ? {status:"query_failed"} : domains.data,
-    summary: conversationSummary };
+    summary: conversationSummary,
+    device: freshInput.data?.device ?? null,
+    memory: memoryContext(memory),
+    ...(plan ? { plan_context: plan } : {}) };
 
-  const ledger = new NumberLedger();
-  ledger.seedConstants();
+  const ledger = suspended ? NumberLedger.fromJSON(suspended.ledger) : new NumberLedger();
+  if (!suspended) {
+    ledger.seedConstants();
+    // Device state and the plan's prefetched evidence are read evidence for this turn.
+    if (freshInput.data?.device) ledger.harvest(freshInput.data.device, "device");
+    if (plan) ledger.harvest({ days: plan.days, nights: plan.nights, meals: plan.meals, yesterday_plan: plan.yesterday_plan }, "plan_context");
+  }
+  if (suspended) resolved = suspended.resolved;
 
-  const trace: unknown[] = [];
+  const trace: unknown[] = suspended ? [...suspended.trace] : [];
 
   return sse(async (send) => {
     try {
@@ -237,7 +310,7 @@ export async function handleTurn(
       signal.throwIfAborted();
     };
     const tools: Record<string, Tool> = buildTools(db, userId, ledger, { dayKey, tz }, ctx);
-    let mealDraft: MealEstimateDraft | null = null;
+    let mealDraft: MealEstimateDraft | null = suspended?.mealDraft ?? null;
     tools["meal.estimate"] = {
       description: "Estimate the meal in this turn's words or attached image. Only select for a meal description or a requested meal estimate, never for an unrelated question containing a food word. Returns a draft, not a saved record.",
       parameters: z.object({}),
@@ -269,8 +342,30 @@ export async function handleTurn(
       };
     }
 
+    // ADR 0018 · phone tools. Calling one records the request and suspends the turn after
+    // this step; the model sees the phone's real result when the turn resumes.
+    let pending: PhoneToolRequest | null = null;
+    const phoneTools: Record<string, Tool> = {};
+    for (const def of PHONE_TOOLS) {
+      phoneTools[def.name] = {
+        description: phoneToolDescription(def),
+        parameters: def.parameters,
+        execute: (args: Record<string, unknown>) => {
+          if (def.name === "meal.log") {
+            if (!mealDraft) return Promise.resolve({ ok: false, code: "ESTIMATE_REQUIRED", say: "Call meal.estimate first." });
+            args = { ...args, draft: mealDraft };
+          }
+          pending = { call_id: crypto.randomUUID(), name: def.name, args, confirm: def.confirm,
+            resume_by: new Date(Date.now() + SUSPEND_TTL_MS).toISOString() };
+          return Promise.resolve({ suspended: true, call_id: pending.call_id, say: "The phone is running this tool. The result arrives when the turn resumes." });
+        },
+      };
+    }
+
     let envelope: Envelope | null = null;
     const renderTools = buildChartTools(ctx, ledger, (env) => { envelope = env; }, locale);
+    Object.assign(renderTools, buildPlanTool(db, userId, dayKey, turnId, ledger, (env) => { envelope = env; }, locale,
+      plan ? plan.window : { from: resolved.from, to: resolved.to }));
     const food = renderTools["screen.render.food"];
     if (food?.execute) {
       const renderFood = food.execute;
@@ -295,7 +390,12 @@ export async function handleTurn(
         },
       };
     }
-    const workflow = createTurnWorkflow(Object.keys(tools), Object.keys(renderTools));
+    const workflow: TurnWorkflow = suspended
+      ? restoreTurnWorkflow(suspended.workflow)
+      : isPlan
+        // The plan surface renders from prefetched evidence; reread opens the read step.
+        ? createTurnWorkflow(Object.keys(tools), [PLAN_RENDER], Object.keys(phoneTools), "render")
+        : createTurnWorkflow(Object.keys(tools), Object.keys(renderTools), Object.keys(phoneTools));
     const controls: Record<string, Tool> = {
       [WORKFLOW_READY]: {
         description: "Finish evidence gathering and enter output. Call as soon as you have enough evidence, including when no personal data is needed. Choose the exact chart user-day range if relevant; no keyword parser chooses it for you.",
@@ -316,7 +416,7 @@ export async function handleTurn(
         execute: () => Promise.resolve({ ok: true }),
       },
     };
-    const traced = Object.fromEntries(Object.entries({ ...tools, ...renderTools, ...controls }).map(([name, t]) => [name, {
+    const traced = Object.fromEntries(Object.entries({ ...tools, ...phoneTools, ...renderTools, ...controls }).map(([name, t]) => [name, {
       ...t,
       // deno-lint-ignore no-explicit-any
       execute: async (args: any, opts: any) => {
@@ -345,16 +445,35 @@ export async function handleTurn(
     };
     const sourceContext = `\n\n<source_data>\n${JSON.stringify({ query: resolved, availability })}\n</source_data>`;
     const photoContext = image ? "\nAn image is attached. Select image.inspect for visible facts or meal.estimate for nutrition estimates." : "";
-    const messages: CoreMessage[] = isChat
-      ? coachMessages(history.data, text, currentDay, `${sourceContext}${photoContext}`)
-      : [{ role: "user", content: `<user_text>\n${tagSafe(text)}\n</user_text>\n\ncurrentDay=${currentDay}; requestedDay=${dayKey}${sourceContext}${photoContext}` }];
+    let messages: CoreMessage[];
+    if (suspended && toolResult) {
+      messages = suspended.messages;
+      // The phone's answer replaces the placeholder the model was handed when it called.
+      const result = { ok: toolResult.ok, code: toolResult.code, ...(toolResult.data ? { data: toolResult.data } : {}), ...(toolResult.message ? { message: toolResult.message } : {}) };
+      let replaced = false;
+      for (const m of messages) {
+        if (m.role !== "tool" || !Array.isArray(m.content)) continue;
+        for (const part of m.content) {
+          // The placeholder carried our call_id; the model's own toolCallId is its business.
+          const placeholder = part.type === "tool-result" ? part.result as { call_id?: string } | undefined : undefined;
+          if (part.type === "tool-result" && placeholder?.call_id === suspended.pending.call_id) { part.result = result; replaced = true; }
+        }
+      }
+      if (!replaced) throw new Error("TURN_STATE_CORRUPT");
+      trace.push({ tool: suspended.pending.name, result });
+      if (toolResult.data) ledger.harvest(toolResult.data, suspended.pending.name);
+    } else {
+      messages = isChat
+        ? coachMessages(history.data, text, currentDay, `${sourceContext}${photoContext}`)
+        : [{ role: "user", content: `<user_text>\n${tagSafe(text)}\n</user_text>\n\ncurrentDay=${currentDay}; requestedDay=${dayKey}${sourceContext}${photoContext}` }];
+    }
     const attempt = async (modelId = modelChain()[0]) => {
       await assertModelBudget();
       let stepFinished = false;
       let calledTools = false;
       const res = deps.streamText({
         model: model(modelId),
-        system: systemPrompt(locale, isChat ? "chat" : "panel"),
+        system: systemPrompt(locale, surface),
         messages,
         tools: traced,
         experimental_activeTools: [...workflow.activeTools] as never,
@@ -421,7 +540,7 @@ export async function handleTurn(
     };
 
     try {
-      while (!envelope && workflow.completedSteps < MAX_TURN_STEPS) {
+      while (!envelope && !pending && workflow.completedSteps < MAX_TURN_STEPS) {
         await runStep();
       }
       ledger.seal();
@@ -431,6 +550,35 @@ export async function handleTurn(
       await save(fb, trace, Date.now() - started);
       send("error", { code: "MODEL_UNAVAILABLE", fallback_frame: fb });
       send("done", {});
+      return;
+    }
+
+    // ADR 0018 · suspend: store the conversation and hand the tool to the phone. A render in
+    // the same step is a model mistake the gate already refused; a pending call always wins.
+    if (pending && !envelope) {
+      const resumes = (suspended?.resumes ?? 0) + 1;
+      if (resumes > MAX_RESUMES) {
+        const fb = await fallback();
+        await save(fb, trace, Date.now() - started);
+        send("error", { code: "RESUME_BUDGET", fallback_frame: fb });
+        send("done", {});
+        return;
+      }
+      const state: SuspendedState = {
+        version: 1, surface, messages, workflow: serializeTurnWorkflow(workflow), ledger: ledger.toJSON(),
+        trace, resolved, mealDraft, pending, resumes,
+      };
+      const saved = await db.rpc("save_ai_turn_state", { p_turn: turnId, p_lease: leaseId, p_state: state, p_ttl_seconds: Math.floor(SUSPEND_TTL_MS / 1000) });
+      if (saved.error) {
+        console.error("turn suspend failed:", saved.error.message);
+        const fb = await fallback();
+        await save(fb, trace, Date.now() - started);
+        send("error", { code: "SUSPEND_FAILED", fallback_frame: fb });
+        send("done", {});
+        return;
+      }
+      send("tool.request", pending);
+      send("done", { suspended: true, call_id: (pending as PhoneToolRequest).call_id });
       return;
     }
 
@@ -447,7 +595,8 @@ export async function handleTurn(
     // F4 §05 · the banned list is scanned after rendering. A hit throws away the whole
     // frame — no word-level surgery, because the sentence that contained it was wrong.
     const blob = [parsed.data.title, parsed.data.sentence, parsed.data.footer, parsed.data.action,
-      parsed.data.data.headline, parsed.data.data.eyebrow, parsed.data.data.sub]
+      parsed.data.data.headline, parsed.data.data.eyebrow, parsed.data.data.sub, parsed.data.data.summary,
+      ...(Array.isArray(parsed.data.data.tasks) ? parsed.data.data.tasks.flatMap((t: Record<string, unknown>) => [t.title, t.sub, t.basis]) : [])]
       .filter(Boolean).join(" ");
     const hit = banned.find((re) => re.test(blob));
     if (hit) {
@@ -489,12 +638,24 @@ export async function handleTurn(
     send("screen.render", { envelope: canonical });
     send("done", {});
     } finally {
+      if (suspended) db.rpc("clear_ai_turn_state", { p_turn: turnId }).then(() => {}, () => {});
       await db.rpc("release_ai_turn", {p_turn:turnId,p_lease:leaseId});
     }
   }, fallback);
 }
 
 if (import.meta.main) Deno.serve((req) => handleTurn(req));
+
+/// The plan face never goes empty either: a failed generation says so in its own words.
+function planFallback(locale: "zh-CN" | "en-US"): Envelope {
+  const en = locale === "en-US";
+  return {
+    type: "text", title: en ? "PLAN" : "计划",
+    sentence: en ? "Today's plan could not be generated. Try again." : "今天的计划没有生成，请再试一次。",
+    data: { headline: en ? "NOT YET" : "还没有" },
+    ttl_min: 20, priority: "normal", locale, target: "plan",
+  };
+}
 
 const ImageExtract = z.object({
   summary: z.string().max(320),
@@ -552,7 +713,7 @@ async function loadBanned(db: ReturnType<typeof userClient>): Promise<RegExp[]> 
 async function persist(
   db: ReturnType<typeof userClient>, turnId: string,
   text: string, envelope: Envelope, trace: unknown[], latency: number, conversationId: string | null,
-  queryContext: import("../_shared/turn-context.ts").TurnContext, leaseId: string,
+  queryContext: TurnContext, leaseId: string, sessionId: string | null,
 ) {
   const { data: receipt, error } = await db.rpc("record_claimed_ai_turn", {
     p_lease: leaseId, p_query_context: conversationId ? queryContext : null,
@@ -560,6 +721,7 @@ async function persist(
     p_latency: latency, p_model: MODEL_VERSION, p_conversation: conversationId,
   });
   if (error || !receipt?.frame_id) throw new Error("TURN_PERSIST_FAILED");
+  if (sessionId) db.rpc("attach_turn_session", { p_turn: turnId, p_session: sessionId }).then(() => {}, () => {});
   const {data: frame, error: readError} = await db.from("screen_frames").select("widget_tree").eq("id",receipt.frame_id).single();
   const canonical = Envelope.safeParse(frame?.widget_tree);
   if (readError || !canonical.success) throw new Error("TURN_PERSIST_FAILED");

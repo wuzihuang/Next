@@ -323,8 +323,8 @@ struct ActiveEnergyCard: View {
     }
 
     private var snapshot: (value: String?, foot: String, hint: String?, hours: [ActiveEnergyHour]) {
-        let now = VitalsClock.now
-        let samples = m.vitalsCurve.map { ($0.ts, $0.steps) }
+        let now = min(VitalsClock.now, min(m.asOf ?? VitalsClock.now, m.day.end))
+        let samples = m.vitalsCurve
         let windows = ActiveEnergyModel.sportWindows(m)
         let split = ActiveEnergyMath.split(
             dayStart: m.day.start, now: now, bmr: m.bmr, bmrFull: m.bmrFull,

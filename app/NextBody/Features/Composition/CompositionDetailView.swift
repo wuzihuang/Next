@@ -231,7 +231,7 @@ struct CompositionDetailView: View {
             (L("BODY FAT"), reading.bodyFat, "%", true),
             (L("FAT MASS"), reading.fatMass, "KG", false),
             (L("LEAN MASS"), reading.leanMass, "KG", false),
-            (L("BMR"), reading.bmr, "KCAL", false),
+            (L("BMR ESTIMATE"), reading.bmr, "KCAL/DAY", false),
             (L("INPUT WEIGHT"), reading.inputWeight, "KG", false),
         ]
         return VStack(alignment: .leading, spacing: 0) {
@@ -339,7 +339,7 @@ struct CompositionDetailView: View {
         let parts = [
             arrow(L("FAT MASS"), fat, "kg"),
             arrow(L("LEAN MASS"), lean, "kg"),
-            arrow(L("BMR"), bmr, "kcal"),
+            arrow(L("BMR ESTIMATE"), bmr, "kcal/day"),
         ].compactMap { $0 }
         return VStack(alignment: .leading, spacing: 4) {
             Text(L("SAME WINDOW"))

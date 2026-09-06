@@ -48,4 +48,37 @@ final class UserDayTests: XCTestCase {
         XCTAssertEqual(thirty.first, 0..<2)
         XCTAssertEqual(thirty.last, 23..<30)
     }
+
+    func testFourAMBoundaryIsALocalClockTimeAcrossDST() throws {
+        var eastern = Calendar(identifier: .gregorian)
+        eastern.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        for stamp in ["2026-03-08 12:00", "2026-11-01 12:00"] {
+            let now = try XCTUnwrap(HealthSampleMapping.sleepInstant(stamp, calendar: eastern))
+            let day = UserDay.containing(now, calendar: eastern)
+            XCTAssertEqual(eastern.component(.hour, from: day.start), 4)
+            XCTAssertEqual(eastern.component(.minute, from: day.start), 0)
+            XCTAssertTrue(eastern.isDate(day.start, inSameDayAs: now))
+            let beforeCut = day.start.addingTimeInterval(-1)
+            let previous = UserDay.containing(beforeCut, calendar: eastern)
+            XCTAssertEqual(eastern.component(.hour, from: previous.start), 4)
+            XCTAssertEqual(eastern.dateComponents([.day], from: previous.start, to: day.start).day, 1)
+        }
+    }
+
+    func testElapsedMinutesUsesActual23And25HourWindows() throws {
+        let savedZone = NSTimeZone.default
+        NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        defer { NSTimeZone.default = savedZone }
+        let local = Calendar.current
+        for (stamp, minutes) in [("2026-03-07 12:00", 1_380), ("2026-10-31 12:00", 1_500)] {
+            let now = try XCTUnwrap(HealthSampleMapping.sleepInstant(stamp, calendar: local))
+            let day = UserDay.containing(now)
+            XCTAssertEqual(local.component(.hour, from: day.end), 4)
+            XCTAssertEqual(day.end.timeIntervalSince(day.start), Double(minutes * 60), accuracy: 0.001)
+            XCTAssertEqual(day.elapsedMinutes(at: day.end), minutes)
+            XCTAssertEqual(day.elapsedMinutes(at: day.end.addingTimeInterval(3_600)), minutes)
+            XCTAssertEqual(day.elapsedMinutes(at: day.start.addingTimeInterval(-60)), 0)
+            XCTAssertEqual(day.adding(days: 1).start, day.end)
+        }
+    }
 }

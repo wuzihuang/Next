@@ -36,8 +36,10 @@ function request(body: Record<string, unknown> = {}): Request {
   });
 }
 
-function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}) {
+function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, stored?: unknown) {
   const saved: Record<string, unknown>[] = [];
+  const upserts: { table: string; row: unknown }[] = [];
+  const states: Record<string, unknown>[] = [];
   const usages: unknown[] = [];
   const activeTools: string[][] = [];
   const prompts: unknown[] = [];
@@ -82,6 +84,13 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}) {
         range() {
           return q;
         },
+        is() {
+          return q;
+        },
+        upsert(row: unknown) {
+          upserts.push({ table, row });
+          return Promise.resolve({ data: null, error: null });
+        },
         maybeSingle() {
           return Promise.resolve(result());
         },
@@ -99,6 +108,13 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}) {
     rpc(name: string, args?: Record<string, unknown>) {
       if (name === "claim_ai_turn") {
         return Promise.resolve({ data: { status: "claimed" }, error: null });
+      }
+      if (name === "save_ai_turn_state") {
+        states.push(args!.p_state as Record<string, unknown>);
+        return Promise.resolve({ data: null, error: null });
+      }
+      if (name === "load_ai_turn_state") {
+        return Promise.resolve({ data: stored ?? null, error: null });
       }
       if (name === "record_claimed_ai_turn") {
         saved.push(args!);
@@ -172,7 +188,7 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}) {
     },
     ...overrides,
   };
-  return { deps, saved, usages, activeTools, prompts, events };
+  return { deps, saved, usages, activeTools, prompts, events, upserts, states };
 }
 
 function assertSuccess(body: string) {
@@ -359,4 +375,110 @@ Deno.test("spend is checked again after the first model step is settled", async 
   assert(body.includes("event: error"));
   assertEquals(h.activeTools.length,1);
   assertEquals(h.usages.length,1);
+});
+
+// ADR 0018 · phone tools suspend the turn; the phone resumes it with a result.
+
+const alarm = { name: "device.alarm.set", args: { time: "07:00", days: [1, 2, 3, 4, 5] } };
+
+Deno.test("a phone tool suspends the turn with tool.request and stores the conversation", async () => {
+  const h = harness([{ calls: [alarm] }]);
+  const body = await (await handleTurn(request({ text: "set an alarm at 7" }), h.deps)).text();
+  assert(body.includes("event: tool.request"), body);
+  assert(body.includes('"name":"device.alarm.set"'), body);
+  assert(body.includes('"confirm":true'), body);
+  assert(body.includes('"suspended":true'), body);
+  assertEquals(body.includes("event: screen.render"), false);
+  assertEquals(h.activeTools.length, 1);
+  assert(h.activeTools[0].includes("device.alarm.set"));
+  assertEquals(h.saved.length, 0, "a suspended turn is not persisted as a frame");
+  assertEquals(h.states.length, 1);
+  const state = h.states[0] as { workflow: { phase: string }; pending: { name: string; call_id: string }; resumes: number };
+  assertEquals(state.workflow.phase, "act");
+  assertEquals(state.pending.name, "device.alarm.set");
+  assertEquals(state.resumes, 1);
+  assertEquals(h.events.filter((e) => e === "quota").length, 1);
+});
+
+Deno.test("a resumed turn hands the phone's result to the model and renders without paying again", async () => {
+  const first = harness([{ calls: [alarm] }]);
+  await (await handleTurn(request({ text: "set an alarm at 7" }), first.deps)).text();
+  const stored = first.states[0] as { pending: { call_id: string } };
+  const h = harness([{ calls: [ready] }, { calls: [render] }], {}, stored);
+  const body = await (await handleTurn(request({
+    text: "set an alarm at 7",
+    tool_result: { call_id: stored.pending.call_id, ok: true, code: "OK", data: { alarms: [{ id: "3", time: "07:00" }] } },
+  }), h.deps)).text();
+  assertSuccess(body);
+  assertEquals(h.events.filter((e) => e === "quota").length, 0, "resume does not consume the allowance");
+  // The model's first resumed step starts in act: phone tools and ready, no reads.
+  assert(h.activeTools[0].includes("workflow.ready"));
+  assertEquals(h.activeTools[0].includes("data.read"), false);
+  const resumedPrompt = JSON.stringify(h.prompts[0]);
+  assert(resumedPrompt.includes('"code":"OK"'), resumedPrompt);
+  assertEquals(resumedPrompt.includes("suspended"), false, "the placeholder result is replaced");
+  const trace = h.saved[0].p_trace as { tool: string; result?: { ok: boolean } }[];
+  assertEquals(trace[0].tool, "device.alarm.set");
+  assertEquals(trace[1].result?.ok, true);
+});
+
+Deno.test("a resume whose call id does not match the stored request is refused", async () => {
+  const first = harness([{ calls: [alarm] }]);
+  await (await handleTurn(request({ text: "set an alarm at 7" }), first.deps)).text();
+  const h = harness([], {}, first.states[0]);
+  const response = await handleTurn(request({
+    text: "set an alarm at 7", tool_result: { call_id: "other", ok: true, code: "OK" },
+  }), h.deps);
+  assertEquals(response.status, 409);
+  assert((await response.text()).includes("TOOL_RESULT_MISMATCH"));
+  assertEquals(h.activeTools.length, 0);
+});
+
+Deno.test("meal.log without an estimate fails inside the turn instead of reaching the phone", async () => {
+  const h = harness([{ calls: [{ name: "meal.log", args: {} }, ready] }, { calls: [render] }]);
+  const body = await (await handleTurn(request({ text: "log it" }), h.deps)).text();
+  assertSuccess(body);
+  assertEquals(body.includes("event: tool.request"), false);
+  assertEquals(h.states.length, 0);
+});
+
+// ADR 0018 · the plan surface prefetches and renders in one step.
+
+Deno.test("the plan surface starts in render with plan.render and saves the plan row", async () => {
+  const h = harness([{
+    calls: [{ name: "plan.render", args: {
+      title: "EASY DAY", summary: "Yesterday was light; keep it easy and sleep early.",
+      tasks: [
+        { id: "bed", title: "Bed by 23:00", sub: "Lights out before eleven" },
+        { id: "walk", title: "Walk", sub: "Thirty minutes at lunch" },
+        { id: "protein", title: "Protein", sub: "Add one portion at dinner" },
+      ],
+    } }],
+  }]);
+  const body = await (await handleTurn(request({ surface: "plan", text: "" }), h.deps)).text();
+  assertSuccess(body);
+  assertEquals(h.activeTools.length, 1);
+  assertEquals(h.activeTools[0].includes("plan.render"), true);
+  assertEquals(h.activeTools[0].includes("data.read"), false);
+  assertEquals(h.activeTools[0].includes("screen.render.text"), false);
+  assertEquals(h.upserts.length, 1);
+  assertEquals(h.upserts[0].table, "daily_plans");
+  const frame = h.saved[0].p_envelope as { type: string; target: string; data: { tasks: unknown[] } };
+  assertEquals(frame.type, "plan");
+  assertEquals(frame.target, "plan");
+  assertEquals(frame.data.tasks.length, 3);
+  assert(JSON.stringify(h.prompts[0]).includes("plan_context"));
+});
+
+Deno.test("device state rides in as evidence: a battery number in the sentence audits", async () => {
+  const h = harness([{ calls: [ready] }, {
+    calls: [{ name: "screen.render.text", args: { title: "BAND", sentence: "Battery at 63 right now.", headline: "63" } }],
+  }]);
+  const body = await (await handleTurn(request({
+    text: "battery?",
+    freshness: { status: "ready", device: { connected: true, battery_percent: 63, alarms: [] } },
+  }), h.deps)).text();
+  assertSuccess(body);
+  const prompt = JSON.stringify(h.prompts[0]);
+  assert(prompt.includes("battery_percent") && prompt.includes("63"), prompt);
 });

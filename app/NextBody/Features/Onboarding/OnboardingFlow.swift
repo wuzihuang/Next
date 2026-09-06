@@ -977,7 +977,7 @@ private struct BaselineScreen: View {
             ("PROTEIN", f(r?.proteinPercent), "%", NB.cyan1),
             ("PROTEIN MASS", f(r?.proteinKg), "kg", NB.cyan1),
             ("SUBCUT FAT", f(r?.subcutaneousFatPercent), "%", NB.cyan1),
-            ("BMR", r?.bmrKcal.map(String.init) ?? Fmt.dash, "kcal", NB.ember1),
+            ("BMR ESTIMATE", r?.bmrKcal.map(String.init) ?? Fmt.dash, "kcal/day", NB.ember1),
         ]
     }
 

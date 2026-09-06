@@ -44,7 +44,7 @@ struct MeasurementSheet: View {
                 }
                 VStack(spacing: 0) {
                     field(L("FAT MASS"), scan.fatMassKg.map { "\(Fmt.kg($0)) KG" })
-                    field(L("BMR"), scan.bmrKcal.map { "\(Fmt.kcal(Double($0))) KCAL" })
+                    field(L("BMR ESTIMATE"), scan.bmrKcal.map { "\(Fmt.kcal(Double($0))) KCAL/DAY" })
                     // ⚠️ 手环不产生体重。这一行必须说明这个数是我们推下去的，否则读起来像
                     // 手环把人称了一遍。
                     field(L("INPUT WEIGHT"), scan.inputWeightKg.map { "\(Fmt.kg($0)) KG" },

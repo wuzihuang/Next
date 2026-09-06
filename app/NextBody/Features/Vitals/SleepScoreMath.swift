@@ -7,6 +7,28 @@ import Foundation
 /// 01:00 — drags a mean far enough to be read as a bad week, and the rest of this codebase
 /// already medians for the same reason (night HRV is a median of fifteen-minute medians).
 public enum SleepScoreMath {
+    /// Keep the familiar minimum range, extending the ruler to include actual peaks.
+    public static func hrvUpperBound(_ values: [Double]) -> Double {
+        let peak = values.filter { $0.isFinite && $0 > 0 }.max() ?? 0
+        return max(90, ceil(peak / 30) * 30)
+    }
+
+    public static func effectiveWeights(values: [Double?], weights: [Double]) -> [Double?] {
+        guard values.count == weights.count else { return values.map { _ in nil } }
+        let present = zip(values, weights).map { value, weight -> Double? in
+            guard let value, value.isFinite, weight.isFinite, weight > 0 else { return nil }
+            return weight
+        }
+        let total = present.compactMap { $0 }.reduce(0, +)
+        guard total > 0 else { return values.map { _ in nil } }
+        return present.map { $0.map { $0 / total * 100 } }
+    }
+
+    public static func bedtimeDeviation(bedtime: Double, baseline: Double) -> Double {
+        let raw = (bedtime - baseline).truncatingRemainder(dividingBy: 1440)
+        return raw > 720 ? raw - 1440 : raw < -720 ? raw + 1440 : raw
+    }
+
     public static func median(_ values: [Double]) -> Double? {
         guard !values.isEmpty else { return nil }
         let sorted = values.sorted()

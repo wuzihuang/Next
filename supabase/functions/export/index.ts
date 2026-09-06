@@ -15,13 +15,22 @@ const TABLES: {
   { name: "measurements", table: "body_composition", keys: ["id"] },
   // ADR 0010 · 平衡检查的摘要行。只有摘要，没有逐拍序列可导。
   { name: "balance_checks", table: "balance_checks", keys: ["id"] },
+  {
+    name: "sport_heart_rate_samples",
+    table: "sport_heart_rate_samples",
+    keys: ["id"],
+  },
   { name: "meals", table: "meals", keys: ["id"] },
   { name: "daily_rollup", table: "daily_results", keys: ["user_day"] },
   { name: "weigh_ins", table: "weigh_ins", keys: ["id"] },
   { name: "night_hrv", table: "night_hrv", keys: ["user_day"] },
   { name: "oxygen_samples", table: "oxygen_samples", keys: ["ts", "src"] },
-  { name: "response_samples", table: "response_samples", keys: ["ts", "src"],
-    select: "ts,sampled_tz,src" },
+  {
+    name: "response_samples",
+    table: "response_samples",
+    keys: ["ts", "src"],
+    select: "ts,sampled_tz,src",
+  },
   { name: "sleep_nights", table: "sleep_nights", keys: ["user_day"] },
   { name: "night_score", table: "night_score", keys: ["user_day"] },
   { name: "day_fuel", table: "day_fuel", keys: ["result_id"] },
@@ -61,6 +70,11 @@ const TABLES: {
     table: "band_ingestion_sources",
     keys: ["device_key", "mapping_version"],
   },
+  {
+    name: "band_origin_corrections",
+    table: "band_origin_corrections",
+    keys: ["device_key", "ts", "mapping_version", "read_at"],
+  },
   { name: "fasted_days", table: "fasted_days", keys: ["user_day"] },
   { name: "meal_operations", table: "meal_operations", keys: ["operation_id"] },
   { name: "call_changes", table: "call_changes", keys: ["id"] },
@@ -81,11 +95,13 @@ meals retains original and soft-deleted/amended records, including operation IDs
 sleep_nights includes actual sleep stage runs and recorded sleep/wake times.
 night_score is the settled sleep score for each night with its four group scores and the measured inputs behind them; a group score is a weighted mean over the inputs that existed.
 oxygen_samples contains overnight automatic SpO2, not an apnea grade.
+sport_heart_rate_samples contains live workout HR observations; separate continuity_id values mark interrupted contact. They do not cover unobserved parts of a workout.
 response_samples contains timestamps of wrist optical meal-response points, not a blood test and not a concentration.
 conversations and conversation_messages retain complete original stored messages;
 summary is a bounded deterministic excerpt, not a replacement for those originals.
 ai_turns and screen_frames omit tool traces, which may contain raw tool prompts.
 raw_samples and band_rr_evidence include verified cold history; hot corrections win.
+band_origin_corrections records the before/after values and observation clocks of corrected SDK snapshots.
 A failed partition or exceeded export budget returns an error, never a partial export.
 `;
 export interface ExportDependencies {

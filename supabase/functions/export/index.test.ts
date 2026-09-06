@@ -12,6 +12,15 @@ function dependencies(failedTable?: string): ExportDependencies {
         ? [{ user_id: "u", deletion_requested_at: null }]
         : table === "conversation_messages"
         ? [{ id: "m", user_id: "u", content: "original user message" }]
+        : table === "sport_heart_rate_samples"
+        ? [{
+          id: "receipt",
+          user_id: "u",
+          session_id: "session",
+          continuity_id: "continuity",
+          observed_at: "2026-09-01T12:00:00.125Z",
+          heart_rate: 154,
+        }]
         : [];
       const q = {
         select() {
@@ -51,10 +60,35 @@ Deno.test("export paginates user facts and includes canonical full conversation 
   assertEquals(response.status, 200);
   const body = await response.json();
   assertEquals(body.payload["meals.ndjson"].split("\n").length, 1001);
+  assertEquals(body.payload["band_origin_corrections.ndjson"], "");
   assertEquals(
     JSON.parse(body.payload["conversation_messages.ndjson"]).content,
     "original user message",
   );
+  assertEquals(JSON.parse(body.payload["sport_heart_rate_samples.ndjson"]), {
+    id: "receipt",
+    user_id: "u",
+    session_id: "session",
+    continuity_id: "continuity",
+    observed_at: "2026-09-01T12:00:00.125Z",
+    heart_rate: 154,
+  });
+});
+Deno.test("missing sport evidence cannot produce a complete-looking export", async () => {
+  const response = await handleExport(
+    new Request("http://localhost/export", { method: "POST" }),
+    dependencies("sport_heart_rate_samples"),
+  );
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).payload, undefined);
+});
+Deno.test("missing origin correction history cannot produce a complete-looking export", async () => {
+  const response = await handleExport(
+    new Request("http://localhost/export", { method: "POST" }),
+    dependencies("band_origin_corrections"),
+  );
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).payload, undefined);
 });
 Deno.test("export table failure returns explicit error without any partial payload", async () => {
   const response = await handleExport(

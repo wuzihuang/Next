@@ -13,8 +13,8 @@ import os
 /// integrated only across valid observed heart-rate intervals. The heart *test* is
 /// refused as busy for exactly that reason. A firmware that carries no report falls back
 /// to that test anyway, and if that is refused too the clock runs alone and says so.
-/// Nothing here is written anywhere: the band keeps its own record, and the phone's three
-/// numbers fold back into the panel as one widget when the session ends.
+/// Valid live heart-rate observations also enter the account's durable evidence outbox.
+/// Only the intervals actually observed by the phone can refine settled training load.
 @MainActor
 final class LiveSessionStore: ObservableObject {
     static let shared = LiveSessionStore()
@@ -53,6 +53,7 @@ final class LiveSessionStore: ObservableObject {
     @Published private(set) var errorLine: String?
 
     private var metrics = SportMetricAccumulator(weightKg: nil, age: nil, male: false)
+    private var heartEvidence = SportHeartRateEvidenceStream()
     var caloriesAreEstimated: Bool { metrics.calorieSource == .estimate }
     var hasCalories: Bool { metrics.calorieSource == .band || metrics.estimationAvailable }
     var energyLabel: String {
@@ -94,6 +95,7 @@ final class LiveSessionStore: ObservableObject {
         }
         self.hrMax = profile.hrMax
         metrics = SportMetricAccumulator(weightKg: weightKg, age: profile.age, male: profile.sexIsMale)
+        heartEvidence = SportHeartRateEvidenceStream()
         kcal = 0
         hr = nil; hrAt = nil
         errorLine = nil
@@ -259,6 +261,7 @@ final class LiveSessionStore: ObservableObject {
         openTask = nil
         wristTask = nil
         opening = false
+        heartEvidence.interrupted()
         await BandReadiness.shared.awaitNativeIdle()
         var closed = true
         do {
@@ -284,6 +287,7 @@ final class LiveSessionStore: ObservableObject {
         let average = averageHR ?? 0
         let calories = Int(kcal.rounded())
         let didClose = closed
+        if !Self.debugFakeWrist { Task { await Repository.shared.flushPendingEvidence() } }
         Task { await Analytics.shared.track("SESSION_END", [
             "MODE": session.mode.rawValue, "SEC": sec,
             "AVG_HR": average, "KCAL": calories, "CLOSED": didClose,
@@ -298,6 +302,7 @@ final class LiveSessionStore: ObservableObject {
         let endingMode = session?.mode
         let endingOwner = lifetime
         lifetime = nil
+        heartEvidence.interrupted()
         let readingTask = wristTask
         let openingTask = openTask
         readingTask?.cancel()
@@ -320,6 +325,7 @@ final class LiveSessionStore: ObservableObject {
             }
             self?.cleanupTask = nil
             BandLiveLifecycle.shared.refreshEligibility()
+            if !Self.debugFakeWrist { await Repository.shared.flushPendingEvidence() }
         }
         session = nil
         opening = false
@@ -427,6 +433,20 @@ final class LiveSessionStore: ObservableObject {
             return
         }
         let now = Date()
+        if !Self.debugFakeWrist, let owner = lifetime, accepts(owner),
+           let account = owner.account,
+           let sample = heartEvidence.accept(at: now, heartRate: info.heartRate,
+                runState: info.runState, sportMode: session?.joined == true ? nil : session?.mode.rawValue,
+                timeZone: TimeZone.current.identifier) {
+            do { try SportEvidenceQueue.shared.enqueue(sample, ownerUserId: account) }
+            catch {
+                // End continuity after a failed local commit; a later sample must not
+                // silently span a report we could not durably retain.
+                heartEvidence.interrupted()
+                BandLog.shared.record("sport evidence persistence", error: error)
+                errorLine = L("Heart-rate evidence could not be saved on this phone.")
+            }
+        }
         // The band's clock is the record. The first time it says how long it has run, the
         // screen's clock is set to it — and stays with it if the two drift apart.
         if let dur = info.durationSec, var s = session {
@@ -452,6 +472,7 @@ final class LiveSessionStore: ObservableObject {
     }
 
     private func interruptMetrics() {
+        heartEvidence.interrupted()
         metrics = metrics.interrupted()
         hr = nil; hrAt = nil
     }

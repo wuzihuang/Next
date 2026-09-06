@@ -31,13 +31,13 @@ struct SleepStageRun { let stage: Int; let minutes: Int }
 struct SleepInterval { let start: Date; let end: Date }
 struct OvernightOxygenPoint { let ts: Date; let percent: Int }
 struct SleepRespirationPoint { let ts: Date; let breathsPerMinute: Double }
-struct SleepHRVPoint { let ts: Date; let rmssdMS: Double }
 struct SleepSummary {
     let totalMinutes: Int; let deepMinutes: Int; let lightMinutes: Int; let wakeCount: Int
     var line: [SleepStageRun]; var sleepStart: Date?; var wakeAt: Date?
     var spo2: [OvernightOxygenPoint] = []
     var respiration: [SleepRespirationPoint]? = nil
     var hrv: [SleepHRVPoint]? = nil
+    var hrvInvalidatedMinutes: [Date: Date]? = nil
     var intervals: [SleepInterval]? = nil
 }
 struct SleepNight {
@@ -51,6 +51,14 @@ final class DataStore {
     init(today: DailyMetrics, history: [DailyMetrics]) { self.today = today; self.history = history }
 }
 '''
+metrics = (root / 'NextBody/Models/Metrics.swift').read_text()
+point_start = metrics.index('struct SleepHRVPoint:')
+point_end = metrics.index('{', point_start) + 1
+point_depth = 1
+while point_depth:
+    point_depth += (metrics[point_end] == '{') - (metrics[point_end] == '}')
+    point_end += 1
+models += metrics[point_start:point_end] + '\n'
 main = r'''
 import Foundation
 NSTimeZone.default = TimeZone(secondsFromGMT: 0)!
@@ -76,14 +84,27 @@ precondition(result.totalMinutes == 240)
 precondition(result.respiration?.map(\.breathsPerMinute) == [17, 18], "preserve old points, reject awake gap")
 precondition(result.spo2.map(\.percent) == [97, 96], "oxygen must follow same sleep intervals")
 let minuteHRV = Replay.sleepSummary(night: night, day: day, store: store,
-    oxygen: [:], respiration: [:], hrv: [start: 42, gap: 99, wake.addingTimeInterval(-60): 53, wake: 88])!
+    oxygen: [:], respiration: [:], hrv: [start: 42, gap: 99, wake.addingTimeInterval(-60): 53, wake: 88], observedAt: wake)!
 precondition(minuteHRV.hrv?.count == 2 && minuteHRV.hrv?.first?.ts == start
              && minuteHRV.hrv?.last?.ts == wake.addingTimeInterval(-60),
              "exact-minute HRV retains boundary minutes and excludes gap/wake")
 let repeatedStore = DataStore(today: DailyMetrics(day: day, sleep: minuteHRV), history: [])
 let repeated = Replay.sleepSummary(night: night, day: day, store: repeatedStore,
-    oxygen: [:], respiration: [:], hrv: [start: 42])!
+    oxygen: [:], respiration: [:], hrv: [start: 42], observedAt: wake)!
 precondition(repeated.hrv?.count == 2, "repeat sync must not duplicate or reweight minute HRV")
+let revoked = Replay.sleepSummary(night: night, day: day, store: repeatedStore,
+    oxygen: [:], respiration: [:], hrv: [:], invalidHrvMinutes: [start], observedAt: wake.addingTimeInterval(300))!
+precondition(revoked.hrv?.count == 1 && revoked.hrv?.first?.ts == wake.addingTimeInterval(-60),
+             "explicitly disproved RR minute must be removed while unrelated historical minutes survive")
+let revokedStore = DataStore(today: DailyMetrics(day: day, sleep: revoked), history: [])
+let staleRead = Replay.sleepSummary(night: night, day: day, store: revokedStore,
+    oxygen: [:], respiration: [:], hrv: [start: 200], observedAt: wake)!
+precondition(staleRead.hrv?.contains(where: { $0.ts == start }) == false,
+             "a stale read must not revive an invalidated minute")
+let repairedRead = Replay.sleepSummary(night: night, day: day, store: revokedStore,
+    oxygen: [:], respiration: [:], hrv: [start: 45], observedAt: wake.addingTimeInterval(600))!
+precondition(repairedRead.hrv?.first?.rmssdMS == 45,
+             "a truly later valid observation can restore that minute")
 let unknown = Replay.sleepSummary(night: night, day: day,
     store: DataStore(today: DailyMetrics(day: day, sleep: nil), history: []),
     oxygen: [:], respiration: [:], hrv: [:])!

@@ -1910,6 +1910,32 @@ instead of cyan. Movement splits into SPORT / STEPS / INCIDENTAL on settled acti
 energy; vendor tick calories stay out. Arithmetic: `ActiveEnergyMath` +
 `NextBodySyncCoreTests/ActiveEnergyMathTests`.
 
+### 2026-09-06 · energy accounting repair
+
+Production `gkgzwcxivnffsecshvfs` now has migration
+`20260906115802_energy_accounting_consistency`. `compute_fuel` and `fuel_components`
+share the same rounded resting and active values, including valid MET/step fallback;
+missing activity stays unknown and resting accrual uses the actual 04:00–04:00 day.
+The normal revision replay refreshed all 33 existing daily results. Verification found
+zero total/component or intake/balance mismatches, down from seven total mismatches.
+The migration leaves raw measurements and the device BIA BMR reference unchanged.
+
+Client fixes retain MET through reads and cache, page complete sample windows, avoid
+zero-filling missing days, and align charts to the user day including DST. These changes
+passed 80 relevant Swift tests, an iOS Simulator build, and Chinese layout checks;
+the database repair passed 64 relevant SQL assertions before release. The initial backend
+release included only the energy consistency migration. After the user's deployment
+request, the shared Release 1.0 (1) client was installed and launched on the connected
+iPhone (PID 5901), including all 20 verified energy files. Frozen-source integration
+checks passed 22 assertions; post-install production verification still found zero
+energy total or balance mismatches across 33 daily results. Distribution was direct
+iPhone installation, with no TestFlight or App Store upload. Physical-screen values
+were not visually checked. Release evidence: `/tmp/next-training-deploy-20260906/client`.
+Follow-up Repository integration checks also preserve formal `burnKcal` nulls and
+values when legacy detail components disagree, so activity charts cannot recreate an
+unknown total. Five modern/legacy fixtures passed 22 assertions, including missing
+burn, conflicting components and unchanged body-battery data.
+
 ## 2026-09-05 · consent upgrade no longer strands the bound band offline
 
 Device diagnostics showed successful verification at 16:07 UTC, followed by launches at
@@ -1927,3 +1953,63 @@ its latest preferences contain a granted 1.3.0 decision. Real logs then show ver
 completions at 17:07:53 and 17:08:00. The unrelated optional readFuncAssessment probe still
 times out; it did not prevent these reads or syncs. The concurrent FuelWindowMath declarations
 were made module-internal to match UserDay and unblock the device build.
+
+
+### 2026-09-06 · sleep-v1.2 production deployment
+
+Production `gkgzwcxivnffsecshvfs` has migration
+`20260906130405_sleep_score_evidence_v12`. An isolated CLI release contained the 55
+already-applied migrations and this single new migration; all 12 existing derived
+scores now use sleep-v1.2 and match direct recomputation. Source `sleep_nights`,
+shared `night_hrv` rows, and the Body Battery HRV/RHR/recompute functions remained
+byte-for-byte unchanged across this release. RLS retains its owner-only SELECT
+policy and authenticated clients cannot call the scoring function.
+
+The audited account now has four independent nights: 76 / 65 / 97 / 87 (median
+81.5). September 6 HRV is 67.37 ms, 342/663 measured minutes (51.58%), with a
+274-minute longest gap. The erroneous-date source row remains preserved and no
+longer produces a duplicate score. Release evidence: `/tmp/next-sleep-release-20260906`.
+Client distribution is coordinated with the training/body-battery release to avoid
+installing competing shared-workspace builds; this backend deployment did not itself
+install an App or upload to TestFlight.
+
+
+Sleep client distribution completed through the unified release: signed **Release**
+`com.nextbody.hoop` 1.0 (1) was installed in place on the connected iPhone and
+launched successfully (PID 5901). `client/install.json` and `client/launch.json` in
+`/tmp/next-training-deploy-20260906` report success. The six sleep UI/cache/loader
+source files match the reviewed workspace. No TestFlight/App Store upload occurred;
+physical-screen rendering after installation was not visually inspected.
+
+
+### 2026-09-06 · training evidence production and unified iPhone Release
+
+Production `gkgzwcxivnffsecshvfs` has the training target/load/sport evidence
+migrations and their Body Battery, observation-revision, balance-check, and account
+archive dependencies. The nine reviewed migrations were applied in one transaction;
+`20260906145500_body_battery_evidence_performance` subsequently materialized HRV
+retractions once per night, preserving all 14 evidence outputs. A real production
+night improved from 5,253 ms to 392 ms. Export and account-delete Edge Functions
+are ACTIVE v5 with JWT verification; anonymous export/delete/sport ingestion checks
+return 401. The unrelated measured-burn target migration was excluded.
+
+The frozen unified client includes the validated training, Body Battery, sleep, and
+energy fixes. Signed arm64 Release `com.nextbody.hoop` 1.0 (1) was installed in place
+and launched successfully on the connected iPhone, using the production project.
+No uninstall, data clearing, TestFlight upload, or App Store submission occurred.
+Phone metric rendering was not visually reverified after installation. Release evidence
+and migration manifests are in `/tmp/next-training-deploy-20260906`.
+
+Validation before deployment: ten SQL suites passed against an isolated upgrade
+using production function definitions; seven export tests passed. Client validation
+covered 609 Swift cases (the four fixture setup failures passed after the existing
+SQL fixtures were included), training UI regressions, and signed Release compilation.
+Training targets remain rule estimates, with observation coverage and baseline quality
+exposed in the UI; this release does not establish an individually validated exercise dose.
+
+Post-release historical replay completed for all 33 daily results on tl-2.2/bb-2.1,
+with zero pending dirty ranges at verification. Training curves and segment totals
+match each daily score; no evidence is missing or claims more than elapsed coverage.
+Fuel component/balance mismatches are zero, and all 12 sleep scores remain sleep-v1.2.
+An overlapping scheduled replay reached its timeout before the performance fix took
+effect for that execution; bounded transactions safely finished the remaining dates.

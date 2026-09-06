@@ -212,7 +212,15 @@ struct AIPanel: View {
     /// (It was a Button to .bodyBattery once; a swipe-length tap landed on it and the
     /// panel opened a page no board had drawn.)
     private var standbyReadout: some View {
-        VStack(spacing: 0) {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            batteryReadout(now: context.date)
+        }
+    }
+
+    private func batteryReadout(now: Date) -> some View {
+        let value = m.bodyBatteryForDisplay(at: now)
+        let dim = m.bodyBatteryFreshness(at: now) != .fresh
+        return VStack(spacing: 0) {
             Hairline().frame(width: 236)
                 .padding(.bottom, 12)
 
@@ -221,17 +229,17 @@ struct AIPanel: View {
                     .font(NBFont.dot(600, 11)).tracking(0.34 * 11)
                     .foregroundStyle(NB.white.opacity(0.55))
                 HStack(alignment: .lastTextBaseline, spacing: 2) {
-                    Text(Fmt.int(m.bodyBattery))
+                    Text(Fmt.int(value))
                         .font(NBFont.dot(700, 64)).tracking(-0.045 * 64)
-                        .foregroundStyle(NB.lime1)
-                    if m.bodyBattery != nil {
+                        .foregroundStyle(dim ? NB.text3Prod : NB.lime1)
+                    if value != nil {
                         Text(L("%"))
                             .font(NBFont.dot(700, 24))
                             .foregroundStyle(NB.lime1.opacity(0.7))
                     }
                 }
                 .padding(.top, 4)
-                Text(chargeLine)
+                Text(chargeLine(at: now))
                     .font(NBFont.dot(500, 11)).tracking(0.1 * 11)
                     .foregroundStyle(NB.white.opacity(0.6))
                     .padding(.top, 6)
@@ -330,15 +338,14 @@ struct AIPanel: View {
         }
     }
 
-    /// ⚠️ 1CVO · the only prediction on the product, and it renders only when all four of
-    /// board 13's conditions hold. Otherwise the row is empty — never a placeholder, and
-    /// never a discharge sentence the board never wrote.
-    private var chargeLine: String {
-        guard m.bodyBattery != nil else { return L("NO NIGHT ON RECORD") }
-        if vitals.freshness == .stale, let at = vitals.at {
+    /// State and timestamps describe this battery result, independently of live vitals.
+    private func chargeLine(at now: Date) -> String {
+        guard m.bodyBatteryForDisplay(at: now) != nil else { return L("NO RECENT BATTERY READING") }
+        if m.bodyBatteryFreshness(at: now) != .fresh, let at = m.bodyBatteryObservedAt {
             return L("SYNCED %@", Fmt.clock(at))
         }
-        return ChargeForecast.line(curve: m.reserveCurve) ?? ""
+        guard let charge = m.reserveDrivers?.nightCharge else { return L("FROM WRIST DATA") }
+        return L("%@ · %@", L(BodyBattery.chargeWord(Int(charge.rounded()))), Fmt.signed(charge))
     }
 
     private var agoText: String {

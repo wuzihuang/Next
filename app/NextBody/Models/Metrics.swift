@@ -93,7 +93,29 @@ enum HRZone: Int, CaseIterable, Hashable {
     }
 }
 
-/// 13 · WHY <n>. Four terms that must add up to the number printed on top, ±0.5.
+/// Evidence quality for reserve only. The composition verdict has a separate Confidence.
+enum BodyBatteryConfidence: String, Codable, Hashable {
+    case low = "LOW", medium = "MEDIUM", high = "HIGH"
+}
+
+struct BodyBatteryCoverage: Codable, Hashable {
+    var nightHRV: Double?
+    var nightRHR: Double?
+    var nightExpectedMinutes: Int?
+    var nightHRVMinutes: Int?
+    var nightRHRMinutes: Int?
+    var nightHRVLongestGap: Int?
+    var nightRHRLongestGap: Int?
+    var hrvNights: Int?
+    var rhrNights: Int?
+    var dayHeart: Double?
+    var dayHRV: Double?
+    var dayStress: Double?
+    var dayExpectedTicks: Int?
+    var dayObservedTicks: Int?
+}
+
+/// 13 · WHY <n>. Four user-day terms that close to current minus anchor.
 /// They are additive on purpose: a multiplicative model cannot be listed as rows.
 struct ReserveDrivers: Codable, Hashable {
     var lastNight: Double
@@ -106,7 +128,18 @@ struct ReserveDrivers: Codable, Hashable {
     /// has to say so in words rather than let it read as something we measured.
     var assumedAnchor: Bool = false
 
-    var sum: Double { lastNight + awake + movement + stress }
+    /// Old servers called user-day charge `last_night`. New clients never present that
+    /// legacy field as the entire night's charge; a night can cross the 04:00 boundary.
+    var dayCharge: Double? = nil
+    var nightCharge: Double? = nil
+    var wakeAt: Date? = nil
+    var observedAt: Date? = nil
+    var confidence: BodyBatteryConfidence? = nil
+    var coverage: BodyBatteryCoverage? = nil
+    var algoVersion: String? = nil
+
+    var chargeForDay: Double { dayCharge ?? lastNight }
+    var sum: Double { chargeForDay + awake + movement + stress }
 }
 
 /// 13 · LAST NIGHT'S INPUTS. Every field is optional because the card's whole job is to
@@ -124,6 +157,17 @@ struct NightInputs: Codable, Hashable {
 
     /// The card's "n OF 3" — how many of the three inputs actually arrived.
     var present: Int { (hrv != nil ? 1 : 0) + (rhr != nil ? 1 : 0) + (multiplier != nil ? 1 : 0) }
+}
+
+/// Server-published observation coverage. Recorded time is not a wear assertion.
+struct TrainingEvidence: Codable, Hashable {
+    var elapsedMinutes: Int
+    var recordedMinutes: Int
+    var heartRateMinutes: Int
+    var movementMinutes: Int
+    var restingHeartRate: Double?
+    var restingBaselineNights: Int
+    var baselineEstimated: Bool
 }
 
 /// 08 · one row of TODAY'S BUILD. The rows are shares of the day's raw work, so the
@@ -181,6 +225,7 @@ struct SleepScore: Codable, Hashable {
     /// is an input the night did not have, and that is what the breakdown prints.
     var inputs: [String: Double] = [:]
     var version: String = ""
+    var computedAt: Date? = nil
 
     var isCalibrating: Bool { personalWeight < 1 }
 
@@ -192,6 +237,11 @@ struct SleepScore: Codable, Hashable {
         case .regularity:   regularity
         }
     }
+}
+
+/// Cached scores remain visible while their next read is pending or unavailable.
+enum SleepScoreLoadState {
+    case idle, loading, ready, failed
 }
 
 /// The four groups, in the order the breakdown prints them. Splitting duration away from
@@ -254,6 +304,9 @@ struct SleepSummary: Codable, Hashable {
     var respiration: [SleepRespirationPoint]? = nil
     /// RMSSD at the actual recorded RR minute, independent of the five-minute origin grid.
     var hrv: [SleepHRVPoint]? = nil
+    /// Explicit RR corrections by measured minute and observation clock. Missing reads
+    /// never populate this map; it prevents older snapshots from restoring disproved HRV.
+    var hrvInvalidatedMinutes: [Date: Date]? = nil
     /// Actual recorded sessions; the gaps between them are not sleep measurements.
     var intervals: [SleepInterval]? = nil
 
@@ -268,6 +321,21 @@ struct SleepSummary: Codable, Hashable {
 struct SleepHRVPoint: Codable, Hashable {
     var ts: Date
     var rmssdMS: Double
+    var observedAt: Date? = nil
+
+    static func merging(_ stored: [SleepHRVPoint], with fresh: [SleepHRVPoint],
+                        invalidatedMinutes: [Date: Date]) -> [SleepHRVPoint] {
+        var points: [Date: SleepHRVPoint] = [:]
+        for point in stored + fresh where point.rmssdMS.isFinite && (1...300).contains(point.rmssdMS) {
+            if let current = points[point.ts], let previousClock = current.observedAt,
+               point.observedAt.map({ $0 <= previousClock }) ?? true { continue }
+            points[point.ts] = point
+        }
+        return points.values.filter { point in
+            guard let invalidatedAt = invalidatedMinutes[point.ts] else { return true }
+            return point.observedAt.map { $0 > invalidatedAt } ?? false
+        }.sorted { $0.ts < $1.ts }
+    }
 }
 
 /// One respiratory reading from the SDK's automatic history, retained on the night's clock.
@@ -299,6 +367,8 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     /// The cumulative curve 08 draws THROUGH THE DAY.
     var loadCurve: [LoadPoint] = []
     var peakHR: Int?
+    var trainingEvidence: TrainingEvidence?
+    var recordedSteps: Int?
 
     // Body Battery
     var bbWake: Int?                   // BB_WAKE — frozen for the day
@@ -311,6 +381,29 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     /// WHY, so the page shows them as measurements rather than only as attributions.
     var vitalsCurve: [VitalSample] = []
     var nightInputs: NightInputs?
+
+    /// The time of reserve evidence, never a network fetch or another metric's update.
+    var bodyBatteryObservedAt: Date? {
+        reserveDrivers?.observedAt ?? reserveCurve.last?.ts
+    }
+
+    var bodyBatteryWakeAt: Date? {
+        guard bbWake != nil else { return nil }
+        return reserveDrivers?.wakeAt ?? sleep?.wakeAt
+    }
+
+    var bodyBatteryConfidence: BodyBatteryConfidence {
+        reserveDrivers?.confidence ?? .low
+    }
+
+    func bodyBatteryFreshness(at now: Date = Date()) -> TickFreshness {
+        TickFreshness.of(bodyBatteryObservedAt, now: now)
+    }
+
+    func bodyBatteryForDisplay(at now: Date = Date()) -> Int? {
+        guard bodyBatteryFreshness(at: now) != .gone else { return nil }
+        return bodyBattery
+    }
     /// ADR 0008 · the settled sleep score for the night that ended on this day. nil until
     /// the server has settled it, which is also what a night with no record looks like.
     var sleepScore: SleepScore?
@@ -338,8 +431,14 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var proteinIn: Int?
     var carbIn: Int?
     var fatIn: Int?
-    /// The day's steps, taken off the all-day segment rather than stored twice.
-    var steps: Int? { segments.first(where: \.allDay)?.steps }              // NEXT_MEAL
+    /// All recorded activity, including steps inside elevated-heart-rate segments.
+    /// Old servers do not expose a trustworthy day total; never label an ordinary-only
+    /// segment as the whole day when exercise segments are also present.
+    var steps: Int? {
+        if let recordedSteps { return recordedSteps }
+        guard segments.allSatisfy(\.allDay) else { return nil }
+        return segments.first(where: \.allDay)?.steps
+    }
 
     // Composition
     var weightKg: Double?
@@ -377,12 +476,13 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     // optimalZone is a range; it stays out of the wire format and is rebuilt server-side.
     private enum CodingKeys: String, CodingKey {
         case day, trainingLoad, targetLoad, zoneMinutes, activeMinutes, distanceM, bbWake, bodyBattery
+        case trainingEvidence, recordedSteps
         case bmr, eActive, eTrain, eTrainPlan, eOutNow, activeForecast, eOutFull
         case eIn, balance, targetIn, nextMeal, protein, carb, fat
         case weightKg, fatKg, leanKg, fatSource
         case fatEmaDelta7d, leanEmaDelta7d, confidence, scans7d, logged7d
         case fuelState, bandCoverage, calcVersion, asOf, serverDirection
-        case worn, wearRun, wearMiss
+        case worn, wearRun, wearMiss, sleepScore
     }
 
     init(day: UserDay) { self.day = day }

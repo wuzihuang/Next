@@ -45,10 +45,9 @@ enum ActiveEnergyMath {
     static let stillMet = 1.0
     static let walkMet = 1.5
     static let sportMet = 4.0
-    static let hoursInDay = 24
 
-    static func activityMet(steps: Int?) -> Double? {
-        FuelWindowMath.activityMet(steps: steps)
+    static func activityMet(met: Double? = nil, steps: Int?) -> Double? {
+        FuelWindowMath.activityMet(met: met, steps: steps)
     }
 
     static func classify(met: Double, inSport: Bool) -> ActiveEnergyKind? {
@@ -58,60 +57,57 @@ enum ActiveEnergyMath {
         return nil
     }
 
-    /// RESTING + ACTIVE = OUT. ACTIVE is whatever is left after elapsed BMR,
-    /// so a local `eTrain` that the seed adds on top of `eActive` is not
-    /// double-counted, and a server row that already folded training into
-    /// `eOutNow` still closes.
+    /// RESTING + ACTIVE = OUT. Keep explicit server components intact. `eTrain`
+    /// is a separate component only in local seeds; production folds it into active.
     static func totals(bmr: Double?, eActive: Double?, eTrain: Double?,
                        eOutNow: Double?) -> (resting: Double?, active: Double?, out: Double?) {
-        let out = eOutNow ?? sum([bmr, eActive, eTrain])
-        let active: Double?
-        if let out, let bmr {
-            let moved = out - bmr
-            active = moved >= 0 ? moved : sum([eActive, eTrain])
-        } else {
-            active = sum([eActive, eTrain])
-        }
+        let active = eActive.map { $0 + (eTrain ?? 0) }
+        // Components are the server's explicit estimates. Older total-burn revisions
+        // can disagree with them; never overwrite recorded activity by subtracting OUT.
+        let out = bmr.flatMap { rest in active.map { rest + $0 } } ?? eOutNow
         return (bmr, active, out)
     }
 
     static func derivedBmrFull(bmr: Double?, bmrFull: Double?,
-                               dayStart: Date, now: Date) -> Double? {
+                               dayStart: Date, now: Date, calendar: Calendar = .current) -> Double? {
         if let bmrFull, bmrFull > 0 { return bmrFull }
-        let elapsed = now.timeIntervalSince(dayStart) / 60
+        let dayEnd = FuelWindowMath.dayEnd(dayStart: dayStart, calendar: calendar)
+        let elapsed = min(now, dayEnd).timeIntervalSince(dayStart)
         guard let bmr, bmr > 0, elapsed > 0 else { return nil }
-        return bmr * 1_440 / elapsed
+        return bmr * dayEnd.timeIntervalSince(dayStart) / elapsed
     }
 
     static func split(dayStart: Date, now: Date, bmr: Double?, bmrFull: Double?,
                       eActive: Double?, eTrain: Double?, eOutNow: Double?,
-                      ticks: [(Date, Int?)], sportWindows: [(Date, Date)],
+                      ticks: [VitalSample], sportWindows: [(Date, Date)],
                       calendar: Calendar = .current) -> ActiveEnergySplit {
         let totals = totals(bmr: bmr, eActive: eActive, eTrain: eTrain, eOutNow: eOutNow)
-        let elapsed = max(0, Int(now.timeIntervalSince(dayStart) / 60))
+        let dayEnd = FuelWindowMath.dayEnd(dayStart: dayStart, calendar: calendar)
+        let elapsed = max(0, Int(min(now, dayEnd).timeIntervalSince(dayStart) / 60))
         var raw = RawBuckets()
         let samples = ticks
-            .filter { $0.0 >= dayStart && $0.0 <= now }
-            .sorted { $0.0 < $1.0 }
-        for (at, steps) in samples {
-            guard let met = activityMet(steps: steps) else { continue }
-            let kind = classify(met: met, inSport: inside(at, sportWindows))
-            raw.add(kind: kind, met: met, steps: steps, minutes: 5)
+            .filter { $0.ts >= dayStart && $0.ts <= now }
+            .sorted { $0.ts < $1.ts }
+        for sample in samples {
+            guard let met = activityMet(met: sample.met, steps: sample.steps) else { continue }
+            let kind = classify(met: met, inSport: inside(sample.ts, sportWindows))
+            raw.add(kind: kind, met: met, steps: sample.steps, minutes: 5)
         }
 
-        var sport = scale(raw.sport, of: raw.total, onto: totals.active)
-        var walk = scale(raw.steps, of: raw.total, onto: totals.active)
-        var incidental = scale(raw.incidental, of: raw.total, onto: totals.active)
+        let parts = allocate([raw.sport, raw.steps, raw.incidental], onto: totals.active)
+        var sport = parts[0]
+        var walk = parts[1]
+        var incidental = parts[2]
 
         if sport == nil, let train = eTrain, train > 0,
            let active = totals.active, active + 0.5 >= train {
             sport = min(train, active)
             let leftover = max(0, active - (sport ?? 0))
             let restRaw = raw.steps + raw.incidental
-            walk = scale(raw.steps, of: restRaw, onto: leftover)
-            incidental = scale(raw.incidental, of: restRaw, onto: leftover)
-            if leftover > 0.5, walk == nil, incidental == nil {
-                walk = leftover
+            if restRaw > 0 {
+                let remaining = allocate([raw.steps, raw.incidental], onto: leftover)
+                walk = remaining[0]
+                incidental = remaining[1]
             }
         }
 
@@ -128,46 +124,39 @@ enum ActiveEnergyMath {
             stepsMet: raw.stepsMet,
             incidentalMinutes: raw.incidentalMinutes > 0 ? raw.incidentalMinutes : nil,
             incidentalMet: raw.incidentalMet,
-            bmrFull: derivedBmrFull(bmr: bmr, bmrFull: bmrFull, dayStart: dayStart, now: now),
+            bmrFull: derivedBmrFull(bmr: bmr, bmrFull: bmrFull, dayStart: dayStart, now: now, calendar: calendar),
             elapsedMinutes: elapsed > 0 ? elapsed : nil)
     }
 
-    /// 24 user-day hours, 04:00 → 04:00. Hours not lived yet keep the BMR floor
+    /// User-day hours, 04:00 → 04:00 (23/25 on DST changes). Future hours keep the BMR floor
     /// so the faded bars have a height; they are never 0.
     static func hourly(dayStart: Date, now: Date, split: ActiveEnergySplit,
-                       ticks: [(Date, Int?)], sportWindows: [(Date, Date)],
+                       ticks: [VitalSample], sportWindows: [(Date, Date)],
                        calendar: Calendar = .current) -> [ActiveEnergyHour] {
-        let floor = (split.bmrFull ?? 0) / Double(hoursInDay)
-        var extra = [Double](repeating: 0, count: hoursInDay)
-        for (at, steps) in ticks where at >= dayStart && at <= now {
-            let index = Int(at.timeIntervalSince(dayStart) / 3600)
-            guard (0..<hoursInDay).contains(index),
-                  let met = activityMet(steps: steps),
-                  classify(met: met, inSport: inside(at, sportWindows)) != nil else { continue }
+        guard let resting = split.resting, let active = split.active, split.out != nil,
+              resting >= 0, active >= 0, now > dayStart else { return [] }
+        let dayEnd = FuelWindowMath.dayEnd(dayStart: dayStart, calendar: calendar)
+        let hourCount = Int((dayEnd.timeIntervalSince(dayStart) / 3600).rounded())
+        let floor = (split.bmrFull ?? 0) / Double(hourCount)
+        var extra = [Double](repeating: 0, count: hourCount)
+        for sample in ticks where sample.ts >= dayStart && sample.ts <= now {
+            var index = Int(sample.ts.timeIntervalSince(dayStart) / 3600)
+            if index > 0 && livedFraction(hour: index, dayStart: dayStart, now: now) == 0 { index -= 1 }
+            guard (0..<hourCount).contains(index),
+                  let met = activityMet(met: sample.met, steps: sample.steps) else { continue }
             extra[index] += max(0, met - stillMet)
         }
-        let extraLived = zip(0..<hoursInDay, extra).reduce(0.0) { sum, item in
-            livedFraction(hour: item.0, dayStart: dayStart, now: now) > 0 ? sum + item.1 : sum
+        let totalExtra = extra.reduce(0, +)
+        // The daily total can arrive before its raw samples. Do not invent a last-hour peak.
+        guard active == 0 || totalExtra > 0 else { return [] }
+        let elapsedHours = min(Double(hourCount), now.timeIntervalSince(dayStart) / 3600)
+        return (0..<hourCount).map { i in
+            let fraction = livedFraction(hour: i, dayStart: dayStart, now: now)
+            let movement = totalExtra > 0 ? active * extra[i] / totalExtra : 0
+            return ActiveEnergyHour(
+                kcal: fraction > 0 ? resting * fraction / elapsedHours + movement : floor,
+                lived: fraction > 0)
         }
-        let active = split.active ?? 0
-        var hours: [ActiveEnergyHour] = []
-        var livedSum = 0.0
-        var lastLived: Int?
-        for i in 0..<hoursInDay {
-            let frac = livedFraction(hour: i, dayStart: dayStart, now: now)
-            let move = extraLived > 0 ? active * extra[i] / extraLived : 0
-            let kcal = floor * (frac > 0 ? frac : 1) + (frac > 0 ? move : 0)
-            hours.append(ActiveEnergyHour(kcal: kcal, lived: frac > 0))
-            if frac > 0 {
-                livedSum += kcal
-                lastLived = i
-            }
-        }
-        if let lastLived, let out = split.out, out >= 0 {
-            let delta = out - livedSum
-            hours[lastLived].kcal = max(0, hours[lastLived].kcal + delta)
-        }
-        return hours
     }
 
     static func peakHour(_ hours: [ActiveEnergyHour]) -> (index: Int, kcal: Double)? {
@@ -180,11 +169,11 @@ enum ActiveEnergyMath {
 
     /// Same polyline the calories page draws for OUT.
     static func outCurve(dayStart: Date, now: Date, burnedNow: Double,
-                         burnedFull: Double?, ticks: [(Date, Int?)],
+                         burnedFull: Double?, restingNow: Double?, ticks: [VitalSample],
                          calendar: Calendar = .current)
     -> (solid: [FuelClockPoint], dashed: [FuelClockPoint]) {
         FuelWindowMath.burnCurve(dayStart: dayStart, now: now, burnedNow: burnedNow,
-                                 burnedFull: burnedFull, ticks: ticks, calendar: calendar)
+                                 burnedFull: burnedFull, restingNow: restingNow, ticks: ticks, calendar: calendar)
     }
 
     /// Elapsed BMR as a straight ruler. The dashed run keeps that slope — leftover
@@ -201,29 +190,29 @@ enum ActiveEnergyMath {
         return (solid, [FuelClockPoint(x: nowX, y: resting), FuelClockPoint(x: 1, y: end)])
     }
 
-    static func intensity(dayStart: Date, now: Date, ticks: [(Date, Int?)],
+    static func intensity(dayStart: Date, now: Date, ticks: [VitalSample],
                           calendar: Calendar = .current)
     -> (solid: [FuelClockPoint], dashed: [FuelClockPoint]) {
-        let openX = FuelWindowMath.clockFraction(at: dayStart, dayStart: dayStart, calendar: calendar)
         let nowX = FuelWindowMath.clockFraction(at: now, dayStart: dayStart, calendar: calendar)
         let samples = ticks
-            .filter { $0.0 >= dayStart && $0.0 <= now }
-            .sorted { $0.0 < $1.0 }
-        var solid = [FuelClockPoint(x: openX, y: stillMet)]
-        var y = stillMet
-        for (at, steps) in samples {
-            let x = FuelWindowMath.clockFraction(at: at, dayStart: dayStart, calendar: calendar)
+            .filter { $0.ts >= dayStart && $0.ts <= now }
+            .sorted { $0.ts < $1.ts }
+        var solid: [FuelClockPoint] = []
+        var previousEnd: Date?
+        for sample in samples {
+            guard let met = activityMet(met: sample.met, steps: sample.steps) else { continue }
+            let x = FuelWindowMath.clockFraction(at: sample.ts, dayStart: dayStart, calendar: calendar)
             guard x <= nowX else { break }
-            let met = activityMet(steps: steps) ?? stillMet
-            if solid.last?.x != x || solid.last?.y != y {
-                solid.append(FuelClockPoint(x: x, y: y))
-            }
-            y = met
-            solid.append(FuelClockPoint(x: x, y: y))
+            // A recorded MET describes one five-minute slot, never the hours until
+            // the next reading. A skipped/unknown slot starts a separate path.
+            let end = min(now, sample.ts.addingTimeInterval(5 * 60))
+            solid.append(FuelClockPoint(x: x, y: met,
+                                        startsSegment: previousEnd == nil || sample.ts > previousEnd!))
+            solid.append(FuelClockPoint(
+                x: FuelWindowMath.clockFraction(at: end, dayStart: dayStart, calendar: calendar), y: met))
+            previousEnd = end
         }
-        if solid.last?.x != nowX {
-            solid.append(FuelClockPoint(x: nowX, y: y))
-        }
+        guard !solid.isEmpty else { return ([], []) }
         let dashed = nowX < 1
             ? [FuelClockPoint(x: nowX, y: stillMet), FuelClockPoint(x: 1, y: stillMet)]
             : []
@@ -242,8 +231,8 @@ enum ActiveEnergyMath {
         return (bars, average, delta)
     }
 
-    static func hoursLeft(dayStart: Date, now: Date) -> Int {
-        max(0, Int(ceil((dayStart.addingTimeInterval(86_400).timeIntervalSince(now)) / 3600)))
+    static func hoursLeft(dayStart: Date, now: Date, calendar: Calendar = .current) -> Int {
+        max(0, Int(ceil(FuelWindowMath.dayEnd(dayStart: dayStart, calendar: calendar).timeIntervalSince(now) / 3600)))
     }
 
     // MARK: - private
@@ -294,9 +283,19 @@ enum ActiveEnergyMath {
         windows.contains { at >= $0.0 && at < $0.1 }
     }
 
-    private static func scale(_ raw: Double, of total: Double, onto active: Double?) -> Double? {
-        guard let active, active > 0, total > 0, raw > 0 else { return nil }
-        return active * raw / total
+    /// Round cumulative shares so the printed integer parts close to the printed total.
+    private static func allocate(_ weights: [Double], onto active: Double?) -> [Double?] {
+        let total = weights.reduce(0, +)
+        guard let active, active > 0, total > 0 else { return weights.map { _ in nil } }
+        var cumulative = 0.0
+        var assigned = 0.0
+        return weights.map { weight in
+            guard weight > 0 else { return nil }
+            cumulative += weight
+            let next = (active * cumulative / total).rounded()
+            defer { assigned = next }
+            return next - assigned
+        }
     }
 
     private static func livedFraction(hour: Int, dayStart: Date, now: Date) -> Double {
@@ -307,8 +306,4 @@ enum ActiveEnergyMath {
         return now.timeIntervalSince(start) / 3600
     }
 
-    private static func sum(_ parts: [Double?]) -> Double? {
-        let present = parts.compactMap { $0 }
-        return present.isEmpty ? nil : present.reduce(0, +)
-    }
 }

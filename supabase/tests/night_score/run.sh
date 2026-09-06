@@ -24,8 +24,22 @@ run() { docker cp "$1" "$name:/tmp/$(basename "$1")" >/dev/null
         docker exec "$name" psql -U postgres -d nb -q -v ON_ERROR_STOP=1 -f "/tmp/$(basename "$1")"; }
 
 run "$here/00_harness.sql"
+sed -n '19,123p' "$root/supabase/migrations/20260903120000_night_hrv_sleep_window.sql" \
+  | docker exec -i "$name" psql -U postgres -d nb -q -v ON_ERROR_STOP=1
+sed -n '4,21p' "$root/supabase/migrations/20260905090300_indexed_night_baselines.sql" \
+  | docker exec -i "$name" psql -U postgres -d nb -q -v ON_ERROR_STOP=1
 run "$root/supabase/migrations/20260905100000_night_score.sql"
 run "$root/supabase/migrations/20260905100002_night_score_rem_and_recovery_scope.sql"
+if [[ "${NIGHT_SCORE_TEST_WITH_BB:-0}" == 1 ]]; then
+  # Load the concurrent BB formula contract without its unrelated full-schema
+  # publication machinery; guards below require its shared HRV/RHR bodies to survive.
+  sed '/^-- Keep publication, caching,/,$d' "$root/supabase/migrations/20260906130331_body_battery_evidence_contract.sql" \
+    | docker exec -i "$name" psql -U postgres -d nb -q -v ON_ERROR_STOP=1
+fi
+run "$here/04_backfill_setup.sql"
+if [[ "${NIGHT_SCORE_TEST_LEGACY:-0}" != 1 ]]; then
+  run "$root/supabase/migrations/20260906130405_sleep_score_evidence_v12.sql"
+fi
 run "$here/01_scoring.sql"
 docker exec "$name" psql -U postgres -d nb -c "
 select name as case, got->>'score' as total, got->>'duration_score' as duration,
@@ -33,6 +47,7 @@ select name as case, got->>'score' as total, got->>'duration_score' as duration,
        got->>'regularity_score' as regularity, got->>'personal_weight' as personal
 from t_out order by name;"
 run "$here/02_lifecycle.sql"
+run "$here/03_evidence.sql"
 
 docker rm -f "$name" >/dev/null
 echo "✅ night_score: scoring table above, lifecycle assertions passed"

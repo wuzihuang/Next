@@ -170,6 +170,31 @@ export class NumberLedger {
   /// Distinct entries. F7 rule 11 caps this at 60 — see `record` in tools.ts.
   get size(): number { return new Set(this.values).size; }
 
+  /// ADR 0018 · a suspended turn stores the ledger with the conversation and rebuilds it
+  /// on resume, so numbers read before the phone tool still audit after it.
+  toJSON(): Record<string, unknown> {
+    return {
+      values: this.values,
+      sources: [...this.sources.entries()],
+      evidence: [...this.evidence.values()],
+    };
+  }
+  static fromJSON(raw: unknown): NumberLedger {
+    const ledger = new NumberLedger();
+    const r = (raw ?? {}) as { values?: unknown; sources?: unknown; evidence?: unknown };
+    if (Array.isArray(r.values)) ledger.values = r.values.filter((v): v is number => typeof v === "number");
+    if (Array.isArray(r.sources)) {
+      for (const pair of r.sources) if (Array.isArray(pair) && typeof pair[0] === "number") ledger.sources.set(pair[0], String(pair[1]));
+    }
+    if (Array.isArray(r.evidence)) {
+      for (const e of r.evidence as { scope: MeasurementEvidence; values: number[] }[]) {
+        if (e?.scope?.id) ledger.evidence.set(e.scope.id, { scope: e.scope, values: e.values ?? [] });
+      }
+    }
+    ledger.dirty = true;
+    return ledger;
+  }
+
   has(needle: number, tolerance = 0.05): boolean {
     if (this.dirty) {
       this.values.sort((x, y) => x - y);

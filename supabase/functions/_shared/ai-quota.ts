@@ -3,7 +3,7 @@ import { cors, serviceClient } from "./db.ts";
 import { slowDownFrame } from "./contract.ts";
 import type { TokenUsage } from "./cost.ts";
 
-export type AiQuotaEndpoint = "turn" | "meal" | "asr";
+export type AiQuotaEndpoint = "turn" | "meal" | "asr" | "memory";
 
 export type QuotaDecision =
   | { allowed: true; remaining: number }

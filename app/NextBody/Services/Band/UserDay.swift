@@ -31,7 +31,7 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
         if (comps.hour ?? 0) < boundaryHour {
             start = calendar.date(byAdding: .day, value: -1, to: start)!
         }
-        return UserDay(date: calendar.date(byAdding: .hour, value: boundaryHour, to: start)!)
+        return UserDay(date: calendar.date(bySettingHour: boundaryHour, minute: 0, second: 0, of: start)!)
     }
 
     /// Oldest → newest, `count` user days ending at `end`.
@@ -45,7 +45,7 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
         Self.last(count, endingAt: self)
     }
 
-    /// Hours since this day's 04:00 cut. The cut is 0; the next cut is 24.
+    /// Elapsed hours since this day's local 04:00 cut (23 or 25 across DST, otherwise 24).
     static func hours(_ instant: Date, in day: UserDay) -> Double {
         instant.timeIntervalSince(day.start) / 3600
     }
@@ -79,7 +79,7 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
 
     /// Minutes elapsed inside the window at `now`, capped to the full window.
     func elapsedMinutes(at now: Date = Date()) -> Int {
-        max(0, min(1440, Int(now.timeIntervalSince(start) / 60)))
+        max(0, Int(min(now, end).timeIntervalSince(start) / 60))
     }
 
     var isClosed: Bool { Date() >= end }

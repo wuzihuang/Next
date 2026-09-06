@@ -9,7 +9,7 @@ def extract(path, marker):
     return s[start:end]
 repo=APP/'NextBody/Services/Repository.swift'
 source='import Foundation\nfunc L(_ s: String, _ args: CVarArg...) -> String { String(format: s, arguments: args) }\nstruct AppLanguage { static let shared = Self(); var swiftLocale: Locale { Locale(identifier: "en") } }\n'
-for path in ['Models/Metrics.swift','Models/BodyBattery.swift','Services/Band/VitalSample.swift','Services/Band/DailyDirectionPolicy.swift','Services/Band/HomeLaunchPolicy.swift','Services/Band/VitalsTimelinePolicy.swift','Services/Band/MealResponseIndex.swift']:
+for path in ['Models/Metrics.swift','Models/BodyBattery.swift','Services/Band/VitalSample.swift','Services/Band/UserDay.swift','Services/Band/SamplePageRead.swift','Services/Band/ActiveEnergyMath.swift','Services/Band/FuelWindowMath.swift','Services/Band/DailyDirectionPolicy.swift','Services/Band/HomeLaunchPolicy.swift','Services/Band/VitalsTimelinePolicy.swift','Services/Band/MealResponseIndex.swift']:
     source+=(APP/'NextBody'/path).read_text()+'\n'
 for marker in ['struct MealEntry:', 'struct WeighIn:', 'struct LiveVitals:']:
     source+=extract(APP/'NextBody/Services/DataStore.swift',marker)+'\n'
@@ -18,6 +18,7 @@ if 'struct SleepInterval:' in (APP/'NextBody/Services/Band/BandService.swift').r
     source+=extract(APP/'NextBody/Services/Band/BandService.swift','struct SleepInterval:')+'\n'
 source+='''
 final class DataStore {
+ var sleepScores: [String: SleepScore] = [:]
  var today = DailyMetrics(day: UserDay.containing(Date()))
  var mealResponsePoints: [MealResponseIndex.Point] = []
  var history: [DailyMetrics] = []; var meals: [MealEntry] = []; var recentMeals: [MealEntry] = []
@@ -36,6 +37,8 @@ struct WeighInQueue { static let shared = Self(); func flush() async {} }
  let day = UserDay.containing(Date()).key
  func select(_ table: String, query: [URLQueryItem]) async throws -> [[String: Any]] {
   calls.append(table)
+  if table == "raw_samples", let offset = query.first(where: { $0.name == "offset" })?.value,
+     let value = Int(offset), value > 0 { return [] }
   if mode == "offline-cached" { throw Failure.http(503, "offline") }
   if table == "daily_results" {
    if mode.hasPrefix("schema-"), let code = Int(mode.split(separator: "-").last!) { throw Failure.http(code, "column daily_results.result_revision does not exist") }
@@ -48,7 +51,7 @@ struct WeighInQueue { static let shared = Self(); func flush() async {} }
    return [row]
   }
   if table == "day_fuel" {
-   let row: [String: Any] = ["result_id":"fixture-result", "intake_state":"CONFIRMED", "kcal_in":650, "kcal_out":1000, "protein_in_g":30, "bmr_kcal":800, "active_kcal":200]
+   let row: [String: Any] = ["result_id":"fixture-result", "intake_state":"CONFIRMED", "kcal_in":650, "kcal_out":mode == "legacy-burn-drift" ? 900 : 1000, "protein_in_g":30, "bmr_kcal":800, "active_kcal":200]
    let fields = Set((query.first { $0.name == "select" }?.value ?? "").split(separator: ",").map(String.init))
    return [row.filter { fields.contains($0.key) }]
   }
@@ -98,8 +101,9 @@ struct WeighInQueue { static let shared = Self(); func flush() async {} }
  func callFunction(_ name: String, payload: [String: Any]) async throws -> [String: Any] {
   calls.append(name)
   if mode.hasPrefix("function-") { throw Failure.http(Int(mode.split(separator: "-").last!)!, "unavailable") }
-  if mode == "missing-function" || mode == "legacy" { throw Failure.http(404, "Requested function was not found") }
-  let vals: [String: Double] = ["intakeKcal":650, "burnKcal":1000, "deltaKcal":-350, "proteinG":30, "sleepMinutes":420, "nightHRV":52, "hrvBaseline":50, "nightRHR":58]
+  if mode == "missing-function" || mode == "legacy" || mode == "legacy-burn-drift" { throw Failure.http(404, "Requested function was not found") }
+  var vals: [String: Double] = ["intakeKcal":650, "burnKcal":1000, "deltaKcal":-350, "proteinG":30, "sleepMinutes":420, "nightHRV":52, "hrvBaseline":50, "nightRHR":58]
+  if mode == "modern-burn-drift" { vals["burnKcal"] = 1005; vals["deltaKcal"] = -355 }
   if mode == "modern-null" {
    return ["ok":true,"data":vals.map { ["metric":$0.key,"points":[["dayKey":day,"value":NSNull(),"resultRevision":"r1"]]] }]
   }
@@ -116,7 +120,7 @@ struct WeighInQueue { static let shared = Self(); func flush() async {} }
  let db = SupabaseClient.shared
  private var readGeneration: UInt = 0
 '''
-for marker in ['func load(days:', 'private func merge(', 'static func overnightOxygen(', 'static func sleepRespiration(', 'static func sleepHRV(', 'static func opticalResponse(', 'private static func numberStatic(', 'private static func sleepOnWakeDay(', 'static func timestamp(', 'static func isMissingReadCapability(', 'private func selectDailyResultsCompat(', 'private func metricReadIfAvailable(', 'private func calculationStatusIfAvailable(', 'private func number(', 'private func selectByResultId(', 'private func selectTrainingExtras(', 'private static func resultIdChunks(']:
+for marker in ['private func applyWear(', 'private func selectSamplePages(', 'func load(days:', 'private func merge(', 'static func overnightOxygen(', 'static func sleepRespiration(', 'static func sleepHRV(', 'static func sleepHRVInvalidations(', 'static func opticalResponse(', 'private static func numberStatic(', 'private static func sleepOnWakeDay(', 'static func timestamp(', 'static func isMissingReadCapability(', 'private func selectDailyResultsCompat(', 'private func metricReadIfAvailable(', 'private func calculationStatusIfAvailable(', 'private func number(', 'private func selectByResultId(', 'private func selectTrainingExtras(', 'private static func resultIdChunks(']:
     source+=extract(repo,marker)+'\n'
 source+='''
 }
@@ -152,7 +156,12 @@ let checks = mode == "wrong-sleep-day" ? [("sleep from a different wake date is 
 }())] : mode == "stale-sleep" ? [("remote partial night cannot overwrite completed local night", store.today.sleep?.totalMinutes == 420 && store.today.sleep?.wakeAt == store.today.day.start.addingTimeInterval(8*3600) && store.today.sleep?.respiration?.first?.breathsPerMinute == 16)] : mode == "history-sleep" ? [("all requested days retain raw sleep, respiration and temperature", (0...3).allSatisfy { (offset: Int) in
  let m = store.metrics(for: store.today.day.adding(days: -offset))
  return m?.sleep?.hrv?.count == 1 && m?.sleep?.hrv?.first?.rmssdMS == (offset == 0 ? 53 : 51) && m?.sleep?.hrv?.first?.ts == m?.day.start.addingTimeInterval(59*60) && m?.sleep?.totalMinutes == 420 + offset && m?.sleep?.intervals?.count == 2 && m?.sleep?.line.first?.offsetMinutes == 240 && m?.sleep?.respiration?.count == (offset == 0 ? 2 : 1) && m?.sleep?.respiration?.first?.breathsPerMinute == (offset == 0 ? 14 : 15) && m?.vitalsCurve.first?.temp == 33.6 && (offset != 0 || m?.sleep?.spo2.first?.percent == 97 && m?.sleep?.spo2.count == 1 && m?.sleep?.respiration?.map { $0.breathsPerMinute }.reduce(0, +) == 30)
-})] : mode == "modern-null" ? [("formal null is not replaced by legacy values", store.today.sleep?.totalMinutes == 420 && store.today.eIn == nil && store.today.eOutNow == nil && store.today.proteinIn == 30 && store.today.balance == nil && store.today.nightInputs?.hrv == nil && store.meals.count == 1 && store.today.bodyBattery == 72)] : rejected ? [("reject incomplete read", store.today.sleep == nil && store.meals.isEmpty && store.today.bodyBattery == nil)] : [("sleep", store.today.sleep?.totalMinutes == 420), ("food", store.meals.count == 1), ("body battery", store.today.bodyBattery == 72), ("stored fuel and night inputs", mode == "offline-cached" || (store.today.eIn == 650 && store.today.eOutNow == 1000 && store.today.proteinIn == 30 && store.today.balance == -350 && store.today.nightInputs?.hrv == 52))]
+})] : mode == "modern-burn-drift" ? [("formal burn overrides inconsistent legacy components", store.today.eOutNow == 1005 && store.today.balance == -355 && ActiveEnergyMath.totals(bmr: store.today.bmr, eActive: store.today.eActive, eTrain: store.today.eTrain, eOutNow: store.today.eOutNow).out == 1005)] : mode == "modern-null" ? [("recorded sleep despite formal null", store.today.sleep?.totalMinutes == 420),
+ ("formal intake null", store.today.eIn == nil), ("formal burn null", store.today.eOutNow == nil),
+ ("formal burn null cannot reappear in active charts", ActiveEnergyMath.totals(bmr: store.today.bmr, eActive: store.today.eActive, eTrain: store.today.eTrain, eOutNow: store.today.eOutNow).out == nil && store.today.activeForecast == nil && store.today.eOutFull == nil),
+ ("formal protein", store.today.proteinIn == 30), ("formal balance null", store.today.balance == nil),
+ ("formal HRV null", store.today.nightInputs?.hrv == nil), ("recorded meal", store.meals.count == 1),
+ ("settled body battery", store.today.bodyBattery == 72)] : rejected ? [("reject incomplete read", store.today.sleep == nil && store.meals.isEmpty && store.today.bodyBattery == nil)] : [("sleep", store.today.sleep?.totalMinutes == 420), ("food", store.meals.count == 1), ("body battery", store.today.bodyBattery == 72), ("stored fuel and night inputs", mode == "offline-cached" || (store.today.eIn == 650 && store.today.eOutNow == 1000 && store.today.proteinIn == 30 && store.today.balance == -350 && store.today.nightInputs?.hrv == 52))]
 for (name, ok) in checks { print("\\(ok ? "PASS" : "FAIL"): \\(name) remains visible with \\(mode) backend") }
 print("requests: " + SupabaseClient.shared.calls.joined(separator: ", "))
 exit(checks.allSatisfy { $0.1 } ? 0 : 1)
@@ -162,7 +171,7 @@ with tempfile.TemporaryDirectory(prefix='next-repository-repro-') as tmp:
     result=subprocess.run(['swiftc','-swift-version','5',str(p/'main.swift'),'-o',str(p/'repro')],capture_output=True,text=True)
     if result.returncode: print(result.stderr); raise SystemExit(result.returncode)
     import sys
-    modes=sys.argv[1:] or ['modern','legacy','old-schema','missing-function','missing-status','offline-cached','function-401','function-403','function-500','status-401','status-403','status-500','revision-mismatch','status-mismatch','schema-401','schema-403','schema-500','other-column','modern-null','history-sleep','local-sleep','stale-sleep','interval-missing','interval-empty','interval-invalid','wrong-sleep-day']
+    modes=sys.argv[1:] or ['modern','legacy','old-schema','missing-function','missing-status','offline-cached','function-401','function-403','function-500','status-401','status-403','status-500','revision-mismatch','status-mismatch','schema-401','schema-403','schema-500','other-column','modern-null','modern-burn-drift','legacy-burn-drift','history-sleep','local-sleep','stale-sleep','interval-missing','interval-empty','interval-invalid','wrong-sleep-day']
     failed=False
     for mode in modes:
         result=subprocess.run([str(p/'repro'),mode],env={**os.environ,'TZ':'UTC'})

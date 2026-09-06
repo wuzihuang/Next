@@ -17,7 +17,7 @@ final class OriginDataSync {
     private let band: BandService
     private let db = SupabaseClient.shared
     private static let log = Logger(subsystem: "com.nextbody.hoop", category: "sync")
-    private struct DatedPoint { let calendarDay: Date; let point: OriginPoint }
+    private struct DatedPoint { let calendarDay: Date; let readAt: Date; let point: OriginPoint }
 
     init(band: BandService = Band.live) { self.band = band }
 
@@ -37,6 +37,9 @@ final class OriginDataSync {
     /// 补屏 rule 01 · pairing is not permission. Without consent the band is never read.
     static func refreshNow(into store: DataStore, minimumInterval: TimeInterval = SyncCadence.throttle,
                            fullHistory: Bool = false, reuseRecentLiveReceipt: Bool = false) async {
+#if DEBUG
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_EVIDENCE"] == "1" { return }
+#endif
         guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation, ConsentStore.shared.granted,
               let userId = await SupabaseClient.shared.currentUserId,
               let binding = BoundBand.identifier else { return }
@@ -106,15 +109,7 @@ final class OriginDataSync {
 
     /// Which SDK pages a given user day needs. The only place dayOffset is ever decided.
     static func pages(for day: UserDay, now: Date = Date(), calendar: Calendar = .current) -> [Int] {
-        let today = UserDay.containing(now, calendar: calendar)
-        // How many device days back the window starts. A device day is midnight-to-midnight,
-        // so a user day beginning at 04:00 always sits inside one or two of them.
-        let daysBack = calendar.dateComponents([.day], from: day.start, to: today.start).day ?? 0
-
-        // Closing yesterday, or reading it while today is still young: two pages.
-        let hour = calendar.component(.hour, from: now)
-        let straddles = (day != today) || hour < UserDay.boundaryHour
-        return HealthSampleMapping.deviceDayOffsets(daysBack: daysBack, straddles: straddles)
+        HealthSampleMapping.deviceDayOffsets(start: day.start, now: now, calendar: calendar)
     }
 
     static func nightPageOffsets(start: Date, wake: Date, now: Date,
@@ -134,9 +129,11 @@ final class OriginDataSync {
     }
 
     static func auxiliarySamples(temperatureTicks: [Date: Double],
-                                 hrvTicks: [Date: Double]) -> [VitalSample] {
+                                 hrvTicks: [Date: Double], observedAt: Date? = nil) -> [VitalSample] {
         Set(temperatureTicks.keys).union(hrvTicks.keys).sorted().map {
-            VitalSample(ts: $0, hr: nil, stress: nil, temp: temperatureTicks[$0], hrv: hrvTicks[$0])
+            VitalSample(ts: $0, hr: nil, stress: nil, temp: temperatureTicks[$0], hrv: hrvTicks[$0],
+                        hrvValid: hrvTicks[$0] == nil ? nil : true,
+                        hrvObservedAt: hrvTicks[$0] == nil ? nil : observedAt)
         }
     }
 
@@ -147,6 +144,8 @@ final class OriginDataSync {
     func sync(day: UserDay, into store: DataStore, settle: Bool = true) async -> Int {
         let now = Date()
         let iso = ISO8601DateFormatter()
+        let originReadISO = ISO8601DateFormatter()
+        originReadISO.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         #if DEBUG
         var diagnosticCompleted = false
         NightDiagnostics.shared.record("sync.started", fields: ["day": day.key, "settle": String(settle)])
@@ -172,12 +171,14 @@ final class OriginDataSync {
         var calendar = Calendar.current
         calendar.timeZone = .current
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: day.start)!
-        let readEnd = min(dayEnd, now.addingTimeInterval(5 * 60))
+        let readEnd = min(dayEnd, now)
         var points: [DatedPoint] = []
         /// Every measured HRV tick of this user day, by instant. Both a column on the rows
         /// this sync inserts and the payload that fills the rows earlier syncs already stored.
         var hrvTicks: [Date: Double] = [:]
+        var invalidHrvTicks: Set<Date> = []
         var hrvMinuteTicks: [Date: Double] = [:]
+        var invalidHrvMinutes: Set<Date> = []
         var hrvMinuteReadComplete = false
         var temperatureTicks: [Date: Double] = [:]
         var auxiliaryUploaded = true
@@ -195,7 +196,7 @@ final class OriginDataSync {
         guard let deviceKey = BoundBand.identifier else { lastOutcome = "failed"; return 0 }
         var domainStates: [BandDomainSyncState] = []
         var pagesReturned = 0
-        let wanted = Self.pages(for: day)
+        let wanted = Self.pages(for: day, now: now, calendar: calendar)
         let run = await beginRun(userId: userId, requested: wanted.count)
 
         for offset in wanted {
@@ -215,6 +216,9 @@ final class OriginDataSync {
                 BandLog.shared.record("readOriginData(\(offset))", error: error)
                 page = []
             }
+            // This is the SDK database observation time, preserved through offline retries.
+            // It orders revisions; it is not a device-reported measurement timestamp.
+            let originReadAt = Date()
             let health: BandHealthData
             do {
                 health = try await BandReadiness.read(account: userId, binding: deviceKey) { try await band.readHealthData(dayOffset: offset) }
@@ -243,10 +247,16 @@ final class OriginDataSync {
                                                            calendar: calendar), ts <= now else { continue }
                 hrvMinuteTicks[ts] = value
             }
+            for time in HealthSampleMapping.invalidHRVMinutes(health.hrv) {
+                guard let ts = HealthSampleMapping.instant(time: time, calendarDay: calendarDay,
+                                                           calendar: calendar), ts <= now else { continue }
+                invalidHrvMinutes.insert(ts)
+            }
             for sample in health.hrv where !sample.rrMilliseconds.isEmpty {
                 guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay, calendar: calendar),
                       ts >= day.start, ts < dayEnd, ts <= now else { continue }
-                rrRows.append(["ts": iso.string(from: ts), "rr_ms": sample.rrMilliseconds])
+                rrRows.append(["ts": iso.string(from: ts), "rr_ms": sample.rrMilliseconds,
+                               "rr_indices": sample.rrValidIndices])
             }
             for sample in health.temperatures {
                 guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay, calendar: calendar),
@@ -258,6 +268,12 @@ final class OriginDataSync {
             // The band measures HRV every ten minutes, all day — not only at night. Both
             // domains are read from the same page, so this is where they are joined.
             let hrvBySlot = HealthSampleMapping.hrvBySlot(health.hrv)
+            for slot in HealthSampleMapping.invalidHRVSlots(health.hrv) {
+                guard let ts = HealthSampleMapping.instant(time: slot, calendarDay: calendarDay,
+                                                           calendar: calendar),
+                      ts >= day.start, ts < dayEnd, ts <= now else { continue }
+                invalidHrvTicks.insert(ts)
+            }
             // Kept with their instants as well: a tick stored by an earlier sync cannot be
             // re-inserted carrying its HRV, so those rows are filled in afterwards.
             for (slot, value) in hrvBySlot {
@@ -285,9 +301,9 @@ final class OriginDataSync {
                 opticalTicks[ts] = sample.optical
             }
             points.append(contentsOf: page.map { point in
-                DatedPoint(calendarDay: calendarDay, point: OriginPoint(
+                DatedPoint(calendarDay: calendarDay, readAt: originReadAt, point: OriginPoint(
                     time: point.time, heart: point.heart, step: point.step, cal: point.cal,
-                    distance: point.distance, met: point.met,
+                    distance: point.distance, met: VitalSample.validatedMET(point.met),
                     temperature: temperatures[Self.clock(point.time)],
                     hrv: hrvBySlot[Self.clock(point.time)],
                     stress: point.stress, sleepState: point.sleepState))
@@ -348,6 +364,11 @@ final class OriginDataSync {
                                                                calendar: calendar), ts >= start, ts < wake else { continue }
                     hrvMinuteTicks[ts] = value
                 }
+                for time in HealthSampleMapping.invalidHRVMinutes(health.hrv) {
+                    guard let ts = HealthSampleMapping.instant(time: time, calendarDay: calendarDay,
+                                                               calendar: calendar), ts >= start, ts < wake else { continue }
+                    invalidHrvMinutes.insert(ts)
+                }
                 let temperature = health.temperatures.compactMap { sample -> VitalSample? in
                     guard let ts = HealthSampleMapping.instant(time: sample.time, calendarDay: calendarDay,
                                                                calendar: calendar), ts >= start, ts < wake else { return nil }
@@ -356,7 +377,8 @@ final class OriginDataSync {
                 let hrv = HealthSampleMapping.hrvBySlot(health.hrv).compactMap { clock, value -> VitalSample? in
                     guard let ts = HealthSampleMapping.instant(time: clock, calendarDay: calendarDay,
                                                                calendar: calendar), ts >= start, ts < wake else { return nil }
-                    return VitalSample(ts: ts, hr: nil, stress: nil, hrv: value)
+                    return VitalSample(ts: ts, hr: nil, stress: nil, hrv: value,
+                                       hrvValid: true, hrvObservedAt: now)
                 }
                 nightAuxiliary = VitalSample.merging(nightAuxiliary, with: temperature + hrv)
             }
@@ -373,29 +395,23 @@ final class OriginDataSync {
         // ⚠️ One formatter, not one per tick. A day is 288 points and each one was allocating
         // its own ISO8601DateFormatter — the single most expensive thing in a sync that
         // otherwise just moves a few kilobytes.
-        // How far this day has already been uploaded. The band only ever appends to a day, and
-        // a stored tick is never rewritten (collected data is insert-only), so everything at or
-        // before the mark is already on the server and sending it again buys nothing.
-        // ⚠️ Advanced only when every chunk of a sync landed. A partial upload that moved the
-        // mark would leave a hole no later sync ever fills.
+        // Read the complete bounded pages every time. Earlier aggregates can be completed
+        // by the device later; an upload watermark must never hide those revisions.
         // The latest tick this pull carried, kept aside so the panel can show it the moment it
         // is off the band rather than after the server has settled the day (12 · LIVE).
         var newest: Date?
         var latest: LiveVitals?
-        var latestBatteryTick: (ts: Date, point: OriginPoint)?
         var localSamples: [VitalSample] = []
-        // Ticks already past the watermark cannot be inserted again; fill_dis writes metres
-        // into the zeros Int(km) left behind. Collected here, before the mark drops them.
         let rows = points.compactMap { dated -> [String: Any]? in
             let point = dated.point
             guard let ts = HealthSampleMapping.instant(time: point.time,
                                                        calendarDay: dated.calendarDay,
                                                        calendar: calendar),
                   ts >= day.start, ts < dayEnd else { return nil }
-            // Page 0 is the whole device day, the hours still to come included, as empty
-            // slots. A tick that has not happened is not a sample (04 · the readout's "last
-            // tick" query already refuses the future; the table should not hold it either).
-            guard ts <= now.addingTimeInterval(5 * 60) else { return nil }
+            // Page 0 includes future placeholders and the aggregate still accumulating.
+            // Deferred slots are considered again on the next full page read.
+            guard OriginObservationPolicy.accepts(slot: ts, dayStart: day.start,
+                dayEnd: dayEnd, readStartedAt: now) else { return nil }
             if let temperature = point.temperature {
                 temperatureTicks[ts] = temperature
             }
@@ -405,16 +421,18 @@ final class OriginDataSync {
                 stress: point.stress,
                 temp: point.temperature,
                 steps: point.step,
+                met: point.met,
                 vendorCalories: point.cal.map(Double.init),
                 dis: point.distance.map(Double.init),
-                hrv: point.hrv
+                hrv: point.hrv,
+                hrvValid: point.hrv == nil ? nil : true,
+                hrvObservedAt: point.hrv == nil ? nil : now
             )
             if localSample.hasReading {
                 localSamples.append(localSample)
             }
             if newest == nil || ts > newest! {
                 newest = ts
-                latestBatteryTick = (ts, point)
                 // ⚠️ A tick the band recorded off the wrist has no heart and no stress. That
                 // is not a zero — it is the absence the readout draws as ——. Heart stays
                 // that tick's own reading. Stress is often missing on a worn sleep tick that
@@ -446,6 +464,7 @@ final class OriginDataSync {
             var row: [String: Any] = [
                 "user_id": userId,
                 "ts": iso.string(from: ts),
+                "origin_read_at": originReadISO.string(from: dated.readAt),
                 "sampled_tz": tz,
                 // The calendar day derived from the offset travels with the batch: without it
                 // two pages cannot be put back in order.
@@ -471,14 +490,21 @@ final class OriginDataSync {
             return row
         }
 
+        invalidHrvTicks.subtract(hrvTicks.keys)
+        let invalidHrvSamples = invalidHrvTicks.sorted().map {
+            VitalSample(ts: $0, hr: nil, stress: nil, hrvValid: false, hrvObservedAt: now)
+        }
         localSamples = VitalSample.merging(localSamples, with:
-            Self.auxiliarySamples(temperatureTicks: temperatureTicks, hrvTicks: hrvTicks) + nightAuxiliary)
+            Self.auxiliarySamples(temperatureTicks: temperatureTicks, hrvTicks: hrvTicks,
+                                  observedAt: now) + nightAuxiliary + invalidHrvSamples)
         guard ConsentStore.shared.granted, await db.currentUserId == userId,
               BoundBand.identifier == deviceKey, !Task.isCancelled else { lastOutcome = "failed"; return 0 }
         Self.clearWrongDaySleep(for: day, store: store)
+        invalidHrvMinutes.subtract(hrvMinuteTicks.keys)
         let measuredSleep = Self.sleepSummary(night: night, day: day, store: store,
                                              oxygen: oxygenTicks, respiration: respirationTicks,
-                                             hrv: hrvMinuteTicks, hrvReadComplete: hrvMinuteReadComplete)
+                                             hrv: hrvMinuteTicks, hrvReadComplete: hrvMinuteReadComplete,
+                                             invalidHrvMinutes: invalidHrvMinutes, observedAt: now)
         #if DEBUG
         NightDiagnostics.shared.record("sync.mapped", fields:
             HomeSnapshot.diagnosticFields(day: day, samples: localSamples, sleep: measuredSleep).merging([
@@ -520,11 +546,13 @@ final class OriginDataSync {
                 "p_device_key": deviceKey, "p_domain": "origin", "p_day": Self.dayString(day.start),
                 "p_timezone": tz, "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
                 "p_status": "partial", "p_mapping_version": "veepoo-rmssd-v1",
+                "p_observed_at": iso.string(from: now),
             ], userId: userId)
             _ = try persistEvidence(samples: rrRows, args: [
                 "p_device_key": deviceKey, "p_domain": "rr", "p_day": Self.dayString(day.start),
                 "p_timezone": tz, "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
-                "p_status": "partial", "p_mapping_version": "veepoo-rmssd-v1",
+                "p_status": "partial", "p_mapping_version": "veepoo-rmssd-v2",
+                "p_observed_at": iso.string(from: now),
             ], userId: userId)
         } catch {
             auxiliaryUploaded = false
@@ -536,16 +564,6 @@ final class OriginDataSync {
         // can be shown as soon as they leave the wrist. The timestamp merge also preserves
         // HRV or temperature already loaded from their auxiliary SDK streams.
         Self.apply(latest, to: store)
-        if let tick = latestBatteryTick {
-            store.applyLiveBodyBattery(
-                heartRate: tick.point.heart,
-                hrvMS: tick.point.hrv,
-                stress: tick.point.stress,
-                steps: tick.point.step,
-                met: tick.point.met,
-                at: tick.ts
-            )
-        }
 
         // ⚠️ The night's own HRV is not computed here and never was computable here. A night
         // that begins before midnight lies in the previous calendar day — a different SDK
@@ -594,7 +612,17 @@ final class OriginDataSync {
                 var raw: [String: Any] = ["respiration": respirationRows,
                                           "intervals": intervals, "line": stageRows]
                 if let hrv = measuredSleep?.hrv {
-                    raw["hrv"] = hrv.map { ["ts": iso.string(from: $0.ts), "rmssd_ms": $0.rmssdMS] }
+                    raw["hrv"] = hrv.map { point -> [String: Any] in
+                        var row: [String: Any] = ["ts": iso.string(from: point.ts), "rmssd_ms": point.rmssdMS]
+                        if let observedAt = point.observedAt { row["observed_at"] = iso.string(from: observedAt) }
+                        return row
+                    }
+                }
+                if let invalidations = measuredSleep?.hrvInvalidatedMinutes, !invalidations.isEmpty {
+                    raw["hrv_invalidated"] = invalidations.sorted { $0.key < $1.key }.map {
+                        ["ts": iso.string(from: $0.key), "observed_at": iso.string(from: $0.value),
+                         "reason": "insufficient_adjacent_rr"]
+                    }
                 }
                 row["raw"] = raw
                 let local = try LocalDataStore.shared()
@@ -617,7 +645,10 @@ final class OriginDataSync {
         let domains: [(String, [[String: Any]], BandDomainReadStatus)] = [
             ("origin", rows, originStatus),
             ("hrv", hrvTicks.sorted { $0.key < $1.key }.map {
-                ["ts": iso.string(from: $0.key), "hrv": ($0.value * 10).rounded() / 10]
+                ["ts": iso.string(from: $0.key), "hrv": ($0.value * 10).rounded() / 10, "hrv_valid": true]
+            } + invalidHrvTicks.sorted().map {
+                ["ts": iso.string(from: $0), "hrv": NSNull(), "hrv_valid": false,
+                 "hrv_invalid_reason": "insufficient_adjacent_rr"]
             }, hrvStatus),
             ("temperature", temperatureTicks.sorted { $0.key < $1.key }.map {
                 ["ts": iso.string(from: $0.key), "temp": ($0.value * 10).rounded() / 10]
@@ -637,7 +668,9 @@ final class OriginDataSync {
                     "p_day": Self.dayString(day.start), "p_timezone": tz,
                     "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
                     "p_samples": samples, "p_status": readStatus.rawValue,
-                    "p_mapping_version": "veepoo-rmssd-v1",
+                    // RR adjacency changed in v2; the origin mapping is unchanged.
+                    "p_mapping_version": domain == "origin" ? "veepoo-rmssd-v1" : "veepoo-rmssd-v2",
+                    "p_observed_at": iso.string(from: now),
                 ]
                 let pending = try persistEvidence(samples: samples, args: args, userId: userId)
                 let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
@@ -689,6 +722,7 @@ final class OriginDataSync {
                     "p_start": iso.string(from: oxygenStart), "p_end": iso.string(from: oxygenEnd),
                     "p_samples": oxygenSamples, "p_status": oxygenRead.rawValue,
                     "p_mapping_version": "veepoo-spo2-v1",
+                    "p_observed_at": iso.string(from: now),
                 ]
                 let pending = try persistEvidence(samples: oxygenSamples, args: args, userId: userId)
                 let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
@@ -732,6 +766,7 @@ final class OriginDataSync {
                     "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
                     "p_samples": opticalSamples, "p_status": opticalRead.rawValue,
                     "p_mapping_version": "veepoo-optical-v1",
+                    "p_observed_at": iso.string(from: now),
                 ]
                 let pending = try persistEvidence(samples: opticalSamples, args: args, userId: userId)
                 let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
@@ -768,6 +803,8 @@ final class OriginDataSync {
         if settle, await db.currentUserId == userId {
             await Repository.shared.settleNow(days: day == UserDay.containing(now) ? 1 : 2)
             await Repository.shared.load(days: 1, endingAt: day, into: store)
+            guard await db.currentUserId == userId else { return changedCount }
+            await Repository.shared.loadSleepScores(days: 30, endingAt: store.today.day, into: store)
         }
         #if DEBUG
         diagnosticCompleted = true
@@ -796,7 +833,8 @@ final class OriginDataSync {
 
     private static func sleepSummary(night: SleepNight?, day: UserDay, store: DataStore,
                                      oxygen: [Date: Int], respiration: [Date: Double],
-                                     hrv: [Date: Double] = [:], hrvReadComplete: Bool = false) -> SleepSummary? {
+                                     hrv: [Date: Double] = [:], hrvReadComplete: Bool = false,
+                                     invalidHrvMinutes: Set<Date> = [], observedAt: Date = Date()) -> SleepSummary? {
         let existing = Self.sleepOnCalendarDay(
             (store.today.day == day ? store.today : store.history.first { $0.day == day })?.sleep, day: day)
         let sameWindow = night?.sleepStart == existing?.sleepStart && night?.wakeAt == existing?.wakeAt
@@ -830,12 +868,17 @@ final class OriginDataSync {
         result.respiration = savedRespiration.merging(respiration.filter { inSleep($0.key) },
             uniquingKeysWith: { _, fresh in fresh }).sorted { $0.key < $1.key }
             .map { SleepRespirationPoint(ts: $0.key, breathsPerMinute: $0.value) }
-        let savedHRV = Dictionary((existing?.hrv ?? []).filter { inSleep($0.ts) }
-            .map { ($0.ts, $0.rmssdMS) }, uniquingKeysWith: { _, fresh in fresh })
-        let combinedHRV = savedHRV.merging(hrv.filter { inSleep($0.key) },
-            uniquingKeysWith: { _, fresh in fresh }).sorted { $0.key < $1.key }
-            .map { SleepHRVPoint(ts: $0.key, rmssdMS: $0.value) }
-        result.hrv = combinedHRV.isEmpty && !hrvReadComplete && existing?.hrv == nil ? nil : combinedHRV
+        let invalidations = (existing?.hrvInvalidatedMinutes ?? [:])
+            .merging(Dictionary(uniqueKeysWithValues: invalidHrvMinutes.map { ($0, observedAt) }),
+                     uniquingKeysWith: max).filter { inSleep($0.key) }
+        result.hrvInvalidatedMinutes = invalidations.isEmpty ? nil : invalidations
+        let freshHRV = hrv.filter { inSleep($0.key) }.map {
+            SleepHRVPoint(ts: $0.key, rmssdMS: $0.value, observedAt: observedAt)
+        }
+        let combinedHRV = SleepHRVPoint.merging((existing?.hrv ?? []).filter { inSleep($0.ts) },
+                                               with: freshHRV, invalidatedMinutes: invalidations)
+        result.hrv = combinedHRV.isEmpty && !hrvReadComplete && existing?.hrv == nil
+            && invalidations.isEmpty ? nil : combinedHRV
         return result
     }
 
@@ -887,7 +930,8 @@ final class OriginDataSync {
             var single = args
             single["p_samples"] = [sample]
             single["p_status"] = "partial"
-            // The stable measured-minute interval prevents a later sync clock from duplicating it.
+            // Keep the measurement range and observation clock in the durable payload.
+            // A retry reuses both; a later device read is a distinct revision.
             if let raw = sample["ts"] as? String, let ts = iso.date(from: raw) {
                 single["p_start"] = raw
                 single["p_end"] = iso.string(from: ts.addingTimeInterval(60))
@@ -959,7 +1003,7 @@ final class OriginDataSync {
             return (operation, args)
         }
         let groups = Dictionary(grouping: decoded) { item in
-            ["p_device_key", "p_domain", "p_day", "p_timezone", "p_mapping_version"].map {
+            ["p_device_key", "p_domain", "p_day", "p_timezone", "p_mapping_version", "p_observed_at"].map {
                 item.1[$0] as? String ?? ""
             }.joined(separator: "|")
         }
@@ -1032,6 +1076,8 @@ final class OriginDataSync {
                 }
                 await Repository.shared.settleNow(days: days)
                 await Repository.shared.load(days: days, endingAt: today, into: store)
+                guard SupabaseClient.currentUserIdSnapshot() == userId else { return false }
+                await Repository.shared.loadSleepScores(days: 30, endingAt: today, into: store)
             }
             return everyDayAnswered
         }()

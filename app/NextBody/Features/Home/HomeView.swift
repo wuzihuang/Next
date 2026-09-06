@@ -832,36 +832,18 @@ struct HomeView: View {
         guard !planDone.contains(kind.rawValue) else { return }
         planDone.insert(kind.rawValue)
         PlanChecks.save(dayKey: data.today.day.key, done: planDone)
-        regeneratePlan(mark: kind, done: true)
+        // ADR 0018 · a tick is a record, not a turn. It used to fire /turn per tick and
+        // spend half the day's allowance on five checkboxes.
+        refreshPlanFace()
     }
 
     private func regeneratePlan(mark: PlanFaceMath.ActionKind? = nil, done: Bool? = nil) {
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
-        if !reachability.isOnline || DebugEdge.on("offline") {
-            note(DockNote(line: L("NO CONNECTION"), text: L("It stays here. Send it when you're back.")))
-            return
-        }
-        guard !planGenerating else { return }
-        planGenerating = true
-        let text: String
-        if let mark, let done {
-            text = L("Today's plan: %@ is %@. Regenerate the plan.",
-                     planMetricName(mark), done ? L("DONE") : L("NOT DONE"))
-        } else {
-            text = L("Regenerate today's plan from the latest reads.")
-        }
-        let day = data.today.day
-        let requestID = beginPanelRequest()
-        Task {
-            let frame = await ai.turn(text, day: day, store: data)
-            await Analytics.shared.track("PLAN_REGENERATE", ["MARK": mark?.rawValue ?? "ALL"])
-            await MainActor.run {
-                planGenerating = false
-                refreshPlanFace()
-                guard panelRequestID == requestID else { return }
-                if let frame { widget = frame }
-            }
-        }
+        // ADR 0018 · until the plan surface lands (docs/plans/2026-09-06-ai-plan-memory-actions.md
+        // phase 2) this only reassembles the local face. The old path sent a panel turn whose
+        // frame replaced the Home widget behind the plan page, which is not what the button says.
+        refreshPlanFace()
+        Task { await Analytics.shared.track("PLAN_REGENERATE", ["MARK": mark?.rawValue ?? "ALL"]) }
     }
 
     private func planMetricName(_ kind: PlanFaceMath.ActionKind) -> String {

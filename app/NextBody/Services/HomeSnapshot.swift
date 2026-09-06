@@ -70,6 +70,7 @@ enum HomeSnapshot {
         var bodyFatPercent: Double?
         var history: [DailyMetrics]
         var details: [Detail]? = nil
+        var sleepScores: [String: SleepScore]? = nil
     }
 
     @MainActor
@@ -159,9 +160,13 @@ enum HomeSnapshot {
 
     private static func filteredSleep(_ sleep: SleepSummary) -> SleepSummary {
         var result = sleep
+        result.hrvInvalidatedMinutes = sleep.hrvInvalidatedMinutes.map {
+            $0.filter { sleep.containsSleepTimestamp($0.key) }
+        }
         result.hrv = sleep.hrv.map { points in
-            Dictionary(points.map { ($0.ts, $0) }, uniquingKeysWith: { _, fresh in fresh })
-                .values.filter { sleep.containsSleepTimestamp($0.ts) }.sorted { $0.ts < $1.ts }
+            SleepHRVPoint.merging([], with: points,
+                                  invalidatedMinutes: result.hrvInvalidatedMinutes ?? [:])
+                .filter { sleep.containsSleepTimestamp($0.ts) }
         }
         return result
     }
@@ -175,8 +180,22 @@ enum HomeSnapshot {
            let newStart = fresh.sleepStart, let newEnd = fresh.wakeAt {
             containedPartial = newStart >= oldStart && newEnd <= oldEnd && !sameWindow
         } else { containedPartial = false }
-        guard sameWindow || containedPartial else { return fresh }
+        let invalidations = (stored.hrvInvalidatedMinutes ?? [:])
+            .merging(fresh.hrvInvalidatedMinutes ?? [:], uniquingKeysWith: max)
+        guard sameWindow || containedPartial else {
+            var result = fresh
+            // Corrections identify measured instants, so an overlapping window revision
+            // must retain them even when its sleep summary is otherwise replaced.
+            result.hrvInvalidatedMinutes = invalidations.isEmpty ? nil : invalidations
+            let overlappingHRV = (stored.hrv ?? []).filter { fresh.containsSleepTimestamp($0.ts) }
+            if !overlappingHRV.isEmpty || fresh.hrv != nil {
+                result.hrv = SleepHRVPoint.merging(overlappingHRV, with: fresh.hrv ?? [],
+                                                   invalidatedMinutes: invalidations)
+            }
+            return filteredSleep(result)
+        }
         var result = containedPartial ? stored : fresh
+        result.hrvInvalidatedMinutes = invalidations.isEmpty ? nil : invalidations
         result.intervals = result.intervals ?? stored.intervals
         if result.line.isEmpty { result.line = stored.line }
         result.spo2 = (stored.spo2 + fresh.spo2).reduce(into: [Date: OvernightOxygenPoint]()) {
@@ -188,9 +207,8 @@ enum HomeSnapshot {
                 .values.sorted { $0.ts < $1.ts }
         }
         if stored.hrv != nil || fresh.hrv != nil {
-            result.hrv = ((stored.hrv ?? []) + (fresh.hrv ?? []))
-                .reduce(into: [Date: SleepHRVPoint]()) { $0[$1.ts] = $1 }
-                .values.sorted { $0.ts < $1.ts }
+            result.hrv = SleepHRVPoint.merging(stored.hrv ?? [], with: fresh.hrv ?? [],
+                                               invalidatedMinutes: invalidations)
         }
         return filteredSleep(result)
     }
@@ -265,7 +283,8 @@ enum HomeSnapshot {
             netLeanMass12w: store.netLeanMass12w,
             bodyFatPercent: store.bodyFatPercent,
             history: Array(store.history.suffix(183)),
-            details: (Array(store.history.suffix(14)) + [today]).map(Detail.init)
+            details: (Array(store.history.suffix(14)) + [today]).map(Detail.init),
+            sleepScores: store.sleepScores
         )
         guard let data = try? JSONEncoder().encode(payload) else { return false }
         do {
@@ -366,7 +385,6 @@ enum HomeSnapshot {
             store.recentMeals = payload.recentMeals
             store.vitals = payload.live
             store.lastSync = payload.lastSync
-            store.rebaseBodyBatteryPreview(at: payload.savedAt)
             if let yesterday = payload.yesterday {
                 var row = restored(yesterday)
                 row.vitalsCurve = payload.yesterdayVitals
@@ -379,6 +397,15 @@ enum HomeSnapshot {
         }
         history.sort { $0.day < $1.day }
         store.history = history
+        // Optional for snapshots written before scores were cached. The dictionary is
+        // authoritative; a deleted score must not reappear from an older day detail.
+        let from = current.adding(days: -29).key
+        store.sleepScores = (payload.sleepScores ?? [:]).filter { $0.key >= from && $0.key <= current.key }
+        store.sleepScoreLoadState = .idle
+        store.today.sleepScore = store.sleepScores[store.today.day.key]
+        for index in store.history.indices {
+            store.history[index].sleepScore = store.sleepScores[store.history[index].day.key]
+        }
     }
 
     private static func load(userId: String) -> Payload? {

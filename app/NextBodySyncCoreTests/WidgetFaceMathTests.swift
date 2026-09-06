@@ -49,6 +49,7 @@ final class WidgetFaceMathTests: XCTestCase {
         var glance = WidgetFaceMath.Glance.placeholder
         glance.eaten = nil
         glance.numbersAt = Date(timeIntervalSince1970: 0)
+        glance.batteryObservedAt = glance.numbersAt
         let now = Date(timeIntervalSince1970: WidgetFaceMath.staleAfter + 1)
         let read = WidgetFaceMath.today(glance, now: now)
         XCTAssertTrue(read.stale)
@@ -73,6 +74,7 @@ final class WidgetFaceMathTests: XCTestCase {
     func testStaleAlsoWithdrawsALoggedEaten() {
         var glance = WidgetFaceMath.Glance.placeholder
         glance.numbersAt = Date(timeIntervalSince1970: 0)
+        glance.batteryObservedAt = glance.numbersAt
         let now = Date(timeIntervalSince1970: WidgetFaceMath.staleAfter)
         let read = WidgetFaceMath.today(glance, now: now)
         XCTAssertTrue(read.stale)
@@ -149,5 +151,35 @@ final class WidgetFaceMathTests: XCTestCase {
     func testDistanceIsKilometresOneDecimal() {
         XCTAssertEqual(WidgetFaceMath.kmText(6_200), "6.2")
         XCTAssertEqual(WidgetFaceMath.kmText(nil), WidgetFaceMath.dash)
+    }
+
+    func testMealRefreshCannotRenewAnOldBodyBattery() {
+        var glance = WidgetFaceMath.Glance.placeholder
+        let now = glance.numbersAt.addingTimeInterval(2 * 3600)
+        glance.numbersAt = now
+        glance.eaten = 1_500
+        let read = WidgetFaceMath.today(glance, now: now)
+        XCTAssertEqual(read.batteryText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.batteryProgress, 0)
+        XCTAssertEqual(read.eatenText, "1,500")
+        XCTAssertEqual(read.loadText, "12.4")
+    }
+
+    func testLegacyGlanceWithoutReserveTimestampDoesNotInventFreshness() throws {
+        var glance = WidgetFaceMath.Glance.placeholder
+        glance.batteryObservedAt = nil
+        let encoded = try JSONEncoder().encode(glance)
+        let decoded = try JSONDecoder().decode(WidgetFaceMath.Glance.self, from: encoded)
+        XCTAssertEqual(WidgetFaceMath.today(decoded, now: decoded.numbersAt).batteryText,
+                       WidgetFaceMath.dash)
+    }
+
+    func testBatteryExpirySchedulesReloadEvenWhenOtherNumbersAreNew() {
+        var glance = WidgetFaceMath.Glance.placeholder
+        let start = glance.numbersAt
+        let now = start.addingTimeInterval(80 * 60)
+        glance.numbersAt = now
+        XCTAssertEqual(WidgetFaceMath.nextReload(after: glance, now: now),
+                       start.addingTimeInterval(90 * 60))
     }
 }

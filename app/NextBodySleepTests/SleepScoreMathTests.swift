@@ -5,6 +5,36 @@ import XCTest
 /// against a real Postgres by supabase/tests/night_score/run.sh; what is left in Swift is
 /// the reduction over nights, and these are the parts of it that can be quietly wrong.
 final class SleepScoreMathTests: XCTestCase {
+    func testHRVScaleIncludesMeasuredHighValuesWithoutFlatteningThem() {
+        let maximum = SleepScoreMath.hrvUpperBound([67.8, 95, 168.259])
+        XCTAssertEqual(maximum, 180)
+        XCTAssertGreaterThan(VitalsProbeMath.yFraction(value: 95, low: 0, high: maximum),
+                             VitalsProbeMath.yFraction(value: 168.259, low: 0, high: maximum))
+    }
+
+    func testHRVScaleKeepsMinimumAndIgnoresInvalidMeasurements() {
+        XCTAssertEqual(SleepScoreMath.hrvUpperBound([]), 90)
+        XCTAssertEqual(SleepScoreMath.hrvUpperBound([0, -10, .nan, .infinity, 70]), 90)
+        XCTAssertEqual(SleepScoreMath.hrvUpperBound([300]), 300)
+    }
+
+    func testEffectiveWeightsExcludeMissingRegularityButIncludeZeroScores() {
+        let weights = SleepScoreMath.effectiveWeights(values: [77, 80, 99, nil], weights: [25, 25, 35, 15])
+        XCTAssertEqual(weights[0]!, 25.0 / 85 * 100, accuracy: 0.001)
+        XCTAssertEqual(weights[2]!, 35.0 / 85 * 100, accuracy: 0.001)
+        XCTAssertNil(weights[3])
+        XCTAssertEqual(SleepScoreMath.effectiveWeights(values: [0, nil], weights: [25, 35]), [100, nil])
+    }
+
+    func testNoGroupsCannotProduceEffectiveWeights() {
+        XCTAssertEqual(SleepScoreMath.effectiveWeights(values: [nil, nil], weights: [25, 35]), [nil, nil])
+    }
+
+    func testBedtimeComparisonUsesSuppliedScoringBaselineAndWrapsAcrossEvening() {
+        XCTAssertEqual(SleepScoreMath.bedtimeDeviation(bedtime: 480, baseline: 300), 180)
+        XCTAssertEqual(SleepScoreMath.bedtimeDeviation(bedtime: 10, baseline: 1430), 20)
+        XCTAssertEqual(SleepScoreMath.bedtimeDeviation(bedtime: 1430, baseline: 10), -20)
+    }
 
     // MARK: median
 

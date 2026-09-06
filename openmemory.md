@@ -252,6 +252,21 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
+- **Notification reach (not shipped)** — Permission primer + in-app morning
+  panel are built; lock-screen / Notification Center delivery is not.
+  `NotificationPrimer` (F5 C4) asks after the first real `MorningWidget`
+  or from Profile › Notifications; `Turn on` is the only path to the
+  system dialog. `MorningWidget` paints LAST NIGHT on Home within 6h of
+  the curve peak, once per 04:00 day. Profile switches
+  (`nb.notif.morning/training/weekly/quiet`) are UserDefaults only — no
+  `UNNotificationRequest`, no APNs (`aps-environment` absent), no
+  `remote-notification` background mode, no device token, no
+  `UNUserNotificationCenterDelegate`. `onOpenURL` handles Google Sign-In
+  and `nextbody://log?via=photo` only; F1's four notification deep links
+  (`home?panel=body_battery`, `fuel?slot=`, `device`, `composition?date=`)
+  are not routed. F5 says the only notify is 昨夜; the sheet's other three
+  switches and F1's extra deep links are unresolved. Sport Live Activity
+  and the TODAY widget are glance surfaces, not this pipeline.
 - **System widget (Paper THREE TIERS)** — TODAY on `NextBodyLiveActivity`
   ships three families on one carbon, no tile columns: small = body battery
   only; medium = three rings then a rail (`NEXTBODY` white, no lime square,
@@ -319,6 +334,9 @@ model credentials and tool execution server-side.
 - `Router`: one-level detail navigation; leaving the root snapshots `homePage`, and every dismiss restores it so page-two vitals return to page two. Destinations include `sportMode`.
 - `HomeView`: owns the current optional `PanelWidget`, dock state, and panel callbacks; the pager index lives on `Router.homePage` so NavigationStack push/pop cannot wipe it.
 - `AIPanel`: renders STANDBY when no widget exists, THINKING during a request, and a completed personalized widget frame.
+- `StreamHaptics`: typing ticks + a line tap while THINKING; when the turn lands,
+  `settled()` is one Core Haptics needle (intensity 0.9, sharpness 1.0). No continuous
+  body — that 55 ms mid-band knock read as dirty. Same cue on Home and Chat.
 - `PanelWidgetView`: renders the server-declared widget envelope on the fixed 358 × 470 panel canvas.
 - `Chrome`: shared page geometry and reusable navigation/close controls. `DetailScroll` draws `‹ TITLE` as one control — the board chevron sits on the large title's baseline and docks with it. An invisible 56pt 热区 covers the mark (and the word at rest); Chat's header uses the same cluster. `detailEdgeBack` is a window left-edge pan (`EdgeBackGate`) that offsets the page 1:1 with the finger (40% / 300 pt/s commit, same numbers as 04B). It is not an overlay on the ‹ mark. `NB_DEBUG_ROUTE` stops retrying after the first successful land so a pop stays popped. Regression: `NextBodyUITests/DetailBackTapTests` (tap matrix + swipe commit/cancel).
 - `AIService`: sends user turns and decodes rendered widget frames.

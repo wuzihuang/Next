@@ -10,6 +10,8 @@ export const PANEL_TYPES = [
   "battery", "metric", "text", "line", "band", "bars", "days", "sparks", "ring", "gauge",
   "split", "cells", "hypnogram", "zones", "wave", "table", "workout", "events", "heat",
   "o2night", "food", "meal", "fuel", "balance", "recomp", "delta", "dual",
+  // ADR 0018 · the plan face's own frame: title, summary, three to five tasks.
+  "plan",
 ] as const;
 
 export type PanelType = (typeof PANEL_TYPES)[number];
@@ -30,7 +32,7 @@ export const SLEEP_TYPES = ["hypnogram", "split", "o2night"] as const;
 export const RENDERABLE_TYPES = PANEL_TYPES;
 
 /// F0 rule 06 · every widget declares the page it lands on. There is no sixth destination.
-export const TARGETS = ["training", "fuel", "bodyBattery", "composition", "profile"] as const;
+export const TARGETS = ["training", "fuel", "bodyBattery", "composition", "profile", "plan"] as const;
 
 /// 07 · 04 · fourteen fields, four of them required. Anything outside this table is
 /// dropped without an error; a missing required field is E_SCHEMA and the frame never ships.

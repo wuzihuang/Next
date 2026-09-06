@@ -1,55 +1,109 @@
 # 13 · 昨夜与 Body Battery — THE NUMBER THAT SETS TODAY
 
-Mirrored from node `1CC9-0` (2174 × 6538), then Paper `13A` / `13B` 方案一（ADR 0017）。
-**NOT IN V1**: 睡眠详情页、分期图、睡眠分；「几点该睡」「明早会到多少」。
-周 / 月已落地：醒来高点的平均，不是加总。主色 lime，不是紫。
+来源：设计节点 `1CC9-0`，后按 Paper `13A` / `13B` 方案一落地，见 ADR 0017。
+2026-09-06 算法与显示合同修订：以真实测量时间、独立数据质量及一次完整结算结果为准。
+身体电量页不展示睡眠时长、分期或睡眠分；本页不预测何时睡觉、明早电量或“几点充满”。
+周 / 月展示有效晨值的平均，主色为 lime。
 
 ## Screens
-**01 昨夜 · ONE WIDGET · ONCE A DAY · WAKE + 6H** — panel: `LAST NIGHT · 07:12` · `72` OF 100 ·
-`CHARGED +38 · NORMAL CHARGE` (lime) · *About as much as you usually charge. Today can take a
-normal session.* · `TAP TO SEE WHY →`. Behind it a two-colour curve: the night in lime, the
-day so far in white.
-**02 详情上半** — HERO + WHY 72 (4 ROWS · MUST CLOSE · ±0.5) + the next card peeking.
-**03 详情下半** — INPUTS (3 INPUTS · 3 TIERS · NO SLEEP NUMBERS) · TARGET · CONFIDENCE · FOOTER.
-**04 第一天** — NO CURVE · NO TARGET · NO SKELETON.
-**05 解剖** — 5-MIN TICK · PURE FUNCTION · REPLAYABLE.
 
-## Sec 01 · Inputs (each points at a real SDK field)
-sleep stages per tick (`sleepLine` first, `sleepStates` fallback) → charge q(t), 深 1.25 / 浅 0.85
-/ 床上醒 0.15 · sleep duration only as a ≥4h gate · night HRV (RMSSD from `rrIntervals`, ±25% vs
-14-night baseline; missing → m=1.00, confidence −1) · night RHR (5th percentile, +15%/−20%) · MET
-(k_a = 0.22 over 1.0) · steps (fallback for MET) · stress (k_s = 0.25, dead-zone 40; missing →
-drop the term, no re-weighting, no downgrade) · sport sessions (annotation only, no extra drain)
-· wear (heartValue empty ≥ 3 ticks).
+- **昨夜晨间卡**：每个用户日最多展示一次，窗口为真实 `wake_at` 起六小时。需要实际晨值、醒来时间及整夜 `night_charge`。数值为该次晨值；充电量采用下表统一分档。缺整夜充电量时不拿用户日归因补上。曲线使用统一颜色，不依据一个峰值推断整天睡醒状态。
+- **DAY**：当前身体电量、实际观测曲线、WHY 四行、夜间输入、晨间训练目标、心率 / 压力、独立置信度和同步入口。没有夜间记录但已有有效白天测量时，可显示白天估计；没有晨值则不设晨间目标。
+- **WEEK / MONTH**：滚动 7 / 30 个用户日的有效晨值均值，缺晨值的日期不填零。30 天从末尾每七天分组，为 `2 + 7 + 7 + 7 + 7` 五组。
+- **缺近期读数**：当前数字显示 `——`，说明需要同步近期手环数据；没有睡眠不等于没有佩戴，也不等于一定无法估计白天电量。
 
-## Sec 02 · The math
-Five-minute pure replay, from the previous day's close. Veepoo's authoritative sleep stages come
-from `VPAccurateSleepModel.sleepLine`: deep 0 / light 1 / REM 2 / insomnia 3 / awake 4. The
-original-data dictionary's absent `sleep_states` is never treated as awake.
+四个充电标签仅描述整夜增加的绝对点数，不与个人常态比较，也不表示电量已满。
+先按服务端发布的整数整夜充电量分档；所有入口调用 `BodyBattery.chargeWord`。
 
-Sleep recovery is saturating rather than a linear deposit:
-`gain(t) = (95 − BB(t)) · (1 − exp(−0.011 · q(t) · M))`, where q is deep 1.25 / light 0.85 /
-REM 1.00 / insomnia 0.15 / awake 0. M is the clamped HRV × RHR multiplier.
+| 整夜充入点数 | 英文标签 | 中文 |
+|---|---|---|
+| <20 | LIGHT CHARGE | 充得不多 |
+| 20–31 | MODERATE CHARGE | 充电适中 |
+| 32–44 | STRONG CHARGE | 充得较多 |
+| ≥45 | VERY STRONG CHARGE | 充得很多 |
 
-Awake drain is additive and independently attributable:
-`drain(t) = 0.12 + movement(HRR, MET, steps) + autonomic(stress, RMSSD) − restorative_rest`.
-HRR, MET and steps observe the same movement, so their maximum wins rather than charging one
-workout three times. Stress above 40 and RMSSD below the personal baseline form the autonomic
-term, attenuated during exercise. Twenty quiet minutes can restore a small amount, capped at
-5 points/day and below 80. No wear evidence holds the previous value; it never spends battery.
-The first valid night starts from an explicitly assumed 20. Replay converges because recovery
-shrinks as BB approaches 95.
+这些分界是产品展示分档，未经生理准确度标定；不能据此声称“低于平常”或“正常”。
 
-Sleep is recovery input, not a scoring gate. With no previous close and no placeable sleep
-window, the first worn daytime tick starts from an explicitly assumed neutral 50; `BB_WAKE` and
-the training target stay unset until a real `sleep_start`→`wake_at` window exists.
+## Sec 01 · Inputs
 
-## Sec 03 · Missing
-HRV empty → m=1.00, HRV row not rendered, −1 tier · value-only HRV → LOW, never label MS · not
-worn (<4h & no HR) → no score, BB ——, TARGET NOT SET · an off-wrist tick after a score exists
-holds that score rather than draining it · worn but <4h → count as it came, SHORT
-NIGHT, −1 tier · stress missing → drop term, no downgrade · met all 0 → `1.0 + steps/45`, −1 tier
-· HRV baseline <5 nights → LOW, BASELINE n/14 · last tick >90 min → dim + SYNCED HH:MM · >6h → ——.
+睡眠恢复按手环真实分期偏移与实际记录区间计算：deep 0 / light 1 / REM 2 / insomnia 3 /
+awake 4。分段之间的清醒空档不能压缩；缺分期时，只有可定位的区间或足以支撑完整窗口的
+汇总记录才可回退，不将首睡至末醒的所有空白都算成睡眠。最终晨值绑定这晚真实的 `wake_at`，
+不会因为一次短暂夜醒提前定格，也不以全天曲线最大值代替醒来时间。
+
+夜间 HRV 使用真实睡眠分钟内的 RMSSD，优先保留的分钟数据，五分钟数据仅按自身覆盖使用；
+RHR 使用实际睡眠中的有效心率。两者分别评估覆盖和历史有效夜数，分别建立最近 14 夜基线。
+当前夜或历史不足时，对应倍率因子保持中性；缺 HRV 不代表整个乘数一定为 1，RHR 因子仍独立判断。
+
+白天输入为心率储备比例 HRR、MET、步数、压力和相对基线的 HRV。HRR / MET / 步数描述同一份活动，
+取最大项避免重复消耗。运动会话可作为活动上下文，不再额外扣一次电。
+血氧、呼吸率和皮温不直接折算成电量，是否引入恢复修正需要另外验证。
+
+## Sec 02 · The math and its windows
+
+回放内部保留精度，在五分钟格上累计；睡眠混合槽按实际分钟比例计算。
+睡眠恢复向 95 渐近：
+
+`gain = max(0, 95 − BB) × (1 − exp(−0.011 × q × M))`
+
+`q` 为深睡 1.25 / 浅睡 0.85 / REM 1.00 / insomnia 0.15，awake 转入清醒计算。
+HRV 与 RHR 因子相乘后，`M` 限制在 0.65–1.30；稳定基线使用明确的尺度下限，
+不能因为历史标准差接近零就跳回完全不调整。
+
+清醒消耗：
+
+`drain = 0.12 + max(HRR项, MET项, 步数项) + 自主神经项 − 静休抵扣`
+
+MET 项为 `min(0.75, 0.08 × max(MET−1, 0))`；五分钟步数项为
+`min(0.75, steps / 800 × 0.50)`。自主神经项包含压力超 40 的部分和相对基线的 HRV 下降，
+在活动强度较高时衰减。没有任何有效佩戴 / 睡眠证据的槽保持储量，同时中断静休连续性。
+缺测不是零压力或零疲劳。
+
+静休需要同时具有安静心率、低压力、恢复的 HRV、明确零步数和低活动证据。
+连续满足 20 分钟之后才抵扣消耗；此前的 20 分钟不补发抵扣。原系数保持不变：
+每五分钟最多 `0.05 × max(0, (80−BB)/80)`，每用户日预算 5 点，仅在 BB<80 时生效。
+抵扣小于基础消耗 0.12，因此只会减慢放电，不能宣传为清醒净充电。
+到达 0 时只计实际发生的消耗，按比例缩放归因，避免负值截断后四行无法对账。
+
+储量连续性与充电文案使用不同窗口：
+
+- `anchor` 为用户日开始（本地 04:00）的储量，衔接前日未舍入 close。没有历史锚点但有可定位的首晚时，显式假设 20；没有可定位夜间记录时，可从首个有效白天槽显式假设 50。无有效证据不凭空发布分数。
+- `day_charge` 是本用户日 04:00 起的恢复量，与清醒、活动、压力三个有符号项一起闭合到 `current − anchor`。WHY 显示“04:00 起的恢复”。旧字段 `last_night` 仅作为这一日内项的兼容别名。
+- `night_charge` 是实际整夜从 `sleep_start` 至最终 `wake_at` 的恢复量，跨 04:00 聚合且排除下一晚；昨夜卡、入口充电文案和周 / 月夜间统计只用此字段，缺失时保持未知。
+- `wake_value` 取真实最终醒来时的储量，不是第一个连续睡眠段末值，也不是全天最高值。晚起、凌晨 04:00 前醒来都使用实际时间，没有 `07:12` 兜底。
+- 假设锚点的来源继续随后续储量保留；出现一天派生 close 不等于初始假设已经消失。界面以“起点为估计值”说明其不确定性。
+
+## Sec 03 · Freshness, coverage and publication
+
+当前数字、曲线、四项归因、观测时间、醒来时间、置信度和算法版本来自一次服务端权威结算结果，
+按完整结果替换。单个实时心率 / 压力回调不得仅修改 hero，也不能以一次读数重建静休预算。
+同步按钮走现有的真实数据同步与结算链路，不改写电量，不将当前值还原为晨值，不手工重设训练目标。
+
+新鲜度只读身体电量的 `observed_at`；兼容旧缓存时才使用其曲线末点时间。
+网络拉取时间、设备同步时间及其他指标更新时间都不能把旧电量标成新鲜。
+
+| 距实际观测时间 | 当前数字 / 曲线 |
+|---|---|
+| <90 分钟 | 正常显示 |
+| ≥90 分钟且 <6 小时 | 数字和曲线变暗，显示实际 `SYNCED HH:MM` |
+| ≥6 小时、没有时间或时间位于未来 | 当前数字为 `——`；已知历史曲线仍可保留并变暗 |
+
+页面每分钟重新评估时间，不依赖收到新数据才变暗。真实晨值仍是历史时刻的读数，不冒充 NOW。
+图上每个观测上升段用 lime，持平 / 下降段用白色；超过十分钟的观测间隙断线。
+末点表示最后观测，不延长到现在。横轴和曲线共用本用户日的真实秒数，DST 为 23 / 25 小时，
+下个本地 04:00 始终落在右边界。
+
+置信度使用身体电量专属 `LOW / MEDIUM / HIGH`，不得读取身体成分的 `the_call_confidence`。
+缺少专属质量字段的旧缓存默认为 LOW。覆盖对象包含夜间 HRV / 心率覆盖、有效分钟、最长缺口、
+各自合格历史夜数及白天心率 / HRV / 压力覆盖；界面显示五项覆盖百分比，并分别列出 HRV 和
+静息心率基线的合格夜数。优先读取同批结算的覆盖字段，旧记录回退至夜间输入计数；说明只有
+有效读数充足、没有长记录缺口的夜晚才进入基线，不能把当晚样本总量当成合格历史夜数。
+缺 HRV 或压力降低数据把握，不能解释成“没有压力”。
+
+当前基线有效夜的工程门槛为至少 60 个覆盖分钟、实际睡眠分钟覆盖率至少 50%、最长缺口不超过
+90 分钟；每项历史至少 5 个合格夜后才启用对应倍率。HIGH 要求两种夜间证据及基线均达标，
+并在有白天窗口时具备至少 50% 的心率 / HRV / 压力覆盖；MEDIUM 要求真实晨值及足够白天心率覆盖，
+其余为 LOW。这些是数据充分性的工程规则，不是统计置信区间，也不证明初始锚点或生理模型准确。
 
 ## Sec 04 · Body Battery → target (档内不插值)
 | BB | Target | Optimal | Ring % |
@@ -64,30 +118,25 @@ NIGHT, −1 tier · stress missing → drop term, no downgrade · met all 0 → 
 | 80–89 | 16.0 | 14.0–18.0 | 76% |
 | 90–100 | 18.0 | 15.5–20.0 | 86% |
 
-## Edge cases · 数不出来的时候，宁可什么都不说
-1 NO NIGHT DATA — `NO NIGHT ON THE BAND` · —— OF 100 · *Nothing charged last night. No target
-until tomorrow morning.* · TRAINING RING · TARGET NOT SET (the morning widget is not rendered).
-2 HRV MISSING — `MULTIPLIER 1.00 · NO HRV YET` · 64 · CHARGED +44 · *Reading it plain — no HRV
-to weigh it with.* · CONFIDENCE · ONE TIER DOWN.
-3 FIRST MORNING — `FIRST READING · LOW CONFIDENCE` · 58 OF 100 · *First night on the band — this
-one has a guess under it.* · 20 ASSUMED + 38 CHARGED.
-4 STALE — `SYNCED 07:12 · 2H AGO` · 72 (dim) · *72 as of 07:12.* · CURVE STOPS AT THE LAST REAL TICK.
-5 SHORT NIGHT — `SHORT NIGHT · COUNTED AS IT CAME` · 41 · CHARGED +19 · *Barely charged. Today is
-a light one.* · 3H 20M ON THE WRIST · NO EXTRAPOLATION.
-6 MID-DAY RECHECK — `TARGET 14.5 → 11.0` (lime) · 54 · RE-READ 14:20 · *Re-read: 54. I moved
-today's target down.* · ONE RE-ANCHOR PER DAY.
+晨值发布为整数后按表分档，不在档内插值。目标由这次真实晨值确定；白天电量下降和同步按钮
+都不触发人工重锚。没有晨值时 `target` 保持未设定，不用白天假设 50 生成晨间目标。
 
-## Hard rules
-01 5-min tick grid · 02 BB is float, rounded only at render · 03 today's target is frozen at wake;
-two changes a day at most · 04 the four attribution rows must close (±0.5) · 05 sleep duration
-fields never on screen · 06 `sleepQuality` banned · 07 HRV = own RMSSD · 08 unworn = HR empty ≥3
-ticks · 09 the morning widget once a day, `bb_morning_shown_at` on the 04:00 day, written to the
- cloud · 10 >90 min dim + SYNCED; >6h —— · 11 waking recharge ≤ 5/day and only after a verified
- quiet run; sleep recovery cap 95.
+## Edge cases
 
-## 上线前 (selected)
-0.011/0.12 and the movement/autonomic weights are initial calibration values, not clinical
-constants · stage weights are product heuristics, not KR96 validation · Body Battery is Garmin's
-mark — METRIC_NAMES exists for this · 「CHARGING WHILE YOU WIND DOWN · FULL 06:40」 is the
-product's only prediction · confidence words must share 10's tokens · DST days are 23/25 h.
-Events: `BB_MORNING_SHOWN{SCORE,DELTA,BAND}` · `BB_MORNING_SUPPRESSED{REASON}` · …
+1. **没有夜间记录，但有白天测量**：显示白天电量估计与假设起点说明，晨值 / 训练目标为空，不展示晨间卡。
+2. **没有近期有效测量**：显示 `NO RECENT BATTERY READING` 和真实同步入口，不推断未佩戴，也不承诺只能等第一晚。
+3. **缺少 HRV / 压力或基线不足**：该项数据保持缺失，独立质量等级和覆盖率揭示不足，不伪造 MS、不假定零压力。
+4. **初始储量来自假设**：明确说明起点估计；这与覆盖充分程度是两件事，不凭空宣称第二天就完全准确。
+5. **分段睡眠 / 短暂夜醒**：保留真实空档，晨值直到最终醒来；缺晨值的周 / 月格显示“无晨值”，不是“未佩戴”。
+6. **刷新 / 长期未更新**：真实同步后整体替换结果；读取失败或无新证据时不修改原结果，继续按实际时间显示变暗或缺失状态。
+
+## Hard rules and validation
+
+- 04:00 用户日连续回放；跨日整夜充电独立统计，不能复用日内归因冒充整夜。
+- 内部保留精度，发布整数分数及归因时分配舍入残差，四行必须闭合。
+- 充电上限渐近 95；不显示到 100 的线性 FULL 预测，不承诺安静休息产生净充电。
+- 已授权的真实同步沿用账户、同意、绑定设备及互斥测量边界，不能用 UI 操作伪造分数。
+- UI 回归入口：`python3 app/Tests/diagnostics/body_battery_ui_repro.py`。验证刷新不回写、时间 / 标签 / 归因窗口、置信度隔离、边界新鲜度、旧缓存兼容、完整结果往返及 DST；另执行应用编译与相关 UI 测试。
+
+0.011 / 0.12、分期权重、活动 / 自主神经权重及数据门槛均为当前产品工程参数，尚需纵向标定。
+本次修订修复确定性计算与展示错误，不把工程验证当成设备生理准确度验证。

@@ -1416,9 +1416,9 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     proteinPercent: num(model.proportionOfProtein),
                     subcutaneousFatPercent: num(model.subcutaneousFat),
                     skeletalMusclePercent: num(model.skeletalMuscleRate),
-                    // ⚠️ The BIA's own basalMetabolicRate is a MEASURED reference only.
-                    // It never enters the budget — Mifflin does. Electrode contact can move
-                    // it by tens of kcal, and a budget that shifts with grip is unfindable.
+                    // The BIA's basalMetabolicRate is a device estimate, not a direct
+                    // measurement of resting energy expenditure. Keep it as a reference;
+                    // the daily ledger uses the separate Mifflin estimate.
                     bmrKcal: num(model.basalMetabolicRate).map { Int($0) },
                     bmi: num(model.bmi),
                     inputWeightKg: weight)

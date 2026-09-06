@@ -71,33 +71,25 @@ final class StreamHaptics {
         play(intensity: 0.5, sharpness: 0.35)
     }
 
-    /// The turn is over and the answer is on screen. Hard and short, in the mid band — the
-    /// Taptic Engine has no frequency parameter, so sharpness is the only handle on it:
-    /// 0 sits at the bottom of its range and 1 at the top ≈230 Hz click, and ~130 Hz is
-    /// about a third of the way up. Full intensity at 0.35 sharpness, with a 55 ms
-    /// continuous body giving it weight — long enough to be a knock, far too short to be a
-    /// rumble. It fires even under Reduce Motion: it is an outcome, not decoration.
+    /// The turn is over and the answer is on screen. One needle — a single high-sharpness
+    /// transient, no continuous body. Sharpness 1 is the Taptic Engine's top click (~230 Hz);
+    /// a mid-band tap plus any sustained body reads as a dirty knock. It fires even under
+    /// Reduce Motion: it is an outcome, not decoration.
     func settled() {
         guard HapticsSetting.shared.enabled else { return }
-        guard supported else { settleFallback.impactOccurred(intensity: 1.0); return }
+        guard supported else { settleFallback.impactOccurred(intensity: 0.9); return }
         if engine == nil { makeEngine() }
         try? engine?.start()
-        guard let engine else { return }
+        guard let engine else { settleFallback.impactOccurred(intensity: 0.9); return }
         do {
-            let events = [
-                CHHapticEvent(eventType: .hapticTransient, parameters: [
-                    CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
-                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.4),
-                ], relativeTime: 0),
-                CHHapticEvent(eventType: .hapticContinuous, parameters: [
-                    CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
-                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.35),
-                ], relativeTime: 0.005, duration: 0.055),
-            ]
-            let player = try engine.makePlayer(with: CHHapticPattern(events: events, parameters: []))
+            let tap = CHHapticEvent(eventType: .hapticTransient, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.9),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0),
+            ], relativeTime: 0)
+            let player = try engine.makePlayer(with: CHHapticPattern(events: [tap], parameters: []))
             try player.start(atTime: CHHapticTimeImmediate)
         } catch {
-            settleFallback.impactOccurred(intensity: 1.0)
+            settleFallback.impactOccurred(intensity: 0.9)
         }
     }
 

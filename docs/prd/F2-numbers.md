@@ -120,7 +120,7 @@ FAT Δ7D 阈值 ±0.15 KG，LEAN Δ7D 阈值 ±0.10 KG。九种组合：
 | 10 板的两个 5/7 | CONFIDENCE 数的是称重天数，四信号数的是记录天数，两个分母长得一样 | 拆成 n_scans_7d 与 n_logged_7d 两个计数器两个名字。屏上禁止无主语的分数，必须写 5/7 SCANS 与 6/7 LOGGED。 |
 | 蛋白的 1.8 与 1.9 | 10 屏印着「7 OF 7 DAYS AT OR ABOVE 1.8 G/KG」，09 的目标是 1.9 g/kg | 两个数都对，但必须写清是两件事：1.9 是每日目标，1.8 是四信号里给「蛋白达标」记票的门槛，低 0.1 是因为达标判定不该要求每天精确命中目标。 |
 | 10 的 7 天日变化 vs 11 的 12 周净变化 | 10 屏 FAT −0.42 / LEAN +0.18 · 7D；11 屏 FAT MASS −2.1 / LEAN +1.4 / BODY FAT 14.2。都是 KG、都带正负号、排版一样 | 10 屏已经写了 7D 不用改，字段 fat_ema_delta_7d / lean_ema_delta_7d。11 按它自己 caption 的要求在卡头印区间 (RECOMP · 12 W)，字段 fat_mass_delta_12w 等。⚠️ BODY FAT 14.2 是绝对值不是变化量，夹在两个变化量中间必须单独标注。 |
-| 03 交底页 vs 全局 BMR | BIA 回来的 basalMetabolicRate vs Mifflin 算的 BMR | 每日额度只用 Mifflin。BIA 的 BMR 降级成成分详情里一行 MEASURED 参考值，不进任何算式。理由：电极接触好坏能让它单次差数十 kcal，握姿变了额度就变，这种 bug 用户自己查不出来。 |
+| 03 交底页 vs 全局 BMR | BIA 回来的 basalMetabolicRate vs Mifflin 算的 BMR | 每日额度只用 Mifflin。BIA 的 BMR 是成分详情里的设备估算参考值，标「静息代谢估算」，不当成直接静息代谢测量，不静默替换每日基线。需要独立检测来源才能进一步校准，见 ADR 0004。 |
 | E_ACTIVE 的来源 | OriginData.calValue vs MET 积分 | 一律 MET 积分。calValue 内含厂商自己的基础代谢，与我们的 BMR 双算——这是最容易悄悄多算几百 kcal 的地方。 |
 | 04 首屏环 vs 08 详情环 | 两处各自从原始点重算，于是会出现 12.4 与 12.6 | 同取 daily_metrics.training_load 一个字段。前端不许持有第二份算法。 |
 

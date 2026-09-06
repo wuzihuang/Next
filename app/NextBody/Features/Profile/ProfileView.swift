@@ -212,17 +212,25 @@ struct ProfileView: View {
     /// 13 / ADR 0017 · scheme A. One hot zone between identity and COMPOSITION.
     /// The curve is the read; PEAK / NIGHT / NOW sit under the hairline.
     private var bodyBatteryCard: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            bodyBatteryContent(now: context.date)
+        }
+    }
+
+    private func bodyBatteryContent(now: Date) -> some View {
         let m = data.todayForDisplay
-        let night = m.reserveDrivers?.lastNight
-        let peak = m.reserveCurve.max(by: { $0.value < $1.value })
-        let peakValue = peak?.value ?? m.bbWake
-        let peakClock = peak.map { Fmt.clock($0.ts) } ?? (m.bbWake == nil ? nil : "07:12")
+        let night = m.reserveDrivers?.nightCharge
+        let peakValue = m.bbWake
+        let peakClock = m.bodyBatteryWakeAt.map(Fmt.clock)
+        let currentValue = m.bodyBatteryForDisplay(at: now)
+        let dim = m.bodyBatteryFreshness(at: now) != .fresh
+        let observed = m.bodyBatteryObservedAt.map { L("SYNCED %@", Fmt.clock($0)) } ?? L("NO TICK")
         let word = night.map { BodyBattery.chargeWord(Int($0.rounded())) }
         let chargeLine: String = {
             if let word, let night {
                 return L("%@ · %@", L(word), Fmt.signed(night))
             }
-            return m.bodyBattery == nil ? L("NO NIGHT YET") : L("FROM WRIST DATA")
+            return m.bbWake == nil ? L("FROM WRIST DATA") : L("NIGHT CHARGE UNAVAILABLE")
         }()
         return Button {
             router.open(.bodyBattery, from: .profile)
@@ -231,7 +239,7 @@ struct ProfileView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .center, spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(L("NOW"))
+                            Text(observed)
                                 .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                                 .foregroundStyle(NB.text2)
                             Text(MetricNames.bodyBattery)
@@ -245,7 +253,7 @@ struct ProfileView: View {
                         Spacer(minLength: 0)
                         Chevron()
                     }
-                    BatteryCurve(samples: m.reserveCurve)
+                    BatteryCurve(samples: m.reserveCurve, day: m.day, dim: dim)
                         .frame(height: 88)
                 }
                 .padding(14)
@@ -253,7 +261,7 @@ struct ProfileView: View {
                 Hairline()
 
                 HStack(spacing: 0) {
-                    InstrumentGauge(label: L("PEAK"),
+                    InstrumentGauge(label: L("MORNING"),
                                     value: peakValue.map(String.init) ?? Fmt.dash,
                                     unit: peakClock,
                                     tint: peakValue == nil ? NB.text3Prod : NB.lime1,
@@ -264,9 +272,9 @@ struct ProfileView: View {
                                     tint: night == nil ? NB.text3Prod : NB.lime1,
                                     slot: .middle)
                     VHair()
-                    InstrumentGauge(label: L("NOW"),
-                                    value: m.bodyBattery.map(String.init) ?? Fmt.dash,
-                                    tint: m.bodyBattery == nil ? NB.text3Prod : NB.text1,
+                    InstrumentGauge(label: L(dim ? "LAST READING" : "NOW"),
+                                    value: currentValue.map(String.init) ?? Fmt.dash,
+                                    tint: currentValue == nil || dim ? NB.text3Prod : NB.text1,
                                     slot: .trailing)
                 }
             }

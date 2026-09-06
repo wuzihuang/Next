@@ -1,0 +1,4 @@
+-- Origin correction ownership was consolidated into
+-- 20260906130703_band_observation_revisions.sql before deployment. That migration
+-- creates the private correction audit and the single ingestion implementation;
+-- no later function-body patch may bypass its field provenance or HRV retractions.

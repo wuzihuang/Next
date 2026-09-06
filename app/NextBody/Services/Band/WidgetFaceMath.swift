@@ -35,6 +35,9 @@ enum WidgetFaceMath {
         var responsePoint: Double?
         var nightHrv: Int?
         var spo2: Int?
+        /// Independent clock: a meal/heart update cannot renew an old reserve score.
+        /// Absent in legacy glances, which cannot prove reserve freshness.
+        var batteryObservedAt: Date? = nil
 
         static let empty = Glance(
             numbersAt: .distantPast,
@@ -75,7 +78,8 @@ enum WidgetFaceMath {
             distanceM: 6_200,
             responsePoint: 108,
             nightHrv: 54,
-            spo2: 96)
+            spo2: 96,
+            batteryObservedAt: Date(timeIntervalSince1970: 1_778_086_800))
     }
 
     struct TodayReadout: Equatable, Sendable {
@@ -175,20 +179,26 @@ enum WidgetFaceMath {
     static func nextReload(after glance: Glance, now: Date) -> Date {
         let staleAt = glance.numbersAt.addingTimeInterval(staleAfter)
         let tick = now.addingTimeInterval(15 * 60)
-        if staleAt > now { return min(staleAt, tick) }
-        return tick
+        var next = staleAt > now ? min(staleAt, tick) : tick
+        if let reserveAt = glance.batteryObservedAt?.addingTimeInterval(staleAfter), reserveAt > now {
+            next = min(next, reserveAt)
+        }
+        return next
     }
 
     static func today(_ glance: Glance, now: Date = Date()) -> TodayReadout {
         let signedOut = !glance.signedIn
         let stale = !signedOut && !isFresh(glance, now: now)
         let hideLive = signedOut || stale
+        let hideBattery = signedOut || glance.batteryObservedAt.map {
+            now.timeIntervalSince($0) < 0 || now.timeIntervalSince($0) >= staleAfter
+        } ?? true
         let eatenKnown = glance.eaten != nil
         let eatenHidden = hideLive && eatenKnown
         let eaten = eatenHidden ? nil : glance.eaten
         return TodayReadout(
-            batteryText: hideLive ? dash : batteryText(glance.battery),
-            batteryProgress: hideLive ? 0 : progress(
+            batteryText: hideBattery ? dash : batteryText(glance.battery),
+            batteryProgress: hideBattery ? 0 : progress(
                 value: glance.battery.map(Double.init), ceiling: batteryCeiling),
             loadText: hideLive ? dash : loadText(glance.load),
             loadProgress: hideLive ? 0 : progress(value: glance.load, ceiling: loadCeiling),

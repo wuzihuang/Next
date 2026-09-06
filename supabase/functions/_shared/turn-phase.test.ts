@@ -2,6 +2,8 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   createTurnWorkflow,
   finishTurnStep,
+  restoreTurnWorkflow,
+  serializeTurnWorkflow,
   gateTurnTool,
   MAX_TURN_STEPS,
   WORKFLOW_READY,
@@ -40,6 +42,10 @@ Deno.test("read budget counts model steps, not parallel tool invocations", () =>
     finishTurnStep(state, Array.from({ length: 7 }, () => read));
   }
   assertEquals(state.phase, "render");
+  // Four read steps of eight leave room for one reread; it disappears after two more.
+  assertEquals(state.activeTools, [...renders, WORKFLOW_REREAD]);
+  finishTurnStep(state, []);
+  finishTurnStep(state, []);
   assertEquals(state.activeTools, renders);
   assertEquals(gateTurnTool(state, WORKFLOW_REREAD).allow, false);
 });
@@ -78,7 +84,7 @@ Deno.test("one explicit reread allows parallel reads then returns to rendering",
 Deno.test("reread is hidden when too few steps remain to read and render", () => {
   const state = createTurnWorkflow(reads, renders);
   finishTurnStep(state, [ready]);
-  for (let step = 1; step < 4; step++) finishTurnStep(state, []);
+  for (let step = 1; step < MAX_TURN_STEPS - 2; step++) finishTurnStep(state, []);
   assertEquals(state.activeTools, renders);
 });
 
@@ -117,10 +123,48 @@ Deno.test("turn without data tools can render immediately and cannot reread", ()
   assertEquals(gateTurnTool(state, renders[0]).allow, true);
 });
 
-Deno.test("six steps exhaust workflow even when render keeps failing", () => {
+Deno.test("eight steps exhaust workflow even when render keeps failing", () => {
   const state = createTurnWorkflow(reads, renders);
   for (let step = 0; step < MAX_TURN_STEPS; step++) finishTurnStep(state, []);
-  assertEquals(state.completedSteps, 6);
+  assertEquals(state.completedSteps, 8);
   assertEquals(state.phase, "done");
   assertEquals(state.activeTools, []);
+});
+
+// ADR 0018 · the act step.
+const phones = ["device.alarm.set", "device.find"];
+
+Deno.test("a phone tool moves read to act, closes reads, and one reread reopens them", () => {
+  const state = createTurnWorkflow(reads, renders, phones);
+  assertEquals(state.activeTools, [...reads, ...phones, WORKFLOW_READY]);
+  assertEquals(gateTurnTool(state, "device.alarm.set").allow, true);
+  assertEquals(gateTurnTool(state, "device.find"), { allow: false, error: "ONE_PHONE_TOOL_PER_STEP" });
+  finishTurnStep(state, [{ toolName: "device.alarm.set", result: { suspended: true } }]);
+  assertEquals(state.phase, "act");
+  assertEquals(gateTurnTool(state, "data.read").allow, false);
+  assertEquals(gateTurnTool(state, WORKFLOW_REREAD).allow, true);
+  finishTurnStep(state, [{ toolName: WORKFLOW_REREAD, result: { ok: true } }]);
+  assertEquals(state.phase, "read");
+  finishTurnStep(state, [ready]);
+  assertEquals(state.phase, "render");
+  assertEquals(state.activeTools, renders);
+});
+
+Deno.test("act then ready renders; the workflow survives a serialize and restore", () => {
+  const state = createTurnWorkflow(reads, renders, phones);
+  finishTurnStep(state, [{ toolName: "device.find", result: { suspended: true } }]);
+  const restored = restoreTurnWorkflow(JSON.parse(JSON.stringify(serializeTurnWorkflow(state))));
+  assertEquals(restored.phase, "act");
+  assertEquals(restored.completedSteps, 1);
+  assertEquals(restored.activeTools, state.activeTools);
+  finishTurnStep(restored, [ready]);
+  assertEquals(restored.phase, "render");
+});
+
+Deno.test("the plan surface starts in render with plan.render and may reread once", () => {
+  const state = createTurnWorkflow(reads, ["plan.render"], phones, "render");
+  assertEquals(state.activeTools, ["plan.render", WORKFLOW_REREAD]);
+  finishTurnStep(state, [{ toolName: WORKFLOW_REREAD, result: { ok: true } }]);
+  assertEquals(state.phase, "read");
+  assertEquals(gateTurnTool(state, "data.read").allow, true);
 });

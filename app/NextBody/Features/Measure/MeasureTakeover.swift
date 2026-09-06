@@ -1052,7 +1052,7 @@ struct MeasureTakeover: View {
         let lime = NB.lime1.opacity(0.68)
         let cyan = NB.cyan1.opacity(0.78)
         let ember = NB.ember1.opacity(0.78)
-        let bmr = CompositionAnswer.Field(label: L("BMR"),
+        let bmr = CompositionAnswer.Field(label: L("BMR ESTIMATE"),
                                           value: r.bmrKcal.map(String.init) ?? Fmt.dash,
                                           tint: ember)
         switch goal {

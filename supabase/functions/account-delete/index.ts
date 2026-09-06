@@ -59,6 +59,7 @@ Deno.serve(async (req) => {
       "weigh_ins",
       "body_composition",
       "balance_checks",
+      "sport_heart_rate_samples",
       "oxygen_samples",
       "response_samples",
       "raw_samples",

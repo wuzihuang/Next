@@ -19,6 +19,8 @@ struct HrvMinuteSample: Equatable {
     let vendorValue: Double?
     let rrCount: Int
     var rrMilliseconds: [Double] = []
+    /// Original zero-based SDK positions. Gaps are missing beats, never adjacent pairs.
+    var rrValidIndices: [Int] = []
 }
 
 /// One automatic oxygen reading from the SDK oxygen history, not from origin ticks.
@@ -87,6 +89,24 @@ enum HealthSampleMapping {
         return [daysBack, daysBack - 1]
     }
 
+    /// SDK page zero is the current natural calendar day, even before the 04:00 cut.
+    /// Enumerate the calendar days actually intersecting the requested user-day window.
+    static func deviceDayOffsets(start: Date, now: Date, calendar: Calendar = .current) -> [Int] {
+        guard start <= now,
+              let end = calendar.date(byAdding: .day, value: 1, to: start) else { return [] }
+        let today = calendar.startOfDay(for: now)
+        let finalDay = calendar.startOfDay(for: min(now, end.addingTimeInterval(-1)))
+        var cursor = calendar.startOfDay(for: start)
+        var offsets: [Int] = []
+        while cursor <= finalDay {
+            if let offset = calendar.dateComponents([.day], from: cursor, to: today).day,
+               offset >= 0 { offsets.append(offset) }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor), next > cursor else { break }
+            cursor = next
+        }
+        return offsets
+    }
+
     static func instant(time: String, calendarDay: Date, calendar: Calendar) -> Date? {
         guard let normalized = clock(time) else { return nil }
         let parts = normalized.split(separator: ":").compactMap { Int($0) }
@@ -137,19 +157,22 @@ enum HealthSampleMapping {
 
     static func hrv(from raw: [String: Any]) -> HrvMinuteSample? {
         guard let time = clock(raw["time"] as? String) else { return nil }
-        let rr = (raw["hearts"] as? [Any] ?? [])
-            .compactMap(number)
-            .map { $0 * 10 }
-            .filter { (250...2_500).contains($0) }
-        let rmssd: Double? = rr.count > 1 ? {
-            let squared = zip(rr.dropFirst(), rr).map { next, previous in
-                let delta = next - previous
-                return delta * delta
+        let rr = (raw["hearts"] as? [Any] ?? []).enumerated()
+            .compactMap { index, raw -> (index: Int, milliseconds: Double)? in
+                guard let value = number(raw) else { return nil }
+                let milliseconds = value * 10
+                guard milliseconds.isFinite, (250...2_500).contains(milliseconds) else { return nil }
+                return (index, milliseconds)
             }
-            return sqrt(squared.reduce(0, +) / Double(squared.count))
-        }() : nil
+        let squared = zip(rr.dropFirst(), rr).compactMap { next, previous -> Double? in
+            guard next.index == previous.index + 1 else { return nil }
+            let delta = next.milliseconds - previous.milliseconds
+            return delta * delta
+        }
+        let rmssd = squared.isEmpty ? nil : sqrt(squared.reduce(0, +) / Double(squared.count))
         return HrvMinuteSample(time: time, rmssdMS: rmssd,
-                               vendorValue: number(raw["hrvValue"]), rrCount: rr.count, rrMilliseconds: rr)
+                               vendorValue: number(raw["hrvValue"]), rrCount: rr.count,
+                               rrMilliseconds: rr.map(\.milliseconds), rrValidIndices: rr.map(\.index))
     }
 
     /// Exact measured minutes for the sleep surface. The five-minute origin/server grid
@@ -182,6 +205,31 @@ enum HealthSampleMapping {
             .compactMapValues { median($0.map(\.value)) }
     }
 
+    /// Revoke only a legacy cross-gap result that this read disproves. A missing read is
+    /// not invalid evidence; duplicate valid readings take precedence.
+    static func invalidHRVMinutes(_ samples: [HrvMinuteSample]) -> Set<String> {
+        let valid = Set(hrvByMinute(samples).keys)
+        return Set(samples.compactMap { sample in
+            guard sample.rmssdMS == nil, sample.rrMilliseconds.count >= 2,
+                  sample.rrValidIndices.count == sample.rrMilliseconds.count,
+                  let time = clock(sample.time),
+                  !zip(sample.rrValidIndices.dropFirst(), sample.rrValidIndices)
+                    .contains(where: { $0.0 == $0.1 + 1 }) else { return nil }
+            return valid.contains(time) ? nil : time
+        })
+    }
+
+    /// Another valid minute in the same five-minute slot keeps that slot.
+    static func invalidHRVSlots(_ samples: [HrvMinuteSample]) -> Set<String> {
+        let valid = Set(hrvBySlot(samples).keys)
+        return Set(invalidHRVMinutes(samples).compactMap { time in
+            guard let minutes = minutesSinceMidnight(time) else { return nil }
+            let slot = minutes / 5 * 5
+            let clock = String(format: "%02d:%02d", slot / 60, slot % 60)
+            return valid.contains(clock) ? nil : clock
+        })
+    }
+
     /// ⚠️ Reconstructed on 2026-09-03 from HealthSampleMappingTests after a concurrent edit
     /// to this file was overwritten; the tests are the specification it was rebuilt against.
     ///
@@ -191,18 +239,20 @@ enum HealthSampleMapping {
     static func distanceMeters(from value: Any?) -> Int? {
         guard let raw = number(value), raw.isFinite, raw >= 0 else { return nil }
         let isKilometres = raw.truncatingRemainder(dividingBy: 1) != 0
-        return Int((isKilometres ? raw * 1_000 : raw).rounded())
+        return Int(exactly: (isKilometres ? raw * 1_000 : raw).rounded())
     }
 
     private static func number(_ value: Any?) -> Double? {
-        if let value = value as? NSNumber { return value.doubleValue }
-        if let value = value as? Double { return value }
-        if let value = value as? Int { return Double(value) }
-        if let value = value as? String { return Double(value) }
-        return nil
+        let parsed: Double?
+        if let value = value as? NSNumber { parsed = value.doubleValue }
+        else if let value = value as? Double { parsed = value }
+        else if let value = value as? Int { parsed = Double(value) }
+        else if let value = value as? String { parsed = Double(value) }
+        else { parsed = nil }
+        return parsed.flatMap { $0.isFinite ? $0 : nil }
     }
 
-    private static func integer(_ value: Any?) -> Int? { number(value).map(Int.init) }
+    private static func integer(_ value: Any?) -> Int? { number(value).flatMap { Int(exactly: $0) } }
 
     private static func clock(_ value: String?) -> String? {
         guard let value,

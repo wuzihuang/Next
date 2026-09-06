@@ -11,7 +11,7 @@ enum WidgetGlancePublisher {
             || SessionKeychain.userId != nil
         var glance = WidgetFaceMath.Glance(
             numbersAt: numbersAt ?? now,
-            battery: store.bodyBatteryNow,
+            battery: store.today.bodyBatteryForDisplay(at: now),
             load: store.today.trainingLoad,
             eaten: store.today.eIn,
             target: store.today.targetIn,
@@ -36,7 +36,8 @@ enum WidgetGlancePublisher {
                 guard let night = store.today.sleep else { return nil }
                 let percents = night.spo2.filter { night.containsSleepTimestamp($0.ts) }.map(\.percent)
                 return HealthSampleMapping.overnightOxygenSummary(percents)?.mean
-            }())
+            }(),
+            batteryObservedAt: store.today.bodyBatteryObservedAt)
         if numbersAt == nil,
            let previous = WidgetBridge.loadGlance(),
            previous.battery == glance.battery,

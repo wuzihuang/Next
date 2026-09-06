@@ -56,7 +56,7 @@ enum BodyBatteryWindowMath {
         days.filter(\.hasWake).max { ($0.wake ?? 0) < ($1.wake ?? 0) }
     }
 
-    /// Four week rolls, oldest first. A 30-day window becomes 9 + 7 + 7 + 7.
+    /// Oldest first. A 30-day window becomes 2 + 7 + 7 + 7 + 7.
     static func weekRolls(_ days: [BodyBatteryDayFacts]) -> [BodyBatteryWeekRoll] {
         guard !days.isEmpty else { return [] }
         var rolls: [BodyBatteryWeekRoll] = []

@@ -296,11 +296,6 @@ final class LiveReadout: ObservableObject {
         hr = beat
         hrAt = now
         phase = .live
-        DataStore.shared.applyLiveBodyBattery(
-            heartRate: beat,
-            stress: liveStress,
-            at: now
-        )
     }
 
     private func readStress() async {
@@ -326,11 +321,6 @@ final class LiveReadout: ObservableObject {
             guard value > 0 else { return }
             stress = value
             stressAt = Date()
-            DataStore.shared.applyLiveBodyBattery(
-                heartRate: liveHR,
-                stress: value,
-                at: stressAt ?? Date()
-            )
         } catch is CancellationError {
             // The day pull took the band. Not an answer, and not the band's fault.
             Self.log.notice("stress cut short by a day pull")

@@ -25,10 +25,27 @@ struct BottomStrip: View {
 struct TrainingCard: View {
     let m: DailyMetrics
 
-    private var toGo: String {
-        guard let l = m.trainingLoad else { return L("ACTIVITY DATA NEEDED") }
-        guard let t = m.targetLoad else { return L("AWAITING MORNING") }
-        return L("%.1f TO GO", max(0, t - l))
+    private var status: TrainingRangeStatus {
+        TrainingWindowMath.rangeStatus(load: m.trainingLoad, target: m.targetLoad, zone: m.optimalZone)
+    }
+
+    private var statusText: String {
+        switch status {
+        case .noLoad: return L("ACTIVITY DATA NEEDED")
+        case .noTarget: return L("AWAITING MORNING")
+        case .below(let delta): return L("%.1f BELOW RANGE", delta)
+        case .inRange: return L("IN RANGE")
+        case .above(let delta): return L("%.1f ABOVE RANGE", delta)
+        case .capped: return L("SCALE LIMIT")
+        }
+    }
+
+    private var statusTint: Color {
+        switch status {
+        case .noLoad, .noTarget: return NB.text3Prod
+        case .above, .capped: return NB.ember1
+        case .below, .inRange: return NB.limePale
+        }
     }
 
     var body: some View {
@@ -38,11 +55,11 @@ struct TrainingCard: View {
                     .font(NBFont.ui(500, 11)).tracking(0.14 * 11)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
-                Text(toGo)
+                Text(statusText)
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                    .foregroundStyle(m.targetLoad != nil && m.trainingLoad != nil ? NB.limePale : NB.text3Prod)
+                    .foregroundStyle(statusTint)
             }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
@@ -62,19 +79,24 @@ struct TrainingCard: View {
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(L("SUGGESTED")).font(NBFont.ui(500, 11)).tracking(0.06 * 11)
+                            Text(L("SUGGESTED RANGE")).font(NBFont.ui(500, 9))
                                 .foregroundStyle(NB.text3Prod)
-                            Text(L("STRENGTH")).font(NBFont.ui(600, 12)).foregroundStyle(NB.text1)
+                            Text(m.optimalZone.map { String(format: "%.1f–%.1f", $0.lowerBound, $0.upperBound) } ?? Fmt.dash)
+                                .font(NBFont.dot(700, 12)).foregroundStyle(NB.text1)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(L("TARGET")).font(NBFont.ui(500, 11)).tracking(0.06 * 11)
+                            Text(L("RULE ESTIMATE")).font(NBFont.ui(500, 9))
                                 .foregroundStyle(NB.text3Prod)
-                            Text(Fmt.load(m.targetLoad)).font(NBFont.dot(700, 14)).tracking(0.02 * 14)
-                                .foregroundStyle(NB.limePale)
+                            Text(m.nightInputs == nil ? L("BASELINE UNKNOWN")
+                                 : (m.nightInputs?.hrvNights ?? 0) < 5 || (m.nightInputs?.rhrNights ?? 0) < 5
+                                 ? L("BASELINE BUILDING") : L("NIGHT INPUTS"))
+                                .font(NBFont.ui(500, 9)).foregroundStyle(NB.limePale)
                         }
                     }
                 }
-                .fixedSize()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
             }
         }
         .padding(12)

@@ -1,6 +1,7 @@
 import Foundation
 
-/// A deterministic five-minute reserve model shared by stored-tick replay and the live preview.
+/// Deterministic reference for the server's per-tick reserve model.
+/// Published reserve values and explanations are always loaded together from the server.
 /// SDK values stay optional: absence means "do not score this term", never zero.
 enum BodyBatteryEngine {
     struct Baseline: Equatable {
@@ -14,7 +15,7 @@ enum BodyBatteryEngine {
             self.restingHeartRate = restingHeartRate
             self.maximumHeartRate = max(restingHeartRate + 1, maximumHeartRate)
             self.hrvMS = hrvMS
-            self.recoveryMultiplier = min(1.30, max(0.70, recoveryMultiplier))
+            self.recoveryMultiplier = min(1.30, max(0.65, recoveryMultiplier))
         }
     }
 
@@ -98,14 +99,17 @@ enum BodyBatteryEngine {
         let awake = 0.12 * tickScale
         let restorative = restorativeGain(
             tick, baseline: baseline, movement: movementRate,
-            tickScale: tickScale, state: &state
+            state: &state
         )
 
-        state.value = clamp(state.value - awake - movement - strain + restorative)
-        state.drivers.awake += awake
-        state.drivers.movement += movement
-        state.drivers.stress += strain
-        state.drivers.restorativeRest += restorative
+        let requestedDrain = awake + movement + strain - restorative
+        let scale = requestedDrain > state.value && requestedDrain > 0
+            ? state.value / requestedDrain : 1
+        state.value = clamp(state.value - requestedDrain * scale)
+        state.drivers.awake += awake * scale
+        state.drivers.movement += movement * scale
+        state.drivers.stress += strain * scale
+        state.drivers.restorativeRest += restorative * scale
     }
 
     private static func isWorn(_ tick: Tick) -> Bool {
@@ -162,28 +166,30 @@ enum BodyBatteryEngine {
     }
 
     private static func restorativeGain(_ tick: Tick, baseline: Baseline,
-                                        movement: Double, tickScale: Double,
+                                        movement: Double,
                                         state: inout State) -> Double {
         let heartIsQuiet = tick.heartRate.map {
             Double($0) <= baseline.restingHeartRate + 8
         } ?? false
-        let stressIsQuiet = tick.stress.map { $0 <= 35 } ?? true
+        let stressIsQuiet = tick.stress.map { $0 <= 35 } ?? false
         let hrvIsRecovered = {
-            guard let current = tick.hrvMS, let normal = baseline.hrvMS else { return true }
+            guard let current = tick.hrvMS, let normal = baseline.hrvMS else { return false }
             return current >= normal * 0.90
         }()
         let isQuiet = heartIsQuiet && stressIsQuiet && hrvIsRecovered
-            && movement < 0.03 && (tick.steps ?? 0) == 0
+            && movement < 0.03 && tick.steps == 0
 
         guard isQuiet else {
             state.quietMinutes = 0
             return 0
         }
+        let previousQuietMinutes = state.quietMinutes
         state.quietMinutes += tick.durationMinutes
-        guard state.quietMinutes >= 20, state.restorativeBudget > 0, state.value < 80 else { return 0 }
+        let creditedMinutes = max(0, state.quietMinutes - max(20, previousQuietMinutes))
+        guard creditedMinutes > 0, state.restorativeBudget > 0, state.value < 80 else { return 0 }
 
         let ceilingShare = max(0, (80 - state.value) / 80)
-        let gain = min(state.restorativeBudget, 0.05 * tickScale * ceilingShare)
+        let gain = min(state.restorativeBudget, 0.05 * creditedMinutes / 5 * ceilingShare)
         state.restorativeBudget -= gain
         return gain
     }

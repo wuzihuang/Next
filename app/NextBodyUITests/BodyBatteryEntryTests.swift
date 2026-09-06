@@ -29,6 +29,8 @@ final class BodyBatteryEntryTests: XCTestCase {
         XCTAssertTrue(app.buttons["BODY_BATTERY"].waitForExistence(timeout: 30),
                       "profile never showed the body battery plate")
         app.buttons["BODY_BATTERY"].tap()
+        let notNow = app.buttons["Not now"]
+        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
         XCTAssertTrue(app.staticTexts["OF 100"].waitForExistence(timeout: 30),
                       "detail never opened")
 
@@ -50,6 +52,9 @@ final class BodyBatteryEntryTests: XCTestCase {
         app.launchEnvironment["NB_DEBUG_ROUTE"] = route
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
+        // A fresh simulator may present the first-morning notification primer.
+        let notNow = app.buttons["Not now"]
+        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
         return app
     }
 }

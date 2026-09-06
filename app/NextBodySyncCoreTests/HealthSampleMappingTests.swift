@@ -396,7 +396,7 @@ final class HealthSampleMappingTests: XCTestCase {
         )
         let result = BodyBatteryEngine.replay(
             anchor: 60,
-            ticks: Array(repeating: quietMinute, count: 20),
+            ticks: Array(repeating: quietMinute, count: 21),
             baseline: baseline
         )
 

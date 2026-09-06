@@ -107,7 +107,7 @@ struct DetailWindow: Hashable, Sendable {
         case .active:
             return range == .day
                 ? .dailyResults(lookback: 6)
-                : .dailyResultsAndHeartTicks(lookback: 6, heartDays: days)
+                : .dailyResultsAndHeartTicks(lookback: days - 1, heartDays: days)
         }
     }
 

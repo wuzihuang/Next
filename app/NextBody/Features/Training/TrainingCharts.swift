@@ -54,93 +54,96 @@ struct BigTrainingRing: View {
     }
 }
 
-/// A cumulative line on the user-day clock, never a rate. It only ever rises.
-/// The dashed tail after NOW is the forecast. Gaps stay flat.
+/// Recorded cumulative values on the actual user-day clock. Missing intervals
+/// interrupt the line; a target is a horizontal reference, never a prediction.
 struct CumulativeCurve: View {
-    let target: Double
-    let now: Double
+    let target: Double?
+    var zone: ClosedRange<Double>? = nil
     var points: [LoadPoint] = []
     var day: UserDay = UserDay.containing(Date())
-    /// Gaps in hours since the user-day cut. Dashed, ember, never interpolated.
-    var gaps: [(Double, Double)] = []
+    var through: Date = Date()
 
-    private static let boardPath: [(Double, Double)] = [
-        (0, 0), (1, 0.1), (2.25, 1.9), (3.5, 2.6), (6.1, 3.3),
-        (6.8, 5.3), (8.5, 6.2), (9.75, 8.1), (11, 10.2),
-    ]
-
-    private var path: [(Double, Double)] {
-        guard !points.isEmpty else { return Self.boardPath }
-        return points.map { ($0.ts.timeIntervalSince(day.start) / 3600, $0.load) }
+    private func pt(_ point: TrainingCurvePoint, _ size: CGSize) -> CGPoint {
+        CGPoint(x: size.width * TrainingWindowMath.dayFraction(point.ts, day: day),
+                y: y(point.load, size))
     }
 
-    private func pt(_ x: Double, _ y: Double, _ size: CGSize) -> CGPoint {
-        CGPoint(x: size.width * x / 24, y: size.height - 12 - CGFloat(y / 21) * (size.height - 24))
+    private func y(_ load: Double, _ size: CGSize) -> CGFloat {
+        size.height - 12 - CGFloat(load / 21) * (size.height - 24)
     }
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
             let size = geo.size
-            let points = self.path
-            let nowX = points.last?.0 ?? UserDay.hours(Date(), in: day)
-            let nowPoint = pt(nowX, now, size)
-            let targetY = h - 12 - CGFloat(target / 21) * (h - 24)
-
+            let data = TrainingWindowMath.curveData(
+                points.map { TrainingCurvePoint(ts: $0.ts, load: $0.load) },
+                day: day, through: through)
             ZStack(alignment: .topLeading) {
-                Rectangle().fill(NB.lime1.opacity(0.12))
-                    .frame(height: 14.3)
-                    .offset(y: targetY - 7)
-                Path { p in p.move(to: CGPoint(x: 0, y: targetY)); p.addLine(to: CGPoint(x: w, y: targetY)) }
+                if let zone {
+                    Rectangle().fill(NB.lime1.opacity(0.12))
+                        .frame(height: max(0, y(zone.lowerBound, size) - y(zone.upperBound, size)))
+                        .offset(y: y(zone.upperBound, size))
+                }
+                if let target {
+                    let targetY = y(target, size)
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: targetY))
+                        p.addLine(to: CGPoint(x: size.width, y: targetY))
+                    }
                     .stroke(NB.limePale.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-                Path { p in p.move(to: CGPoint(x: 0, y: h - 12)); p.addLine(to: CGPoint(x: w, y: h - 12)) }
-                    .stroke(NB.white.opacity(0.10), lineWidth: 1)
-
+                    Text(L("TARGET %@", String(format: "%.1f", target)))
+                        .font(NBFont.dot(700, 11)).tracking(0.02 * 11)
+                        .foregroundStyle(NB.limePale)
+                        .offset(x: 4, y: max(0, targetY - 18))
+                }
                 Path { p in
-                    p.move(to: pt(0, 0, size))
-                    for (x, y) in points.dropFirst() { p.addLine(to: pt(x, y, size)) }
-                    p.addLine(to: nowPoint)
-                    p.addLine(to: CGPoint(x: nowPoint.x, y: h - 12))
-                    p.addLine(to: CGPoint(x: 0, y: h - 12))
-                    p.closeSubpath()
+                    p.move(to: CGPoint(x: 0, y: size.height - 12))
+                    p.addLine(to: CGPoint(x: size.width, y: size.height - 12))
                 }
-                .fill(LinearGradient(colors: [NB.lime1.opacity(0.28), NB.lime1.opacity(0)],
-                                     startPoint: .top, endPoint: .bottom))
+                .stroke(NB.white.opacity(0.10), lineWidth: 1)
 
-                Path { p in
-                    p.move(to: pt(0, 0, size))
-                    for (x, y) in points.dropFirst() { p.addLine(to: pt(x, y, size)) }
-                    p.addLine(to: nowPoint)
-                }
-                .stroke(NB.lime1, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-
-                Path { p in p.move(to: nowPoint); p.addLine(to: pt(min(23.5, nowX + 2.1), target, size)) }
-                    .stroke(NB.lime2, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 5]))
-
-                ForEach(Array(gaps.enumerated()), id: \.offset) { _, g in
-                    let y = points.last(where: { $0.0 <= g.0 })?.1 ?? 0
-                    let a = pt(g.0, y, size), b = pt(g.1, y, size)
-                    Path { p in p.move(to: a); p.addLine(to: b) }
-                        .stroke(NB.ember1, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 7]))
-                    Circle().fill(NB.ember1).frame(width: 6.8, height: 6.8).position(a)
-                    Circle().fill(NB.ember1).frame(width: 6.8, height: 6.8).position(b)
-                    Text(L("%dH GAP", Int((g.1 - g.0).rounded())))
-                        .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
-                        .foregroundStyle(NB.ember1.opacity(0.85))
-                        .position(x: (a.x + b.x) / 2, y: a.y + 16)
+                ForEach(Array(data.gaps.enumerated()), id: \.offset) { _, gap in
+                    let start = size.width * TrainingWindowMath.dayFraction(gap.start, day: day)
+                    let end = size.width * TrainingWindowMath.dayFraction(gap.end, day: day)
+                    Rectangle().fill(NB.ember1.opacity(0.09))
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(NB.ember1.opacity(0.5)).frame(height: 2)
+                        }
+                        .frame(width: max(0, end - start), height: size.height - 24)
+                        .offset(x: start, y: 12)
                 }
 
-                Circle().fill(NB.carbon2).frame(width: 8, height: 8)
-                    .overlay(Circle().stroke(NB.lime1, lineWidth: 2.5))
-                    .position(nowPoint)
-                Circle().fill(NB.limePale).frame(width: 7, height: 7)
-                    .position(pt(min(23.5, nowX + 2.1), target, size))
-
-                Text(L("TARGET %@", String(format: "%.1f", target)))
-                    .font(NBFont.dot(700, 11)).tracking(0.02 * 11)
-                    .foregroundStyle(NB.limePale)
-                    .offset(x: 4, y: targetY - 18)
+                ForEach(Array(data.segments.enumerated()), id: \.offset) { _, segment in
+                    if let first = segment.first, let last = segment.last {
+                        Path { p in
+                            p.move(to: pt(first, size))
+                            for point in segment.dropFirst() { p.addLine(to: pt(point, size)) }
+                            p.addLine(to: CGPoint(x: pt(last, size).x, y: size.height - 12))
+                            p.addLine(to: CGPoint(x: pt(first, size).x, y: size.height - 12))
+                            p.closeSubpath()
+                        }
+                        .fill(LinearGradient(colors: [NB.lime1.opacity(0.28), NB.lime1.opacity(0)],
+                                             startPoint: .top, endPoint: .bottom))
+                        Path { p in
+                            p.move(to: pt(first, size))
+                            for point in segment.dropFirst() { p.addLine(to: pt(point, size)) }
+                        }
+                        .stroke(NB.lime1, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        if segment.count == 1 {
+                            Circle().fill(NB.lime1).frame(width: 4, height: 4)
+                                .position(pt(first, size))
+                        }
+                    }
+                }
+                if let last = data.segments.last?.last {
+                    Circle().fill(NB.carbon2).frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(NB.lime1, lineWidth: 2.5))
+                        .position(pt(last, size))
+                } else {
+                    Text(L("NO LOAD SAMPLES"))
+                        .font(NBFont.ui(500, 11)).foregroundStyle(NB.text3Prod)
+                        .frame(width: size.width, height: size.height)
+                }
             }
         }
     }
@@ -213,6 +216,9 @@ struct ZoneBar: View {
                 .frame(width: 44, alignment: .trailing)
         }
         .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.7)) { grown = fill } }
+        .onChange(of: fill) { _, value in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { grown = value }
+        }
     }
 }
 
@@ -225,7 +231,7 @@ struct TrainingZoneStack: View {
             ForEach(Array(days.enumerated()), id: \.offset) { _, day in
                 let easy = Double(day.easyMinutes ?? 0)
                 let hard = Double(day.hardMinutes ?? 0)
-                let total = max(1, easy + hard)
+                let scale = TrainingWindowMath.zoneScaleMinutes(days)
                 VStack(spacing: 0) {
                     if hard > 0 {
                         UnevenRoundedRectangle(
@@ -233,7 +239,7 @@ struct TrainingZoneStack: View {
                             bottomTrailingRadius: easy > 0 ? 0 : 5, topTrailingRadius: 5,
                             style: .continuous)
                             .fill(NB.ember1)
-                            .frame(height: max(5, 104 * hard / total))
+                            .frame(height: 104 * hard / scale)
                     }
                     if easy > 0 {
                         UnevenRoundedRectangle(
@@ -241,7 +247,7 @@ struct TrainingZoneStack: View {
                             bottomTrailingRadius: 5, topTrailingRadius: hard > 0 ? 0 : 5,
                             style: .continuous)
                             .fill(NB.lime1.opacity(0.53))
-                            .frame(height: max(5, 104 * easy / total))
+                            .frame(height: 104 * easy / scale)
                     }
                     if easy == 0 && hard == 0 {
                         RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -259,8 +265,6 @@ struct TrainingZoneStack: View {
 /// Thirty heat cells. A missing day is a dashed empty slot, never a dim zero.
 struct TrainingHeatGrid: View {
     let days: [TrainingDayFacts]
-    var zone: ClosedRange<Double>? = nil
-
     private let cell: CGFloat = 26
     private let gap: CGFloat = 4
 
@@ -284,11 +288,12 @@ struct TrainingHeatGrid: View {
 
     private func fill(for day: TrainingDayFacts) -> Color {
         guard let load = day.load else { return NB.white.opacity(0.04) }
-        switch TrainingWindowMath.band(load: load, zone: day.zone ?? zone) {
+        switch TrainingWindowMath.band(load: load, zone: day.zone) {
         case .light:  return NB.lime1.opacity(0.28)
         case .steady: return NB.lime1.opacity(0.72)
         case .heavy:  return NB.lime1
         case .over:   return NB.ember1
+        case .unknown: return NB.text3Prod.opacity(0.4)
         }
     }
 }
@@ -328,6 +333,7 @@ struct TrainingIngredient: Identifiable {
 struct TrainingIngredientsCard: View {
     let trailing: String
     let rows: [TrainingIngredient]
+    var note: String? = nil
 
     var body: some View {
         CardBlock(title: L("INGREDIENTS"), trailing: trailing, trailingIsDot: true) {
@@ -344,6 +350,11 @@ struct TrainingIngredientsCard: View {
                             .foregroundStyle(row.tint)
                     }
                 }
+            }
+            if let note {
+                Text(note)
+                    .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

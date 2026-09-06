@@ -8,22 +8,137 @@ final class ActiveEnergyMathTests: XCTestCase {
         return calendar
     }()
 
+    func testMissingMovementDoesNotBecomeZeroActiveOrBasalOnlyOut() {
+        let totals = ActiveEnergyMath.totals(bmr: 500, eActive: nil, eTrain: nil, eOutNow: nil)
+        XCTAssertEqual(totals.resting, 500)
+        XCTAssertNil(totals.active)
+        XCTAssertNil(totals.out)
+    }
+
+    func testLegacyOutDoesNotOverwriteExplicitActivity() {
+        let totals = ActiveEnergyMath.totals(bmr: 1_965, eActive: 524, eTrain: nil, eOutNow: 2_479)
+        XCTAssertEqual(totals.active, 524)
+        XCTAssertEqual(totals.out, 2_489)
+    }
+
+    func testSampleExactlyAtNowDoesNotLoseEnergyIntoAnUnstartedHour() {
+        let ticks = [VitalSample(ts: date(hour: 12), hr: nil, stress: nil, steps: 0, met: 6)]
+        let split = ActiveEnergyMath.split(
+            dayStart: date(hour: 4), now: date(hour: 12), bmr: 500, bmrFull: 1_500,
+            eActive: 175, eTrain: nil, eOutNow: 675, ticks: ticks, sportWindows: [])
+        let hours = ActiveEnergyMath.hourly(dayStart: date(hour: 4), now: date(hour: 12),
+                                           split: split, ticks: ticks, sportWindows: [])
+        XCTAssertEqual(hours.filter(\.lived).reduce(0) { $0 + $1.kcal }, 675, accuracy: 0.01)
+    }
+
+    func testDSTHoursRetainEveryRecordedCalorieAndRecoverTheFullDayBMR() {
+        var local = Calendar(identifier: .gregorian)
+        local.timeZone = TimeZone(identifier: "America/New_York")!
+        for (month, day, count) in [(3, 7, 23), (10, 31, 25)] {
+            let start = local.date(from: DateComponents(year: 2026, month: month, day: day, hour: 4))!
+            let end = FuelWindowMath.dayEnd(dayStart: start, calendar: local)
+            let middle = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
+            XCTAssertEqual(ActiveEnergyMath.derivedBmrFull(bmr: 850, bmrFull: nil,
+                dayStart: start, now: middle, calendar: local), 1_700)
+            let ticks = [VitalSample(ts: end.addingTimeInterval(-600), hr: nil, stress: nil, steps: 0, met: 6)]
+            let split = ActiveEnergyMath.split(dayStart: start, now: end, bmr: 1_700, bmrFull: 1_700,
+                eActive: 175, eTrain: nil, eOutNow: 1_875, ticks: ticks, sportWindows: [], calendar: local)
+            let hours = ActiveEnergyMath.hourly(dayStart: start, now: end, split: split,
+                ticks: ticks, sportWindows: [], calendar: local)
+            XCTAssertEqual(hours.count, count)
+            XCTAssertEqual(hours.reduce(0) { $0 + $1.kcal }, 1_875, accuracy: 0.01)
+            XCTAssertEqual(ActiveEnergyMath.peakHour(hours)?.index, count - 1)
+        }
+    }
+
+    func testUnattributedActivityDoesNotCreateAPeakInTheLastHour() {
+        let start = date(hour: 4)
+        let now = date(hour: 12)
+        let split = ActiveEnergyMath.split(
+            dayStart: start, now: now, bmr: 500, bmrFull: 1_500,
+            eActive: 300, eTrain: nil, eOutNow: 800,
+            ticks: [], sportWindows: [], calendar: calendar)
+        let hours = ActiveEnergyMath.hourly(dayStart: start, now: now, split: split,
+                                           ticks: [], sportWindows: [], calendar: calendar)
+        XCTAssertTrue(hours.isEmpty, "An aggregate without timed movement cannot identify an hourly peak")
+    }
+
+    func testNativeMETWithZeroStepsStillAllocatesCyclingEnergyToItsRecordedHour() {
+        let start = date(hour: 4)
+        let now = date(hour: 12)
+        let ticks = [VitalSample(ts: date(hour: 8), hr: 130, stress: nil, steps: 0, met: 6)]
+        let split = ActiveEnergyMath.split(
+            dayStart: start, now: now, bmr: 500, bmrFull: 1_500,
+            eActive: 175, eTrain: nil, eOutNow: 675,
+            ticks: ticks, sportWindows: [], calendar: calendar)
+        XCTAssertEqual(split.sport, 175)
+        XCTAssertEqual(split.sportMet, 6)
+        XCTAssertNil(split.steps)
+        let hours = ActiveEnergyMath.hourly(dayStart: start, now: now, split: split,
+                                           ticks: ticks, sportWindows: [], calendar: calendar)
+        XCTAssertEqual(ActiveEnergyMath.peakHour(hours)?.index, 4)
+        XCTAssertEqual(hours.filter(\.lived).reduce(0) { $0 + $1.kcal }, 675, accuracy: 0.01)
+    }
+
+    func testPrintedRoundedPartsStillAddToTheSettledActiveTotal() {
+        let ticks = [6.0, 2.0, 1.25].enumerated().map { i, met in
+            VitalSample(ts: date(hour: 8, minute: i * 5), hr: nil, stress: nil, steps: 0, met: met)
+        }
+        let split = ActiveEnergyMath.split(
+            dayStart: date(hour: 4), now: date(hour: 12), bmr: 500, bmrFull: 1_500,
+            eActive: 17, eTrain: nil, eOutNow: 517,
+            ticks: ticks, sportWindows: [], calendar: calendar)
+        XCTAssertEqual([split.sport, split.steps, split.incidental].compactMap { $0 }.reduce(0, +), 17)
+        for part in [split.sport, split.steps, split.incidental].compactMap({ $0 }) {
+            XCTAssertEqual(part, part.rounded())
+        }
+    }
+
+    func testMissingIntensityDoesNotInventAStillMETReading() {
+        let result = ActiveEnergyMath.intensity(dayStart: date(hour: 4), now: date(hour: 12),
+            ticks: [VitalSample(ts: date(hour: 8), hr: 90, stress: nil)], calendar: calendar)
+        XCTAssertTrue(result.solid.isEmpty)
+        XCTAssertTrue(result.dashed.isEmpty)
+    }
+
+    func testIntensityBreaksAcrossMissingSlotsAndDoesNotExtendTheLastReadingToNow() {
+        let first = date(hour: 8), next = date(hour: 10)
+        let result = ActiveEnergyMath.intensity(dayStart: date(hour: 4), now: date(hour: 12),
+            ticks: [VitalSample(ts: first, hr: nil, stress: nil, met: 6),
+                    VitalSample(ts: date(hour: 8, minute: 5), hr: 90, stress: nil),
+                    VitalSample(ts: next, hr: nil, stress: nil, met: 2)], calendar: calendar)
+        XCTAssertEqual(result.solid.count, 4)
+        XCTAssertTrue(result.solid[2].startsSegment)
+        XCTAssertEqual(result.solid[1].x, FuelWindowMath.clockFraction(
+            at: first.addingTimeInterval(300), dayStart: date(hour: 4), calendar: calendar))
+        XCTAssertEqual(result.solid.last?.x, FuelWindowMath.clockFraction(
+            at: next.addingTimeInterval(300), dayStart: date(hour: 4), calendar: calendar))
+    }
+
+    func testAdjacentMeasuredIntensitySlotsStayConnected() {
+        let result = ActiveEnergyMath.intensity(dayStart: date(hour: 4), now: date(hour: 12),
+            ticks: [VitalSample(ts: date(hour: 8), hr: nil, stress: nil, met: 6),
+                    VitalSample(ts: date(hour: 8, minute: 5), hr: nil, stress: nil, met: 2)], calendar: calendar)
+        XCTAssertFalse(result.solid[2].startsSegment)
+        XCTAssertEqual(result.solid[1].x, result.solid[2].x)
+    }
+
     func testOutCurveIsTheCaloriesPageBurnCurve() {
         let start = date(hour: 4)
         let now = date(hour: 16, minute: 40)
-        var ticks: [(Date, Int?)] = []
+        var ticks: [VitalSample] = []
         var cursor = start
         while cursor <= now {
             let hour = calendar.component(.hour, from: cursor)
-            ticks.append((cursor, hour == 16 ? 400 : 8))
+            ticks.append(VitalSample(ts: cursor, hr: nil, stress: nil, steps: hour == 16 ? 400 : 8))
             cursor = calendar.date(byAdding: .minute, value: 5, to: cursor)!
         }
         let fuel = FuelWindowMath.burnCurve(
             dayStart: start, now: now, burnedNow: 1_387, burnedFull: 2_194,
-            ticks: ticks, calendar: calendar)
+            restingNow: 901, ticks: ticks, calendar: calendar)
         let active = ActiveEnergyMath.outCurve(
             dayStart: start, now: now, burnedNow: 1_387, burnedFull: 2_194,
-            ticks: ticks, calendar: calendar)
+            restingNow: 901, ticks: ticks, calendar: calendar)
         XCTAssertEqual(active.solid, fuel.solid)
         XCTAssertEqual(active.dashed, fuel.dashed)
         XCTAssertEqual(active.solid.last?.y, 1_387)
@@ -113,7 +228,7 @@ final class ActiveEnergyMathTests: XCTestCase {
     func testVendorCaloriesNeverEnterTheSplit() {
         let start = date(hour: 4)
         let now = date(hour: 10)
-        let ticks = [(start.addingTimeInterval(3600), Optional(0))]
+        let ticks = [VitalSample(ts: start.addingTimeInterval(3600), hr: nil, stress: nil, steps: 0)]
         let split = ActiveEnergyMath.split(
             dayStart: start, now: now, bmr: nil, bmrFull: nil,
             eActive: nil, eTrain: nil, eOutNow: nil,
@@ -140,7 +255,7 @@ final class ActiveEnergyMathTests: XCTestCase {
     func testIntensityDropsToStillAfterNow() {
         let start = date(hour: 4)
         let now = date(hour: 16)
-        let ticks = [(date(hour: 16), Optional(500))]
+        let ticks = [VitalSample(ts: date(hour: 16), hr: nil, stress: nil, steps: 500)]
         let line = ActiveEnergyMath.intensity(
             dayStart: start, now: now, ticks: ticks, calendar: calendar)
         XCTAssertEqual(line.solid.last?.y ?? 0, 3, accuracy: 0.01)
@@ -166,12 +281,12 @@ final class ActiveEnergyMathTests: XCTestCase {
     }
 
     private func walk(from start: Date, to now: Date,
-                      steps: (Int, Date) -> Int) -> [(Date, Int?)] {
-        var ticks: [(Date, Int?)] = []
+                      steps: (Int, Date) -> Int) -> [VitalSample] {
+        var ticks: [VitalSample] = []
         var cursor = start
         while cursor <= now {
             let hour = calendar.component(.hour, from: cursor)
-            ticks.append((cursor, steps(hour, cursor)))
+            ticks.append(VitalSample(ts: cursor, hr: nil, stress: nil, steps: steps(hour, cursor)))
             cursor = calendar.date(byAdding: .minute, value: 5, to: cursor)!
         }
         return ticks

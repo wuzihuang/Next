@@ -17,6 +17,7 @@ final class BodyBatteryRangeTests: XCTestCase {
         XCTAssertTrue(app.buttons["range.MONTH"].exists)
         XCTAssertTrue(app.staticTexts["TODAY'S TARGET"].exists)
         XCTAssertFalse(app.staticTexts["LAST 7 DAYS"].exists)
+        capture(app, name: "body-battery-day")
         XCTAssertFalse(app.staticTexts["A typical morning peak. Not a 30-day sum."].exists)
     }
 
@@ -26,6 +27,7 @@ final class BodyBatteryRangeTests: XCTestCase {
                       "WEEK should open the last 7 user days")
         XCTAssertTrue(week.staticTexts["SEVEN DAYS"].waitForExistence(timeout: 6))
         XCTAssertTrue(week.staticTexts["WAKE PEAKS"].exists)
+        capture(week, name: "body-battery-week")
         XCTAssertFalse(week.staticTexts["TODAY'S TARGET"].exists)
         XCTAssertFalse(week.staticTexts["A typical morning peak. Not a 30-day sum."].exists)
 
@@ -35,6 +37,7 @@ final class BodyBatteryRangeTests: XCTestCase {
         XCTAssertTrue(month.staticTexts["THIRTY DAYS"].waitForExistence(timeout: 6))
         XCTAssertTrue(month.staticTexts["A typical morning peak. Not a 30-day sum."].waitForExistence(timeout: 6))
         XCTAssertFalse(month.staticTexts["TODAY'S TARGET"].exists)
+        capture(month, name: "body-battery-month")
     }
 
     func testDebugRangeOpensOnMonth() {
@@ -43,6 +46,13 @@ final class BodyBatteryRangeTests: XCTestCase {
                       "NB_DEBUG_BODY_BATTERY_RANGE should land on that window")
         XCTAssertTrue(app.staticTexts["THIRTY DAYS"].waitForExistence(timeout: 6))
         XCTAssertTrue(app.staticTexts["A typical morning peak. Not a 30-day sum."].exists)
+    }
+
+    private func capture(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func launchBodyBattery(range: String? = nil) -> XCUIApplication {
@@ -56,6 +66,9 @@ final class BodyBatteryRangeTests: XCTestCase {
         }
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
+        // A fresh simulator may present the first-morning notification primer.
+        let notNow = app.buttons["Not now"]
+        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
         return app
     }
 }

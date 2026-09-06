@@ -8,6 +8,10 @@
 
 卡片顺序三档共用：英雄 → 主图 → 原料清单 → 区间图 → 步数与热量图 → CTA。方案 A 不再画 WHY / TODAY'S BUILD。环下仍留边态（stale / over / auto HR off / 缺口），这是 08 板硬规则。主色是主题黄 lime `#EFF65A`（`NB.lime1`），一级卡和二级页同一套：环、区间弧、目标点分别是 `lime1` / `lime2` / `limePale`。Z4–Z5 与最重一天仍是 ember `#F6A41C`（`NB.ember1`）。训练负荷不走青色。
 
-词汇对齐 `CONTEXT.md` / ADR 0004：叫训练负荷，不叫 strain；卡路里是 estimate（`eActive` / `eOutNow`），厂商耗卡不混用。步数取 `DailyMetrics.steps`（`segments` 里 `allDay` 那一段）。Z4+ ≥ 20 分钟算一次 session。
+词汇对齐 `CONTEXT.md` / ADR 0004：叫训练负荷，不叫 strain；卡路里是 estimate（`eActive` / `eOutNow`），厂商耗卡不混用。步数取 `DailyMetrics.steps`，优先读取服务端所有有效槽的 `recorded_steps`，不能把扣除训练时段后的 `allDay` 小计当作全天总步数。Z4+ ≥ 20 分钟的天数只是心率分区摘要，不识别运动类型。
 
 算术在 `TrainingWindowMath`：周/月平均跳过今天和空槽；`UserDay.weekRolls` 从末尾每 7 天往回切，余数落在最老一组，30 天是 2 + 7 + 7 + 7 + 7。首页只预载约一天，进这页要自己 `load(days: 29)`。DEBUG `NB_DEBUG_TRAINING_RANGE=DAY|WEEK|MONTH`。
+
+2026-09-06 算法审查修正：DAY 在英雄下增加估算依据，列出基线夜数、静息心率、有效记录与已过去时长、最近同步，并明确这是规则估算。没有目标仍显示已有活动；历史日没有建议范围时保留未知，不借用今天的范围。有记录天数与佩戴天数分开。心率升高时段不命名为力量训练，移除固定运动建议与向目标外推的预测线。
+
+曲线仅画真实发布点，按实际时间定位，缺口断线并显示缺失说明；没有点时保持空态。超过建议范围与达到显示上限分别说明，不再显示“还差 0”。周分区柱使用统一分钟尺度，月视图明确五组覆盖 30 天。分段贡献为按原始负荷分配的分数份额，不等于该时段的非线性分数增量。

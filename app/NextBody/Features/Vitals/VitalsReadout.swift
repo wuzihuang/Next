@@ -736,8 +736,8 @@ extension VitalsReadout {
     // MARK: 08 · metabolic burn
 
     private static func active(m: DailyMetrics, history: [DailyMetrics]) -> VitalsReadout {
-        let now = VitalsClock.now
-        let ticks = m.vitalsCurve.map { ($0.ts, $0.steps) }
+        let now = min(VitalsClock.now, min(m.asOf ?? VitalsClock.now, m.day.end))
+        let ticks = m.vitalsCurve
         let windows = ActiveEnergyModel.sportWindows(m)
         let split = ActiveEnergyMath.split(
             dayStart: m.day.start, now: now, bmr: m.bmr, bmrFull: m.bmrFull,

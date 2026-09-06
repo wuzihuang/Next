@@ -9,7 +9,7 @@ def extract(path, marker):
     return s[start:end]
 repo=APP/'NextBody/Services/Repository.swift'
 source='import Foundation\nfunc L(_ s: String, _ args: CVarArg...) -> String { String(format: s, arguments: args) }\nstruct AppLanguage { static let shared = Self(); var swiftLocale: Locale { Locale(identifier: "en") } }\n'
-for path in ['Models/Metrics.swift','Models/BodyBattery.swift','Services/Band/VitalSample.swift','Services/Band/DailyDirectionPolicy.swift','Services/Band/HomeLaunchPolicy.swift','Services/Band/VitalsTimelinePolicy.swift']:
+for path in ['Models/Metrics.swift','Models/BodyBattery.swift','Services/Band/VitalSample.swift','Services/Band/UserDay.swift','Services/Band/DailyDirectionPolicy.swift','Services/Band/HomeLaunchPolicy.swift','Services/Band/VitalsTimelinePolicy.swift']:
     source+=(APP/'NextBody'/path).read_text()+'\n'
 for marker in ['struct MealEntry:', 'struct WeighIn:', 'struct LiveVitals:']:
     source+=extract(APP/'NextBody/Services/DataStore.swift',marker)+'\n'
@@ -18,6 +18,7 @@ if 'struct SleepInterval:' in (APP/'NextBody/Services/Band/BandService.swift').r
     source+=extract(APP/'NextBody/Services/Band/BandService.swift','struct SleepInterval:')+'\n'
 source+='''
 final class DataStore {
+ var sleepScores: [String: SleepScore] = [:]
  var today = DailyMetrics(day: UserDay.containing(Date()))
  var history: [DailyMetrics] = []; var meals: [MealEntry] = []; var recentMeals: [MealEntry] = []
  var weighIns: [WeighIn] = []; var vitals = LiveVitals(); var isOffline = false
@@ -68,7 +69,7 @@ struct WeighInQueue { static let shared = Self(); func flush() async {} }
  private var readGeneration: UInt = 0
  private var summaryRevisions: [String: [String: String]] = [:]
 '''
-markers = ['func loadHistorySummaries(', 'private static func sleepOnWakeDay(', 'static func timestamp(', 'private func number(', 'private func selectByResultId(', 'private static func resultIdChunks(']
+markers = ['func loadHistorySummaries(', 'private static func sleepOnWakeDay(', 'static func timestamp(', 'private func number(', 'private func selectByResultId(', 'private static func resultIdChunks(', 'private func applyWear(']
 for optional in ['private func selectDailyResultsCompat(', 'private func calculationStatusIfAvailable(', 'static func isMissingReadCapability(']:
     if optional in repo.read_text(): markers.append(optional)
 for marker in markers:

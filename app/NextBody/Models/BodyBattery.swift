@@ -43,61 +43,42 @@ enum BodyBattery {
         bands.first { $0.range.contains(max(0, min(100, wake))) } ?? bands[0]
     }
 
-    /// The four words the morning line is allowed to use. There is no fifth.
+    /// Descriptive bands for points gained overnight, shared by every entry.
+    /// These are absolute amounts, not personal baselines or claims of a full battery.
     static func chargeWord(_ delta: Int) -> String {
         switch delta {
         case ..<20:  return "LIGHT CHARGE"
-        case ..<32:  return "BELOW USUAL"
-        case ..<45:  return "NORMAL CHARGE"
-        default:     return "FULL CHARGE"
+        case ..<32:  return "MODERATE CHARGE"
+        case ..<45:  return "STRONG CHARGE"
+        default:     return "VERY STRONG CHARGE"
         }
     }
 
 }
 
-// MARK: - 04 · the one prediction on the whole product
-
-/// ⚠️ 1CVO · "CHARGING WHILE YOU WIND DOWN · FULL 06:40" is the only forecast NextBody
-/// makes, and board 13 puts four conditions on keeping it: render it only on a charging
-/// tick, only when there is less than four hours left, take the rate from the median of
-/// the last six ticks, and drop the whole line if the time it names moves by more than
-/// ±45 minutes. Fail any one of them and the line goes away — a prediction that jumps
-/// around is worse than none.
-enum ChargeForecast {
-    /// Minutes per tick on the reserve grid.
-    static let tickMinutes = 5.0
-
-    static func line(curve: [ReserveSample], calendar: Calendar = .current) -> String? {
-        guard let now = estimate(curve, endingAt: curve.count - 1) else { return nil }
-        // Condition four: the same estimate one tick ago must land within 45 minutes.
-        if let before = estimate(curve, endingAt: curve.count - 2),
-           abs(now.timeIntervalSince(before)) > 45 * 60 { return nil }
-        return L("CHARGING WHILE YOU WIND DOWN · FULL %@", Fmt.clock(now))
+/// Display geometry uses actual elapsed seconds in the selected local user day.
+/// A DST day can contain 23 or 25 hours. Colour describes each observed change;
+/// an evening recovery must never recolour an earlier decline.
+enum BodyBatteryCurveMath {
+    struct Segment {
+        let start: ReserveSample
+        let end: ReserveSample
+        var charging: Bool { end.value > start.value }
     }
 
-    /// The instant the reserve reaches 100, or nil if any of the first three conditions fails.
-    private static func estimate(_ curve: [ReserveSample], endingAt index: Int) -> Date? {
-        guard index >= 6, index < curve.count else { return nil }
-        let window = curve[(index - 6)...index]
-        let deltas = zip(window.dropFirst(), window).map { Double($0.value - $1.value) }
-        // Condition one: the last tick has to be charging.
-        guard let last = deltas.last, last > 0 else { return nil }
-        // Condition three: the rate is the median of the last six ticks, not the last one.
-        let rate = median(deltas)
-        guard rate > 0 else { return nil }
-        let tick = curve[index]
-        let remaining = Double(100 - tick.value)
-        guard remaining > 0 else { return nil }
-        let minutes = remaining / rate * tickMinutes
-        // Condition two: less than four hours out.
-        guard minutes < 240 else { return nil }
-        return tick.ts.addingTimeInterval(minutes * 60)
+    static func fraction(_ timestamp: Date, in day: UserDay) -> Double {
+        let duration = day.end.timeIntervalSince(day.start)
+        guard duration > 0 else { return 0 }
+        return min(1, max(0, timestamp.timeIntervalSince(day.start) / duration))
     }
 
-    private static func median(_ xs: [Double]) -> Double {
-        guard !xs.isEmpty else { return 0 }
-        let s = xs.sorted()
-        return s.count % 2 == 1 ? s[s.count / 2] : (s[s.count / 2 - 1] + s[s.count / 2]) / 2
+    static func segments(_ samples: [ReserveSample]) -> [Segment] {
+        let ordered = samples.sorted { $0.ts < $1.ts }
+        return zip(ordered, ordered.dropFirst()).compactMap { start, end in
+            // Missing ticks remain a visible gap instead of an invented straight line.
+            guard end.ts > start.ts, end.ts.timeIntervalSince(start.ts) <= 10 * 60 else { return nil }
+            return Segment(start: start, end: end)
+        }
     }
 }
 
@@ -105,14 +86,15 @@ enum ChargeForecast {
 /// cover the gap, so the screen has to say which of the three states it is in.
 enum TickFreshness {
     case fresh          // under 90 minutes
-    case stale          // 90 minutes to 6 hours — numbers dim, SYNCED HH:MM appears
-    case gone           // over 6 hours — the numbers themselves become ——
+    case stale          // 90 minutes to under 6 hours — numbers dim, SYNCED HH:MM appears
+    case gone           // 6 hours or later, missing or future observation — the numbers themselves become ——
 
     static func of(_ at: Date?, now: Date = Date()) -> TickFreshness {
         guard let at else { return .gone }
-        let minutes = now.timeIntervalSince(at) / 60
-        if minutes > 360 { return .gone }
-        if minutes > 90 { return .stale }
+        let age = now.timeIntervalSince(at)
+        guard age >= 0 else { return .gone }
+        if age >= 6 * 3600 { return .gone }
+        if age >= 90 * 60 { return .stale }
         return .fresh
     }
 }

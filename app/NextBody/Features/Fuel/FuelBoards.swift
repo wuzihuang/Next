@@ -34,12 +34,14 @@ struct FuelStackedHero: View {
 struct FuelDayChart: View {
     let meals: [(Date, Double)]
     let burnedNow: Double?
+    let restingNow: Double?
+    let burnedAt: Date
     let burnedFull: Double?
     let budget: Double?
     let now: Date
     let dayStart: Date
     let happenedIntake: Double
-    var burnTicks: [(Date, Int?)] = []
+    var burnTicks: [VitalSample] = []
     var outUnknown: Bool = false
 
     var body: some View {
@@ -48,8 +50,8 @@ struct FuelDayChart: View {
         let intake = FuelWindowMath.intakeSteps(meals: meals, dayStart: dayStart, now: now,
                                                 projectTo: budget)
         let burn = burnedNow.map {
-            FuelWindowMath.burnCurve(dayStart: dayStart, now: now, burnedNow: $0,
-                                     burnedFull: burnedFull, ticks: burnTicks)
+            FuelWindowMath.burnCurve(dayStart: dayStart, now: min(now, burnedAt), burnedNow: $0,
+                                     burnedFull: burnedFull, restingNow: restingNow, ticks: burnTicks)
         }
         let nowX = FuelWindowMath.clockFraction(at: now, dayStart: dayStart)
         return VStack(alignment: .leading, spacing: 8) {
@@ -93,11 +95,11 @@ struct FuelDayChart: View {
             }
             .frame(height: 148)
             HStack {
-                ForEach(["00", "06", "12", "18", "24"], id: \.self) { label in
+                ForEach(Array(FuelWindowMath.clockLabels(dayStart: dayStart).enumerated()), id: \.offset) { index, label in
                     Text(label)
-                        .font(NBFont.dot(label == "24" ? 700 : 500, 9))
-                        .foregroundStyle(label == "24" ? NB.ember1 : NB.white.opacity(0.34))
-                    if label != "24" { Spacer(minLength: 0) }
+                        .font(NBFont.dot(index == 4 ? 700 : 500, 9))
+                        .foregroundStyle(index == 4 ? NB.ember1 : NB.white.opacity(0.34))
+                    if index < 4 { Spacer(minLength: 0) }
                 }
             }
         }
@@ -308,7 +310,8 @@ struct FuelLedgerTable: View {
                     Text(caption)
                         .font(NBFont.ui(500, 10)).tracking(0.04 * 10)
                         .foregroundStyle(row.captionTint)
-                        .lineLimit(1)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(width: 110, alignment: .leading)
@@ -318,7 +321,7 @@ struct FuelLedgerTable: View {
         }
         .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(row.title) \(row.intake) \(row.burned) \(row.gap)")
+        .accessibilityLabel("\(row.title) \(row.caption ?? "") \(row.intake) \(row.burned) \(row.gap)")
     }
 
     private func numberCell(_ value: String, _ tint: Color) -> some View {

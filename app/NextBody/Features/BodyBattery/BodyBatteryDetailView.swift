@@ -7,6 +7,8 @@ struct BodyBatteryDetailView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
+    @State private var isRefreshing = false
+    @State private var refreshMessage: String?
     @State private var rangeRaw = RollingPills.day.rawValue
     private var range: RollingPills { .parse(rangeRaw) }
     private var detail: DetailWindow { DetailWindow(.bodyBattery, range) }
@@ -14,24 +16,30 @@ struct BodyBatteryDetailView: View {
 
     private var m: DailyMetrics { data.todayForDisplay }
     private var hasNight: Bool { m.bbWake != nil }
-    private var hasScore: Bool { m.bodyBattery != nil }
+    private var hasScore: Bool { m.bodyBatteryForDisplay(at: Date()) != nil }
+    private var hasRecord: Bool { m.bodyBatteryObservedAt != nil }
+    private var isDim: Bool { m.bodyBatteryFreshness(at: Date()) != .fresh }
+    private var observationLabel: String {
+        guard let at = m.bodyBatteryObservedAt else { return L("NO TICK") }
+        return L("SYNCED %@", Fmt.clock(at))
+    }
 
     /// ⚠️ 1CUP · the four rows are only ever present when they close within 0.5 of
     /// BB(now) − BB(anchor). The server drops them when they do not, and there is no OTHER
     /// row to absorb a difference — the whole card goes away instead.
     private var drivers: ReserveDrivers? { m.reserveDrivers }
 
-    /// The peak is the highest point on the curve, not a fixed hour. With no curve on hand
-    /// the board's 07:12 stands in.
-    private var peakTime: String {
-        guard let top = m.reserveCurve.max(by: { $0.value < $1.value }) else { return "07:12" }
-        return Fmt.clock(top.ts)
-    }
+    /// Wake time comes from the recorded night, never from the day's highest score.
+    private var wakeTime: String? { m.bodyBatteryWakeAt.map(Fmt.clock) }
 
     private var weekFacts: [BodyBatteryDayFacts] { facts(count: DetailWindow(.bodyBattery, .week).days) }
     private var monthFacts: [BodyBatteryDayFacts] { facts(count: DetailWindow(.bodyBattery, .month).days) }
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { _ in content }
+    }
+
+    private var content: some View {
         DetailScroll(glow: NB.lime1, title: MetricNames.bodyBattery, trailing: {
             Text(headerStatus)
                 .font(NBFont.dot(600, 11)).tracking(0.24 * 11)
@@ -70,7 +78,7 @@ struct BodyBatteryDetailView: View {
             if range != .day { return }
             if let bb = m.bodyBattery {
                 await Analytics.shared.track("BB_CONFIDENCE_SHOWN",
-                                             ["LEVEL": m.confidence.rawValue, "SCORE": bb])
+                                             ["LEVEL": m.bodyBatteryConfidence.rawValue, "SCORE": bb])
             } else {
                 await Analytics.shared.track("BB_NO_SCORE",
                                              ["REASON": hasNight ? "NOT_SYNCED" : "SHORT_NIGHT"])
@@ -84,7 +92,7 @@ struct BodyBatteryDetailView: View {
                                              ["BB": wake, "TARGET": target,
                                               "LO": zone.lowerBound, "HI": zone.upperBound])
             }
-            if data.vitals.freshness == .stale, let at = data.vitals.at {
+            if m.bodyBatteryFreshness(at: Date()) == .stale, let at = m.bodyBatteryObservedAt {
                 await Analytics.shared.track("BB_STALE_SHOWN",
                                              ["MIN": Int(Date().timeIntervalSince(at) / 60)])
             }
@@ -93,7 +101,7 @@ struct BodyBatteryDetailView: View {
 
     private var headerStatus: String {
         switch range {
-        case .day:   return hasNight ? L("TODAY") : L("DAY 01")
+        case .day:   return L("TODAY")
         case .week, .month: return L(detail.periodKey)
         }
     }
@@ -109,9 +117,9 @@ struct BodyBatteryDetailView: View {
     // MARK: DAY
 
     @ViewBuilder private var dayBoard: some View {
-        if hasScore {
+        if hasScore || hasRecord {
             heroCard
-            if drivers != nil { whyCard }
+            if drivers != nil && hasScore { whyCard }
             if hasNight {
                 inputsCard
                 targetCard
@@ -124,45 +132,38 @@ struct BodyBatteryDetailView: View {
         } else {
             emptyCard
             needsCard
-            LimePillButton(title: L("Wear it tonight")) { leave() }
-                .padding(.top, 6)
+            footer
         }
     }
 
-    /// The curve: lime while charging overnight, white while discharging awake,
-    /// with one lime dot at NOW. There is not a single sleep number on it.
+    /// The curve colours observed increases and decreases, with its actual last timestamp.
     private var heroCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .bottom) {
                 HStack(alignment: .firstTextBaseline, spacing: 9) {
-                    Text(Fmt.int(m.bodyBattery))
+                    Text(Fmt.int(m.bodyBatteryForDisplay(at: Date())))
                         .font(NBFont.dot(800, 64))
-                        .foregroundStyle(NB.text1)
+                        .foregroundStyle(isDim ? NB.text3Prod : NB.text1)
                     Text(L("OF 100"))
                         .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
                         .foregroundStyle(NB.white.opacity(0.42))
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(hasNight ? L("PEAK %@", peakTime) : L("LIVE ESTIMATE"))
+                    Text(wakeTime.map { L("WAKE %@", $0) } ?? (hasNight ? L("MORNING READING") : L("LIVE ESTIMATE")))
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.white.opacity(0.42))
-                    Text(hasNight
-                         ? L("%@ LAST NIGHT", Fmt.signed(drivers?.lastNight ?? 0))
-                         : L("FROM WRIST DATA"))
+                    Text(drivers?.nightCharge.map { L("%@ LAST NIGHT", Fmt.signed($0)) }
+                         ?? (hasNight ? L("NIGHT CHARGE UNAVAILABLE") : L("FROM WRIST DATA")))
                         .font(NBFont.dot(700, 12)).tracking(0.12 * 12)
                         .foregroundStyle(NB.lime1)
                 }
             }
-            BatteryCurve(samples: m.reserveCurve).frame(width: 318, height: 120)
-            HStack {
-                ForEach(["04", "10", "NOW", "22"], id: \.self) { t in
-                    Text(t == "NOW" ? L("NOW") : t)
-                        .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
-                        .foregroundStyle(t == "NOW" ? NB.lime1 : NB.white.opacity(0.34))
-                    if t != "22" { Spacer(minLength: 0) }
-                }
-            }
+            BatteryCurve(samples: m.reserveCurve, day: m.day, dim: isDim).frame(height: 120)
+            BodyBatteryTimeAxis(day: m.day)
+            Text(observationLabel)
+                .font(NBFont.dot(500, 10))
+                .foregroundStyle(isDim ? NB.text3Prod : NB.text2)
         }
         .padding(20)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
@@ -172,14 +173,14 @@ struct BodyBatteryDetailView: View {
     }
 
     /// Four rows that must add up to the number at the top, within ±0.5.
-    /// The order cannot change: last night first, then the three ways the day spent it.
+    /// All rows share the user-day window; the whole-night total is shown separately.
     @ViewBuilder private var whyCard: some View {
         let d = drivers ?? ReserveDrivers(lastNight: 0, awake: 0, movement: 0, stress: 0, anchor: 0)
-        let scale = max(1, max(abs(d.lastNight), max(abs(d.awake), max(abs(d.movement), abs(d.stress)))))
+        let scale = max(1, max(abs(d.dayCharge ?? d.lastNight), max(abs(d.awake), max(abs(d.movement), abs(d.stress)))))
         CardBlock(title: L("WHY %@", Fmt.int(m.bodyBattery)), trailing: L("FROM %d AT 04:00", d.anchor)) {
             VStack(spacing: 11) {
-                ContribRow(label: hasNight ? L("Last night") : L("Recovery"),
-                           value: d.lastNight, maxAbs: scale, tint: NB.lime1)
+                ContribRow(label: L("Recovery since 04:00"),
+                           value: d.dayCharge ?? d.lastNight, maxAbs: scale, tint: NB.lime1)
                 ContribRow(label: L("Just being awake"), value: d.awake, maxAbs: scale, tint: NB.white.opacity(0.35))
                 ContribRow(label: L("Moving around"), value: d.movement, maxAbs: scale, tint: NB.white.opacity(0.35))
                 ContribRow(label: L("Stress"), value: d.stress, maxAbs: scale, tint: NB.white.opacity(0.35))
@@ -195,9 +196,7 @@ struct BodyBatteryDetailView: View {
                     .foregroundStyle(NB.text2)
             }
             if d.assumedAnchor {
-                Text(hasNight
-                     ? L("There was no yesterday to start from, so the first night began at an assumed 20. It stops being an assumption tomorrow.")
-                     : L("There was no previous day or recorded night, so this daytime estimate begins at a neutral 50. Live wrist data moves it from there."))
+                Text(L("The starting battery was estimated because earlier readings were missing. Later readings still carry that uncertainty."))
                     .font(NBFont.brand(400, 13))
                     .lineSpacing(6)
                     .foregroundStyle(NB.white.opacity(0.62))
@@ -233,7 +232,7 @@ struct BodyBatteryDetailView: View {
                     .font(NBFont.dot(700, 11)).tracking(0.22 * 11)
                     .foregroundStyle(NB.white)
                 Spacer(minLength: 0)
-                Text(L("SET AT %@", peakTime))
+                Text(wakeTime.map { L("SET AT %@", $0) } ?? L("SET AT WAKE"))
                     .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                     .foregroundStyle(NB.white.opacity(0.42))
             }
@@ -275,7 +274,7 @@ struct BodyBatteryDetailView: View {
 
     private var daytimeAnchorCard: some View {
         CardBlock(title: L("DAYTIME ESTIMATE"), trailing: L("NO NIGHT REQUIRED")) {
-            Text(L("Heart rate, HRV, stress and movement update this score now. A recorded night improves tomorrow's recovery and freezes its training target."))
+            Text(L("Recent heart rate, HRV, stress and movement inform this estimate. A recorded night also establishes the morning reading and training target."))
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(8)
                 .foregroundStyle(NB.white.opacity(0.70))
@@ -318,14 +317,7 @@ struct BodyBatteryDetailView: View {
                                    name: L("STRESS"),
                                    low: stresses.min() ?? 0, high: stresses.max() ?? 0, unit: L("INDEX"))
                     }
-                    HStack {
-                        ForEach(["04", "10", "16", "22"], id: \.self) { t in
-                            Text(t)
-                                .font(NBFont.dot(600, 9)).tracking(0.18 * 9)
-                                .foregroundStyle(NB.white.opacity(0.30))
-                            if t != "22" { Spacer(minLength: 0) }
-                        }
-                    }
+                    BodyBatteryTimeAxis(day: m.day)
                 }
             }
             Hairline()
@@ -345,11 +337,11 @@ struct BodyBatteryDetailView: View {
         }
         if gone { return L("Nothing for over six hours. These are not old numbers, they are no numbers.") }
         if stale { return L("%d ticks today. Nothing new for a while — it may be off your wrist.", ticks) }
-        return L("%d ticks today, five minutes apart. Stress is one of the four rows above it.", ticks)
+        return L("%d recorded readings today. Gaps are left open.", ticks)
     }
 
     private var confidenceCard: some View {
-        CardBlock(title: L("CONFIDENCE"), trailing: m.confidence.rawValue, trailingIsDot: true) {
+        CardBlock(title: L("CONFIDENCE"), trailing: L(m.bodyBatteryConfidence.rawValue), trailingIsDot: true) {
             HStack(spacing: 6) {
                 ForEach(0..<3, id: \.self) { i in
                     Capsule()
@@ -357,42 +349,99 @@ struct BodyBatteryDetailView: View {
                         .frame(height: 5)
                 }
             }
-            Text(L("BASELINE %d / 14 NIGHTS", m.nightInputs?.rhrNights ?? 0))
-                .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L("HRV BASELINE %d / 14 NIGHTS", m.reserveDrivers?.coverage?.hrvNights ?? m.nightInputs?.hrvNights ?? 0))
+                Text(L("RESTING BASELINE %d / 14 NIGHTS", m.reserveDrivers?.coverage?.rhrNights ?? m.nightInputs?.rhrNights ?? 0))
+            }
+            .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+            .foregroundStyle(NB.text3Prod)
+            Text(L("Baselines use nights with enough valid readings and no long recording gaps."))
+                .font(NBFont.brand(400, 13))
                 .foregroundStyle(NB.text3Prod)
+            if let coverage = m.reserveDrivers?.coverage {
+                Hairline()
+                coverageRow("NIGHT HRV COVERAGE", coverage.nightHRV)
+                coverageRow("NIGHT HEART COVERAGE", coverage.nightRHR)
+                coverageRow("DAY HEART COVERAGE", coverage.dayHeart)
+                coverageRow("DAY HRV COVERAGE", coverage.dayHRV)
+                coverageRow("DAY STRESS COVERAGE", coverage.dayStress)
+                Text(L("Missing HRV or stress readings reduce confidence; they do not mean no stress."))
+                    .font(NBFont.brand(400, 13))
+                    .foregroundStyle(NB.text3Prod)
+            }
+        }
+    }
+
+    private func coverageRow(_ title: String, _ fraction: Double?) -> some View {
+        HStack {
+            Text(L(title))
+                .font(NBFont.ui(500, 10))
+                .foregroundStyle(NB.text3Prod)
+            Spacer(minLength: 0)
+            Text(fraction.map { "\(Int((min(1, max(0, $0)) * 100).rounded()))%" } ?? Fmt.dash)
+                .font(NBFont.dot(600, 12))
+                .foregroundStyle(NB.text2)
         }
     }
 
     private var tierIndex: Int {
-        switch m.confidence { case .pending: 1; case .medium: 2; case .high: 3 }
+        switch m.bodyBatteryConfidence { case .low: 1; case .medium: 2; case .high: 3 }
     }
 
     private var footer: some View {
-        HStack {
-            Text(data.lastSync.map { "SYNCED \(Fmt.clock($0))" } ?? "NOT SYNCED YET")
-                .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                .foregroundStyle(NB.text3Prod)
-            Spacer(minLength: 0)
-            if let wake = m.bbWake {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(observationLabel)
+                    .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+                    .foregroundStyle(NB.text3Prod)
+                Spacer(minLength: 0)
                 Button {
-                    let from = data.today.bodyBattery
-                    data.today.bodyBattery = wake
-                    Task {
-                        await Analytics.shared.track("BB_TARGET_REANCHORED",
-                                                     ["FROM": from as Any, "TO": wake,
-                                                      "SOURCE": "battery_check"])
-                    }
+                    Task { await refreshBattery() }
                 } label: {
-                    Text(L("BATTERY CHECK"))
+                    Text(L(isRefreshing ? "SYNCING…" : "SYNC"))
                         .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                         .foregroundStyle(NB.text2)
                         .padding(.horizontal, 16).frame(height: 34)
                         .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+                .disabled(isRefreshing)
+                .accessibilityIdentifier("bodyBattery.sync")
+                .accessibilityLabel(L("Sync now"))
+            }
+            if let refreshMessage {
+                Text(refreshMessage)
+                    .font(NBFont.brand(400, 13))
+                    .foregroundStyle(NB.text3Prod)
             }
         }
         .padding(.top, 6)
+    }
+
+    /// Re-read real band evidence through the existing sync lane. A request to refresh
+    /// never edits a calculated value or resets the frozen training target.
+    private func refreshBattery() async {
+        guard !isRefreshing else { return }
+        refreshMessage = nil
+        guard ConsentStore.shared.granted else { router.takeover = .consent; return }
+        guard BoundBand.identifier != nil else {
+            refreshMessage = L("Connect the band to see the ticks it has been recording.")
+            return
+        }
+        guard SupabaseClient.currentUserIdSnapshot() != nil else {
+            refreshMessage = L("Sign in to sync this HOOP.")
+            return
+        }
+        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else {
+            refreshMessage = L("Finish the current measurement or device operation, then sync again.")
+            return
+        }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        await OriginDataSync.refreshNow(into: data, minimumInterval: 0)
+        if Band.live.state != .connected {
+            refreshMessage = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
+        }
     }
 
     private var emptyCard: some View {
@@ -405,10 +454,10 @@ struct BodyBatteryDetailView: View {
                     .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
                     .foregroundStyle(NB.white.opacity(0.30))
             }
-            Text(L("NOTHING TO CHARGE FROM YET"))
+            Text(L("NO RECENT BATTERY READING"))
                 .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
                 .foregroundStyle(NB.ember1)
-            Text(L("The first number arrives after your first night with the band on. Nothing to do today."))
+            Text(L("Sync recent wrist readings to estimate your battery. A recorded night also establishes your morning reading."))
                 .font(NBFont.brand(400, 16))
                 .lineSpacing(8)
                 .foregroundStyle(NB.text1)
@@ -423,9 +472,9 @@ struct BodyBatteryDetailView: View {
     private var needsCard: some View {
         CardBlock(title: L("WHAT IT NEEDS")) {
             VStack(alignment: .leading, spacing: 14) {
-                NeedRow("One night with the band on your wrist")
-                NeedRow("Five nights before the number settles")
-                NeedRow("Fourteen nights before it knows your normal")
+                NeedRow("Recent heart rate and activity readings")
+                NeedRow("A recorded night for a morning reading")
+                NeedRow("Enough complete nights to build a personal baseline")
             }
         }
     }
@@ -470,7 +519,7 @@ struct BodyBatteryDetailView: View {
                          night.map { L("%@ / DAY", Fmt.signed($0)) } ?? Fmt.dash,
                          NB.macroValue)
                 Hairline()
-                weekStat(L("EMPTY"), L("%d DAYS", BodyBatteryWindowMath.emptyCount(days)), NB.text3Prod)
+                weekStat(L("NO MORNING READING"), L("%d DAYS", BodyBatteryWindowMath.emptyCount(days)), NB.text3Prod)
             }
         }
     }
@@ -480,7 +529,7 @@ struct BodyBatteryDetailView: View {
     private var monthBoard: some View {
         let days = monthFacts
         let typical = BodyBatteryWindowMath.typicalWake(days)
-        let worn = BodyBatteryWindowMath.wornCount(days)
+        let mornings = days.filter(\.hasWake).count
         let empty = BodyBatteryWindowMath.emptyCount(days)
         let rolls = BodyBatteryWindowMath.weekRolls(days)
         let night = BodyBatteryWindowMath.typicalNightCharge(days)
@@ -488,7 +537,7 @@ struct BodyBatteryDetailView: View {
             heroNumber(typical.map { Int($0.rounded()) }, caption: "30 DAYS",
                        foot: L("A typical morning peak. Not a 30-day sum."))
             CardBlock(title: L("THIRTY DAYS"),
-                      trailing: L("%d WORN · %d EMPTY", worn, empty), trailingIsDot: true) {
+                      trailing: L("%d MORNINGS · %d MISSING", mornings, empty), trailingIsDot: true) {
                 BodyBatteryHeatGrid(days: days, today: today)
                 HStack(spacing: 6) {
                     Text(L("LOW")).font(NBFont.dot(700, 10)).foregroundStyle(Color(hex: 0x8A8A96))
@@ -499,7 +548,7 @@ struct BodyBatteryDetailView: View {
                     }
                     Text(L("HIGH")).font(NBFont.dot(700, 10)).foregroundStyle(Color(hex: 0x8A8A96))
                     Spacer(minLength: 0)
-                    Text(L("DASH · NOT WORN"))
+                    Text(L("DASH · NO MORNING"))
                         .font(NBFont.dot(700, 10))
                         .foregroundStyle(Color(hex: 0x8A8A96))
                 }
@@ -520,7 +569,7 @@ struct BodyBatteryDetailView: View {
                     .frame(height: 72)
                 HStack {
                     ForEach(Array(rolls.enumerated()), id: \.offset) { i, roll in
-                        Text(L("W%d %@", i + 1, Fmt.int(roll.average.map { Int($0.rounded()) })))
+                        Text(L("%dD %@", roll.days, Fmt.int(roll.average.map { Int($0.rounded()) })))
                             .font(NBFont.dot(500, 9))
                             .foregroundStyle(i == rolls.count - 1 ? NB.lime1 : Color(hex: 0x8A8A96))
                         if i < rolls.count - 1 { Spacer(minLength: 0) }
@@ -532,7 +581,7 @@ struct BodyBatteryDetailView: View {
                 weekStat(L("NIGHT CHARGE"),
                          night.map { L("%@ / DAY", Fmt.signed($0)) } ?? Fmt.dash,
                          NB.macroValue)
-                Text(L("Four rolling weeks, each one an average of morning peaks. Empty days stay empty."))
+                Text(L("Five groups cover all 30 days: two days, then four weeks. Each bar averages the available morning readings."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -589,7 +638,7 @@ struct BodyBatteryDetailView: View {
                 day: day,
                 wake: row.bbWake,
                 now: day == today ? data.bodyBatteryNow : row.bodyBattery,
-                nightCharge: row.reserveDrivers?.lastNight,
+                nightCharge: row.reserveDrivers?.nightCharge,
                 worn: row.worn,
                 isOpen: day == today && !day.isClosed)
         }
@@ -602,7 +651,7 @@ private struct NeedRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Circle().stroke(NB.white.opacity(0.28), lineWidth: 1).frame(width: 9, height: 9)
-            Text(text)
+            Text(L(text))
                 .font(NBFont.brand(400, 13))
                 .foregroundStyle(NB.text2)
         }
@@ -664,69 +713,64 @@ private struct InputRow: View {
     }
 }
 
-/// Lime up through the night, white down through the day, one lime dot at NOW.
-/// With real samples the shape is the day's own; with none it falls back to empty.
+/// Each observed rise is lime; flat or falling segments are white. Missing ticks
+/// stay open. The last point marks the last observation, not an extrapolated NOW.
 struct BatteryCurve: View {
     var samples: [ReserveSample] = []
+    var day: UserDay? = nil
+    var dim = false
 
-    /// The 318 × 120 box the board draws in. x is the 24 hours from the 04:00 cut,
-    /// y is 0–100 of battery; the two are split at the peak, which is when you woke.
-    private func path() -> (charge: [CGPoint], drain: [CGPoint]) {
-        guard let first = samples.first else { return ([], []) }
-        let day = UserDay.containing(first.ts)
-        func point(_ s: ReserveSample) -> CGPoint {
-            let t = min(1, max(0, s.ts.timeIntervalSince(day.start) / 86_400))
-            return CGPoint(x: 4 + t * 310, y: 112 - Double(s.value) / 100 * 104)
+    var body: some View {
+        Canvas { ctx, size in
+            guard let last = samples.max(by: { $0.ts < $1.ts }) else { return }
+            let window = day ?? UserDay.containing(last.ts)
+            func point(_ sample: ReserveSample) -> CGPoint {
+                CGPoint(x: 4 + BodyBatteryCurveMath.fraction(sample.ts, in: window) * max(0, size.width - 8),
+                        y: size.height - 8 - Double(min(100, max(0, sample.value))) / 100 * max(0, size.height - 16))
+            }
+            for value in [30.0, 70.0] {
+                let y = size.height - 8 - value / 100 * max(0, size.height - 16)
+                ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)),
+                         with: .color(NB.white.opacity(0.06)))
+            }
+            for segment in BodyBatteryCurveMath.segments(samples) {
+                var line = Path()
+                line.move(to: point(segment.start))
+                line.addLine(to: point(segment.end))
+                ctx.stroke(line, with: .color(segment.charging ? NB.lime1 : NB.white.opacity(0.42)),
+                           style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+            }
+            let tail = point(last)
+            ctx.fill(Path(ellipseIn: CGRect(x: tail.x - 4.5, y: tail.y - 4.5, width: 9, height: 9)),
+                     with: .color(NB.lime1))
         }
-        guard samples.count > 1,
-              let peak = samples.enumerated().max(by: { $0.element.value < $1.element.value })
-        else {
-            let only = point(first)
-            return ([only], [only])
-        }
-        let all = samples.map(point)
-        return (Array(all[...peak.offset]), Array(all[peak.offset...]))
+        .opacity(dim ? 0.45 : 1)
+    }
+}
+
+/// Local clock labels share the same second-based coordinates as both charts.
+/// No fixed-position NOW label implies that an old observation is current.
+private struct BodyBatteryTimeAxis: View {
+    let day: UserDay
+
+    private var ticks: [Date] {
+        let calendar = Calendar.current
+        return [4, 10, 16, 22].compactMap {
+            calendar.date(bySettingHour: $0, minute: 0, second: 0, of: day.start)
+        } + [day.end]
     }
 
     var body: some View {
-        let (charge, drain) = path()
-        Canvas { ctx, size in
-            let sx = size.width / 318, sy = size.height / 120
-            func p(_ pt: CGPoint) -> CGPoint { CGPoint(x: pt.x * sx, y: pt.y * sy) }
-
-            for y in [30.0, 70.0] {
-                ctx.fill(Path(CGRect(x: 0, y: y * sy, width: size.width, height: 1)),
-                         with: .color(NB.white.opacity(0.06)))
+        GeometryReader { geo in
+            ForEach(ticks, id: \.self) { timestamp in
+                Text(Fmt.clock(timestamp))
+                    .font(NBFont.dot(500, 9))
+                    .foregroundStyle(NB.white.opacity(0.34))
+                    .position(x: min(max(16, 4 + BodyBatteryCurveMath.fraction(timestamp, in: day) * max(0, geo.size.width - 8)),
+                                     max(16, geo.size.width - 16)), y: 6)
             }
-
-            guard let head = charge.first, let tail = drain.last else { return }
-
-            var area = Path()
-            area.move(to: p(head))
-            (charge.dropFirst() + drain.dropFirst()).forEach { area.addLine(to: p($0)) }
-            area.addLine(to: p(.init(x: tail.x, y: 112)))
-            area.addLine(to: p(.init(x: head.x, y: 112)))
-            area.closeSubpath()
-            ctx.fill(area, with: .color(NB.lime1.opacity(0.10)))
-
-            var up = Path()
-            up.move(to: p(head))
-            charge.dropFirst().forEach { up.addLine(to: p($0)) }
-            ctx.stroke(up, with: .color(NB.lime1),
-                       style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-
-            if let dhead = drain.first {
-                var down = Path()
-                down.move(to: p(dhead))
-                drain.dropFirst().forEach { down.addLine(to: p($0)) }
-                ctx.stroke(down, with: .color(NB.white.opacity(0.42)),
-                           style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-            }
-
-            let now = p(tail)
-            ctx.fill(Path(ellipseIn: CGRect(x: now.x - 4.5, y: now.y - 4.5, width: 9, height: 9)),
-                     with: .color(NB.lime1))
         }
+        .frame(height: 12)
     }
 }
 
@@ -783,9 +827,12 @@ private struct VitalTrace: View {
                 let span = max(1, high - low)
                 var run = Path()
                 var open = false
-                for s in samples {
+                var previous: Date?
+                for s in samples.sorted(by: { $0.ts < $1.ts }) {
+                    defer { previous = s.ts }
                     guard let v = s[keyPath: value] else { open = false; continue }
-                    let t = min(1, max(0, s.ts.timeIntervalSince(day.start) / 86_400))
+                    if let previous, s.ts.timeIntervalSince(previous) > 10 * 60 { open = false }
+                    let t = BodyBatteryCurveMath.fraction(s.ts, in: day)
                     let x = size.width * t
                     let y = size.height - (Double(v - low) / Double(span)) * (size.height - 4) - 2
                     let pt = CGPoint(x: x, y: y)

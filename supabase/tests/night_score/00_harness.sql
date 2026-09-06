@@ -64,7 +64,19 @@ create table public.meals            (user_id uuid);
 create table public.weigh_ins        (user_id uuid);
 create table public.body_composition (user_id uuid);
 create table public.response_samples (user_id uuid);
-create table public.raw_samples      (user_id uuid);
+create table public.raw_samples (
+  user_id uuid, ts timestamptz, heart smallint, hrv numeric, sleep_states smallint,
+  src text not null default 'band', primary key (user_id, ts, src)
+);
+create function nb.calculation_profile(p_user uuid, p_day date) returns setof public.profiles
+  language sql stable as $$ select * from public.profiles where user_id=p_user $$;
+create function nb.calculation_clock() returns timestamptz language sql stable as $$
+  select coalesce(nullif(current_setting('nb.calculation_as_of',true),'')::timestamptz,
+    '2026-10-01T00:00:00Z'::timestamptz) $$;
+create function nb.user_day_bounds(p_day date, p_tz text)
+  returns table(starts_at timestamptz, ends_at timestamptz) language sql stable as $$
+  select (p_day+time '04:00') at time zone p_tz,
+         (p_day+1+time '04:00') at time zone p_tz $$;
 create table public.reserve_samples  (user_id uuid);
 create table public.sync_runs        (user_id uuid);
 create table public.device_capabilities (user_id uuid);

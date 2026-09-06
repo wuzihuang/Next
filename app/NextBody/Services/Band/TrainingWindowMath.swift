@@ -5,6 +5,21 @@ enum TrainingBand: String, Equatable, Sendable {
     case steady = "STEADY"
     case heavy = "HEAVY"
     case over = "OVER"
+    case unknown = "NO TARGET"
+}
+
+enum TrainingRangeStatus: Equatable, Sendable {
+    case noLoad, noTarget, below(Double), inRange, above(Double), capped
+}
+
+struct TrainingCurvePoint: Equatable, Sendable {
+    var ts: Date
+    var load: Double
+}
+
+struct TrainingCurveData: Equatable, Sendable {
+    var segments: [[TrainingCurvePoint]]
+    var gaps: [DateInterval]
 }
 
 struct TrainingDayFacts: Equatable, Sendable {
@@ -92,11 +107,16 @@ enum TrainingWindowMath {
     }
 
     static func wornCount(_ days: [TrainingDayFacts]) -> Int {
-        days.filter { $0.load != nil || $0.worn == true }.count
+        days.filter { $0.worn == true }.count
+    }
+
+    /// A published zero is a recorded load; it is not proof of wearing the band.
+    static func recordedCount(_ days: [TrainingDayFacts]) -> Int {
+        days.filter { $0.load != nil }.count
     }
 
     static func emptyCount(_ days: [TrainingDayFacts]) -> Int {
-        days.count - wornCount(days)
+        days.count - recordedCount(days)
     }
 
     /// A day counts as a session when it spent 20 minutes at Z4 or above.
@@ -105,30 +125,78 @@ enum TrainingWindowMath {
     }
 
     static func band(load: Double, zone: ClosedRange<Double>?) -> TrainingBand {
+        guard let zone else { return .unknown }
         if load >= 20.9 { return .over }
-        if let zone {
-            if load < zone.lowerBound { return .light }
-            if load > zone.upperBound { return .heavy }
-            return .steady
-        }
-        if load < 8 { return .light }
-        if load < 14 { return .steady }
-        if load < 18.5 { return .heavy }
-        return .over
+        if load < zone.lowerBound { return .light }
+        if load > zone.upperBound { return .heavy }
+        return .steady
     }
 
-    static func bandCounts(_ days: [TrainingDayFacts], zone: ClosedRange<Double>?) -> (light: Int, steady: Int, heavy: Int, over: Int) {
-        var light = 0, steady = 0, heavy = 0, over = 0
+    static func bandCounts(_ days: [TrainingDayFacts]) -> (light: Int, steady: Int, heavy: Int, over: Int, unknown: Int) {
+        var light = 0, steady = 0, heavy = 0, over = 0, unknown = 0
         for day in days {
             guard let load = day.load, !day.isOpen else { continue }
-            switch band(load: load, zone: day.zone ?? zone) {
+            switch band(load: load, zone: day.zone) {
             case .light:  light += 1
             case .steady: steady += 1
             case .heavy:  heavy += 1
             case .over:   over += 1
+            case .unknown: unknown += 1
             }
         }
-        return (light, steady, heavy, over)
+        return (light, steady, heavy, over, unknown)
+    }
+
+    static func rangeStatus(load: Double?, target: Double?, zone: ClosedRange<Double>?) -> TrainingRangeStatus {
+        guard let load, load.isFinite else { return .noLoad }
+        if load >= 20.9 { return .capped }
+        guard let range = zone ?? target.map({ $0...$0 }) else { return .noTarget }
+        if load < range.lowerBound { return .below(range.lowerBound - load) }
+        if load > range.upperBound { return .above(load - range.upperBound) }
+        return .inRange
+    }
+
+    /// All columns share a minute scale, so 100 minutes is ten times 10 minutes.
+    static func zoneScaleMinutes(_ days: [TrainingDayFacts]) -> Double {
+        max(1, days.map { Double(($0.easyMinutes ?? 0) + ($0.hardMinutes ?? 0)) }.max() ?? 0)
+    }
+
+    /// A five-minute sample contributes only its recorded value. Missing slots split
+    /// the line; first/last missing intervals are visible too. Future time is not a gap.
+    static func curveData(_ input: [TrainingCurvePoint], day: UserDay, through: Date) -> TrainingCurveData {
+        let end = max(day.start, min(through, day.end))
+        let points = input.filter {
+            $0.ts >= day.start && $0.ts <= end && $0.load.isFinite && (0...21).contains($0.load)
+        }.sorted { $0.ts < $1.ts }
+        guard let first = points.first else {
+            return TrainingCurveData(segments: [], gaps: end > day.start ? [DateInterval(start: day.start, end: end)] : [])
+        }
+        var segments = [[first]]
+        var gaps: [DateInterval] = []
+        if first.ts > day.start {
+            gaps.append(DateInterval(start: day.start, end: first.ts))
+        }
+        for point in points.dropFirst() {
+            guard let previous = segments.last?.last else { continue }
+            if point.ts == previous.ts { continue }
+            if point.ts.timeIntervalSince(previous.ts) > 450 {
+                gaps.append(DateInterval(start: previous.ts.addingTimeInterval(300), end: point.ts))
+                segments.append([point])
+            } else {
+                segments[segments.count - 1].append(point)
+            }
+        }
+        if let last = segments.last?.last {
+            let coveredThrough = last.ts.addingTimeInterval(300)
+            if end.timeIntervalSince(coveredThrough) >= 300 {
+                gaps.append(DateInterval(start: coveredThrough, end: end))
+            }
+        }
+        return TrainingCurveData(segments: segments, gaps: gaps)
+    }
+
+    static func dayFraction(_ instant: Date, day: UserDay) -> Double {
+        max(0, min(1, instant.timeIntervalSince(day.start) / day.end.timeIntervalSince(day.start)))
     }
 
     /// Week rolls, oldest first. Groups of seven walking back from the end;

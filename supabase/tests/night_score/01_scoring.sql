@@ -17,8 +17,8 @@ returns void language sql as $$
   insert into public.sleep_nights(user_id, user_day, total_minutes, deep_minutes,
                                   light_minutes, wake_count, sleep_line, sleep_start, wake_at)
   values (u, d, total, deep, total - deep, wakes, line,
-          ((d - 1)::text || ' ' || bed::text)::timestamp at time zone 'Asia/Shanghai',
-          (((d - 1)::text || ' ' || bed::text)::timestamp at time zone 'Asia/Shanghai')
+          ((d - case when bed >= time '18:00' then 1 else 0 end)::text || ' ' || bed::text)::timestamp at time zone 'Asia/Shanghai',
+          (((d - case when bed >= time '18:00' then 1 else 0 end)::text || ' ' || bed::text)::timestamp at time zone 'Asia/Shanghai')
             + make_interval(mins => total))
   on conflict (user_id, user_day) do update set
     total_minutes = excluded.total_minutes, deep_minutes = excluded.deep_minutes,
@@ -28,6 +28,10 @@ returns void language sql as $$
 $$;
 
 create or replace function t_rhr(u uuid, d date, rhr int) returns void language sql as $$
+  insert into public.raw_samples(user_id,ts,heart)
+  select u,sleep_start+make_interval(mins=>g*15),rhr
+  from public.sleep_nights,generate_series(1,2) g where user_id=u and user_day=d
+  on conflict(user_id,ts,src) do update set heart=excluded.heart;
   with r as (
     insert into public.daily_results(user_id, user_day) values (u, d)
     on conflict (user_id, user_day) do update set user_day = excluded.user_day returning id)
@@ -48,8 +52,20 @@ $$;
 create or replace function t_resp(u uuid, d date, bpm numeric) returns void language sql as $$
   update public.sleep_nights set raw = jsonb_build_object('respiration', jsonb_build_array(
       jsonb_build_object('ts', sleep_start, 'breaths_per_minute', bpm),
-      jsonb_build_object('ts', sleep_start, 'breaths_per_minute', bpm)))
+      jsonb_build_object('ts', sleep_start + interval '1 minute', 'breaths_per_minute', bpm)))
   where user_id = u and user_day = d;
+$$;
+
+create or replace function t_hrv(u uuid,d date,hrv numeric) returns void language sql as $$
+  update public.sleep_nights set raw=raw||jsonb_build_object('hrv',jsonb_build_array(
+    jsonb_build_object('ts',sleep_start,'rmssd_ms',hrv),
+    jsonb_build_object('ts',sleep_start+interval '15 minutes','rmssd_ms',hrv)))
+  where user_id=u and user_day=d;
+  insert into public.raw_samples(user_id,ts,hrv)
+  select u,sleep_start+make_interval(mins=>g*15),hrv
+  from public.sleep_nights,generate_series(0,1) g where user_id=u and user_day=d
+  on conflict(user_id,ts,src) do update set hrv=excluded.hrv;
+  select nb.refresh_night_hrv(u,d);
 $$;
 
 create table t_out(name text, got jsonb);
@@ -70,7 +86,7 @@ begin
   perform t_rhr(u, '2026-09-05', 58);
   perform t_spo2(u, '2026-09-05', 96, 98);
   perform t_resp(u, '2026-09-05', 15);
-  insert into public.night_hrv(user_id, user_day, rmssd_ms) values (u, '2026-09-05', 45);
+  perform t_hrv(u, '2026-09-05', 45);
   perform t_run('1 好夜 · 全输入', u, '2026-09-05');
 
   -- 2 · a short, fragmented night with no line and no physiology at all
@@ -105,17 +121,18 @@ declare u uuid := t_user('calibrated'); i int;
 begin
   for i in 1..20 loop
     perform t_night(u, ('2026-09-05'::date - i), 430, 85, 1, '1:150,0:85,2:95,1:100', '23:30');
-    insert into public.night_hrv(user_id, user_day, rmssd_ms)
-      values (u, '2026-09-05'::date - i, 25) on conflict do nothing;
+    perform t_hrv(u, '2026-09-05'::date - i, 25);
     perform t_rhr(u, '2026-09-05'::date - i, 52);
   end loop;
   perform t_night(u, '2026-09-05', 440, 88, 1, '1:150,0:88,2:98,1:104', '23:40');
-  insert into public.night_hrv(user_id, user_day, rmssd_ms) values (u, '2026-09-05', 25);
+  perform t_hrv(u, '2026-09-05', 25);
   perform t_rhr(u, '2026-09-05', 52);
   perform t_run('6 校准后 · 个人 HRV 25ms 准时睡', u, '2026-09-05');
 
   -- 7 · same person, same physiology, but three hours late to bed
   perform t_night(u, '2026-09-05', 440, 88, 1, '1:150,0:88,2:98,1:104', '02:40');
+  perform t_hrv(u, '2026-09-05', 25);
+  perform t_rhr(u, '2026-09-05', 52);
   perform t_run('7 同一人 · 晚睡三小时', u, '2026-09-05');
 end $$;
 

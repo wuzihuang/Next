@@ -354,7 +354,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"$PLATFORM_NAME\" != \"iphoneos\" ]; then echo \"skip on $PLATFORM_NAME\"; exit 0; fi\nDST=\"$BUILT_PRODUCTS_DIR/$FRAMEWORKS_FOLDER_PATH\"; mkdir -p \"$DST\"\nfor FW in \"$PROJECT_DIR\"/Frameworks/*.framework; do\n  BIN=\"$FW/$(basename \"$FW\" .framework)\"\n  # Static archives are already linked into the executable; installd rejects them under Frameworks/.\n  if file -b \"$BIN\" | grep -q \"ar archive\"; then echo \"skip static $(basename \"$FW\")\"; rm -rf \"$DST/$(basename \"$FW\")\"; continue; fi\n  rsync -a --delete \"$FW\" \"$DST/\"\n  if [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then\n    codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --timestamp=none \"$DST/$(basename \"$FW\")\"\n  fi\ndone\n";
+			shellScript = "if [ \"$PLATFORM_NAME\" != \"iphoneos\" ]; then echo \"skip on $PLATFORM_NAME\"; exit 0; fi\nDST=\"$BUILT_PRODUCTS_DIR/$FRAMEWORKS_FOLDER_PATH\"; mkdir -p \"$DST\"\nfor FW in \"$PROJECT_DIR\"/Frameworks/*.framework; do\n  BIN=\"$FW/$(basename \"$FW\" .framework)\"\n  # Static archives are already linked into the executable; installd rejects them under Frameworks/.\n  if file -b \"$BIN\" | grep -q \"ar archive\"; then echo \"skip static $(basename \"$FW\")\"; rm -rf \"$DST/$(basename \"$FW\")\"; continue; fi\n  rsync -a --delete \"$FW\" \"$DST/\"\n  # App Store rejects legacy bitcode in bundled vendor binaries.\n  EMBEDDED_BIN=\"$DST/$(basename \"$FW\")/$(basename \"$FW\" .framework)\"\n  xcrun bitcode_strip \"$EMBEDDED_BIN\" -r -o \"$EMBEDDED_BIN\" || exit 1\n  if [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ]; then\n    codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --timestamp=none \"$DST/$(basename \"$FW\")\"\n  fi\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -527,7 +527,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = NextBody/NextBody.entitlements;
+				CODE_SIGN_ENTITLEMENTS = NextBody/NextBody.Release.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";

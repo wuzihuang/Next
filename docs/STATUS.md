@@ -75,6 +75,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 04C | Page two RESPONSE (retired HRV slot) | built · dial hero + DAY/WEEK/MONTH rolling windows; day is 15-min occupancy envelope, week daily bars, month heat; week/month hero is daily-mean average vs own daytime median (ADR 0012) |
 | 04K | HEART second level | built · Lead layout (ADR 0013): zone dial + DAY/WEEK/MONTH; HRV and overnight SpO2 share the heart clock; week/month hero is the median of daily medians |
 | Q-0 | System widget · TODAY medium | built · one WidgetKit face on the Live Activity extension (battery / load / eaten rings); App Group glance; LOG left off — widgets cannot hold-to-talk |
+| F5 C4 | Notification reach | shipped: ADR 0019 edges (7 kinds), 4/user-day, lock + in-app banners, local `UNNotificationRequest`. Primer copy + settings match the plan. Cloud APNs still needs a portal `.p8` |
 
 04B notes:
 
@@ -929,10 +930,14 @@ built. Everything below was walked on the iPhone 16e simulator with the accessib
   Body Battery. Edge 2 (`MULTIPLIER 1.00 · NO HRV YET`) and edge 3 (`FIRST READING · LOW
   CONFIDENCE`) titles are wired; the demo account has no HRV, so edge 2 is what it shows.
   `SIMCTL_CHILD_NB_DEBUG_NOW=<ISO>` (DEBUG only) pretends it is that morning.
-- **F5 C4 · notification primer** — `NotificationPrimer`, the two-button screen with the
-  board's one sentence, shown after the first real morning widget and from the Notifications
-  sheet. `Turn on` is the only path to the system dialog; `Not now` asks again next morning;
-  a refused system dialog is never asked again (status ≠ notDetermined).
+- **F5 C4 · notification primer** — `NotificationPrimer`, two buttons after the first real
+  morning widget and from the Notifications sheet. Copy is ADR 0019 (edges, not “only last
+  night”). `Turn on` is the only path to the system dialog; `Not now` asks again next morning;
+  a refused system dialog is never asked again (status ≠ notDetermined). Settings list the
+  seven edges with threshold details. `NotificationReach` + `NotificationReachMath` fire
+  local requests on edges, 4/user-day, banners in the foreground unless the target page
+  is already open. 2026-09-06: Debug `aps-environment=development` on the connected
+  iPhone; `push_tokens` live in production. Cloud APNs still needs a portal `.p8`.
 - **F5 C5** — the 18 gate is judged on `Looks right`, not live on the birthday wheel.
 - **F5 C11** — Dynamic Type capped at xLarge; the macro readouts scale down instead of clipping.
 - **F5 §06 banned phrases** — 19 regex rows (migration 20260902010100); a hit is `E_CLAIM`

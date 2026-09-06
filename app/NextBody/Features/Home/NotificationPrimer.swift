@@ -1,10 +1,9 @@
 import SwiftUI
 import UserNotifications
 
-/// F5 C4 · the notification primer. 「Every morning HOOP tells you how last night went. That's
-/// the only thing it will ever notify you about.」 — two buttons, Not now / Turn on. The system
-/// dialog appears only after Turn on, and once refused there is never shown again. Not now is
-/// not a refusal: the primer comes back the next morning.
+/// F5 C4 · the notification primer. HOOP taps on edges (ADR 0019), not only last night.
+/// Two buttons, Not now / Turn on. The system dialog appears only after Turn on, and once
+/// refused is never shown again. Not now is not a refusal: the primer comes back the next morning.
 struct NotificationPrimer: View {
     let onDone: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -17,10 +16,10 @@ struct NotificationPrimer: View {
             NB.carbon.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 18) {
                 Spacer()
-                Text(L("Every morning HOOP tells you how last night went."))
+                Text(L("HOOP taps you when something changes."))
                     .font(NBFont.brand(600, 30)).tracking(-0.02 * 30).lineSpacing(4)
                     .foregroundStyle(ink)
-                Text(L("That's the only thing it will ever notify you about."))
+                Text(L("Last night lands, a meal is still open, training is under, or the band goes dark."))
                     .font(NBFont.ui(300, 17)).lineSpacing(8)
                     .foregroundStyle(lede)
                 Spacer().frame(height: 140)
@@ -47,6 +46,7 @@ struct NotificationPrimer: View {
     private func turnOn() async {
         await Analytics.shared.track("NOTIF_PRIMER_CHOICE", ["CHOICE": "turn_on"])
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        await NotificationReach.didGainAuthorization()
         onDone()
     }
     private func notNow() {

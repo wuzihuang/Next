@@ -77,6 +77,7 @@ let package = Package(
                 "BandAlarmMath.swift",
                 "HealthSampleMapping.swift",
                 "MealResponseIndex.swift",
+                "NotificationReachMath.swift",
                 "SkinTempNightRange.swift",
                 "HomeLaunchPolicy.swift",
                 "LaunchFilmPolicy.swift",

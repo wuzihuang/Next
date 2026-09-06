@@ -142,25 +142,62 @@ struct TrainingGoalSheet: View {
     }
 }
 
-/// 05 · four switches, phone-side only. Move and drink buzzes live on the band, not here.
+/// ADR 0019 · seven edge switches. Move and drink buzzes live on the band, not here.
 struct NotificationsSheet: View {
     @AppStorage("nb.notif.morning") private var morning = true
     @AppStorage("nb.notif.training") private var training = true
-    @AppStorage("nb.notif.weekly") private var weekly = false
+    @AppStorage("nb.notif.meals") private var meals = true
+    @AppStorage("nb.notif.wrap") private var wrap = true
+    @AppStorage("nb.notif.energy") private var energy = true
+    @AppStorage("nb.notif.band") private var band = true
     @AppStorage("nb.notif.quiet") private var quiet = true
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var data: DataStore
+    @State private var systemStatus: UNAuthorizationStatus = .notDetermined
 
     var body: some View {
         SheetFrame(title: L("Notifications")) {
-            VStack(spacing: 0) {
-                // 13 · the morning line. It is the only thing the night is allowed to say.
-                SwitchRow(title: L("Morning report"), detail: L("07:00"), isOn: $morning)
-                SwitchRow(title: L("Training nudge"), detail: L("ONLY IF YOU ARE UNDER BY 17:00"), isOn: $training)
-                SwitchRow(title: L("Sunday report"), detail: weekly ? L("ON") : L("OFF"), isOn: $weekly)
-                SwitchRow(title: L("Quiet hours"), detail: L("22:30 → 07:00"), isOn: $quiet, last: true)
+            VStack(spacing: 12) {
+                if systemDenied {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(L("Notifications are off in Settings"))
+                                    .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                                    .foregroundStyle(NB.text1)
+                                Text(L("ACCESS OFF"))
+                                    .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
+                                    .foregroundStyle(NB.ember1)
+                            }
+                            Spacer(minLength: 0)
+                            Text(L("Open Settings"))
+                                .font(NBFont.ui(500, 13))
+                                .foregroundStyle(NB.lime1)
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(width: NB.Layout.contentWidth, height: 62)
+                        .cardSkin()
+                    }
+                    .buttonStyle(.plain)
+                }
+                VStack(spacing: 0) {
+                    SwitchRow(title: L("Morning report"), detail: L("WHEN LAST NIGHT LANDS"), isOn: $morning)
+                    SwitchRow(title: L("Training nudge"), detail: L("UNDER TARGET · RESERVE DROPS"), isOn: $training)
+                    SwitchRow(title: L("Meals"), detail: L("NEXT SLOT EMPTY · YOU MOVED"), isOn: $meals)
+                    SwitchRow(title: L("Daily wrap"), detail: L("WHEN THE DAY FILLS IN"), isOn: $wrap)
+                    SwitchRow(title: L("Energy"), detail: L("RESERVE CROSSES 25"), isOn: $energy)
+                    SwitchRow(title: L("Band"), detail: L("AWAY 4 H / CHARGE 15"), isOn: $band)
+                    SwitchRow(title: L("Quiet hours"), detail: L("22:30 → 07:00"), isOn: $quiet, last: true)
+                }
+                .frame(width: NB.Layout.contentWidth)
+                .cardSkin()
+                .opacity(systemDenied ? 0.38 : 1)
+                .allowsHitTesting(!systemDenied)
             }
-            .frame(width: NB.Layout.contentWidth)
-            .cardSkin()
         } footer: {
             Text(L("Move and drink buzzes live on the HOOP."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
@@ -169,12 +206,38 @@ struct NotificationsSheet: View {
         // F5 · D08 — the notification permission gets a primer before the system prompt.
         // Nothing in the product has ever asked for it before.
         .task { await requestIfNeeded() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task { await requestIfNeeded() }
+        }
+        .onChange(of: morning) { _, _ in refreshReach() }
+        .onChange(of: training) { _, _ in refreshReach() }
+        .onChange(of: meals) { _, _ in refreshReach() }
+        .onChange(of: wrap) { _, _ in refreshReach() }
+        .onChange(of: energy) { _, _ in refreshReach() }
+        .onChange(of: band) { _, _ in refreshReach() }
+        .onChange(of: quiet) { _, _ in refreshReach() }
+    }
+
+    private var systemDenied: Bool {
+        systemStatus == .denied
+    }
+
+    private func refreshReach() {
+        NotificationReach.applyPrefs()
     }
 
     private func requestIfNeeded() async {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .notDetermined else { return }
+        systemStatus = settings.authorizationStatus
+        guard settings.authorizationStatus == .notDetermined else {
+            if NotificationReach.isAuthorized(settings.authorizationStatus) {
+                await NotificationReach.registerRemote()
+                await NotificationReach.refresh(today: data.today, history: data.history,
+                                                store: data, page: router.notifyPage, appIsActive: true)
+            }
+            return
+        }
         // F5 C4 · the same primer the first morning shows; the system dialog only after its Turn on.
         router.takeover = .notificationPrimer
     }
@@ -615,6 +678,32 @@ struct FieldBox: View {
                     .padding(.horizontal, 10).frame(height: 22)
                     .overlay(Capsule().stroke(NB.lime1.opacity(0.4), lineWidth: 1))
             }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 66)
+        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous)
+            .stroke(NB.hairline, lineWidth: 1))
+    }
+}
+
+struct TimeFieldBox: View {
+    let label: String
+    @Binding var date: Date
+
+    var body: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(NBFont.ui(400, 11)).tracking(0.06 * 11)
+                    .foregroundStyle(NB.white.opacity(0.38))
+                DatePicker("", selection: $date, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .datePickerStyle(.compact)
+                    .colorScheme(.dark)
+                    .tint(NB.lime1)
+            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .frame(height: 66)

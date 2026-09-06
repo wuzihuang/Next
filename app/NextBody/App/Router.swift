@@ -28,6 +28,11 @@ enum Destination: Hashable {
     case sportMode
     /// 05B · dedicated full-screen chat exploration interface
     case chat(sessionID: String? = nil, initialQuery: String? = nil, attachmentDataURL: String? = nil)
+    /// ADR 0018 · the plan face. Not a page: `open` turns it into a request Home answers by
+    /// sliding the face up, so a plan frame anywhere can land on the plan.
+    case planFace
+    /// ADR 0018 · what the AI remembers about this person. Reached from profile; never on the wire.
+    case aiMemory
 }
 
 extension Destination {
@@ -42,6 +47,7 @@ extension Destination {
         case "composition": self = .composition(date: nil)
         case "profile":     self = .profile
         case "chat":        self = .chat()
+        case "plan":        self = .planFace
         // 04's eight are addressable by name: `vitals.heart`, `vitals.sleep`. They are
         // pages the model may legitimately point at — unlike `device`, which stays absent.
         default:
@@ -101,6 +107,18 @@ final class Router: ObservableObject {
             if returnBackdrops.count > path.count {
                 returnBackdrops.removeSubrange(path.count...)
             }
+            NotificationReach.currentPage = notifyPage
+        }
+    }
+
+    /// ADR 0019 · which deep-link page is already open, for swallow.
+    var notifyPage: NotifyPage {
+        switch path.last {
+        case .fuel, .fuelDay: return .fuel
+        case .training: return .training
+        case .device: return .device
+        case .bodyBattery: return .bodyBattery
+        default: return .other
         }
     }
     /// In-memory only: capture the exact parent before a push, including its scroll
@@ -134,15 +152,28 @@ final class Router: ObservableObject {
     /// router (not on `HomeView` `@State`) so a NavigationStack push/pop cannot wipe it —
     /// pager page the user left. Page two's cards must return to those cards, not bounce
     @Published var homePage = 0
+    /// ADR 0018 · bumped when something asks for the plan face; Home observes it.
+    @Published private(set) var planRequest = 0
+    func requestPlan() {
+        if !path.isEmpty { backToRoot() }
+        planRequest += 1
+    }
     /// Taken the moment the root is left. Every dismiss path restores this, so a stray
     /// mutation while a detail is up cannot strand the user on the wrong home page.
     private var homePageOnLeave = 0
     /// DEBUG `NB_DEBUG_ROUTE` retries until a destination actually sits on the stack.
     /// Once it has, later empties are real pops — do not push the page back.
     var debugRouteDidLand = false
+    /// F1 · a notification tap while measuring waits here until the takeover folds.
+    private var queuedLink: NotificationDeepLink?
+    /// F1 · `nextbody://home?panel=body_battery` — Home puts 昨夜 on the panel.
+    @Published var pendingHomePanel: String?
+    /// ADR 0019 · `nextbody://fuel?slot=` lands on Fuel; the slot is for the page to read.
+    @Published var pendingFuelSlot: String?
 
     /// F0 rule 06: every widget on the panel is tappable and declares its target page.
     func open(_ d: Destination, from: EntryPoint = .home) {
+        if case .planFace = d { requestPlan(); return }
         // Snapshot once when leaving the root; nested pushes (profile → device) keep it.
         if path.isEmpty { homePageOnLeave = homePage }
         entry = from
@@ -169,5 +200,53 @@ final class Router: ObservableObject {
     func restoreHomePageIfRoot() {
         guard path.isEmpty else { return }
         homePage = homePageOnLeave
+    }
+
+    /// F1 Sec 03 · a tap on a notification. Measuring queues it; anything else lands now.
+    func receive(_ link: NotificationDeepLink) {
+        if case .measure = takeover {
+            queuedLink = link
+            return
+        }
+        apply(link)
+    }
+
+    func flushQueuedLink() {
+        guard takeover == nil, let link = queuedLink else { return }
+        queuedLink = nil
+        apply(link)
+    }
+
+    func apply(_ link: NotificationDeepLink) {
+        switch link {
+        case .homePanel:
+            if !path.isEmpty { backToRoot() }
+            homePage = 0
+            pendingHomePanel = "body_battery"
+        case .home:
+            if !path.isEmpty { backToRoot() }
+            homePage = 0
+            pendingHomePanel = nil
+        case .fuel(let slot):
+            pendingFuelSlot = slot
+            open(.fuel)
+        case .training:
+            open(.training)
+        case .device:
+            if path.isEmpty { homePageOnLeave = homePage }
+            entry = .profile
+            returnBackdrops.append(captureReturnBackdrop())
+            path = [.profile, .device]
+        case .composition(let raw):
+            let day = raw.flatMap { s -> Date? in
+                let f = DateFormatter()
+                f.calendar = Calendar(identifier: .gregorian)
+                f.dateFormat = "yyyy-MM-dd"
+                return f.date(from: s)
+            }
+            open(.composition(date: day))
+        case .logPhoto:
+            break
+        }
     }
 }

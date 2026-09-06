@@ -1,9 +1,11 @@
 import GoogleSignIn
 import SwiftUI
+import UIKit
 import os
 
 @main
 struct NextBodyApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var session = SessionStore()
     @StateObject private var router = Router()
     @StateObject private var data = DataStore.shared
@@ -31,10 +33,10 @@ struct NextBodyApp: App {
                 // scheme; the SDK's continuation is waiting on this hand-off.
                 .onOpenURL { url in
                     if GIDSignIn.sharedInstance.handle(url) { return }
-                    if WidgetBridge.isPhotoLog(url) {
-                        WidgetBridge.rememberPhoto()
-                        NotificationCenter.default.post(name: WidgetBridge.photoDidArrive, object: nil)
-                    }
+                    openIncoming(url)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NotificationReach.deepLinkDidArrive)) { note in
+                    if let url = note.object as? URL { openIncoming(url) }
                 }
                 // 14 · an island left counting for a session this process is not in — the app
                 // was killed mid-workout, or replaced under a running one. The store is empty
@@ -67,6 +69,7 @@ struct NextBodyApp: App {
                     if previous == .consent, takeover == nil, ConsentStore.shared.granted {
                         requestForegroundRefresh(reason: "consent")
                     }
+                    if takeover == nil { router.flushQueuedLink() }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
                     BandLiveLifecycle.shared.setPhase(.background)
@@ -96,6 +99,19 @@ struct NextBodyApp: App {
             await OriginDataSync.refreshNow(into: data,
                 minimumInterval: coldLaunch ? 0 : SyncCadence.interval,
                 fullHistory: coldLaunch, reuseRecentLiveReceipt: !coldLaunch)
+            await NotificationReach.refresh(today: data.today, history: data.history,
+                                            store: data, page: router.notifyPage, appIsActive: true)
         }
+    }
+
+    private func openIncoming(_ url: URL) {
+        if WidgetBridge.isPhotoLog(url) {
+            WidgetBridge.rememberPhoto()
+            NotificationCenter.default.post(name: WidgetBridge.photoDidArrive, object: nil)
+            return
+        }
+        guard session.stage == .root else { return }
+        guard let link = NotificationDeepLink.parse(url) else { return }
+        router.receive(link)
     }
 }

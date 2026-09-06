@@ -15,12 +15,21 @@ model credentials and tool execution server-side.
 - `supabase/functions/_shared/`: model provider, prompt, tool catalogue, data sources,
   render contract, numeric ledger, and thought-stream processing.
 - `supabase/migrations/`: Postgres schema, RLS policies, and data lifecycle changes.
+- `shopify-web/`: Hydrogen + React Router storefront. Marketing chrome is a Whoop-style
+  dark page (full-bleed hero, centered nav, pill CTAs). Brand is NEXTBODY / HOOP, never
+  G Band. Product stills live in `shopify-web/public/band/`. Catalog still comes from
+  the linked Storefront API (`mock.shop` until `npx shopify hydrogen link`).
 - `docs/STATUS.md`: current implementation and verification record.
 - `CONTEXT.md` plus `docs/adr/`: domain vocabulary and architectural decisions.
 - App Store Connect: NextBody `6799623125` (`com.nextbody.hoop`, SKU `nextbody-hoop-ios`,
   team `BP7F7PYU33`, widget `com.nextbody.hoop.LiveActivity`). No TestFlight build, group,
   or tester exists yet. Do not confuse with the older phone bundle
   `com.walnutechnology.nextbody.app`.
+- App Store screenshots live on Paper `NEXTBODY-HOOP` page `screenshot` (`S-0`): one
+  5-up review board plus five 1290×2796 iPhone 6.7 frames. Screens are cloned from
+  `新版设计` (`N-0`), not redrawn. Headlines: SEE LAST NIGHT / KNOW YOUR CHARGE /
+  HIT TODAY'S RING / EAT TO THE NUMBER / READ YOUR NIGHT. Ground is lime-1 `#EFF65A`.
+  Device chrome uses CSS `zoom: 2.554` so the 390×844 phone fills a 1032-wide bezel.
 
 ## User Defined Namespaces
 
@@ -28,6 +37,25 @@ model credentials and tool execution server-side.
 
 ## Components
 
+- **Shopify storefront (Whoop-style)** — `shopify-web/`. Header / Footer / `HomeLanding`
+  sell HOOP as a screenless wristband. Tokens: ink `#070707`, paper `#F3F1EC`, accent
+  lime used like Whoop uses JOIN NOW. Display Oswald, body Manrope. Claims stay on
+  NextBody law: no ECG, overnight oxygen only, not medical, 18+. Hero CTA is a white
+  pill; nav CTA is the lime `GET HOOP` pill.
+- **App screens as web components** — `shopify-web/app/components/AppScreens.tsx` +
+  `app/styles/app-screens.css`. Home, Vitals, Body Battery, Sleep, Training, Fuel,
+  Plan, and Chat drawn in NextBody's own carbon/lime/Doto language, scaled with `em`
+  so they sit in a marketing grid. The panel is the only place the product speaks.
+- **Packaging insert (说明书)** — Paper `NEXTBODY-HOOP` page `说明书` (`R-0`), eight
+  1400×1800 pages (cover → parts → charge → first use → lamps → reads → care →
+  FAQ). Hardware is G70 (`~/Downloads/G70资料` 白底图): curved metal *frame* with
+  two raised bars, honeycomb face (strap material shows through), lamp-hole
+  column, pill side key with pulse mark + pinhole, strap through the frame
+  (silicone hex pin-tuck or nylon ring). Back: two electrode bars, optical
+  window, two charge pins. Charge drawing is a magnetic *clip* on those pins
+  (no official dock photo in G70资料). Never draw a finger ring or a round
+  watch. Bilingual copy. App law: no ECG, overnight oxygen only, not medical,
+  18+, name is NextBody never G Band.
 - **AI turn** — `supabase/functions/turn/index.ts` streams SSE in the order
   `state → thought/tool → screen.render → done`; `AIService.swift` consumes it.
 - **Voice input** — `SpeechCapture.swift` records 16 kHz mono PCM WAV; `/asr` transcribes it
@@ -212,7 +240,11 @@ model credentials and tool execution server-side.
 - Pure SDK-boundary calculations belong in `NextBodySyncCore` with deterministic XCTest coverage.
 - Home calories card (Paper **09C**): `FuelCardMath.readout` is EATEN plus
   `eaten − target`. TO GO / OVER / silent; fill caps at 1. LEFT and NEXT_MEAL
-  do not print on the 174 × 136 card.
+  do not print on the 174 × 136 card. `FuelCardMath.eaten` is the header
+  rule: confirmed plates win over a stale `day_fuel.kcal_in` of 0 / UNLOGGED
+  (meal insert only dirties the day; settle can lag). Empty plates keep the
+  server header so a failed meal fetch does not blank a settled number.
+  `Repository.load` calls `DataStore.refreshIntakeFromMeals` after merge.
 - Fuel detail (Paper **09H**, ADR 0014) is one `CALORIES` page with `SegmentedPills`
   DAY / WEEK / MONTH. Arithmetic lives in `FuelWindowMath` (SyncCore); boards in
   `FuelBoards.swift`. DAY is the 09E-C clock (IN orange step, OUT cyan burn from
@@ -222,7 +254,11 @@ model credentials and tool execution server-side.
   state on the food card that opens `FuelPlateLayer` (page clips to `NB.R.panel`
   and scales to 0.88 over black, 34% dim plus a card hairline, plus-menu rise,
   Profile `SheetFrame` /
-  `FieldBox` chrome). Debug hooks `NB_DEBUG_FUEL_RANGE`, `NB_DEBUG_FUEL_PLATE=1`.
+  `FieldBox` chrome). Tapping a FOOD row opens `EditMealSheet`: name, kcal, protein /
+  carb / fat, slot chips, and `Eaten at` (`TimeFieldBox`). Save writes those macros
+  plus `logged_at` through `amendMeal` / `meal-operation`; the clock is pinned to the
+  same user day (`UserDay.pinningClock`, 04:00 → 03:59+1). Debug hooks
+  `NB_DEBUG_FUEL_RANGE`, `NB_DEBUG_FUEL_PLATE=1`.
   **09G** was the prior single-day reading; **09F** is rejected.
 - Training detail (Paper **08C** A DIAL, ADR 0015) is one `TRAINING` page with
   `SegmentedPills` DAY / WEEK / MONTH. Arithmetic lives in `TrainingWindowMath`
@@ -252,21 +288,25 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
-- **Notification reach (not shipped)** — Permission primer + in-app morning
-  panel are built; lock-screen / Notification Center delivery is not.
-  `NotificationPrimer` (F5 C4) asks after the first real `MorningWidget`
-  or from Profile › Notifications; `Turn on` is the only path to the
-  system dialog. `MorningWidget` paints LAST NIGHT on Home within 6h of
-  the curve peak, once per 04:00 day. Profile switches
-  (`nb.notif.morning/training/weekly/quiet`) are UserDefaults only — no
-  `UNNotificationRequest`, no APNs (`aps-environment` absent), no
-  `remote-notification` background mode, no device token, no
-  `UNUserNotificationCenterDelegate`. `onOpenURL` handles Google Sign-In
-  and `nextbody://log?via=photo` only; F1's four notification deep links
-  (`home?panel=body_battery`, `fuel?slot=`, `device`, `composition?date=`)
-  are not routed. F5 says the only notify is 昨夜; the sheet's other three
-  switches and F1's extra deep links are unresolved. Sport Live Activity
-  and the TODAY widget are glance surfaces, not this pipeline.
+- **Notification reach** — ASC App ID `com.nextbody.hoop` (`MBK78HK26T`)
+  has `PUSH_NOTIFICATIONS`. Debug entitlements use `aps-environment`
+  development; Release uses `production`. `NotificationPrimer` (F5 C4)
+  is still the only path to the system dialog. After Turn on, the app
+  registers for remote notifications and stores the hex token in
+  `push_tokens`. Product law is ADR 0019: fire on data edges, not
+  clocks; lock screen + in-app banners; 4 delivered / 用户日; one kind
+  once; band battery beats band away. Math is `NotificationReachMath`
+  (`decide` / `swallows` / `awayFireAt`, SyncCore). iOS adapter is
+  `NotificationReach`: snapshot from `DataStore` + BLE + meals, local
+  `UNNotificationRequest`, harvest delivered, `willPresent` banners
+  unless the target page is open (`daily` never swallows on Home).
+  Disconnect clock starts in `recordBandLink(false)` (`nb.notif.disconnectAt`).
+  Settings: Morning / Training / Meals / Daily wrap / Energy / Band /
+  Quiet (all default on). Primer: “HOOP taps you when something
+  changes.” Deep links include `nextbody://training` and bare
+  `nextbody://home`. `NB_DEBUG_NOTIFY=1` still fires a 3s test. Cloud
+  APNs Auth Key (p8) cannot be minted by the ASC API. Plan:
+  `docs/plans/2026-09-06-notification-reach-plan.md`.
 - **System widget (Paper THREE TIERS)** — TODAY on `NextBodyLiveActivity`
   ships three families on one carbon, no tile columns: small = body battery
   only; medium = three rings then a rail (`NEXTBODY` white, no lime square,
@@ -433,6 +473,13 @@ model credentials and tool execution server-side.
   fill; `BandPresence` stores `chargeState` from battery events so the pip updates
   without opening Device.
 - `SportModeView` / `SportModeCatalog`: catalogued modes (raw 0…47); start/stop via `BandService.startSportMode` / `stopSportMode`. Firmware refusals stay greyed for the page life.
+- **Sport wrist face (`SportWristMath`)** — HOOP's sport report is `heartRate = 0`
+  until the optical lock lands (~20 s). That zero is "not yet", not a loose
+  strap. Live session keeps `.reaching` / `READING HEART RATE` / 正在读取心率
+  for 30 s of first lock, then `NO CONTACT · TIGHTEN THE BAND`. After a real
+  beat, a dropout uses the 15 s live window before tighten. Heart-test
+  `.lostContact` is still an immediate tighten. Same class of bug as
+  `VPTestHeartStateStart` on the finger test.
 - `VitalsTimelinePolicy` + `VitalsDetailView`: sleep uses its recorded night and now also
   draws night HRV, overnight SpO2 and sleep respiration as 15-min occupancy
   envelopes on that same clock (`VitalsTrace`; a column only paints the value

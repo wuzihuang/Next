@@ -13,6 +13,8 @@ const TABLES: {
   ownerColumn?: string;
 }[] = [
   { name: "measurements", table: "body_composition", keys: ["id"] },
+  // ADR 0010 · 平衡检查的摘要行。只有摘要，没有逐拍序列可导。
+  { name: "balance_checks", table: "balance_checks", keys: ["id"] },
   { name: "meals", table: "meals", keys: ["id"] },
   { name: "daily_rollup", table: "daily_results", keys: ["user_day"] },
   { name: "weigh_ins", table: "weigh_ins", keys: ["id"] },
@@ -21,6 +23,7 @@ const TABLES: {
   { name: "response_samples", table: "response_samples", keys: ["ts", "src"],
     select: "ts,sampled_tz,src" },
   { name: "sleep_nights", table: "sleep_nights", keys: ["user_day"] },
+  { name: "night_score", table: "night_score", keys: ["user_day"] },
   { name: "day_fuel", table: "day_fuel", keys: ["result_id"] },
   { name: "daily_training", table: "daily_training", keys: ["result_id"] },
   { name: "reserve_daily", table: "reserve_daily", keys: ["result_id"] },
@@ -76,6 +79,7 @@ measurements is body_composition; daily_rollup is daily_results. Detail tables j
 on result_id. A user day runs local 04:00 to 04:00. Null is unknown, never zero.
 meals retains original and soft-deleted/amended records, including operation IDs.
 sleep_nights includes actual sleep stage runs and recorded sleep/wake times.
+night_score is the settled sleep score for each night with its four group scores and the measured inputs behind them; a group score is a weighted mean over the inputs that existed.
 oxygen_samples contains overnight automatic SpO2, not an apnea grade.
 response_samples contains timestamps of wrist optical meal-response points, not a blood test and not a concentration.
 conversations and conversation_messages retain complete original stored messages;

@@ -67,7 +67,7 @@ final class BatteryLogTests: XCTestCase {
         XCTAssertEqual(DetailWindow(.battery, .month).periodKey, "LAST 30 DAYS")
     }
 
-    func testPlotBreaksAcrossADisconnectAndExtendsTheLastConnectedPoint() {
+    func testPlotFillsAQuietStretchWithADrainCurve() {
         let samples = [
             obs(t0, 80, .unplugged, true),
             obs(t0.addingTimeInterval(3600), 78, .unplugged, true),
@@ -76,12 +76,65 @@ final class BatteryLogTests: XCTestCase {
         ]
         let end = t0.addingTimeInterval(10_800)
         let plot = BatteryLog.plot(samples, from: t0, to: end)
-        XCTAssertEqual(plot.runs.count, 2)
-        XCTAssertEqual(plot.runs[0].map(\.value), [80, 78])
-        XCTAssertEqual(plot.runs[1].last?.at, end)
-        XCTAssertEqual(plot.runs[1].last?.value, 77)
+        let points = plot.points
+        XCTAssertEqual(points.first?.value, 80)
+        XCTAssertEqual(points.last?.at, end)
+        XCTAssertEqual(points.last?.estimated, true)
+        XCTAssertEqual(points.last!.value, 75, accuracy: 0.01)
+        XCTAssertTrue(points.contains { $0.value == 77 && !$0.estimated })
+        XCTAssertGreaterThan(points.filter(\.estimated).count, 2)
         XCTAssertEqual(plot.high, 80)
-        XCTAssertEqual(plot.low, 77)
+        let midAt = t0.addingTimeInterval(1800)
+        let mid = points.min {
+            abs($0.at.timeIntervalSince(midAt)) < abs($1.at.timeIntervalSince(midAt))
+        }
+        XCTAssertNotEqual(mid!.value, 79, accuracy: 0.05)
+    }
+
+    func testUnknownChargeGhostsDoNotDipTheChargeClimb() {
+        let samples = [
+            obs(t0, 30, .charging, true),
+            obs(t0.addingTimeInterval(29.7), 23, .unknown, true),
+            obs(t0.addingTimeInterval(29.9), 31, .charging, true),
+            obs(t0.addingTimeInterval(80), 37, .charging, true),
+            obs(t0.addingTimeInterval(124.8), 32, .unknown, true),
+            obs(t0.addingTimeInterval(125), 39, .charging, true),
+        ]
+        let plot = BatteryLog.plot(samples, from: t0, to: t0.addingTimeInterval(180))
+        let heard = plot.points.filter { !$0.estimated }.map(\.value)
+        XCTAssertEqual(heard, [30, 31, 37, 39])
+        XCTAssertFalse(heard.contains { $0 < 30 })
+    }
+
+    func testAFirstConnectCliffDoesNotDrawANoonDrop() {
+        let noon = t0.addingTimeInterval(9 * 3600)
+        let samples = [
+            obs(t0, 80, .unplugged, true),
+            obs(noon, 80, .unplugged, true),
+            obs(noon.addingTimeInterval(2), 46, .unplugged, true),
+        ]
+        let plot = BatteryLog.plot(samples, from: t0, to: noon.addingTimeInterval(30))
+        let heard = plot.points.filter { !$0.estimated }
+        XCTAssertEqual(heard.map(\.value), [80, 46])
+        XCTAssertFalse(plot.points.contains { $0.estimated && abs($0.at.timeIntervalSince(noon)) < 120 })
+        XCTAssertGreaterThan(plot.low ?? 0, 40)
+    }
+
+    func testAnOpenDisconnectDoesNotHoldTheLastPercentToNow() {
+        let noon = t0.addingTimeInterval(9 * 3600)
+        let samples = [obs(t0, 80, .unplugged, true)]
+        let plot = BatteryLog.plot(samples, from: t0, to: noon)
+        XCTAssertEqual(plot.points.last?.at, noon)
+        XCTAssertEqual(plot.points.last?.estimated, true)
+        XCTAssertLessThan(plot.points.last?.value ?? 80, 80)
+        XCTAssertGreaterThan(plot.points.filter(\.estimated).count, 4)
+        let half = t0.addingTimeInterval(4.5 * 3600)
+        let nearest = plot.points.min {
+            abs($0.at.timeIntervalSince(half)) < abs($1.at.timeIntervalSince(half))
+        }
+        let projected = plot.points.last!.value
+        let linear = 80 + (projected - 80) * 0.5
+        XCTAssertNotEqual(nearest?.value ?? linear, linear, accuracy: 0.15)
     }
 
     func testPlotPaintsChargingAsAClosedSpan() {

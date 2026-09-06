@@ -12,7 +12,7 @@
 
 import { tool, type Tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
-import { chartSkillsForScope, toolDescription, type ChartSkill } from "./skills.ts";
+import { CHART_SKILLS, toolDescription, type ChartSkill } from "./skills.ts";
 import { TARGETS, type Envelope } from "./contract.ts";
 import { fetchAs, sourceList, type ChartData, type Ctx, type Kind, type SourceResult } from "./sources.ts";
 import type { NumberLedger } from "./ledger.ts";
@@ -50,17 +50,13 @@ function wordsFor(locale: string) {
 export type Rendered = { rendered: true; type: string; hero?: string } | { rendered: false; error: "NO_DATA" | "QUERY_FAILED" | "INVALID_EVIDENCE"; say: string };
 
 export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: Envelope) => void,
-                                locale = "en-US", sourceScope?: string[]) {
+                                locale = "en-US") {
   const tools: Record<string, Tool> = {};
   const words = wordsFor(locale);
   const en = locale.startsWith("en");
-  const allowedSources = sourceScope ? new Set(sourceScope) : null;
 
-  for (const skill of chartSkillsForScope(sourceScope)) {
-    const skillSources = allowedSources
-      ? skill.sources.filter((source) => allowedSources.has(source))
-      : skill.sources;
-    if (skill.sources.length && !skillSources.length) continue;
+  for (const skill of CHART_SKILLS) {
+    const skillSources = skill.sources;
     const kind = FAMILY_KIND[skill.family];
     const params = skillSources.length
       ? z.object({ ...words, source: z.string().describe(`${en ? "Data source, one of:" : "数据源，只取下面之一："}\n${sourceList(skillSources)}`) })

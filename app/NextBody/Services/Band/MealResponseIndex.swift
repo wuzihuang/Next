@@ -38,6 +38,8 @@ enum MealResponseIndex {
         /// Raw valid points in the rolling 24-hour chart window.
         var trendPoints: [Point]
         var median24hPoint: Double?
+        /// Daytime median after five valid days. Nil until then — never a guessed centre.
+        var ownMedian: Double?
         var baselineDays: Int
         var hero: Int?
         var median24h: Int?
@@ -77,15 +79,15 @@ enum MealResponseIndex {
         dayBoundaryHour: Int = 4
     ) -> Result {
         let valid = points.filter { $0.optical.isFinite && $0.optical > 0 }
-        let todayStart = userDayStart(containing: now, calendar: calendar, dayBoundaryHour: dayBoundaryHour)
+        let todayStart = UserDay.containing(now, calendar: calendar, boundaryHour: dayBoundaryHour).start
         let todayEnd = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? todayStart.addingTimeInterval(86_400)
         let windowStart = now.addingTimeInterval(-24 * 60 * 60)
 
         let daysWithPoints = Set(valid.map {
-            userDayStart(containing: $0.ts, calendar: calendar, dayBoundaryHour: dayBoundaryHour)
+            UserDay.containing($0.ts, calendar: calendar, boundaryHour: dayBoundaryHour).start
         })
         let daytime = valid.filter { point in
-            let dayStart = userDayStart(containing: point.ts, calendar: calendar, dayBoundaryHour: dayBoundaryHour)
+            let dayStart = UserDay.containing(point.ts, calendar: calendar, boundaryHour: dayBoundaryHour).start
             let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400)
             let hasNight = sleepWindows.contains { window in
                 window.start < dayEnd && window.end > dayStart
@@ -154,6 +156,7 @@ enum MealResponseIndex {
             latestPoint: heroOptical,
             trendPoints: trendPoints,
             median24hPoint: median24hPoint,
+            ownMedian: ownMedian,
             baselineDays: min(daysWithPoints.count, 5),
             hero: hero,
             median24h: median24h,
@@ -165,15 +168,136 @@ enum MealResponseIndex {
             percents: percents)
     }
 
-    static func userDayStart(containing instant: Date, calendar: Calendar, dayBoundaryHour: Int) -> Date {
-        let cal = calendar
-        let comps = cal.dateComponents([.year, .month, .day, .hour], from: instant)
-        var start = cal.date(from: DateComponents(
-            year: comps.year, month: comps.month, day: comps.day, hour: 0, minute: 0, second: 0))!
-        if (comps.hour ?? 0) < dayBoundaryHour {
-            start = cal.date(byAdding: .day, value: -1, to: start) ?? start
+    /// Rolling windows the RESPONSE board can open. Day is a clock; week and month are
+    /// user days counted backwards from today, never a calendar week or month.
+    enum Horizon: Equatable, Sendable {
+        case rolling24Hours
+        case userDays(Int)
+    }
+
+    /// One user day on the week / month board. `mean` is the day's own arithmetic mean.
+    /// A day with no valid point stays empty — it is never a zero.
+    struct DaySlot: Equatable, Sendable {
+        var start: Date
+        var mean: Double?
+        var count: Int
+    }
+
+    /// Below / Near / Above versus this wrist's own daytime median. Near is ±8 %.
+    enum Band: Equatable, Sendable {
+        case below, near, above
+
+        static func of(optical: Double, ownMedian: Double) -> Band? {
+            guard ownMedian > 0, optical.isFinite, optical > 0 else { return nil }
+            let ratio = optical / ownMedian
+            if ratio < 0.92 { return .below }
+            if ratio > 1.08 { return .above }
+            return .near
         }
-        return cal.date(byAdding: .hour, value: dayBoundaryHour, to: start) ?? start
+    }
+
+    /// What a week or month window reduces to, once. The hero is the mean of the daily
+    /// means — two high days pull it up, a busy day of twenty ticks does not outweigh a
+    /// quiet one. Empty days stay out of the average so a gap cannot read as a low week.
+    struct HorizonWindow: Equatable, Sendable {
+        var horizon: Horizon
+        var points: [Point]
+        var slots: [DaySlot]
+        var dailyMean: Double?
+        var below: Int
+        var near: Int
+        var above: Int
+        var recordedDays: Int
+    }
+
+    static func percent(of optical: Double, ownMedian: Double) -> Int? {
+        guard ownMedian > 0, optical.isFinite, optical > 0 else { return nil }
+        return Int((100 * (optical / ownMedian - 1)).rounded())
+    }
+
+    static func mean(_ values: [Double]) -> Double? {
+        values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+    }
+
+    /// Observed optical range with room around the own median, so a quiet day is not
+    /// flattened against a 1-point ruler.
+    static func axis(values: [Double], ownMedian: Double?) -> ClosedRange<Double>? {
+        guard let lo = values.min(), let hi = values.max() else { return nil }
+        let pad = max(4, (hi - lo) * 0.12)
+        var lower = lo - pad
+        var upper = hi + pad
+        if let ownMedian, ownMedian > 0 {
+            lower = min(lower, ownMedian * 0.85)
+            upper = max(upper, ownMedian * 1.15)
+        }
+        if upper - lower < 8 { upper = lower + 8 }
+        return lower...upper
+    }
+
+    static func daySlots(
+        points: [Point],
+        todayStart: Date,
+        days: Int,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> [DaySlot] {
+        let valid = points.filter { $0.optical.isFinite && $0.optical > 0 && $0.ts <= now }
+        return (0..<max(1, days)).reversed().map { offset in
+            let start = calendar.date(byAdding: .day, value: -offset, to: todayStart)
+                ?? todayStart.addingTimeInterval(Double(-offset) * 86_400)
+            let end = calendar.date(byAdding: .day, value: 1, to: start)
+                ?? start.addingTimeInterval(86_400)
+            let inDay = valid.filter { $0.ts >= start && $0.ts < end }
+            return DaySlot(start: start, mean: mean(inDay.map(\.optical)), count: inDay.count)
+        }
+    }
+
+    static func horizonWindow(
+        points: [Point],
+        ownMedian: Double?,
+        now: Date,
+        horizon: Horizon,
+        calendar: Calendar = .current,
+        dayBoundaryHour: Int = 4
+    ) -> HorizonWindow {
+        let valid = points.filter { $0.optical.isFinite && $0.optical > 0 && $0.ts <= now }
+        let todayStart = UserDay.containing(now, calendar: calendar, boundaryHour: dayBoundaryHour).start
+
+        let windowPoints: [Point]
+        let slots: [DaySlot]
+        switch horizon {
+        case .rolling24Hours:
+            let start = now.addingTimeInterval(-24 * 60 * 60)
+            windowPoints = valid.filter { $0.ts >= start }.sorted { $0.ts < $1.ts }
+            slots = []
+        case .userDays(let days):
+            slots = daySlots(points: valid, todayStart: todayStart, days: days, now: now, calendar: calendar)
+            let start = slots.first?.start ?? todayStart
+            windowPoints = valid.filter { $0.ts >= start }.sorted { $0.ts < $1.ts }
+        }
+
+        var below = 0, near = 0, above = 0
+        if let ownMedian, ownMedian > 0 {
+            for point in windowPoints {
+                switch Band.of(optical: point.optical, ownMedian: ownMedian) {
+                case .below: below += 1
+                case .near:  near += 1
+                case .above: above += 1
+                case nil:    break
+                }
+            }
+        }
+
+        let recorded = slots.filter { $0.mean != nil }
+        return HorizonWindow(
+            horizon: horizon,
+            points: windowPoints,
+            slots: slots,
+            dailyMean: mean(recorded.map { $0.mean! }),
+            below: below,
+            near: near,
+            above: above,
+            recordedDays: recorded.count)
     }
 
     private static func median(_ values: [Double]) -> Double? {

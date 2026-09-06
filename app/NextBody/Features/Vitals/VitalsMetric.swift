@@ -55,7 +55,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         case .temp:     NB.cyan1
         case .steps:    NB.optimal2
         case .distance: NB.violetPink
-        case .active:   NB.run1
+        case .active:   NB.lime1
         }
     }
 
@@ -67,7 +67,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         case .hrv:      L("RMSSD AUTONOMIC TONE")
         case .response: L("WRIST OPTICAL MEAL RESPONSE")
         case .stress:   L("PHYSIOLOGICAL STRAIN")
-        case .temp:     L("SKIN BASELINE OFFSET")
+        case .temp:     L("WRIST SKIN TEMPERATURE")
         case .steps:    L("DAILY CADENCE ACCUMULATED")
         case .distance: L("SPATIAL DISPLACEMENT")
         case .active:   L("DAILY METABOLIC BURN")
@@ -83,10 +83,22 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         case .hrv:      L("LAST 24H RMSSD SCATTER")
         case .response: L("LAST 24H FOOD RESPONSE POINTS")
         case .stress:   L("LAST 24H AUTONOMIC LOAD")
-        case .temp:     L("LAST 24H BASELINE DEVIATION")
+        case .temp:     L("LAST 24H SKIN TEMPERATURE")
         case .steps:    L("TODAY'S CADENCE HISTOGRAM")
         case .distance: L("TODAY'S DISTANCE CLIMB")
         case .active:   L("TODAY'S METABOLIC BURN")
+        }
+    }
+
+    /// True for the charts whose vertical ruler stands in a rail beside the field rather
+    /// than being left unnamed inside it. The clock under those charts is inset by the
+    /// rail's gutter; the scatters and the hypnogram still span the full card width.
+    var chartHasScaleRail: Bool {
+        switch self {
+        case .heart, .stress, .temp, .steps, .distance:
+            true
+        case .sleep, .hrv, .response, .active:
+            false
         }
     }
 
@@ -124,4 +136,18 @@ enum VitalsTimelineKind {
     case lastNight
     case rolling24Hours
     case userDayToNow
+}
+
+/// ADR 0008 · the score's four bands. Only the numeral is tinted — the SLEEP card keeps
+/// `NB.violet1` for its label, its tag and its strip, because a card that changes colour
+/// with last night's number reads as a different instrument each morning.
+extension SleepScore {
+    var tint: Color {
+        switch score {
+        case 80...:   NB.optimal2
+        case 60..<80: NB.violet1
+        case 40..<60: NB.compareAmber
+        default:      NB.ember1
+        }
+    }
 }

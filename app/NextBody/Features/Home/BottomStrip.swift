@@ -42,7 +42,7 @@ struct TrainingCard: View {
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                    .foregroundStyle(m.targetLoad != nil && m.trainingLoad != nil ? NB.cyanPale : NB.text3Prod)
+                    .foregroundStyle(m.targetLoad != nil && m.trainingLoad != nil ? NB.limePale : NB.text3Prod)
             }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
@@ -70,7 +70,7 @@ struct TrainingCard: View {
                             Text(L("TARGET")).font(NBFont.ui(500, 11)).tracking(0.06 * 11)
                                 .foregroundStyle(NB.text3Prod)
                             Text(Fmt.load(m.targetLoad)).font(NBFont.dot(700, 14)).tracking(0.02 * 14)
-                                .foregroundStyle(NB.cyanPale)
+                                .foregroundStyle(NB.limePale)
                         }
                     }
                 }
@@ -87,38 +87,30 @@ struct TrainingCard: View {
 struct FuelCard: View {
     let m: DailyMetrics
 
-    private var headline: String {
-        guard let next = m.nextMeal else { return unloggedHead }
-        return L("%@ LEFT", Fmt.kcal(next))
-    }
-    private var unloggedHead: String {
-        if case .unlogged = m.fuelState { return L("UNLOGGED") }
-        return Fmt.dash
+    private var read: FuelCardMath.Readout {
+        FuelCardMath.readout(eaten: m.eIn, target: m.targetIn)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    Text(MetricNames.calories)
-                        .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text(MetricNames.calories)
+                    .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
+                    .foregroundStyle(NB.text3Prod)
+                Spacer(minLength: 0)
+                if let target = read.target, target > 0 {
+                    Text(L("OF %@", Fmt.kcal(target)))
+                        .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
                         .foregroundStyle(NB.text3Prod)
-                    Spacer(minLength: 0)
-                    Text(headline)
-                        .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                        .foregroundStyle(m.nextMeal == nil ? NB.text3Prod : NB.emberPale)
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(Fmt.kcal(m.eIn))
-                        .font(NBFont.dot(700, 26)).tracking(-0.02 * 26)
-                        .foregroundStyle(m.eIn == nil ? NB.text3Prod : NB.ember1)
-                    Text("/\(Fmt.kcal(m.targetIn))")
-                        .font(NBFont.dot(500, 11))
-                        .foregroundStyle(NB.macroValue)
                 }
             }
-            Spacer(minLength: 0)
-            VStack(spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                pairCol(label: L("EATEN"), value: Fmt.kcal(read.eaten),
+                        tint: read.eaten == nil ? NB.text3Prod : NB.ember1)
+                pairCol(label: pairLabel, value: pairValue, tint: pairTint)
+            }
+            CalorieFill(fraction: read.fill)
+            VStack(spacing: 5) {
                 MacroBar(label: L("PRO"),  eaten: m.protein?.eaten ?? m.proteinIn, target: m.protein?.target, tint: NB.violet1)
                 MacroBar(label: L("CARB"), eaten: m.carb?.eaten ?? m.carbIn,    target: m.carb?.target,    tint: NB.optimal2)
                 MacroBar(label: L("FAT"),  eaten: m.fat?.eaten ?? m.fatIn,     target: m.fat?.target,     tint: NB.run1)
@@ -130,10 +122,62 @@ struct FuelCard: View {
         .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.hairline, lineWidth: 1))
     }
+
+    private var pairLabel: String? {
+        switch read.pair {
+        case .silent: return nil
+        case .toGo:   return L("TO GO")
+        case .over:   return L("OVER")
+        }
+    }
+    private var pairValue: String {
+        switch read.pair {
+        case .silent:        return Fmt.dash
+        case .toGo(let d),
+             .over(let d):   return Fmt.pairKcal(d)
+        }
+    }
+    private var pairTint: Color {
+        switch read.pair {
+        case .silent: return NB.text3Prod
+        case .toGo, .over: return NB.emberPale
+        }
+    }
+
+    private func pairCol(label: String?, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label ?? " ")
+                .font(NBFont.ui(500, 9)).tracking(0.12 * 9)
+                .foregroundStyle(NB.text3Prod)
+                .opacity(label == nil ? 0 : 1)
+            Text(value)
+                .font(NBFont.dot(700, 18)).tracking(-0.02 * 18)
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.62)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Ember fill for EATEN / TARGET. Full stops the bar; over does not turn it red.
+private struct CalorieFill: View {
+    let fraction: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(NB.barTrack)
+                Capsule().fill(NB.ember1)
+                    .frame(width: geo.size.width * max(0, min(1, fraction)))
+            }
+        }
+        .frame(height: 6)
+    }
 }
 
 /// Three independent bars, 4px tall, each capped at its own target.
-/// They are never merged into one total progress bar — that would answer a different question.
+/// They stay separate from the ember calorie fill above — that bar answers EATEN / TARGET.
 struct MacroBar: View {
     let label: String
     let eaten: Int?
@@ -157,7 +201,7 @@ struct MacroBar: View {
         HStack(spacing: 6) {
             Text(label)
                 .font(NBFont.ui(500, 11)).tracking(0.02 * 11)
-                .foregroundStyle(NB.macroLabel)
+                .foregroundStyle(tint)
                 .frame(width: 32, alignment: .leading)
             if let target, target > 0 {
                 GeometryReader { geo in

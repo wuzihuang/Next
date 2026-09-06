@@ -1,13 +1,30 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { chartSkillsForScope } from "./skills.ts";
+import {
+  assert,
+  assertEquals,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { CHART_SKILLS, chartChoicePrompt } from "./skills.ts";
+import { buildChartTools } from "./charts.ts";
+import { buildTools } from "./tools.ts";
+import { NumberLedger } from "./ledger.ts";
+import type { Ctx } from "./sources.ts";
 
-Deno.test("scoped chart tools retain only compatible renderers and safe fallbacks", () => {
+Deno.test("workflow exposes the complete chart catalog for model selection", () => {
+  const ctx = { db: {}, userId: "u", dayKey: "2026-09-05", tz: "UTC" } as Ctx;
+  const tools = buildChartTools(ctx, new NumberLedger(), () => {});
   assertEquals(
-    chartSkillsForScope(["sleep.stages", "sleep.mix"]).map((skill) => skill.type),
-    ["metric", "text", "hypnogram", "split"],
+    Object.keys(tools).sort(),
+    CHART_SKILLS.map((skill) => `screen.render.${skill.type}`).sort(),
   );
-  assertEquals(
-    chartSkillsForScope(["heart.today"]).map((skill) => skill.type),
-    ["metric", "text", "line"],
-  );
+  for (const locale of [true, false]) {
+    const prompt = chartChoicePrompt(locale);
+    for (const skill of CHART_SKILLS) assert(prompt.includes(skill.type));
+  }
+});
+
+Deno.test("business read tools do not expose historical screen frames as data", () => {
+  const db = {} as Ctx["db"];
+  const tools = buildTools(db, "u", new NumberLedger());
+  assertEquals("screen.last" in tools, false);
+  assert("data.catalog" in tools);
+  assert("data.read" in tools);
 });

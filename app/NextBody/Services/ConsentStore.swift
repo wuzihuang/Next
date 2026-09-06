@@ -17,9 +17,10 @@ import Foundation
 @MainActor
 final class ConsentStore: ObservableObject {
     static let shared = ConsentStore()
-    /// 1.2.0 · wrist optical meal response joined page two as RESPONSE. A stored 1.1.0 grant
-    /// must see the new copy; the hash of the screen is what a later edit is measured by.
-    static let version = "1.2.0"
+    /// 1.3.0 · ADR 0008 · HOOP now settles a sleep score, and the 1.2.0 screen promised the
+    /// opposite in as many words. A stored 1.2.0 grant must see the new copy; the hash of the
+    /// screen is what a later edit is measured by.
+    static let version = "1.3.0"
     static let locale = "en-US"
 
     enum Choice: String { case granted, declined, withdrawn }
@@ -39,7 +40,7 @@ final class ConsentStore: ObservableObject {
         // `SIMCTL_CHILD_NB_DEBUG_CONSENT=granted` walks the panel's collecting face without
         // driving the consent screen first — same shape as NB_DEBUG_STAGE, memory only.
         #if DEBUG
-        if ProcessInfo.processInfo.environment["NB_DEBUG_CONSENT"] == "granted" { choice = .granted }
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_CONSENT"] == "granted" { choice = .granted }
         #endif
     }
 
@@ -132,7 +133,7 @@ enum ConsentCopy {
             Item(name: "Steps, distance, calories and movement intensity",
                  why: "Your daily load, and the burn side of energy balance."),
             Item(name: "Sleep signals",
-                 why: "Staging, duration, night HRV and overnight automatic oxygen from the night the band recorded. HOOP does not score the night."),
+                 why: "Staging, duration, night HRV and overnight automatic oxygen from the night the band recorded. From these HOOP settles one sleep score for the night, out of four parts \u{2014} how long you slept, the structure of it, how your body recovered, and how close to your usual hour you went to bed. The score is computed on our server and can be recomputed; it is not a medical assessment."),
             Item(name: "Body composition — 14 measures from the band's bioimpedance sensor",
                  why: "Body fat, muscle, water, bone, protein, metabolic rate and more. Only when you start a measurement yourself. Never in the background."),
             Item(name: "Skin temperature", why: "One hidden input to Body Battery. It is never shown as a number."),

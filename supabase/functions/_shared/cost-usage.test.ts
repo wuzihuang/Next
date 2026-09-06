@@ -19,3 +19,14 @@ Deno.test("missing usage records as zero rather than inventing a bill", () => {
     completionTokens: 0,
   });
 });
+
+Deno.test("SDK provider metadata supplies discounted cache usage", () => {
+  assertEquals(usageFromProvider({ promptTokens: 1200, completionTokens: 80 }, {
+    dashscope: { cachedPromptTokens: 200 },
+  }), { promptTokens: 1000, cachedTokens: 200, completionTokens: 80 });
+});
+
+Deno.test("invalid provider cache cannot exceed total input", () => {
+  assertEquals(usageFromProvider({ prompt_tokens: 100, completion_tokens: 8, cached_tokens: 900 }),
+    { promptTokens: 0, cachedTokens: 100, completionTokens: 8 });
+});

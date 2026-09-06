@@ -540,7 +540,7 @@ final class LiveSessionStore: ObservableObject {
     /// screen with numbers on it without going for a run.
     static var debugFakeWrist: Bool {
         #if DEBUG
-        return ProcessInfo.processInfo.environment["NB_DEBUG_SESSION"] != nil
+        return Band.allowsSeed && ProcessInfo.processInfo.environment["NB_DEBUG_SESSION"] != nil
         #else
         return false
         #endif
@@ -548,7 +548,7 @@ final class LiveSessionStore: ObservableObject {
 
     #if DEBUG
     func debugAutoStart(profile: Profile, weightKg: Double?) {
-        guard let raw = ProcessInfo.processInfo.environment["NB_DEBUG_SESSION"], session == nil else { return }
+        guard Band.allowsSeed, let raw = ProcessInfo.processInfo.environment["NB_DEBUG_SESSION"], session == nil else { return }
         let mode = SportModeCatalog.modes.first { "\($0.rawValue)" == raw }
             ?? SportModeCatalog.modes.first { $0.rawValue == 1 }!
         begin(mode, profile: profile, weightKg: weightKg)
@@ -556,6 +556,7 @@ final class LiveSessionStore: ObservableObject {
     #endif
 
     private func fakeWrist() async {
+        guard Band.allowsSeed else { return }
         wrist = .reaching
         try? await Task.sleep(for: .seconds(1))
         var beat = 96.0

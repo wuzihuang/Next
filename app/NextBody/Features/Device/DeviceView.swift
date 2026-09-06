@@ -1,18 +1,14 @@
 import SwiftUI
 
-/// 12 · 设备 Device — the only second-level page in the product, because it really does have
-/// a page of content. Entered from Profile; back returns to Profile, not to the root.
+/// 12B · Lime slab. Overview is one lime card; firmware is its own carbon card;
+/// DEBUG stays behind `#if DEBUG`. The battery numeral / TREND opens the trend.
 struct DeviceView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
     @State private var sheet: SheetRoute?
     @State private var identity: BandIdentity?
-    @State private var battery: BandBattery?
 
-    // F3 · a switch shows the value that came back, never the value we sent. Optimistic UI
-    // here means the firmware wins a second later and the toggle flips under a finger.
-    @State private var hrAlarm = true
     /// 12 edge 3 · the band clamped a write: what was asked, what it kept.
     @State private var clamped: (name: String, asked: String, got: String)?
     /// 12 edge 4 · a write answered DEVICE_BUSY and is queued behind the measurement.
@@ -27,14 +23,17 @@ struct DeviceView: View {
     enum OTACheck: Equatable { case idle, checking, done, failed(String) }
     /// 0…1 from the SDK while the file crosses.
     @State private var otaProgress: Double = 0
-    @State private var writing: String?
     /// How often this phone asks the band for the day. Mirrors SyncCadence so the row
     /// re-renders when the sheet changes it.
     @State private var cadence = SyncCadence.minutes
     /// Device SYNC is in flight — the capsule holds a spinner until battery, identity,
     /// and today's origin pull have all come back.
     @State private var syncing = false
+    @State private var connectingForSync = false
+    @State private var syncMessage: String?
+    @State private var syncAfterConsent: (account: String, binding: String)?
     /// What Automatic measurement actually read — not a guess from capability bits.
+    /// Kept outside DEBUG because Training can still open the sheet in Release.
     @State private var autoRead: AutoMonitoringRead?
     #if DEBUG
     /// The sport-mode probe sheet. Release builds carry neither the button nor the code.
@@ -57,82 +56,28 @@ struct DeviceView: View {
             .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
         }) {
             VStack(alignment: .leading, spacing: 14) {
-                batteryCard
-                liveCard
-                firmwareCard
+                limeHero
+                if let syncMessage {
+                    Text(syncMessage)
+                        .font(NBFont.ui(400, 12))
+                        .foregroundStyle(NB.ember1)
+                        .accessibilityIdentifier("device-sync-message")
+                }
                 if !connected { readOnlyNotice }
                 if busyQueued { busyCard }
                 if let clamped { clampCard(clamped) }
 
-                GroupLabel12(L("AUTOMATIC"))
-                RowCard {
-                    NavRow(title: L("Automatic measurement"),
-                           detail: autoDetail,
-                           value: autoValue,
-                           // The sheet itself states the verdict: empty, switch-only, or
-                           // a read that never came back. The row stays tappable while
-                           // connected so that explanation is one tap away.
-                           enabled: connected) {
-                        sheet = .bandAutoMonitor
-                    }
-                    // One switch with one range is enough; a range needs no second toggle.
-                    ToggleRow(title: L("Heart rate alarm"),
-                              detail: L("ALERTS OUTSIDE 50 – 140 BPM"),
-                              isOn: $hrAlarm, enabled: connected, last: true)
-                        .onChange(of: hrAlarm) { _, on in
-                            write(.heartRateAlarm(on: on, low: 50, high: 140))
-                        }
-                }
-
-                GroupLabel12(L("SYNC"))
-                RowCard {
-                    // The band records every five minutes regardless; this is only how often
-                    // the phone collects. It is a phone setting, so it stays live off-band.
-                    NavRow(title: L("Read the band"),
-                           detail: L("HOW OFTEN THE DAY IS PULLED"),
-                           value: SyncCadence.label(cadence), last: true) { sheet = .syncCadence }
-                }
-
-                GroupLabel12(L("IDENTITY"))
-                // Five dead facts, no box: they are not settings.
-                // ⚠️ DEVICE NO. is DeviceVersion.deviceNumber — the SDK has no serial number.
-                VStack(spacing: 0) {
-                    IdentityRow(name: "MODEL", value: identity?.model ?? "NEXTBODY HOOP")
-                    IdentityRow(name: "HARDWARE", value: identity?.hardware ?? "1.2")
-                    IdentityRow(name: "SOFTWARE", value: identity?.firmware ?? data.band.firmware)
-                    // ⚠️ DeviceVersion.deviceNumber. The SDK has no serial number and no
-                    // screen in this product is allowed to call this one.
-                    IdentityRow(name: "DEVICE NO.", value: identity?.deviceNumber ?? "HB-0042")
-                    #if DEBUG
-                    // A diagnostic, not product copy: the band's sport-mode tier, straight
-                    // from the SDK's model. The row below the card opens the probe, because
-                    // the SDK has no query for the list itself — and a screenless band has
-                    // no workout list to read either.
-                    IdentityRow(name: "SPORT MODE", value: identity?.sportMode ?? "—")
-                    #endif
-                    // ⚠️ On iOS this is a CoreBluetooth UUID. The label says BLUETOOTH, not
-                    // MAC, because it is not one and it changes with the phone.
-                    IdentityRow(name: "BLUETOOTH",
-                                value: identity?.bleIdentifier ?? data.band.mac, last: true)
-                }
-                .frame(width: NB.Layout.contentWidth)
+                GroupLabel12(L("FIRMWARE"))
+                RowCard { firmwareSection }
 
                 #if DEBUG
-                GroupLabel12(L("DEBUG"))
-                RowCard {
-                    NavRow(title: L("Sport mode probe"),
-                           detail: L("TAP A TYPE · THE BAND OPENS IT, THEN CLOSES IT"),
-                           value: identity?.sportMode ?? "—") { sportProbe = true }
-                    NavRow(title: L("Health light"),
-                           detail: L("TEST THE FOUR LIGHT STATES"),
-                           value: "", last: true) { healthLightProbe = true }
-                }
+                debugHeader
+                debugCard
                 #endif
 
                 GroupLabel12(L("CONNECTION"))
                 RowCard {
                     if connected {
-                        // Disconnecting is reversible, so the safe button is not red.
                         DestructiveRow(title: L("Disconnect"),
                                        detail: L("It keeps recording. Nothing reaches the app."),
                                        tint: NB.text1) { sheet = .disconnect }
@@ -152,21 +97,31 @@ struct DeviceView: View {
             router.back()
         }
         .task {
-            // DEBUG · 12 edges on a simulator that would never produce them.
             if DebugEdge.on("clamped") { clamped = ("Heart rate alarm", "50–140 BPM", "50–130 BPM") }
             if DebugEdge.on("busy") { busyQueued = true }
             if DebugEdge.on("otaunverified") { ota = .unverified }
-            if DebugEdge.on("levelonly") { battery = BandBattery(isPercent: false, percent: nil, level: 3, chargeState: .unplugged) }
+            if DebugEdge.on("levelonly") {
+                data.applyBandObservation(battery: BandBattery(isPercent: false, percent: nil, level: 3, chargeState: .unplugged))
+            }
+            if router.path.last == .deviceAutoMonitor {
+                sheet = .bandAutoMonitor
+            }
             await Analytics.shared.track("DEVICE_PAGE_OPEN", ["CONNECTED": connected])
+            // WITH YOU reads the earliest bind or wrist tick, not firmware saveDays
+            // and not the latest devices row after a radio swap. Refresh even when
+            // the radio is down — companionship does not need a live link.
+            await Repository.shared.loadLastSync(into: data)
             guard connected else { return }
-            // Battery first: POWER used to wait behind identity and capabilities, so a
-            // known charging band flashed UNKNOWN for a second. The store already holds
-            // the last charge state; this write refreshes it without wiping the card.
+            // Seeded BandState is already CONNECTED; the mock radio may still be idle.
+            // Ask it to come up before the firmware identity rows stay dashes.
+            if Band.live.state != .connected {
+                await Band.live.reconnectIfBound()
+            }
             if !DebugEdge.on("levelonly"), let fresh = try? await Band.live.readBattery() {
-                battery = fresh
-                data.band.applyBattery(fresh)
+                data.applyBandObservation(battery: fresh)
             }
             identity = try? await Band.live.readIdentity()
+            if let identity { data.applyBandObservation(identity: identity) }
             if let fresh = try? await Band.live.readCapabilities() {
                 data.capabilities = fresh
                 if let deviceId = Repository.shared.deviceId,
@@ -175,38 +130,47 @@ struct DeviceView: View {
                                                              holdsDays: identity?.watchDataDayNumber)
                 }
             }
-            if let identity { data.band.firmware = identity.firmware }
             await checkForUpdate()
-            // The page now shows what the band recorded, so it asks for it. Throttled and
-            // shared with the home screen's pull: opening this page a second time inside a
-            // tick reads nothing off the band.
             await OriginDataSync.refreshNow(into: data)
-            if connected {
-                do {
-                    autoRead = try await Band.live.readAutoMonitoring()
-                    rememberOpticalSwitch(autoRead)
-                }
-                catch { autoRead = .failed(error) }
+            do {
+                autoRead = try await Band.live.readAutoMonitoring()
+                rememberOpticalSwitch(autoRead)
+            } catch {
+                autoRead = .failed(error)
             }
         }
-        // The band came back while the page was open (a reconnect, or the page was opened
-        // before the link was up): read what the task above could not, and ask the server.
         .onChange(of: connected) { _, on in
             guard on else { autoRead = nil; return }
             Task {
                 if !DebugEdge.on("levelonly"), let fresh = try? await Band.live.readBattery() {
-                    battery = fresh
-                    data.band.applyBattery(fresh)
+                    data.applyBandObservation(battery: fresh)
                 }
                 if identity == nil, let fresh = try? await Band.live.readIdentity() {
-                    identity = fresh; data.band.firmware = fresh.firmware
+                    identity = fresh
+                    data.applyBandObservation(identity: fresh)
                 }
                 if check == .idle { await checkForUpdate() }
                 do {
                     autoRead = try await Band.live.readAutoMonitoring()
                     rememberOpticalSwitch(autoRead)
+                } catch {
+                    autoRead = .failed(error)
                 }
-                catch { autoRead = .failed(error) }
+            }
+        }
+        .onChange(of: router.takeover) { old, current in
+            guard old == .consent, current == nil, let pending = syncAfterConsent else { return }
+            syncAfterConsent = nil
+            guard ConsentStore.shared.granted,
+                  SupabaseClient.currentUserIdSnapshot() == pending.account,
+                  BoundBand.identifier == pending.binding else { return }
+            Task { @MainActor in
+                // The app releases the takeover's native-operation gate on this same change.
+                await Task.yield()
+                guard router.takeover == nil, ConsentStore.shared.granted,
+                      SupabaseClient.currentUserIdSnapshot() == pending.account,
+                      BoundBand.identifier == pending.binding else { return }
+                await pullBandNow()
             }
         }
         .sheet(item: $sheet) { r in
@@ -242,44 +206,6 @@ struct DeviceView: View {
         #endif
     }
 
-    /// Every write goes through the queue at P0 and the switch is re-rendered from the
-    /// value the band echoed back. A refusal puts the switch back where it was.
-    private func write(_ setting: BandSetting) {
-        Task {
-            writing = String(describing: setting)
-            defer { writing = nil }
-            do {
-                let back = try await Band.live.writeSetting(setting)
-                if case .heartRateAlarm(let on, _, _) = back { hrAlarm = on }
-                // 12 edge 3 · render the readback, and say when it differs from what was asked.
-                let asked = Self.label(setting), got = Self.label(back)
-                clamped = asked.value == got.value ? nil : (asked.name, asked.value, got.value)
-                if clamped != nil {
-                    await Analytics.shared.track("DEV_SETTING_WRITE", ["KEY": asked.name, "OK": true, "CLAMPED": true])
-                }
-            } catch BandError.busy {
-                // 12 edge 4 · queue, don't fail: the switch springs back with the reason, and
-                // the write goes again once the measurement has had its ~12 s.
-                if case .heartRateAlarm(let on, _, _) = setting { hrAlarm = !on }
-                busyQueued = true
-                try? await Task.sleep(for: .seconds(12))
-                busyQueued = false
-                if case .heartRateAlarm = setting { write(setting) }
-            } catch {
-                BandLog.shared.record("writeSetting", error: error)
-                if case .heartRateAlarm(let on, _, _) = setting { hrAlarm = !on }
-            }
-        }
-    }
-
-    /// One short label per setting, so a clamped write can be read as 「45 MIN · YOU ASKED FOR 60」.
-    private static func label(_ s: BandSetting) -> (name: String, value: String) {
-        switch s {
-        case .heartRateAlarm(let on, let low, let high):
-            return ("Heart rate alarm", on ? "\(low)–\(high) BPM" : "OFF")
-        }
-    }
-
     /// 12 edge 3 · WRITE CLAMPED · RENDER THE READBACK.
     private func clampCard(_ c: (name: String, asked: String, got: String)) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -313,8 +239,6 @@ struct DeviceView: View {
     /// Ask the update server. The card says "checking" while this runs, and afterwards one of
     /// three things: an offer, "up to date", or that the server could not be reached.
     private func checkForUpdate() async {
-        // The page's task and the reconnect hook can both arrive within a frame of each
-        // other; one request to the server at a time, like every other band call.
         guard connected, check != .checking else { return }
         check = .checking
         do {
@@ -340,12 +264,17 @@ struct DeviceView: View {
                 result = try await Band.live.updateFirmware(to: offer.version) { p in
                     Task { @MainActor in otaProgress = p }
                 }
+            } catch {
+                result = .failed(reason: "\(error)")
             }
-            catch { result = .failed(reason: "\(error)") }
             switch result {
             case .completed(let v):
-                ota = .completed; data.band.firmware = v
-                if let refreshed = try? await Band.live.readIdentity() { identity = refreshed }
+                ota = .completed
+                data.band.firmware = v
+                if let refreshed = try? await Band.live.readIdentity() {
+                    identity = refreshed
+                    data.applyBandObservation(identity: refreshed)
+                }
             case .failed(let why):    ota = .failed(why)
             case .versionUnverified:  ota = .unverified
             }
@@ -353,41 +282,35 @@ struct DeviceView: View {
         }
     }
 
-    private var batteryReading: String {
+    /// Last packet BandPresence or this page wrote — the same value the home pip shows.
+    private var battery: BandBattery? { data.band.lastBattery }
+
+    /// The numeral only. The unit is a suffix: 72 % or 3 /4. A bar count never becomes %.
+    private var batteryValue: String {
         guard let battery else { return data.band.batteryPercent.map(String.init) ?? Fmt.dash }
         if battery.isPercent { return battery.percent.map(String.init) ?? Fmt.dash }
-        return battery.level.map { "\($0)/4" } ?? Fmt.dash
+        return battery.level.map(String.init) ?? Fmt.dash
     }
-    private var batteryUnit: String {
-        guard connected else { return L("LAST SEEN") }
-        guard let battery else { return L("PERCENT") }
-        return battery.isPercent ? L("PERCENT") : L("BARS")
+    private var batterySuffix: String { levelOnly ? "/4" : "%" }
+    /// 12 edge 1 · this firmware answers in bars, so nothing on the page may say percent.
+    private var levelOnly: Bool { battery.map { !$0.isPercent } ?? false }
+    private var ringFraction: Double {
+        battery?.ringFraction ?? Double(data.band.batteryPercent ?? 0) / 100
     }
 
-    /// Last fact the band reported, including the one already sitting on `data.band`
-    /// from BandPresence — so opening this page does not start from UNKNOWN.
+    /// Last fact the band reported. Home's pip and this card share `data.band`.
     private var displayedCharge: BandBattery.ChargeState {
         if data.band.chargeState != .unknown { return data.band.chargeState }
         return battery?.chargeState ?? .unknown
     }
 
-    /// Charge state only. Remaining days are not on this card — the SDK
-    /// does not report them, and a guessed count is the sentence 12 banned.
-    private var chargeLine: String? {
+    /// Charge state only. Remaining days are not on this card.
+    private var chargeLine: String {
         guard connected else { return L("Still recording on your wrist") }
         switch displayedCharge {
-        case .charging: return L("Charging")
-        case .full:     return L("Charged")
-        default:        return nil
-        }
-    }
-
-    private var powerValue: String {
-        guard connected else { return L("UNKNOWN") }
-        switch displayedCharge {
-        case .charging:  return L("CHARGING")
-        case .full:      return L("FULL")
-        case .unplugged: return L("UNPLUGGED")
+        case .charging:  return L("Charging")
+        case .full:      return L("Charged")
+        case .unplugged: return L("Not charging")
         case .unknown:   return Fmt.dash
         }
     }
@@ -398,7 +321,7 @@ struct DeviceView: View {
         guard let autoRead else { return L("ASKING THIS HOOP") }
         let slots = autoRead.slots
         if !slots.isEmpty {
-            return slots.map { Self.autoShort($0.kind) }.joined(separator: " · ")
+            return slots.map { L(Self.autoShort($0.kind)) }.joined(separator: " · ")
         }
         switch autoRead {
         case .interval:
@@ -429,296 +352,383 @@ struct DeviceView: View {
         }
     }
 
-    /// Same capsule as FIRMWARE's CHECK / UPDATE, parked to the right of the battery
-    /// ring so a tap can ask the band again without waiting for cadence.
+    /// SYNC stays actionable off-link: it first reconnects the bound HOOP.
     private var deviceSyncButton: some View {
         Button {
             Task { await pullBandNow() }
         } label: {
-            Group {
+            HStack(spacing: 6) {
                 if syncing {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(NB.carbon)
-                } else {
-                    Text(L("SYNC"))
-                        .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                        .foregroundStyle(connected ? NB.carbon : NB.text3Prod)
+                        .tint(NB.lime1)
                 }
+                Text(syncing ? L(connectingForSync ? "CONNECTING" : "SYNCING…") : L("SYNC"))
+                    .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
+                    .foregroundStyle(NB.lime1)
             }
-            .frame(minWidth: 64)
-            .padding(.horizontal, 18)
+            .frame(minWidth: 40)
+            .padding(.horizontal, 16)
             .frame(height: 36)
-            .background(connected ? NB.lime1 : Color.clear, in: Capsule())
-            .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+            .background(NB.carbon4, in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .frame(minWidth: 44, minHeight: 44)
+        .layoutPriority(1)
         .disabled(BoundBand.identifier == nil || syncing)
         .accessibilityLabel(L("Sync now"))
-        .accessibilityHint(L("Pull the latest readings from this HOOP."))
-        .accessibilityValue(syncing ? L("SYNCING…") : "")
+        .accessibilityHint(L("Connect this HOOP if needed, then pull the latest readings."))
+        .accessibilityValue(syncing ? L(connectingForSync ? "CONNECTING" : "SYNCING…") : "")
     }
 
     /// Battery, identity, then today's origin pages — cadence throttle does not apply,
-    /// because the button exists to ask again now. A pull already in flight is joined
-    /// rather than started twice.
+    /// because the button exists to ask again now.
     private func pullBandNow() async {
         guard BoundBand.identifier != nil, !syncing else { return }
+        syncMessage = nil
+        guard let account = SupabaseClient.currentUserIdSnapshot(),
+              let binding = BoundBand.identifier else {
+            syncMessage = L("Sign in to sync this HOOP.")
+            return
+        }
+        guard ConsentStore.shared.granted else {
+            syncAfterConsent = (account, binding)
+            router.takeover = .consent
+            return
+        }
+        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else {
+            syncMessage = L("Finish the current measurement or device operation, then sync again.")
+            return
+        }
         syncing = true
-        defer { syncing = false }
+        connectingForSync = Band.live.state != .connected
+        defer { syncing = false; connectingForSync = false }
         await Analytics.shared.track("DEV_SYNC_TAP", ["CONNECTED": connected])
+        let ready = await BandReadiness.shared.ensureReady(into: data, reason: "device-sync")
+        guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == account,
+              BoundBand.identifier == binding, !Task.isCancelled else { return }
+        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else {
+            syncMessage = L("Finish the current measurement or device operation, then sync again.")
+            return
+        }
+        guard ready else {
+            syncMessage = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
+            return
+        }
+        connectingForSync = false
+        if let snapshot = BandReadiness.shared.snapshot,
+           snapshot.account == account, snapshot.binding == binding {
+            identity = snapshot.identity
+        }
         await OriginDataSync.refreshNow(into: data, minimumInterval: 0, fullHistory: true)
-        guard Band.live.state == .connected else { return }
-        if !DebugEdge.on("levelonly"), let fresh = try? await Band.live.readBattery() {
-            battery = fresh
-            data.band.applyBattery(fresh)
+        guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == account,
+              BoundBand.identifier == binding, !Task.isCancelled else { return }
+        if Band.live.state != .connected {
+            syncMessage = L("The connection was lost during sync. Tap Sync to reconnect and try again.")
         }
-        if let fresh = try? await Band.live.readIdentity() {
-            identity = fresh
-            data.band.name = fresh.name
-            data.band.mac = fresh.bleIdentifier
-            data.band.firmware = fresh.firmware
-        }
-        await Repository.shared.registerDevice(identity: identity, battery: battery)
     }
 
-    /// The ring is the number. Remaining days are not written — 12 forbade a
-    /// guessed count, and this page does not invent one.
-    private var batteryCard: some View {
-        VStack(spacing: 16) {
-            if let battery, !battery.isPercent {
-                // 12 edge 1 · LEVEL ONLY · NO PERCENT TO SHOW. Four bars, and the days line is
-                // not rendered — a bar count × 25 is a percentage nobody measured.
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(spacing: 12) {
-                        HStack(spacing: 5) {
-                            ForEach(0..<4, id: \.self) { i in
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(i < (battery.level ?? 0) ? NB.lime1 : Color(hex: 0x2A2A32))
-                                    .frame(width: 22, height: 34)
-                            }
-                        }
-                        Text(L("%d OF 4 BARS", battery.level ?? 0))
-                            .font(NBFont.dot(700, 14)).tracking(0.14 * 14).foregroundStyle(Color(hex: 0xB0B0BA))
-                        Text(L("This firmware reports level, not percent."))
-                            .font(NBFont.ui(300, 11.5)).tracking(0.03 * 11.5).foregroundStyle(NB.text3Prod)
+    private func openBatteryTrend() {
+        router.open(Destination.battery, from: router.entry)
+    }
+
+    /// Paper 12B · lime slab. The numeral, the bar and TREND open the trend; SYNC stays
+    /// its own control. Remaining days are not written.
+    private var limeHero: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                Button(action: openBatteryTrend) {
+                    HStack(alignment: .lastTextBaseline, spacing: 4) {
+                        Text(batteryValue)
+                            .font(NBFont.dot(700, 72))
+                            .tracking(-0.04 * 72)
+                            .foregroundStyle(NB.carbon4)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                        Text(batterySuffix)
+                            .font(NBFont.dot(600, 22))
+                            .tracking(0.04 * 22)
+                            .foregroundStyle(NB.carbon4.opacity(0.6))
                     }
-                    .frame(maxWidth: .infinity)
-                    deviceSyncButton
-                }
-            } else {
-            HStack(spacing: 18) {
-                ZStack {
-                    Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
-                    RingArc(from: 0, to: battery?.ringFraction ?? Double(data.band.batteryPercent ?? 0) / 100)
-                        .stroke(connected ? NB.lime1 : NB.white.opacity(0.28),
-                                style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                        .frame(width: 69, height: 69)
-                    VStack(spacing: 2) {
-                        // ⚠️ Firmware with isPercent = false reports 0–4 bars. Those are
-                        // shown as bars; a bar count never gets a % sign put on it.
-                        Text(batteryReading)
-                            .font(NBFont.dot(700, 20))
-                            .foregroundStyle(NB.text1)
-                        Text(batteryUnit)
-                            .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
-                            .foregroundStyle(NB.white.opacity(0.34))
-                    }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(data.band.name)
-                        .font(NBFont.ui(600, 18)).tracking(0.02 * 18)
-                        .foregroundStyle(NB.text1)
-                    Text(L("NEXTBODY HOOP"))
-                        .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
-                        .foregroundStyle(NB.white.opacity(0.34))
-                    if let chargeLine {
-                        Text(chargeLine)
-                            .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
-                            .foregroundStyle(connected ? NB.lime1 : NB.text2)
-                    }
-                }
-                Spacer(minLength: 0)
-                deviceSyncButton
-            }
-            }
-
-            Hairline()
-
-            HStack(spacing: 0) {
-                // POWER holds the last charge the band reported. UNKNOWN is only for a
-                // disconnected band — a connected band that has not answered yet is a dash,
-                // never a flash of UNKNOWN over a known CHARGING.
-                DeviceFact(label: L("POWER"),
-                           value: powerValue)
-                // ⚠️ F3 rule 11 · 「代码里出现字面量 7 即为 bug」. This fell back to "7 DAYS"
-                // when identity had not been read, so the page stated how much the band holds
-                // using a number the app made up — and 7 is exactly the value rule 11 names,
-                // because it is the one every HOOP is assumed to have until it says otherwise.
-                DeviceFact(label: L("ON DEVICE"),
-                           value: identity.map { "\($0.watchDataDayNumber) DAYS" } ?? Fmt.dash)
-                // ⚠️ F3 rule 09 · SYNCED is the moment of the last readOriginComplete that
-                // succeeded, and `store.lastSync` is written on exactly that. This column
-                // printed "2 MIN AGO" whenever the band was connected and "2 HRS AGO" when it
-                // was not — two constants, true only by coincidence, on the one page a user
-                // opens to find out whether syncing is working.
-                DeviceFact(label: L("SYNCED"), value: syncedAgo)
-            }
-        }
-        .padding(18)
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-    }
-
-    /// 12 · what actually came off the wrist, on the page about the thing that measured it.
-    /// The device page could say SYNCED 2 MIN AGO and show nothing that was synced — the only
-    /// way to tell a working link from a silent one was to leave for the home screen.
-    ///
-    /// ⚠️ These are the last five-minute tick, not an average and not a live feed: the band
-    /// records every five minutes and the app reads what it recorded. 13 · past six hours the
-    /// numbers are —— rather than dimmed, because a six-hour-old heart rate is not a reading
-    /// of anything, and a band off the wrist reports no heart rate at all.
-    private var liveCard: some View {
-        let vitals = data.vitals
-        let stale = vitals.freshness == .stale
-        let gone = vitals.freshness == .gone
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L("LAST TICK"))
-                    .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
-                    .foregroundStyle(NB.white.opacity(0.34))
-                Spacer(minLength: 0)
-                Text(vitals.at.map(Fmt.clock) ?? "NO TICK")
-                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(gone ? NB.text3Prod : NB.lime1)
-            }
-
-            HStack(spacing: 0) {
-                LiveReading(label: L("HEART"), value: gone ? nil : vitals.hr.map(String.init),
-                            unit: "BPM", dim: stale)
-                LiveReading(label: L("STRESS"), value: gone ? nil : vitals.stress.map(String.init),
-                            unit: L("INDEX"), dim: stale)
-                // Steps are the day's own total off the all-day segment, not a tick, so they
-                // do not dim with the tick's age — a step taken this morning is still a step.
-                LiveReading(label: L("STEPS"), value: data.today.steps.map(String.init),
-                            unit: L("TODAY"), dim: false)
-            }
-
-            Hairline()
-
-            // One sentence, and it names which of the three states the numbers above are in.
-            Text(liveLine)
-                .font(NBFont.ui(400, 12.5)).tracking(0.02 * 12.5)
-                .foregroundStyle(gone ? NB.text3Prod : NB.text2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(18)
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-    }
-
-    private var liveLine: String {
-        guard data.vitals.at != nil else {
-            return connected
-                ? "Nothing has come off this HOOP yet."
-                : "Connect the HOOP to see what it has been recording."
-        }
-        switch data.vitals.freshness {
-        case .fresh: return L("The HOOP is recording every five minutes.")
-        case .stale: return L("Nothing new for a while. It may be off your wrist.")
-        case .gone:  return L("Nothing for over six hours. These are not old numbers, they are no numbers.")
-        }
-    }
-
-    /// Same shape the panel uses, off the same timestamp, so the two pages cannot disagree
-    /// about when the last sync was.
-    private var syncedAgo: String {
-        // A phone that has never pulled a page says so; it does not count from a made-up time.
-        guard let at = data.lastSync else { return L("NEVER") }
-        let mins = max(0, Int(Date().timeIntervalSince(at) / 60))
-        if mins < 1 { return L("JUST NOW") }
-        if mins < 60 { return L("%d MIN AGO", mins) }
-        return L("%d HR AGO", mins / 60)
-    }
-
-    /// Five reasons the button can be grey, and it always says which one.
-    /// "Temporarily unavailable" is never allowed to stand in for all five.
-    private var firmwareCard: some View {
-        Group {
-        if ota == .unverified {
-            // 12 edge 5 · OTA UNVERIFIED · NOT SUCCESS, NOT FAILURE.
-            VStack(alignment: .leading, spacing: 10) {
-                Text(L("VERSION UNCONFIRMED")).font(NBFont.dot(700, 11)).tracking(0.14 * 11).foregroundStyle(NB.ember1)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(identity?.firmware ?? data.band.firmware).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
-                    Text(L("?")).font(NBFont.dot(500, 14)).foregroundStyle(Color(hex: 0x8A8A96))
-                    Text(offer?.version ?? Fmt.dash).font(NBFont.dot(700, 18)).tracking(0.02 * 18).foregroundStyle(Color(hex: 0xB0B0BA))
-                }
-                Text(L("The update finished but we could not read the new version back. Check the band before trying again."))
-                    .font(NBFont.ui(300, 11.5)).tracking(0.02 * 11.5).lineSpacing(4).foregroundStyle(NB.white.opacity(0.70))
-            }
-            .padding(14)
-            .frame(width: NB.Layout.contentWidth, alignment: .leading)
-            .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.ember1.opacity(0.25), lineWidth: 1))
-        } else {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L("FIRMWARE"))
-                    .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
-                    .foregroundStyle(NB.text3Prod)
-                HStack(spacing: 8) {
-                    // The left side is the band's own reported version. ⚠️ It read a fixed
-                    // 2.4.1, which happened to match the seed and would have quietly lied
-                    // about every other HOOP.
-                    Text(identity?.firmware ?? data.band.firmware)
-                        .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
-                        .foregroundStyle(NB.text2)
-                    // The right side is what the update server offered. ⚠️ It used to be a
-                    // constant 2.5.0, so every HOOP was told it had an update forever.
-                    if let offer, ota != .completed {
-                        Text(L("→"))
-                            .font(NBFont.dot(700, 13))
-                            .foregroundStyle(NB.lime1)
-                        Text(offer.version)
-                            .font(NBFont.dot(700, 16)).tracking(0.06 * 16)
-                            .foregroundStyle(NB.lime1)
-                    }
-                }
-                Text(otaLine)
-                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                    .foregroundStyle(ota == .completed ? NB.lime1 : NB.text3Prod)
-            }
-            Spacer(minLength: 0)
-            if offer != nil || (connected && check != .checking && ota != .completed) {
-                // With an offer the button installs it. Without one (current, or the server
-                // could not be asked) it asks again — the card is never a dead end.
-                Button(action: { if offer != nil { runUpdate() } else { Task { await checkForUpdate() } } }) {
-                    Text(otaButton)
-                        .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                        .foregroundStyle(connected && offer != nil ? NB.carbon : NB.text3Prod)
-                        .padding(.horizontal, 18).frame(height: 36)
-                        .background(connected && offer != nil ? NB.lime1 : Color.clear, in: Capsule())
-                        .overlay(connected && offer != nil ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .disabled(!connected || ota == .running || ota == .completed)
+                .layoutPriority(1)
+                .accessibilityLabel(L("Battery trend"))
+                .accessibilityHint(L("See how the charge has moved."))
+                .accessibilityValue(batteryValue + batterySuffix)
+
+                Color.clear
+                    .frame(height: 6)
+                    .overlay {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(NB.carbon4.opacity(0.2))
+                                Capsule().fill(NB.carbon4)
+                                    .frame(width: max(4, geo.size.width * max(0, min(1, ringFraction))))
+                            }
+                        }
+                    }
+                    .accessibilityHidden(true)
+
+                deviceSyncButton
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 4)
+
+            Button(action: openBatteryTrend) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(data.band.name)
+                        .font(NBFont.ui(600, 26))
+                        .tracking(-0.03 * 26)
+                        .foregroundStyle(NB.carbon4)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    HStack(spacing: 8) {
+                        Text(chargeLine)
+                            .font(NBFont.ui(500, 13))
+                            .tracking(0.02 * 13)
+                            .foregroundStyle(NB.carbon4)
+                        Circle().fill(NB.carbon4.opacity(0.3)).frame(width: 3, height: 3)
+                        Text(L("TREND"))
+                            .font(NBFont.dot(600, 10))
+                            .tracking(0.16 * 10)
+                            .foregroundStyle(NB.carbon4)
+                        Path { p in
+                            p.move(to: CGPoint(x: 1, y: 1))
+                            p.addLine(to: CGPoint(x: 5, y: 5))
+                            p.addLine(to: CGPoint(x: 1, y: 9))
+                        }
+                        .stroke(NB.carbon4, style: StrokeStyle(lineWidth: 1.5, lineCap: .square))
+                        .frame(width: 6, height: 10)
+                    }
+                    if levelOnly {
+                        Text(L("This firmware reports level, not percent."))
+                            .font(NBFont.ui(300, 11))
+                            .tracking(0.03 * 11)
+                            .foregroundStyle(NB.carbon4.opacity(0.55))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 16)
+
+            Rectangle().fill(NB.carbon4.opacity(0.15)).frame(height: 1)
+
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    LimeMetric(label: L("WORN"), value: wornParts.value, unit: wornParts.unit)
+                    Rectangle().fill(NB.carbon4.opacity(0.15)).frame(width: 1)
+                    LimeMetric(label: L("WITH YOU"), value: companionParts.value, unit: companionParts.unit)
+                }
+                Rectangle().fill(NB.carbon4.opacity(0.15)).frame(height: 1)
+                HStack(spacing: 0) {
+                    LimeMetric(label: L("SYNCED"), value: syncedParts.value, unit: syncedParts.unit)
+                    Rectangle().fill(NB.carbon4.opacity(0.15)).frame(width: 1)
+                    LimeMetric(label: L("LAST POINT"), value: lastPointValue)
+                }
             }
         }
-        .padding(16)
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-        }
+        .frame(width: NB.Layout.contentWidth)
+        .background(NB.lime1, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
+            .stroke(NB.lime1, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+    }
+
+    /// Consecutive worn days from the same flame the home header uses. Amber / gray
+    /// is a miss, not a zero.
+    private var wornParts: (value: String, unit: String?) {
+        switch data.wearFlame {
+        case .live(let n): return ("\(n)", L("DAYS"))
+        case .amber, .gray: return (Fmt.dash, nil)
         }
     }
+
+    /// Inclusive user days from the earliest bind or wrist tick. Firmware saveDays never land here.
+    private var companionParts: (value: String, unit: String?) {
+        guard let n = DeviceCompanionMath.days(boundAt: data.boundAt, now: Date()) else {
+            return (Fmt.dash, nil)
+        }
+        return ("\(n)", L("DAYS"))
+    }
+
+    /// Same timestamp as the home panel. The lime cell splits the number from the unit
+    /// the way the board does — NEVER / JUST NOW stay a single value.
+    private var syncedParts: (value: String, unit: String?) {
+        guard let at = data.lastSync else { return (L("NEVER"), nil) }
+        let mins = max(0, Int(Date().timeIntervalSince(at) / 60))
+        if mins < 1 { return (L("JUST NOW"), nil) }
+        if mins < 60 { return ("\(mins)", L("MIN")) }
+        return ("\(mins / 60)", L("HRS"))
+    }
+
+    private var lastPointValue: String {
+        data.vitals.at.map(Fmt.clock) ?? Fmt.dash
+    }
+
+    /// Version, offer, CHECK / UPDATE, then the identity rows the board lists.
+    /// DEVICE NO. is not a firmware fact — it stays in DEBUG.
+    private var firmwareSection: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(ota == .unverified ? L("VERSION UNCONFIRMED") : L("VERSION"))
+                        .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
+                        .foregroundStyle(ota == .unverified ? NB.ember1 : NB.text3Prod)
+                    HStack(spacing: 8) {
+                        Text(reportedFirmware)
+                            .font(NBFont.dot(700, 22)).tracking(0.04 * 22)
+                            .foregroundStyle(NB.text1)
+                        if let offer, ota != .completed {
+                            Text(ota == .unverified ? L("?") : L("→"))
+                                .font(NBFont.dot(700, 13))
+                                .foregroundStyle(ota == .unverified ? NB.ember1 : NB.lime1)
+                            Text(offer.version)
+                                .font(NBFont.dot(700, 22)).tracking(0.04 * 22)
+                                .foregroundStyle(ota == .unverified ? NB.macroValue : NB.lime1)
+                        }
+                    }
+                    Text(otaLine)
+                        .font(NBFont.ui(400, 12)).tracking(0.02 * 12).lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(ota == .completed ? NB.lime1 : NB.text3Prod)
+                }
+                Spacer(minLength: 0)
+                if offer != nil || (connected && check != .checking && ota != .completed) {
+                    Button(action: { if offerInstallable { runUpdate() } else { Task { await checkForUpdate() } } }) {
+                        Text(otaButton)
+                            .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
+                            .foregroundStyle(connected && offerInstallable ? NB.carbon : NB.text2)
+                            .padding(.horizontal, 18).frame(height: 36)
+                            .background(connected && offerInstallable ? NB.lime1 : Color.clear, in: Capsule())
+                            .overlay(connected && offerInstallable ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!connected || ota == .running || ota == .completed)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+
+            if ota == .running {
+                ZStack(alignment: .leading) {
+                    Capsule().fill(NB.barTrack)
+                    Capsule().fill(NB.lime1)
+                        .frame(width: max(0, min(1, otaProgress)) * (NB.Layout.contentWidth - 32))
+                }
+                .frame(height: 3)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .animation(.easeOut(duration: 0.25), value: otaProgress)
+            }
+
+            Hairline()
+            IdentityRow(name: "MODEL", value: identityValue(\.model))
+            IdentityRow(name: "HARDWARE", value: identityValue(\.hardware))
+            IdentityRow(name: "BLUETOOTH", value: bluetoothValue)
+            IdentityRow(name: "LAST PLUG", value: eventStamp(BatteryLog.lastPlug(in: data.batteryLog)))
+            IdentityRow(name: "LAST LINK", value: eventStamp(BatteryLog.lastLink(in: data.batteryLog)))
+            IdentityRow(name: "SPORT", value: identityValue(\.sportMode), last: true)
+        }
+    }
+
+    private func identityValue(_ key: KeyPath<BandIdentity, String>) -> String {
+        let raw = identity?[keyPath: key] ?? ""
+        return raw.isEmpty ? Fmt.dash : raw
+    }
+
+    /// Six hex pairs are a MAC and use colons. Anything else (an iOS BLE UUID) stays as
+    /// the identifier the phone actually has — it is not relabelled as a MAC.
+    private var bluetoothValue: String {
+        let raw = identity?.bleIdentifier ?? data.band.mac
+        guard !raw.isEmpty else { return Fmt.dash }
+        let parts = raw.split(separator: "-")
+        if parts.count == 6 { return parts.joined(separator: ":") }
+        return raw
+    }
+
+    private func eventStamp(_ date: Date?) -> String {
+        guard let date else { return L("NEVER") }
+        let clock = Fmt.clock(date)
+        if Calendar.current.isDateInToday(date) { return L("TODAY %@", clock) }
+        if Calendar.current.isDateInYesterday(date) { return L("YDAY %@", clock) }
+        return clock
+    }
+
+    #if DEBUG
+    private var debugHeader: some View {
+        HStack(spacing: 8) {
+            Text(L("DEBUG"))
+                .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
+                .foregroundStyle(NB.ember1)
+            Text(L("BUILD ONLY"))
+                .font(NBFont.dot(600, 9)).tracking(0.14 * 9)
+                .foregroundStyle(NB.ember1)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 2)
+        .padding(.top, 8)
+    }
+
+    private var debugCard: some View {
+        VStack(spacing: 0) {
+            IdentityRow(name: "MODEL", value: identityValue(\.model))
+            IdentityRow(name: "HARDWARE", value: identityValue(\.hardware))
+            IdentityRow(name: "SOFTWARE", value: reportedFirmware)
+            IdentityRow(name: "DEVICE NO.", value: identityValue(\.deviceNumber))
+            IdentityRow(name: "SPORT MODE", value: identityValue(\.sportMode))
+            IdentityRow(name: "BLUETOOTH", value: bluetoothValue, last: true)
+            NavRow(title: L("Automatic measurement"),
+                   detail: autoDetail,
+                   value: autoValue,
+                   valueTint: NB.ember1,
+                   enabled: connected) {
+                sheet = .bandAutoMonitor
+            }
+            NavRow(title: L("Read the band"),
+                   detail: L("HOW OFTEN THE DAY IS PULLED"),
+                   value: SyncCadence.label(cadence),
+                   valueTint: NB.ember1) { sheet = .syncCadence }
+            NavRow(title: L("Sport mode probe"),
+                   detail: L("TAP A TYPE · THE BAND OPENS IT, THEN CLOSES IT"),
+                   value: identity?.sportMode ?? "—",
+                   valueTint: NB.ember1) { sportProbe = true }
+            NavRow(title: L("Health light"),
+                   detail: L("TEST THE FOUR LIGHT STATES"),
+                   value: "",
+                   valueTint: NB.ember1,
+                   last: true) { healthLightProbe = true }
+        }
+        .frame(width: NB.Layout.contentWidth)
+        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
+            .stroke(NB.ember1.opacity(0.33), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+    }
+    #endif
+
+    /// The version the band itself reports, never a seed constant.
+    private var reportedFirmware: String {
+        data.band.firmware.isEmpty ? (identity?.firmware ?? Fmt.dash) : data.band.firmware
+    }
+
+    /// An offer is only installable while the last attempt is not sitting unverified —
+    /// pushing the same file again over a version we could not read is how a band bricks.
+    private var offerInstallable: Bool { offer != nil && ota != .unverified }
 
     private var otaLine: String {
         switch ota {
         case .running:          return L("Installing · keep the band close")
-        case .completed:        return L("Installed · %@ is on the band", identity?.firmware ?? data.band.firmware)
+        case .completed:        return L("Installed · %@ is on the band", reportedFirmware)
         case .failed(let why):  return L(why)
+        case .unverified:       return L("The update finished but we could not read the new version back. Check the band before trying again.")
         default: break
         }
         guard connected else { return offer == nil ? L("Reconnect to check for updates") : L("Reconnect to install this update") }
@@ -732,11 +742,11 @@ struct DeviceView: View {
     private var otaButton: String {
         if ota == .running { return otaProgress > 0 ? L("UPDATING %d %%", Int(otaProgress * 100)) : L("UPDATING…") }
         if ota == .completed { return L("DONE") }
-        return offer != nil ? L("UPDATE") : L("CHECK")
+        return offerInstallable ? L("UPDATE") : L("CHECK")
     }
 
-    /// One sentence with a padlock covers the whole read-only段. Switches are not hidden and
-    /// not greyed into illegibility — they simply do not move.
+    /// One sentence with a padlock covers the whole read-only stretch. Switches are not
+    /// hidden and not greyed into illegibility — they simply do not move.
     private var readOnlyNotice: some View {
         HStack(spacing: 8) {
             LockGlyph()
@@ -791,74 +801,31 @@ private struct RowCard<Content: View>: View {
     }
 }
 
-/// One reading off the last tick. `nil` is ——, never a zero and never the tick before it.
-private struct LiveReading: View {
-    let label: String
-    let value: String?
-    let unit: String
-    var dim = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(label)
-                .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
-                .foregroundStyle(NB.text3Prod)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value ?? Fmt.dash)
-                    .font(NBFont.dot(700, 22)).tracking(0.02 * 22)
-                    .foregroundStyle(value == nil ? NB.text3Prod
-                                     : (dim ? NB.text2 : NB.text1))
-                Text(unit)
-                    .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
-                    .foregroundStyle(NB.white.opacity(0.34))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct DeviceFact: View {
+/// One cell on the lime slab. Carbon type on lime, number + unit split the way the board does.
+private struct LimeMetric: View {
     let label: String
     let value: String
+    var unit: String? = nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label)
                 .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
-                .foregroundStyle(NB.text3Prod)
-            Text(value)
-                .font(NBFont.dot(600, 11)).tracking(0.1 * 11)
-                .foregroundStyle(NB.text2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct ToggleRow: View {
-    let title: String
-    let detail: String
-    var detailIsSentence = false
-    @Binding var isOn: Bool
-    var enabled = true
-    var last = false
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
-                    .foregroundStyle(enabled ? NB.text1 : NB.text2)
-                Text(detail)
-                    .font(detailIsSentence ? NBFont.ui(400, 11.5) : NBFont.dot(500, 10))
-                    .tracking(detailIsSentence ? 0.02 * 11.5 : 0.14 * 10)
-                    .foregroundStyle(NB.white.opacity(0.34))
+                .foregroundStyle(NB.carbon4.opacity(0.6))
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(NBFont.dot(700, 20))
+                    .foregroundStyle(NB.carbon4)
+                if let unit {
+                    Text(unit)
+                        .font(NBFont.dot(500, 10))
+                        .foregroundStyle(NB.carbon4.opacity(0.6))
+                }
             }
-            Spacer(minLength: 0)
-            Toggle("", isOn: $isOn).labelsHidden().tint(NB.lime1).disabled(!enabled)
         }
         .padding(.horizontal, 16)
-        .frame(height: 66)
-        .opacity(enabled ? 1 : 0.55)
-        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -866,6 +833,7 @@ private struct NavRow: View {
     let title: String
     let detail: String
     let value: String
+    var valueTint: Color = NB.text3Prod
     var enabled = true
     var last = false
     let action: () -> Void
@@ -883,12 +851,15 @@ private struct NavRow: View {
                 }
                 Spacer(minLength: 0)
                 Text(value)
-                    .font(NBFont.dot(500, 11))
-                    .foregroundStyle(NB.text3Prod)
+                    .font(NBFont.dot(600, 11))
+                    .tracking(0.08 * 11)
+                    .foregroundStyle(valueTint)
+                    .multilineTextAlignment(.trailing)
+                    .frame(minWidth: 44, alignment: .trailing)
                 Chevron()
             }
             .padding(.horizontal, 16)
-            .frame(height: 66)
+            .frame(height: 62)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -903,16 +874,19 @@ private struct IdentityRow: View {
     let value: String
     var last = false
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text(L(name))
-                .font(NBFont.ui(500, 11)).tracking(0.16 * 11)
-                .foregroundStyle(NB.text3Prod)
+                .font(NBFont.ui(500, 13)).tracking(0.06 * 13)
+                .foregroundStyle(NB.text1)
             Spacer(minLength: 0)
             Text(value)
-                .font(NBFont.dot(500, 11)).tracking(0.06 * 11)
-                .foregroundStyle(NB.text2)
+                .font(NBFont.dot(500, 11)).tracking(0.08 * 11)
+                .foregroundStyle(NB.white.opacity(0.34))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
-        .frame(height: 38)
+        .padding(.horizontal, 16)
+        .frame(height: 48)
         .overlay(alignment: .bottom) { last ? nil : Hairline() }
     }
 }
@@ -1079,7 +1053,7 @@ struct AutoMeasurementSheet: View {
     private var emptyState: some View {
         switch read {
         case .failed(let headline, let sentence):
-            EdgeNote(line: headline, text: sentence)
+            EdgeNote(line: L(headline), text: L(sentence))
         case .switches:
             EdgeNote(
                 line: L("THIS FIRMWARE HAS NO AUTOMATIC-MEASUREMENT SWITCHES"),

@@ -328,6 +328,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		740129972202FAA10CA28326 /* Embed VeepooBleSDK (device only) */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);

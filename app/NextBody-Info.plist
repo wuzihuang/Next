@@ -40,8 +40,6 @@
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NBDebugModelKey</key>
-	<string>$(NB_DEBUG_MODEL_KEY)</string>
 	<key>NBFunctionsBase</key>
 	<string>$(NB_FUNCTIONS_BASE)</string>
 	<!-- Only 127.0.0.1, and only so a DEBUG build can talk to a locally served copy of the

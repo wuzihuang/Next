@@ -47,19 +47,20 @@ Card ring is 80 × 80: 内环 stroke 7.5 / r27, 外圈区间弧 stroke 4 / r35.5
 
 > 环走绝对量程 0–21，满环 = 到顶，不是「完成度百分比」。
 
-## 04 · 燃料卡 Fuel — `KCAL IN · LEFT · 3 MACRO BARS`
+## 04 · 燃料卡 Fuel — `EATEN · TO GO / OVER · FILL · 3 MACRO BARS`
+
+Paper **09C**. The card asks two numbers: how much went in, and the signed gap.
 
 | Part | Rule |
 |---|---|
-| KCAL IN | 只累计有结论的餐位。PARTIAL 也照常给数——不给数等于罚他记了一半。 |
-| LEFT | 额度减已记。超了就是负数，照常显示，不变红、不加感叹号。 |
-| 3 BARS | PRO / CARB / FAT 各一条，4px 高，各自到顶各自停。颜色固定：紫、绿、橙。 |
-| NO BADGE | 不画状态徽章、不加总进度条、不写鼓励语。卡面上没有形容词。 |
+| EATEN | 只累计有结论的餐位。PARTIAL 也照常给数——不给数等于罚他记了一半。UNLOGGED 是 ——，FASTED 是 0。 |
+| OF TARGET | 额度缩成右上角 `OF 2,900`。没有额度时这一栏不印。 |
+| TO GO / OVER | 差额是 `eaten − target`。没到写 TO GO，带负号；刚好是 0 TO GO；多出来换 OVER，带正号。没记不是没到：没有已知摄入就不能说还差或超了，右栏是 ——。没有额度时右栏也是 ——。 |
+| FILL | 一条琥珀条，量程 0 → 当天额度，按 EATEN / TARGET 走。满了就停，超额不变红、不溢出。 |
+| 3 BARS | PRO / CARB / FAT 各一条，4px 高，各自到顶各自停。颜色固定：紫、绿、橙。标签跟条同色。 |
+| NO BADGE | 不画状态徽章、不写鼓励语、不印 LEFT、不印下一餐建议。NEXT_MEAL 只留在数据层给模型用。 |
 
-> 右上角那个 660 LEFT 是卡面上唯一的「结论」。
-
-⚠️ That 660 is NEXT_MEAL, not `target − eaten`; see `F2-numbers.md`. With one open slot the two
-are the same number, which is why the board's example does not distinguish them.
+> 两栏是一对。没到：350 + 2,550 = 2,900。超了：3,140 = 2,900 + 240。
 
 Tap target is the whole card → fuel detail. 卡内不放任何二级按钮.
 
@@ -85,7 +86,7 @@ Tap target is the whole card → fuel detail. 卡内不放任何二级按钮.
 3. 未知永不退化成 0。跨午夜不自动封口。
 4. 只有 FASTED / CONFIRMED 投票。
 5. 断食日进账本、不进趋势。
-6. 两张卡都不下结论：不画状态徽章、不加总进度条、不写鼓励语、超额不变红。
+6. 两张卡都不下结论：不画状态徽章、不写鼓励语、超额不变红。热量卡上的琥珀条只表达 EATEN / TARGET，满了就停。
 7. 布局写死：两卡各 174 × 136、间距 10、整条 358 × 136、radius `--r-card`。
 8. 整张卡是唯一热区，落到对应详情页。
 9. 这两张卡不做骨架屏、不做加载态。首屏没有转圈的东西。

@@ -1,10 +1,15 @@
 import Foundation
 
-/// Inclusive user days this binding has lasted. The device page's WITH YOU cell.
+/// Inclusive user days this HOOP has been with the health account. WITH YOU.
 ///
-/// `devices.bound_at` is the start of the current 手环归属. It is not consecutive
-/// wear, and it is not how many days of history the firmware still holds.
+/// The start is the earliest wrist tick or bind on this account — not the latest
+/// `devices.bound_at` after a radio swap, and not firmware saveDays.
 enum DeviceCompanionMath: Sendable {
+    /// Earliest real instant wins. Empty / all-nil is missing.
+    static func start(candidates: [Date?]) -> Date? {
+        candidates.compactMap { $0 }.min()
+    }
+
     /// Same user day is 1. A missing or future stamp is nil — the page draws a dash
     /// instead of inventing a day count.
     static func days(boundAt: Date?, now: Date, calendar: Calendar = .current) -> Int? {

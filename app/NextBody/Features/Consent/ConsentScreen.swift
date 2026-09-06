@@ -38,6 +38,7 @@ struct ConsentScreen: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(L("Back"))
+                    .accessibilityIdentifier("consent.back")
                     .padding(.top, Chrome.boardStatusBar - 30)
 
                     VStack(alignment: .leading, spacing: 12) {

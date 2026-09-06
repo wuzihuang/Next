@@ -213,6 +213,77 @@ final class MealResponseIndexTests: XCTestCase {
         XCTAssertEqual(result.above, 1)
         XCTAssertEqual(result.median24h, 0)
         XCTAssertEqual(result.hero, 20)
+        XCTAssertEqual(result.ownMedian, 100)
+    }
+
+    func testWeekHeroIsTheMeanOfDailyMeansNotOfEveryTick() {
+        // Two quiet 100s on day 8, one high 130 on day 9. A point-mean would be
+        // (100+100+130)/3 = 110; the daily-mean is (100+130)/2 = 115.
+        let points = [
+            point(day: 8, hour: 11, optical: 100),
+            point(day: 8, hour: 16, optical: 100),
+            point(day: 9, hour: 12, optical: 130),
+        ]
+        let window = MealResponseIndex.horizonWindow(
+            points: points,
+            ownMedian: 100,
+            now: instant(day: 10, hour: 18),
+            horizon: .userDays(3),
+            calendar: calendar)
+
+        XCTAssertEqual(window.slots.count, 3)
+        XCTAssertEqual(window.recordedDays, 2)
+        XCTAssertEqual(window.dailyMean!, 115, accuracy: 0.01)
+        XCTAssertNil(window.slots.last?.mean)
+        XCTAssertEqual(MealResponseIndex.percent(of: window.dailyMean!, ownMedian: 100), 15)
+    }
+
+    func testEmptyUserDayStaysAVacantSlot() {
+        let points = [
+            point(day: 8, hour: 12, optical: 100),
+            point(day: 10, hour: 12, optical: 110),
+        ]
+        let window = MealResponseIndex.horizonWindow(
+            points: points,
+            ownMedian: 100,
+            now: instant(day: 10, hour: 18),
+            horizon: .userDays(7),
+            calendar: calendar)
+
+        XCTAssertEqual(window.slots.count, 7)
+        XCTAssertEqual(window.recordedDays, 2)
+        let vacant = window.slots.filter { $0.mean == nil }
+        XCTAssertEqual(vacant.count, 5)
+        XCTAssertEqual(window.dailyMean!, 105, accuracy: 0.01)
+    }
+
+    func testMonthWindowCountsThirtyUserDays() {
+        let points = (1...10).map { point(day: $0, hour: 12, optical: 100) }
+        let window = MealResponseIndex.horizonWindow(
+            points: points,
+            ownMedian: 100,
+            now: instant(day: 10, hour: 18),
+            horizon: .userDays(30),
+            calendar: calendar)
+
+        XCTAssertEqual(window.slots.count, 30)
+        XCTAssertEqual(window.recordedDays, 10)
+        XCTAssertEqual(window.below + window.near + window.above, 10)
+        XCTAssertEqual(window.near, 10)
+    }
+
+    func testBandCutsAtPlusOrMinusEightPercent() {
+        XCTAssertEqual(MealResponseIndex.Band.of(optical: 91, ownMedian: 100), .below)
+        XCTAssertEqual(MealResponseIndex.Band.of(optical: 92, ownMedian: 100), .near)
+        XCTAssertEqual(MealResponseIndex.Band.of(optical: 108, ownMedian: 100), .near)
+        XCTAssertEqual(MealResponseIndex.Band.of(optical: 109, ownMedian: 100), .above)
+        XCTAssertNil(MealResponseIndex.Band.of(optical: 100, ownMedian: 0))
+    }
+
+    func testAxisKeepsRoomAroundTheOwnMedian() {
+        let axis = MealResponseIndex.axis(values: [100, 108], ownMedian: 100)
+        XCTAssertEqual(axis!.lowerBound, 85, accuracy: 0.01)
+        XCTAssertEqual(axis!.upperBound, 115, accuracy: 0.01)
     }
 
     // MARK: fixtures

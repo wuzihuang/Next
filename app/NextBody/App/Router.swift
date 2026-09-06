@@ -17,7 +17,12 @@ enum Destination: Hashable {
     case vitals(VitalsMetric)
     case composition(date: Date?)
     case profile
-    case device            // THE ONLY SECOND LEVEL, reached from profile
+    /// ADR 0010 · 主动测量记录的清单。从「我的」那块 MEASUREMENTS 进，返回回「我的」。
+    /// 它和 `device` 是仅有的两个二级页——一份按月累积的清单一屏放不下，这是 F1 允许做成
+    /// 页面的门槛。深链不落到它。
+    case measurements
+    case device            // reached from profile or the home battery pip
+    case battery           // trend behind the device ring
     case deviceAutoMonitor
     /// Plus menu · Sport Mode. Pick one of the catalogued modes and open it on the band.
     case sportMode
@@ -26,9 +31,9 @@ enum Destination: Hashable {
 }
 
 extension Destination {
-    /// F0 rule 06 · the five values `TARGETS` allows on the wire. `device` and the two
-    /// device sheets are deliberately absent: they are reachable only from profile, and a
-    /// model that could name them could jump the one second level this product has.
+    /// F0 rule 06 · the five values `TARGETS` allows on the wire. `device`, `measurements`
+    /// and the device sheets are deliberately absent: they are reachable only from profile,
+    /// and a model that could name them could jump straight to a second level.
     init?(envelopeTarget raw: String) {
         switch raw {
         case "training":    self = .training
@@ -75,6 +80,9 @@ enum SheetRoute: Hashable, Identifiable {
     case weighIn
     // 11 · profile
     case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, export, deleteAccount, signOut
+    /// ADR 0010 · 一条测量记录的全部字段。两个详情页之间没有路，所以清单里的行点开是盖在
+    /// 清单上的 sheet，不是第三级页面，关掉回到同一滚动位置。
+    case measurement(UUID)
     // 12S · device
     case bandAutoMonitor, findBand, unbind, disconnect, firmware, syncCadence
     // dock
@@ -84,7 +92,31 @@ enum SheetRoute: Hashable, Identifiable {
 
 @MainActor
 final class Router: ObservableObject {
-    @Published var path: [Destination] = []
+    @Published var path: [Destination] = [] {
+        didSet {
+            if returnBackdrops.count > path.count {
+                returnBackdrops.removeSubrange(path.count...)
+            }
+        }
+    }
+    /// In-memory only: capture the exact parent before a push, including its scroll
+    /// position. A popped route immediately releases its stack-owned image.
+    private var returnBackdrops: [UIImage?] = []
+    var returnBackdrop: UIImage? { returnBackdrops.last ?? nil }
+
+    private func captureReturnBackdrop() -> UIImage? {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).flatMap(\.windows)
+            .first(where: \.isKeyWindow) else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = window.screen.scale
+        format.opaque = true
+        var drawn = false
+        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+            drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+        }
+        return drawn ? image : nil
+    }
     @Published var entry: EntryPoint = .home
     @Published var takeover: Takeover?
     @Published var sheet: SheetRoute?
@@ -101,6 +133,9 @@ final class Router: ObservableObject {
     /// Taken the moment the root is left. Every dismiss path restores this, so a stray
     /// mutation while a detail is up cannot strand the user on the wrong home page.
     private var homePageOnLeave = 0
+    /// DEBUG `NB_DEBUG_ROUTE` retries until a destination actually sits on the stack.
+    /// Once it has, later empties are real pops — do not push the page back.
+    var debugRouteDidLand = false
 
     /// F0 rule 06: every widget on the panel is tappable and declares its target page.
     func open(_ d: Destination, from: EntryPoint = .home) {
@@ -109,6 +144,7 @@ final class Router: ObservableObject {
         entry = from
         var dest = d
         if case .vitals(.hrv) = dest { dest = .vitals(.sleep) }
+        returnBackdrops.append(captureReturnBackdrop())
         path.append(dest)
     }
 

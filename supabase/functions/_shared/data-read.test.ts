@@ -1,6 +1,12 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { bucketTicks, dataCatalog, MAX_TICK_DAYS, readData } from "./data-read.ts";
-import { queryMetrics } from "./metric-query.ts";
+import {
+  bucketTicks,
+  catalogForUser,
+  dataCatalog,
+  MAX_TICK_DAYS,
+  readData,
+} from "./data-read.ts";
+import { queryMetrics, TICK_METRICS } from "./metric-query.ts";
 import type { Ctx } from "./sources.ts";
 
 function context(
@@ -10,7 +16,7 @@ function context(
   const db = {
     rpc: () => Promise.resolve({ data: [], error: null }),
     from(table: string) {
-      let rows = tables[table] ?? [];
+      let rows = [...(tables[table] ?? [])];
       let lo = 0, hi = 999;
       const q = {
         select() {
@@ -32,13 +38,29 @@ function context(
           rows = rows.filter((r) => String(r[k]) < v);
           return q;
         },
-        order() {
+        order(k: string, opts?: { ascending?: boolean }) {
+          const asc = opts?.ascending !== false;
+          rows = [...rows].sort((a, b) => {
+            const av = String(a[k] ?? "");
+            const bv = String(b[k] ?? "");
+            return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+          });
+          return q;
+        },
+        limit(n: number) {
+          rows = rows.slice(0, n);
           return q;
         },
         range(a: number, b: number) {
           lo = a;
           hi = b;
           return q;
+        },
+        maybeSingle() {
+          return Promise.resolve({
+            data: rows[0] ?? null,
+            error: fail ? { message: "offline" } : null,
+          });
         },
         then(resolve: (v: unknown) => unknown) {
           return Promise.resolve({
@@ -99,6 +121,34 @@ Deno.test("overnight oxygen is a measured sample, not an unsupported gap", async
   assertEquals(result.data[0].evidence.status, "complete");
 });
 
+Deno.test("overnight oxygen clips to the sleep window when a night exists", async () => {
+  const inside = await queryMetrics(context({
+    oxygen_samples: [{
+      user_id: "u",
+      ts: "2026-09-04T22:30:00.000Z",
+      spo2: 94,
+    }, {
+      user_id: "u",
+      ts: "2026-09-04T18:00:00.000Z",
+      spo2: 99,
+    }],
+    sleep_nights: [{
+      user_id: "u",
+      user_day: "2026-09-04",
+      sleep_start: "2026-09-04T22:00:00.000Z",
+      wake_at: "2026-09-05T06:00:00.000Z",
+    }],
+  }), {
+    metrics: ["bloodOxygen"],
+    from: "2026-09-04",
+    to: "2026-09-04",
+  });
+  assertEquals(inside.ok, true);
+  if (!inside.ok) throw Error("failed");
+  assertEquals(inside.data[0].stats.latest, 94);
+  assertEquals(inside.data[0].stats.count, 1);
+});
+
 Deno.test("five-minute ticks bucket to forty-eight half-hour means and twelve two-hour sums", () => {
   const start = Date.parse("2026-09-04T04:00:00.000Z");
   const rows = Array.from({ length: 288 }, (_, i) => ({
@@ -110,48 +160,66 @@ Deno.test("five-minute ticks bucket to forty-eight half-hour means and twelve tw
   assertEquals(bucketTicks(rows, 120, "sum")[0].value, 48);
 });
 
-Deno.test("skin temperature asks itself, a missing day, and a truncated range", async () => {
+Deno.test("each tick metric asks itself, a missing day, and a truncated range", async () => {
   const start = Date.parse("2026-09-04T04:00:00.000Z");
-  const rows = Array.from({ length: 12 }, (_, i) => ({
+  const samples = Array.from({ length: 12 }, (_, i) => ({
     user_id: "u",
     ts: new Date(start + i * 300_000).toISOString(),
     temp: 36.5,
+    hrv: 40,
+    cal: 2,
+    dis: 10,
   }));
-  const ctx = context({ raw_samples: rows });
-  const present = await readData(ctx, {
-    metric: "skinTemp",
-    from: "2026-09-04",
+  const ctx = context({ raw_samples: samples });
+  for (const metric of TICK_METRICS) {
+    const present = await readData(ctx, {
+      metric,
+      from: "2026-09-04",
+      to: "2026-09-04",
+    });
+    assertEquals(present.ok, true);
+    if (!present.ok) throw Error("failed");
+    assertEquals(present.data[0].stats.count > 0, true);
+    assertEquals(present.data[0].evidence.origin, "measured");
+
+    const missing = await readData(ctx, {
+      metric,
+      from: "2026-09-05",
+      to: "2026-09-05",
+    });
+    assertEquals(missing.ok, true);
+    if (!missing.ok) throw Error("failed");
+    assertEquals(missing.data[0].stats.count, 0);
+    assertEquals(missing.data[0].evidence.status, "absent");
+
+    const wide = await readData(ctx, {
+      metric,
+      from: "2026-09-01",
+      to: "2026-09-08",
+    });
+    assertEquals(wide.ok, true);
+    if (!wide.ok) throw Error("failed");
+    assertEquals(wide.data[0].truncated, true);
+    assertEquals(MAX_TICK_DAYS, 2);
+  }
+});
+
+Deno.test("a day grain longer than the registry cap truncates instead of refusing", async () => {
+  const result = await readData(context({ daily_results: [] }), {
+    metric: "trainingLoad",
+    from: "2025-01-01",
     to: "2026-09-04",
   });
-  assertEquals(present.ok, true);
-  if (!present.ok) throw Error("failed");
-  assertEquals(present.data[0].stats.count > 0, true);
-  assertEquals(present.data[0].evidence.origin, "measured");
-
-  const missing = await readData(ctx, {
-    metric: "skinTemp",
-    from: "2026-09-05",
-    to: "2026-09-05",
-  });
-  assertEquals(missing.ok, true);
-  if (!missing.ok) throw Error("failed");
-  assertEquals(missing.data[0].stats.count, 0);
-  assertEquals(missing.data[0].evidence.status, "absent");
-
-  const wide = await readData(ctx, {
-    metric: "skinTemp",
-    from: "2026-09-01",
-    to: "2026-09-08",
-  });
-  assertEquals(wide.ok, true);
-  if (!wide.ok) throw Error("failed");
-  assertEquals(wide.data[0].truncated, true);
-  assertEquals(MAX_TICK_DAYS, 2);
+  assertEquals(result.ok, true);
+  if (!result.ok) throw Error("failed");
+  assertEquals(result.data[0].truncated, true);
+  assertEquals(result.data[0].evidence.to, "2026-01-01");
 });
 
 Deno.test("the catalogue lists wrist-reported calories and never the system's own ledger tables", () => {
   const catalog = dataCatalog();
   assertEquals(catalog.some((row) => row.metric === "vendorCalories"), true);
+  assertEquals(catalog.some((row) => row.metric === "wearRun"), true);
   assertEquals(
     catalog.find((row) => row.metric === "vendorCalories")?.says?.includes(
       "day_fuel.kcal_out",
@@ -165,4 +233,27 @@ Deno.test("the catalogue lists wrist-reported calories and never the system's ow
     catalog.find((row) => row.metric === "vendorCalories")?.maxDays,
     MAX_TICK_DAYS,
   );
+});
+
+Deno.test("the catalogue reports the actual span of rows this user has", async () => {
+  const catalog = await catalogForUser(context({
+    raw_samples: [{
+      user_id: "u",
+      ts: "2026-09-02T04:00:00.000Z",
+      temp: 36.2,
+    }, {
+      user_id: "u",
+      ts: "2026-09-04T08:00:00.000Z",
+      temp: 36.4,
+    }],
+    daily_results: [{
+      user_id: "u",
+      user_day: "2026-09-03",
+      training_load: 12,
+    }],
+  }));
+  const ticks = catalog.find((row) => row.metric === "skinTemp");
+  assertEquals(ticks?.coverage, { from: "2026-09-02", to: "2026-09-04" });
+  const load = catalog.find((row) => row.metric === "trainingLoad");
+  assertEquals(load?.coverage, { from: "2026-09-03", to: "2026-09-03" });
 });

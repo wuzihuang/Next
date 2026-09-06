@@ -1,5 +1,7 @@
 # F4 · 服务端与 AI 契约 Server & AI
 
+> 当前执行架构以 [ADR 0011：统一 AI workflow](../adr/0011-one-ai-workflow.md) 为准（2026-09-05）。下文旧版接口/措辞不再代表关键词预路由、独立估餐或 SDK 自动分步仍然存在。
+
 ## Sec 01 · THE RULING 不上 MCP server，词汇留下
 07 板整块是按 MCP 的词汇写的（那四个带命名空间的工具名），很容易被读成「要起一个 MCP server」。裁决是：词汇留下，传输层砍掉。V1 只有一个 client，而它连模型的路径已经是 Edge Function 了。再插一层 MCP 意味着多一个常驻进程、多一次 JSON-RPC 往返、多一套鉴权、多一个冷启动——Deno Edge 上冷启动本来就是首帧预算里最贵的一段，白送出去 200–400ms 换一个 V1 用不上的可扩展性，不值。
 - **决定**：工具用 Vercel AI SDK 的 tool() + Zod 直接定义在 Edge Function 里。不起 MCP server，不引 @modelcontextprotocol/sdk。07 板那四个工具名一个字不改。
@@ -11,9 +13,9 @@
 
 | PATH | METHOD | AUTH · IDEMPOTENCY | TIMEOUT · RATE | 返回与错误 |
 |---|---|---|---|---|
-| `/v1/turn` | POST · SSE | Bearer JWT · Idempotency-Key: turn_uuid（客户端生成，重放返回同一批帧；幂等记录落 Postgres，Edge Function 无状态） | 55s 硬上限 · 60 轮/小时 且 150 轮/天 | 事件序 state(THINKING) → tool(0..n) → screen.render(1) → done。错误码 RATE_LIMITED / MODEL_UNAVAILABLE / E_SCHEMA / TOOL_TIMEOUT，全部带 fallback_frame（它本身是一个合法 envelope） |
-| `/v1/asr` | POST | Bearer JWT · 无幂等（一次性） | 12s · 120 次/天 · 单条 ≤ 60s / ≤ 2MB | multipart 上传 m4a → { text; durationMs; confidence }。音频 buffer 转写后立即置空，不写 Storage、不写表。⚠️ confidence < 0.4 返回 NO_SPEECH，客户端原地降级为 DIDN'T CATCH THAT |
-| `/v1/meal` | POST | Bearer JWT · Idempotency-Key: meal_draft_id | 20s（含图 30s）· 20 张图/天 · 单图 ≤ 4MB | 纯估算，不写库、不出屏帧。存在的唯一理由是可重放：照片估算失败要能原样重试，而不必重跑一整轮对话和一次渲染 |
+| `/v1/turn` | POST · SSE | Bearer JWT · Idempotency-Key: turn_uuid（客户端生成，重放返回同一批帧；幂等记录落 Postgres，Edge Function 无状态） | 50s 模型工作预算 · 每日补10次、累积20次，另有金额及突发限制 | 事件序 state(THINKING) → tool(0..n) → screen.render(1) → done。错误码 RATE_LIMITED / MODEL_UNAVAILABLE / E_SCHEMA / TOOL_TIMEOUT，全部带 fallback_frame（它本身是一个合法 envelope） |
+| `/v1/asr` | POST | Bearer JWT · 与 turn 共用 operation UUID | 单条 ≤ 60s / ≤ 2MB · 与 turn 共用次数及金额额度 | multipart 上传 m4a → { text; durationMs; confidence }。音频 buffer 转写后立即置空，不写 Storage、不写表。⚠️ confidence < 0.4 返回 NO_SPEECH，客户端原地降级为 DIDN'T CATCH THAT |
+| `/v1/meal` | POST | 已退役 | 不再调用模型 | 410 WORKFLOW_REQUIRED；估餐由 turn 内的 meal.estimate 工具完成 |
 | `/v1/meal/commit` | POST | Bearer JWT · Idempotency-Key: meal_draft_id | 5s · 随 /v1/meal | 把一份草稿落 meals 表。这是 agent 唯一的写工具，且只能写它这一轮自己产出的 draft_id。跨 draft 写入返回 E_SCHEMA。改删一笔不走这里，走 F3 的 RLS 写 |
 | `/v1/day/settle` | POST | service_role（pg_cron + pg_net，不对客户端开放）· Idempotency-Key: user_id + dayKey | 30s/用户 · 每用户每 dayKey 1 次 | 跑上一天：算能量差、写 daily_results、更新 7 天 EMA 与四象限。⚠️ 取数必须按 F2 01 节的窗口规则拉页，这一条最容易在这里被漏掉，漏了的症状是每天凌晨那几小时的数据凭空消失而没人发现。已结算重跑返回 IDEMPOTENT_REPLAY |
 | `/v1/screen/current` | GET · DELETE | Bearer JWT | 3s · 无限流 | GET 返回最近一帧 + renderedAt + expiresAt（07 板：握住 20 分钟）。冷启动、切前台、断线重连都用它把屏拉回来，不重新问模型。⚠️ DELETE 不把面板清空，它让面板回落到 battery widget——07 板写着面板永远不许空着 |
@@ -89,7 +91,7 @@ system prompt 不是一封信，是一份规格。写成散文的 prompt 无法 
 | 每轮 token 预算 | **单次调用**：system 1.6k + 工具 schema 1.1k + 上下文（今天的屏摘要 + 最近 7 天 rollup）≤ 2.5k + 用户输入 ≤ 0.3k = 输入 ≤ 5.5k；输出 ≤ 600。**一轮**：step 上限 6，累计输入 ≤ 20k（见 ADR 0005） | 超预算有两个来源。一是上下文膨胀，硬门不变：拼完 prompt 后量一次，超 6k 砍最旧的 rollup 天数，砍到 3 天为止。二是调用次数——多步工具调用每步重发全上下文，累计输入对步数超线性（八步约为一步的 18 倍），所以「一轮」的预算必须单独写一格，不能只管单次 |
 | 模型与降级 | 主模型唯一：`qwen3.8-flash`，吃下文本、视觉与 chat（见 ADR 0007）。降级一：vision 失败或超 8s，丢掉照片只用文字继续，屏上明写 PHOTO NOT READ。降级二：主模型不可用时按 fallback 链换**同档**模型，链内只收百炼直供（`kimi-k3` 可读图 / `deepseek-v4-flash` 纯文本），准入门槛是工具调用 + 结构化输出 + 流式 `reasoning_content` 三项齐全 | ⚠️ 原「3s 内无 token 就切小模型」作废：它从未实现，且降级到一个更容易编数字的小模型等于降级到不可用。同档 fallback 产出的帧照样要过账本审计，过不了就是白花一次钱——所以门槛卡在准入，不卡在事后收数字权限。带厂商前缀的原厂直供不进链，请求会落到厂商侧，其条款保留训练权利 |
 | 单用户限流 | 突发 20 轮/60 秒 · 60 轮/小时 · **10 轮/天，当天未用可累积，上限 20 轮** · 20 图/天 · 120 ASR/天 · 1 导出/天 · 3 删号/天，另加按真实单价的金额上限。超限返回 RATE_LIMITED + 一帧 SLOW DOWN，并保留上一帧 | F0 D04 落点明写「F4 要给 AI 每日用量上限」，所以小时限流不够。限流的目的不是卖额度（D04: App 内没有任何收费入口），是防跑飞的客户端、防成本被单个账号打穿。⚠️ 计数放 Postgres 不放内存，Edge Function 是无状态的。⚠️ 三处待补：`_DAILY` 已定义但未使用；`meal` 与 `asr` **完全没有限流**而它们是最贵的两条路径；SLOW DOWN 帧代码里不存在，小时超限现在出的是 `batteryFallback()`。超额是拒绝不是降级，用量对用户只以次数表述、不显示金额 |
-| Edge Function 自己的天花板 | turn 的硬上限必须小于 Supabase 该计划的 wall-clock 上限，且 SSE 期间不能长时间不产出（连接会被中间层收掉）。空闲超 10s 补一个 SSE 注释心跳 | ⚠️ 本板与 `turn/index.ts` 的注释都写 55s，实现是 `AbortSignal.timeout(max(5_000, 50_000 - elapsed))` 即 50s，另有 `claim_ai_turn` 的 90s DB 租约与之独立。签计划那天必须去后台核一次 wall-clock 与 CPU 配额，把这一格改成真数，并把文档与实现对齐到同一个数 |
+| Edge Function 自己的天花板 | turn 的硬上限必须小于 Supabase 该计划的 wall-clock 上限，且 SSE 期间不能长时间不产出（连接会被中间层收掉）。空闲超 10s 补一个 SSE 注释心跳 | ⚠️ 本板与 `turn/index.ts` 对齐为 50s：`AbortSignal.timeout(max(5_000, 50_000 - elapsed))`。另有 `claim_ai_turn` 的 90s DB 租约与之独立。签计划那天必须去后台核一次 wall-clock 与 CPU 配额 |
 | 成本上限 | 按真实单价重算：`qwen3.8-flash` 北京 输入 ¥0.8 / 输出 ¥2.7 / 缓存命中输入 ¥0.1 每百万 token。单轮目标 ≤ ¥0.03（三次调用 + 轮内前缀缓存实测约 ¥0.0089）；顶格 10 轮/天含语音与照片约 ¥43.6/用户/年，按真实日均 2.5 轮约 ¥11/用户/年 | ⚠️ 原 $0.9/月 的目标按「一轮一次调用、输入 5.5k」估出 ¥0.006/轮，那个数没拍错，但四步工具调用累计输入约 84k、单轮约 ¥0.083，是目标的十二倍。免费用三年成立的前提是把一轮压到两三次调用并吃到隐式缓存（自动开启、最小前缀 1024 token、只要前缀逐字节稳定，见 ADR 0006 删关键词预路由）。⚠️ token 用量目前**完全没有采集**，以上全是估算；先把 `usage` 落库再谈额度执行。D04 说了我们靠卖表挣钱——这条线掉了不影响收入，但它是唯一一条能让「送 AI」这件事在财务上成立的约束 |
 
 ## Sec 09 · CONTRACT PACKAGE 把 07 板变成一个文件，而不是一条规矩
@@ -142,7 +144,7 @@ scripts/gen-tool-schema.ts   Zod → JSON Schema, 构建期跑，产物提交进
 
 ## 上线前必须成立
 - 月成本 ≤ $0.9/用户 是按模板单价拍的。模型选型定稿当天必须用真实单价重算，并把重算结果写回这块板，不许沿用。
-- answer 首帧 P50 ≤ 2.8s、放弃线 12s、ASR 的 confidence < 0.4、turn 的 55s 硬上限，四个数全是拍的。前三个上线两周后按真实分位重定；55s 那个要去 Supabase 后台核该计划的 wall-clock 与 CPU 配额。重定之前都不许拿它们做发版门禁。
+- answer 首帧 P50 ≤ 2.8s、放弃线 12s、ASR 的 confidence < 0.4、turn 的 50s 硬上限，四个数全是拍的。前三个上线两周后按真实分位重定；50s 那个要去 Supabase 后台核该计划的 wall-clock 与 CPU 配额。重定之前都不许拿它们做发版门禁。
 - 与 05 板打架两处，必须一起改：一，05 验收线「松手到 answer 首帧 P50 ≤1.2s / P90 ≤2.5s」改成「松手到 THINKING 帧」；二，05 的 NOT IN V1「只发转写，不存也不发音频」改成「只发转写，不发音频消息、不持久化音频」，并把 05 右列那条「ASR 走端上还是服务端未定」收掉——这块板已经替了走服务端。
 - D02 的改名还有两处没扫干净，都在 F4 的地界上：07 板 tag 枚举里的 RECOVER，和 06 板那个中文「恢复检查 60S」。本板已把工具里的 kind 改成 BATTERY_CHECK，但那两处要一起拍，否则 F0 那条「全文件搜 Recovery 必须是 0」的验收线过不了。
 - Body Battery 是 Garmin 注册商标，F0 已推荐改成 RESERVE。服务端字段名和数据库列名在建表之前就要跟着这个决定走——改表比改文案贵。API 字段名与屏上文案必须是两个 token，屏上那个只从 METRIC_NAMES 读。

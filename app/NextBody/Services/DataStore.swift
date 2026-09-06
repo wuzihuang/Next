@@ -10,11 +10,22 @@ final class DataStore: ObservableObject {
 
     @Published var today: DailyMetrics
     @Published var history: [DailyMetrics] = []
+    /// ADR 0008 · the settled sleep score per wake-day, keyed by `UserDay.key`. Thirty rows
+    /// of smallints, fetched once with the rest of history — the sleep board's week and
+    /// month windows read this and never go to the network themselves.
+    @Published var sleepScores: [String: SleepScore] = [:]
     @Published var meals: [MealEntry] = []
     /// The window 12's WEEK view reads. Today's list stays in `meals` so 09 is untouched.
     @Published var recentMeals: [MealEntry] = []
     @Published var weighIns: [WeighIn] = []
+    /// ADR 0010 · 主动测量记录，最近的在前。「我的」页那块 MEASUREMENTS 取前三条，测量记录页
+    /// 列全部。⚠️ 只有成功完成的测量在这里；体重录入和被动 tick 不进这个数组。
+    @Published var measurements: [MeasurementRecord] = []
+    /// 10E · 成分页读的每一行 `body_composition`。不限 `device_bia`——秤和手录同样是一次体脂点。
+    @Published var compositionScans: [CompositionScan] = []
     @Published var band: BandState = Band.allowsSeed ? .mock : .unknown
+    /// Every battery packet and charge switch this phone kept. The device ring opens it.
+    @Published var batteryLog: [BatteryObservation] = []
     /// Session-local freshness guard: cloud hydration must not overwrite a BLE observation.
     private(set) var bandObservationRevision = 0
 
@@ -25,13 +36,87 @@ final class DataStore: ObservableObject {
             band.mac = identity.bleIdentifier
             band.firmware = identity.firmware
         }
-        if let battery { band.applyBattery(battery) }
+        if let battery {
+            band.applyBattery(battery)
+            recordBattery(battery, connected: band.connected)
+        }
         bandObservationRevision += 1
+    }
+
+    func recordBandLink(connected: Bool) {
+        let was = band.connected
+        band.connected = connected
+        guard was != connected else { return }
+        if connected {
+            // A reconnect must not stamp the last packet at NOW. That packet is hours
+            // old and sits on the first fresh read as a noon cliff.
+            batteryLog = BatteryLog.record(
+                batteryLog, at: Date(),
+                isPercent: band.lastBattery?.isPercent ?? (band.batteryPercent != nil),
+                percent: nil, level: nil,
+                charge: BatteryObservation.Charge(rawValue: band.chargeState.rawValue) ?? .unknown,
+                connected: true)
+            persistBatteryLog()
+            return
+        }
+        if let battery = band.lastBattery {
+            recordBattery(battery, connected: false)
+        } else {
+            // No packet has arrived, so this row carries no reading — and claiming percent
+            // here would cast a vote in the plot's unit ballot on behalf of a bars-only band.
+            batteryLog = BatteryLog.record(
+                batteryLog, at: Date(), isPercent: band.batteryPercent != nil,
+                percent: band.batteryPercent, level: nil,
+                charge: BatteryObservation.Charge(rawValue: band.chargeState.rawValue) ?? .unknown,
+                connected: false)
+            persistBatteryLog()
+        }
+    }
+
+    func hydrateBatteryLog() {
+        guard !Band.allowsSeed else { return }
+        let loaded = BatteryLogStore.load(owner: batteryOwner)
+        if batteryLog.isEmpty { batteryLog = loaded }
+    }
+
+    private var batteryOwner: String {
+        let account = SupabaseClient.currentUserIdSnapshot() ?? "none"
+        let binding = BoundBand.identifier ?? "none"
+        return "\(account).\(binding)"
+    }
+
+    private func recordBattery(_ battery: BandBattery, connected: Bool) {
+        hydrateBatteryLog()
+        if battery.chargeState == .unknown,
+           let last = batteryLog.last(where: {
+               $0.connected && $0.plotValue != nil && $0.charge != .unknown
+           }),
+           Date().timeIntervalSince(last.at) < BatteryDrainMath.clash {
+            return
+        }
+        batteryLog = BatteryLog.record(
+            batteryLog,
+            at: Date(),
+            isPercent: battery.isPercent,
+            percent: battery.percent,
+            level: battery.level,
+            charge: BatteryObservation.Charge(rawValue: battery.chargeState.rawValue) ?? .unknown,
+            connected: connected)
+        persistBatteryLog()
+    }
+
+    private func persistBatteryLog() {
+        guard !Band.allowsSeed else { return }
+        BatteryLogStore.save(batteryLog, owner: batteryOwner)
     }
     @Published var profile: Profile = Band.allowsSeed ? .mock : .blank
     /// F3 rule 09 · the moment of the last readOriginData that succeeded. nil until one has:
     /// a phone that has never synced says so, it does not say "12 MIN AGO".
     @Published var lastSync: Date? = Band.allowsSeed ? Date().addingTimeInterval(-12 * 60) : nil
+    /// Earliest bind or wrist tick on this account. WITH YOU counts user days from here.
+    @Published var boundAt: Date? = Band.allowsSeed
+        ? UserDay.containing(Date()).adding(days: -84).start
+        : nil
     /// 04 · the HR / STRESS row under the readout, and the tick it came from. 13 · the age
     /// of that tick is what decides whether the numbers are shown, dimmed, or dashed.
     @Published var vitals: LiveVitals = Band.allowsSeed ? .mock : LiveVitals()
@@ -44,7 +129,7 @@ final class DataStore: ObservableObject {
     @Published var capabilities = BandCapabilities()
     @Published var capabilitiesReadAt: Date?
     @Published var isOffline = false
-    /// Wrist optical meal-response points, last ~21 days. Dedicated series, never origin ticks.
+    /// Wrist optical meal-response points, last ~30 user days. Dedicated series, never origin ticks.
     @Published var mealResponsePoints: [MealResponseIndex.Point] = []
     /// True when today's vendor table had rows but every value was a zero / empty slot.
     @Published var mealResponseZerosToday = false
@@ -67,6 +152,19 @@ final class DataStore: ObservableObject {
         var metrics = today
         metrics.bodyBattery = bodyBatteryNow
         return metrics
+    }
+
+    /// Header flame. Local ticks can light today before the next settle; yesterday's
+    /// settled run/miss never cools an open day.
+    var wearFlame: WearRun.Flame {
+        let todayWorn = WearRun.isWornDay(samples: today.vitalsCurve, day: today.day, now: Date())
+            || today.worn == true
+        let yesterday = metrics(for: today.day.adding(days: -1))
+        return WearRun.display(
+            todayWorn: todayWorn,
+            yesterday: yesterday.map {
+                WearRun.Yesterday(worn: $0.worn == true, run: $0.wearRun ?? 0, miss: $0.wearMiss ?? 2)
+            })
     }
 
     /// Today's merged row, otherwise the history row. The heat map used to look only
@@ -94,10 +192,17 @@ final class DataStore: ObservableObject {
             history = DataStore.seedHistory()
             meals = MealEntry.seed
             weighIns = WeighIn.seed
+            measurements = MeasurementRecord.seed
+            compositionScans = Self.compositionScans(from: measurements)
             mealResponsePoints = DataStore.seedMealResponse()
+            sleepScores = DataStore.seedSleepScores()
+            today.sleepScore = sleepScores[today.day.key]
+            for index in history.indices { history[index].sleepScore = sleepScores[history[index].day.key] }
+            batteryLog = BatteryLog.seed(now: Date(), percent: band.batteryPercent ?? 82)
         } else {
             today = DailyMetrics(day: UserDay.containing(Date()))
             HomeSnapshot.hydrate(into: self)
+            hydrateBatteryLog()
         }
     }
 
@@ -121,11 +226,14 @@ final class DataStore: ObservableObject {
         meals = []
         recentMeals = []
         weighIns = []
+        measurements = []
+        compositionScans = []
         mealResponsePoints = []
         mealResponseZerosToday = false
         band = .unknown
         profile = .blank
         lastSync = nil
+        boundAt = nil
         vitals = LiveVitals()
         bodyBatteryPreview = nil
         bodyBatteryPreviewAnchor = nil
@@ -137,7 +245,30 @@ final class DataStore: ObservableObject {
         netFatMass12w = nil
         netLeanMass12w = nil
         bodyFatPercent = nil
+        batteryLog = []
         Repository.shared.resetBootstrap()
+    }
+
+    static func compositionScans(from records: [MeasurementRecord]) -> [CompositionScan] {
+        records.compactMap { record in
+            guard case .bodyScan(let scan) = record.detail else { return nil }
+            return CompositionScan(
+                id: record.id,
+                at: record.at,
+                bodyFatPercent: scan.bodyFatPercent,
+                fatMassKg: scan.fatMassKg,
+                leanMassKg: scan.leanMassKg,
+                bmrKcal: scan.bmrKcal.map(Double.init),
+                inputWeightKg: scan.inputWeightKg
+            )
+        }
+    }
+
+    func rememberBodyScan(_ record: MeasurementRecord) {
+        measurements.insert(record, at: 0)
+        guard let scan = Self.compositionScans(from: [record]).first else { return }
+        compositionScans.removeAll { $0.id == scan.id }
+        compositionScans.insert(scan, at: 0)
     }
 
     /// The server replay is authoritative. Every successful load replaces the preview's
@@ -198,8 +329,9 @@ final class DataStore: ObservableObject {
         m.bbWake = 72
         m.bodyBattery = 72
         // 13 · the four rows the board prints, and they add up to the 72 above.
-        m.reserveDrivers = ReserveDrivers(lastNight: 38, awake: -14, movement: -9,
-                                          stress: -3, anchor: 60)
+        // 13A · scheme 1: last night +38 from 46, the day spends −12, now is 72.
+        m.reserveDrivers = ReserveDrivers(lastNight: 38, awake: -4, movement: -6,
+                                          stress: -2, anchor: 46)
         m.nightInputs = NightInputs(hrv: 54, hrvBase: 61, rhr: 51, rhrBase: 48,
                                     rhrNights: 9, multiplier: 0.88)
         m.bmr = 1480
@@ -227,6 +359,9 @@ final class DataStore: ObservableObject {
         m.logged7d = 6
         m.fuelState = .partial(slots: 3)
         m.bandCoverage = 0.86
+        m.worn = true
+        m.wearRun = 4
+        m.wearMiss = 0
         m.asOf = Date()
         // The ticks the board's 72 was made of: five minutes apart from the earlier of
         // the user-day cut and last night's bed time, so the sleep page has RMSSD to plot.
@@ -254,7 +389,10 @@ final class DataStore: ObservableObject {
                     ts: t,
                     hr: Int((asleep ? 49 : 68) + rnd() * (asleep ? 6 : 22)),
                     stress: Int((asleep ? 12 : 26) + rnd() * (asleep ? 8 : 30)),
-                    temp: (asleep ? 35.9 : session ? 36.7 : 36.4) + rnd() * 0.2,
+                    // ⚠️ Wrist skin, not core body: the night sits under the covers and runs
+                    // warmer than the exposed daytime arm. 35.9 / 36.4 / 36.7 here taught the
+                    // simulator a core-temperature number for a value the band records at 33.
+                    temp: (asleep ? 33.8 : session ? 33.1 : 33.4) + rnd() * 0.2,
                     steps: steps,
                     vendorCalories: Double(steps) * 0.04 + (asleep ? 0.2 : 0.6),
                     dis: Double(steps) * 0.72,
@@ -263,12 +401,13 @@ final class DataStore: ObservableObject {
             t = t.addingTimeInterval(300)
         }
         m.vitalsCurve = ticks
-        // 01 · the charge line on the default screen: a steady evening charge at +2 a tick,
-        // full about seventy minutes out — inside every one of 1CVO's four conditions.
         let now = Date()
-        m.reserveCurve = (0...12).map { i in
-            ReserveSample(ts: now.addingTimeInterval(Double(i - 12) * 300), value: 48 + i * 2)
-        }
+        // Peak sits on this user day at 07:12, not on the calendar clock of `Date()`
+        // — before 04:00 that clock is tomorrow morning.
+        m.reserveCurve = seedReserveCurve(
+            day: m.day, now: now,
+            wakeAt: m.day.start.addingTimeInterval(3 * 3600 + 12 * 60),
+            peak: 84, nowValue: 72, anchor: 46)
         // 04B · SLEEP · 7H 12M, DEEP 1H 48M, 2 WAKES — the board's card, with the band's own
         // line behind it (total = deep + light; the two wakes are minutes off the count).
         var spo2: [OvernightOxygenPoint] = []
@@ -288,10 +427,146 @@ final class DataStore: ObservableObject {
                                       SleepStageRun(stage: 0, minutes: 48), SleepStageRun(stage: 1, minutes: 130),
                                       SleepStageRun(stage: 4, minutes: 4)],
                                sleepStart: sleepStart, wakeAt: wakeAt, spo2: spo2)
+        let stepTotal = ticks.reduce(0) { $0 + ($1.steps ?? 0) }
+        let sessionAt = m.day.start.addingTimeInterval(14 * 3600)
+        m.segments = [
+            TrainingSegment(at: sessionAt, name: "STRENGTH", minutes: 45, avgHR: 132,
+                            steps: 640, delta: 3.2, allDay: false),
+            TrainingSegment(at: m.day.start, name: "ALL DAY", minutes: nil, avgHR: nil,
+                            steps: stepTotal, delta: 9.2, allDay: true),
+        ]
+        var curve: [LoadPoint] = []
+        var cursor = m.day.start
+        while cursor <= now {
+            let hours = cursor.timeIntervalSince(m.day.start) / 3600
+            let load: Double
+            if hours < 5 {
+                load = 1.0 * (hours / 5)
+            } else if hours < 14 {
+                load = 1.0 + 8.2 * ((hours - 5) / 9)
+            } else {
+                load = min(12.4, 9.2 + 3.2 * min(1, (hours - 14) / 1.5))
+            }
+            curve.append(LoadPoint(ts: cursor, load: load))
+            cursor = cursor.addingTimeInterval(1800)
+        }
+        if curve.last.map({ abs($0.load - 12.4) > 0.05 }) ?? true {
+            curve.append(LoadPoint(ts: now, load: 12.4))
+        }
+        m.loadCurve = curve
         return m
     }
 
     /// 12 weeks of history so the heat map on 11 · Profile has something honest to draw.
+    /// ADR 0008 · thirty nights of settled sleep score, so the sleep board's day, week and
+    /// month windows are walkable on a simulator with no band and no session. Two nights are
+    /// deliberately absent — the month bar chart has to be able to show *which* night is
+    /// missing — and the run is left mid-calibration so the "typical adults for now" note is
+    /// on screen rather than only in the code.
+    /// ⚠️ Simulator only, behind `Band.allowsSeed`, like every other number in this file.
+    static func seedSleepScores() -> [String: SleepScore] {
+        let today = UserDay.containing(Date())
+        var seed: UInt64 = 0x2545F4914F6CDD1D
+        func rnd() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Double((seed >> 33) % 10_000) / 10_000
+        }
+        var out: [String: SleepScore] = [:]
+        for back in stride(from: 29, through: 0, by: -1) {
+            // Two nights the band was not worn.
+            if back == 11 || back == 19 { _ = rnd(); continue }
+            let duration = Int(58 + rnd() * 42)
+            let architecture = Int(52 + rnd() * 46)
+            // Recovery is the group left dragging, so the week and month hero has something
+            // true to name in its right foot.
+            let recovery = Int(40 + rnd() * 34)
+            let regularity = back < 16 ? Int(62 + rnd() * 38) : nil
+            let groups: [(Int?, Int)] = [(duration, 25), (architecture, 25),
+                                         (recovery, 35), (regularity, 15)]
+            let present = groups.filter { $0.0 != nil }
+            let total = present.reduce(0) { $0 + Double($1.0!) * Double($1.1) }
+                / present.reduce(0) { $0 + Double($1.1) }
+            let minutes = Double(300 + Int(rnd() * 190))
+            var inputs: [String: Double] = [
+                "duration_min": minutes,
+                "deep_pct": 14 + rnd() * 10,
+                "light_pct": 52 + rnd() * 12,
+                "wakes": Double(Int(rnd() * 4)),
+                "hrv_ms": 28 + rnd() * 18,
+                "rhr": 52 + rnd() * 10,
+                "bed_offset": 300 + rnd() * 90,
+            ]
+            // Nights the band filed no stage line have no REM to report, which is what the
+            // renormalised proportions bar is there to survive.
+            if back % 5 != 0 { inputs["rem_pct"] = 18 + rnd() * 9 }
+            if back % 3 != 0 { inputs["spo2_min"] = 90 + rnd() * 7 }
+            if back % 4 != 0 { inputs["respiration"] = 12 + rnd() * 5 }
+            out[today.adding(days: -back).key] = SleepScore(
+                score: Int(total.rounded()),
+                duration: duration, architecture: architecture,
+                recovery: recovery, regularity: regularity,
+                personalWeight: 0.43, inputs: inputs, version: "sleep-v1")
+        }
+        return out
+    }
+
+    /// One seeded night: the band's window, and a skin tick every five minutes inside it.
+    /// ⚠️ Simulator only, behind `Band.allowsSeed`, like every other number in this file.
+    static func seedNight(day: UserDay, hours: Double, mean: Double,
+                          rnd: () -> Double) -> (summary: SleepSummary, ticks: [VitalSample]) {
+        let start = day.start.addingTimeInterval(-4 * 3600)   // 00:00 local
+        let minutes = Int(hours * 60)
+        let wake = start.addingTimeInterval(Double(minutes) * 60)
+        var ticks: [VitalSample] = []
+        for slot in 0..<(minutes / 5) {
+            ticks.append(VitalSample(
+                ts: start.addingTimeInterval(Double(slot) * 300),
+                hr: Int(50 + rnd() * 6),
+                stress: Int(12 + rnd() * 8),
+                temp: mean + (rnd() - 0.5) * 0.3,
+                hrv: 44 + rnd() * 14))
+        }
+        let deep = Int(Double(minutes) * 0.2)
+        var spo2: [OvernightOxygenPoint] = []
+        var minute = 0
+        while minute < minutes {
+            let wave = sin(Double(minute) / 80)
+            let percent = min(100, max(88, 95 + Int((wave * 2).rounded())))
+            spo2.append(OvernightOxygenPoint(
+                ts: start.addingTimeInterval(Double(minute) * 60),
+                percent: percent))
+            minute += 15
+        }
+        return (SleepSummary(totalMinutes: minutes, deepMinutes: deep,
+                             lightMinutes: minutes - deep, wakeCount: Int(rnd() * 3),
+                             sleepStart: start, wakeAt: wake, spo2: spo2),
+                ticks)
+    }
+
+    /// Scheme A seed: night charges from the 04:00 anchor to the morning peak,
+    /// then the day spends down to NOW. Five-minute ticks, same grid as the engine.
+    static func seedReserveCurve(day: UserDay, now: Date, wakeAt: Date,
+                                 peak: Int, nowValue: Int, anchor: Int) -> [ReserveSample] {
+        var samples: [ReserveSample] = []
+        var t = day.start
+        let end = min(now, day.end)
+        while t <= end {
+            let value: Int
+            if t <= wakeAt {
+                let span = max(wakeAt.timeIntervalSince(day.start), 1)
+                let p = t.timeIntervalSince(day.start) / span
+                value = anchor + Int((Double(peak - anchor) * p).rounded())
+            } else {
+                let span = max(end.timeIntervalSince(wakeAt), 1)
+                let p = min(1, t.timeIntervalSince(wakeAt) / span)
+                value = peak + Int((Double(nowValue - peak) * p).rounded())
+            }
+            samples.append(ReserveSample(ts: t, value: min(100, max(0, value))))
+            t = t.addingTimeInterval(300)
+        }
+        return samples
+    }
+
     static func seedHistory() -> [DailyMetrics] {
         let today = UserDay.containing(Date())
         var out: [DailyMetrics] = []
@@ -320,25 +595,115 @@ final class DataStore: ObservableObject {
                 m.eIn = inn
                 m.balance = inn - out_
             }
-            m.trainingLoad = 2 + rnd() * 17
+            // ADR 0009 · the last three weeks carry a real night window and the skin ticks
+            // inside it, so the TEMP card's own range forms with no band and no session.
+            // Two nights are deliberately unusable — one never worn, one a 2h nap — because
+            // LEARNING, NIGHT TOO SHORT and a settled range are three different screens.
+            // Thirty nights so HEART's month window has bars. `back == 6` stays empty so
+            // a vacant slot is visible. Skin-temp range still samples the newest 14 valid
+            // nights inside 28 days, so the older extras do not move that verdict.
+            if back <= 30 && back != 6 {
+                let night = back == 9
+                    ? DataStore.seedNight(day: m.day, hours: 2, mean: 33.7, rnd: rnd)
+                    // Centred on what seedToday's asleep ticks read, so the walked default is
+                    // WITHIN YOUR RANGE — the state a healthy person is in almost every night.
+                    : DataStore.seedNight(day: m.day, hours: 7.5,
+                                          mean: 33.85 + (rnd() - 0.5) * 0.5, rnd: rnd)
+                m.sleep = night.summary
+                m.vitalsCurve = night.ticks
+                if back <= 7 {
+                    var extra: [VitalSample] = []
+                    var t = m.day.start.addingTimeInterval(4 * 3600)
+                    let end = m.day.start.addingTimeInterval(18 * 3600)
+                    while t < end {
+                        extra.append(VitalSample(
+                            ts: t,
+                            hr: Int(64 + rnd() * 26),
+                            stress: nil,
+                            hrv: extra.count.isMultiple(of: 4) ? 34 + rnd() * 10 : nil))
+                        t = t.addingTimeInterval(1800)
+                    }
+                    m.vitalsCurve = VitalSample.merging(m.vitalsCurve, with: extra)
+                }
+            }
             m.bbWake = Int(48 + rnd() * 45)
+            m.worn = m.bandCoverage >= 0.5
+            // Empty heat cells stay empty: an unworn day has no load and no wake peak.
+            if back == 6 || back == 17 {
+                m.worn = false
+                m.trainingLoad = nil
+                m.bbWake = nil
+            } else if let wake = m.bbWake {
+                m.reserveDrivers = ReserveDrivers(
+                    lastNight: Double(20 + Int(rnd() * 28)),
+                    awake: -8, movement: -6, stress: -2,
+                    anchor: max(20, wake - 30))
+            }
+            if m.worn == true && back != 6 && back != 17 {
+                let load = 2 + rnd() * 17
+                m.trainingLoad = load
+                m.targetLoad = 14.5
+                m.optimalZone = 13.0...16.0
+                let z1 = 20 + Int(rnd() * 8) * 5
+                let z2 = 15 + Int(rnd() * 6) * 5
+                let z3 = 10 + Int(rnd() * 5) * 5
+                let hard = load >= 14
+                let z4 = (hard ? 15 : 5) + Int(rnd() * 3) * 5
+                let z5 = hard ? 5 + Int(rnd() * 2) * 5 : 0
+                m.zoneMinutes = [z1, z2, z3, z4, z5]
+                if m.eActive == nil { m.eActive = 180 + rnd() * 280 }
+                if m.eOutNow == nil { m.eOutNow = (m.bmr ?? 1480) + (m.eActive ?? 0) }
+                let steps = 3500 + Int(rnd() * 9000)
+                var segs = [TrainingSegment(at: m.day.start, name: "ALL DAY", minutes: nil,
+                                            avgHR: nil, steps: steps, delta: load, allDay: true)]
+                if hard {
+                    segs.insert(TrainingSegment(
+                        at: m.day.start.addingTimeInterval(14 * 3600),
+                        name: "STRENGTH", minutes: 40, avgHR: 128,
+                        steps: 500, delta: min(4, load * 0.25), allDay: false), at: 0)
+                }
+                m.segments = segs
+            }
             m.weightKg = 69.8 - Double(84 - back) * 0.016 + (rnd() - 0.5) * 0.5
             out.append(m)
         }
-        out.append(seedToday())
+        var run = 0
+        var miss = 2
+        var prevWorn = false
+        for i in out.indices {
+            let worn = out[i].worn == true
+            if worn {
+                run = prevWorn ? run + 1 : 1
+                miss = 0
+            } else {
+                run = 0
+                miss = prevWorn ? 1 : min(2, miss + 1)
+            }
+            out[i].wearRun = run
+            out[i].wearMiss = miss
+            prevWorn = worn
+        }
+        var seeded = seedToday()
+        seeded.wearRun = (prevWorn ? run : 0) + 1
+        seeded.wearMiss = 0
+        seeded.worn = true
+        out.append(seeded)
         return out
     }
 
-    /// Seven days of daytime optical points so the RESPONSE card's own median is ready.
+    /// Thirty days of daytime optical points so the RESPONSE week and month boards have
+    /// slots to draw. One day in the current week is left empty so a vacant bar is visible.
     static func seedMealResponse() -> [MealResponseIndex.Point] {
         let today = UserDay.containing(Date())
         var points: [MealResponseIndex.Point] = []
-        for back in stride(from: 6, through: 1, by: -1) {
+        for back in stride(from: 29, through: 1, by: -1) {
+            if back == 3 { continue }
             let start = today.adding(days: -back).start
+            let shift = Double((back % 5) - 2) * 6
             for hour in [11, 13, 16] {
                 points.append(.init(
                     ts: start.addingTimeInterval(Double(hour) * 3600),
-                    optical: 100))
+                    optical: 100 + shift))
             }
         }
         let start = today.start
@@ -353,6 +718,45 @@ final class DataStore: ObservableObject {
     func logMeal(_ entry: MealEntry) {
         meals.append(entry)
         recomputeFuel()
+    }
+
+    /// Hand-typed from the calories plate. Macros stay 0 until a later model read.
+    func addManualMeal(text: String, kcal: Double, day: UserDay) {
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard kcal.isFinite, kcal > 0, !name.isEmpty else { return }
+        let now = Date()
+        let entry = MealEntry(id: UUID(), day: day, at: now,
+                              slot: .guess(at: now, day: day), status: .confirmed,
+                              text: name, kcal: kcal, protein: 0, carb: 0, fat: 0,
+                              source: .typed)
+        logMeal(entry)
+        Task { await persistManualMeal(entry) }
+    }
+
+    private func persistManualMeal(_ entry: MealEntry) async {
+        guard !Band.allowsSeed,
+              let owner = SupabaseClient.currentUserIdSnapshot(),
+              ConsentStore.shared.granted else { return }
+        let stamp = ISO8601DateFormatter()
+        stamp.formatOptions = [.withInternetDateTime]
+        do {
+            _ = try await SupabaseClient.shared.insert("meals", row: [
+                "id": entry.id.uuidString.lowercased(),
+                "user_id": owner,
+                "user_day": entry.day.key,
+                "slot": entry.slot.rawValue,
+                "logged_at": stamp.string(from: entry.at),
+                "text_input": entry.text,
+                "kcal": Int(entry.kcal),
+                "protein_g": 0, "carb_g": 0, "fat_g": 0,
+                "confidence": "HIGH",
+                "model_version": "manual-entry-v1",
+                "client_op_id": UUID().uuidString.lowercased(),
+            ])
+            await Repository.shared.loadToday(into: self)
+        } catch {
+            AIService.shared.lastError = error.localizedDescription
+        }
     }
 
     func updateMeal(_ id: UUID, kcal: Double, text: String) {
@@ -463,7 +867,20 @@ final class DataStore: ObservableObject {
 }
 
 struct MealEntry: Identifiable, Hashable, Codable {
-    enum Slot: String, CaseIterable, Hashable, Codable { case breakfast = "BREAKFAST", lunch = "LUNCH", dinner = "DINNER", snack = "SNACK" }
+    enum Slot: String, CaseIterable, Hashable, Codable {
+        case breakfast = "BREAKFAST", lunch = "LUNCH", dinner = "DINNER", snack = "SNACK"
+
+        static func guess(at date: Date, day: UserDay) -> Slot {
+            let hour = Calendar.current.component(.hour, from: date)
+            if date < day.start { return .snack }
+            switch hour {
+            case 4..<11:  return .breakfast
+            case 11..<15: return .lunch
+            case 15..<21: return .dinner
+            default:      return .snack
+            }
+        }
+    }
     enum Status: String, Hashable, Codable { case open = "OPEN", skipped = "SKIPPED", confirmed = "CONFIRMED" }
 
     let id: UUID
@@ -614,10 +1031,14 @@ struct BandState: Hashable {
     /// so a known CHARGING is not wiped to UNKNOWN while another read is in flight.
     var chargeState: BandBattery.ChargeState
     var firmware: String
+    /// Last full battery packet the band sent. The header pip still prints percent;
+    /// the device page and the trend use this so bars-only firmware stays bars.
+    var lastBattery: BandBattery?
     var lastSync: Date
     var capabilities: Set<Capability>
 
     mutating func applyBattery(_ battery: BandBattery) {
+        lastBattery = battery
         if let p = battery.percent { batteryPercent = p }
         // An unknown read is "we did not hear", not "unplugged". Keep the last
         // real state so Device and the pip do not flicker UNKNOWN → CHARGING.
@@ -634,10 +1055,13 @@ struct BandState: Hashable {
     /// band itself (BandPresence) or from the devices row; none of them is guessed.
     static let unknown = BandState(connected: false, name: "HOOP", mac: "",
                                    batteryPercent: nil, chargeState: .unknown, firmware: "",
+                                   lastBattery: nil,
                                    lastSync: .distantPast, capabilities: [])
 
     static let mock = BandState(connected: true, name: "NEXTBODY HOOP", mac: "C4:2E:8F:1A:73:9D",
                                 batteryPercent: 82, chargeState: .unplugged, firmware: "1.4.7",
+                                lastBattery: BandBattery(isPercent: true, percent: 82, level: nil,
+                                                         chargeState: .unplugged),
                                 lastSync: Date().addingTimeInterval(-12 * 60),
                                 capabilities: Set(Capability.allCases))
 }
@@ -659,7 +1083,7 @@ final class SessionStore: ObservableObject {
     init() {
         #if DEBUG
         // `SIMCTL_CHILD_NB_DEBUG_STAGE=gateConnect` opens the app at that gate for a walk.
-        if let s = ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"], let st = Stage(rawValue: s) {
+        if Band.allowsSeed, let s = ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"], let st = Stage(rawValue: s) {
             stage = st
             return
         }
@@ -679,7 +1103,7 @@ final class SessionStore: ObservableObject {
     /// not the decision. Debug stage pins stay put.
     func resolveLaunch() async {
         #if DEBUG
-        if ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"] != nil { return }
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"] != nil { return }
         #endif
         guard await ensureSession() else {
             if Band.allowsSeed { return }
@@ -749,6 +1173,7 @@ final class SessionStore: ObservableObject {
         DataStore.shared.purge()
         WeighInQueue.shared.purge()
         BodyCompositionQueue.shared.purge()
+        BalanceCheckQueue.shared.purge()
         ConsentStore.shared.purge()
         Task { await Analytics.shared.purge() }
 

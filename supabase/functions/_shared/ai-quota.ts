@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
-import { cors, userDayKey } from "./db.ts";
+import { cors, serviceClient } from "./db.ts";
 import { slowDownFrame } from "./contract.ts";
-import { costFen, type TokenUsage } from "./cost.ts";
+import type { TokenUsage } from "./cost.ts";
 
 export type AiQuotaEndpoint = "turn" | "meal" | "asr";
 
@@ -12,9 +12,14 @@ export type QuotaDecision =
 export async function consumeAiQuota(
   db: SupabaseClient,
   endpoint: AiQuotaEndpoint,
+  operationId: string = crypto.randomUUID(),
 ): Promise<QuotaDecision> {
   try {
-    const result = await db.rpc("consume_ai_quota", { p_endpoint: endpoint });
+    const { data, error } = await db.auth.getUser();
+    if (error || !data.user) return { allowed: false, reason: "unavailable" };
+    const result = await serviceClient().rpc("consume_ai_quota_trusted", {
+      p_owner: data.user.id, p_endpoint: endpoint, p_operation: operationId,
+    });
     if (result.error || typeof result.data?.allowed !== "boolean") {
       return { allowed: false, reason: "unavailable" };
     }
@@ -23,8 +28,24 @@ export async function consumeAiQuota(
     }
     return {
       allowed: false,
-      reason: result.data.reason === "spend" ? "spend" : "count",
+      reason: result.data.reason === "spend" ? "spend" : result.data.reason === "count" ? "count" : "unavailable",
     };
+  } catch {
+    return { allowed: false, reason: "unavailable" };
+  }
+}
+
+/** Recheck between model steps without charging another user operation. */
+export async function checkAiSpend(db: SupabaseClient): Promise<QuotaDecision> {
+  try {
+    const { data, error } = await db.auth.getUser();
+    if (error || !data.user) return { allowed: false, reason: "unavailable" };
+    const result = await serviceClient().rpc("check_ai_spend_trusted", { p_owner: data.user.id });
+    if (result.error || typeof result.data?.allowed !== "boolean") {
+      return { allowed: false, reason: "unavailable" };
+    }
+    if (result.data.allowed) return { allowed: true, remaining: Number(result.data.remaining) || 0 };
+    return { allowed: false, reason: result.data.reason === "spend" ? "spend" : "unavailable" };
   } catch {
     return { allowed: false, reason: "unavailable" };
   }
@@ -60,25 +81,22 @@ export async function recordAiUsage(
     endpoint: AiQuotaEndpoint;
     modelId: string;
     usage: TokenUsage;
-    timezone?: string;
     turnId?: string;
     latencyMs?: number;
   },
 ): Promise<void> {
-  const fen = costFen(args.usage);
-  const result = await db.rpc("record_ai_usage", {
+  const { data, error } = await db.auth.getUser();
+  if (error || !data.user) throw new Error("AI_USAGE_UNAUTHENTICATED");
+  const result = await serviceClient().rpc("record_ai_usage_trusted", {
+    p_owner: data.user.id,
     p_endpoint: args.endpoint,
     p_model: args.modelId,
     p_prompt: args.usage.promptTokens,
     p_cached: args.usage.cachedTokens,
     p_completion: args.usage.completionTokens,
-    p_cost_fen: fen,
-    p_user_day: userDayKey(args.timezone ?? "UTC"),
+    p_audio_seconds: args.usage.audioSeconds ?? 0,
     p_turn: args.turnId ?? null,
     p_latency: args.latencyMs ?? null,
   });
-  if (result.error) {
-    console.error("record_ai_usage failed:", result.error.message);
-  }
+  if (result.error) throw new Error(`AI_USAGE_UNAVAILABLE: ${result.error.message}`);
 }
-

@@ -110,6 +110,7 @@ actor SupabaseClient {
         try await signInWithIDToken(provider: "apple", idToken: idToken, nonce: nonce)
     }
 
+    @discardableResult
     func signInWithGoogle(idToken: String, nonce: String) async throws -> String {
         try await signInWithIDToken(provider: "google", idToken: idToken, nonce: nonce)
     }
@@ -616,7 +617,7 @@ actor SupabaseClient {
     /// A multipart POST to an Edge Function. `asr` is the only endpoint that takes a file,
     /// and it wants the clip under the field name `audio`.
     func uploadFunction(_ name: String, fileURL: URL,
-                        field: String, filename: String, mime: String) async throws -> [String: Any] {
+                        field: String, filename: String, mime: String, requestID: UUID = UUID()) async throws -> [String: Any] {
         let boundary = "nb-\(UUID().uuidString)"
         var body = Data()
         func append(_ s: String) { body.append(Data(s.utf8)) }
@@ -626,7 +627,7 @@ actor SupabaseClient {
         body.append(try Data(contentsOf: fileURL))
         append("\r\n--\(boundary)--\r\n")
 
-        var r = try request(name, method: "POST", body: body, isFunction: true)
+        var r = SessionBoundTransport.identifying(try request(name, method: "POST", body: body, isFunction: true), requestID: requestID)
         // request() sets JSON; multipart has to say its own boundary or the far side sees one
         // undifferentiated blob and answers E_SCHEMA.
         r.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -640,9 +641,9 @@ actor SupabaseClient {
 
     /// Opens the authenticated push-to-talk socket before recording begins. Unlike browser
     /// WebSockets, URLSession can carry the normal Authorization header through the upgrade.
-    func asrStreamingSession() throws -> ASRStreamingSession {
+    func asrStreamingSession(requestID: UUID = UUID()) throws -> ASRStreamingSession {
         let request = try request("asr", method: "GET", body: nil, isFunction: true)
-        return ASRStreamingSession(request: request)
+        return ASRStreamingSession(request: SessionBoundTransport.identifying(request, requestID: requestID))
     }
 
     private func openStream(_ name: String, payload: [String: Any], expectedOwner: String?, requestID: UUID)
@@ -656,7 +657,14 @@ actor SupabaseClient {
             current: { await self.requestSession }, send: { [session] in try await session.bytes(for: $0) },
             refresh: { await self.refreshedToken(for: pinned) })
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(code) else { throw Failure.http(code, "") }
+        guard (200..<300).contains(code) else {
+            var errorBody = Data()
+            for try await byte in bytes {
+                errorBody.append(byte)
+                if errorBody.count >= 16_384 { break }
+            }
+            throw Failure.http(code, String(data: errorBody, encoding: .utf8) ?? "")
+        }
         return (bytes, pinned)
     }
 

@@ -10,6 +10,9 @@ struct VitalsPage: View {
     /// "now" share one window.
     let history: [DailyMetrics]
     let vitals: LiveVitals
+    /// ADR 0008 · passed in rather than read off `m`, because a later loadHome replaces
+    /// `store.today` wholesale and the copy carried on that struct goes with it.
+    var sleepScore: SleepScore? = nil
     var mealResponsePoints: [MealResponseIndex.Point] = []
     var mealResponseZerosToday = false
     var width: CGFloat = NB.Layout.contentWidth
@@ -54,7 +57,7 @@ struct VitalsPage: View {
                 }
                 HStack(spacing: NB.Layout.cardGap) {
                     zone(.distance) { distanceCard }
-                    zone(.active) { activeCard }
+                    zone(.active) { ActiveEnergyCard(m: m, height: cardHeight) }
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -83,13 +86,35 @@ struct VitalsPage: View {
 
     // MARK: cards
 
+    /// ADR 0008 · the score takes the main position and the duration rides beside it as the
+    /// unit — it is the largest single component of the score and the one quantity nobody
+    /// has to be taught to read. No missing-input note here: this card is glanced at, the
+    /// board is where a score gets explained. The stage strip is drawn only when the band
+    /// filed a real stage line; a night with only totals gets no invented shape.
     private var sleepCard: some View {
-        InstrumentCard(label: L("SLEEP"), tag: L("LAST NIGHT"), tint: NB.violet1,
-                       height: cardHeight,
-                       value: m.sleep.map { Fmt.duration($0.totalMinutes) }, unit: nil,
-                       foot: m.sleep.map { L("DEEP %@ · %d WAKES", Fmt.duration($0.deepMinutes), $0.wakeCount) } ?? L("NO NIGHT YET")) {
-            if let s = m.sleep { SleepStrip(sleep: s, tint: NB.violet1) }
+        let night = m.sleep
+        let score = sleepScore
+        let duration = night.map { Fmt.duration($0.totalMinutes) }
+        let hasLine = !(night?.line.isEmpty ?? true)
+        return InstrumentCard(label: L("SLEEP"), tag: L("LAST NIGHT"), tint: NB.violet1,
+                              height: cardHeight,
+                              value: score.map { String($0.score) } ?? duration,
+                              unit: score == nil ? (night == nil ? nil : L("ASLEEP")) : duration,
+                              foot: Self.sleepFoot(night: night, score: score),
+                              valueTint: score?.tint) {
+            if hasLine, let night { SleepStrip(sleep: night, tint: NB.violet1) }
         }
+    }
+
+    private static func sleepFoot(night: SleepSummary?, score: SleepScore?) -> String {
+        guard let night else { return L("NO NIGHT YET") }
+        guard let score else { return L("SCORE NOT SETTLED YET") }
+        // The calibration note lives here until the baselines are this person's own.
+        if score.isCalibrating { return L("TYPICAL-ADULT BASELINE") }
+        if let start = night.sleepStart, let wake = night.wakeAt, wake > start {
+            return L("BED %@ · WAKE %@", Fmt.clock(start), Fmt.clock(wake))
+        }
+        return L("WINDOW NOT ON RECORD")
     }
 
     private var heartCard: some View {
@@ -163,19 +188,36 @@ struct VitalsPage: View {
         }
     }
 
+    /// Shared by the card and by analytics, the way `mealIndex` is.
+    private var skinTempNight: SkinTempNightRange.Result {
+        SkinTempPresentation.nightRange(today: m, history: history)
+    }
+
     private var tempCard: some View {
         let window = VitalsTimelinePolicy.rolling24Hours(endingAt: Date())
         let samples = VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks)
             .filter { window.contains($0.ts) }
-        let temps = samples.compactMap(\.temp)
         let last = gone ? nil : samples.last(where: { $0.temp != nil })?.temp
+        // ADR 0009 · the glance carries last night's verdict; LOW / HIGH live on the detail
+        // page. The spark is ruled by this wrist's own range, never by 35.5–37.0 °C — that
+        // is a core-temperature ruler and it flattens a 33 °C trace against the floor.
+        let night = skinTempNight
+        let axis = SkinTempPresentation.axis(night.range, pad: 1.0)
+        let foot: String
+        if let delta = night.delta, let tier = night.tier {
+            foot = L("LAST NIGHT %+.1f · %@", delta, SkinTempPresentation.shortTier(tier))
+        } else if let empty = night.empty {
+            foot = SkinTempPresentation.reason(empty, learningNights: night.learningNights)
+        } else {
+            foot = L("NO TICKS YET")
+        }
         return InstrumentCard(label: L("TEMP"), tag: L("NOW"), tint: NB.cyan1,
                               height: cardHeight,
                               value: last.map { String(format: "%.1f", $0) }, unit: L("°C SKIN"),
-                              foot: temps.isEmpty ? L("NO TICKS YET")
-                                  : L("LOW %.1f · HIGH %.1f", temps.min()!, temps.max()!),
+                              foot: foot,
                               dim: dim, unitWhenEmpty: gone) {
-            DaySpark(samples: samples, day: day, value: \.temp, low: 35.5, high: 37.0, tint: NB.cyan1, range: window)
+            DaySpark(samples: samples, day: day, value: \.temp,
+                     low: axis.lowerBound, high: axis.upperBound, tint: NB.cyan1, range: window)
         }
     }
 
@@ -200,21 +242,6 @@ struct VitalsPage: View {
                               value: metres.map { String(format: "%.1f", $0 / 1000) }, unit: "KM",
                               foot: peak.map { L("%.1f KM AT %@", $0.value / 1000, VitalsMath.clock(day: day, minute: $0.index * 60)) } ?? L("NO TICKS YET")) {
             HourBars(values: bins, tint: NB.violetPink)
-        }
-    }
-
-    private var activeCard: some View {
-        let archived = ticks.compactMap(\.vendorCalories)
-        let bins = ActivityEnergyPolicy.hourlyBins(count: 24, archivedVendorCalories: archived)
-        let kcal = ActivityEnergyPolicy.displayTotal(
-            settledActiveKcal: m.eActive,
-            archivedVendorCalories: archived)
-        return InstrumentCard(label: L("ACTIVE ENERGY"), tag: L("TODAY"), tint: NB.run1,
-                              height: cardHeight,
-                              value: kcal.map { Fmt.kcal($0) }, unit: "KCAL",
-                              foot: kcal == nil ? L("WAITING FOR VERIFIED ENERGY")
-                                                : L("MOVEMENT ONLY · SETTLED")) {
-            HourBars(values: bins, tint: NB.run1)
         }
     }
 
@@ -251,9 +278,8 @@ struct VitalsPage: View {
             endingAt: Date())
         let steps = m.steps.map(Double.init) ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: { $0.steps.map(Double.init) }))
         let metres = m.distanceM.map(Double.init) ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: \.dis))
-        let kcal = ActivityEnergyPolicy.displayTotal(
-            settledActiveKcal: m.eActive,
-            archivedVendorCalories: ticks.compactMap(\.vendorCalories))
+        let kcal = ActiveEnergyMath.totals(
+            bmr: m.bmr, eActive: m.eActive, eTrain: m.eTrain, eOutNow: m.eOutNow).active
         let response = MealResponsePresentation.index(
             today: m, history: history, points: mealResponsePoints,
             zerosToday: mealResponseZerosToday)
@@ -262,11 +288,59 @@ struct VitalsPage: View {
             "HEART": nowCard(vitals.hr != nil),
             "RESPONSE": response.analyticsState,
             "STRESS": nowCard(vitals.stress != nil || rollingStress.contains { $0.stress != nil }),
-            "TEMP": nowCard(rollingStress.contains { $0.temp != nil }),
+            // Which of the night-range states the card is actually in, not just whether a
+            // tick arrived — LEARNING and a real verdict are different products.
+            "TEMP": SkinTempPresentation.nightRange(today: m, history: history).analyticsState,
             "STEPS": steps == nil ? "EMPTY" : "FRESH",
             "DISTANCE": metres == nil ? "EMPTY" : "FRESH",
             "ACTIVE": kcal == nil ? "EMPTY" : "FRESH",
         ]
+    }
+}
+
+/// 174-wide ACTIVE ENERGY card. Kept off `VitalsPage.body` so Home's type checker
+/// does not have to solve the ledger arithmetic inside the eight-card grid.
+struct ActiveEnergyCard: View {
+    let m: DailyMetrics
+    let height: CGFloat
+
+    var body: some View {
+        let model = snapshot
+        return InstrumentCard(label: L("ACTIVE ENERGY"), tag: L("TODAY"), tint: NB.lime1,
+                              height: height,
+                              value: model.value, unit: "KCAL",
+                              foot: model.foot,
+                              spokenHint: model.hint) {
+            LivedHourBars(hours: model.hours, tint: NB.lime1, height: 28)
+        }
+    }
+
+    private var snapshot: (value: String?, foot: String, hint: String?, hours: [ActiveEnergyHour]) {
+        let now = VitalsClock.now
+        let samples = m.vitalsCurve.map { ($0.ts, $0.steps) }
+        let windows = ActiveEnergyModel.sportWindows(m)
+        let split = ActiveEnergyMath.split(
+            dayStart: m.day.start, now: now, bmr: m.bmr, bmrFull: m.bmrFull,
+            eActive: m.eActive, eTrain: m.eTrain, eOutNow: m.eOutNow,
+            ticks: samples, sportWindows: windows)
+        let hours = ActiveEnergyMath.hourly(
+            dayStart: m.day.start, now: now, split: split,
+            ticks: samples, sportWindows: windows)
+        let peak = ActiveEnergyMath.peakHour(hours)
+        let kcal = split.active
+        let foot = kcal == nil ? L("WAITING FOR VERIFIED ENERGY")
+                               : L("%@ + %@ = %@",
+                                   Fmt.kcal(split.resting),
+                                   Fmt.kcal(split.active),
+                                   Fmt.kcal(split.out))
+        let hint = peak.map {
+            L("PEAK %@ · %@ + %@ = %@",
+              VitalsMath.clock(day: m.day, minute: $0.index * 60),
+              Fmt.kcal(split.resting),
+              Fmt.kcal(split.active),
+              Fmt.kcal(split.out))
+        }
+        return (kcal.map { Fmt.kcal($0) }, foot, hint, hours)
     }
 }
 
@@ -286,6 +360,10 @@ struct InstrumentCard<Chart: View>: View {
     /// 04B F3 · GONE: the number is —— but the unit stays, greyed with it. F1/F5 (never had
     /// data) hide the unit — there is nothing for it to measure yet.
     var unitWhenEmpty = false
+    /// ADR 0008 · the numeral alone may take a colour of its own; the label, the tag and the
+    /// card keep the metric's accent. F0 rule 01 governs a card's identity, not one number
+    /// inside it — a card that changed colour nightly would read as a different object.
+    var valueTint: Color? = nil
     /// 04B F1 / F5 · the two-line state foot. When set it replaces the chart and the foot:
     /// the first line names the state, the second says what happens next.
     var status: (line: String, sub: String)? = nil
@@ -296,7 +374,8 @@ struct InstrumentCard<Chart: View>: View {
     /// init keeps their call order while the stored order stays what the body reads.
     init(label: String, tag: String, tint: Color, height: CGFloat = NB.Layout.stripHeight,
          value: String?, unit: String?, foot: String, dim: Double = 1,
-         unitWhenEmpty: Bool = false, status: (line: String, sub: String)? = nil,
+         unitWhenEmpty: Bool = false, valueTint: Color? = nil,
+         status: (line: String, sub: String)? = nil,
          spokenHint: String? = nil,
          @ViewBuilder chart: @escaping () -> Chart) {
         self.label = label
@@ -308,6 +387,7 @@ struct InstrumentCard<Chart: View>: View {
         self.dim = dim
         self.height = height
         self.unitWhenEmpty = unitWhenEmpty
+        self.valueTint = valueTint
         self.status = status
         self.spokenHint = spokenHint
         self.chart = chart
@@ -330,7 +410,7 @@ struct InstrumentCard<Chart: View>: View {
                     // F2 rule 05 · a number that is not there is ——, never 0.
                     Text(value ?? Fmt.dash)
                         .font(NBFont.dot(700, 26)).tracking(-0.02 * 26)
-                        .foregroundStyle(value == nil ? NB.text3Prod : tint)
+                        .foregroundStyle(value == nil ? NB.text3Prod : (valueTint ?? tint))
                         .opacity(dim)
                         .lineLimit(1).minimumScaleFactor(0.8)
                     if let unit, value != nil || unitWhenEmpty {
@@ -734,5 +814,19 @@ enum VitalsMath {
         }
         guard minutes > 0, let first else { return nil }
         return (minutes, first)
+    }
+}
+
+/// One "now" for page two and the boards behind it. DEBUG seed can freeze the
+/// clock with `NB_DEBUG_NOW` so a UITest and the charts agree.
+enum VitalsClock {
+    static var now: Date {
+        #if DEBUG
+        if Band.allowsSeed, let raw = ProcessInfo.processInfo.environment["NB_DEBUG_NOW"],
+           let debugNow = ISO8601DateFormatter().date(from: raw) {
+            return debugNow
+        }
+        #endif
+        return Date()
     }
 }

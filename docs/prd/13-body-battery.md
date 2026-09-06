@@ -1,13 +1,14 @@
 # 13 · 昨夜与 Body Battery — THE NUMBER THAT SETS TODAY
 
-Mirrored from node `1CC9-0` (2174 × 6538). **NOT IN V1**: 睡眠详情页、分期图、睡眠分；BB 周/月趋势；
-「几点该睡」「明早会到多少」.
+Mirrored from node `1CC9-0` (2174 × 6538), then Paper `13A` / `13B` 方案一（ADR 0017）。
+**NOT IN V1**: 睡眠详情页、分期图、睡眠分；「几点该睡」「明早会到多少」。
+周 / 月已落地：醒来高点的平均，不是加总。主色 lime，不是紫。
 
 ## Screens
 **01 昨夜 · ONE WIDGET · ONCE A DAY · WAKE + 6H** — panel: `LAST NIGHT · 07:12` · `72` OF 100 ·
-`CHARGED +38 · NORMAL CHARGE` (violet) · *About as much as you usually charge. Today can take a
-normal session.* · `TAP TO SEE WHY →`. Behind it a two-colour curve: the night in violet, the
-day so far in lime.
+`CHARGED +38 · NORMAL CHARGE` (lime) · *About as much as you usually charge. Today can take a
+normal session.* · `TAP TO SEE WHY →`. Behind it a two-colour curve: the night in lime, the
+day so far in white.
 **02 详情上半** — HERO + WHY 72 (4 ROWS · MUST CLOSE · ±0.5) + the next card peeking.
 **03 详情下半** — INPUTS (3 INPUTS · 3 TIERS · NO SLEEP NUMBERS) · TARGET · CONFIDENCE · FOOTER.
 **04 第一天** — NO CURVE · NO TARGET · NO SKELETON.

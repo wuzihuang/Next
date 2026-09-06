@@ -1,18 +1,20 @@
 import SwiftUI
 
-/// 08 · 训练详情 Training Load. Nine sections, from the ring all the way to
-/// "so what do I do now". Back always returns to the root; there is no history stack here.
+/// 08 / ADR 0015 · training load. One page, DAY / WEEK / MONTH. Style A is the
+/// dial: the ring stays the hero, the cards under it are the ingredients that
+/// built today's scalar. Back always returns to the root.
 struct TrainingDetailView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
+    @State private var rangeRaw = RollingPills.day.rawValue
+    private var range: RollingPills { .parse(rangeRaw) }
+    private var detail: DetailWindow { DetailWindow(.training, range) }
+    private var today: UserDay { UserDay.containing(Date()) }
 
     private var m: DailyMetrics { data.today }
     private var scaled: Bool { m.targetLoad != nil }
 
-    // 08 edge 1 · STALE is judged by the last successful sync, never by the connection —
-    // 「连着但没同步也算陈旧」.
-    // No sync yet is the stalest a page can be: the ring is standing on nothing.
     private var staleMinutes: Int { data.lastSync.map { Int(Date().timeIntervalSince($0) / 60) } ?? Int.max }
     private var isStale: Bool { DebugEdge.on("stale") || staleMinutes >= 60 }
     private var staleAgo: String {
@@ -20,18 +22,19 @@ struct TrainingDetailView: View {
         return staleMinutes >= 120 ? L("%dH AGO", staleMinutes / 60) : L("%d MIN AGO", staleMinutes)
     }
     private var lastSyncClock: String { data.lastSync.map(Fmt.clock) ?? Fmt.dash }
-    // 08 edge 2 · the whole page stands on auto heart rate (funType 0); off is 「残」, not empty.
     private var autoHROff: Bool { DebugEdge.on("autohr") || data.capabilities.autoMeasure == .close }
-    // 08 edge 5 · the ring caps at 21 and turns amber. F2's curve is asymptotic to 21, so the
-    // cap is reached at the rounding limit, and there is no raw value to print beside it.
     private var isOver: Bool { DebugEdge.on("over") || (m.trainingLoad ?? 0) >= 20.9 }
-    /// 08 rule 07 · a missing five-minute tick is a gap. Gaps are multiples of five minutes.
+
+    private var curvePoints: [LoadPoint] {
+        data.history.first(where: { $0.day == m.day && !$0.loadCurve.isEmpty })?.loadCurve ?? m.loadCurve
+    }
+
     private var gaps: [(start: Date, end: Date)] {
         if DebugEdge.on("notworn") {
-            let d = Calendar.current.startOfDay(for: m.day.date)
-            return [(d.addingTimeInterval(13 * 3600), d.addingTimeInterval(16 * 3600))]
+            let start = m.day.start.addingTimeInterval(9 * 3600)
+            return [(start, start.addingTimeInterval(3 * 3600))]
         }
-        let pts = data.history.first(where: { $0.day == m.day && !$0.loadCurve.isEmpty })?.loadCurve ?? m.loadCurve
+        let pts = curvePoints
         guard pts.count > 1 else { return [] }
         return zip(pts, pts.dropFirst()).compactMap { a, b in
             b.ts.timeIntervalSince(a.ts) > 7.5 * 60 ? (a.ts, b.ts) : nil
@@ -42,128 +45,403 @@ struct TrainingDetailView: View {
         gaps.max { $0.end.timeIntervalSince($0.start) < $1.end.timeIntervalSince($1.start) }
     }
     private var gapsInHours: [(Double, Double)] {
-        let midnight = Calendar.current.startOfDay(for: m.day.date)
-        return gaps.map { ($0.start.timeIntervalSince(midnight) / 3600, $0.end.timeIntervalSince(midnight) / 3600) }
+        gaps.map {
+            (UserDay.hours($0.start, in: m.day),
+             UserDay.hours($0.end, in: m.day))
+        }
     }
 
+    private var weekFacts: [TrainingDayFacts] { facts(count: DetailWindow(.training, .week).days) }
+    private var monthFacts: [TrainingDayFacts] { facts(count: DetailWindow(.training, .month).days) }
+    private var latestZone: ClosedRange<Double>? { m.optimalZone }
+
     var body: some View {
-        // 01 · header & range. "2.1 TO GO" sits on the title line because it is the one
-        // conclusion this page has.
-        //
-        // ⚠️ The DAY / WEEK / MONTH control is deliberately absent, not forgotten.
-        // ZUO · "留一个死控件比没有更糟", and 1EIH settles the disagreement between this
-        // board (which said build the screens or disable the control) and 09 (which said
-        // delete it) with "以删为准，两页保持一致". WEEK's job is already done by THIS
-        // WEEK at the foot of the page, and MONTH has no content on seven days of data.
-        // 1EEU lists the segmented control itself as out of V1 for both 08 and 09.
-        DetailScroll(glow: NB.cyan1, title: MetricNames.training, trailing: {
-            Text(isOver ? L("RING FULL")
-                 : scaled ? L("%.1f TO GO", max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)))
-                          : L("NO TARGET YET"))
+        DetailScroll(glow: NB.lime1, title: MetricNames.training, trailing: {
+            Text(headerStatus)
                 .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                .foregroundStyle(scaled ? NB.cyanPale : NB.text3Prod)
+                .foregroundStyle(headerTint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }) {
             VStack(alignment: .leading, spacing: 14) {
-                // 02 · ring & legend
-                ringCard
-
-                // 03 · why this number — the trust of the whole page
-                whyCard
-
-                SectionLabel(scaled ? L("WHERE IT CAME FROM") : L("WHERE IT WILL COME FROM"))
-
-                // 04 · today's build
-                buildCard
-
-                if scaled {
-                    // 06 · through the day — cumulative, never a rate
-                    throughTheDayCard
-                    // 07 · time in zone
-                    timeInZoneCard
-                    // 08 · this week
-                    thisWeekCard
-                } else {
-                    gatesCard
+                SegmentedPills(options: RollingPills.words,
+                               selection: $rangeRaw)
+                switch range {
+                case .day:   dayBoard
+                case .week:  weekBoard
+                case .month: monthBoard
                 }
-
-                // 09 · the one CTA. Opens the same Sport Mode picker as the plus menu —
-                // that page is the in-session screen this board was waiting for.
-                VStack(spacing: 8) {
-                    Button {
-                        // F1 · no path between two detail pages — replace the stack.
-                        router.path = [.sportMode]
-                    } label: {
-                        Text(L("START A SESSION"))
-                            .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                            .foregroundStyle(NB.carbon)
-                            .frame(width: NB.Layout.contentWidth, height: 48)
-                            .background(NB.cyan1, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    Text(L("PICK A MODE · THE BAND RUNS IT"))
-                        .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
-                        .foregroundStyle(NB.text3Prod)
-                }
-                .padding(.top, 6)
+                sessionButton
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 30)
         } onBack: {
             router.backToRoot()
         }
+        .task {
+            #if DEBUG
+            if let override = DetailWindow.debugRange(for: .training) {
+                rangeRaw = override.rawValue
+            }
+            #endif
+            guard !Band.allowsSeed else { return }
+            await Repository.shared.hydrate(detail, endingAt: today, into: data)
+        }
     }
 
-    private var ringCard: some View {
+    private var headerStatus: String {
+        switch range {
+        case .day:
+            if isOver { return L("RING FULL") }
+            if scaled {
+                return inZone ? L("IN ZONE") : L("%.1f TO GO", max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0)))
+            }
+            return L("NO TARGET YET")
+        case .week, .month:
+            return L(detail.periodKey)
+        }
+    }
+
+    private var headerTint: Color {
+        if range == .day && !scaled { return NB.text3Prod }
+        return NB.lime1
+    }
+
+    private var inZone: Bool {
+        guard let load = m.trainingLoad, let zone = m.optimalZone else { return false }
+        return zone.contains(load)
+    }
+
+    // MARK: DAY
+
+    private var dayBoard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ringCard(load: m.trainingLoad, caption: "OF 21", foot: dayRingFoot)
+            if scaled {
+                throughTheDayCard
+                dayIngredients
+                timeInZoneCard
+                dayMoveCard
+            } else {
+                gatesCard
+            }
+        }
+    }
+
+    private var dayRingFoot: String {
+        let target = Fmt.load(m.targetLoad)
+        let left = m.targetLoad.map { max(0, $0 - (m.trainingLoad ?? 0)) }
+        let zone = m.optimalZone.map { String(format: "%.1f–%.1f", $0.lowerBound, $0.upperBound) } ?? Fmt.dash
+        if let left {
+            return L("TARGET %@ · %.1f TO GO · ZONE %@", target, left, zone)
+        }
+        return L("TARGET %@ · ZONE %@", target, zone)
+    }
+
+    private var throughTheDayCard: some View {
+        CardBlock(title: L("THROUGH THE DAY"), trailing: L("CUMULATIVE 0–21"), trailingIsDot: true) {
+            CumulativeCurve(target: m.targetLoad ?? 14.5, now: m.trainingLoad ?? 0,
+                            points: curvePoints, day: m.day, gaps: gapsInHours)
+                .frame(height: 120)
+            HStack {
+                ForEach(Array(["04", "09", "13", "NOW", "04"].enumerated()), id: \.offset) { i, t in
+                    Text(t == "NOW" ? L("NOW") : t)
+                        .font(NBFont.dot(t == "NOW" ? 700 : 500, 10)).tracking(0.04 * 10)
+                        .foregroundStyle(t == "NOW" ? NB.lime1 : Color(hex: 0x8A8A96))
+                    if i < 4 { Spacer(minLength: 0) }
+                }
+            }
+        }
+    }
+
+    private var dayIngredients: some View {
+        TrainingIngredientsCard(trailing: L("FEED THE RING"), rows: [
+            .init(label: L("HR ZONES 1–3"), value: durationLine(easyMinutes)),
+            .init(label: L("HR ZONES 4–5"), value: durationLine(hardMinutes), tint: NB.ember1),
+            .init(label: L("STEPS"), value: Fmt.kcal(m.steps.map(Double.init))),
+            .init(label: L("KCAL EST"), value: Fmt.kcal(m.eActive)),
+            .init(label: L("STRENGTH"), value: strengthLine),
+        ])
+    }
+
+    private var easyMinutes: Int { (m.zoneMinutes ?? []).prefix(3).reduce(0, +) }
+    private var hardMinutes: Int { (m.zoneMinutes ?? []).dropFirst(3).reduce(0, +) }
+
+    private var strengthLine: String {
+        guard let seg = m.segments.filter({ !$0.allDay }).max(by: { $0.delta < $1.delta }) else {
+            return Fmt.dash
+        }
+        let mins = seg.minutes.map(Fmt.duration) ?? Fmt.dash
+        return L("%@ · +%.1f", mins, seg.delta)
+    }
+
+    private var timeInZoneCard: some View {
+        let mins = paddedZones(m.zoneMinutes)
+        let top = max(1, mins.max() ?? 1)
+        let tints = [NB.lime1.opacity(0.33), NB.lime1.opacity(0.47), NB.lime1, NB.ember1, NB.ember1]
+        let total = mins.reduce(0, +)
+        return CardBlock(title: L("TIME IN EACH ZONE"),
+                         trailing: L("%@ TOTAL", Fmt.duration(total)), trailingIsDot: true) {
+            VStack(spacing: 9) {
+                ForEach(0..<5, id: \.self) { i in
+                    ZoneBar(zone: "Z\(i + 1)", fill: Double(mins[i]) / Double(top),
+                            tint: tints[i], value: L("%dm", mins[i]))
+                }
+            }
+            Text(L("Z4 and Z5 do most of the lifting. Amber marks them."))
+                .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                .lineSpacing(5)
+                .foregroundStyle(NB.text3Prod)
+        }
+    }
+
+    private var dayMoveCard: some View {
+        let bins = hourSteps(m)
+        let sessionHour = sessionBin(in: bins)
+        return CardBlock(title: L("STEPS AND BURN"),
+                         trailing: L("%@ STEPS", Fmt.kcal(m.steps.map(Double.init))),
+                         trailingIsDot: true) {
+            TrainingStepBars(bins: bins, sessionIndex: sessionHour)
+                .frame(height: 96)
+            HStack {
+                moveStat(L("ACTIVE BURN"), Fmt.kcal(m.eActive), NB.lime1)
+                moveStat(L("RESTING"), Fmt.kcal(restingKcal), NB.macroValue)
+                moveStat(L("TOTAL EST"), Fmt.kcal(m.eOutNow), NB.macroValue)
+            }
+            Text(L("Calories are an estimate from MET and body weight, not a measurement."))
+                .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                .foregroundStyle(NB.text3Prod)
+        }
+    }
+
+    private var restingKcal: Double? {
+        guard let total = m.eOutNow, let active = m.eActive else { return m.bmr }
+        return total - active
+    }
+
+    // MARK: WEEK
+
+    private var weekBoard: some View {
+        let days = weekFacts
+        let avg = TrainingWindowMath.averageLoad(days)
+        let heavy = days.enumerated().max(by: { ($0.element.load ?? 0) < ($1.element.load ?? 0) })?.offset
+        let zones = TrainingWindowMath.typicalZones(days)
+        return VStack(alignment: .leading, spacing: 14) {
+            ringCard(load: avg, caption: "OF 21",
+                     foot: L("7-day average of finished days. Today is not in this number."))
+            CardBlock(title: L("SEVEN DAYS"),
+                      trailing: L("7D AVG %@", Fmt.load(avg)), trailingIsDot: true) {
+                TrainingWeekBars(values: days.map(\.load), average: avg, heavyIndex: heavy)
+                    .frame(height: 130)
+                HStack {
+                    ForEach(Array(days.enumerated()), id: \.offset) { i, day in
+                        Text(Fmt.weekday(day.day.date).prefix(1))
+                            .font(NBFont.dot(i == heavy ? 700 : 500, 10))
+                            .foregroundStyle(i == heavy ? NB.ember1 : Color(hex: 0x8A8A96))
+                            .frame(width: 34)
+                        if i < days.count - 1 { Spacer(minLength: 0) }
+                    }
+                }
+                Text(L("Rolling 7 days. Amber is the heaviest one. The average is the hero, not a sum."))
+                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                    .foregroundStyle(NB.text3Prod)
+            }
+            weekIngredients(days)
+            CardBlock(title: L("HOW THE ZONES STACK"), trailing: L("MINUTES / DAY"), trailingIsDot: true) {
+                TrainingZoneStack(days: days)
+                HStack(spacing: 16) {
+                    legendDot(NB.lime1.opacity(0.53), L("Z1–3 · %@", Fmt.duration(Int((zones?.prefix(3).reduce(0, +) ?? 0).rounded()))))
+                    legendDot(NB.ember1, L("Z4–5 · %@", Fmt.duration(Int((zones?.dropFirst(3).reduce(0, +) ?? 0).rounded()))))
+                }
+            }
+            weekMoveCard(days)
+        }
+    }
+
+    private func weekIngredients(_ days: [TrainingDayFacts]) -> some View {
+        let zones = TrainingWindowMath.typicalZones(days)
+        return TrainingIngredientsCard(trailing: L("TYPICAL DAY"), rows: [
+            .init(label: L("HR ZONES 1–3"), value: durationLine(zoneMinutes(zones, hard: false))),
+            .init(label: L("HR ZONES 4–5"), value: durationLine(zoneMinutes(zones, hard: true)), tint: NB.ember1),
+            .init(label: L("STEPS"), value: Fmt.kcal(TrainingWindowMath.typicalSteps(days))),
+            .init(label: L("KCAL EST"), value: Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))),
+            .init(label: L("HARD DAYS"), value: "\(TrainingWindowMath.sessionDays(days))"),
+        ])
+    }
+
+    private func weekMoveCard(_ days: [TrainingDayFacts]) -> some View {
+        let steps = days.map { $0.steps.map(Double.init) ?? 0 }
+        let typical = TrainingWindowMath.typicalSteps(days)
+        let best = steps.max() ?? 0
+        return CardBlock(title: L("STEPS AND BURN"),
+                         trailing: L("TYPICAL %@", Fmt.kcal(typical)), trailingIsDot: true) {
+            TrainingStepBars(bins: steps, sessionIndex: steps.firstIndex(of: best))
+                .frame(height: 100)
+            HStack {
+                moveStat(L("BEST DAY"), Fmt.kcal(best), NB.ember1)
+                moveStat(L("ACTIVE BURN"), L("%@ / DAY", Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))), NB.lime1)
+                moveStat(L("TOTAL EST"), L("%@ / DAY", Fmt.kcal(TrainingWindowMath.typicalTotalKcal(days))), NB.macroValue)
+            }
+            Text(L("Per-day numbers, never a weekly sum. Calories are an estimate."))
+                .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                .foregroundStyle(NB.text3Prod)
+        }
+    }
+
+    // MARK: MONTH
+
+    private var monthBoard: some View {
+        let days = monthFacts
+        let typical = TrainingWindowMath.typicalLoad(days)
+        let worn = TrainingWindowMath.wornCount(days)
+        let empty = TrainingWindowMath.emptyCount(days)
+        let counts = TrainingWindowMath.bandCounts(days, zone: latestZone)
+        let rolls = TrainingWindowMath.weekRolls(days)
+        let zones = TrainingWindowMath.typicalZones(days)
+        return VStack(alignment: .leading, spacing: 14) {
+            ringCard(load: typical, caption: "30 DAYS",
+                     foot: L("A typical finished day. Not a 30-day sum."))
+            CardBlock(title: L("THIRTY DAYS"),
+                      trailing: L("%d WORN · %d EMPTY", worn, empty), trailingIsDot: true) {
+                TrainingHeatGrid(days: days, zone: latestZone)
+                HStack(spacing: 6) {
+                    Text(L("LIGHT")).font(NBFont.dot(700, 10)).foregroundStyle(Color(hex: 0x8A8A96))
+                    ForEach([0.28, 0.47, 0.72, 1.0], id: \.self) { o in
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(NB.lime1.opacity(o))
+                            .frame(width: 20, height: 8)
+                    }
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(NB.ember1)
+                        .frame(width: 20, height: 8)
+                    Text(L("HEAVY")).font(NBFont.dot(700, 10)).foregroundStyle(Color(hex: 0x8A8A96))
+                    Spacer(minLength: 0)
+                    Text(L("DASH · NOT WORN"))
+                        .font(NBFont.dot(700, 10))
+                        .foregroundStyle(Color(hex: 0x8A8A96))
+                }
+            }
+            TrainingIngredientsCard(trailing: L("TYPICAL DAY"), rows: [
+                .init(label: L("HR ZONES 1–3"),
+                      value: durationLine(zoneMinutes(zones, hard: false))),
+                .init(label: L("HR ZONES 4–5"),
+                      value: durationLine(zoneMinutes(zones, hard: true)),
+                      tint: NB.ember1),
+                .init(label: L("STEPS"), value: Fmt.kcal(TrainingWindowMath.typicalSteps(days))),
+                .init(label: L("KCAL EST"), value: Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))),
+                .init(label: L("SESSION DAYS"), value: "\(TrainingWindowMath.sessionDays(days))"),
+            ])
+            CardBlock(title: L("WHAT THE MONTH LOOKED LIKE")) {
+                monthBandRow(L("LIGHT"), counts.light, 30, NB.lime1.opacity(0.33))
+                monthBandRow(L("STEADY"), counts.steady, 30, NB.lime1)
+                monthBandRow(L("HEAVY"), counts.heavy + counts.over, 30, NB.ember1)
+                Hairline()
+                HStack {
+                    Text(L("WEEK BY WEEK"))
+                        .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
+                        .foregroundStyle(NB.text1)
+                    Spacer(minLength: 0)
+                    Text(weekTrend(rolls))
+                        .font(NBFont.dot(700, 11))
+                        .foregroundStyle(NB.lime1)
+                }
+                TrainingWeekBars(values: rolls.map(\.average), average: typical)
+                    .frame(height: 72)
+                HStack {
+                    ForEach(Array(rolls.enumerated()), id: \.offset) { i, roll in
+                        Text(L("W%d %@", i + 1, Fmt.load(roll.average)))
+                            .font(NBFont.dot(500, 9))
+                            .foregroundStyle(i == rolls.count - 1 ? NB.ember1 : Color(hex: 0x8A8A96))
+                        if i < rolls.count - 1 { Spacer(minLength: 0) }
+                    }
+                }
+                Text(L("Four rolling weeks, each one an average of finished days. Empty days stay empty."))
+                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                    .foregroundStyle(NB.text3Prod)
+            }
+            monthMoveCard(days, rolls: rolls)
+        }
+    }
+
+    private func monthMoveCard(_ days: [TrainingDayFacts], rolls: [TrainingWeekRoll]) -> some View {
+        let typical = TrainingWindowMath.typicalSteps(days)
+        let weekSteps = rolls.map { roll in
+            TrainingWindowMath.typicalSteps(days.filter { $0.day >= roll.start && $0.day <= roll.end }) ?? 0
+        }
+        let peak = max(typical ?? 0, weekSteps.max() ?? 0, 1)
+        return CardBlock(title: L("STEPS AND BURN"),
+                         trailing: L("TYPICAL %@", Fmt.kcal(typical)), trailingIsDot: true) {
+            VStack(spacing: 8) {
+                ForEach(Array(rolls.enumerated()), id: \.offset) { i, _ in
+                    let steps = weekSteps[i]
+                    HStack(spacing: 8) {
+                        Text(L("W%d", i + 1))
+                            .font(NBFont.dot(700, 10))
+                            .foregroundStyle(Color(hex: 0x8A8A96))
+                            .frame(width: 26, alignment: .leading)
+                        Capsule()
+                            .fill(i == rolls.count - 1 ? NB.ember1 : NB.lime1.opacity(steps > 0 ? 0.85 : 0.2))
+                            .frame(width: max(8, 200 * CGFloat(steps / peak)), height: 12)
+                        Text(Fmt.kcal(steps > 0 ? steps : nil))
+                            .font(NBFont.dot(700, 11))
+                            .foregroundStyle(i == rolls.count - 1 ? NB.ember1 : NB.macroValue)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+            }
+            HStack {
+                moveStat(L("WORN DAYS"), L("%d OF %d", TrainingWindowMath.wornCount(days), days.count), NB.lime1)
+                moveStat(L("ACTIVE BURN"), L("%@ / DAY", Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))), NB.lime1)
+                moveStat(L("TOTAL EST"), L("%@ / DAY", Fmt.kcal(TrainingWindowMath.typicalTotalKcal(days))), NB.macroValue)
+            }
+            Text(L("Each bar is that week's typical day. Calories stay an estimate, never a measurement."))
+                .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                .foregroundStyle(NB.text3Prod)
+        }
+    }
+
+    private func weekTrend(_ rolls: [TrainingWeekRoll]) -> String {
+        let values = rolls.compactMap(\.average)
+        guard let first = values.first, let last = values.last, values.count >= 2 else {
+            return L("NO TREND YET")
+        }
+        return last >= first ? L("TRENDING UP") : L("TRENDING DOWN")
+    }
+
+    private func monthBandRow(_ label: String, _ count: Int, _ total: Int, _ tint: Color) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(NBFont.dot(700, 10))
+                .foregroundStyle(Color(hex: 0x8A8A96))
+                .frame(width: 52, alignment: .leading)
+            Capsule().fill(tint)
+                .frame(width: max(8, 200 * CGFloat(count) / CGFloat(max(1, total))), height: 14)
+            Text(L("%d DAYS", count))
+                .font(NBFont.dot(700, 11))
+                .foregroundStyle(tint)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    // MARK: shared chrome
+
+    private func ringCard(load: Double?, caption: String, foot: String) -> some View {
         VStack(spacing: 18) {
-            BigTrainingRing(load: m.trainingLoad, target: m.targetLoad, zone: m.optimalZone,
-                            tint: isOver ? NB.ember1 : isStale ? Color(hex: 0x2E6C7A) : NB.cyan1,
-                            heroTint: isStale ? Color(hex: 0x7FA8B0) : nil, over: isOver)
+            BigTrainingRing(load: load, target: range == .day ? m.targetLoad : nil,
+                            zone: range == .day ? m.optimalZone : nil,
+                            tint: isOver && range == .day ? NB.ember1 : isStale && range == .day ? Color(hex: 0x6B7039) : NB.lime1,
+                            heroTint: isStale && range == .day ? Color(hex: 0xB8B46A) : nil,
+                            over: isOver && range == .day,
+                            caption: caption)
                 .frame(width: 200, height: 200)
 
-            // 08 edge cases · every degradation happens here, in place: one status line and its
-            // colour, at most a sentence. No modal, no full-page error, no bounce home.
-            if isStale {
-                EdgeNote(sub: L("AS OF %@", lastSyncClock), line: L("LAST SYNC %@", staleAgo),
-                         text: data.lastSync == nil
-                            ? L("The band has not synced yet. Nothing here is measured.")
-                            : L("The band has been out of range since %@. This is where you were, not where you are.", lastSyncClock))
-            } else if isOver {
-                EdgeNote(line: L("RING FULL · %.1f OVER TARGET", 21 - (m.targetLoad ?? 21)),
-                         text: L("Way past %@. Tomorrow's target will already know about this.", Fmt.load(m.targetLoad)))
-            }
-            Text(L("Daily movement and exercise build this load. Night HRV informs your suggested target. Movement calories are estimates."))
+            if range == .day { dayEdges }
+
+            Text(foot)
                 .font(NBFont.ui(400, 12))
                 .foregroundStyle(NB.text3Prod)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            if autoHROff {
-                EdgeNote(line: L("AUTO HR IS OFF"),
-                         text: L("Steps still contribute to daily load. Enable continuous heart rate to capture exercise intensity."),
-                         action: { router.open(.deviceAutoMonitor, from: .home) })
-            }
-            if gapMinutes >= 60, let g = longestGap {
-                let hours = Int((g.end.timeIntervalSince(g.start) / 3600).rounded())
-                EdgeNote(line: L("NOT ON THE WRIST %@–%@", Fmt.clock(g.start), Fmt.clock(g.end)),
-                         text: hours == 1
-                            ? L("The line goes flat, not up. Whatever happened in those sixty minutes isn't in today's number.")
-                            : L("The line goes flat, not up. Whatever happened in those %d hours isn't in today's number.", hours))
-            }
-
-            VStack(spacing: 11) {
-                Hairline()
-                LegendRow(swatch: .bar(NB.cyan1, 7), label: L("TRAINING NOW"),
-                          labelColor: NB.text1, value: Fmt.load(m.trainingLoad), valueColor: NB.cyan1, bold: true)
-                LegendRow(swatch: .bar(NB.cyan2, 5), label: L("OPTIMAL ZONE"),
-                          labelColor: NB.text2,
-                          value: m.optimalZone.map { String(format: "%.1f – %.1f", $0.lowerBound, $0.upperBound) } ?? Fmt.dash,
-                          valueColor: NB.macroValue, bold: false)
-                LegendRow(swatch: .dot(NB.cyanPale), label: L("TARGET"),
-                          labelColor: NB.text2, value: Fmt.load(m.targetLoad),
-                          valueColor: NB.cyanPale, bold: true)
-                LegendRow(swatch: .bar(Color(hex: 0x33333D), 5), label: L("FULL RING"),
-                          labelColor: NB.text3Prod, value: L("21.0 MAX"),
-                          valueColor: Color(hex: 0x8A8A96), bold: false)
-            }
-            .frame(width: 330)
         }
         .padding(.top, 20)
         .padding(.horizontal, 14)
@@ -172,249 +450,175 @@ struct TrainingDetailView: View {
         .cardSkin()
     }
 
-    /// The night behind this morning's number. HRV is normally absent on iOS, and an absent
-    /// input has to read "——" here as much as it does on 13 — this is the line that earns
-    /// the number above it.
-    private var nightLine: String {
-        let n = m.nightInputs
-        let hrv = n?.hrv.map { L("HRV %d MS", Int($0)) } ?? L("HRV %@", Fmt.dash)
-        let rhr = n?.rhr.map { L("RHR %d BPM", Int($0)) } ?? L("RHR %@", Fmt.dash)
-        let word = m.reserveDrivers.map { L(BodyBattery.chargeWord(Int($0.lastNight.rounded()))) }
-            ?? L("CHARGED OVERNIGHT")
-        return L("%@ · %@ · %@", hrv, rhr, word)
-    }
-
-    /// Where the target sits on a ring that runs to 21. The board prints 69% because its
-    /// day targets 14.5; the number moves with the target, so it is computed.
-    private var ringShare: String {
-        guard let t = m.targetLoad else { return Fmt.dash }
-        return "\(Int((t / 21 * 100).rounded()))%"
-    }
-
-    /// The only line on this card that looks at history rather than at today.
-    /// Today is not in the average — only finished days are.
-    private var sevenDayAverage: Double? {
-        let past = data.history.filter { $0.day < m.day }.suffix(7).compactMap(\.trainingLoad)
-        guard !past.isEmpty else { return nil }
-        return past.reduce(0, +) / Double(past.count)
-    }
-
-    /// A day counts as a session when it spent 20 minutes at Z4 or above — the zone where
-    /// the ring actually moves.
-    private var daysSinceSession: Int? {
-        let past = data.history.filter { $0.day < m.day }.reversed()
-        for (i, day) in past.enumerated() {
-            let hard = (day.zoneMinutes?.dropFirst(3).reduce(0, +)) ?? 0
-            if hard >= 20 { return i + 1 }
+    @ViewBuilder
+    private var dayEdges: some View {
+        if isStale {
+            EdgeNote(sub: L("AS OF %@", lastSyncClock), line: L("LAST SYNC %@", staleAgo),
+                     text: data.lastSync == nil
+                        ? L("The band has not synced yet. Nothing here is measured.")
+                        : L("The band has been out of range since %@. This is where you were, not where you are.", lastSyncClock))
+        } else if isOver {
+            EdgeNote(line: L("RING FULL · %.1f OVER TARGET", 21 - (m.targetLoad ?? 21)),
+                     text: L("Way past %@. Tomorrow's target will already know about this.", Fmt.load(m.targetLoad)))
         }
-        return nil
+        if autoHROff {
+            EdgeNote(line: L("AUTO HR IS OFF"),
+                     text: L("Steps still contribute to daily load. Enable continuous heart rate to capture exercise intensity."),
+                     action: { router.open(.deviceAutoMonitor, from: .home) })
+        }
+        if gapMinutes >= 60, let g = longestGap {
+            let hours = Int((g.end.timeIntervalSince(g.start) / 3600).rounded())
+            EdgeNote(line: L("NOT ON THE WRIST %@–%@", Fmt.clock(g.start), Fmt.clock(g.end)),
+                     text: hours == 1
+                        ? L("The line goes flat, not up. Whatever happened in those sixty minutes isn't in today's number.")
+                        : L("The line goes flat, not up. Whatever happened in those %d hours isn't in today's number.", hours))
+        }
     }
 
-    private var recentWord: String {
-        guard let avg = sevenDayAverage else { return Fmt.dash }
-        guard let zone = m.optimalZone else { return Fmt.load(avg) }
-        if avg < zone.lowerBound { return L("LIGHT") }
-        if avg > zone.upperBound { return L("HEAVY") }
-        return L("STEADY")
-    }
-
-    private var recentDetail: String {
-        let since = daysSinceSession.map {
-            $0 == 1 ? L("%d DAY SINCE YOUR LAST SESSION", $0) : L("%d DAYS SINCE YOUR LAST SESSION", $0)
-        } ?? L("NO SESSION ON RECORD")
-        return L("%@ · 7D AVG %@", since, Fmt.load(sevenDayAverage))
-    }
-
-    /// 03 · a four-link causal chain, in order: this morning's charge → the target on the ring
-    /// → the acceptable band → the recent load. The last line is the only one worth having:
-    /// it looks at history instead of at today.
-    private var whyCard: some View {
-        CardBlock(title: scaled ? L("WHY %@", Fmt.load(m.targetLoad)) : L("WHAT THE RING NEEDS"),
-                  trailing: scaled ? L("%@ DECIDES IT", MetricNames.bodyBattery) : L("0 OF 4 READY")) {
-            VStack(alignment: .leading, spacing: 13) {
-                ReasonLine(dot: NB.optimal2, title: L("%@ THIS MORNING", MetricNames.bodyBattery),
-                           value: m.bbWake.map { "\($0)%" } ?? Fmt.dash, valueColor: NB.optimal2,
-                           detail: scaled ? nightLine : L("ONE NIGHT OF SLEEP ON THE BAND"))
-                ReasonLine(dot: NB.cyanPale, title: L("TARGET ON THE RING"),
-                           value: Fmt.load(m.targetLoad), valueColor: NB.cyanPale,
-                           detail: scaled ? L("%@ LANDS AT %@ OF THE FULL RING", Fmt.pct(m.bbWake), ringShare)
-                                          : L("%@ DECIDES IT — NOTHING TO DECIDE FROM YET", MetricNames.bodyBattery))
-                ReasonLine(dot: NB.cyan2, title: L("OPTIMAL ZONE"),
-                           value: m.optimalZone.map { String(format: "%.1f – %.1f", $0.lowerBound, $0.upperBound) } ?? Fmt.dash,
-                           valueColor: NB.macroValue,
-                           detail: scaled ? L("ANYWHERE IN HERE COUNTS AS HITTING THE DAY")
-                                          : L("THE ZONE MOVES WITH THE TARGET"))
-                ReasonLine(dot: NB.ember1, title: L("RECENT LOAD"),
-                           value: scaled ? recentWord : L("NONE"), valueColor: NB.ember1,
-                           detail: scaled ? recentDetail
-                                          : L("NO SESSIONS ON RECORD · 7D AVG %@", Fmt.dash))
+    private var sessionButton: some View {
+        VStack(spacing: 8) {
+            Button {
+                router.path = [.sportMode]
+            } label: {
+                Text(L("START A SESSION"))
+                    .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
+                    .foregroundStyle(NB.carbon)
+                    .frame(width: NB.Layout.contentWidth, height: 48)
+                    .background(NB.lime1, in: Capsule())
             }
-        }
-    }
-
-    private func detail(for seg: TrainingSegment) -> String {
-        if seg.allDay {
-            let steps = Fmt.kcal(seg.steps.map(Double.init))
-            return L("%@ STEPS · NEVER LEFT Z1", steps)
-        }
-        let mins = seg.minutes.map(Fmt.duration) ?? Fmt.dash
-        let hr = seg.avgHR.map { L("AVG %d BPM", $0) } ?? Fmt.dash
-        return L("%@ · %@", mins, hr)
-    }
-
-    /// 05 · one suggestion, never a list — and it has to be sized to the gap that is
-    /// actually left, not to a number printed on the board.
-    private var suggestion: (title: String, delta: Double) {
-        let gap = max(0, (m.targetLoad ?? 0) - (m.trainingLoad ?? 0))
-        if gap >= 8 { return (L("STRENGTH · 45 MIN"), gap) }
-        if gap >= 3 { return (L("STRENGTH · 30 MIN"), gap) }
-        return (L("EASY WALK · 20 MIN"), gap)
-    }
-
-    /// 04 · the number on the ring must be breakable into parts. The time column is a fixed
-    /// slot so ALL DAY sits in the same lane as a clock time.
-    private var buildCard: some View {
-        CardBlock(title: L("TODAY'S BUILD"),
-                  trailing: scaled
-                    ? (m.segments.count == 1
-                       ? L("%d SOURCE · %@ TOTAL", m.segments.count, Fmt.load(m.trainingLoad))
-                       : L("%d SOURCES · %@ TOTAL", m.segments.count, Fmt.load(m.trainingLoad)))
-                    : L("0 SOURCES · 0.0 TOTAL")) {
-            if scaled && !m.segments.isEmpty {
-                VStack(spacing: 10) {
-                    ForEach(Array(m.segments.enumerated()), id: \.element.id) { i, seg in
-                        if i > 0 { Hairline() }
-                        BuildRow(time: seg.allDay ? L("ALL DAY") : Fmt.clock(seg.at),
-                                 name: seg.name, detail: detail(for: seg),
-                                 delta: "+\(String(format: "%.1f", seg.delta))",
-                                 timeIsLabel: seg.allDay)
-                    }
-                }
-                // 05 · one suggestion, never a list. It sits last and is drawn in a dashed
-                // box so it can't be mistaken for something already done.
-                NextSuggestion(title: suggestion.title,
-                               detail: L("PUTS YOU AT %@ — IN ZONE", Fmt.load(m.targetLoad)),
-                               delta: "+\(String(format: "%.1f", suggestion.delta))")
-            } else {
-                VStack(spacing: 8) {
-                    Text(L("NOTHING HAS COME IN YET"))
-                        .font(NBFont.ui(500, 12)).tracking(0.14 * 12)
-                        .foregroundStyle(NB.text2)
-                    Text(L("WALKS, RIDES, ELEVATED HR AND STEPS ALL LAND HERE ONCE THE BAND IS ON YOUR WRIST"))
-                        .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(4)
-                        .foregroundStyle(NB.text3Prod)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 22)
-                .overlay(RoundedRectangle(cornerRadius: NB.R.tile, style: .continuous)
-                    .strokeBorder(NB.white.opacity(0.14), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
-            }
-        }
-    }
-
-    private var throughTheDayCard: some View {
-        CardBlock(title: L("THROUGH THE DAY"), trailing: L("CUMULATIVE · 0–21")) {
-            CumulativeCurve(target: m.targetLoad ?? 14.5, now: m.trainingLoad ?? 0,
-                            points: m.loadCurve, day: m.day, gaps: gapsInHours)
-                .frame(height: 120)
-            HStack {
-                ForEach(["00", "06", "12", "NOW", "24"], id: \.self) { t in
-                    Text(t == "NOW" ? L("NOW") : t)
-                        .font(NBFont.dot(t == "NOW" ? 700 : 500, 10)).tracking(0.04 * 10)
-                        .foregroundStyle(t == "NOW" ? NB.cyan1 : Color(hex: 0x8A8A96))
-                    if t != "24" { Spacer(minLength: 0) }
-                }
-            }
-        }
-    }
-
-    /// 07 · zone time. ⚠️ Any zone duration is a multiple of 5 — the raw points are 5 minutes apart.
-    private var timeInZoneCard: some View {
-        let mins = m.zoneMinutes ?? [0, 0, 0, 0, 0]
-        let top = max(1, mins.max() ?? 1)
-        let tints = [NB.cyanDeep, NB.cyan1, NB.lime2, NB.ember1, NB.alert2]
-        let hard = mins.dropFirst(3).reduce(0, +)
-        return CardBlock(title: L("TIME IN ZONE"),
-                         trailing: L("%@ ELEVATED", Fmt.duration(mins.reduce(0, +))), trailingIsDot: true) {
-            VStack(spacing: 9) {
-                ForEach(0..<5, id: \.self) { i in
-                    ZoneBar(zone: "Z\(i + 1)", fill: Double(mins[i]) / Double(top),
-                            tint: tints[i], value: Fmt.duration(mins[i]))
-                }
-            }
-            Hairline()
-            Text(L("Z4 AND ABOVE IS WHERE THE RING MOVES FAST — %@ TODAY, AGAINST %@ ON YOUR HARDEST DAY THIS WEEK.", Fmt.duration(hard), Fmt.duration(hardBest)))
-                .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                .lineSpacing(5)
+            .buttonStyle(.plain)
+            Text(L("PICK A MODE · THE BAND RUNS IT"))
+                .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
                 .foregroundStyle(NB.text3Prod)
         }
+        .padding(.top, 6)
     }
 
-    /// The comparison the footnote makes has to be a day that actually happened.
-    private var hardBest: Int {
-        data.history.filter { $0.day < m.day }.suffix(7)
-            .map { ($0.zoneMinutes?.dropFirst(3).reduce(0, +)) ?? 0 }.max() ?? 0
-    }
-
-    /// 08 · it answers "how have I been lately", so it lives at the very bottom.
-    /// Today is not counted into the average; only finished days are.
-    private var thisWeekCard: some View {
-        // Seven days ending today. The average excludes today, because a day in progress
-        // would drag it down every morning and nobody would trust the line.
-        let week = Array(data.history.suffix(7))
-        let values = week.map { $0.trainingLoad ?? 0 }
-        let avg = sevenDayAverage ?? 0
-        let labels = week.map { Fmt.weekday($0.day.date) }
-        return CardBlock(title: L("THIS WEEK"), trailing: L("7D AVG %@", Fmt.load(sevenDayAverage)),
-                         trailingIsDot: true) {
-            WeekBars(values: values, average: avg)
-                .frame(height: 88)
-            HStack {
-                ForEach(Array(labels.enumerated()), id: \.offset) { i, d in
-                    Text(d)
-                        .font(NBFont.dot(i == labels.count - 1 ? 700 : 500, 10))
-                        .foregroundStyle(i == labels.count - 1 ? NB.cyan1 : Color(hex: 0x8A8A96))
-                        .frame(width: 34)
-                    if i < labels.count - 1 { Spacer(minLength: 0) }
-                }
-            }
-        }
-    }
-
-    /// 05 (empty state) · the three gates. Curve, zones and week bars do not hold on day one,
-    /// so they are not drawn empty — only titled, with the condition that unlocks them.
     private var gatesCard: some View {
         VStack(spacing: 0) {
             GateRow(title: L("THROUGH THE DAY"), when: L("AFTER 1 FULL DAY"))
             Hairline()
-            GateRow(title: L("TIME IN ZONE"), when: L("AFTER 1 FULL DAY"))
+            GateRow(title: L("TIME IN EACH ZONE"), when: L("AFTER 1 FULL DAY"))
             Hairline()
-            GateRow(title: L("THIS WEEK"), when: L("AFTER 7 DAYS"))
+            GateRow(title: L("SEVEN DAYS"), when: L("AFTER 7 DAYS"))
         }
         .padding(.horizontal, 14)
         .frame(width: NB.Layout.contentWidth)
+        .cardSkin()
+    }
+
+    private func moveStat(_ label: String, _ value: String, _ tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(NBFont.ui(400, 10)).tracking(0.14 * 10)
+                .foregroundStyle(Color(hex: 0x8A8A96))
+            Text(value)
+                .font(NBFont.dot(700, 15))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func legendDot(_ color: Color, _ text: String) -> some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(color)
+                .frame(width: 10, height: 10)
+            Text(text)
+                .font(NBFont.dot(700, 10))
+                .foregroundStyle(Color(hex: 0x8A8A96))
+        }
+    }
+
+    private func facts(count: Int) -> [TrainingDayFacts] {
+        today.rollingBack(count).map { day in
+            let row = day == today ? m : (data.history.first { $0.day == day } ?? DailyMetrics(day: day))
+            return TrainingDayFacts(
+                day: day,
+                load: row.trainingLoad,
+                target: row.targetLoad,
+                zone: row.optimalZone,
+                zoneMinutes: row.zoneMinutes,
+                steps: row.steps,
+                activeKcal: row.eActive,
+                totalKcal: row.eOutNow,
+                worn: row.worn,
+                isOpen: day == today && !day.isClosed)
+        }
+    }
+
+    private func paddedZones(_ zones: [Int]?) -> [Int] {
+        var mins = zones ?? []
+        while mins.count < 5 { mins.append(0) }
+        return Array(mins.prefix(5))
+    }
+
+    private func durationLine(_ minutes: Int?) -> String {
+        minutes.map(Fmt.duration) ?? Fmt.dash
+    }
+
+    private func zoneMinutes(_ zones: [Double]?, hard: Bool) -> Int? {
+        guard let zones, zones.count >= 5 else { return nil }
+        let slice = hard ? Array(zones.dropFirst(3)) : Array(zones.prefix(3))
+        return Int(slice.reduce(0, +).rounded())
+    }
+
+    private func hourSteps(_ row: DailyMetrics) -> [Double] {
+        let ticks = data.history.first(where: { $0.day == row.day && !$0.vitalsCurve.isEmpty })?.vitalsCurve
+            ?? row.vitalsCurve
+        var bins = Array(repeating: 0.0, count: 12)
+        for tick in ticks {
+            let hour = UserDay.hours(tick.ts, in: row.day)
+            guard hour >= 0, hour < 24, let steps = tick.steps, steps > 0 else { continue }
+            bins[min(11, Int(hour / 2))] += Double(steps)
+        }
+        if bins.allSatisfy({ $0 == 0 }), let steps = row.steps {
+            bins[6] = Double(steps)
+        }
+        return bins
+    }
+
+    private func sessionBin(in bins: [Double]) -> Int? {
+        guard let seg = m.segments.first(where: { !$0.allDay }) else {
+            return bins.enumerated().max(by: { $0.element < $1.element })?.offset
+        }
+        let hour = UserDay.hours(seg.at, in: m.day)
+        guard hour >= 0, hour < 24 else { return nil }
+        return min(11, Int(hour / 2))
     }
 }
 
 struct SegmentedPills: View {
     let options: [String]
     @Binding var selection: String
+
+    static let height: CGFloat = 44
+    private static let inset: CGFloat = 3
+
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: Self.inset) {
             ForEach(options, id: \.self) { o in
-                Button { selection = o } label: {
+                let selected = selection == o
+                Button {
+                    guard !selected else { return }
+                    selection = o
+                } label: {
                     Text(L(o))
-                        .font(NBFont.ui(500, 11)).tracking(0.14 * 11)
-                        .foregroundStyle(selection == o ? NB.text1 : NB.text3Prod)
-                        .padding(.vertical, 7).padding(.horizontal, 17)
-                        .background(selection == o ? NB.barTrack : .clear, in: Capsule())
+                        .font(NBFont.ui(selected ? 600 : 500, 12)).tracking(0.14 * 12)
+                        .foregroundStyle(selected ? NB.text1 : NB.text3Prod)
+                        .frame(maxWidth: .infinity, minHeight: Self.height - Self.inset * 2)
+                        .background(selected ? NB.barTrack : .clear, in: Capsule())
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("range.\(o)")
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
-        .padding(3)
+        .padding(Self.inset)
+        .frame(width: NB.Layout.contentWidth, height: Self.height)
         .background(NB.carbon4, in: Capsule())
         .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
     }
@@ -443,7 +647,6 @@ struct SectionLabel: View {
 }
 
 struct CardBlock<Content: View>: View {
-    // 09 / 10 edges · the card head's qualifier turns amber when it names a degradation.
     let title: String
     var trailing: String? = nil
     var trailingIsDot = false
@@ -472,161 +675,6 @@ struct CardBlock<Content: View>: View {
     }
 }
 
-enum LegendSwatch { case bar(Color, CGFloat), dot(Color) }
-
-struct LegendRow: View {
-    let swatch: LegendSwatch
-    let label: String
-    let labelColor: Color
-    let value: String
-    let valueColor: Color
-    let bold: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 0) {
-                switch swatch {
-                case .bar(let c, let h):
-                    Capsule().fill(c).frame(width: 22, height: h)
-                case .dot(let c):
-                    Circle().fill(c).frame(width: 9, height: 9).padding(.leading, 7)
-                }
-            }
-            .frame(width: 26, alignment: .leading)
-
-            Text(label)
-                .font(NBFont.ui(500, 11)).tracking(0.14 * 11)
-                .foregroundStyle(labelColor)
-            Spacer(minLength: 0)
-            Text(value)
-                .font(NBFont.dot(bold ? 700 : 500, 13)).tracking(0.02 * 13)
-                .foregroundStyle(valueColor)
-                .frame(width: 96, alignment: .trailing)
-        }
-    }
-}
-
-struct ReasonLine: View {
-    let dot: Color
-    let title: String
-    let value: String
-    let valueColor: Color
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 9) {
-                Circle().fill(dot).frame(width: 6, height: 6)
-                Text(title)
-                    .font(NBFont.ui(500, 12)).tracking(0.06 * 12)
-                    .foregroundStyle(NB.text1)
-                Spacer(minLength: 0)
-                Text(value)
-                    .font(NBFont.dot(700, 13)).tracking(0.02 * 13)
-                    .foregroundStyle(valueColor)
-            }
-            Text(detail)
-                .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                .foregroundStyle(NB.text3Prod)
-                .padding(.leading, 15)
-        }
-    }
-}
-
-struct BuildRow: View {
-    let time: String
-    let name: String
-    let detail: String
-    let delta: String
-    var timeIsLabel = false
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(time)
-                .font(timeIsLabel ? NBFont.ui(500, 10) : NBFont.dot(500, 11))
-                .tracking((timeIsLabel ? 0.1 : 0.02) * (timeIsLabel ? 10 : 11))
-                .foregroundStyle(Color(hex: 0x8A8A96))
-                .frame(width: 52, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(NBFont.ui(600, 13))
-                    .foregroundStyle(NB.text1)
-                Text(detail)
-                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                    .foregroundStyle(NB.text3Prod)
-            }
-            Spacer(minLength: 0)
-            Text(delta)
-                .font(NBFont.dot(700, 14)).tracking(0.02 * 14)
-                .foregroundStyle(NB.cyan1)
-                .frame(width: 46, alignment: .trailing)
-        }
-    }
-}
-
-struct NextSuggestion: View {
-    let title: String
-    let detail: String
-    let delta: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(L("NEXT"))
-                .font(NBFont.ui(500, 10)).tracking(0.1 * 10)
-                .foregroundStyle(NB.cyan2)
-                .frame(width: 52, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(NBFont.ui(600, 13))
-                    .foregroundStyle(NB.cyanPale)
-                Text(detail)
-                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                    .foregroundStyle(Color(hex: 0x7FCEDD))
-            }
-            Spacer(minLength: 0)
-            Text(delta)
-                .font(NBFont.dot(700, 14)).tracking(0.02 * 14)
-                .foregroundStyle(NB.cyan1)
-                .frame(width: 46, alignment: .trailing)
-        }
-        .padding(12)
-        .background(Color(hex: 0x0C1A1E), in: RoundedRectangle(cornerRadius: NB.R.tile, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NB.R.tile, style: .continuous)
-            .strokeBorder(NB.cyan1.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
-    }
-}
-
-struct ZoneBar: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let zone: String
-    let fill: Double
-    let tint: Color
-    let value: String
-
-    @State private var grown: Double = 0
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(zone)
-                .font(NBFont.ui(500, 11)).tracking(0.06 * 11)
-                .foregroundStyle(NB.macroLabel)
-                .frame(width: 22, alignment: .leading)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color(hex: 0x1A1A20))
-                    Capsule().fill(tint).frame(width: geo.size.width * grown)
-                }
-            }
-            .frame(height: 8)
-            Text(value)
-                .font(NBFont.dot(500, 11)).tracking(0.02 * 11)
-                .foregroundStyle(NB.macroValue)
-                .frame(width: 56, alignment: .trailing)
-        }
-        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.7)) { grown = fill } }
-    }
-}
-
 struct GateRow: View {
     let title: String
     let when: String
@@ -641,192 +689,5 @@ struct GateRow: View {
                 .foregroundStyle(NB.text3Prod)
         }
         .frame(height: 44)
-    }
-}
-
-/// The 200pt version of the ring. Same ruler, same three lanes.
-struct BigTrainingRing: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let load: Double?
-    let target: Double?
-    let zone: ClosedRange<Double>?
-    /// 08 edges · stale desaturates, over the ring turns amber. The shape never changes.
-    var tint: Color = NB.cyan1
-    var heroTint: Color? = nil
-    var over = false
-    @State private var shown: Double = 0
-
-    var body: some View {
-        ZStack {
-            Circle().strokeBorder(NB.ringTrack, lineWidth: 14)
-                .frame(width: 186, height: 186)
-            RingArc(from: 0, to: shown / 21)
-                .stroke(tint, style: StrokeStyle(lineWidth: 14, lineCap: .round))
-                .frame(width: 172, height: 172)
-            if over {
-                // 08 edge 5 · capped at 21 with a dotted halo, never a second lap.
-                Circle().stroke(NB.ember1.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [2, 6]))
-                    .frame(width: 200, height: 200)
-            }
-            if let zone {
-                RingArc(from: zone.lowerBound / 21, to: zone.upperBound / 21)
-                    .stroke(NB.cyan2, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                    .frame(width: 194, height: 194)
-            }
-            if let target {
-                let a = Angle.degrees(360 * target / 21 - 90)
-                Circle().fill(NB.cyanPale)
-                    .frame(width: 9, height: 9)
-                    .offset(x: 97 * cos(a.radians), y: 97 * sin(a.radians))
-            }
-            VStack(spacing: 6) {
-                Text(Fmt.load(load))
-                    .font(NBFont.dot(700, 46)).tracking(-0.02 * 46)
-                    .foregroundStyle(load == nil ? NB.text3Prod : (heroTint ?? tint))
-                Text(L("OF 21"))
-                    .font(NBFont.ui(500, 11)).tracking(0.22 * 11)
-                    .foregroundStyle(NB.text3Prod)
-            }
-        }
-        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.9)) { shown = load ?? 0 } }
-        // F5 §09 · VoiceOver reads one element — "Training load 14.5 out of 21" — not the arc,
-        // not the percentage, not the dot. The paths underneath are hidden as children.
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(MetricNames.trainingLoad.capitalized) \(Fmt.load(load)) out of 21")
-    }
-}
-
-/// 06 · a cumulative line, never a rate. It only ever rises. The dashed tail after NOW is
-/// the forecast, drawn lighter and recomputed at every sync.
-struct CumulativeCurve: View {
-    let target: Double
-    let now: Double
-    /// The day's own cumulative curve, one point per five-minute tick. Empty before a day
-    /// has settled, in which case the board's illustrative path stands in.
-    var points: [LoadPoint] = []
-    var day: UserDay = UserDay.containing(Date())
-    /// 08 rule 07 · gaps in hours since midnight. Dashed, amber, and the line inside them is
-    /// flat — interpolating would be inventing training.
-    var gaps: [(Double, Double)] = []
-
-    private static let boardPath: [(Double, Double)] = [
-        (0, 0), (5, 0.1), (6.25, 1.9), (7.5, 2.6), (10.1, 3.3),
-        (10.8, 5.3), (12.5, 6.2), (13.75, 8.1), (15, 10.2),
-    ]
-
-    /// x is hours since midnight — the axis under the chart reads 00 · 06 · 12 · NOW · 24,
-    /// so a tick at 04:00 belongs at 4, not at 0.
-    private var path: [(Double, Double)] {
-        guard !points.isEmpty else { return Self.boardPath }
-        let cal = Calendar.current
-        return points.map { p in
-            let midnight = cal.startOfDay(for: day.date)
-            return (p.ts.timeIntervalSince(midnight) / 3600, p.load)
-        }
-    }
-
-    private func pt(_ x: Double, _ y: Double, _ size: CGSize) -> CGPoint {
-        CGPoint(x: size.width * x / 24, y: size.height - 12 - CGFloat(y / 21) * (size.height - 24))
-    }
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let size = geo.size
-            let points = self.path
-            let nowX = points.last?.0 ?? 15
-            let nowPoint = pt(nowX, now, size)
-            let targetY = h - 12 - CGFloat(target / 21) * (h - 24)
-
-            ZStack(alignment: .topLeading) {
-                // the optimal band and the target line
-                Rectangle().fill(NB.cyan2.opacity(0.12))
-                    .frame(height: 14.3)
-                    .offset(y: targetY - 7)
-                Path { p in p.move(to: CGPoint(x: 0, y: targetY)); p.addLine(to: CGPoint(x: w, y: targetY)) }
-                    .stroke(NB.cyanPale.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-                Path { p in p.move(to: CGPoint(x: 0, y: h - 12)); p.addLine(to: CGPoint(x: w, y: h - 12)) }
-                    .stroke(NB.white.opacity(0.10), lineWidth: 1)
-
-                Path { p in
-                    p.move(to: pt(0, 0, size))
-                    for (x, y) in points.dropFirst() { p.addLine(to: pt(x, y, size)) }
-                    p.addLine(to: nowPoint)
-                    p.addLine(to: CGPoint(x: nowPoint.x, y: h - 12))
-                    p.addLine(to: CGPoint(x: 0, y: h - 12))
-                    p.closeSubpath()
-                }
-                .fill(LinearGradient(colors: [NB.cyan1.opacity(0.28), NB.cyan1.opacity(0)],
-                                     startPoint: .top, endPoint: .bottom))
-
-                Path { p in
-                    p.move(to: pt(0, 0, size))
-                    for (x, y) in points.dropFirst() { p.addLine(to: pt(x, y, size)) }
-                    p.addLine(to: nowPoint)
-                }
-                .stroke(NB.cyan1, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-
-                // forecast — always lighter than the measured line
-                Path { p in p.move(to: nowPoint); p.addLine(to: pt(min(23.5, nowX + 2.1), target, size)) }
-                    .stroke(NB.cyan2, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 5]))
-
-                ForEach(Array(gaps.enumerated()), id: \.offset) { _, g in
-                    let y = points.last(where: { $0.0 <= g.0 })?.1 ?? 0
-                    let a = pt(g.0, y, size), b = pt(g.1, y, size)
-                    Path { p in p.move(to: a); p.addLine(to: b) }
-                        .stroke(NB.ember1, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [3, 7]))
-                    Circle().fill(NB.ember1).frame(width: 6.8, height: 6.8).position(a)
-                    Circle().fill(NB.ember1).frame(width: 6.8, height: 6.8).position(b)
-                    Text(L("%dH GAP", Int((g.1 - g.0).rounded())))
-                        .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
-                        .foregroundStyle(NB.ember1.opacity(0.85))
-                        .position(x: (a.x + b.x) / 2, y: a.y + 16)
-                }
-
-                Circle().fill(NB.carbon2).frame(width: 8, height: 8)
-                    .overlay(Circle().stroke(NB.cyan1, lineWidth: 2.5))
-                    .position(nowPoint)
-                Circle().fill(NB.cyanPale).frame(width: 7, height: 7)
-                    .position(pt(min(23.5, nowX + 2.1), target, size))
-
-                Text(L("TARGET %@", String(format: "%.1f", target)))
-                    .font(NBFont.dot(700, 11)).tracking(0.02 * 11)
-                    .foregroundStyle(Color(hex: 0x7FCEDD))
-                    .offset(x: 4, y: targetY - 18)
-            }
-        }
-    }
-}
-
-struct WeekBars: View {
-    let values: [Double]
-    let average: Double
-
-    var body: some View {
-        GeometryReader { geo in
-            let h = geo.size.height
-            ZStack(alignment: .topLeading) {
-                HStack(spacing: 0) {
-                    ForEach(values.indices, id: \.self) { i in
-                        ZStack(alignment: .bottom) {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color(hex: 0x16161B))
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(i == values.count - 1 ? NB.cyan1 : NB.cyan3)
-                                .frame(height: h * CGFloat(min(1, values[i] / 21)))
-                        }
-                        .frame(width: 34, height: h)
-                        if i < values.count - 1 { Spacer(minLength: 0) }
-                    }
-                }
-                Path { p in
-                    let y = h - h * CGFloat(min(1, average / 21))
-                    p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: geo.size.width, y: y))
-                }
-                .stroke(NB.cyanPale.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-            }
-            .clipped()
-        }
     }
 }

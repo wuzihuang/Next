@@ -19,10 +19,11 @@ from it, so one build lays out the same anatomy on every iPhone from the SE to t
   (62) exists only to convert a board Y; `Chrome.boardY(_:)` does that conversion and compresses
   the column on a phone whose safe area is shorter than the board's (the SE).
 - Home is iOS anatomy: a 44pt avatar-and-name header under the status bar, the dock
-  (keyboard · voice · camera) 14pt over the home indicator's safe area — the page dots sit
-  in that lane, one slot for both home pages — the strip above it, and the panel
-  taking the rest. The panel's 358 × 470 widget canvas is centred and scales down as one piece
-  when the panel is shorter than the board's.
+  (keyboard · voice · camera) above the plan lip — chasing lime chevrons, the two
+  page dots, then `PLAN` on the line under them — the strip above the dock, and the panel taking the
+  rest. The Home Indicator is still iOS. The panel's 358 × 470 widget canvas is centred and
+  scales down as one piece when the panel is shorter than the board's.
+- `NB_DEBUG_PLAN=1` opens the plan face after launch.
 - Nothing draws a fake status bar or home indicator; iOS paints both.
 - Every detail page (`DetailScroll`) has one pinned 44pt bar under the status bar: a chevron
   and the page's own name (`‹ DEVICE`). At rest it is glass — the bloom runs through it. As
@@ -58,14 +59,16 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 07 | the render contract · 27 types, 10 renderers, 8 slots | built |
 | 05 | Dock · idle / typing / listening | built, walked on device |
 | 06 | the plus menu and the measurement takeover | built, walked on device |
-| 08 | Training detail · 9 sections | built, walked on device |
-| 09 | Fuel detail · 6 cards + the edit/delete entry | built, walked on device |
+| 08 | Training detail · Paper 08C A DIAL + DAY/WEEK/MONTH (1 / 7 / 30 user days); hero stays 0–21 | built |
+| 09 | Fuel detail · Paper 09H DAY/WEEK/MONTH (1 / 7 / 28 user days); month is a typical day | built |
 | 10 + 10S | Composition, and the manual weigh-in | built, walked on device |
-| 11 | Profile · the year heat map and 13 sheets | built, walked on device |
+| 11 | Profile · 11C Instrument plates (identity / body battery curve / year composition / measurements) and 13 sheets | built from Paper `57U-0` + `13A` |
 | 12 + 12S | Device, and its two sheets | built, walked on device |
-| 13 | Body Battery detail | built, walked on device |
+| 13 | Body Battery detail · Paper 13A/13B A CURVE + DAY/WEEK/MONTH (1 / 7 / 30 user days); hero stays 0–100; lime not violet | built |
 | 04B | Home · page two, the eight instruments | built · swipe reworked (direction lock, no mis-taps), edge states F1–F5, sleepLine strip, PAGE2_* events |
-| 04C | Page two RESPONSE (retired HRV slot) | built · latest food-response point plus rolling 24h line; five-day baseline comparison, compare-amber, PAGE2_RESPONSE_STATE |
+| 04D | Home · plan, the third face | built · B lip + B catalog page from Paper `DX2-0`; local assembly, no `/turn`; empty night stays empty |
+| 04C | Page two RESPONSE (retired HRV slot) | built · dial hero + DAY/WEEK/MONTH rolling windows; day is 30-min envelope, week daily bars, month heat; week/month hero is daily-mean average vs own daytime median (ADR 0012) |
+| 04K | HEART second level | built · Lead layout (ADR 0013): zone dial + DAY/WEEK/MONTH; HRV and overnight SpO2 share the heart clock; week/month hero is the median of daily medians |
 
 04B notes:
 
@@ -107,8 +110,12 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
   `RESPONSE_DETAIL_OPEN`, `PAGE2_CARD_STATE{CARD,STATE}` on
   every page-two open, `PAGE2_NOT_SYNCED{PLATFORM}`, `PAGE2_OFF_WRIST{MIN}` once per user day.
 - The eight detail rulers now name one honest window: SLEEP is the recorded completed night;
-  HEART / RESPONSE / STRESS / TEMP are rolling 24 hours; STEPS / DISTANCE / ACTIVE run from the
-  04:00 user-day boundary to now. Current-day charts end at NOW rather than drawing empty
+  HEART and RESPONSE add DAY/WEEK/MONTH rolling windows (HEART: 30-min envelope on day,
+  one bar a user day on week/month, HRV + overnight SpO2 as same-clock companions — ADR 0013);
+  STRESS / TEMP stay rolling 24 hours; STEPS / DISTANCE / ACTIVE run from the
+  04:00 user-day boundary to now. ACTIVE ENERGY is Paper `HY1-0` (ADR 0016): lime
+  ledger card, day board of five charts, OUT polyline = `FuelWindowMath.burnCurve`
+  (same points as the calories page). Current-day charts end at NOW rather than drawing empty
   future hours, and hourly bars use that same partial-day geometry.
 - A band pull updates the raw in-memory curve before upload and settlement. `Repository.load`
   independently loads 48 hours of `raw_samples`, does not return early when `daily_results`
@@ -244,8 +251,9 @@ so mapping by rawValue silently dropped that one verdict.
   the board asks for once the person is the same.
 - **The Body Battery anchors reproduce exactly**: a 16-hour sedentary waking day spends −58
   against the board's −57.6, and a 7.5-hour night at 22% deep charges +61 against +61.
-- **`——` never becomes `0`.** Today's user day is UNLOGGED in the seed, and the fuel card shows
-  `——/1,900` with `—/145`, `—/195`, `—/60`. The denominators arrive before the numerators,
+- **`——` never becomes `0`.** Unlogged intake stays nil. The home fuel card (Paper 09C)
+  then prints EATEN as ——, keeps the right column silent, and still shows `—/145`,
+  `—/195`, `—/60`. The denominators arrive before the numerators,
   which is the line between "no answer yet" and "broken".
 - **The AI turn.** Typing 今天还能练多少 into the dock rendered
   `剩余负荷 · MOVE · 今日目标负荷14.5，已练2.8，剩余11.7。· 体感电量20` — every number
@@ -1133,29 +1141,20 @@ on the way: in keyboard mode the whole page was being re-proposed 929 pt tall at
 NavigationStack (the root now cancels that shift), and the tray was hanging at the dock's *unlifted*
 frame because the overlay was added after the keyboard `.offset` (the lift now comes last).
 
-⚠️ Vision goes through `qwen3-vl-flash` (`VISION_MODEL_VERSION = qwen3-vl-flash/2026-09`), not the
-mandated qwen3.8-flash — that model had no image input when this was tried. `qwen-vl-plus` looped
-on the JSON schema; the flash model answers a relaxed schema which the function coerces to
-integers and a tier.
-Photo retry policy is still the board's open question; the client retries once per tap.
-
-⚠️ 2026-09-05 · the "no image input" half of that finding is now contradicted by the current
-model page, which lists qwen3.8-flash as Image / Text / Video with the OpenAI-compatible
-`image_url` content part on the same endpoint. There is no `qwen3.8-vl-*`: the standalone VL line
-stopped iterating once the mainline series went natively multimodal, and `qwen3-vl-flash` does not
-support Function Calling in the Singapore region while the mainline model does. ADR 0007 makes
-qwen3.8-flash the single primary model for text, vision and chat, but **`visionModel()` must not
-be removed on the strength of the documentation alone** — the finding above is empirical. Send one
-real photo through qwen3.8-flash first, and record the returned `usage` while doing it: that same
-call is the only measurement we have to calibrate the image-token and per-turn cost estimates in
-ADR 0007, since `usage` is currently never read anywhere in the codebase.
+⚠️ Vision used to go through `qwen3-vl-flash`. The current code path is the
+primary model id (`qwen3.8-flash` unless `DASHSCOPE_MODEL` overrides it): `meal`
+and `turn` `image.inspect` both call `model()`, and there is no `visionModel()`
+wrapper. That is an id unification, not a measured photo bill.
+**Real photo `usage` has still not been recorded against qwen3.8-flash.** Do not
+invent image-token counts or per-turn cost from the model card. The 2026-09-03
+Chat photo run used `qwen3-vl-flash` and is not a substitute measurement.
 
 ### 2026-09-03 · chat attachments now reach vision
 
 The dedicated Chat UI was staging a thumbnail and Base64 data URL, then calling
 `AIService.turn` without either one. The apparent upload could therefore finish while the AI
 received text only. Chat now forwards the request-scoped image to `/turn`; the Edge Function
-runs `image.inspect` with `qwen3-vl-flash`, harvests visible numeric facts into the ledger, and
+runs `image.inspect` with the primary model, harvests visible numeric facts into the ledger, and
 lets the still-enabled Thinking turn render the answer. No image bytes enter `ai_turns`,
 Postgres, or Storage.
 
@@ -1877,3 +1876,46 @@ regressions, and production type-check passed. Live chat checks passed for `2+2`
 queries, and a contextual follow-up; no SSE errors. v31 post-deploy logs showed no errors.
 The repeatable handler runner is `supabase/scripts/dev/chat-regression/run.py` in the hotfix
 worktree.
+
+
+## 2026-09-05 · unified AI workflow (production + connected iPhone)
+
+All text and image requests now enter turn; ASR and its answer share an operation UUID. Keyword food/medical/date routing, source-scope chart filtering, the local 150-call counter, client DEBUG model fallback, and independent meal generation are removed. The retired meal endpoint returns 410; old queued estimates retain their input and require resending.
+
+The model chooses read tools, then signals workflow.ready to draw, with at most one explicit reread and six main-model steps. Each SDK streamText invocation owns exactly one step and carries forward the conversation. Real SDK tests exposed an extra-call race in automatic maxSteps scheduling; explicit steps await usage settlement before opening the next phase. Meal estimates remain drafts, and confirmation submits the displayed fields without another model call.
+
+Trusted accounting migration: 20260905151720_ai_trusted_accounting.sql. Model usage includes cached tokens, fractional costs and ASR seconds; ordinary clients cannot submit accounting dates or costs. This is an accounted-spend gate, not in-flight monetary reservation or provider invoice reconciliation.
+
+Validation: 146 backend tests, 17 pgTAP quota checks and concurrent admission checks passed before release. The 12 real-SDK workflow regressions passed again after fixing production provider compatibility: thinking mode requires toolChoice=auto; server workflow gates still enforce phase order. Preflight errors now identify the failed gate and database error code without returning user data.
+
+Production gkgzwcxivnffsecshvfs: migration 20260905151720 applied; turn v35, asr v8 and retired meal v6 deployed with JWT verification enabled. Live model smoke passed data.read → workflow.ready → screen.render.line (3 model calls, 1 operation admission, 2.186470 fen); replay returned the saved frame without another admission or model charge. meal.estimate → workflow.ready → screen.render.food returned a confirmation-required draft with provenance, without committing a meal. Unauthenticated access returned 401, missing ASR operation ID returned 422, and the retired meal endpoint returned 410. Authenticated clients cannot execute the trusted quota RPC; the old quota RPC is absent. No live microphone/image test was performed.
+
+Release was isolated from concurrent feature work. Backend snapshot /tmp/next-ai-release-20260905 omits wearRun because its database column is not deployed; wear_run and balance_checks migrations were excluded. Previous production function sources are backed up under /tmp/next-ai-release-backup*-20260905. Client snapshot /tmp/next-ai-client-release-k725m71z uses HEAD plus the AI-specific changes; signed Debug iPhone build passed and was installed/launched on zihuang的iPhone against production. This release did not upload to TestFlight or submit to the App Store. See ADR 0011 for the authoritative flow.
+
+## 2026-09-05 · ACTIVE ENERGY is the HY1-0 ledger
+
+Page-two ACTIVE ENERGY and its day board follow Paper `HY1-0`. The home card stays 174
+wide: lime, lived hourly bars, `RESTING + ACTIVE = OUT`. The day page leads with OUT and
+five cards (accumulated, per hour, split, intensity, last 7 days). The accumulated OUT
+polyline is `FuelWindowMath.burnCurve` — the same points the calories page draws, lime
+instead of cyan. Movement splits into SPORT / STEPS / INCIDENTAL on settled active
+energy; vendor tick calories stay out. Arithmetic: `ActiveEnergyMath` +
+`NextBodySyncCoreTests/ActiveEnergyMathTests`.
+
+## 2026-09-05 · consent upgrade no longer strands the bound band offline
+
+Device diagnostics showed successful verification at 16:07 UTC, followed by launches at
+16:23 and 16:58 without any BLE scan. The stored grant was version 1.2.0 while this client
+requires 1.3.0: readiness correctly refused collection, but returning users bypassed the
+onboarding consent screen. Root now presents the missing consent delta; closing it after a
+grant releases the exclusive gate before requesting connection/sync. Declining still stops
+collection. Device SYNC remains visibly available offline, shows connection progress and
+retry errors, and resumes an explicit request after consent only for the same account/band.
+
+Validation: signed device build, 17 readiness/sync/fuel arithmetic tests, and the simulator
+old-grant → consent → decline → Device regression passed. Installed on the connected iPhone;
+its latest preferences contain a granted 1.3.0 decision. Real logs then show verified BLE at
+17:07:40 UTC, successful battery/basic-history/HRV/oxygen reads, and two successful sync
+completions at 17:07:53 and 17:08:00. The unrelated optional readFuncAssessment probe still
+times out; it did not prevent these reads or syncs. The concurrent FuelWindowMath declarations
+were made module-internal to match UserDay and unblock the device build.

@@ -127,10 +127,10 @@ struct WeightRulerSheet: View {
                 Haptics.impact(.light)
             }
         }
-        .alert("Weight", isPresented: $typing) {
+        .alert(L("Weight"), isPresented: $typing) {
             TextField("kg", text: $typed).keyboardType(.decimalPad)
-            Button("Set") { if let d = Double(typed) { draft = unit == "KG" ? d : d / 2.2046226 } }
-            Button("Cancel", role: .cancel) {}
+            Button(L("Set")) { if let d = Double(typed) { draft = unit == "KG" ? d : d / 2.2046226 } }
+            Button(L("Cancel"), role: .cancel) {}
         }
     }
 }
@@ -227,10 +227,10 @@ struct HeightRulerSheet: View {
             }
         }
         .onAppear { draft = value }
-        .alert("Height", isPresented: $typing) {
+        .alert(L("Height"), isPresented: $typing) {
             TextField("cm", text: $typed).keyboardType(.numberPad)
-            Button("Set") { if let d = Double(typed) { draft = d } }
-            Button("Cancel", role: .cancel) {}
+            Button(L("Set")) { if let d = Double(typed) { draft = d } }
+            Button(L("Cancel"), role: .cancel) {}
         }
     }
 

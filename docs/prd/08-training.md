@@ -23,7 +23,9 @@ NOT IN V1: GPS track/pace · manual session entry · custom target · plans/peri
    小时没记到」, once a day.
 08 Every failure degrades in place: the block becomes —— plus one reason line. No modal, no full-page
    error, no bounce home. DEVICE_BUSY / TIMEOUT / network share this rule.
-09 DAY / WEEK / MONTH would be filters of one page (deleted per 1EIH; THIS WEEK covers WEEK).
+09 DAY / WEEK / MONTH are filters of one page (ADR 0015 / Paper 08C A). Same three
+   words as HEART. Month is 30 user days. Week/month heroes are finished-day
+   averages on the 0–21 scale, never sums. Empty days stay empty.
 10 Commands are serial: at most one read in flight (points → sport records → HRV); reuse a running sync.
 11 Home card and this page read the same day result from the same sync; the detail never recomputes.
 
@@ -46,7 +48,9 @@ NOT IN V1: GPS track/pace · manual session entry · custom target · plans/peri
 ! Recovery → target mapping curve undecided (86% → 69% of ring is a placeholder); needs the table and the
   recovery formula (HRV / RHR / sleep weights; missing input → down-weight or no score).
 ! Foundation is auto HR monitoring on (funType=0). Default, pairing-time enable, interval — unconfirmed.
-! Three screens missing: WEEK / MONTH, source second-level detail, in-session screen. Build or disable.
+! Source second-level detail and the in-session screen are still missing. WEEK / MONTH
+  landed as filters of this page (ADR 0015). Build the in-session screen or disable the
+  running-session edge.
 ! iOS HRV reads the local store written by startReadOriginData; empty before sync is normal. Copy must
   say 「还没同步」, not 「暂无数据」.
 ! History depth limited by watchDataDayNumber; THIS WEEK missing days are empty slots, not 0, not in the

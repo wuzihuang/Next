@@ -43,8 +43,8 @@ extension Repository {
     /// "unsupported" both mean the row is not drawn; when something is wrong they are two
     /// completely different problems, and only one of them is the band's fault.
     /// `holdsDays` is the band's saveDays — how many days of history it still carries. It
-    /// travels with the capability row because the backfill and the ON DEVICE fact both
-    /// read it, and a null there made both fall back to a number the app made up.
+    /// travels with the capability row because the first-sync backfill reads it, and a
+    /// null there used to invent a 7. WITH YOU is `devices.bound_at`, not this field.
     func saveCapabilities(_ caps: BandCapabilities, deviceId: String, userId: String,
                           holdsDays: Int? = nil) async {
         var row: [String: Any] = [

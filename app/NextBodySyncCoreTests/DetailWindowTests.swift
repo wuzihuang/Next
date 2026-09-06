@@ -53,6 +53,7 @@ final class DetailWindowTests: XCTestCase {
             .dailyResultsAndHeartTicks(lookback: 6, heartDays: 7))
         XCTAssertEqual(DetailWindow(.composition, .day).load, .composition)
         XCTAssertEqual(DetailWindow(.sleep, .month).load, .none)
+        XCTAssertEqual(DetailWindow(.battery, .day).load, .dailyResults(lookback: 29))
     }
 
     func testRollingBackWalksOldestFirst() {

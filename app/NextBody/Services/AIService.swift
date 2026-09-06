@@ -6,22 +6,14 @@ import os
 /// Vercel AI SDK against qwen3.8-flash; the app never talks to a model directly and never
 /// holds a model key.
 ///
-/// ⚠️ DEBUG only: when the Edge Functions have not been deployed yet, the same prompt,
-/// the same envelope contract and the same validators run here against the DashScope
-/// endpoint, so the flow is demonstrable on a simulator. The frame it produces is marked
-/// provisional and it is compiled out of release builds.
 @MainActor
 final class AIService: ObservableObject {
     static let shared = AIService()
 
     @Published var lastError: String?
-    @Published var dailyCallsUsed = 0
+    @Published private(set) var lastErrorCode: String?
     @Published var thinking = false
     private var activeTurnID: UUID?
-
-    /// F4 · the app is free forever, so the cost ceiling is a rate limit, not a paywall.
-    let hourlyCap = 60
-    let dailyCap = 150
 
     /// The tool she is reading right now, while she reads it. 07 · 16 · the panel says what
     /// it is doing instead of showing a spinner over an empty box.
@@ -52,6 +44,7 @@ final class AIService: ObservableObject {
     /// 1.7 s, looping — so the stream and its ripples can be photographed against the board.
     /// The text is the board's own sample, not a claim about anyone's night.
     func debugPlayThoughts() {
+        guard Band.allowsSeed else { return }
         let script = [
             "Slept 5h12 · 1h40 under your week",
             "HRV 38 → 31 · two nights down",
@@ -74,7 +67,7 @@ final class AIService: ObservableObject {
 
     /// Only acknowledgment and server calculation readiness can promote a pending record.
     /// Local live estimates are never submitted as authoritative health facts.
-    private func prepareFreshness(question: String, day: UserDay, owner: String) async -> [String: Any] {
+    private func prepareFreshness(day: UserDay, owner: String) async -> [String: Any] {
         let kinds = ["meal", "weigh-in", "body-composition", "band-domain", "band-sleep"]
         @MainActor func pendingCount() -> Int? {
             do {
@@ -82,11 +75,9 @@ final class AIService: ObservableObject {
                 return try kinds.reduce(0) { $0 + (try local.operations(account: owner, kind: $1)).count }
             } catch { return nil }
         }
-        let pendingBefore = pendingCount()
         var calculationPending: Bool?
         let status: AIFreshnessStatus
         if !Reachability.shared.isOnline { status = .offline }
-        else if !AIFreshnessPolicy.requiresRefresh(question: question, pending: pendingBefore) { status = .notRequested }
         else {
             status = await AIFreshnessPolicy.prepare {
                 @MainActor func eligible() -> Bool {
@@ -133,10 +124,6 @@ final class AIService: ObservableObject {
     func turn(_ text: String, day: UserDay, store: DataStore,
               imageDataURL: String? = nil, surface: String = "panel",
               history: [[String: String]] = [], conversationID: UUID? = nil, turnID: UUID = UUID()) async -> PanelWidget? {
-        guard dailyCallsUsed < dailyCap else {
-            lastError = L("That was today’s last turn. It resets at 04:00.")
-            return nil
-        }
         #if DEBUG
         let latencyStarted = Date()
         var loggedFirstEvent = false
@@ -145,12 +132,13 @@ final class AIService: ObservableObject {
         os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
             .notice("NB latency · turn start")
         #endif
-        dailyCallsUsed += 1
+        mealDraft = nil
         activeTurnID = turnID
         thinking = true
         thoughts = []
         reading = nil
         lastError = nil
+        lastErrorCode = nil
         defer {
             if activeTurnID == turnID {
                 thinking = false
@@ -165,7 +153,7 @@ final class AIService: ObservableObject {
             lastError = L("Please sign in and allow access to your data.")
             return nil
         }
-        let freshness = await prepareFreshness(question: text, day: day, owner: requestOwner)
+        let freshness = await prepareFreshness(day: day, owner: requestOwner)
         guard activeTurnID == turnID, !Task.isCancelled, ConsentStore.shared.granted,
               SupabaseClient.currentUserIdSnapshot() == requestOwner else { return nil }
 
@@ -231,7 +219,10 @@ final class AIService: ObservableObject {
                     responseFailed = true
                     // A degraded frame is still a frame — S4's absence law, not a failure.
                     if let fb = obj["fallback_frame"] as? [String: Any], frame == nil { frame = fb }
-                    if let reason = obj["reason"] as? String { lastError = reason }
+                    lastErrorCode = obj["code"] as? String
+                    lastError = (obj["fallback_frame"] as? [String: Any])?["sentence"] as? String
+                        ?? obj["reason"] as? String
+                        ?? L("Could not complete that request. Please try again.")
                 default:
                     break
                 }
@@ -243,9 +234,18 @@ final class AIService: ObservableObject {
             os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
                 .notice("NB latency · turn done ms=\(completedMs, privacy: .public)")
             #endif
-            if surface == "chat", responseFailed { return nil }
+            if responseFailed && (surface == "chat" || lastErrorCode == "RATE_LIMITED") { return nil }
             if let frame {
                 let w = widget(from: frame)
+                if !responseFailed, let w, let fields = frame["data"] as? [String: Any],
+                   let draftID = fields["draft_id"] as? String, UUID(uuidString: draftID) != nil,
+                   let macros = fields["macros"] as? [String: Any] {
+                    var output = fields
+                    output["protein_g"] = macros["p"]
+                    output["carb_g"] = macros["c"]
+                    output["fat_g"] = macros["f"]
+                    mealDraft = MealDraft(frameID: w.id, mealID: UUID(), day: day, owner: requestOwner, output: output)
+                }
                 #if DEBUG
                 os.Logger(subsystem: "com.nextbody.hoop", category: "turn")
                     .notice("NB turn · type=\((frame["type"] as? String) ?? "?", privacy: .public) title=\((frame["title"] as? String) ?? "", privacy: .public) sentence=\((frame["sentence"] as? String) ?? "", privacy: .public) decoded=\(w != nil, privacy: .public)")
@@ -255,98 +255,63 @@ final class AIService: ObservableObject {
         } catch {
             guard activeTurnID == turnID else { return nil }
             reading = nil
-            // ⚠️ DEBUG path is simulator-only. On a real phone a failed /turn must not
-            // answer from whatever happens to sit in the store — that is how seed rows
-            // outlive a DB cleanup and keep showing up in the panel.
-            #if DEBUG
-            if surface != "chat", Band.allowsSeed, let local = await debugTurn(text, day: day, store: store) { return local }
-            #endif
-            lastError = error.localizedDescription
+            if case SupabaseClient.Failure.http(let status, let body) = error {
+                let fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
+                lastErrorCode = fields?["error"] as? String
+                if status == 429 {
+                    lastErrorCode = "RATE_LIMITED"
+                    lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
+                        ?? L("Your AI allowance is unavailable. Please try again later.")
+                    return nil
+                }
+                lastError = L("Could not complete that request. Please try again.")
+            } else {
+                lastError = error.localizedDescription
+            }
         }
         return surface == "chat" ? nil : offlineFrame(text)
     }
 
-    /// F4 §02 · the draft the model produced this turn is the only thing that can be
-    /// committed, and the draft's own id is the idempotency key — a retry is a no-op, never
-    /// a second meal. Until this ran, a logged meal lived only in this process.
-    private func commit(entry: MealEntry, out: [String: Any], owner: String) throws {
-        guard SupabaseClient.currentUserIdSnapshot() == owner else { throw LocalDataStore.Failure.invalidOwner }
-        try MealQueue.shared.promoteEstimate(mealID: entry.id, output: out, owner: owner)
+    private struct MealDraft {
+        let frameID: UUID
+        let mealID: UUID
+        let day: UserDay
+        let owner: String
+        let output: [String: Any]
+    }
+    private var mealDraft: MealDraft?
+
+    func canConfirmMeal(frameID: UUID) -> Bool {
+        mealDraft?.frameID == frameID
+            && mealDraft?.owner == SupabaseClient.currentUserIdSnapshot()
     }
 
-    /// Turns "半碗面加一个鸡蛋" into a logged meal.
-    @discardableResult
-    func estimate(entry: MealEntry, into store: DataStore) async -> PanelWidget? {
+    /// Confirmation persists exactly the model-selected tool's draft, without another AI call.
+    func confirmMeal(frameID: UUID, slot: MealEntry.Slot, into store: DataStore) -> PanelWidget? {
+        guard let draft = mealDraft, canConfirmMeal(frameID: frameID), ConsentStore.shared.granted else { return nil }
         do {
-            guard let owner = SupabaseClient.currentUserIdSnapshot() else { throw LocalDataStore.Failure.invalidOwner }
-            let request: [String: Any] = [
-                "text": entry.text,
-                "slot": entry.slot.rawValue,
-                "locale": AppLanguage.locale,
-            ]
-            try MealQueue.shared.beginEstimate(entry: entry, request: request, owner: owner)
-            var pendingEntry = entry
-            pendingEntry.status = .open
-            store.logMeal(pendingEntry)
-            defer { MealQueue.shared.releaseEstimate(entry.id) }
-            let out = try await SupabaseClient.shared.callFunction("meal", payload: request, expectedOwner: owner)
-            guard SupabaseClient.currentUserIdSnapshot() == owner, !Task.isCancelled else { return nil }
-            if let kcal = numberOf(out["kcal"]) {
-                try commit(entry: entry, out: out, owner: owner)
-                store.updateMeal(entry.id, kcal: kcal, text: out["name"] as? String ?? entry.text)
-                store.applyMacros(entry.id, protein: Int(numberOf(out["protein_g"]) ?? 0),
-                                  carb: Int(numberOf(out["carb_g"]) ?? 0), fat: Int(numberOf(out["fat_g"]) ?? 0))
-                return loggedFrame(name: out["name"] as? String ?? entry.text, kcal: kcal, store: store)
+            if draft.day == store.today.day, case .fasted = store.today.fuelState {
+                throw LocalDataStore.Failure.database(L("This day is marked as fasted."))
             }
-        } catch {
-            #if DEBUG
-            if Band.allowsSeed, let local = await debugEstimate(entry: entry, into: store) { return local }
-            #endif
-            lastError = error.localizedDescription
-        }
-        return offlineFrame(entry.text)
-    }
-
-    /// 05 · C · a plate and a caption go as one message. The photo never lands on the page: it
-    /// comes back as the source chip on the answer. The meal is logged the way a typed one is.
-    func photoMeal(image: UIImage, dataURL: String, caption: String, slot: MealEntry.Slot,
-                   into store: DataStore) async -> PanelWidget? {
-        let entry = MealEntry(id: UUID(), day: UserDay.containing(Date()), at: Date(), slot: slot,
-                              status: .confirmed, text: caption, kcal: 0, protein: 0, carb: 0, fat: 0, source: .photo)
-        do {
-            guard let owner = SupabaseClient.currentUserIdSnapshot() else { throw LocalDataStore.Failure.invalidOwner }
-            let request: [String: Any] = ["text": caption, "slot": slot.rawValue, "locale": AppLanguage.locale, "image": dataURL]
-            try MealQueue.shared.beginEstimate(entry: entry, request: request, owner: owner)
-            defer { MealQueue.shared.releaseEstimate(entry.id) }
-            let out = try await SupabaseClient.shared.callFunction("meal", payload: request, expectedOwner: owner)
-            guard SupabaseClient.currentUserIdSnapshot() == owner, !Task.isCancelled else { return nil }
-            guard let kcal = numberOf(out["kcal"]) else { lastError = "\(out["error"] ?? "MODEL_UNAVAILABLE")"; return nil }
-            let name = out["name"] as? String ?? caption
-            let protein = Int(numberOf(out["protein_g"]) ?? 0)
-            try commit(entry: entry, out: out, owner: owner)
+            let output = draft.output
+            let entry = MealEntry(id: draft.mealID, day: draft.day, at: Date(), slot: slot,
+                                  status: .confirmed, text: output["name"] as? String ?? "",
+                                  kcal: 0, protein: 0, carb: 0, fat: 0,
+                                  source: output["source"] as? String == "photo" ? .photo : .typed)
+            let envelope: [String: Any] = ["kind": "estimate", "meal_id": entry.id.uuidString.lowercased(),
+                "body": ["user_day": Self.dayFormatter.string(from: draft.day.start), "slot": slot.rawValue, "name": entry.text]]
+            let operation = LocalOperation(id: entry.id.uuidString.lowercased(), account: draft.owner, kind: "meal",
+                                          payload: try JSONSerialization.data(withJSONObject: envelope))
+            let promoted = try MealOutboxPolicy.promotedEstimate(operation, output: output)
+            guard let fields = try JSONSerialization.jsonObject(with: promoted) as? [String: Any],
+                  let body = fields["body"] as? [String: Any], let kcal = numberOf(body["kcal"]) else { return nil }
+            try MealQueue.shared.enqueueCreate(mealID: entry.id, payload: body, ownerUserId: draft.owner)
             store.logMeal(entry)
-            store.updateMeal(entry.id, kcal: kcal, text: name)
-            store.applyMacros(entry.id, protein: protein,
-                              carb: Int(numberOf(out["carb_g"]) ?? 0), fat: Int(numberOf(out["fat_g"]) ?? 0))
-            let target = store.today.protein?.target ?? 0
-            let eaten = store.today.protein?.eaten ?? protein
-            let left = max(0, target - eaten)
-            let pulled = target > 0
-                ? L("Pulled from photo — PRO %d/%d g · %d g still to place", eaten, target, left)
-                : L("Pulled from photo — %d g protein · %@ kcal", protein, Fmt.kcal(kcal))
-            let footer = target > 0
-                ? (left == 0
-                    ? L("PROTEIN IS CLOSED FOR TODAY")
-                    : L("%d G STILL TO PLACE", left))
-                : L("%@ KCAL ON THE PLATE", Fmt.kcal(kcal))
-            return PanelWidget(
-                type: .meal, title: L("FROM YOUR PHOTO"), tag: .fuel,
-                sentence: (out["answer"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                    ?? L("%d g protein on that plate.", protein),
-                footer: footer, action: nil, targetOverride: .fuel,
-                data: .rows([.init(label: name, value: Fmt.kcal(kcal))]),
-                photo: PhotoAnswer(thumbnail: image, chip: "IMG · PLATE · PARSED OK", quote: caption,
-                                   pulled: pulled, logged: L("LOGGED TO TODAY'S FUEL")))
+            store.updateMeal(entry.id, kcal: kcal, text: entry.text)
+            store.applyMacros(entry.id, protein: Int(numberOf(body["protein_g"]) ?? 0),
+                              carb: Int(numberOf(body["carb_g"]) ?? 0), fat: Int(numberOf(body["fat_g"]) ?? 0))
+            mealDraft = nil
+            return loggedFrame(name: entry.text, kcal: kcal, store: store)
         } catch {
             lastError = error.localizedDescription
             return nil
@@ -369,12 +334,12 @@ final class AIService: ObservableObject {
         case failed(String)
     }
 
-    func beginStreamingTranscription() async -> ASRStreamingSession? {
-        try? await SupabaseClient.shared.asrStreamingSession()
+    func beginStreamingTranscription(operationID: UUID = UUID()) async -> ASRStreamingSession? {
+        try? await SupabaseClient.shared.asrStreamingSession(requestID: operationID)
     }
 
-    func transcribe(_ clip: URL, stream: ASRStreamingSession?) async -> Transcript {
-        guard let stream else { return await transcribe(clip) }
+    func transcribe(_ clip: URL, stream: ASRStreamingSession?, operationID: UUID = UUID()) async -> Transcript {
+        guard let stream else { return await transcribe(clip, operationID: operationID) }
         #if DEBUG
         let latencyStarted = Date()
         #endif
@@ -395,11 +360,11 @@ final class AIService: ObservableObject {
             os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
                 .error("NB latency · asr stream fallback reason=\(reason, privacy: .public)")
             #endif
-            return await transcribe(clip)
+            return await transcribe(clip, operationID: operationID)
         }
     }
 
-    func transcribe(_ clip: URL) async -> Transcript {
+    func transcribe(_ clip: URL, operationID: UUID = UUID()) async -> Transcript {
         #if DEBUG
         let latencyStarted = Date()
         let bytes = (try? FileManager.default.attributesOfItem(atPath: clip.path)[.size] as? NSNumber)?.intValue ?? 0
@@ -409,7 +374,7 @@ final class AIService: ObservableObject {
         defer { try? FileManager.default.removeItem(at: clip) }
         do {
             let out = try await SupabaseClient.shared.uploadFunction(
-                "asr", fileURL: clip, field: "audio", filename: "clip.wav", mime: "audio/wav")
+                "asr", fileURL: clip, field: "audio", filename: "clip.wav", mime: "audio/wav", requestID: operationID)
             #if DEBUG
             let elapsedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
             os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
@@ -424,14 +389,21 @@ final class AIService: ObservableObject {
             let text = (out["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return text.isEmpty ? .silence : .text(text)
         } catch {
-            lastError = error.localizedDescription
+            if case SupabaseClient.Failure.http(let status, let body) = error, status == 429 {
+                let fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
+                lastErrorCode = "RATE_LIMITED"
+                lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
+                    ?? L("Your AI allowance is unavailable. Please try again later.")
+            } else {
+                lastError = L("Could not complete that request. Please try again.")
+            }
             #if DEBUG
             let elapsedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
             os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
                 .error("NB latency · asr failed ms=\(elapsedMs, privacy: .public)")
             NSLog("NB asr · upload failed: \(error)")
             #endif
-            return .failed(error.localizedDescription)
+            return .failed(lastError ?? error.localizedDescription)
         }
     }
 
@@ -592,7 +564,6 @@ final class AIService: ObservableObject {
             let cells = (d["cells"] as? [[Int]])?.flatMap { $0 }
                 ?? (d["cells"] as? [Int])
                 ?? numbers(d["grid"] ?? d["points"]).map { Int($0) }
-                ?? []
             return .cells(rows: (d["rows"] as? Int) ?? 7, cols: (d["cols"] as? Int) ?? 12,
                           values: cells, levels: (d["scale"] as? Int) ?? 4)
         case .strip:
@@ -637,11 +608,10 @@ final class AIService: ObservableObject {
 
     // MARK: honest failure
 
-    /// Offline the app still has to say something true: it logs the words and does not
-    /// invent a number.
+    /// A failed turn has not saved a meal or scheduled another model call.
     private func offlineFrame(_ text: String) -> PanelWidget {
         PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
-                    sentence: L("Noted. It becomes kcal once you're back online."),
+                    sentence: L("Could not complete that request. Please try again."),
                     footer: String(text.prefix(42)), action: nil, data: .none)
     }
 
@@ -650,7 +620,7 @@ final class AIService: ObservableObject {
         return PanelWidget(
             type: .meal, title: L("LOGGED"), tag: .fuel,
             sentence: L("%@ KCAL. %@ LEFT.", Fmt.kcal(kcal), Fmt.kcal(left)),
-            footer: String(name.prefix(42)), action: "OPEN FUEL",
+            footer: String(name.prefix(42)), action: L("OPEN FUEL"),
             data: .rows([.init(label: name, value: Fmt.kcal(kcal))]))
     }
 

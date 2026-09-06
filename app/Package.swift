@@ -89,6 +89,7 @@ let package = Package(
                 "BandHealthLight.swift",
                 "BandPersonalInfoPolicy.swift",
                 "BatteryLog.swift",
+                "BatteryDrainMath.swift",
                 "VitalSample.swift",
                 "VitalsTimelinePolicy.swift",
                 "WearRun.swift",

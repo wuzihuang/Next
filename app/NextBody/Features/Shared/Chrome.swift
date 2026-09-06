@@ -130,6 +130,8 @@ struct BandBatteryPip: View {
 struct Avatar: View {
     var size: CGFloat = 36
     var initials: String
+    /// 11C · the identity plate inks the letters lime; everywhere else they stay white.
+    var ink: Color = NB.text1
 
     var body: some View {
         ZStack {
@@ -138,7 +140,7 @@ struct Avatar: View {
             Text(initials)
                 .font(NBFont.ui(600, size * 0.32))
                 .tracking(0.06 * size * 0.32)
-                .foregroundStyle(NB.text1)
+                .foregroundStyle(ink)
         }
         .frame(width: size, height: size)
     }
@@ -171,6 +173,7 @@ struct HomeHeader: View {
     let initials: String
     let batteryPercent: Int?
     var chargeState: BandBattery.ChargeState = .unknown
+    var flame: WearRun.Flame = .gray
     var width: CGFloat = NB.Layout.contentWidth
     let onProfile: () -> Void
     /// 12 · the band battery is the way into the device page.
@@ -200,6 +203,17 @@ struct HomeHeader: View {
         }
     }
 
+    private var profileLabel: String {
+        switch flame {
+        case .live(let n):
+            return L("Profile · %@ · %d-day wear run", name, n)
+        case .amber:
+            return L("Profile · %@ · wear run broken yesterday", name)
+        case .gray:
+            return L("Profile · %@", name)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             HStack(spacing: 10) {
@@ -209,24 +223,28 @@ struct HomeHeader: View {
                         .font(NBFont.dot(600, 10))
                         .tracking(0.18 * 10)
                         .foregroundStyle(NB.text3Prod)
-                    Text(name)
-                        .font(NBFont.brand(700, 20))
-                        .tracking(-0.01 * 20)
-                        .foregroundStyle(NB.text1)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(name)
+                            .font(NBFont.brand(700, 20))
+                            .tracking(-0.01 * 20)
+                            .foregroundStyle(NB.text1)
+                            .lineLimit(1)
+                        WearFlameMark(flame: flame)
+                            .layoutPriority(1)
+                    }
                 }
             }
             .frame(height: Self.height)
             .contentShape(Rectangle())
             .onTapGesture(perform: onProfile)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Profile · \(name)")
+            .accessibilityLabel(profileLabel)
             .accessibilityAddTraits(.isButton)
             #if DEBUG
             // 07's catalogue is the one board that cannot be audited by using the app,
             // because which widget appears is the model's choice. A long press opens
             // every type at once. DEBUG only — it is not a product surface.
-            .onLongPressGesture(minimumDuration: 0.8) { catalogue = true }
+            .onLongPressGesture(minimumDuration: 0.8) { if Band.allowsSeed { catalogue = true } }
             .fullScreenCover(isPresented: $catalogue) { WidgetCatalogue() }
             #endif
 
@@ -241,6 +259,69 @@ struct HomeHeader: View {
             .accessibilityLabel(pipLabel)
         }
         .frame(width: width, height: Self.height)
+    }
+}
+
+/// ADR 0010 · the flame outline, drawn in a 26 × 34 box and scaled to the frame. It is off
+/// the header's pixel grid on purpose: a 2pt-cell dot matrix this small reads as a blob, and
+/// the notch between the two tongues is the only thing that separates a flame from a drop.
+private struct WearFlameShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 26, sy = rect.height / 34
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * sx, y: rect.minY + y * sy)
+        }
+        var path = Path()
+        path.move(to: p(15, 0.6))
+        path.addCurve(to: p(21, 14.6), control1: p(16.5, 6.2), control2: p(19, 10.2))
+        path.addCurve(to: p(16.5, 30.7), control1: p(23.5, 20), control2: p(22, 27.6))
+        path.addCurve(to: p(2.4, 25), control1: p(11, 33.7), control2: p(4, 31))
+        path.addCurve(to: p(6.6, 13.4), control1: p(1, 19.8), control2: p(4, 16.4))
+        path.addCurve(to: p(8.4, 8.6), control1: p(7.6, 12.2), control2: p(8.2, 10.6))
+        path.addCurve(to: p(13.2, 14.1), control1: p(10, 11.7), control2: p(11.4, 13.1))
+        path.addCurve(to: p(15, 0.6), control1: p(12.6, 9.7), control2: p(13.2, 4.5))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// ADR 0010 · one flame plus an optional count, to the right of the name.
+struct WearFlameMark: View {
+    let flame: WearRun.Flame
+
+    private var tint: Color {
+        switch flame {
+        case .live: return NB.lime1
+        case .amber: return NB.caution2
+        // The same unlit gray the battery shell next to it uses. `barTrack` is a chart
+        // track at 15% and disappears on carbon; two dead marks in one header have to be
+        // the same dead.
+        case .gray: return Color(hex: 0x3A3A44)
+        }
+    }
+
+    private var count: Int? {
+        if case .live(let n) = flame { return n }
+        return nil
+    }
+
+    var body: some View {
+        // ⚠️ No placeholder digit. This used to print "0" at zero opacity inside an 18pt
+        // `minWidth` slot, so the moment the run broke the name carried 18pt of dead space
+        // to its right. ADR 0010 says the gray flame holds the slot — the number does not.
+        HStack(spacing: 4) {
+            WearFlameShape()
+                .fill(tint)
+                .frame(width: 14, height: 18)
+
+            if let count {
+                Text(String(count))
+                    .font(NBFont.dot(700, 11))
+                    .tracking(0.06 * 11)
+                    .foregroundStyle(tint)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -282,6 +363,19 @@ enum ScreenMetrics {
 }
 
 // MARK: detail page chrome · shared by 08 · 09 · 10 · 11 · 12 · 13
+
+/// Invisible 热区 around `‹ TITLE`. Tall enough to hit without drawing a disc.
+enum DetailBack {
+    static let hitHeight: CGFloat = 56
+    static let hitMinWidth: CGFloat = 48
+    static let edgeWidth: CGFloat = 32
+    static let commitFraction: CGFloat = 0.4
+    static let commitVelocity: CGFloat = 300
+
+    static func shouldPop(translation: CGFloat, velocity: CGFloat, width: CGFloat) -> Bool {
+        translation > width * commitFraction || velocity > commitVelocity
+    }
+}
 
 /// Every detail page is one scroll with a coloured bloom behind the top, and **one** title.
 /// At rest it is the headline the boards drew: `‹ TRAINING`, big, the chevron and the word
@@ -404,15 +498,13 @@ struct DetailScroll<Trailing: View, Content: View>: View {
             departingRow
             barGround
             chrome
+                .zIndex(1)
         }
         .coordinateSpace(name: "chrome")
         .onPreferenceChange(TitleCenterKey.self) { restTitleCenter = $0 }
         .ignoresSafeArea(.container, edges: .bottom)
-        .navigationBarBackButtonHidden()
         .toolbar(.hidden, for: .navigationBar)
-        // Custom chrome hides the system back button, which also disables the edge-swipe
-        // pop. A left-edge pan here calls the same `onBack` as the chevron — including
-        // `backToRoot()` — so page-two vitals land back on page two, not a half-popped stack.
+        .navigationBarBackButtonHidden()
         .detailEdgeBack(onBack)
     }
 
@@ -433,7 +525,9 @@ struct DetailScroll<Trailing: View, Content: View>: View {
         let startY = restTitleCenter == .zero ? largeRowCenterY : restTitleCenter.y
         let endX = w / 2
         let endY = barHeight / 2
-        let hitW = mix(titleLeading + largeTitleWidth, 44, t)
+        // At rest the ‹ and the word are one 热区, as the boards drew. Docked, it
+        // shrinks to the mark on the bar's left — never a second disc.
+        let hitW = mix(titleLeading + largeTitleWidth, DetailBack.hitMinWidth, t)
 
         let chevronH = mix(largeChevronH, 13, t)
         let chevronW = 8 * chevronH / 13
@@ -459,10 +553,10 @@ struct DetailScroll<Trailing: View, Content: View>: View {
 
             Button(action: onBack) {
                 Color.white.opacity(0.001)
-                    .frame(width: max(hitW, 44), height: 44)
+                    .frame(width: max(hitW, DetailBack.hitMinWidth), height: DetailBack.hitHeight)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(HotZoneTap(pressedOpacity: 1, pressedScale: 1))
             .accessibilityLabel(L("Back"))
             .accessibilityValue(title)
             .position(x: hitW / 2, y: mix(startY, endY, t))
@@ -598,36 +692,233 @@ private struct TitleCenterKey: PreferenceKey {
     static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) { value = nextValue() }
 }
 
-/// Left-edge swipe → same `onBack` as the chevron. A fixed leading strip takes the
-/// drag; the scroll and the rest of the page stay untouched. Prefer this over re-wiring
-/// `interactivePopGestureRecognizer` from a background VC: that VC often has a nil
-/// `navigationController`, and becoming the gesture's delegate while returning `false`
-/// from `shouldBegin` silently kills the system swipe.
+/// Keep the previous page visible beneath the custom edge drag. NavigationStack's
+/// inactive hosting view is not a drawable backdrop until its route is popped.
 extension View {
-    /// Leading-edge swipe that fires the same action as the page's back chevron.
     func detailEdgeBack(_ action: @escaping () -> Void) -> some View {
-        // Pure SwiftUI — UIKit's screen-edge pan fights ScrollView inside NavigationStack
-        // and the old background-VC enabler often never found the nav controller at all.
-        overlay(alignment: .leading) {
-            Color.clear
-                .frame(width: 32)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .ignoresSafeArea()
-                .highPriorityGesture(
-                    DragGesture(minimumDistance: 12, coordinateSpace: .global)
-                        .onEnded { v in
-                            let dx = v.translation.width
-                            let dy = v.translation.height
-                            // Rightward and mostly horizontal — a vertical flick on the
-                            // strip is still a scroll, not a back.
-                            guard dx > 0, abs(dx) >= abs(dy) else { return }
-                            let predicted = v.predictedEndTranslation.width
-                            if dx > 56 || predicted > 120 { action() }
-                        }
-                )
-                .accessibilityHidden(true)
+        modifier(InteractiveEdgeBack(action: action))
+    }
+}
+
+private struct InteractiveEdgeBack: ViewModifier {
+    let action: () -> Void
+    @EnvironmentObject private var router: Router
+    @State private var x: CGFloat = 0
+    @State private var committing = false
+    @State private var depth = 0
+    @State private var backdrop: UIImage?
+
+    func body(content: Content) -> some View {
+        content
+            .compositingGroup()
+            .offset(x: x)
+            .background {
+                if x > 0, let backdrop {
+                    GeometryReader { geometry in
+                        Image(uiImage: backdrop)
+                            .resizable()
+                            .frame(width: ScreenMetrics.size.width, height: ScreenMetrics.size.height)
+                            .offset(x: -geometry.frame(in: .global).minX,
+                                    y: -geometry.frame(in: .global).minY)
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+            }
+            .background {
+                EdgePanProbe(enabled: !committing && !router.path.isEmpty
+                             && router.sheet == nil && router.takeover == nil,
+                             onChanged: { translation in
+                    var drag = Transaction()
+                    drag.disablesAnimations = true
+                    withTransaction(drag) { x = max(0, translation) }
+                }, onEnded: finish)
+            }
+            .onAppear {
+                depth = router.path.count
+                backdrop = router.returnBackdrop
+                x = 0
+                committing = false
+            }
+    }
+
+    private func finish(_ translation: CGFloat, _ velocity: CGFloat) {
+        let width = ScreenMetrics.size.width
+        guard DetailBack.shouldPop(translation: translation, velocity: velocity, width: width) else {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) { x = 0 }
+            return
         }
+        committing = true
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.90)) {
+            x = width
+        } completion: {
+            var cut = Transaction()
+            cut.disablesAnimations = true
+            withTransaction(cut) {
+                action()
+                // Some back actions change local content (Fuel's past day → today)
+                // rather than removing the page. Leave that page ready for another drag.
+                if router.path.count == depth {
+                    x = 0
+                    committing = false
+                }
+            }
+        }
+    }
+}
+
+/// A window recognizer does not cover the back button's hit target.
+private struct EdgePanProbe: UIViewRepresentable {
+    var enabled: Bool
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (CGFloat, CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        view.onWindow = { context.coordinator.attach(window: $0) }
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        context.coordinator.enabled = enabled
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+    }
+
+    static func dismantleUIView(_ uiView: ProbeView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class ProbeView: UIView {
+        var onWindow: ((UIWindow?) -> Void)?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            onWindow?(window)
+        }
+    }
+
+    final class Coordinator {
+        var enabled = false
+        var onChanged: (CGFloat) -> Void = { _ in }
+        var onEnded: (CGFloat, CGFloat) -> Void = { _, _ in }
+        private var listener: EdgeBackGate.Listener?
+
+        func attach(window: UIWindow?) {
+            detach()
+            guard let window else { return }
+            listener = EdgeBackGate.shared.push(window: window,
+                enabled: { [weak self] in self?.enabled ?? false },
+                onChanged: { [weak self] in self?.onChanged($0) },
+                onEnded: { [weak self] in self?.onEnded($0, $1) })
+        }
+
+        func detach() {
+            if let listener { EdgeBackGate.shared.pop(listener) }
+            listener = nil
+        }
+    }
+}
+
+private final class EdgeBackGate: NSObject, UIGestureRecognizerDelegate {
+    static let shared = EdgeBackGate()
+
+    final class Listener {
+        let enabled: () -> Bool
+        let onChanged: (CGFloat) -> Void
+        let onEnded: (CGFloat, CGFloat) -> Void
+        init(enabled: @escaping () -> Bool, onChanged: @escaping (CGFloat) -> Void,
+             onEnded: @escaping (CGFloat, CGFloat) -> Void) {
+            self.enabled = enabled
+            self.onChanged = onChanged
+            self.onEnded = onEnded
+        }
+    }
+
+    private weak var window: UIWindow?
+    private var pan: LeftEdgePan?
+    private var listeners: [Listener] = []
+    private var owner: Listener?
+
+    func push(window: UIWindow, enabled: @escaping () -> Bool,
+              onChanged: @escaping (CGFloat) -> Void,
+              onEnded: @escaping (CGFloat, CGFloat) -> Void) -> Listener {
+        let listener = Listener(enabled: enabled, onChanged: onChanged, onEnded: onEnded)
+        listeners.append(listener)
+        if self.window !== window || pan == nil {
+            if let pan { self.window?.removeGestureRecognizer(pan) }
+            let pan = LeftEdgePan(target: self, action: #selector(handle(_:)))
+            pan.maximumNumberOfTouches = 1
+            pan.cancelsTouchesInView = true
+            pan.delaysTouchesBegan = false
+            pan.delaysTouchesEnded = false
+            pan.delegate = self
+            window.addGestureRecognizer(pan)
+            self.pan = pan
+            self.window = window
+        }
+        return listener
+    }
+
+    func pop(_ listener: Listener) {
+        listeners.removeAll { $0 === listener }
+        if listeners.isEmpty {
+            if let pan { window?.removeGestureRecognizer(pan) }
+            pan = nil
+            window = nil
+            owner = nil
+        }
+    }
+
+    @objc private func handle(_ gesture: UIPanGestureRecognizer) {
+        guard let view = gesture.view else { return }
+        let dx = max(0, gesture.translation(in: view).x)
+        switch gesture.state {
+        case .began:
+            owner = listeners.last { $0.enabled() }
+            owner?.onChanged(dx)
+        case .changed:
+            owner?.onChanged(dx)
+        case .ended:
+            let current = owner
+            owner = nil
+            current?.onEnded(dx, gesture.velocity(in: view).x)
+        case .cancelled, .failed:
+            let current = owner
+            owner = nil
+            current?.onEnded(0, 0)
+        default: break
+        }
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard listeners.last?.enabled() == true,
+              let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else { return false }
+        let velocity = pan.velocity(in: view)
+        return velocity.x > 0 && velocity.x >= abs(velocity.y)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        // A recognized edge drag owns the touch, including row/button recognizers.
+        true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
+    }
+}
+
+private final class LeftEdgePan: UIPanGestureRecognizer {
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        guard let touch = touches.first, let view else { return }
+        if touch.location(in: view).x > DetailBack.edgeWidth { state = .failed }
     }
 }
 
@@ -636,6 +927,7 @@ extension View {
 struct BackChevron: View {
     var height: CGFloat = 13
     var line: CGFloat = 1.6
+    var color: Color = NB.macroLabel
     var body: some View {
         let s = height / 13
         Path { p in
@@ -643,7 +935,7 @@ struct BackChevron: View {
             p.addLine(to: CGPoint(x: 1.5 * s, y: 6.5 * s))
             p.addLine(to: CGPoint(x: 7 * s, y: 12 * s))
         }
-        .stroke(NB.macroLabel, style: StrokeStyle(lineWidth: line, lineCap: .square))
+        .stroke(color, style: StrokeStyle(lineWidth: line, lineCap: .square))
         .frame(width: 8 * s, height: height)
     }
 }

@@ -62,6 +62,7 @@ enum HomeSnapshot {
         var live: LiveVitals
         var profile: Profile
         var lastSync: Date?
+        var boundAt: Date? = nil
         var batteryPercent: Int?
         var firmware: String
         var netFatMass12w: Double?
@@ -257,6 +258,7 @@ enum HomeSnapshot {
             live: store.vitals,
             profile: store.profile,
             lastSync: store.lastSync,
+            boundAt: store.boundAt,
             batteryPercent: store.band.batteryPercent,
             firmware: store.band.firmware,
             netFatMass12w: store.netFatMass12w,
@@ -343,6 +345,7 @@ enum HomeSnapshot {
         store.netLeanMass12w = payload.netLeanMass12w
         store.bodyFatPercent = payload.bodyFatPercent
         store.recentMeals = payload.recentMeals
+        if let boundAt = payload.boundAt { store.boundAt = boundAt }
 
         func restored(_ m: DailyMetrics) -> DailyMetrics {
             var result = payload.details?.last(where: { $0.dayKey == m.day.key })?.restore(m) ?? m

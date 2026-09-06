@@ -21,6 +21,7 @@ export const METRICS = [
   "ecg",
   "activeMinutes",
   "dayDistance",
+  "wearRun",
 ] as const;
 export const metricRequestSchema = z.object({
   metrics: z.array(z.enum(METRICS)).min(1).max(8),
@@ -47,78 +48,155 @@ export type MetricDefinition = {
   timestamp?: boolean;
   timestampColumn?: string;
   unsupported?: boolean;
-  origin?: MetricOrigin;
-  grain?: MetricGrain;
+  origin: MetricOrigin;
+  grain: MetricGrain;
   measuredAtColumn?: string;
   says?: string;
+  checksStale?: boolean;
+  clipToSleep?: boolean;
+  bucketMinutes?: number;
+  agg?: "mean" | "sum";
+  maxDays?: number;
+  absentZero?: boolean;
 };
-export const definitions: Record<Metric, MetricDefinition> = {
+export const TICK_METRICS = [
+  "skinTemp",
+  "tickHrv",
+  "vendorCalories",
+  "distance",
+] as const;
+export type TickMetric = typeof TICK_METRICS[number];
+export const DATA_METRICS = [...METRICS, ...TICK_METRICS] as const;
+export type DataMetric = typeof DATA_METRICS[number];
+export const MAX_TICK_DAYS = 2;
+export const MAX_DAY_SPAN = 366;
+export const definitions: Record<DataMetric, MetricDefinition> = {
   trainingLoad: {
     table: "daily_results",
     column: "training_load",
     unit: "load",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
   },
-  bodyBattery: { table: "daily_results", column: "reserve_score", unit: "%" },
+  bodyBattery: {
+    table: "daily_results",
+    column: "reserve_score",
+    unit: "%",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
+  },
   intakeKcal: {
     table: "daily_results",
     column: "kcal_in",
     nested: "day_fuel",
     unit: "kcal",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
   },
   burnKcal: {
     table: "daily_results",
     column: "kcal_out",
     nested: "day_fuel",
     unit: "kcal",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
   },
   deltaKcal: {
     table: "daily_results",
     column: "fuel_balance_kcal",
     unit: "kcal",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
   },
   proteinG: {
     table: "daily_results",
     column: "protein_in_g",
     nested: "day_fuel",
     unit: "g",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
   },
   weight: {
     table: "weigh_ins",
     column: "weight_kg",
     unit: "kg",
     timestamp: true,
+    origin: "measured",
+    grain: "measurement",
+    measuredAtColumn: "measured_at",
+    maxDays: MAX_DAY_SPAN,
   },
   bodyFatPct: {
     table: "body_composition",
     column: "body_fat_pct",
     unit: "%",
     timestamp: true,
+    origin: "derived",
+    grain: "measurement",
+    measuredAtColumn: "measured_at",
+    maxDays: MAX_DAY_SPAN,
   },
   leanMassKg: {
     table: "body_composition",
     column: "lean_body_mass_kg",
     unit: "kg",
     timestamp: true,
+    origin: "derived",
+    grain: "measurement",
+    measuredAtColumn: "measured_at",
+    maxDays: MAX_DAY_SPAN,
   },
   nightHRV: {
     table: "daily_results",
     column: "hrv",
     nested: "reserve_daily",
     unit: "ms",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
   },
   hrvBaseline: {
     table: "daily_results",
     column: "hrv_base",
     nested: "reserve_daily",
     unit: "ms",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
   },
   nightRHR: {
     table: "daily_results",
     column: "rhr",
     nested: "reserve_daily",
     unit: "bpm",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
   },
-  sleepMinutes: { table: "sleep_nights", column: "total_minutes", unit: "min" },
+  sleepMinutes: {
+    table: "sleep_nights",
+    column: "total_minutes",
+    unit: "min",
+    origin: "measured",
+    grain: "day",
+    measuredAtColumn: "wake_at",
+    maxDays: MAX_DAY_SPAN,
+  },
   bloodOxygen: {
     table: "oxygen_samples",
     column: "spo2",
@@ -128,6 +206,8 @@ export const definitions: Record<Metric, MetricDefinition> = {
     origin: "measured",
     grain: "measurement",
     measuredAtColumn: "ts",
+    clipToSleep: true,
+    maxDays: MAX_DAY_SPAN,
     says: "Overnight automatic SpO2. Not a daytime reading and not an apnea grade.",
   },
   bloodPressure: {
@@ -135,9 +215,17 @@ export const definitions: Record<Metric, MetricDefinition> = {
     column: "",
     unit: "mmHg",
     unsupported: true,
+    origin: "unknown",
     grain: "measurement",
   },
-  ecg: { table: "unsupported", column: "", unit: "mV", unsupported: true, grain: "measurement" },
+  ecg: {
+    table: "unsupported",
+    column: "",
+    unit: "mV",
+    unsupported: true,
+    origin: "unknown",
+    grain: "measurement",
+  },
   activeMinutes: {
     table: "daily_results",
     column: "active_minutes",
@@ -145,6 +233,8 @@ export const definitions: Record<Metric, MetricDefinition> = {
     unit: "min",
     origin: "derived",
     grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
     says: "Minutes where movement reached moderate intensity. Not training load.",
   },
   dayDistance: {
@@ -154,10 +244,98 @@ export const definitions: Record<Metric, MetricDefinition> = {
     unit: "m",
     origin: "derived",
     grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
     says: "Settled distance for the user day, in metres.",
   },
+  wearRun: {
+    table: "daily_results",
+    column: "wear_run",
+    unit: "days",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
+    absentZero: true,
+    says:
+      "Consecutive worn days ending on this user day. Null when the run is not live. A count, never a streak to keep.",
+  },
+  skinTemp: {
+    table: "raw_samples",
+    column: "temp",
+    unit: "°C",
+    timestamp: true,
+    timestampColumn: "ts",
+    origin: "measured",
+    grain: "tick",
+    measuredAtColumn: "ts",
+    bucketMinutes: 30,
+    agg: "mean",
+    maxDays: MAX_TICK_DAYS,
+    says: "Wrist skin temperature in °C. Not core body temperature.",
+  },
+  tickHrv: {
+    table: "raw_samples",
+    column: "hrv",
+    unit: "ms",
+    timestamp: true,
+    timestampColumn: "ts",
+    origin: "measured",
+    grain: "tick",
+    measuredAtColumn: "ts",
+    bucketMinutes: 30,
+    agg: "mean",
+    maxDays: MAX_TICK_DAYS,
+    says: "RMSSD in ms for this tick, from the band's RR intervals.",
+  },
+  vendorCalories: {
+    table: "raw_samples",
+    column: "cal",
+    unit: "kcal",
+    timestamp: true,
+    timestampColumn: "ts",
+    origin: "measured",
+    grain: "tick",
+    measuredAtColumn: "ts",
+    bucketMinutes: 120,
+    agg: "sum",
+    maxDays: MAX_TICK_DAYS,
+    says:
+      "Wrist-reported calories for the tick. Not the product burn (day_fuel.kcal_out) and not a title of 消耗.",
+  },
+  distance: {
+    table: "raw_samples",
+    column: "dis",
+    unit: "m",
+    timestamp: true,
+    timestampColumn: "ts",
+    origin: "measured",
+    grain: "tick",
+    measuredAtColumn: "ts",
+    bucketMinutes: 120,
+    agg: "sum",
+    maxDays: MAX_TICK_DAYS,
+    says: "Distance in metres for the tick.",
+  },
 };
-function dailyResultsSelect(metrics: Metric[]): string {
+
+export async function pageRows(
+  fetchPage: (
+    offset: number,
+  ) => PromiseLike<{ data: unknown[] | null; error: unknown }>,
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  for (let offset = 0;; offset += 1000) {
+    if (offset >= 100_000) throw Error("RANGE_TOO_DENSE");
+    const { data, error } = await fetchPage(offset);
+    if (error) throw Error("QUERY_FAILED");
+    const page = (data ?? []) as Row[];
+    rows.push(...page);
+    if (page.length < 1000) break;
+  }
+  return rows;
+}
+function dailyResultsSelect(metrics: readonly Metric[]): string {
   const cols = new Set([
     "user_day",
     "id",
@@ -190,7 +368,7 @@ function dailyResultsSelect(metrics: Metric[]): string {
   return select;
 }
 
-function stampColumn(def: MetricDefinition): string {
+export function stampColumn(def: MetricDefinition): string {
   return def.timestampColumn ?? "measured_at";
 }
 
@@ -198,6 +376,49 @@ function validDay(day: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(Date.parse(day)) &&
     new Date(day).toISOString().slice(0, 10) === day;
 }
+async function clipSleepWindows(
+  ctx: Ctx,
+  metrics: readonly Metric[],
+  tables: Map<string, Row[]>,
+  from: string,
+  to: string,
+) {
+  const clipped = metrics.filter((metric) => definitions[metric].clipToSleep);
+  if (clipped.length === 0) return;
+  const nights = (await pageRows((offset) =>
+    ctx.db.from("sleep_nights")
+      .select("sleep_start,wake_at")
+      .eq("user_id", ctx.userId)
+      .gte("user_day", from)
+      .lte("user_day", to)
+      .order("user_day")
+      .range(offset, offset + 999)
+  )).flatMap((row) => {
+    if (typeof row.sleep_start !== "string" || typeof row.wake_at !== "string") {
+      return [];
+    }
+    return [{ start: row.sleep_start, end: row.wake_at }];
+  });
+  if (nights.length === 0) return;
+  for (const metric of clipped) {
+    const def = definitions[metric];
+    const stamp = stampColumn(def);
+    const rows = tables.get(def.table) ?? [];
+    tables.set(
+      def.table,
+      rows.filter((row) => {
+        const ts = Date.parse(String(row[stamp] ?? ""));
+        if (!Number.isFinite(ts)) return false;
+        return nights.some((night) => {
+          const lo = Date.parse(night.start);
+          const hi = Date.parse(night.end);
+          return Number.isFinite(lo) && Number.isFinite(hi) && ts >= lo && ts < hi;
+        });
+      }),
+    );
+  }
+}
+
 async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
   const { from, to } = request, tz = request.timezone ?? ctx.tz;
   if (
@@ -231,13 +452,11 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
         tables.set(def.table, []);
         continue;
       }
-      const rows: Row[] = [];
-      for (let offset = 0;; offset += 1000) {
-        if (offset >= 100000) throw Error("RANGE_TOO_DENSE");
-        const stamp = stampColumn(def);
-        const select = def.table === "daily_results"
-          ? dailyResultsSelect(request.metrics)
-          : "*";
+      const stamp = stampColumn(def);
+      const select = def.table === "daily_results"
+        ? dailyResultsSelect(request.metrics)
+        : "*";
+      const rows = await pageRows((offset) => {
         let q = ctx.db.from(def.table).select(select).eq("user_id", ctx.userId);
         q = def.timestamp
           ? q.gte(stamp, dayBounds(from, tz).start.toISOString()).lt(
@@ -249,14 +468,11 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
         const paged = def.timestamp && stamp === "measured_at"
           ? ordered.order("id")
           : ordered;
-        const { data, error } = await paged.range(offset,offset+999);
-        if (error) throw Error("QUERY_FAILED");
-        const page = (data ?? []) as unknown as Row[];
-        rows.push(...page);
-        if (page.length < 1000) break;
-      }
+        return paged.range(offset, offset + 999);
+      });
       tables.set(def.table, rows);
     }
+    await clipSleepWindows(ctx, request.metrics, tables, from, to);
     const data = await Promise.all(request.metrics.map(async (metric) => {
       const def = definitions[metric], rows = tables.get(def.table)!;
       const value = (r: Row) => {
@@ -266,7 +482,9 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
           ? one(r[def.nested])
           : r;
         const v = parent[def.column];
-        return typeof v === "number" && Number.isFinite(v) ? v : null;
+        const n = typeof v === "number" && Number.isFinite(v) ? v : null;
+        if (n === 0 && def.absentZero) return null;
+        return n;
       };
       const by = new Map(rows.map((r) => [String(r.user_day), value(r)]));
       const revisions = new Map(
@@ -332,11 +550,9 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
         rows.map((r) => r[key]).filter((v): v is string =>
           typeof v === "string" && Number.isFinite(Date.parse(v))
         ).sort().at(-1) ?? null;
-      const derived = def.origin === "derived" ||
-        (def.origin == null &&
-          (def.table === "daily_results" || def.table === "body_composition"));
+      const derived = def.origin === "derived";
       const partial = !def.timestamp && present.length < days.length;
-      const stale = (def.table === "daily_results") &&
+      const stale = Boolean(def.checksStale) &&
         before.some((r: Row) => r.pending === true);
       // The evidence revision identifies the exact queried values, metric, unit and interval.
       const signature = JSON.stringify({
@@ -387,9 +603,7 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
             : partial
             ? "partial"
             : "complete",
-          origin: def.unsupported
-            ? "unknown"
-            : def.origin ?? (derived ? "derived" : "measured"),
+          origin: def.origin,
           actualRange: present.length
             ? { from: present[0].dayKey, to: present.at(-1)!.dayKey }
             : null,
@@ -407,10 +621,7 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
             }))
             : null,
           computedAt: timestamp("computed_at"),
-          measuredAt: timestamp(
-            def.measuredAtColumn ??
-              (def.table === "sleep_nights" ? "wake_at" : stampColumn(def)),
-          ),
+          measuredAt: timestamp(def.measuredAtColumn ?? stampColumn(def)),
           uploadedAt: timestamp("collected_at"),
           collectionCoverage: def.timestamp
             ? "unknown"

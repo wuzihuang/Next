@@ -53,6 +53,7 @@ struct Dock: View {
                     focused = mode == .keyboard
                 }
             }) { KeyboardGlyph() }
+            .accessibilityLabel(L("AI COACH"))
             // 05M · B·03 · while the chamber owns the lane both side keys fade out and stop
             // taking hits; a recording has two gestures, and a third tappable thing is a leak.
             .opacity(mode == .listening ? 0 : 1)

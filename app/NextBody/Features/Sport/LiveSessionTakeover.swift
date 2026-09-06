@@ -181,7 +181,7 @@ struct LiveSessionTakeover: View {
                     .foregroundStyle(NB.white.opacity(0.42))
             }
         }
-        .accessibilityLabel("Elapsed \(elapsed(to: Date()))")
+        .accessibilityLabel(L("Elapsed %@", elapsed(to: Date())))
     }
 
     /// The two wrist numbers, each in its own fixed column so they stay put as the digits

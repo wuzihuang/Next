@@ -1,5 +1,13 @@
 # 09 · 燃料详情 Fuel — rules, edges, before-ship (mirrored 2026-09-01)
 
+> **2026-09-05 · Paper 09H / ADR 0014.** This page has DAY / WEEK / MONTH again.
+> Day is the clock plus one ungrouped food table. Week is a 7-day total.
+> Month is four weeks spoken as a typical day (28 user days), never a monthly
+> sum and never a heat grid. The six-card layout, OPEN meal chairs, and the
+> "DAY/WEEK/MONTH deleted" line below are historical. Training is unchanged.
+> `LOG A MEAL` is an ember state on the food card; tapping it opens a plate
+> (Profile `SheetFrame` chrome, page pressed down).
+
 ## Hard rules
 01 Unknown has one spelling: ——. Only inline values under 14 px (—/145, — G PRO) fall back to one dash.
 02 Budget bar range is fixed 0 → today's target. Over target: bar stops at 100%, `660 LEFT` becomes
@@ -18,8 +26,9 @@
    coexist with the device's 0:00 day (F7 settles: raw table has no date column; user-day at query time).
 09 Week bars colour only closed days; today is a half-height dashed bar until CONFIRMED. Fasted days
    (confirmed intake < BMR×0.5) go in the ledger, not the trend; own colour.
-10 This page never grows an input box: LOG A MEAL, an OPEN slot, a logged meal all open the dock with
-   context prefilled.
+10 `LOG A MEAL` is an ember state on the food card. Tapping it (or a row you can still
+   edit) opens a plate over the pressed-down page — Profile `SheetFrame` / `FieldBox`,
+   not a field grown into the page itself. Dock voice logging still works.
 
 ## Edge cases · 05 「缺哪一块就画哪一块的 ——，别整卡消失」
 1 PARTIAL — EATEN TODAY `2 MEALS · NOT CLOSED` (amber) · 990 /1,900 KCAL shown · BALANCE ——.
@@ -39,7 +48,7 @@
 ! Sync chain: serial pulls; failure never clears data; card head carries LAST SYNCED HH:MM; disconnected
   OUT freezes at last sync, never drops to 0.
 ! MARK AS FASTED at the foot of the logged FOOD card (or per-slot 「没吃」).
-! DAY/WEEK/MONTH deleted (1EIH). ! FOOD card claims ESTIMATED once, or rounds to 10 kcal.
+! DAY/WEEK/MONTH restored (09H / ADR 0014): rolling 1 / 7 / 28 user days; month is a typical day. ! FOOD card claims ESTIMATED once, or rounds to 10 kcal.
 ! Empty-state ENERGY BALANCE treatment undecided. ! NO TARGET screen (built: NoTargetFuel).
 ! Wear hours: SDK has no continuous wear state; OUT trust derives from synced activity coverage.
 ! Events: FUEL_DETAIL_OPEN{STATE} · FUEL_SEG_TAP{SEG} · MEAL_SLOT_TAP{SLOT,STATE} · FUEL_LOG_START{ENTRY}

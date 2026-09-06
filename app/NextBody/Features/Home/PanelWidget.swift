@@ -329,7 +329,7 @@ struct PanelWidgetView: View {
 
             // Slot 8 · action
             if let action = widget.action {
-                Text(action.uppercased())
+                Text(L(action).uppercased())
                     .font(NBFont.dot(500, 10.5)).tracking(0.16 * 10.5)
                     .foregroundStyle(widget.accent)
                     .frame(width: 358, alignment: .center)
@@ -393,7 +393,7 @@ struct PanelWidgetView: View {
                 .frame(width: Slot.sentence.width, alignment: .center)
                 .offset(x: Slot.sentence.minX, y: 352)
             if let action = widget.action {
-                Text(action.uppercased())
+                Text(L(action).uppercased())
                     .font(NBFont.dot(500, 10.5)).tracking(0.16 * 10.5)
                     .foregroundStyle(widget.accent)
                     .frame(width: 358, alignment: .center)
@@ -456,7 +456,7 @@ struct PanelWidgetView: View {
                 let row = present[i]
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 0) {
-                        Text(row.0)
+                        Text(L(row.0))
                             .font(NBFont.dot(600, 10)).tracking(0.14 * 10)
                             .foregroundStyle(row.2)
                         Spacer(minLength: 0)
@@ -640,7 +640,7 @@ struct PanelWidgetView: View {
             Text(widget.hero ?? Fmt.dash)
                 .font(NBFont.brand(700, 66)).tracking(-0.045 * 66)
                 .foregroundStyle(NB.lime1)
-            Text(c.heroSub.uppercased())
+            Text(L(c.heroSub).uppercased())
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                 .foregroundStyle(NB.white.opacity(0.39))
         }
@@ -686,7 +686,7 @@ struct PanelWidgetView: View {
             }
             if let action = widget.action {
                 Button(action: go) {
-                    Text(action.uppercased())
+                    Text(L(action).uppercased())
                         .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
                         .foregroundStyle(NB.lime1.opacity(0.85))
                         .frame(width: 318, height: 28)
@@ -861,7 +861,7 @@ struct PanelWidgetView: View {
     /// 08 · a ring's centre is the percentage; a gauge's and the battery's is the reading.
     private var arcLabel: String {
         switch widget.data {
-        case .ring(let v, let g, let u) where widget.type == .ring && g > 0:
+        case .ring(let v, let g, _) where widget.type == .ring && g > 0:
             return "\(Int((v / g * 100).rounded()))%"
         case .ring(let v, _, let u):
             return u == "%" ? "\(Fmt.kg(v, decimals: 0))%" : Fmt.kg(v, decimals: 0)

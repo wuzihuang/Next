@@ -1,2 +1,8 @@
+NSBluetoothAlwaysUsageDescription = "NextBody connects to your band to read heart rate, steps and sleep.";
+NSBluetoothPeripheralUsageDescription = "NextBody connects to your band to read heart rate, steps and sleep.";
 NSCameraUsageDescription = "Photograph your meal so NextBody can log the food.";
+NSHealthShareUsageDescription = "HOOP reads your sex, date of birth, height and weight from Health to set up your baseline. It never writes to Health, and never shares this data.";
+NSMicrophoneUsageDescription = "Talk to NextBody instead of typing.";
+NSMotionUsageDescription = "Count steps when your band is out of range.";
 NSPhotoLibraryUsageDescription = "Pick a photo of your meal so NextBody can log the food.";
+NSSpeechRecognitionUsageDescription = "Turn what you say into a logged meal.";

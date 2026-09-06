@@ -80,8 +80,17 @@ struct HomeView: View {
     @State private var swiping = false
     /// Direction lock, SpringBoard-style: the first points of travel decide the axis for the
     /// whole touch, so a mostly-vertical flick never becomes a page turn halfway through.
-    @State private var dragAxis: Axis?
+    private enum HomeDrag { case horizontal, plan, dead }
+    /// One owner per touch. The first points lock the axis: sideways turns the two
+    /// home pages, an upward pull on the lip opens the plan face, anything else dies.
+    @State private var homeDrag: HomeDrag?
     @State private var pageTwoSince: Date?
+    /// 0 = closed (below the screen), −height = open. The plan face is not a Destination.
+    @State private var planY: CGFloat = 0
+    @State private var planYAtTouch: CGFloat = 0
+    @State private var planDragDy: CGFloat = 0
+    @State private var planOpenedThisLaunch = false
+    @State private var planFaceCache: PlanFaceMath.Face?
 
     // MARK: geometry · the page is laid out against the device, not against the board's
     // 390 × 844. Header under the status bar, dock over the home indicator, the strip above
@@ -94,7 +103,8 @@ struct HomeView: View {
     /// the dock's foot, measured from the bottom edge of the screen. 04B · it rides clear of
     /// the page dots' lane (which sits on the home-indicator edge), so the voice key is not
     /// crowded by the dots.
-    private var dockBottom: CGFloat { safe.bottom + 20 }
+    /// Lip is chevron + page dots + PLAN above the Home Indicator; the dock sits above that lane.
+    private var dockBottom: CGFloat { safe.bottom + 60 }
     /// On a short phone the panel is smaller than the board's canvas and the widget scales
     /// down inside it (AIPanel); on a tall one it grows. The strip and the dock never change.
     private var panelHeight: CGFloat {
@@ -109,6 +119,7 @@ struct HomeView: View {
     private var pagingEnabled: Bool {
         firstRun.dockVisible && !plusOpen && keyboard.height == 0 && dockMode == .idle
             && liveSession.session == nil
+            && (abs(planY) < 1 || homeDrag == .plan)
     }
     /// 04 · when the panel's resting face gets to hold the band. On page one with nothing
     /// over it, the readout runs and the HR / STRESS row is the wrist measuring now instead
@@ -123,6 +134,7 @@ struct HomeView: View {
             && router.path.isEmpty && router.takeover == nil
             && widget == nil && !plusOpen && keyboard.height == 0 && dockMode == .idle
             && liveSession.session == nil
+            && abs(planY) < 40
             && data.band.connected && ConsentStore.shared.granted
     }
     /// 04B · page two is the one cover that does not end the session on the spot. Tearing it
@@ -140,138 +152,184 @@ struct HomeView: View {
     private var liveReadoutWanted: Bool {
         liveReadoutAllowed && (router.homePage == 0 || readoutHeldOnPageTwo)
     }
-    /// 04B · from the panel's top to 12 pt over the dots' lane; the page's own foot carries
-    /// LAST TICK. The dots themselves are furniture, drawn by the root, not by the page.
-    /// Dots sit on the home-indicator lip (not above it), so the gap under the dock is real air.
-    private var pageDotsLane: CGFloat { max(4, safe.bottom - 2) }
-    private var pageTwoHeight: CGFloat { screen.height - panelTop - pageDotsLane - 12 }
+    /// 04D · chevron, the two page dots, then PLAN, just above the Home Indicator.
+    private var planLipLane: CGFloat { safe.bottom + 52 }
+    private var pageTwoHeight: CGFloat { screen.height - panelTop - planLipLane - 12 }
+    private var planOpen: Bool { planY <= -screen.height + 1 }
+    private var planFlatten: CGFloat { CGFloat(PlanFaceMath.flatten(translation: Double(planDragDy))) }
+    private var planMotionReduced: Bool {
+        reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
+    private var planLipPlaying: Bool {
+        PlanFaceMath.hintPlaying(openedThisLaunch: planOpenedThisLaunch,
+                                 reduceMotion: planMotionReduced)
+    }
+    private var planFace: PlanFaceMath.Face {
+        planFaceCache ?? PlanSnapshot.make(
+            today: data.today, history: data.history, scores: data.sleepScores)
+    }
 
-    var body: some View {
-        // The panel is one view for the whole ceremony: it starts as the entire screen and
-        // folds to 358 × 470 at ◇7. Everything else is laid out around the space it leaves.
+    /// Named so Home's ZStack does not type-check the eight-card page inline.
+    private var instrumentsPage: some View {
+        VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
+                   sleepScore: data.sleepScores[data.today.day.key],
+                   mealResponsePoints: data.mealResponsePoints,
+                   mealResponseZerosToday: data.mealResponseZerosToday,
+                   width: columnWidth, height: pageTwoHeight,
+                   onOpen: { metric in
+                       Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": metric.cardKey]) }
+                       router.open(.vitals(metric), from: .home)
+                   })
+            .frame(width: columnWidth, height: pageTwoHeight, alignment: .top)
+            .offset(x: screen.width + NB.Layout.gutter + pageShift, y: panelTop)
+            .opacity(firstRun.dockVisible ? 1 : 0)
+            .allowsHitTesting(!swiping && planY == 0)
+            .zIndex(1)
+    }
+
+    private var planLipLayer: some View {
+        PlanLip(pageFade: pageFade, playing: planLipPlaying, flatten: planFlatten,
+                armed: homeDrag == .plan, reduceMotion: planMotionReduced)
+            .frame(width: screen.width, height: 64, alignment: .bottom)
+            .contentShape(Rectangle())
+            .highPriorityGesture(planOpenGesture)
+            .offset(y: screen.height - planLipLane - 16)
+            .opacity(firstRun.dockVisible && homeDrag != .horizontal && !planOpen ? 1 : 0)
+            .allowsHitTesting(firstRun.dockVisible && !planOpen)
+            .zIndex(2)
+    }
+
+    private var planOpenGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                if homeDrag == nil {
+                    homeDrag = .plan
+                    planYAtTouch = planY
+                    if planFaceCache == nil { refreshPlanFace() }
+                    Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "PLAN"]) }
+                }
+                guard homeDrag == .plan else { return }
+                planDragDy = value.translation.height
+                planY = min(0, max(-screen.height, planYAtTouch + value.translation.height))
+                swiping = true
+            }
+            .onEnded { value in
+                swiping = false
+                homeDrag = nil
+                settlePlan(translation: value.translation.height, velocity: value.velocity.height,
+                           opening: true)
+            }
+    }
+
+    @ViewBuilder
+    private var planPageLayer: some View {
+        if abs(planY) > 0.5 {
+            PlanPage(face: planFace, flatten: planFlatten, reduceMotion: planMotionReduced,
+                     closeEnabled: planOpen,
+                     onCloseDragChanged: { dy in
+                         planDragDy = dy
+                         planY = min(0, max(-screen.height, -screen.height + dy))
+                     },
+                     onCloseDragEnded: { dy, vel in
+                         settlePlan(translation: dy, velocity: vel, opening: false)
+                     })
+                .frame(width: screen.width, height: screen.height)
+                .offset(y: screen.height + planY)
+                .zIndex(5)
+        }
+    }
+
+    private var homeCanvas: some View {
         ZStack(alignment: .topLeading) {
             page
-                // 05 · A · with the keyboard up the dock rides over the panel's foot, so the page
-                // draws above the panel for exactly as long as the keyboard is there.
-                // 05M · B·03 · and for as long as the chamber is open: its scrim has to fall
-                // over the panel too, and the scrim is drawn behind the dock, inside the page.
                 .zIndex(keyboard.height > 0 || dockMode == .listening ? 2 : 0)
-                .allowsHitTesting(!swiping)
+                .allowsHitTesting(!swiping && planY == 0)
             panel
-                // C01 · the panel dims behind the field while typing.
                 .overlay(Color(hex: 0x09090B).opacity(keyboard.height > 0 ? 0.55 : 0).allowsHitTesting(false))
-                .allowsHitTesting(!swiping)
-
-            // 04C · the second page rides in from the right, one column wide, at the panel's
-            // top. Eight cards and not one read of the band — it is the same ticks laid out
-            // another way. Night HRV sits on the sleep page; RESPONSE occupies the old HRV slot.
-            VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
-                       mealResponsePoints: data.mealResponsePoints,
-                       mealResponseZerosToday: data.mealResponseZerosToday,
-                       width: columnWidth, height: pageTwoHeight,
-                       onOpen: { metric in
-                           Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": metric.cardKey]) }
-                           router.open(.vitals(metric), from: .home)
-                       })
-                .frame(width: columnWidth, height: pageTwoHeight, alignment: .top)
-                .offset(x: screen.width + NB.Layout.gutter + pageShift, y: panelTop)
-                .opacity(firstRun.dockVisible ? 1 : 0)
-                .allowsHitTesting(!swiping)
-                .zIndex(1)
-            // 04B rule 02 · one lane for both pages' dots: on the home-indicator lip
-            // (bottom − max(4, safe.bottom − 2)). Furniture — the lane never moves and the
-            // dots never slide; the handover is the two sets crossfading in place, so a
-            // mid-drag frame never shows two pairs at two x positions.
-            PageDots(current: 0)
-                .frame(width: screen.width)
-                .offset(y: screen.height - pageDotsLane)
-                .opacity(firstRun.dockVisible ? pageFade : 0)
-                .allowsHitTesting(false)
-                .zIndex(1)
-            PageDots(current: 1)
-                .frame(width: screen.width)
-                .offset(y: screen.height - pageDotsLane)
-                .opacity(firstRun.dockVisible ? 1 - pageFade : 0)
-                .allowsHitTesting(false)
-                .zIndex(1)
-
-            // 06 · 02–06 · the menu is a bottom sheet: it rises from the bottom edge, over
-            // the dock, and nothing behind it is dimmed. A darkened page turns the menu into
-            // a modal interrogation; this is a drawer you pull open and push back down.
-            // Three routes out, one 0.22 s ease-in: swipe it down, tap above it, tap ×.
-            if plusOpen {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .ignoresSafeArea()
-                    .onTapGesture { closePlus() }
-                    .transition(.opacity)
-                    .zIndex(3)
-                PlusMenuSheet(inline: true, onClose: { closePlus() },
-                              onCamera: { openCamera(afterMenu: true, sendFood: true) },
-                              onLibrary: { showPicker = true })
-                    // The sheet keeps the dock's own gutters for its rows, and its ground runs
-                    // to the screen's edges — a bottom sheet that stops short of them is a card.
-                    .padding(.horizontal, NB.Layout.gutter - 8)
-                    .padding(.top, 10)
-                    .padding(.bottom, safe.bottom + 10)
-                    .frame(width: screen.width)
-                    .background {
-                        UnevenRoundedRectangle(topLeadingRadius: NB.R.panel, topTrailingRadius: NB.R.panel, style: .continuous)
-                            .fill(NB.carbon2)
-                            .overlay(
-                                UnevenRoundedRectangle(topLeadingRadius: NB.R.panel, topTrailingRadius: NB.R.panel, style: .continuous)
-                                    .stroke(NB.hairline, lineWidth: 1))
-                    }
-                    .overlay(alignment: .top) {
-                        Capsule().fill(NB.white.opacity(0.18)).frame(width: 36, height: 4).padding(.top, 8)
-                    }
-                    // The finger takes it down 1:1 and it springs back if the pull was short.
-                    .offset(y: max(0, sheetDrag))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .ignoresSafeArea(edges: .bottom)
-                    .gesture(
-                        DragGesture(minimumDistance: 6)
-                            .onChanged { v in sheetDrag = max(0, v.translation.height) }
-                            .onEnded { v in
-                                if v.translation.height + v.predictedEndTranslation.height > 120 { closePlus() }
-                                else { withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { sheetDrag = 0 } }
-                            })
-                    .transition(.move(edge: .bottom))
-                    .zIndex(4)
-            }
-
-            // 14 · LIVE SESSION · the panel grown over everything for as long as the band
-            // runs a sport mode. It grows from the panel's own frame and folds back into it,
-            // and what it folds back with lands on the panel as one widget (06 rule 09).
-            if liveSession.session != nil {
-                LiveSessionTakeover(
-                    panelFrame: CGRect(x: NB.Layout.gutter, y: panelTop, width: columnWidth, height: panelHeight),
-                    screen: screen,
-                    onFolded: { summary in
-                        liveSession.end()
-                        if let summary {
-                            withAnimation(.spring(response: 0.50, dampingFraction: 0.80)) { widget = summary }
-                        }
-                    })
-                    .zIndex(6)
-            }
+                .allowsHitTesting(!swiping && planY == 0)
+            instrumentsPage
+            planLipLayer
+            plusSheetLayer
+            liveSessionLayer
+            planPageLayer
         }
-        // 05 · A·04 · 「键盘升起，版式一格都不动」. ⚠️ Inside the navigation stack the keyboard
-        // still re-proposed this view 119 pt taller and 119 pt higher, whatever safe-area
-        // modifier sat above it; every ignoresSafeArea(.keyboard) placement was tried. So the
-        // page reads where the container put it and puts itself back: only the dock moves.
-        // ADR-0001 · 手势所有权: high priority so a recognized drag cancels any control under it.
-        // As a simultaneous gesture the drag coexisted with the button's touch and lift-off
-        // landed as a tap (fuel card drag → fuel detail). The !swiping gate below stays: it
-        // still guards touches that BEGAN mid-swipe, which precedence does not cover.
-        .highPriorityGesture(pageGesture, including: pagingEnabled ? .all : .subviews)
+    }
+
+    @ViewBuilder
+    private var plusSheetLayer: some View {
+        if plusOpen {
+            Color.clear
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+                .onTapGesture { closePlus() }
+                .transition(.opacity)
+                .zIndex(3)
+            PlusMenuSheet(inline: true, onClose: { closePlus() },
+                          onCamera: { openCamera(afterMenu: true, sendFood: true) },
+                          onLibrary: { showPicker = true })
+                .padding(.horizontal, NB.Layout.gutter - 8)
+                .padding(.top, 10)
+                .padding(.bottom, safe.bottom + 10)
+                .frame(width: screen.width)
+                .background {
+                    UnevenRoundedRectangle(topLeadingRadius: NB.R.panel, topTrailingRadius: NB.R.panel, style: .continuous)
+                        .fill(NB.carbon2)
+                        .overlay(
+                            UnevenRoundedRectangle(topLeadingRadius: NB.R.panel, topTrailingRadius: NB.R.panel, style: .continuous)
+                                .stroke(NB.hairline, lineWidth: 1))
+                }
+                .overlay(alignment: .top) {
+                    Capsule().fill(NB.white.opacity(0.18)).frame(width: 36, height: 4).padding(.top, 8)
+                }
+                .offset(y: max(0, sheetDrag))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(edges: .bottom)
+                .gesture(
+                    DragGesture(minimumDistance: 6)
+                        .onChanged { v in sheetDrag = max(0, v.translation.height) }
+                        .onEnded { v in
+                            if v.translation.height + v.predictedEndTranslation.height > 120 { closePlus() }
+                            else { withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { sheetDrag = 0 } }
+                        })
+                .transition(.move(edge: .bottom))
+                .zIndex(4)
+        }
+    }
+
+    @ViewBuilder
+    private var liveSessionLayer: some View {
+        if liveSession.session != nil {
+            LiveSessionTakeover(
+                panelFrame: CGRect(x: NB.Layout.gutter, y: panelTop, width: columnWidth, height: panelHeight),
+                screen: screen,
+                onFolded: { summary in
+                    liveSession.end()
+                    if let summary {
+                        withAnimation(.spring(response: 0.50, dampingFraction: 0.80)) { widget = summary }
+                    }
+                })
+                .zIndex(6)
+        }
+    }
+
+    var body: some View {
+        homeLifecycle
+    }
+
+    private var homeGestured: some View {
+        homeCanvas
+            .highPriorityGesture(pageGesture, including: pagingEnabled ? .all : .subviews)
+    }
+
+    private var homeRouting: some View {
+        homeGestured
         .onChange(of: router.homePage) { _, p in
             // The page can also be set from outside the gesture — a detail page returning the
             // user to the page they left. The offset follows it there, without an animation:
             // the turn's own spring has already put `pageX` where it belongs before it sets
             // this, so this only fires for a jump the user did not make with their finger.
             let want = -CGFloat(p) * screen.width
-            if dragAxis == nil, pageX != want { pageX = want }
+            if homeDrag == nil, pageX != want { pageX = want }
             // 04 · the readout is handed to page two for `pageTwoReadoutGrace`, and only if it
             // was actually running — the grace holds a session open, it never opens one.
             readoutHold?.cancel()
@@ -295,9 +353,6 @@ struct HomeView: View {
                 Task { await Analytics.shared.track("HOME_PAGE2_DWELL", ["MS": ms]) }
             }
         }
-        // Backgrounding is never graced: the hold is a page turn's, and a page turn happens
-        // with the app on screen. Without this, coming back to a foreground on page two would
-        // find the window still open and read the wrist behind the instruments.
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active else { return }
             readoutHold?.cancel()
@@ -306,7 +361,6 @@ struct HomeView: View {
         }
         .onChange(of: router.measuredWidget) { _, w in
             guard let w else { return }
-            // 06 · G·03 / F05 · 0.5S · SPRING 0.80 — the reading lands in the panel it grew from.
             withAnimation(.spring(response: 0.50, dampingFraction: 0.80)) { widget = w }
             router.measuredWidget = nil
         }
@@ -317,6 +371,10 @@ struct HomeView: View {
             withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { dockMode = .keyboard }
             router.dockPrefill = nil
         }
+    }
+
+    private var homeLifecycle: some View {
+        homeRouting
         .offset(y: -rootShift)
         .background(GeometryReader { g in
             Color.clear
@@ -371,6 +429,12 @@ struct HomeView: View {
             // both sets of dots hold exactly where a 45 % drag would leave them.
             if ProcessInfo.processInfo.environment["NB_DEBUG_HOME_PAGE"] == "1" {
                 router.homePage = 1
+            }
+            if ProcessInfo.processInfo.environment["NB_DEBUG_PLAN"] == "1" {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    openPlan(fromIdle: true)
+                }
             }
             if let f = debugDragFraction, router.homePage == 0, pageX == 0 {
                 pageX = -min(1, f) * screen.width
@@ -633,9 +697,11 @@ struct HomeView: View {
                        onDismissWidget: { dismissWidget() }) { target in
             // 06 · 17 · a fresh measurement answers a tap with a message, not a page.
             if let q = widget?.replyPrompt { handleSend(q) }
-            else if let a = widget?.action, a.contains("确认记录") || a.localizedCaseInsensitiveContains("confirm"),
-                    let sent = lastSent {
-                confirmMeal(sent.text, day: sent.day)
+            else if let w = widget,
+                    let a = w.action,
+                    a.contains("确认记录") || a.localizedCaseInsensitiveContains("confirm"),
+                    ai.canConfirmMeal(frameID: w.id) {
+                confirmMeal(w)
             } else { router.open(target, from: .home) }
         }
         .offset(x: full ? 0 : NB.Layout.gutter + pageShift,
@@ -651,44 +717,106 @@ struct HomeView: View {
     /// width or faster than 300 pt/s it turns the page; otherwise it springs back. Both
     /// directions share one spring, and nothing on the page animates once it has landed.
     /// While the finger is down and moving sideways nothing else on either page is tappable
-    /// (`swiping`), and a touch that started out vertical never turns a page (`dragAxis`).
+    /// (`swiping`), and a touch that started out vertical never turns a page (`homeDrag`).
     private var pageGesture: some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { v in
                 let dx = v.translation.width, dy = v.translation.height
-                if dragAxis == nil {
-                    dragAxis = abs(dx) >= abs(dy) ? .horizontal : .vertical
-                    // The 12 pt the recognizer spent deciding are not travel: the base is set
-                    // back by them so the first drawn frame is exactly where the finger is.
-                    if dragAxis == .horizontal { pageXAtTouch = pageX - dx }
+                if homeDrag == nil {
+                    if abs(dx) >= abs(dy) {
+                        homeDrag = .horizontal
+                        pageXAtTouch = pageX - dx
+                        Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "H"]) }
+                    } else {
+                        let lip = v.startLocation.y >= screen.height - safe.bottom - CGFloat(PlanFaceMath.lipHotZone)
+                        if planY != 0 || lip {
+                            homeDrag = .plan
+                            planYAtTouch = planY
+                            if planFaceCache == nil { refreshPlanFace() }
+                            Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "PLAN"]) }
+                        } else {
+                            homeDrag = .dead
+                            Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "DEAD"]) }
+                        }
+                    }
                 }
-                guard dragAxis == .horizontal else { return }
-                // No overscroll: the root stops at its own two positions.
-                pageX = min(0, max(-screen.width, pageXAtTouch + dx))
-                swiping = true
+                switch homeDrag {
+                case .horizontal:
+                    pageX = min(0, max(-screen.width, pageXAtTouch + dx))
+                    swiping = true
+                case .plan:
+                    planDragDy = dy
+                    planY = min(0, max(-screen.height, planYAtTouch + dy))
+                    swiping = true
+                case .dead, nil:
+                    break
+                }
             }
             .onEnded { v in
-                let dx = v.translation.width
-                let horizontal = dragAxis != .vertical
                 let from = router.homePage
+                let drag = homeDrag
                 swiping = false
-                dragAxis = nil
-                guard horizontal else { pageX = -CGFloat(from) * screen.width; return }
-                let far = abs(dx) > screen.width * 0.4
-                let fast = abs(v.velocity.width) > 300
-                var target = from
-                if from == 0, dx < 0, far || fast { target = 1 }
-                if from == 1, dx > 0, far || fast { target = 0 }
-                // The spring moves the offset and nothing else. `homePage` is set outside it,
-                // because no position is drawn from it — so it cannot land a frame late.
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
-                    pageX = -CGFloat(target) * screen.width
-                }
-                if target != from {
-                    router.homePage = target
-                    Task { await Analytics.shared.track("HOME_PAGE_SWIPE", ["DIR": target == 1 ? "right" : "left", "MS": 350]) }
+                homeDrag = nil
+                switch drag {
+                case .plan:
+                    settlePlan(translation: v.translation.height, velocity: v.velocity.height,
+                               opening: planYAtTouch > -screen.height / 2)
+                case .horizontal:
+                    let dx = v.translation.width
+                    let far = abs(dx) > screen.width * 0.4
+                    let fast = abs(v.velocity.width) > 300
+                    var target = from
+                    if from == 0, dx < 0, far || fast { target = 1 }
+                    if from == 1, dx > 0, far || fast { target = 0 }
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                        pageX = -CGFloat(target) * screen.width
+                    }
+                    if target != from {
+                        router.homePage = target
+                        Task { await Analytics.shared.track("HOME_PAGE_SWIPE", ["DIR": target == 1 ? "right" : "left", "MS": 350]) }
+                    }
+                default:
+                    pageX = -CGFloat(from) * screen.width
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        planY = planOpen ? -screen.height : 0
+                        planDragDy = 0
+                    }
                 }
             }
+    }
+
+    private func refreshPlanFace() {
+        planFaceCache = PlanSnapshot.make(
+            today: data.today, history: data.history, scores: data.sleepScores)
+    }
+
+    private func openPlan(fromIdle: Bool) {
+        refreshPlanFace()
+        planOpenedThisLaunch = true
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            planY = -screen.height
+            planDragDy = 0
+        }
+        Task { await Analytics.shared.track("PLAN_OPEN", ["FROM": fromIdle ? "IDLE" : "DRAG"]) }
+    }
+
+    private func settlePlan(translation: CGFloat, velocity: CGFloat, opening: Bool) {
+        if PlanFaceMath.shouldCommit(translation: Double(translation),
+                                     velocity: Double(velocity),
+                                     opening: opening) {
+            if opening { openPlan(fromIdle: false) }
+            else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    planY = 0
+                    planDragDy = 0
+                }
+            }
+        } else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                planY = opening ? 0 : -screen.height
+                planDragDy = 0
+            }
+        }
     }
 
     /// 05 · the wave only plays once the microphone is running. If the permission is refused or
@@ -858,26 +986,17 @@ struct HomeView: View {
     }
 
     /// 05 edges · show the line, and clear it on its own when the board says so.
-    /// The draft she rendered becomes a row: the same path a food sentence takes directly.
-    private func confirmMeal(_ text: String, day: UserDay) {
-        let requestID = beginPanelRequest()
+    /// Confirmation writes the model-selected draft. No second turn, no keyword path.
+    private func confirmMeal(_ frame: PanelWidget) {
         lastSent = nil
-        withAnimation { widget = .thinking(text) }
-        Task {
-            let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotFor(day: day),
-                                  status: .confirmed, text: text,
-                                  kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
-            if let frame = await ai.estimate(entry: entry, into: data) {
-                guard panelRequestID == requestID else { return }
-                withAnimation { widget = frame }
-            } else {
-                data.deleteMeal(entry.id)
-                guard panelRequestID == requestID else { return }
-                withAnimation { widget = PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
-                                                     sentence: L("That meal did not save. Tap confirm once more."),
-                                                     footer: String(text.prefix(42)), action: L("CONFIRM"), data: .none) }
-                lastSent = (text, day)
-            }
+        let day = backlogDay ?? UserDay.containing(Date())
+        if let next = ai.confirmMeal(frameID: frame.id, slot: slotFor(day: day), into: data) {
+            withAnimation { widget = next }
+        } else {
+            withAnimation { widget = PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
+                                                 sentence: L("That meal did not save. Tap confirm once more."),
+                                                 footer: String(frame.footer?.prefix(42) ?? ""),
+                                                 action: L("CONFIRM"), data: .none) }
         }
     }
 
@@ -1030,7 +1149,6 @@ struct HomeView: View {
             return
         }
         let day = backlogDay ?? UserDay.containing(Date())
-        let backlogging = backlogDay != nil
         backlogDay = nil
         lastSent = (text, day)
         let requestID = beginPanelRequest()
@@ -1043,13 +1161,7 @@ struct HomeView: View {
             withAnimation(.spring(response: 0.26, dampingFraction: 0.74)) { attachment = nil }
             photoItem = nil
             Task {
-                if MedicalStop.matches(text) {
-                    guard panelRequestID == requestID else { return }
-                    withAnimation { widget = MedicalStop.frame }
-                    return
-                }
-                let frame = await ai.photoMeal(image: sent.image, dataURL: sent.dataURL, caption: text,
-                                               slot: slotForNow(), into: data)
+                let frame = await ai.turn(text, day: day, store: data, imageDataURL: sent.dataURL)
                 await Analytics.shared.track("MSG_SEND", ["TYPE": "PHOTO", "CHARS": text.count, "HAS_PHOTO": true])
                 guard panelRequestID == requestID else { return }
                 withAnimation { widget = frame ?? PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
@@ -1060,72 +1172,12 @@ struct HomeView: View {
         }
 
         Task {
-            // S7 · the stop runs before the classifier, not after it. 吃药 contains 吃, so a
-            // question about medication otherwise routes to the meal path — and that path
-            // writes the row before the model is called.
-            if MedicalStop.matches(text) {
-                guard panelRequestID == requestID else { return }
-                withAnimation { widget = MedicalStop.frame }
-                return
-            }
-            if backlogging || Self.looksLikeFood(text) {
-                let entry = MealEntry(id: UUID(), day: day, at: Date(), slot: slotFor(day: day),
-                                      status: .confirmed, text: text,
-                                      kcal: 0, protein: 0, carb: 0, fat: 0, source: .typed)
-                if let frame = await ai.estimate(entry: entry, into: data) {
-                    guard panelRequestID == requestID else { return }
-                    withAnimation { widget = frame }
-                    return
-                }
-                guard panelRequestID == requestID else { return }
-            }
-            // 05 · a sentence sent from the dock — typed or spoken — is answered on the panel,
-            // where it always was. The full-screen chat is reached only by the keyboard key
-            // (`onKeyboardTap`); the dock never navigates on its own.
+            // ADR 0011 · every dock sentence is one turn. The model picks meal.estimate
+            // when the plate is a log; the client does not classify food or medicine.
             let frame = await ai.turn(text, day: day, store: data)
             guard panelRequestID == requestID else { return }
             withAnimation { widget = frame ?? .thinking(text) }
         }
-    }
-
-    /// D05 · food goes entirely through the model — no food database, no barcodes,
-    /// no portion calculator. This only decides which endpoint the sentence goes to.
-    ///
-    /// ⚠️ A question about food is not a food log. These markers are substrings, and 吃 sits
-    /// inside 「今天吃了多少」 exactly as it sits inside 「吃了半碗面」 — so asking how much you
-    /// had ate one kcal of itself, logged under the question's own text, before the model was
-    /// called at all. Same shape as the 吃药 hole: the classifier decides which tool runs, so
-    /// anything it gets wrong is wrong before anything else gets a say.
-    private static func looksLikeFood(_ text: String) -> Bool {
-        guard !isQuestion(text) else { return false }
-        let markers = ["吃", "喝", "早饭", "午饭", "晚饭", "夜宵", "加餐", "记一笔"]
-        if markers.contains(where: { text.contains($0) }) { return true }
-        // ⚠️ The English markers were substrings: "ate" sat inside "heart r-ate", so "Show my
-        // heart rate range this week" was logged as a meal — a 1 kcal row named DINNER —
-        // before the model ever saw the question. Whole words only.
-        let words = ["ate", "had", "drank", "breakfast", "lunch", "dinner", "snack"]
-        if text.range(of: "\\b(" + words.joined(separator: "|") + ")\\b",
-                      options: [.regularExpression, .caseInsensitive]) != nil { return true }
-        // A plate named without a verb — 「半碗面加一个鸡蛋」 — is a log in everyday Chinese.
-        // Both a food noun and a portion word are required, so 「面」 alone, or 「三个」 alone,
-        // still goes to her as a question. F4 §02: the model has no write tool, so a plate
-        // that reaches `turn` can only come back as a draft; this is the path that commits.
-        let foods = ["面", "饭", "蛋", "肉", "鸡", "鱼", "虾", "奶", "菜", "包子", "粥", "汤", "饼", "豆",
-                     "果", "茶", "咖啡", "面包", "沙拉", "三明治", "寿司", "饺子", "馒头", "酸奶", "燕麦",
-                     "薯", "米", "牛排", "披萨", "汉堡", "蛋糕", "饼干", "坚果", "香蕉", "苹果"]
-        let portions = ["碗", "份", "个", "杯", "片", "块", "根", "盘", "颗", "两", "克", "斤", "半", "一", "二", "三", "四", "五", "ml", "g "]
-        let hasFood = foods.contains { text.contains($0) }
-        let hasPortion = portions.contains { text.localizedCaseInsensitiveContains($0) }
-        return hasFood && hasPortion && text.count <= 40
-    }
-
-    /// Deliberately narrow. 「几」 is left out because 「吃了几个鸡蛋」 is as often a log as a
-    /// question, and reading a log as a question only costs a round trip — while reading a
-    /// question as a log writes a row the user then has to find and delete.
-    private static func isQuestion(_ text: String) -> Bool {
-        let markers = ["吗", "呢", "多少", "什么", "怎么", "?", "？",
-                       "how much", "how many", "what did", "what have"]
-        return markers.contains { text.localizedCaseInsensitiveContains($0) }
     }
 
     private func slotForNow() -> MealEntry.Slot {

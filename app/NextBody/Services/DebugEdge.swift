@@ -6,7 +6,7 @@ import Foundation
 /// on a simulator whose data would never produce it, so each can be walked 1:1.
 enum DebugEdge {
     static var name: String? {
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         return ProcessInfo.processInfo.environment["NB_DEBUG_EDGE"]
         #else
         return nil

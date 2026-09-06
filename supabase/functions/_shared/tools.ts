@@ -1,5 +1,5 @@
 import { compareMetrics, metricComparisonSchema } from "./metric-compare.ts";
-import { dataCatalog, dataReadSchema, readData } from "./data-read.ts";
+import { dataReadSchema, catalogForUser, readData } from "./data-read.ts";
 import { tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
@@ -8,7 +8,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 // threw, generateText caught it, and every turn came back MODEL_UNAVAILABLE.
 import { NumberLedger } from "./ledger.ts";
 import { SEED_MEAL_VERSION } from "./db.ts";
-import { fetchAs, SOURCE_BY_ID, type Ctx } from "./sources.ts";
+import type { Ctx } from "./sources.ts";
 
 /// Read tools for a turn. All read-only, all through the caller's JWT.
 /// `data.read` / `data.catalog` are the registry. `day.get` stays a product summary.
@@ -16,25 +16,6 @@ import { fetchAs, SOURCE_BY_ID, type Ctx } from "./sources.ts";
 type Ok<T> = { ok: true; data: T | null };
 type Err = { ok: false };
 type Res<T> = Ok<T> | Err;
-
-export async function readSeriesSource(source: string, ctx: Ctx): Promise<Record<string, unknown> | null> {
-  const src = SOURCE_BY_ID.get(source);
-  if (!src) return null;
-  const result = await fetchAs(source, src.kind, ctx);
-  if (!result) return null;
-  const data = result.data as Record<string, unknown>;
-  const tail = (value: unknown) => (Array.isArray(value) ? value : undefined);
-  return {
-    agg: result.agg,
-    evidence: result.evidence ?? { metric: source, dayKey: ctx.dayKey, timezone: ctx.tz, unit: result.unit ?? null },
-    paired: data.kind === "pair" ? { hi: data.hi, lo: data.lo } : undefined,
-    hero: result.hero ?? null,
-    unit: result.unit ?? null,
-    window: result.window,
-    points: tail(data.series) ?? tail(data.bins) ?? tail(data.parts) ?? tail(data.rows)
-      ?? tail(data.lanes) ?? tail(data.minutes) ?? tail(data.cells) ?? null,
-  };
-}
 
 export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLedger,
                            cal: { dayKey: string; tz: string } = { dayKey: new Date().toISOString().slice(0, 10), tz: "UTC" },
@@ -144,7 +125,10 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
       description:
         "List readable health metrics, their units, grain and origin. System tables are not listed.",
       parameters: z.object({}),
-      execute: () => Promise.resolve({ ok: true, data: dataCatalog() }),
+      execute: async () => {
+        const data = await catalogForUser(ctx);
+        return { ok: true, data };
+      },
     }),
 
     "profile.get": tool({
@@ -243,29 +227,5 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
       },
     }),
 
-    // ⚠️ The one tool that deliberately does not go through `record`. Every other return is
-    // harvested into the ledger; this one must not be, or the previous frame's numbers become
-    // citable sources and a stale value can be carried forward for as long as the model keeps
-    // repeating it. Seen working: a turn tried to re-assert 13.1 after reading it out of the
-    // last frame's sentence, and rule 08 rejected the whole frame because it was never a
-    // number in anything fetched that turn. Wrapping this in `record` would silently undo that.
-    "screen.last": tool({
-      description: "上一帧说了什么，避免连着两轮说同一句。null 是正常的。",
-      parameters: z.object({}),
-      execute: async () => {
-        const { data, error } = await db.from("screen_frames")
-          .select("widget_tree, created_at, expires_at").eq("user_id", userId)
-          .order("created_at", { ascending: false }).limit(1).maybeSingle();
-        if (error) return { ok: false } as Err;
-        return {
-          ok: true,
-          data: {
-            envelope: data?.widget_tree ?? null,
-            renderedAt: data?.created_at ?? null,
-            expiresAt: data?.expires_at ?? null,
-          },
-        };
-      },
-    }),
   };
 }

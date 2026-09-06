@@ -105,23 +105,6 @@ export function tagSafe(s: unknown): string {
   return String(s ?? "").replace(/<(\/?)(user_text|photo_extract)>/gi, "‹$1$2›");
 }
 
-// S7 · the one list. `turn` checks it before any tool call, and `meal` checks it too:
-// the dock's food classifier looks for 吃, which 吃药 contains, so a medication question
-// reaches /meal without ever passing through /turn.
-export const MEDICAL = /(诊断|症状|吃药|用药|停药|服药|药物|处方|剂量|疾病|怀孕|安全吗|癌|糖尿病|高血压|抑郁|medicine|medication|prescription|dosage|diagnos|pregnan|symptom)/i;
-
-export const MEDICAL_STOP: Envelope = {
-  type: "text",
-  title: "NOT A DOCTOR",
-  sentence: "That is a question for a doctor. This screen only reports what was measured.",
-  footer: "NEXTBODY IS NOT A MEDICAL DEVICE",
-  data: {},
-  ttl_min: 5,
-  priority: "normal",
-  locale: "zh-CN",
-  target: "profile",
-};
-
 export function slowDownFrame(
   locale = "en-US",
   kind: "daily" | "rate" = "daily",
@@ -147,17 +130,6 @@ export function slowDownFrame(
     priority: "normal",
     locale: en ? "en-US" : "zh-CN",
     target: "profile",
-  };
-}
-
-export function medicalStop(locale = "en-US"): Envelope {
-  if (locale.startsWith("en")) return { ...MEDICAL_STOP, locale: "en-US" };
-  return {
-    ...MEDICAL_STOP,
-    title: "不是医生",
-    sentence: "这类问题请找医生。这块屏只报告测量到的数字。",
-    footer: "NEXTBODY 不是医疗器械",
-    locale: "zh-CN",
   };
 }
 

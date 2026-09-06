@@ -29,6 +29,29 @@ struct RootView: View {
         }
     }
 
+    #if DEBUG
+    /// 走查用的落点。`device` / `battery` / `measurements` 不是 envelope target——模型不该
+    /// 跳到二级页——但走查需要一个能直接落上去的口子。
+    /// ⚠️ 必须留在 body 之外：这几个分支写进 `.onAppear` 的表达式链里，整个 body 的类型
+    /// 推断会当场超时。
+    private static func debugDestination(_ raw: String) -> Destination? {
+        if let target = Destination(envelopeTarget: raw) { return target }
+        switch raw {
+        case "device":               return .device
+        case "battery":              return .battery
+        case "measurements":         return .measurements
+        case "sportMode", "sport":   return .sportMode
+        default:                     return nil
+        }
+    }
+
+    /// 走查用：最近那条记录的 sheet 路由。放在 body 之外，见调用处的注释。
+    private static func debugMeasurementSheet() -> SheetRoute? {
+        guard let first = DataStore.shared.measurements.first else { return nil }
+        return .measurement(first.id)
+    }
+    #endif
+
     private var rootStack: some View {
         NavigationStack(path: $router.path) {
             HomeView()
@@ -40,10 +63,13 @@ struct RootView: View {
                     case .bodyBattery:            BodyBatteryDetailView()
                     case .composition(let date):  CompositionDetailView(focus: date)
                     case .profile:                ProfileView()
+                    // ADR 0010 · 第二个二级页。返回回「我的」，不回首页。
+                    case .measurements:           MeasurementsView()
                     // 04 · one of page two's eight instruments, opened from its own card.
                     case .vitals(let metric):     VitalsDetailView(metric: metric)
                     case .device:                 DeviceView()
-                    // F1 · D — automatic measurement is a sheet on the device page,
+                    case .battery:                BatteryTrendView()
+                    // F1 · D — automatic measurement is a debug sheet on the device page,
                     // not a third-level page.
                     case .deviceAutoMonitor:      DeviceView()
                     case .sportMode:             SportModeView()
@@ -53,10 +79,24 @@ struct RootView: View {
                 }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task {
+            // Returning accounts skip onboarding. A changed consent version must still
+            // show its delta before readiness can resume collecting from the bound band.
+            // Seed-only previews have no saved decision to migrate.
+            guard !ConsentStore.shared.decided,
+                  !Band.allowsSeed || UserDefaults.standard.dictionary(forKey: "nb.consent") != nil,
+                  router.takeover == nil, router.sheet == nil else { return }
+            router.takeover = .consent
+        }
         // Any path clear — chevron, edge swipe, or a binding write — restores the home
         // pager page that was showing when the root was left.
         .onChange(of: router.path) { was, now in
             if !was.isEmpty && now.isEmpty { router.restoreHomePageIfRoot() }
+            if !now.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if !router.path.isEmpty { router.debugRouteDidLand = true }
+                }
+            }
         }
         #if DEBUG
         // `SIMCTL_CHILD_NB_DEBUG_ROUTE=composition` opens straight onto a detail page for a walk.
@@ -64,15 +104,14 @@ struct RootView: View {
             os.Logger(subsystem: "com.nextbody.hoop", category: "debug")
                 .notice("root appeared, NB_DEBUG_ROUTE=\(ProcessInfo.processInfo.environment["NB_DEBUG_ROUTE"] ?? "nil", privacy: .public) path=\(router.path.count)")
             if let r = ProcessInfo.processInfo.environment["NB_DEBUG_ROUTE"],
-               let d = Destination(envelopeTarget: r)
-                ?? (r == "device" ? .device : nil)
-                ?? (r == "sportMode" || r == "sport" ? .sportMode : nil),
-               router.path.isEmpty {
+               let d = Self.debugDestination(r), router.path.isEmpty {
                 // A push landing while the stack is still settling is dropped on a device,
                 // so it is retried until it sticks.
                 for delay in [1.5, 3.5, 6.0, 9.0, 12.0, 18.0] {
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        if router.path.isEmpty { router.open(d, from: .home) }
+                        if router.path.isEmpty && !router.debugRouteDidLand {
+                            router.open(d, from: .home)
+                        }
                     }
                 }
             }
@@ -101,6 +140,14 @@ struct RootView: View {
                 }
                 if let sheet {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { router.sheet = sheet }
+                }
+                // 一条记录的 sheet 要一个 id，走查时取最近那条。⚠️ id 必须在派发之后再取：
+                // 模拟器先摆种子、随后服务器的真数据整个换掉这个数组，4 秒时抓到的那个 id
+                // 到了 sheet 里已经不存在了。
+                if s == "measurement" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+                        if let route = Self.debugMeasurementSheet() { router.sheet = route }
+                    }
                 }
             }
             // `SIMCTL_CHILD_NB_DEBUG_TAKEOVER=wordmark` plays 02M's film on demand. In the
@@ -163,6 +210,7 @@ struct SheetHost: View {
             switch route {
             case .weighIn:        WeighInSheet()
             case .plusMenu:       PlusMenuSheet()
+            case .measurement(let id): MeasurementSheet(id: id)
             default:              ProfileSheet(route: route)
             }
         }
@@ -191,6 +239,9 @@ enum SheetChrome {
         // At 360 the two together clipped the sentence to "…14 nights you…".
         case .deleteAccount:                return 400
         case .language, .appleHealth:       return 400
+        // ADR 0010 · 身体扫描要装下 14 个字段，平衡检查只有一个结论词加三个小数。两种记录
+        // 高度差得远，所以按内容给，不共用一个数。
+        case .measurement:                  return 620
         case .export:                       return 440
         case .goal, .notifications, .units: return 480
         default:                            return maxHeight

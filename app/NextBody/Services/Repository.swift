@@ -58,6 +58,7 @@ final class Repository {
             let account = SupabaseClient.currentUserIdSnapshot()
             guard account != nil, !Task.isCancelled else { return }
             await loadHomeFast(into: store)
+            store.hydrateBatteryLog()
             guard account == SupabaseClient.currentUserIdSnapshot(), !Task.isCancelled else { return }
             HomeSnapshot.save(from: store)
             #if DEBUG
@@ -98,7 +99,14 @@ final class Repository {
         guard generation == sessionGeneration else { return }
         await loadHistorySummaries(days: 182, endingAt: today, into: store)
         guard generation == sessionGeneration else { return }
+        // ADR 0008 · thirty nights of sleep score. The sleep board's week and month windows
+        // are drawn from this dictionary; nothing on that page fetches.
+        await loadSleepScores(days: 30, endingAt: today, into: store)
+        guard generation == sessionGeneration else { return }
         await loadComposition(into: store)
+        guard generation == sessionGeneration else { return }
+        // ADR 0010 · 「我的」那块 MEASUREMENTS 和测量记录页都读它，两张表两次小查询。
+        await loadMeasurements(into: store)
         guard generation == sessionGeneration else { return }
         await loadCapabilities(into: store)
         guard generation == sessionGeneration else { return }
@@ -107,6 +115,8 @@ final class Repository {
         await WeighInQueue.shared.flush()
         guard generation == sessionGeneration else { return }
         await BodyCompositionQueue.shared.flush()
+        guard generation == sessionGeneration else { return }
+        await BalanceCheckQueue.shared.flush()
         guard generation == sessionGeneration else { return }
         await flushPendingEvidence()
     }
@@ -160,13 +170,14 @@ final class Repository {
         let generation = sessionGeneration
         let account = SupabaseClient.currentUserIdSnapshot()
         guard let rows = try? await db.select("devices", query: [
-            .init(name: "select", value: "id,last_origin_sync_at"),
+            .init(name: "select", value: "id,last_origin_sync_at,bound_at"),
             .init(name: "unbound_at", value: "is.null"),
             .init(name: "limit", value: "1"),
         ]), let row = rows.first else { return }
         guard account != nil, account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
         if let id = row["id"] as? String { deviceId = id }
         store.lastSync = (row["last_origin_sync_at"] as? String).flatMap(Self.timestamp)
+        await loadCompanionSince(into: store, generation: generation, account: account)
     }
 
     /// The profile exists from onboarding onwards; failing to read it is a serious fault,
@@ -179,7 +190,7 @@ final class Repository {
             .init(name: "limit", value: "1"),
         ])
         async let deviceRows = db.select("devices", query: [
-            .init(name: "select", value: "id,firmware_version,battery_percent,device_number,last_origin_sync_at"),
+            .init(name: "select", value: "id,firmware_version,battery_percent,device_number,last_origin_sync_at,bound_at"),
             // The bound one. A forgotten HOOP keeps its row (12 · "your history stays") and
             // must not lend the header its last battery reading.
             .init(name: "unbound_at", value: "is.null"),
@@ -207,6 +218,7 @@ final class Repository {
                 store.lastSync = (d["last_origin_sync_at"] as? String).flatMap(Self.timestamp)
             }
         }
+        await loadCompanionSince(into: store, generation: generation, account: account)
         guard let row = found else { return }
 
         if let name = row["display_name"] as? String, !name.isEmpty { store.profile.name = name }
@@ -228,12 +240,15 @@ final class Repository {
         let generation = sessionGeneration
         let account = SupabaseClient.currentUserIdSnapshot()
         guard let rows = try? await db.select("body_composition", query: [
-            .init(name: "select", value: "measured_at,body_fat_pct,fat_mass_kg,lean_body_mass_kg,measurement_source"),
+            .init(name: "select",
+                  value: "id,measured_at,body_fat_pct,fat_mass_kg,lean_body_mass_kg,bmr_kcal,input_weight_kg,measurement_source"),
             .init(name: "order", value: "measured_at.desc"),
-            .init(name: "limit", value: "90"),
-        ]), let latest = rows.first else { return }
+            .init(name: "limit", value: "200"),
+        ]) else { return }
 
         guard account != nil, account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+        store.compositionScans = compositionScans(from: rows)
+        guard let latest = rows.first else { return }
         store.today.fatKg = number(latest["fat_mass_kg"])
         store.today.leanKg = number(latest["lean_body_mass_kg"])
         store.today.fatSource = (latest["measurement_source"] as? String) == "manual" ? .derived : .measured
@@ -347,12 +362,22 @@ final class Repository {
         let ble = identity?.bleIdentifier ?? BoundBand.identifier
         do {
             let bound = try await db.select("devices", query: [
-                .init(name: "select", value: "id,ble_identifier"),
+                .init(name: "select", value: "id,ble_identifier,device_number,bound_at"),
                 .init(name: "unbound_at", value: "is.null"),
                 .init(name: "limit", value: "1"),
             ]).first
             if let id = bound?["id"] as? String {
-                if let ble, (bound?["ble_identifier"] as? String) != ble {
+                let existingBle = bound?["ble_identifier"] as? String
+                let sameHoop = {
+                    guard let number = identity?.deviceNumber, !number.isEmpty,
+                          number == bound?["device_number"] as? String else { return false }
+                    return true
+                }()
+                // Simulator seed must not steal a real binding and reset companionship.
+                if let ble, ble == BoundBand.seedIdentifier, existingBle != ble {
+                    deviceId = id
+                    applyBoundAt(bound?["bound_at"], into: DataStore.shared)
+                } else if let ble, existingBle != ble, !sameHoop {
                     _ = try await db.patch("devices", id: id, row: [
                         "unbound_at": ISO8601DateFormatter().string(from: Date()),
                     ])
@@ -360,17 +385,20 @@ final class Repository {
                     insert["user_id"] = userId
                     insert["ble_identifier"] = ble
                     insert["ble_identifier_kind"] = "uuid"
-                    deviceId = try await db.insert("devices", row: insert).first?["id"] as? String
+                    rememberInsertedDevice(try await db.insert("devices", row: insert).first)
                 } else {
                     deviceId = id
+                    applyBoundAt(bound?["bound_at"], into: DataStore.shared)
+                    if ble != nil, existingBle != ble { row["ble_identifier"] = ble }
                     if !row.isEmpty { _ = try await db.patch("devices", id: id, row: row) }
                 }
             } else if let ble {
                 row["user_id"] = userId
                 row["ble_identifier"] = ble
                 row["ble_identifier_kind"] = "uuid"
-                deviceId = try await db.insert("devices", row: row).first?["id"] as? String
+                rememberInsertedDevice(try await db.insert("devices", row: row).first)
             }
+            await loadCompanionSince(into: DataStore.shared)
         } catch {
             #if DEBUG
             NSLog("Repository.registerDevice failed: %@", "\(error)")
@@ -433,7 +461,132 @@ final class Repository {
         catch { BandLog.shared.record("persist body composition", error: error); return }
     }
 
+    /// ADR 0010 · 一次平衡检查的摘要行。只在测量真的完成（`.finished` 且区间够算出结论）之后
+    /// 调用——失败态不写，NOTHING KEPT 是字面意思。
+    func recordBalanceCheck(_ balance: AutonomicBalance, heartRate: Int?,
+                            at date: Date = Date()) async {
+        guard let userId = await db.userId else { return }
+        do { try BalanceCheckQueue.shared.enqueue(balance, heartRate: heartRate, at: date,
+                                                  ownerUserId: userId) }
+        catch { BandLog.shared.record("persist balance check", error: error) }
+    }
+
+    /// ADR 0010 · 「我的」那块 MEASUREMENTS 和测量记录页读的同一个数组。两张表各取一次，按时间
+    /// 倒序混排。
+    ///
+    /// ⚠️ 身体扫描只认 `measurement_source = device_bia`：体脂秤和手动录入不是主动测量。这个
+    /// 过滤在服务端做，不要挪到客户端——否则 limit 会先砍掉真正的扫描。
+    func loadMeasurements(into store: DataStore, limit: Int = 200) async {
+        let generation = sessionGeneration
+        let account = SupabaseClient.currentUserIdSnapshot()
+
+        async let scanRows = db.select("body_composition", query: [
+            .init(name: "select",
+                  value: "id,measured_at,body_fat_pct,fat_mass_kg,lean_body_mass_kg,bmr_kcal,input_weight_kg"),
+            .init(name: "measurement_source", value: "eq.device_bia"),
+            .init(name: "order", value: "measured_at.desc"),
+            .init(name: "limit", value: String(limit)),
+        ])
+        async let balanceRows = db.select("balance_checks", query: [
+            .init(name: "select",
+                  value: "id,measured_at,lead,rest_share,sd1_ms,sd2_ms,sdnn_ms,heart_rate,beat_count"),
+            .init(name: "order", value: "measured_at.desc"),
+            .init(name: "limit", value: String(limit)),
+        ])
+
+        var records: [MeasurementRecord] = []
+        for row in (try? await scanRows) ?? [] {
+            guard let id = (row["id"] as? String).flatMap(UUID.init(uuidString:)),
+                  let iso = row["measured_at"] as? String,
+                  let at = Self.timestamp(iso) else { continue }
+            records.append(MeasurementRecord(id: id, at: at, detail: .bodyScan(.init(
+                bodyFatPercent: number(row["body_fat_pct"]),
+                fatMassKg: number(row["fat_mass_kg"]),
+                leanMassKg: number(row["lean_body_mass_kg"]),
+                bmrKcal: number(row["bmr_kcal"]).map { Int($0) },
+                inputWeightKg: number(row["input_weight_kg"])))))
+        }
+        for row in (try? await balanceRows) ?? [] {
+            guard let id = (row["id"] as? String).flatMap(UUID.init(uuidString:)),
+                  let iso = row["measured_at"] as? String,
+                  let at = Self.timestamp(iso),
+                  let lead = (row["lead"] as? String)
+                      .flatMap(MeasurementRecord.BalanceCheck.Lead.init(rawValue:)) else { continue }
+            records.append(MeasurementRecord(id: id, at: at, detail: .balanceCheck(.init(
+                lead: lead,
+                restShare: Int(number(row["rest_share"]) ?? 50),
+                sd1Ms: number(row["sd1_ms"]) ?? 0,
+                sd2Ms: number(row["sd2_ms"]) ?? 0,
+                sdnnMs: number(row["sdnn_ms"]) ?? 0,
+                heartRate: number(row["heart_rate"]).map { Int($0) },
+                beatCount: Int(number(row["beat_count"]) ?? 0)))))
+        }
+
+        guard account != nil, account == SupabaseClient.currentUserIdSnapshot(),
+              generation == sessionGeneration else { return }
+        store.measurements = records.sorted { $0.at > $1.at }
+    }
+
     /// Heat map and week summaries never download historical training curves.
+    /// ADR 0008 · the sleep board's week and month windows, in one query of thirty small
+    /// rows. The score is settled server-side precisely so this can be cheap: the two inputs
+    /// that make a night legible — per-minute overnight SpO2 and the respiration series
+    /// buried in `sleep_nights.raw` — never leave the database.
+    func loadSleepScores(days: Int, endingAt day: UserDay, into store: DataStore) async {
+        let generation = readGeneration
+        do {
+            guard SupabaseClient.currentUserIdSnapshot() != nil else { return }
+            let rows = try await db.select("night_score", query: [
+                .init(name: "select", value: "user_day,score,duration_score,architecture_score,recovery_score,regularity_score,personal_weight,inputs,score_version"),
+                .init(name: "user_day", value: "gte.\(day.adding(days: -max(days, 1)).key)"),
+                .init(name: "user_day", value: "lte.\(day.key)"),
+                .init(name: "order", value: "user_day.asc"),
+            ])
+            var scores: [String: SleepScore] = [:]
+            for row in rows {
+                guard let key = row["user_day"] as? String,
+                      let total = Self.integer(row["score"]) else { continue }
+                var inputs: [String: Double] = [:]
+                for (name, value) in (row["inputs"] as? [String: Any] ?? [:]) {
+                    if let number = Self.decimal(value) { inputs[name] = number }
+                }
+                scores[key] = SleepScore(
+                    score: total,
+                    duration: Self.integer(row["duration_score"]),
+                    architecture: Self.integer(row["architecture_score"]),
+                    recovery: Self.integer(row["recovery_score"]),
+                    regularity: Self.integer(row["regularity_score"]),
+                    personalWeight: Self.decimal(row["personal_weight"]) ?? 0,
+                    inputs: inputs,
+                    version: row["score_version"] as? String ?? "")
+            }
+            guard generation == readGeneration else { return }
+            await MainActor.run {
+                store.sleepScores = scores
+                store.today.sleepScore = scores[store.today.day.key]
+                for index in store.history.indices {
+                    store.history[index].sleepScore = scores[store.history[index].day.key]
+                }
+            }
+        } catch {
+            // A night without a score reads as a night without a score. There is nothing to
+            // fall back to and nothing to tell the user about a window that simply has no row.
+        }
+    }
+
+    /// ⚠️ `Int(_: Double)` traps on NaN, on infinity and out of range, so the string branch
+    /// checks before it converts: a blank or malformed score reads as no score, never a crash.
+    private static func integer(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        guard let text = value as? String, let number = Double(text), number.isFinite,
+              number >= -1e9, number <= 1e9 else { return nil }
+        return Int(number)
+    }
+
+    private static func decimal(_ value: Any?) -> Double? {
+        (value as? NSNumber)?.doubleValue ?? (value as? String).flatMap(Double.init)
+    }
+
     func loadHistorySummaries(days: Int, endingAt day: UserDay, into store: DataStore) async {
         let account = SupabaseClient.currentUserIdSnapshot()
         let generation = readGeneration
@@ -454,7 +607,7 @@ final class Repository {
                 range = [.init(name: "user_day", value: changedFilter)]
             }
             let selection = try await selectDailyResultsCompat(query: [
-                .init(name: "select", value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version,result_revision"),
+                .init(name: "select", value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version,result_revision,worn,wear_run,wear_miss"),
                 .init(name: "user_day", value: "lte.\(day.key)"),
                 .init(name: "order", value: "user_day.asc"),
             ] + range)
@@ -506,6 +659,7 @@ final class Repository {
                 m.fatEmaDelta7d = number(row["fat_delta_7d"])
                 m.leanEmaDelta7d = number(row["lean_delta_7d"])
                 m.scans7d = Int(number(row["scans_7d"]) ?? 0)
+                applyWear(row, to: &m)
                 if let energy = fuel.first(where: { ($0["result_id"] as? String) == (row["id"] as? String) }) {
                     m.eIn = number(energy["kcal_in"]); m.eOutNow = number(energy["kcal_out"])
                     m.proteinIn = number(energy["protein_in_g"]).map(Int.init)
@@ -553,6 +707,115 @@ final class Repository {
         await load(days: 0, endingAt: day, into: store)
     }
 
+    /// One hydrate seam for a second-level page. The window names the tables; the page
+    /// does not pick a loader.
+    func hydrate(_ window: DetailWindow, endingAt day: UserDay, focus: UserDay? = nil,
+                 into store: DataStore) async {
+        switch window.load {
+        case .none:
+            break
+        case .dailyResults(let lookback):
+            await load(days: lookback, endingAt: day, into: store)
+            if let focus, focus != day {
+                await loadDetail(day: focus, into: store)
+            }
+        case .heartTicks(let days):
+            await loadHeartWindow(days: days, into: store)
+        case .dailyResultsAndHeartTicks(let lookback, let heartDays):
+            await load(days: lookback, endingAt: day, into: store)
+            await loadHeartWindow(days: heartDays, into: store)
+        case .composition:
+            await loadComposition(into: store)
+        }
+    }
+
+    /// HEART week/month needs more than the one day of `raw_samples` Home preloads.
+    /// This is not `load(days:)` — that also pulls meals, fuel, training and nights.
+    func loadHeartWindow(days: Int, into store: DataStore) async {
+        guard days > 1, !Band.allowsSeed, !store.isOffline else { return }
+        guard SupabaseClient.currentUserIdSnapshot() != nil || SessionKeychain.userId != nil else { return }
+        let day = store.today.day
+        let stamp = ISO8601DateFormatter()
+        let from = day.adding(days: -days - 1)
+        let to = day.adding(days: 1)
+        do {
+            async let vitalRowsAsync = db.select("raw_samples", query: [
+                .init(name: "select", value: "ts,heart,stress,temp,step,cal,dis,hrv"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: from.start))"),
+                .init(name: "ts", value: "lt.\(stamp.string(from: to.start))"),
+                .init(name: "order", value: "ts.asc"),
+            ])
+            async let oxygenRowsAsync = db.select("oxygen_samples", query: [
+                .init(name: "select", value: "ts,spo2"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: from.start))"),
+                .init(name: "ts", value: "lt.\(stamp.string(from: to.start))"),
+                .init(name: "order", value: "ts.asc"),
+            ])
+            let vitalRows = try await vitalRowsAsync
+            let oxygenRows = try? await oxygenRowsAsync
+            let vitals: [VitalSample] = vitalRows.compactMap { row in
+                guard let t = row["ts"] as? String, let at = Self.timestamp(t) else { return nil }
+                let hr = number(row["heart"]).map { Int($0) }
+                let stress = number(row["stress"]).map { Int($0) }
+                let temp = number(row["temp"])
+                let steps = number(row["step"]).map { Int($0) }
+                let hrv = number(row["hrv"])
+                guard hr != nil || stress != nil || temp != nil || steps != nil || hrv != nil
+                else { return nil }
+                return VitalSample(ts: at, hr: hr, stress: stress,
+                                   temp: temp,
+                                   steps: steps,
+                                   vendorCalories: number(row["cal"]),
+                                   dis: number(row["dis"]),
+                                   hrv: hrv)
+            }
+            let oxygen: [OvernightOxygenPoint] = (oxygenRows ?? []).compactMap { row in
+                guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
+                      let percent = number(row["spo2"]).map({ Int($0) }),
+                      (50...100).contains(percent) else { return nil }
+                return OvernightOxygenPoint(ts: at, percent: percent)
+            }
+            mergeHeartWindow(vitals: vitals, oxygen: oxygen,
+                             from: day.adding(days: -(days - 1)), through: day, into: store)
+        } catch {
+            NSLog("Heart window load failed: %@", String(describing: error))
+        }
+    }
+
+    private func mergeHeartWindow(vitals: [VitalSample], oxygen: [OvernightOxygenPoint],
+                                  from: UserDay, through: UserDay, into store: DataStore) {
+        func apply(_ metrics: inout DailyMetrics, day: UserDay) {
+            let remote = vitals.filter { $0.ts >= day.start && $0.ts < day.end }
+            metrics.vitalsCurve = VitalSample.merging(metrics.vitalsCurve, with: remote)
+            guard let start = metrics.sleep?.sleepStart, let wake = metrics.sleep?.wakeAt,
+                  wake > start else { return }
+            let nightOxygen = oxygen.filter { $0.ts >= start && $0.ts < wake }
+            guard !nightOxygen.isEmpty, var sleep = metrics.sleep else { return }
+            sleep.spo2 = Dictionary((sleep.spo2 + nightOxygen).map { ($0.ts, $0) },
+                                    uniquingKeysWith: { local, _ in local })
+                .values.sorted { $0.ts < $1.ts }
+            metrics.sleep = sleep
+        }
+
+        var cursor = from
+        while cursor <= through {
+            if store.today.day == cursor {
+                apply(&store.today, day: cursor)
+            }
+            if let index = store.history.firstIndex(where: { $0.day == cursor }) {
+                apply(&store.history[index], day: cursor)
+            } else if store.today.day != cursor {
+                var row = DailyMetrics(day: cursor)
+                apply(&row, day: cursor)
+                if !row.vitalsCurve.isEmpty {
+                    store.history.append(row)
+                }
+            }
+            cursor = cursor.adding(days: 1)
+        }
+        store.history.sort { $0.day < $1.day }
+    }
+
     func load(days: Int, endingAt day: UserDay, into store: DataStore) async {
         readGeneration &+= 1
         let generation = readGeneration
@@ -571,7 +834,7 @@ final class Repository {
         do {
             let dailyRead = try await selectDailyResultsCompat(query: [
                 .init(name: "select",
-                      value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version,result_revision"),
+                      value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version,result_revision,worn,wear_run,wear_miss"),
                 .init(name: "user_day", value: "gte.\(from)"),
                 .init(name: "user_day", value: "lte.\(to)"),
                 .init(name: "order", value: "user_day.asc"),
@@ -619,7 +882,7 @@ final class Repository {
                 .init(name: "deleted_at", value: "is.null"),
                 // Dev seeds carry model_version = seed; they must not populate 09 or the dock.
                 .init(name: "model_version", value: "neq.seed"),
-                .init(name: "user_day", value: "gte.\(f.string(from: day.adding(days: -6).start))"),
+                .init(name: "user_day", value: "gte.\(f.string(from: day.adding(days: -max(days, 6)).start))"),
                 .init(name: "user_day", value: "lte.\(f.string(from: day.start))"),
                 .init(name: "order", value: "logged_at.asc"),
             ])
@@ -675,7 +938,7 @@ final class Repository {
             ])
             async let responseRowsAsync = db.select("response_samples", query: [
                 .init(name: "select", value: "ts,optical"),
-                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -21).start))"),
+                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -30).start))"),
                 .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
                 .init(name: "order", value: "ts.asc"),
             ])
@@ -773,6 +1036,7 @@ final class Repository {
                 m.fatEmaDelta7d = number(row["fat_delta_7d"])
                 m.leanEmaDelta7d = number(row["lean_delta_7d"])
                 m.scans7d = Int(number(row["scans_7d"]) ?? 0)
+                applyWear(row, to: &m)
                 if let iso = row["computed_at"] as? String {
                     m.asOf = Self.timestamp(iso)
                 }
@@ -1180,6 +1444,9 @@ final class Repository {
         m.serverCall = server.serverCall ?? local.serverCall
         m.logged7d = local.logged7d
         m.bandCoverage = local.bandCoverage
+        m.worn = server.worn ?? local.worn
+        m.wearRun = server.wearRun ?? local.wearRun
+        m.wearMiss = server.wearMiss ?? local.wearMiss
 
         // The targets come from the server; only what was eaten is decided here.
         let pTarget = server.protein ?? local.protein
@@ -1295,6 +1562,47 @@ final class Repository {
         return nil
     }
 
+    /// Earliest bind or wrist tick on this account. A later rebind must not win.
+    private func loadCompanionSince(into store: DataStore, generation: UInt? = nil,
+                                    account: String? = nil) async {
+        let generation = generation ?? sessionGeneration
+        let account = account ?? SupabaseClient.currentUserIdSnapshot()
+        async let bindRows = db.select("devices", query: [
+            .init(name: "select", value: "bound_at"),
+            .init(name: "order", value: "bound_at.asc"),
+            .init(name: "limit", value: "1"),
+        ])
+        async let sampleRows = db.select("raw_samples", query: [
+            .init(name: "select", value: "ts"),
+            .init(name: "order", value: "ts.asc"),
+            .init(name: "limit", value: "1"),
+        ])
+        let bindAt = ((try? await bindRows)?.first?["bound_at"] as? String).flatMap(Self.timestamp)
+        let sampleAt = ((try? await sampleRows)?.first?["ts"] as? String).flatMap(Self.timestamp)
+        guard account != nil, account == SupabaseClient.currentUserIdSnapshot(),
+              generation == sessionGeneration else { return }
+        if let start = DeviceCompanionMath.start(candidates: [bindAt, sampleAt, store.boundAt]) {
+            store.boundAt = start
+        }
+    }
+
+    /// Current binding start. A new insert that does not echo `bound_at` still started now.
+    private func rememberInsertedDevice(_ row: [String: Any]?) {
+        if let id = row?["id"] as? String { deviceId = id }
+        applyBoundAt(row?["bound_at"], into: DataStore.shared, fallback: Date())
+    }
+
+    /// Companionship only moves earlier. A seed rebind must not shrink WITH YOU.
+    private func applyBoundAt(_ raw: Any?, into store: DataStore, fallback: Date? = nil) {
+        let incoming = (raw as? String).flatMap(Self.timestamp) ?? fallback
+        guard let incoming else { return }
+        if let existing = store.boundAt {
+            if incoming < existing { store.boundAt = incoming }
+        } else {
+            store.boundAt = incoming
+        }
+    }
+
     /// PostgREST hands back fractional seconds and no zone suffix on some columns;
     /// the plain ISO parser rejects both, so try the strict form first and fall back.
     static func timestamp(_ raw: String) -> Date? {
@@ -1324,6 +1632,10 @@ final class Repository {
             return text.contains("result_revision") &&
                 (text.contains("42703") || text.contains("does not exist") ||
                  (text.contains("pgrst204") && text.contains("column")))
+        case "worn":
+            return (text.contains("worn") || text.contains("wear_run") || text.contains("wear_miss")) &&
+                (text.contains("42703") || text.contains("does not exist") ||
+                 (text.contains("pgrst204") && text.contains("column")))
         case "metric-read":
             return status == 404 && (text.contains("requested function was not found") ||
                 text.contains("function not found"))
@@ -1341,6 +1653,15 @@ final class Repository {
         do {
             return (try await db.select("daily_results", query: query), true)
         } catch {
+            if Self.isMissingReadCapability(error, capability: "worn") {
+                let withoutWear = query.map { item in
+                    item.name == "select" ? URLQueryItem(name: item.name, value:
+                        item.value?.split(separator: ",").filter {
+                            $0 != "worn" && $0 != "wear_run" && $0 != "wear_miss"
+                        }.joined(separator: ",")) : item
+                }
+                return try await selectDailyResultsCompat(query: withoutWear)
+            }
             guard Self.isMissingReadCapability(error, capability: "result_revision") else { throw error }
             let legacy = query.map { item in
                 item.name == "select" ? URLQueryItem(name: item.name, value:
@@ -1348,6 +1669,16 @@ final class Repository {
             }
             return (try await db.select("daily_results", query: legacy), false)
         }
+    }
+
+    private func applyWear(_ row: [String: Any], to metrics: inout DailyMetrics) {
+        if let worn = row["worn"] as? Bool {
+            metrics.worn = worn
+        } else if let n = number(row["worn"]) {
+            metrics.worn = n != 0
+        }
+        if let n = number(row["wear_run"]) { metrics.wearRun = Int(n) }
+        if let n = number(row["wear_miss"]) { metrics.wearMiss = Int(n) }
     }
 
     private func metricReadIfAvailable(from: String, to: String) async throws -> [String: Any]? {
@@ -1417,5 +1748,24 @@ final class Repository {
         return stride(from: 0, to: clean.count, by: size).map {
             Array(clean[$0..<min($0 + size, clean.count)])
         }
+    }
+
+    /// 10E · every persisted `body_composition` row is a point. Source is not filtered:
+    /// a scale reading and a band BIA are both body-fat history.
+    private func compositionScans(from rows: [[String: Any]]) -> [CompositionScan] {
+        rows.compactMap { row in
+            guard let iso = row["measured_at"] as? String, let at = Self.timestamp(iso) else { return nil }
+            let id = (row["id"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID()
+            return CompositionScan(
+                id: id,
+                at: at,
+                bodyFatPercent: number(row["body_fat_pct"]),
+                fatMassKg: number(row["fat_mass_kg"]),
+                leanMassKg: number(row["lean_body_mass_kg"]),
+                bmrKcal: number(row["bmr_kcal"]),
+                inputWeightKg: number(row["input_weight_kg"])
+            )
+        }
+        .sorted { $0.at > $1.at }
     }
 }

@@ -15,13 +15,14 @@ export function userClient(req: Request): SupabaseClient {
 /// Product reads must never treat these as the user's own log.
 export const SEED_MEAL_VERSION = "seed";
 
-/// Only the settle job and the retention prune use this.
+/// Settlement, retention, and trusted quota/accounting RPCs use this.
+/// AI health-data tools keep using the caller JWT; this client is never exposed to a model.
 /// ⚠️ service_role bypasses RLS: every statement must carry its own `where user_id = $1`.
 export function serviceClient(): SupabaseClient {
   return createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    { auth: { persistSession: false } },
+    { auth: { persistSession: false, autoRefreshToken: false } },
   );
 }
 

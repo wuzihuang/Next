@@ -956,14 +956,17 @@ struct MeasureTakeover: View {
             let yesterday = data.history.last(where: { $0.day < data.today.day })?.bbWake
             var w = PanelWidget(
                 type: .wave, title: L("BODY BATTERY"), tag: .recover,
-                sentence: bb < 60 ? "You're still carrying yesterday. Keep it easy today."
-                                  : "Charged and steady. Today can take the session.",
-                footer: "HR \(hr) · HRV \(hrv.map { "\($0) MS" } ?? "——") · STRESS \(stress.map { "\($0) / 100" } ?? "——")",
-                action: "TAP FOR THE FULL READING",
+                sentence: bb < 60 ? L("You're still carrying yesterday. Keep it easy today.")
+                                  : L("Charged and steady. Today can take the session."),
+                footer: L("HR %d · HRV %@ · STRESS %@",
+                          hr,
+                          hrv.map { "\($0) MS" } ?? "——",
+                          stress.map { "\($0) / 100" } ?? "——"),
+                action: L("TAP FOR THE FULL READING"),
                 data: .trace(samples: Self.ecgTrace(hr: hr), hz: 50))
             w.hero = "\(bb)"
             w.heroLarge = true
-            w.heroSub = "BODY BATTERY" + (yesterday.map { " · WAS \($0) YESTERDAY" } ?? "")
+            w.heroSub = yesterday.map { L("BODY BATTERY · WAS %d YESTERDAY", $0) } ?? L("BODY BATTERY")
             w.accentOverride = NB.lime1     // 06 · 16 · lime, not the ECG warning red
             // 06 · 17 · the tap turns the reading into a question for her.
             w.replyPrompt = L("Just measured: HR %d, HRV %@ ms, stress %@", hr, hrv.map(String.init) ?? "——", stress.map(String.init) ?? "——")
@@ -978,10 +981,10 @@ struct MeasureTakeover: View {
             guard let balance = AutonomicBalance(intervals: study.intervals) else {
                 var w = PanelWidget(
                     type: .metric, title: L("BALANCE"), tag: nil,
-                    sentence: "The band didn't send enough beats to read the balance. Nothing was made up to fill it.",
-                    footer: study.heartRate.map { "HEART RATE \($0) BPM · \(study.intervals.count) INTERVALS" }
-                        ?? "NO READING · \(study.intervals.count) INTERVALS",
-                    action: "TRY IT AGAIN WHEN YOU'RE STILL", data: .none)
+                    sentence: L("The band didn't send enough beats to read the balance. Nothing was made up to fill it."),
+                    footer: study.heartRate.map { L("HEART RATE %d BPM · %d INTERVALS", $0, study.intervals.count) }
+                        ?? L("NO READING · %d INTERVALS", study.intervals.count),
+                    action: L("TRY IT AGAIN WHEN YOU'RE STILL"), data: .none)
                 w.hero = Fmt.dash
                 w.accentOverride = NB.lime1
                 return w
@@ -990,7 +993,7 @@ struct MeasureTakeover: View {
                 type: .metric, title: L("BALANCE"), tag: nil,
                 sentence: balance.note,
                 footer: "",
-                action: "TAP TO ASK ABOUT IT", data: .none)
+                action: L("TAP TO ASK ABOUT IT"), data: .none)
             w.accentOverride = NB.lime1
             w.balance = BalanceAnswer(
                 headline: balance.headline,
@@ -1004,8 +1007,8 @@ struct MeasureTakeover: View {
                          // ⚠️ Says which series it read. Per-second rates blunt the fast half
                          // of the cloud, and a footer that hid that would make two different
                          // measurements look like the same one.
-                         study.source == .intervals ? "\(balance.points.count) BEATS"
-                                                    : "\(balance.points.count) SAMPLES · PER SECOND"]
+                         study.source == .intervals ? L("%d BEATS", balance.points.count)
+                                                    : L("%d SAMPLES · PER SECOND", balance.points.count)]
                     .joined(separator: " · "),
                 points: balance.points.map { CGPoint(x: $0.x, y: $0.y) })
             w.replyPrompt = L("Just did a balance check: rest %d%%, drive %d%%, SD1 %d ms, SD2 %d ms. What does that suggest for today?",
@@ -1016,12 +1019,12 @@ struct MeasureTakeover: View {
             let leanHeld = (data.today.leanKg).map { abs(r.leanMassKg - $0) < 0.3 } ?? true
             var w = PanelWidget(
                 type: .metric, title: L("BODY COMPOSITION"), tag: nil,
-                sentence: fatDown && leanHeld ? "Fat down, muscle held. That is the version you wanted."
-                        : "One reading, not a verdict. The trend is what counts.",
+                sentence: fatDown && leanHeld ? L("Fat down, muscle held. That is the version you wanted.")
+                        : L("One reading, not a verdict. The trend is what counts."),
                 footer: [r.bmi.map { String(format: "BMI %.1f", $0) },
-                         String(format: "LEAN %.1f KG", r.leanMassKg),
-                         r.boneKg.map { String(format: "BONE %.1f KG", $0) }].compactMap { $0 }.joined(separator: " · "),
-                action: "TAP FOR ALL 14 FIELDS", data: .none)
+                         L("LEAN %.1f KG", r.leanMassKg),
+                         r.boneKg.map { L("BONE %.1f KG", $0) }].compactMap { $0 }.joined(separator: " · "),
+                action: L("TAP FOR ALL 14 FIELDS"), data: .none)
             w.hero = String(format: "%.1f%%", r.bodyFatPercent)
             w.targetOverride = .composition(date: nil)
             w.accentOverride = NB.lime1
@@ -1029,12 +1032,14 @@ struct MeasureTakeover: View {
             // read before this one is stored; the first scan ever says so instead.
             let prior = data.weighIns.first { $0.bodyFatPercent != nil }
             let month: (Date) -> String = { d in
-                let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "MMMM"
+                let f = DateFormatter()
+                f.locale = AppLanguage.shared.swiftLocale
+                f.dateFormat = AppLanguage.shared.isEnglish ? "MMMM" : "M月"
                 return f.string(from: d).uppercased()
             }
             w.composition = CompositionAnswer(
-                heroSub: prior.flatMap { p in p.bodyFatPercent.map { String(format: "BODY FAT · %.1f%% IN %@", $0, month(p.date)) } }
-                         ?? "BODY FAT · FIRST READING",
+                heroSub: prior.flatMap { p in p.bodyFatPercent.map { L("BODY FAT · %.1f%% IN %@", $0, month(p.date)) } }
+                         ?? L("BODY FAT · FIRST READING"),
                 fields: Self.goalFields(r, goal: data.profile.goal))
             return w
         }
@@ -1078,6 +1083,7 @@ struct MeasureTakeover: View {
     /// A trace shaped by the measured rate: one PQRST every 60/hr seconds at 50 Hz, four
     /// seconds of it. It is drawn from the number, not the ECG channel (see before-ship).
     private static func ecgTrace(hr: Int, seconds: Double = 4, hz: Double = 50) -> [Double] {
+        guard Band.allowsSeed else { return [] }
         let period = 60 / Double(max(hr, 30))
         return (0..<Int(seconds * hz)).map { i in
             let t = Double(i) / hz
@@ -1093,10 +1099,31 @@ struct MeasureTakeover: View {
             // settlement still owns the score (06 before-ship).
             reading = PartialReading(heartRate: hr)
         case .pulseStudy(let study):
-            // Nothing is written. There is no table for a beat-to-beat series, the band keeps
-            // its own copy, and inventing a schema inside a measurement screen is how one gets
-            // decided by accident. The reading lives on the panel for as long as it is there.
             if let hr = study.heartRate { reading = PartialReading(heartRate: hr) }
+            // ADR 0010 · 摘要行落库。逐拍序列仍然一个字都不写——那是心律波形，产品不呈现也不
+            // 解读；`balance_checks` 里只有结论词、心率、节拍数和三个离散度。
+            // 算不出结论的一次（区间太少）没有摘要可存，和面板上那个 NO READING 一致。
+            guard let balance = AutonomicBalance(intervals: study.intervals) else { return }
+            let at = Date()
+            let lead: MeasurementRecord.BalanceCheck.Lead = switch balance.lead {
+            case .parasympathetic: .rest
+            case .sympathetic:     .drive
+            case .even:            .even
+            }
+            // 先进内存再上传：测完退回「我的」，那块 MEASUREMENTS 第一行立刻就是它，不用等
+            // 下次启动重读（06 · 20 的验收线）。
+            data.measurements.insert(
+                MeasurementRecord(id: UUID(), at: at, detail: .balanceCheck(.init(
+                    lead: lead,
+                    restShare: balance.split.rest,
+                    sd1Ms: balance.sd1, sd2Ms: balance.sd2, sdnnMs: balance.sdnn,
+                    heartRate: study.heartRate ?? balance.beatsPerMinute,
+                    beatCount: balance.points.count + 1))),
+                at: 0)
+            Task {
+                await Repository.shared.recordBalanceCheck(balance, heartRate: study.heartRate,
+                                                           at: at)
+            }
         case .bodyComposition(let r):
             // F0 rule 09 · a band BIA reading is MEASURED and re-anchors the EMA.
             data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: r.inputWeightKg,
@@ -1107,6 +1134,14 @@ struct MeasureTakeover: View {
             data.today.fatSource = .measured
             data.bodyFatPercent = r.bodyFatPercent
             data.today.scans7d += 1
+            // ADR 0010 · 同一次扫描也立刻进测量记录，理由和上面那条一样。
+            data.rememberBodyScan(
+                MeasurementRecord(id: UUID(), at: Date(), detail: .bodyScan(.init(
+                    bodyFatPercent: r.bodyFatPercent,
+                    fatMassKg: r.fatMassKg,
+                    leanMassKg: r.leanMassKg,
+                    bmrKcal: r.bmrKcal,
+                    inputWeightKg: r.inputWeightKg))))
             // The row goes up now. The next launch reads body_composition back, and a
             // scan that only ever lived in memory would be replaced by the seed by then.
             Task { await Repository.shared.recordBodyComposition(r) }
@@ -1372,6 +1407,8 @@ struct LiveECG: View {
         private(set) var flash = 0.0
 
         func advance(to now: Date, bpm: Int?, amplitude: Double, still: Bool) {
+            // This PQRST shape is synthetic, not samples from the ECG channel.
+            guard Band.allowsSeed else { return }
             guard let last else {
                 self.last = now
                 if still, let bpm { prefill(bpm: bpm, amplitude: amplitude) }

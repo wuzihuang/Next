@@ -6,24 +6,25 @@
 // 07 · 16 · 02 · `thought` is her own reasoning, one printable line at a time, streamed
 // while she reasons. The THINKING screen prints these and nothing else at its foot.
 
-import { generateObject, streamText, type Tool } from "npm:ai@4.3.16";
+import { generateObject, streamText, type Tool, type CoreMessage } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { ChatHistory, coachFrame, coachMessages } from "../_shared/coach.ts";
 import { ThoughtStream } from "../_shared/thoughts.ts";
-import { model, MODEL_VERSION, modelChain, primaryModelId, visionModel } from "../_shared/model.ts";
+import { model, MODEL_VERSION, modelChain, primaryModelId } from "../_shared/model.ts";
 import { systemPrompt } from "../_shared/prompt.ts";
 import { buildTools } from "../_shared/tools.ts";
 import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
-import { Envelope, MEDICAL, medicalStop, normalizeLocale, batteryFallback, slowDownFrame, tagSafe } from "../_shared/contract.ts";
+import { Envelope, normalizeLocale, batteryFallback, slowDownFrame, tagSafe } from "../_shared/contract.ts";
 import { buildChartTools } from "../_shared/charts.ts";
 import { userClient, currentUserId, cors, json, userDayKey } from "../_shared/db.ts";
 import { enforceRequestBudget } from "../_shared/rate-limit.ts";
-import { consumeAiQuota, quotaDeniedResponse, recordAiUsage } from "../_shared/ai-quota.ts";
+import { consumeAiQuota, checkAiSpend, quotaDeniedResponse, recordAiUsage } from "../_shared/ai-quota.ts";
 import { usageFromProvider, type TokenUsage } from "../_shared/cost.ts";
-import { MAX_TURN_STEPS, gateTurnTool, initialToolGate, isRenderTool } from "../_shared/turn-phase.ts";
+import { MAX_TURN_STEPS, createTurnWorkflow, finishTurnStep, gateTurnTool, WORKFLOW_READY, WORKFLOW_REREAD } from "../_shared/turn-phase.ts";
 import { clientFreshness, freshnessContext } from "../_shared/freshness.ts";
-import { resolveTurnContext } from "../_shared/turn-context.ts";
+import { createTurnContext, withTurnRange, workflowRangeSchema } from "../_shared/turn-context.ts";
+import { estimateMeal, type MealEstimateDraft } from "../_shared/meal-estimate.ts";
 import type { Ctx } from "../_shared/sources.ts";
 import { repairTextToolCall } from "../_shared/tool-repair.ts";
 
@@ -33,9 +34,10 @@ export type TurnDependencies = {
   authenticate: (request: Request) => Promise<string | null>;
   client: (request: Request) => SupabaseClient;
   budget: (db: SupabaseClient) => Promise<Response | null>;
-  quota: (db: SupabaseClient) => Promise<
+  quota: (db: SupabaseClient, operationId: string) => Promise<
     { allowed: true; remaining?: number } | { allowed: false; reason: "count" | "spend" | "unavailable" }
   >;
+  spend: (db: SupabaseClient) => Promise<boolean>;
   streamText: typeof streamText;
   generateObject: typeof generateObject;
   recordUsage: (
@@ -50,7 +52,8 @@ const defaults: TurnDependencies = {
   authenticate: currentUserId,
   client: userClient,
   budget: (db) => enforceRequestBudget(db, "turn"),
-  quota: (db) => consumeAiQuota(db, "turn"),
+  quota: (db, operationId) => consumeAiQuota(db, "turn", operationId),
+  spend: async (db) => (await checkAiSpend(db)).allowed,
   streamText,
   generateObject,
   recordUsage: (db, usage, modelId, turnId) =>
@@ -84,6 +87,7 @@ export async function handleTurn(
     ? body.image
     : undefined;
   if (body.image != null && !image) return json({ error: "E_IMAGE_SCHEMA" }, 422);
+  if (!text.trim() && !image) return json({ error: "E_INPUT_REQUIRED" }, 422);
   if (image && image.length > 500_000) return json({ error: "IMAGE_TOO_LARGE" }, 413);
   const turnId: string = req.headers.get("Idempotency-Key") ?? crypto.randomUUID();
   if (!z.string().uuid().safeParse(turnId).success) return json({ error: "E_TURN_ID" }, 422);
@@ -105,7 +109,14 @@ export async function handleTurn(
       .eq("user_id", userId).gte("created_at", recentSince),
   ]);
   const { data: consent, error: consentErr } = consentResult;
-  if (consentErr || profileResult.error || existingResult.error || recentResult.error) return json({ error: "PREFLIGHT_UNAVAILABLE" }, 503);
+  const preflightFailure = [
+    ["consent", consentErr], ["profile", profileResult.error],
+    ["replay", existingResult.error], ["recent", recentResult.error],
+  ].find(([, error]) => error);
+  if (preflightFailure) {
+    const error = preflightFailure[1] as { code?: string };
+    return json({ error: "PREFLIGHT_UNAVAILABLE", stage: preflightFailure[0], code: error.code ?? "FETCH_ERROR" }, 503);
+  }
   if (profileResult.data?.deletion_requested_at) return json({error:"ACCOUNT_DELETING"},403);
   if (consent?.choice !== "granted") {
     return json({ error: "consent_withdrawn" }, 403);
@@ -125,8 +136,8 @@ export async function handleTurn(
   const prof = profileResult.data;
   const tz = prof?.timezone ?? "UTC";
   const currentDay: string = body.dayKey ?? userDayKey(tz);
-  let resolved;
-  try { resolved = resolveTurnContext(text, currentDay, history.data, (conversationSummary as {lastQueryContext?: import("../_shared/turn-context.ts").PreviousResolvedContext} | null)?.lastQueryContext); }
+  let resolved: import("../_shared/turn-context.ts").TurnContext;
+  try { resolved = createTurnContext(currentDay, text); }
   catch { return json({ error: "E_DATE_RANGE" }, 422); }
   const dayKey = resolved.dayKey;
   const ctx: Ctx = { db, userId, dayKey, tz, cache: new Map(),
@@ -178,14 +189,6 @@ export async function handleTurn(
     });
   }
 
-  const [calculation, domains] = await Promise.all([
-    db.rpc("calculation_status", {p_from: resolved.from, p_to: resolved.to}),
-    db.from("sync_domain_status").select("domain,status,user_day,attempted_at,acknowledged_start,acknowledged_end,repair_start,repair_end")
-      .eq("user_id",userId).eq("user_day", dayKey).limit(30),
-  ]);
-  const availability = { ...freshnessContext(freshInput.data, calculation.data ?? [], !!calculation.error),
-    domains: domains.error ? {status:"query_failed"} : domains.data,
-    summary: conversationSummary };
   const leaseId = crypto.randomUUID();
   const claim = await db.rpc("claim_ai_turn", {p_turn:turnId,p_text:text,p_conversation:conversationId,p_lease:leaseId});
   if (claim.error) return json({error:claim.error.code === "23505" ? "OPERATION_CONFLICT" : "TURN_UNAVAILABLE"},claim.error.code === "23505" ? 409 : 503);
@@ -196,15 +199,24 @@ export async function handleTurn(
     return sse(send => {send("screen.render",{envelope:frame.widget_tree,replay:true});send("done",{replay:true});});
   }
   if (claim.data?.status !== "claimed") return json({error:"TURN_UNAVAILABLE"},503);
-  const quota = await deps.quota(db);
+  const quota = await deps.quota(db, turnId);
   if (!quota.allowed) {
     await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId });
-    if (isChat) return quotaDeniedResponse(locale, quota);
+    if (isChat || quota.reason === "unavailable") return quotaDeniedResponse(locale, quota);
     return sse((send) => {
       send("error", { code: "RATE_LIMITED", fallback_frame: slowDownFrame(locale) });
     });
   }
   const started = Date.now();
+  const [calculation, domains] = await Promise.all([
+    db.rpc("calculation_status", {p_from: resolved.from, p_to: resolved.to}),
+    db.from("sync_domain_status").select("domain,status,user_day,attempted_at,acknowledged_start,acknowledged_end,repair_start,repair_end")
+      .eq("user_id",userId).eq("user_day", dayKey).limit(30),
+  ]);
+  const availability = { ...freshnessContext(freshInput.data, calculation.data ?? [], !!calculation.error),
+    domains: domains.error ? {status:"query_failed"} : domains.data,
+    summary: conversationSummary };
+
   const ledger = new NumberLedger();
   ledger.seedConstants();
 
@@ -214,88 +226,105 @@ export async function handleTurn(
     try {
     send("state", { value: "THINKING" });
 
-    // S7 · the medical stop happens before any tool call, not after.
-    if (!isChat && MEDICAL.test(text)) {
-      const stop = medicalStop(locale);
-      await save(stop, trace, Date.now() - started);
-      send("screen.render", { envelope: stop });
-      send("done", {});
-      return;
-    }
-
-    let photoExtract: Record<string, unknown> | null = null;
+    // One workflow owns all modalities. The model chooses the read/estimate tools;
+    // neither client keywords nor automatic image preflight select a second AI path.
+    const deadline = started + 50_000;
+    const signal = AbortSignal.any([AbortSignal.timeout(Math.max(1, deadline - Date.now())), req.signal]);
+    const assertModelBudget = async () => {
+      signal.throwIfAborted();
+      if (Date.now() >= deadline) throw new Error("TURN_DEADLINE");
+      if (!await deps.spend(db)) throw new Error("AI_SPEND_LIMIT");
+      signal.throwIfAborted();
+    };
+    const tools: Record<string, Tool> = buildTools(db, userId, ledger, { dayKey, tz }, ctx);
+    let mealDraft: MealEstimateDraft | null = null;
+    tools["meal.estimate"] = {
+      description: "Estimate the meal in this turn's words or attached image. Only select for a meal description or a requested meal estimate, never for an unrelated question containing a food word. Returns a draft, not a saved record.",
+      parameters: z.object({}),
+      execute: async () => {
+        if (!mealDraft) {
+          await assertModelBudget();
+          mealDraft = await estimateMeal({ text, image, locale, draftId: turnId, abortSignal: signal }, {
+            generateObject: deps.generateObject,
+            recordUsage: (usage, modelId) => deps.recordUsage(db, usage, modelId, turnId),
+          });
+          ledger.harvest(mealDraft, "meal.estimate");
+        }
+        return { ok: true, data: mealDraft };
+      },
+    };
     if (image) {
-      trace.push({ tool: "image.inspect", bytes: Math.floor(image.length * 0.75) });
-      send("tool", { name: "image.inspect" });
-      try {
-        photoExtract = await inspectImage(image, text, locale, deps, db, turnId);
-        ledger.harvest(photoExtract, "image.inspect");
-      } catch (error) {
-        console.error("turn image inspect failed:", error instanceof Error ? error.message : error);
-        const frame = imageFailure(locale);
-        await save(frame, trace, Date.now() - started);
-        send("error", { code: "IMAGE_UNAVAILABLE", fallback_frame: frame });
-        send("done", {});
-        return;
-      }
+      let extracted: Record<string, unknown> | null = null;
+      tools["image.inspect"] = {
+        description: "Read visible facts and numbers from this turn's attached image. For estimating a meal use meal.estimate instead. This is image evidence, not a health measurement.",
+        parameters: z.object({}),
+        execute: async () => {
+          if (!extracted) {
+            await assertModelBudget();
+            extracted = await inspectImage(image, text, locale, deps, db, turnId, signal);
+            ledger.harvest(extracted, "image.inspect");
+          }
+          return { ok: true, data: extracted };
+        },
+      };
     }
-
-    const tools: Record<string, Tool> = photoExtract && !isChat
-      ? {} : buildTools(db, userId, ledger, { dayKey, tz }, ctx);
 
     let envelope: Envelope | null = null;
-    const stop = new AbortController();
-    const renderTools = buildChartTools(
-      ctx,
-      ledger,
-      (env) => {
-        envelope = env;
-        stop.abort();
-      },
-      locale,
-    );
-
+    const renderTools = buildChartTools(ctx, ledger, (env) => { envelope = env; }, locale);
+    const food = renderTools["screen.render.food"];
+    if (food?.execute) {
+      const renderFood = food.execute;
+      food.execute = async (args, opts) => {
+        if (!mealDraft) return { rendered: false, error: "ESTIMATE_REQUIRED", say: "Request one reread and use meal.estimate first. Food output is a confirmation draft." };
+        const draft = mealDraft;
+        const result = await renderFood({ ...args,
+          name: draft.name, kcal: draft.kcal, protein_g: draft.protein_g,
+          carb_g: draft.carb_g, fat_g: draft.fat_g, pct_of_budget: undefined,
+          action: locale === "zh-CN" ? "确认记录" : "CONFIRM",
+        }, opts);
+        return result;
+      };
+    }
     if (isChat) {
       renderTools["screen.render.text"] = {
         description: "Optional plain-text answer; prefer answering directly in prose.",
         parameters: z.object({ sub: z.string().min(1).max(16000) }),
         execute: ({ sub }: { sub: string }) => {
           envelope = coachFrame(sub, locale);
-          stop.abort();
           return Promise.resolve({ rendered: true });
         },
       };
     }
-
-    const hasReadTools = Object.keys(tools).length > 0;
-    const gate = photoExtract
-      ? { phase: 2 as const, readCalls: 1, rereadUsed: false }
-      : initialToolGate(hasReadTools);
-    const traced = Object.fromEntries(Object.entries({ ...tools, ...renderTools }).map(([name, t]) => [name, {
+    const workflow = createTurnWorkflow(Object.keys(tools), Object.keys(renderTools));
+    const controls: Record<string, Tool> = {
+      [WORKFLOW_READY]: {
+        description: "Finish evidence gathering and enter output. Call as soon as you have enough evidence, including when no personal data is needed. Choose the exact chart user-day range if relevant; no keyword parser chooses it for you.",
+        parameters: z.object({ range: workflowRangeSchema.optional() }),
+        execute: ({ range }) => {
+          if (range) {
+            resolved = withTurnRange(resolved, range);
+            ctx.dayKey = resolved.dayKey;
+            ctx.from = resolved.from;
+            ctx.to = resolved.to;
+          }
+          return Promise.resolve({ ok: true });
+        },
+      },
+      [WORKFLOW_REREAD]: {
+        description: "Return to evidence gathering once, only when output needs missing evidence. Do not call together with a render tool.",
+        parameters: z.object({}),
+        execute: () => Promise.resolve({ ok: true }),
+      },
+    };
+    const traced = Object.fromEntries(Object.entries({ ...tools, ...renderTools, ...controls }).map(([name, t]) => [name, {
       ...t,
       // deno-lint-ignore no-explicit-any
       execute: async (args: any, opts: any) => {
+        signal.throwIfAborted();
+        const decision = gateTurnTool(workflow, name);
+        if (!decision.allow) return { rendered: false, error: decision.error, say: "Only use tools available in the current workflow phase." };
         trace.push({ tool: name, args });
         send("tool", { name });
-        const decision = gateTurnTool(gate, name, hasReadTools);
-        if (!decision.allow) {
-          const reread = decision.error === "REREAD_USED";
-          return {
-            ...(isRenderTool(name) ? { rendered: false } : {}),
-            error: decision.error,
-            say: locale.startsWith("en")
-              ? (reread
-                ? "Already reread once. Draw with the numbers you have."
-                : "Read first: call data.read for this source, then render with the numbers it returned.")
-              : (reread
-                ? "已经补读过一次，现在用已有数字制图。"
-                : "先读再画：先用 data.read 读数，再拿返回的数字渲染。"),
-          };
-        }
-        gate.phase = decision.next.phase;
-        gate.readCalls = decision.next.readCalls;
-        gate.rereadUsed = decision.next.rereadUsed;
-        if (!isRenderTool(name)) ledger.harvest(args, `${name}.args`);
         return await t.execute!(args, opts);
       },
     }]));
@@ -315,27 +344,37 @@ export async function handleTurn(
       thinking_budget: Number(Deno.env.get("TURN_THINKING_BUDGET") ?? 200),
     };
     const sourceContext = `\n\n<source_data>\n${JSON.stringify({ query: resolved, availability })}\n</source_data>`;
-    const photoContext = photoExtract
-      ? `\n\n<photo_extract>\n${JSON.stringify(photoExtract)}\n</photo_extract>`
-      : "";
+    const photoContext = image ? "\nAn image is attached. Select image.inspect for visible facts or meal.estimate for nutrition estimates." : "";
+    const messages: CoreMessage[] = isChat
+      ? coachMessages(history.data, text, currentDay, `${sourceContext}${photoContext}`)
+      : [{ role: "user", content: `<user_text>\n${tagSafe(text)}\n</user_text>\n\ncurrentDay=${currentDay}; requestedDay=${dayKey}${sourceContext}${photoContext}` }];
     const attempt = async (modelId = modelChain()[0]) => {
+      await assertModelBudget();
+      let stepFinished = false;
+      let calledTools = false;
       const res = deps.streamText({
         model: model(modelId),
-        system: systemPrompt(locale, undefined, isChat ? "chat" : "panel"),
-        ...(isChat
-          ? { messages: coachMessages(history.data, text, currentDay, `${sourceContext}${photoContext}`) }
-          : { prompt: `<user_text>\n${tagSafe(text)}\n</user_text>\n\ncurrentDay=${currentDay}; requestedDay=${dayKey}${sourceContext}${photoContext}` }),
+        system: systemPrompt(locale, isChat ? "chat" : "panel"),
+        messages,
         tools: traced,
+        experimental_activeTools: [...workflow.activeTools] as never,
         experimental_repairToolCall: repairTextToolCall,
-        // AI SDK 4.3 streamText has no prepareStep; two-phase is gated in execute.
-        maxSteps: MAX_TURN_STEPS,
-        ...(isChat ? { maxTokens: 4096 } : {}),
+        // The SDK may schedule its next request before onStepFinish settles.
+        // Own that boundary: one provider step, then account and advance explicitly.
+        maxSteps: 1,
+        maxTokens: isChat ? 4096 : 2048,
+        maxRetries: 0,
+        // Thinking models reject forced tool choice; workflow gates still enforce output order.
         toolChoice: "auto",
         providerOptions: { dashscope: think, "vercel-gateway": think },
-        abortSignal: AbortSignal.any([
-          AbortSignal.timeout(Math.max(5_000, 50_000 - (Date.now() - started))),
-          stop.signal,
-        ]),
+        abortSignal: signal,
+        onStepFinish: async ({ toolResults, usage, providerMetadata, response }) => {
+          await deps.recordUsage(db, usageFromProvider(usage, providerMetadata), modelId, turnId);
+          finishTurnStep(workflow, toolResults ?? []);
+          messages.push(...response.messages);
+          stepFinished = true;
+          calledTools = (toolResults?.length ?? 0) > 0;
+        },
       });
       let answer = "";
       for await (const part of res.fullStream) {
@@ -343,17 +382,15 @@ export async function handleTurn(
         if (isChat && part.type === "text-delta") answer += part.textDelta;
         else if (part.type === "step-finish") {
           if (isChat && part.finishReason === "tool-calls") answer = "";
-          const usage = (part as { usage?: unknown }).usage;
-          if (usage) {
-            await deps.recordUsage(db, usageFromProvider(usage), modelId, turnId);
-          }
         }
         else if (part.type === "error") throw part.error;
       }
       thoughts.flush();
-      if (isChat && !envelope && answer.trim()) envelope = coachFrame(answer.trim(), locale);
+      if (!stepFinished) throw new Error("MODEL_STEP_INCOMPLETE");
+      if (isChat && !envelope && !calledTools && answer.trim()) envelope = coachFrame(answer.trim(), locale);
+      if (!envelope && !calledTools) throw new Error("WORKFLOW_OUTPUT_REQUIRED");
     };
-    const run = async () => {
+    const runStep = async () => {
       const ids = modelChain();
       let lastError: unknown;
       for (const [index, modelId] of ids.entries()) {
@@ -362,10 +399,11 @@ export async function handleTurn(
           return;
         } catch (e) {
           thoughts.flush();
-          if (envelope) return;
           lastError = e;
-          const fast = Date.now() - started < 20_000 &&
-            !(e instanceof Error && e.name === "AbortError");
+          const providerFailure = e instanceof Error &&
+            (e.name === "AI_APICallError" || e.name === "AI_RetryError");
+          if (!providerFailure || signal.aborted || workflow.completedSteps > 0 || trace.length > 0) throw e;
+          const fast = Date.now() - started < 20_000;
           if (index === 0 && fast) {
             console.error("turn attempt 1 failed, retrying:", e instanceof Error ? `${e.name}: ${e.message}` : e);
             envelope = null;
@@ -374,8 +412,7 @@ export async function handleTurn(
               return;
             } catch (retryError) {
               thoughts.flush();
-              if (envelope) return;
-              lastError = retryError;
+                  lastError = retryError;
             }
           }
         }
@@ -384,11 +421,15 @@ export async function handleTurn(
     };
 
     try {
-      await run();
+      while (!envelope && workflow.completedSteps < MAX_TURN_STEPS) {
+        await runStep();
+      }
       ledger.seal();
     } catch (e) {
       console.error("turn failed:", e instanceof Error ? (e.stack ?? e.message) : e);
-      send("error", { code: "MODEL_UNAVAILABLE", fallback_frame: await fallback() });
+      const fb = await fallback();
+      await save(fb, trace, Date.now() - started);
+      send("error", { code: "MODEL_UNAVAILABLE", fallback_frame: fb });
       send("done", {});
       return;
     }
@@ -436,6 +477,14 @@ export async function handleTurn(
       return;
     }
 
+    // Transport identifiers are server metadata, not numbers claimed on screen.
+    // Attach them after auditing presentation, without adding IDs to the evidence ledger.
+    if (parsed.data.type === "food" && mealDraft) {
+      const draft = mealDraft as MealEstimateDraft;
+      parsed.data.data = { ...parsed.data.data, draft_id: draft.draft_id,
+        confidence: draft.confidence, model_version: draft.model_version,
+        source: draft.source, is_estimate: true, requires_confirmation: true };
+    }
     const canonical = await save(parsed.data, trace, Date.now() - started);
     send("screen.render", { envelope: canonical });
     send("done", {});
@@ -461,9 +510,10 @@ async function inspectImage(
   deps: TurnDependencies,
   db: SupabaseClient,
   turnId: string,
+  signal: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const result = await deps.generateObject({
-    model: visionModel(),
+    model: model(),
     schema: ImageExtract,
     system: [
       "Inspect the image and report only directly visible facts.",
@@ -480,26 +530,11 @@ async function inspectImage(
       ],
     }],
     mode: "json",
-    abortSignal: AbortSignal.timeout(20_000),
+    abortSignal: signal,
+    maxRetries: 0,
   });
-  await deps.recordUsage(db, usageFromProvider(result.usage), primaryModelId(), turnId);
+  await deps.recordUsage(db, usageFromProvider(result.usage, result.providerMetadata), primaryModelId(), turnId);
   return result.object;
-}
-
-function imageFailure(locale: "zh-CN" | "en-US"): Envelope {
-  const en = locale === "en-US";
-  return {
-    type: "text",
-    title: en ? "IMAGE NOT READ" : "图片未识别",
-    sentence: en
-      ? "The image could not be read. Try it again."
-      : "这张图片没有识别成功，请再试一次。",
-    data: { headline: en ? "TRY AGAIN" : "请重试" },
-    ttl_min: 5,
-    priority: "normal",
-    locale,
-    target: "profile",
-  };
 }
 
 let bannedCache: { at: number; list: RegExp[] } | null = null;

@@ -261,35 +261,32 @@ private struct ChatTopBarView: View {
     let onHistory: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(alignment: .center, spacing: 10) {
             Button(action: onBack) {
-                ZStack {
-                    Circle()
-                        .fill(NB.smokeKey)
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(NB.text1)
+                HStack(alignment: .center, spacing: 10) {
+                    BackChevron(height: 15, line: 1.8)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(L("AI COACH"))
+                                .font(NBFont.dot(700, 13))
+                                .tracking(0.06 * 13)
+                                .foregroundStyle(NB.text1)
+                            Circle()
+                                .fill(NB.lime1)
+                                .frame(width: 7, height: 7)
+                        }
+                        Text(L("ASK ANYTHING · YOUR AI COACH"))
+                            .font(NBFont.dot(500, 10))
+                            .tracking(0.04 * 10)
+                            .foregroundStyle(NB.lime1)
+                    }
                 }
-                .overlay(Circle().stroke(NB.hairline, lineWidth: 1))
+                .frame(minHeight: DetailBack.hitHeight, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(L("AI COACH"))
-                        .font(NBFont.dot(700, 13))
-                        .tracking(0.06 * 13)
-                        .foregroundStyle(NB.text1)
-                    Circle()
-                        .fill(NB.lime1)
-                        .frame(width: 7, height: 7)
-                }
-                Text(L("ASK ANYTHING · YOUR AI COACH"))
-                    .font(NBFont.dot(500, 10))
-                    .tracking(0.04 * 10)
-                    .foregroundStyle(NB.lime1)
-            }
+            .buttonStyle(HotZoneTap(pressedOpacity: 1, pressedScale: 1))
+            .accessibilityLabel(L("Back"))
+            .accessibilityValue(L("AI COACH"))
 
             Spacer()
 

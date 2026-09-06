@@ -90,8 +90,10 @@ struct DetailWindow: Hashable, Sendable {
 
     var load: Load {
         switch surface {
-        case .sleep, .response, .battery:
+        case .sleep, .response:
             return .none
+        case .battery:
+            return .dailyResults(lookback: DetailWindow(.battery, .month).days - 1)
         case .composition:
             return .composition
         case .fuel:

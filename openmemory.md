@@ -95,11 +95,19 @@ model credentials and tool execution server-side.
 - **DetailWindow** — surface-specific overrides on the pills: period words,
   `Repository.hydrate` load, debug keys, HEART slot minutes. Hero math stays
   per instrument (ADR 0012). Tick merge for vitals is `VitalsWindowAssembly`.
+  `bodyBattery` is a surface of its own (not device `.battery`): 1 / 7 / 30
+  user days, `dailyResults` lookback 29, debug `NB_DEBUG_BODY_BATTERY_RANGE`.
+- **BodyBatteryWindowMath** — Week/month heroes are the mean of published
+  morning peaks (`bbWake`), never a sum. Empty days stay out. `weekRolls`
+  cut 30 days as 9 + 7 + 7 + 7. Lime is the page colour (ADR 0017). The ME
+  plate sits between identity and COMPOSITION; back from profile is `back()`.
 - **Plan face (Paper 04D)** — `Features/Plan/`: `PlanFaceMath` assembles today's catalog
   from the settled night, training load, and meal state. `PlanLip` stacks the chasing
-  chevron, the two page dots, then `• PLAN •` under them. `PlanPage` is the vertical
+  chevron, the two page dots, then `PLAN` under them. `PlanPage` is the vertical
   third face. No `/turn` on open. Empty night prints `NO NIGHT YET`. Arithmetic is
-  PlanCore-tested.
+  PlanCore-tested. Close is one continuous pull: `PlanPage.closing` keeps the
+  dismiss gesture after `planOpen` flips false, and Home paging stays off unless
+  `planY` is idle or `homeDrag == .plan`.
 - **Home FuelCard (Paper 09C)** — `BottomStrip.FuelCard` + `FuelCardMath`. Two numbers
   only: EATEN and the signed delta (`eaten − target`). TO GO is negative, OVER is
   positive, equal is `0 TO GO`. An ember fill is EATEN / TARGET and stops at full.
@@ -166,8 +174,9 @@ model credentials and tool execution server-side.
   `SegmentedPills` DAY / WEEK / MONTH. Arithmetic lives in `TrainingWindowMath`
   (SyncCore); charts in `TrainingCharts.swift`. Windows are 1 / 7 / 30 user days
   (HEART grain, not Fuel's 28). Week/month heroes are finished-day averages on
-  the 0–21 scale, never sums. Empty days stay empty. Cyan hero matches the
-  home training ring (`NB.cyan1`); ember stays on Z4–Z5.
+  the 0–21 scale, never sums. Empty days stay empty. Lime hero
+  (`NB.lime1`) is the same on the home training card and the detail
+  page; ember stays on Z4–Z5.
   Card order is hero → main chart → ingredients → zones → steps/burn → CTA.
   Debug hook `NB_DEBUG_TRAINING_RANGE=DAY|WEEK|MONTH`.
 # Next · OpenMemory Guide
@@ -189,6 +198,11 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
+- **App Icon** — Shipping mark is the StandbyArt planet: carbon ground, lime-1 charge
+  band (gap at top-left), violet-2 tilted orbit, lime stand. Paper `NEXTBODY-HOOP`
+  page `APP ICON` (`P-0`) holds a 20-face casting (NOW / CHARGE / HOOP / ECLIPSE /
+  PIXEL / LETTER / LED / CORE / RING / STACK / DIAL / LOAD / SLAB / FLASH / SPLIT /
+  CUT / HALO / WORD / FLAME / GRID). Stay on these tokens and product marks.
 - `GateRoute` / `LaunchGate` / `SessionStore.resolveLaunch`: F1 §02 cold start. After a session exists, `devices.unbound_at is null` plus a finished About You (sex / height / birth_date) decide Connect vs Onboarding vs Home. Pairing writes the devices row immediately; Forget writes `unbound_at` and returns to Connect.
 - `HomeLaunchPolicy` / `HomeSnapshot` / `Repository.bootstrapHome`: same-day disk snapshot paints Home on the first frame; a still-valid access token skips the grant round trip; today's `daily_results` plus two-day samples load in parallel and replace the snapshot. 182-day history, composition, and BLE origin pull continue in the background.
 - `DirectionHeatMap` / `DailyDirectionPolicy`: Profile COMPOSITION is 26×7 Daily Direction
@@ -228,19 +242,23 @@ model credentials and tool execution server-side.
   (dump + automatic measurement / cadence / sport probe / health light) is
   `#if DEBUG` only; CONNECTION is unchanged. TREND / the numeral open
   `BatteryTrendView`. SYNC is `pullBandNow`. WORN reads `wearFlame`; WITH YOU
-  is inclusive user days from `devices.bound_at` (`DeviceCompanionMath`), never
-  firmware `saveDays` / `watchDataDayNumber` (that number only sizes backfill).
+  is inclusive user days from the earliest bind or wrist tick on this account
+  (`DeviceCompanionMath` + `Repository.loadCompanionSince`), never the latest
+  `devices.bound_at` after a BLE/seed swap, and never firmware `saveDays`.
   LAST PLUG / LAST LINK come from `BatteryLog`. Remaining days are not written.
   Automatic measurement still exposes Scientific sleep as the band's real
   `VPSettingAutomaticPPGTest` state; Training can still open that sheet via
   `.deviceAutoMonitor`.
-- `BatteryLog` / `BatteryTrendView`: local append-only log (30 days, so the
-  month window has something to draw). Charge on/off is a step on the line; a
-  disconnect is a gap. Simulator seed is a month of overnight charges plus three
-  closer days ending on the live percent. The trend page is Paper **12F**: no
-  lime hero (that stays on Device), `SegmentedPills` DAY / WEEK / MONTH, rolling
-  last 24h / 7d / 30d. Overnight charge is columns; level is a lime polyline;
-  Doto rail 100/50/0; spec HIGH / LOW / LAST PLUG (plug stamp is in-window).
+- `BatteryLog` / `BatteryDrainMath` / `BatteryTrendView`: local append-only log
+  (30 days). A quiet stretch is a dashed drain curve, not a ruler to NOW. A
+  first-connect cliff (stale last packet + fresh read in the same two minutes)
+  is collapsed; estimated points that land on a heard packet are scrubbed.
+  Reconnect does not stamp `lastBattery` at NOW. Overnight columns and week
+  ticks use each night's `sleepStart` → `wakeAt` (same clock as sleep), not
+  04:00 and not charge spans. The line takes `VitalsChartProbe` (`battery.probe`).
+  Simulator seed is a month of overnight charges plus three closer days ending
+  on the live percent. Paper **12F**: no lime hero, DAY / WEEK / MONTH, rolling
+  last 24h / 7d / 30d. Doto rail 100/50/0; spec HIGH / LOW / LAST PLUG.
   Default landing is DAY. `NB_DEBUG_BATTERY_RANGE` opens a window in DEBUG.
 - `BandBatteryPip`: 12×7 header cell. Charging / full draw a pixel bolt and pulse the
   fill; `BandPresence` stores `chargeState` from battery events so the pip updates

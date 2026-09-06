@@ -19,11 +19,13 @@ final class BandPresence {
     /// SDK pushes on its own, which is the number the pip should show without being asked.
     func start(store: DataStore) {
         guard listener == nil else { return }
+        store.hydrateBatteryLog()
         listener = Task { @MainActor in
             for await event in Band.live.events {
                 switch event {
                 case .state(let s):
-                    store.band.connected = (s == .connected)
+                    let on = (s == .connected)
+                    store.recordBandLink(connected: on)
                     if s != .connected { BandReadiness.shared.invalidateSnapshot() }
                 case .battery(let b):
                     guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() != nil,

@@ -173,8 +173,10 @@ struct ConnectFlow: View {
                     connected: true, name: identity.name, mac: identity.bleIdentifier,
                     batteryPercent: battery.percent, chargeState: battery.chargeState,
                     firmware: identity.firmware,
+                    lastBattery: battery,
                     lastSync: Date(),
                     capabilities: Self.capabilitySet(caps))
+                data.applyBandObservation(identity: identity, battery: battery)
                 await Repository.shared.registerDevice(identity: identity, battery: battery)
                 if let deviceId = Repository.shared.deviceId,
                    let userId = await SupabaseClient.shared.currentUserId {
@@ -493,15 +495,15 @@ private struct Searching: View {
 
             case .permission:
                 VStack(spacing: 14) {
-                    Text("PERMISSION NEEDED")
+                    Text(L("PERMISSION NEEDED"))
                         .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
                         .foregroundStyle(NB.ember1.opacity(0.85))
-                    Text("Bluetooth access is off. I can’t look for the band without it.")
+                    Text(L("Bluetooth access is off. I can’t look for the band without it."))
                         .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
                     Button {
                         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                     } label: {
-                        Text("Open Settings →").font(NBFont.ui(500, 14)).tracking(0.04 * 14).foregroundStyle(NB.lime1)
+                        Text(L("Open Settings →")).font(NBFont.ui(500, 14)).tracking(0.04 * 14).foregroundStyle(NB.lime1)
                     }
                     .buttonStyle(.plain)
                     .padding(.top, 6)

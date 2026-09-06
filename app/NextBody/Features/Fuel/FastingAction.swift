@@ -15,17 +15,21 @@ struct FastingAction: View {
     }
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             Button {
                 if hasFood { confirming = true } else { save() }
             } label: {
-                HStack(spacing: 8) {
-                    if saving { ProgressView().tint(NB.ember1) }
-                    Text(fasted ? L("Recorded: nothing eaten today") : L("I haven't eaten anything today"))
-                        .font(NBFont.ui(400, 13))
+                HStack(spacing: 7) {
+                    if saving { ProgressView().tint(NB.lime1).scaleEffect(0.7) }
+                    // A line of small yellow type, underlined: it has to read as something
+                    // you can tap, not as a caption sitting under the boards.
+                    Text(fasted ? L("Recorded: nothing eaten today") : L("MARK TODAY AS FASTED"))
+                        .font(NBFont.ui(500, 13)).tracking(0.02 * 13)
+                        .underline(!fasted, pattern: .solid)
                 }
-                .foregroundStyle(NB.text3Prod)
+                .foregroundStyle(fasted ? NB.text3Prod : NB.lime1)
                 .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(saving || fasted)
@@ -33,22 +37,69 @@ struct FastingAction: View {
             if let error { Text(error).font(NBFont.ui(400, 12)).foregroundStyle(NB.alert2) }
         }
         .sheet(isPresented: $confirming) {
-            VStack(alignment: .leading, spacing: 20) {
-                Text(L("Confirm no food today")).font(NBFont.ui(600, 22)).foregroundStyle(NB.text1)
-                Text(L("This will permanently clear all food recorded today and record zero intake. You will not be able to add or change food for today."))
-                    .font(NBFont.ui(400, 15)).foregroundStyle(NB.text3Prod)
-                if let error { Text(error).font(NBFont.ui(400, 12)).foregroundStyle(NB.alert2) }
-                LimePillButton(title: saving ? L("Saving…") : L("Clear food and confirm")) { save(confirmed: true) }
-                    .disabled(saving).accessibilityIdentifier("fasting-confirm")
-                Button(L("Cancel")) { confirming = false; error = nil }
-                    .disabled(saving).frame(maxWidth: .infinity).foregroundStyle(NB.text3Prod)
-            }
-            .padding(24)
-            .presentationDetents([.medium])
-            .presentationBackground(NB.carbon2)
-            .presentationCornerRadius(NB.R.panel)
-            .interactiveDismissDisabled(saving)
+            confirmSheet
+                .presentationDetents([.height(320)])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(NB.carbon2)
+                .presentationCornerRadius(NB.R.panel)
+                .interactiveDismissDisabled(saving)
         }
+    }
+
+    /// Three layers, none of them full-bleed: the ask, the consequence on its own panel,
+    /// then the two answers. 24pt gutters keep the copy off the sheet's edges.
+    private var confirmSheet: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L("MARK TODAY AS FASTED"))
+                .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+                .foregroundStyle(NB.ember1)
+                .padding(.bottom, 8)
+            Text(L("Confirm no food today"))
+                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
+                .foregroundStyle(NB.text1)
+                .padding(.bottom, 16)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L("This will permanently clear all food recorded today and record zero intake. You will not be able to add or change food for today."))
+                    .font(NBFont.ui(400, 13.5)).lineSpacing(5)
+                    .foregroundStyle(NB.text3Prod)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let error {
+                    Text(error).font(NBFont.ui(400, 12)).foregroundStyle(NB.alert2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous)
+                .stroke(NB.hairline, lineWidth: 1))
+
+            Spacer(minLength: 16)
+
+            Button { save(confirmed: true) } label: {
+                Text(saving ? L("Saving…") : L("Clear food and confirm"))
+                    .font(NBFont.ui(500, 15)).tracking(0.04 * 15)
+                    .foregroundStyle(NB.carbon)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(NB.lime1, in: Capsule())
+                    .opacity(saving ? 0.4 : 1)
+            }
+            .buttonStyle(.plain)
+            .disabled(saving)
+            .accessibilityIdentifier("fasting-confirm")
+
+            Button(L("Cancel")) { confirming = false; error = nil }
+                .disabled(saving)
+                .font(NBFont.ui(400, 13))
+                .foregroundStyle(NB.text3Prod)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .padding(.top, 2)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 26)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private func save(confirmed: Bool = false) {

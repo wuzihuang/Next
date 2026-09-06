@@ -49,8 +49,13 @@ struct NextBodyApp: App {
                     BandLiveLifecycle.shared.setPhase(new)
                     if new != .active { Task { await Analytics.shared.flush() } }
                 }
-                .onChange(of: router.takeover) { _, takeover in
+                .onChange(of: router.takeover) { previous, takeover in
                     BandLiveLifecycle.shared.setExclusiveOperation(takeover != nil)
+                    // The consent screen owns the exclusive gate until it closes. Resume
+                    // only after releasing it, so a grant cannot be swallowed by readiness.
+                    if previous == .consent, takeover == nil, ConsentStore.shared.granted {
+                        requestForegroundRefresh(reason: "consent")
+                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
                     BandLiveLifecycle.shared.setPhase(.background)

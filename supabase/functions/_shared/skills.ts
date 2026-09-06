@@ -131,7 +131,7 @@ export const CHART_SKILLS: ChartSkill[] = [
     use: "问的是 BODY BATTERY 此刻多少、或者没有更好的判断时的回落帧。",
     avoid: "问一天怎么充放用 line + bodyBattery.today。",
     sources: ["battery.now"],
-    copy: "title 固定 BODY BATTERY；sentence 写「现在 N」；footer 写醒来时的值。",
+    copy: "title 固定「身体电量」；sentence 写「现在 N」；footer 写醒来时的值。",
     target: "bodyBattery",
   },
   {
@@ -139,7 +139,7 @@ export const CHART_SKILLS: ChartSkill[] = [
     use: "做到了几天：一周里称了几天体重、记了几天餐。",
     avoid: "关心数值本身时用 line 或 days。",
     sources: ["weighins.7d", "mealsLogged.7d"],
-    copy: "hero 写「N OF 7」；sentence 说缺的是哪几天。",
+    copy: "hero 写「N / 7」；sentence 说缺的是哪几天。",
     target: "composition",
   },
   {
@@ -179,7 +179,7 @@ export const CHART_SKILLS: ChartSkill[] = [
     use: "一周里的规律：哪一天的哪个时段心率或步数最高。",
     avoid: "只问今天用 bars 或 line。",
     sources: ["heart.heat.7d", "steps.heat.7d"],
-    copy: "hero 写最亮的格子（星期 + 时段）；sentence 说这个规律；footer 写 UNLIT → DIM → MID → BRIGHT。",
+    copy: "hero 写最亮的格子（星期 + 时段）；sentence 说这个规律；footer 写 未亮 → 暗 → 中 → 亮。",
     target: "training",
   },
   {
@@ -219,7 +219,7 @@ export const CHART_SKILLS: ChartSkill[] = [
     use: "12 周里体成分的方向：多少次测量脂肪往下走。",
     avoid: "问具体数值用 dual；问最近几次变化用 delta。",
     sources: ["composition.recomp"],
-    copy: "hero 写 N DOWN · M UP；sentence 说趋势；footer 写 12 周脂肪量变化。",
+    copy: "hero 写 N 降 · M 升；sentence 说趋势；footer 写 12 周脂肪量变化。",
     target: "composition",
   },
   {
@@ -242,20 +242,6 @@ export const CHART_SKILLS: ChartSkill[] = [
 
 export const SKILL_BY_TYPE = new Map(CHART_SKILLS.map((s) => [s.type, s]));
 
-export function chartSkillsForScope(sourceScope?: string[]): ChartSkill[] {
-  if (!sourceScope) return CHART_SKILLS;
-  const allowed = new Set(sourceScope);
-  const foodQuestion = sourceScope.some((source) =>
-    /^(protein|kcal|meals|mealsBySlot|mealsLogged|macros|balance|deltaKcal)\./.test(source)
-  );
-  return CHART_SKILLS.filter((skill) =>
-    skill.sources.some((source) => allowed.has(source)) ||
-    skill.type === "text" ||
-    skill.type === "metric" ||
-    (skill.type === "food" && foodQuestion)
-  );
-}
-
 /// The tool description: what it shows, when, when not. The source list is on the
 /// parameter, so it is not repeated here.
 export function toolDescription(s: ChartSkill): string {
@@ -264,21 +250,7 @@ export function toolDescription(s: ChartSkill): string {
 
 /// S11 · the router. Compact on purpose: one line per group of charts, so the whole
 /// section reads in a glance and a wrong line can be rolled back on its own.
-export function chartChoicePrompt(sourceScope?: string[], en = true): string {
-  if (sourceScope) {
-    const choices = chartSkillsForScope(sourceScope)
-      .map((skill) => `· ${skill.type} → ${skill.use}`);
-    return [
-      "S11 CHART CHOICE",
-      en
-        ? "Each chart on screen is a screen.render.<type> tool. Read the numbers first, then pick from the charts offered this turn:"
-        : "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再从本轮提供的图里选：",
-      ...choices,
-      en
-        ? "Series charts only pick a source; the server fills the points. If a tool returns NO_DATA, switch chart or write —— as text. One render per turn."
-        : "序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换图或用 text 写 ——。一轮只渲染一次。",
-    ].join("\n");
-  }
+export function chartChoicePrompt(en = true): string {
   return en
     ? [
       "S11 CHART CHOICE",
@@ -296,7 +268,7 @@ export function chartChoicePrompt(sourceScope?: string[], en = true): string {
     : [
       "S11 CHART CHOICE",
       "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再按问题的形状选图：",
-      "· 此刻一个数 → metric；一个数对满值/目标 → ring；0–100 带分区 → gauge；BODY BATTERY 此刻 → battery",
+      "· 此刻一个数 → metric；一个数对满值/目标 → ring；0–100 带分区 → gauge；身体电量此刻 → battery",
       "· 一天之内或几十天里怎么变 → line；一周逐天比较 → days；一天里分时段的量 → bars",
       "· 每天高低两条边 → band；一周×时段的规律 → heat；有正有负的逐次变化 → delta；两条趋势对照 → dual",
       "· 训练：区间分钟 → zones；今天负荷的构成 → workout / table；今天发生了什么 → events",

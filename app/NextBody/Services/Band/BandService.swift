@@ -371,13 +371,13 @@ struct BandCapabilities {
 
 /// ⚠️ Three values together: firmware with isPercent = false only reports 0–4 bars, and
 /// collapsing them loses the difference between "82%" and "4 bars" forever.
-struct BandBattery {
+struct BandBattery: Hashable {
     let isPercent: Bool
     let percent: Int?
     let level: Int?
     let chargeState: ChargeState
 
-    enum ChargeState: String { case unplugged, charging, full, unknown }
+    enum ChargeState: String, Hashable { case unplugged, charging, full, unknown }
 
     /// What the ring can draw. A bar count is not a percentage and is never shown as one.
     var ringFraction: Double? {
@@ -570,24 +570,24 @@ enum AutoMonitoringRead: Equatable {
             switch error {
             case .notConnected:
                 return .failed(
-                    headline: "BAND OFFLINE",
-                    sentence: "Connect this HOOP, then open Automatic measurement again.")
+                    headline: L("BAND OFFLINE"),
+                    sentence: L("Connect this HOOP, then open Automatic measurement again."))
             case .timeout:
                 return .failed(
-                    headline: "THE BAND DID NOT ANSWER",
-                    sentence: "The automatic-measurement read timed out. Keep it on your wrist and try again.")
+                    headline: L("THE BAND DID NOT ANSWER"),
+                    sentence: L("The automatic-measurement read timed out. Keep it on your wrist and try again."))
             case .unsupported:
                 return .failed(
-                    headline: "THIS HOOP DOES NOT EXPOSE AUTOMATIC MEASUREMENT",
-                    sentence: "The firmware has no interval API and no automatic-measurement switches to turn.")
+                    headline: L("THIS HOOP DOES NOT EXPOSE AUTOMATIC MEASUREMENT"),
+                    sentence: L("The firmware has no interval API and no automatic-measurement switches to turn."))
             default:
                 return .failed(
                     headline: error.localizedDescription,
-                    sentence: "This HOOP refused the automatic-measurement read.")
+                    sentence: L("This HOOP refused the automatic-measurement read."))
             }
         }
         return .failed(
-            headline: "THE BAND DID NOT ANSWER",
+            headline: L("THE BAND DID NOT ANSWER"),
             sentence: error.localizedDescription)
     }
 }

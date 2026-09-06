@@ -1,6 +1,24 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { type Ctx, fetchAs, SOURCE_BY_ID } from "./sources.ts";
-import { readSeriesSource } from "./tools.ts";
+async function readSeriesSource(source: string, ctx: Ctx): Promise<Record<string, unknown> | null> {
+  const src = SOURCE_BY_ID.get(source);
+  if (!src) return null;
+  const result = await fetchAs(source, src.kind, ctx);
+  if (!result) return null;
+  const data = result.data as Record<string, unknown>;
+  const tail = (value: unknown) => (Array.isArray(value) ? value : undefined);
+  return {
+    agg: result.agg,
+    evidence: result.evidence ?? { metric: source, dayKey: ctx.dayKey, timezone: ctx.tz, unit: result.unit ?? null },
+    paired: data.kind === "pair" ? { hi: data.hi, lo: data.lo } : undefined,
+    hero: result.hero ?? null,
+    unit: result.unit ?? null,
+    window: result.window,
+    points: tail(data.series) ?? tail(data.bins) ?? tail(data.parts) ?? tail(data.rows)
+      ?? tail(data.lanes) ?? tail(data.minutes) ?? tail(data.cells) ?? null,
+  };
+}
+
 Deno.test("series evidence retains paired history and reuses chart snapshot", async () => {
   let calls = 0;
   const src = {

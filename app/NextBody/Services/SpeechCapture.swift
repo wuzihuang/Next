@@ -37,8 +37,7 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
     /// to fix, and a recorder that failed to start is as empty as a denied permission.
     /// 05 edge 1 · the second time iOS never asks again; the dock has to know it was refused.
     static var permissionDenied: Bool {
-        if #available(iOS 17.0, *) { return AVAudioApplication.shared.recordPermission == .denied }
-        return AVAudioSession.sharedInstance().recordPermission == .denied
+        AVAudioApplication.shared.recordPermission == .denied
     }
     /// 05 edge 6 · a call or an alarm took the microphone. Set once per take, read by the dock.
     @MainActor private(set) var interruptedAt: TimeInterval?
@@ -204,14 +203,7 @@ final class SpeechCapture: @unchecked Sendable, ObservableObject {
     }
 
     private static func permission() async -> Bool {
-        if #available(iOS 17.0, *) {
-            if AVAudioApplication.shared.recordPermission == .granted { return true }
-            return await AVAudioApplication.requestRecordPermission()
-        }
-        let session = AVAudioSession.sharedInstance()
-        if session.recordPermission == .granted { return true }
-        return await withCheckedContinuation { c in
-            session.requestRecordPermission { c.resume(returning: $0) }
-        }
+        if AVAudioApplication.shared.recordPermission == .granted { return true }
+        return await AVAudioApplication.requestRecordPermission()
     }
 }

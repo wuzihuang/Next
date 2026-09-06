@@ -1,103 +1,126 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  createTurnWorkflow,
+  finishTurnStep,
   gateTurnTool,
-  initialToolGate,
   MAX_TURN_STEPS,
-  nextTurnPhase,
+  WORKFLOW_READY,
+  WORKFLOW_REREAD,
 } from "./turn-phase.ts";
 
-const reads = ["data.read", "data.catalog", "day.get"];
+const reads = ["data.read", "data.catalog"];
 const renders = ["screen.render.line", "screen.render.metric"];
+const ready = { toolName: WORKFLOW_READY, result: { ok: true } };
+const reread = { toolName: WORKFLOW_REREAD, result: { ok: true } };
+const read = { toolName: "data.read", result: { rows: [1] } };
 
-function step(
-  stepNumber: number,
-  lastToolNames: string[],
-  rereadUsed = false,
-) {
-  return nextTurnPhase({
-    stepNumber,
-    lastToolNames,
-    rereadUsed,
-    readTools: reads,
-    renderTools: renders,
-  });
-}
-
-Deno.test("the first step can only read", () => {
-  const first = step(0, []);
-  assertEquals(first.phase, 1);
-  assertEquals(first.activeTools, reads);
-  assertEquals(first.rereadUsed, false);
+Deno.test("model chooses data tools and declares readiness after one step", () => {
+  const state = createTurnWorkflow(reads, renders);
+  const activeReference = state.activeTools;
+  assertEquals(state.activeTools, [...reads, WORKFLOW_READY]);
+  assertEquals(gateTurnTool(state, "data.catalog").allow, true);
+  assertEquals(gateTurnTool(state, "data.read").allow, true);
+  assertEquals(gateTurnTool(state, WORKFLOW_READY).allow, true);
+  // A ready call cannot unlock rendering while parallel reads are executing.
+  assertEquals(gateTurnTool(state, renders[0]).allow, false);
+  finishTurnStep(state, [read, ready]);
+  assertEquals(state.phase, "render");
+  assertEquals(state.activeTools === activeReference, true);
+  assertEquals(state.activeTools, [...renders, WORKFLOW_REREAD]);
+  assertEquals(gateTurnTool(state, reads[0]).allow, false);
 });
 
-Deno.test("further reads stay in the evidence phase until the four-step budget", () => {
-  const second = step(1, ["data.read"]);
-  assertEquals(second.phase, 1);
-  assertEquals(second.activeTools, reads);
-  const fourth = step(3, ["data.read"]);
-  assertEquals(fourth.phase, 1);
-});
-
-Deno.test("drawing offers one reread and then locks to charts", () => {
-  const drawing = step(4, ["data.read"]);
-  assertEquals(drawing.phase, 2);
-  assertEquals(drawing.activeTools.includes("data.read"), true);
-  assertEquals(drawing.activeTools.includes("screen.render.line"), true);
-  const afterReread = step(5, ["data.read"], false);
-  assertEquals(afterReread.rereadUsed, true);
-  assertEquals(afterReread.activeTools, renders);
-  const noSecondReread = step(5, ["data.read"], true);
-  assertEquals(noSecondReread.activeTools, renders);
-  assertEquals(MAX_TURN_STEPS, 6);
-});
-
-Deno.test("a photo-only turn with no read tools goes straight to drawing", () => {
-  const result = nextTurnPhase({
-    stepNumber: 0,
-    lastToolNames: [],
-    rereadUsed: false,
-    readTools: [],
-    renderTools: renders,
-  });
-  assertEquals(result.phase, 2);
-  assertEquals(result.activeTools, renders);
-});
-
-Deno.test("the execute gate blocks drawing until one read, then allows one reread", () => {
-  let state = initialToolGate(true);
-  const firstDraw = gateTurnTool(state, "screen.render.line", true);
-  assertEquals(firstDraw.allow, false);
-  assertEquals(firstDraw.error, "READ_FIRST");
-  const firstRead = gateTurnTool(state, "data.read", true);
-  assertEquals(firstRead.allow, true);
-  state = firstRead.next;
-  const draw = gateTurnTool(state, "screen.render.metric", true);
-  assertEquals(draw.allow, true);
-  state = draw.next;
-  assertEquals(state.phase, 2);
-  const reread = gateTurnTool(state, "data.read", true);
-  assertEquals(reread.allow, true);
-  state = reread.next;
-  const secondRead = gateTurnTool(state, "data.catalog", true);
-  assertEquals(secondRead.allow, false);
-  assertEquals(secondRead.error, "REREAD_USED");
-});
-
-Deno.test("four reads open drawing without a fifth being required first", () => {
-  let state = initialToolGate(true);
-  for (let i = 0; i < 4; i++) {
-    const next = gateTurnTool(state, "data.read", true);
-    assertEquals(next.allow, true);
-    state = next.next;
+Deno.test("read budget counts model steps, not parallel tool invocations", () => {
+  const state = createTurnWorkflow(reads, renders);
+  for (let step = 0; step < 4; step++) {
+    assertEquals(state.phase, "read");
+    for (let call = 0; call < 7; call++) {
+      assertEquals(gateTurnTool(state, "data.read").allow, true);
+    }
+    finishTurnStep(state, Array.from({ length: 7 }, () => read));
   }
-  assertEquals(state.phase, 2);
-  const draw = gateTurnTool(state, "screen.render.line", true);
-  assertEquals(draw.allow, true);
+  assertEquals(state.phase, "render");
+  assertEquals(state.activeTools, renders);
+  assertEquals(gateTurnTool(state, WORKFLOW_REREAD).allow, false);
 });
 
-Deno.test("a photo path with no read tools never blocks drawing", () => {
-  const state = initialToolGate(false);
-  const draw = gateTurnTool(state, "screen.render.line", false);
-  assertEquals(draw.allow, true);
-  assertEquals(draw.next.phase, 2);
+Deno.test("failed control result does not advance the workflow", () => {
+  const state = createTurnWorkflow(reads, renders);
+  finishTurnStep(state, [{ toolName: WORKFLOW_READY, result: { ok: false } }]);
+  assertEquals(state.phase, "read");
+  finishTurnStep(state, [ready]);
+  assertEquals(state.phase, "render");
+  finishTurnStep(state, [{
+    toolName: WORKFLOW_REREAD,
+    result: { error: "failed" },
+  }]);
+  assertEquals(state.phase, "render");
+  assertEquals(state.rereadUsed, false);
+});
+
+Deno.test("one explicit reread allows parallel reads then returns to rendering", () => {
+  const state = createTurnWorkflow(reads, renders);
+  finishTurnStep(state, [ready]);
+  assertEquals(gateTurnTool(state, WORKFLOW_REREAD).allow, true);
+  assertEquals(gateTurnTool(state, renders[0]).allow, false);
+  assertEquals(gateTurnTool(state, reads[0]).allow, false);
+  finishTurnStep(state, [reread]);
+  assertEquals(state.phase, "read");
+  assertEquals(state.rereadUsed, true);
+  assertEquals(gateTurnTool(state, reads[0]).allow, true);
+  assertEquals(gateTurnTool(state, reads[1]).allow, true);
+  finishTurnStep(state, [read]);
+  assertEquals(state.phase, "render");
+  assertEquals(state.activeTools, renders);
+  assertEquals(gateTurnTool(state, WORKFLOW_REREAD).allow, false);
+});
+
+Deno.test("reread is hidden when too few steps remain to read and render", () => {
+  const state = createTurnWorkflow(reads, renders);
+  finishTurnStep(state, [ready]);
+  for (let step = 1; step < 4; step++) finishTurnStep(state, []);
+  assertEquals(state.activeTools, renders);
+});
+
+Deno.test("parallel renders are claimed once and a failed render can retry next step", () => {
+  const state = createTurnWorkflow(reads, renders);
+  finishTurnStep(state, [ready]);
+  assertEquals(gateTurnTool(state, renders[0]).allow, true);
+  assertEquals(gateTurnTool(state, renders[1]), {
+    allow: false,
+    error: "STEP_ALREADY_COMMITTED",
+  });
+  assertEquals(gateTurnTool(state, WORKFLOW_REREAD).allow, false);
+  finishTurnStep(state, [{
+    toolName: renders[0],
+    result: { rendered: false },
+  }]);
+  assertEquals(state.phase, "render");
+  assertEquals(gateTurnTool(state, renders[1]).allow, true);
+  finishTurnStep(state, [{ toolName: renders[1], result: { rendered: true } }]);
+  assertEquals(state.phase, "done");
+  assertEquals(state.activeTools, []);
+  assertEquals(gateTurnTool(state, renders[0]).allow, false);
+});
+
+Deno.test("unknown tools and inactive result names cannot change phases", () => {
+  const state = createTurnWorkflow(reads, renders);
+  assertEquals(gateTurnTool(state, "legacy.estimate").allow, false);
+  finishTurnStep(state, [{ toolName: renders[0], result: { rendered: true } }]);
+  assertEquals(state.phase, "read");
+});
+
+Deno.test("turn without data tools can render immediately and cannot reread", () => {
+  const state = createTurnWorkflow([], renders);
+  assertEquals(state.phase, "render");
+  assertEquals(state.activeTools, renders);
+  assertEquals(gateTurnTool(state, renders[0]).allow, true);
+});
+
+Deno.test("six steps exhaust workflow even when render keeps failing", () => {
+  const state = createTurnWorkflow(reads, renders);
+  for (let step = 0; step < MAX_TURN_STEPS; step++) finishTurnStep(state, []);
+  assertEquals(state.completedSteps, 6);
+  assertEquals(state.phase, "done");
+  assertEquals(state.activeTools, []);
 });

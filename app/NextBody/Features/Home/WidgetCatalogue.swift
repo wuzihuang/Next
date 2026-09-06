@@ -24,7 +24,7 @@ struct WidgetCatalogue: View {
                             headline: L("Drive is leading."),
                             note: L("Your beats came at a steadier spacing, which is what effort, caffeine or a busy head all look like from here."),
                             restShare: 0.19,
-                            footer: "67 BPM · SD1 7 MS · SD2 30 MS · 22 BEATS",
+                            footer: L("67 BPM · SD1 7 MS · SD2 30 MS · 22 BEATS"),
                             points: points))
     }
 
@@ -38,11 +38,11 @@ struct WidgetCatalogue: View {
         ScrollView {
             VStack(spacing: 18) {
                 HStack {
-                    Text("\(types.count) TYPES · 12 RENDERERS")
+                    Text(L("%d TYPES · 12 RENDERERS", types.count))
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.text3Prod)
                     Spacer(minLength: 12)
-                    Button("CLOSE") { dismiss() }
+                    Button(L("CLOSE")) { dismiss() }
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.lime1)
                 }
@@ -92,18 +92,18 @@ struct WidgetCatalogue: View {
         case .metric:
             var m = w(type, "HEART RATE", "Calm pulse — right where it should be", .none)
             m.hero = "68 bpm"
-            m.heroSub = "+4 VS RHR 52 · MEASURED 14:20"
-            m.footer = "RANGE TODAY 52–172 · BASELINE STEADY"
+            m.heroSub = L("+4 VS RHR 52 · MEASURED 14:20")
+            m.footer = L("RANGE TODAY 52–172 · BASELINE STEADY")
             return m
         case .text:
             // 07 · rule 6 · the board's own text screen, its three lines and no sentence slot.
             var t = w(type, "TODAY'S CALL", "4 days since your last lift · legs are fresh",
                       .none)
             t.tag = .move
-            t.headline = HeadlineBlock(eyebrow: "BATTERY 86% · TARGET 14.5",
-                                       headline: "LIFT TODAY", sub: "STRENGTH · 45 MIN")
-            t.action = "PRIME WINDOW 17:00 → 20:00"
-            t.footer = "8,432 STEPS · 7H12M IN BED"
+            t.headline = HeadlineBlock(eyebrow: L("BATTERY 86% · TARGET 14.5"),
+                                       headline: L("LIFT TODAY"), sub: L("STRENGTH · 45 MIN"))
+            t.action = L("PRIME WINDOW 17:00 → 20:00")
+            t.footer = L("8,432 STEPS · 7H12M IN BED")
             return t
         case .line:
             var l = w(type, "HRV · 12 NIGHTS", "62 ms over twelve nights", .series(series))
@@ -175,9 +175,9 @@ struct WidgetCatalogue: View {
             // 07 · 20 · the plate: name, kcal as the hero, three macro rows.
             var f = w(type, "LOGGED · 12:42", "Good pick — 48 g protein still to place",
                       .rows([.init(label: L("CHICKEN SALAD"), value: "420")]))
-            f.plate = PlateBlock(name: "Chicken salad", portion: "1 bowl", kcal: 420,
+            f.plate = PlateBlock(name: L("Chicken salad"), portion: L("1 bowl"), kcal: 420,
                                  protein: 32, carb: 18, fat: 22, pctOfBudget: 31)
-            f.footer = "660 KCAL LEFT · KITCHEN CLOSES 21:00"
+            f.footer = L("660 KCAL LEFT · KITCHEN CLOSES 21:00")
             return f
         case .meal:
             return w(type, "LUNCH", "532 kcal · 50 g protein", hero: "532",
@@ -210,7 +210,7 @@ struct WidgetCatalogue: View {
 
     private static func w(_ type: PanelType, _ title: String, _ sentence: String,
                           hero: String? = nil, _ data: PanelData) -> PanelWidget {
-        PanelWidget(type: type, title: title, tag: nil, sentence: sentence,
+        PanelWidget(type: type, title: L(title), tag: nil, sentence: L(sentence),
                     footer: nil, action: nil, hero: hero, data: data)
     }
 }

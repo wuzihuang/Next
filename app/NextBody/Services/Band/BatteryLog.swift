@@ -1,8 +1,8 @@
 import Foundation
 
 /// One reading the phone actually heard from the band — percent or bars, charge
-/// state, and whether the link was up. The device page's trend is this log, not a
-/// guessed drain curve.
+/// state, and whether the link was up. The trend is this log; a long quiet
+/// stretch is filled with `BatteryDrainMath`, not a ruler to NOW.
 struct BatteryObservation: Equatable, Sendable, Codable {
     var at: Date
     var isPercent: Bool
@@ -26,6 +26,7 @@ struct BatteryPoint: Equatable, Sendable {
     var at: Date
     var value: Double
     var charge: BatteryObservation.Charge
+    var estimated: Bool = false
 }
 
 struct BatterySpan: Equatable, Sendable {
@@ -99,7 +100,7 @@ enum BatteryLog {
         from start: Date,
         to end: Date
     ) -> BatteryPlot {
-        let ordered = samples.sorted { $0.at < $1.at }
+        let ordered = BatteryDrainMath.collapse(samples)
         var series: [BatteryObservation] = []
         if let carry = ordered.last(where: { $0.at < start }) {
             var edge = carry
@@ -114,14 +115,19 @@ enum BatteryLog {
         let percented = valued.filter(\.isPercent).count
         let isPercent = percented >= valued.count - percented
 
+        let yMax = isPercent ? 100.0 : 4
+        let drainPerHour = BatteryDrainMath.drainRate(in: series, yMax: yMax)
+
         var runs: [[BatteryPoint]] = []
         var run: [BatteryPoint] = []
         var charging: [BatterySpan] = []
         var chargeStart: Date?
-        var lastConnected: BatteryPoint?
+        var lastHeard: BatteryPoint?
 
         func flushRun() {
-            if !run.isEmpty { runs.append(run); run = [] }
+            let cleaned = BatteryDrainMath.scrub(run)
+            if !cleaned.isEmpty { runs.append(cleaned) }
+            run = []
         }
         func closeCharge(at date: Date) {
             if let started = chargeStart, date > started {
@@ -129,12 +135,14 @@ enum BatteryLog {
             }
             chargeStart = nil
         }
+        func stitch(to next: BatteryPoint) {
+            guard let last = lastHeard, next.at > last.at else { return }
+            run.append(contentsOf: BatteryDrainMath.interiorCurve(from: last, to: next))
+        }
 
         for sample in series {
             if !sample.connected {
                 closeCharge(at: sample.at)
-                flushRun()
-                lastConnected = nil
                 continue
             }
             guard let value = sample.plotValue else { continue }
@@ -142,23 +150,29 @@ enum BatteryLog {
             // ruler — plotted on it, 3 bars would draw as 3 % — so the line breaks instead.
             guard sample.isPercent == isPercent else {
                 flushRun()
-                lastConnected = nil
+                lastHeard = nil
                 continue
             }
             let point = BatteryPoint(at: sample.at, value: value, charge: sample.charge)
+            stitch(to: point)
             run.append(point)
-            lastConnected = point
+            lastHeard = point
             if sample.charge == .charging {
                 if chargeStart == nil { chargeStart = sample.at }
             } else {
                 closeCharge(at: sample.at)
             }
         }
-        if let last = lastConnected {
-            // The span runs to the edge of the window whether or not the last reading landed
-            // before it: a band charging right now must still be shaded as charging.
-            if last.at < end {
-                run.append(BatteryPoint(at: end, value: last.value, charge: last.charge))
+        if let last = lastHeard {
+            if last.at < end, end.timeIntervalSince(last.at) >= BatteryDrainMath.clash {
+                let dest = BatteryPoint(
+                    at: end,
+                    value: BatteryDrainMath.project(
+                        from: last, to: end, yMax: yMax, drainPerHour: drainPerHour),
+                    charge: last.charge,
+                    estimated: true)
+                stitch(to: dest)
+                run.append(dest)
             }
             if chargeStart != nil { closeCharge(at: end) }
         } else {
@@ -171,7 +185,7 @@ enum BatteryLog {
             runs: runs,
             charging: charging,
             isPercent: isPercent,
-            yMax: isPercent ? 100 : 4,
+            yMax: yMax,
             high: values.max(),
             low: values.min(),
             start: start,

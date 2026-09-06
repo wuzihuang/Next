@@ -368,7 +368,7 @@ private struct GateScreen: View {
                             .padding(.top, 6)
                     }
                     VStack(alignment: .leading, spacing: 12) {
-                        Text(L("Build your next body."))
+                        Text(L("Find your next body."))
                             .font(NBFont.ui(300, 21)).tracking(0.02 * 21)
                             .foregroundStyle(NB.white.opacity(0.82))
                         Text(L("TRAIN · RECOVER · REPEAT"))
@@ -568,7 +568,7 @@ private struct EmailScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: Chrome.gateTopInset)
-            StepBar(step: "STEP 01 / 02", onBack: onBack)
+            StepBar(step: L("STEP 01 / 02"), onBack: onBack)
 
             VStack(alignment: .leading, spacing: 14) {
                 Text(L("Your email"))
@@ -725,16 +725,16 @@ private struct CodeScreen: View {
     private var lockLine: String {
         _ = now
         guard let left = AuthLock.remaining(email) else {
-            return "Too many tries. Try again in 15:00."
+            return L("Too many tries. Try again in 15:00.")
         }
         let seconds = Int(left.rounded(.up))
-        return String(format: "Too many tries. Try again in %02d:%02d.", seconds / 60, seconds % 60)
+        return L("Too many tries. Try again in %02d:%02d.", seconds / 60, seconds % 60)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: Chrome.gateTopInset)
-            StepBar(step: "STEP 02 / 02", onBack: onBack)
+            StepBar(step: L("STEP 02 / 02"), onBack: onBack)
 
             VStack(alignment: .leading, spacing: 14) {
                 Text(L("Enter the code"))
@@ -769,9 +769,9 @@ private struct CodeScreen: View {
 
             // 01 edges 1 / 2 · the line under the cells. Expired is not red — it is not an error.
             if let error {
-                Text(error == .wrong ? "That code didn't work."
+                Text(error == .wrong ? L("That code didn't work.")
                      : error == .locked ? lockLine
-                     : error == .expired ? "That code has expired." : "")
+                     : error == .expired ? L("That code has expired.") : "")
                     .font(NBFont.ui(error == .expired ? 300 : 400, error == .expired ? 13.5 : 14)).tracking(0.01 * 14)
                     .foregroundStyle(error == .expired ? NB.white.opacity(0.50) : NB.alert1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -791,7 +791,7 @@ private struct CodeScreen: View {
                         .font(NBFont.dot(700, 13.5)).tracking(0.14 * 13.5)
                         .foregroundStyle(NB.lime1)
                 } else {
-                    Button("Resend") { onNewCode() }
+                    Button(L("Resend")) { onNewCode() }
                         .font(NBFont.ui(500, 13.5))
                         .foregroundStyle(NB.lime1)
                 }

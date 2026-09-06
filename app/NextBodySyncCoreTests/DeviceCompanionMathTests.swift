@@ -8,6 +8,13 @@ final class DeviceCompanionMathTests: XCTestCase {
         return calendar
     }()
 
+    func testStartPicksTheEarliestCandidate() {
+        let early = date(year: 2026, month: 8, day: 30, hour: 8)
+        let late = date(year: 2026, month: 9, day: 5, hour: 12)
+        XCTAssertEqual(DeviceCompanionMath.start(candidates: [late, nil, early]), early)
+        XCTAssertNil(DeviceCompanionMath.start(candidates: [nil, nil]))
+    }
+
     func testMissingBindIsNil() {
         XCTAssertNil(DeviceCompanionMath.days(boundAt: nil, now: Date(), calendar: calendar))
     }

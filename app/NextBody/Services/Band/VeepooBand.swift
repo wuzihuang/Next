@@ -14,7 +14,7 @@ import CoreBluetooth
 // changes — `Band.live` picks this up on its own.
 
 #if canImport(VeepooBleSDK)
-import VeepooBleSDK
+@preconcurrency import VeepooBleSDK
 
 final class VeepooBand: BandService, @unchecked Sendable {
     private let central: VPBleCentralManage = VPBleCentralManage.sharedBleManager()!
@@ -592,13 +592,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
         guard let peripheral else { throw BandError.notConnected }
         let account = SupabaseClient.currentUserIdSnapshot()
         let binding = BoundBand.identifier
-        @MainActor func ownsRequest() -> Bool {
+        let ownsRequest: @Sendable (Bool) -> Bool = { consent in
             self.state == .connected && BandPersonalInfoPolicy.owns(
                 expectedAccount: account, expectedBinding: binding,
                 account: SupabaseClient.currentUserIdSnapshot(), binding: BoundBand.identifier,
-                consent: ConsentStore.shared.granted)
+                consent: consent)
         }
-        guard await ownsRequest() else { throw CancellationError() }
+        guard ownsRequest(await MainActor.run { ConsentStore.shared.granted }) else { throw CancellationError() }
         guard info.heightCm > 0, info.weightKg > 0, info.birthYear > 0,
               info.birthYear <= Calendar.current.component(.year, from: Date()),
               (0...60000).contains(info.targetStep) else {
@@ -609,7 +609,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 // sdk() invokes its body on DispatchQueue.main.
                 MainActor.assumeIsolated {
                 // Recheck when the queued command actually reaches the native API.
-                guard ownsRequest() else { done(.failure(CancellationError())); return }
+                guard ownsRequest(ConsentStore.shared.granted) else { done(.failure(CancellationError())); return }
                 peripheral.veepooSDKSynchronousPersonalInformation(
                     withStature: UInt(info.heightCm),
                     weight: UInt(info.weightKg),
@@ -623,7 +623,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
             }
         }
         try await MainActor.run {
-            guard ownsRequest() else { throw CancellationError() }
+            guard ownsRequest(ConsentStore.shared.granted) else { throw CancellationError() }
             self.pushedWeightKg = Double(info.weightKg)
             self.pushedAt = Date()
         }
@@ -792,7 +792,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
             var hrvStatus: BandDomainReadStatus = model.hrvType == 0 ? .unsupported : .complete
             var temperatureStatus: BandDomainReadStatus = model.temperatureType == 0 ? .unsupported : .complete
             var oxygenStatus: BandDomainReadStatus = model.oxygenType == 0 ? .unsupported : .complete
-            var opticalStatus: BandDomainReadStatus = model.bloodGlucoseType == 0 ? .unsupported : .complete
+            let opticalStatus: BandDomainReadStatus = model.bloodGlucoseType == 0 ? .unsupported : .complete
             if auxiliaryIsStale {
                 if model.hrvType != 0 {
                     do { try await self.sdk("readHRV", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
@@ -1009,7 +1009,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         }
         for (index, model) in night.enumerated() {
             var histogram: [Int: Int] = [:]
-            for point in model.parseSleepLine() ?? [] {
+            for point in model.parseSleepLine() {
                 let stage = (point["type"] as? NSNumber)?.intValue
                     ?? (point["type"] as? String).flatMap(Int.init) ?? -1
                 histogram[stage, default: 0] += 1
@@ -1037,7 +1037,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
             guard let start = instant(model.sleepTime), let end = instant(model.wakeTime), start < end else { return nil }
             let deep = number(model.deepDuration), light = number(model.lightDuration)
             let total = number(model.sleepDuration)
-            let stages = (model.parseSleepLine() ?? []).map { point -> Int? in
+            let stages = model.parseSleepLine().map { point -> Int? in
                 let stage = (point["type"] as? NSNumber)?.intValue ?? (point["type"] as? String).flatMap(Int.init)
                 return stage.flatMap { (0...4).contains($0) ? $0 : nil }
             }
@@ -1449,10 +1449,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
         // release build: the header says so, and a test build on the band is not a product.
         let testServer = DebugEdge.on("otatest")
         return try await sdk("checkOTA", seconds: 180) { done in
-            let progress: (Progress?) -> Void = { p in
+            let progress: @Sendable (Progress?) -> Void = { p in
                 Self.log.notice("ota download \(Int((p?.fractionCompleted ?? 0) * 100)) %")
             }
-            let completion: (String?, String?, Error?) -> Void = { newVersion, des, error in
+            let completion: @Sendable (String?, String?, (any Error)?) -> Void = { newVersion, des, error in
                 if let error { done(.failure(error)); return }
                 Self.log.notice("ota server: version \(newVersion ?? "none", privacy: .public) · \(des ?? "", privacy: .public)")
                 guard let newVersion, !newVersion.isEmpty else { done(.success(nil)); return }
@@ -2284,6 +2284,8 @@ final class VeepooBand: BandService, @unchecked Sendable {
 
 /// Preserve the existing binding/cache key while recording this phone's stable BLE UUID.
 enum BoundBand {
+    /// MockBand / simulator walk-through. Must never unbind a real HOOP.
+    static let seedIdentifier = "C4-2E-8F-1A-73-9D"
     private static let key = "nb.band.identifier"
     private static let peripheralKey = "nb.band.peripheralIdentifier"
     private static let peripheralOwnerKey = "nb.band.peripheralBinding"

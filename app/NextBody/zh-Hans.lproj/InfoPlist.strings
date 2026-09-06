@@ -1,2 +1,8 @@
+NSBluetoothAlwaysUsageDescription = "NextBody 会连接你的手环，读取心率、步数和睡眠。";
+NSBluetoothPeripheralUsageDescription = "NextBody 会连接你的手环，读取心率、步数和睡眠。";
 NSCameraUsageDescription = "拍摄食物照片，以便 NextBody 记录这一餐。";
+NSHealthShareUsageDescription = "HOOP 从「健康」读取性别、出生日期、身高和体重，用来建立基线。它从不写入健康，也从不分享这些数据。";
+NSMicrophoneUsageDescription = "对 NextBody 说话，不用打字。";
+NSMotionUsageDescription = "手环不在附近时用来计步。";
 NSPhotoLibraryUsageDescription = "选择一张食物照片，以便 NextBody 记录这一餐。";
+NSSpeechRecognitionUsageDescription = "把你说的话记成一餐。";

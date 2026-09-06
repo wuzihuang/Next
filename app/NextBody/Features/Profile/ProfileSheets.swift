@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UserNotifications
 
 /// 11 · the thirteen sheets. New settings default to a sheet; making one a page has to be
@@ -281,7 +282,7 @@ struct LanguageSheet: View {
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
         } footer: {
-            Text(L("The screen answers in this language. Metric names stay as they are."))
+            Text(L("The screen answers in this language, including metric names."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white.opacity(0.38))
@@ -567,6 +568,7 @@ struct SignOutSheet: View {
 
 struct SheetFrame<Content: View, Footer: View>: View {
     let title: String
+    var fillsHeight = true
     @ViewBuilder let content: Content
     @ViewBuilder let footer: Footer
 
@@ -576,13 +578,15 @@ struct SheetFrame<Content: View, Footer: View>: View {
                 .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
                 .foregroundStyle(NB.text1)
             content
-            Spacer(minLength: 0)
+            if fillsHeight { Spacer(minLength: 0) }
             footer.frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 16)
         .padding(.top, 24)
         .padding(.bottom, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity,
+               maxHeight: fillsHeight ? .infinity : nil,
+               alignment: .top)
     }
 }
 
@@ -590,6 +594,7 @@ struct FieldBox: View {
     let label: String
     @Binding var text: String
     var badge: String? = nil
+    var keyboard: UIKeyboardType = .default
 
     var body: some View {
         HStack(alignment: .center) {
@@ -601,6 +606,7 @@ struct FieldBox: View {
                     .font(NBFont.ui(400, 16))
                     .foregroundStyle(NB.text1)
                     .tint(NB.lime1)
+                    .keyboardType(keyboard)
             }
             if let badge {
                 Text(badge)

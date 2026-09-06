@@ -14,12 +14,12 @@ struct ContactNudgeSheet: View {
         VStack(spacing: 0) {
             Capsule().fill(NB.white.opacity(0.18)).frame(width: 36, height: 4).padding(.top, 10)
 
-            Text(lifted ? "FINGER OFF · SCAN ON HOLD" : "NO CONTACT · WAITING")
+            Text(lifted ? L("FINGER OFF · SCAN ON HOLD") : L("NO CONTACT · WAITING"))
                 .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                 .foregroundStyle(NB.ember1)
                 .padding(.top, 18)
 
-            Text(lifted ? "Put your finger back on the side key." : "Index finger on the side key.")
+            Text(lifted ? L("Put your finger back on the side key.") : L("Index finger on the side key."))
                 .font(NBFont.brand(500, 20))
                 .foregroundStyle(NB.text1)
                 .multilineTextAlignment(.center)
@@ -49,7 +49,7 @@ struct ContactNudgeSheet: View {
         )
         .ignoresSafeArea(edges: .bottom)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(lifted ? "Put your finger back on the side key" : "Put your index finger on the side key")
+        .accessibilityLabel(lifted ? L("Put your finger back on the side key") : L("Put your index finger on the side key"))
     }
 }
 

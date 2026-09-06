@@ -10,7 +10,6 @@ final class MealQueue: ObservableObject {
     struct Rejected: Identifiable { let id: String; let name: String; let reason: String }
     @Published private(set) var rejected: [Rejected] = []
     private var flushing = false
-    private var activeEstimates: Set<String> = []
     private var reachability: AnyCancellable?
     private var retry: Task<Void, Never>?
     private var retryDelay: UInt64 = 2
@@ -19,43 +18,6 @@ final class MealQueue: ObservableObject {
             if online { Task { await self?.flush() } }
         }
     }
-    func beginEstimate(entry: MealEntry, request: [String: Any], owner: String) throws {
-        if entry.day == DataStore.shared.today.day, case .fasted = DataStore.shared.today.fuelState {
-            throw LocalDataStore.Failure.database(L("This day is marked as fasted."))
-        }
-        guard ConsentStore.shared.granted else { throw LocalDataStore.Failure.database(L("Data collection is paused.")) }
-        let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"
-        let id = entry.id.uuidString.lowercased()
-        let body: [String: Any] = ["id": id, "user_day": formatter.string(from: entry.day.start),
-                                   "slot": entry.slot.rawValue, "name": entry.text, "request": request]
-        let envelope: [String: Any] = ["kind": "estimate", "meal_id": id, "body": body]
-        let payload = try JSONSerialization.data(withJSONObject: envelope, options: .sortedKeys)
-        // The photo/request has one durable copy; the local display document is lightweight.
-        let display: [String: Any] = ["kind": "estimate", "meal_id": id,
-                                      "body": body.filter { $0.key != "request" }]
-        try LocalDataStore.shared().enqueue(operation: LocalOperation(id: id, account: owner, kind: "meal", payload: payload),
-                                            documentKey: "meal.\(id)",
-                                            document: JSONSerialization.data(withJSONObject: display, options: .sortedKeys))
-        activeEstimates.insert(id)
-        pendingCount = try LocalDataStore.shared().operations(account: owner, kind: "meal").count
-    }
-    func releaseEstimate(_ id: UUID) {
-        activeEstimates.remove(id.uuidString.lowercased())
-        Task { await flush() }
-    }
-    func promoteEstimate(mealID: UUID, output: [String: Any], owner: String) throws {
-        let id = mealID.uuidString.lowercased()
-        guard let pending = try LocalDataStore.shared().operations(account: owner, kind: "meal").first(where: { $0.id == id }) else {
-            throw LocalDataStore.Failure.conflictingOperation
-        }
-        guard ConsentStore.shared.granted else { throw LocalDataStore.Failure.database(L("Data collection is paused.")) }
-        try promote(pending, output: output)
-    }
-    private func promote(_ operation: LocalOperation, output: [String: Any]) throws {
-        let payload = try MealOutboxPolicy.promotedEstimate(operation, output: output)
-        try LocalDataStore.shared().replaceOperation(operation, payload: payload, documentKey: "meal.\(operation.id)")
-    }
-
     func enqueueCreate(mealID: UUID, payload: [String: Any], ownerUserId: String) throws {
         guard let draft = payload["draft_id"] as? String, UUID(uuidString: draft) != nil else {
             throw LocalDataStore.Failure.conflictingOperation
@@ -194,22 +156,20 @@ final class MealQueue: ObservableObject {
                     && fields["canonical_probe_attempted"] as? Bool != true
                 let runnable = try MealOutboxPolicy.runnable(rows)
                 guard probe || runnable.contains(where: { $0.id == operation.id }) else { continue }
-                if activeEstimates.contains(operation.id) { return }
-                var current = operation
+                let current = operation
                 do {
-                    var envelope = try MealOutboxPolicy.fields(current)
+                    let envelope = try MealOutboxPolicy.fields(current)
                     let kind = envelope["kind"] as? String
                     // Withdrawal pauses collection, but an explicit deletion remains allowed.
                     guard kind == "delete" || (!collectionPaused && ConsentStore.shared.granted) else {
                         lastError = L("Data collection is paused. Pending meals stay on this device."); continue
                     }
-                    if kind == "estimate", let body = envelope["body"] as? [String: Any],
-                       let request = body["request"] as? [String: Any] {
-                        let output = try await SupabaseClient.shared.callFunction("meal", payload: request, expectedOwner: owner)
-                        guard SupabaseClient.currentUserIdSnapshot() == owner, ConsentStore.shared.granted, !Task.isCancelled else { return }
-                        try promote(current, output: output)
-                        guard let promoted = try store.operations(account: owner, kind: "meal").first(where: { $0.id == current.id }) else { return }
-                        current = promoted; envelope = try MealOutboxPolicy.fields(current)
+                    if kind == "estimate" {
+                        let message = L("Send this meal again to review and confirm its estimate.")
+                        let payload = try MealOutboxPolicy.replacingRejection(current, message: message)
+                        try store.replaceOperation(current, payload: payload, documentKey: "meal.\(current.id)")
+                        lastError = message
+                        continue
                     }
                     guard let body = envelope["body"] as? [String: Any], let kind = envelope["kind"] as? String else {
                         throw LocalDataStore.Failure.database("Invalid queued meal")

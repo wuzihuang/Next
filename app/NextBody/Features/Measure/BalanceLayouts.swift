@@ -75,7 +75,7 @@ struct BalanceHeader: View {
                     .font(NBFont.dot(700, 72)).tracking(-0.03 * 72)
                     .foregroundStyle(tint)
                     .contentTransition(.numericText())
-                Text("BPM")
+                Text(L("BPM"))
                     .font(NBFont.dot(600, 13)).tracking(0.2 * 13)
                     .foregroundStyle(NB.white.opacity(0.45))
                 Spacer(minLength: 0)

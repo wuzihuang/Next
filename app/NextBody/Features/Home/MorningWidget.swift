@@ -13,6 +13,7 @@ enum MorningWidget {
     /// so the once-a-day window can be walked on a simulator whose clock says evening.
     static var debugNow: Date? {
         #if DEBUG
+        guard Band.allowsSeed else { return nil }
         return ProcessInfo.processInfo.environment["NB_DEBUG_NOW"].flatMap { ISO8601DateFormatter().date(from: $0) }
         #else
         return nil
@@ -48,37 +49,37 @@ enum MorningWidget {
         let median: Double? = nights.count >= 3 ? nights.sorted()[nights.count / 2] : nil
 
         let f = DateFormatter(); f.dateFormat = "HH:mm"
-        var title = "LAST NIGHT · \(f.string(from: peak.element.ts))"
+        var title = L("LAST NIGHT · %@", f.string(from: peak.element.ts))
         var sentence: String
         var footer: String
         var tier: String? = nil
 
         if drivers.assumedAnchor {
             // edge 3 · FIRST MORNING
-            title = "FIRST READING · LOW CONFIDENCE"
-            sentence = "First night on the band — this one has a guess under it."
-            footer = "\(drivers.anchor) ASSUMED + \(charge) CHARGED"
+            title = L("FIRST READING · LOW CONFIDENCE")
+            sentence = L("First night on the band — this one has a guess under it.")
+            footer = L("%d ASSUMED + %d CHARGED", drivers.anchor, charge)
         } else if m.nightInputs?.hrv == nil {
             // edge 2 · HRV MISSING
-            title = "MULTIPLIER 1.00 · NO HRV YET"
-            sentence = "Reading it plain — no HRV to weigh it with."
-            footer = "CHARGED +\(charge) · ONE TIER DOWN"
+            title = L("MULTIPLIER 1.00 · NO HRV YET")
+            sentence = L("Reading it plain — no HRV to weigh it with.")
+            footer = L("CHARGED +%d · ONE TIER DOWN", charge)
         } else if let med = median, med > 0 {
             // 1CDJ · the four tier words are relative to her own 14-night median. Only two of the
             // four are on the boards (NORMAL CHARGE · BARELY CHARGED); the upper tiers are left
             // without a word rather than given an invented one. ⚠️ 待定 — see STATUS.
             let r = drivers.lastNight / med
             if r < 0.6 {
-                tier = "BARELY CHARGED"; sentence = "Barely charged. Today is a light one."
+                tier = L("BARELY CHARGED"); sentence = L("Barely charged. Today is a light one.")
             } else if r <= 1.4 {
-                tier = "NORMAL CHARGE"; sentence = "About as much as you usually charge. Today can take a normal session."
+                tier = L("NORMAL CHARGE"); sentence = L("About as much as you usually charge. Today can take a normal session.")
             } else {
-                sentence = "More than you usually charge."
+                sentence = L("More than you usually charge.")
             }
-            footer = tier.map { "CHARGED +\(charge) · \($0)" } ?? "CHARGED +\(charge)"
+            footer = tier.map { L("CHARGED +%d · %@", charge, $0) } ?? L("CHARGED +%d", charge)
         } else {
-            sentence = "\(charge) charged overnight."
-            footer = "CHARGED +\(charge)"
+            sentence = L("%d charged overnight.", charge)
+            footer = L("CHARGED +%d", charge)
         }
 
         let level = m.bodyBattery ?? wake
@@ -87,8 +88,8 @@ enum MorningWidget {
         #endif
         return PanelWidget(
             type: .line, title: title, tag: .recover, sentence: sentence,
-            footer: footer, action: "TAP TO SEE WHY", hero: "\(level)",
-            accentOverride: NB.violet1, curveSplit: peak.offset, curveSecondary: NB.lime1,
+            footer: footer, action: L("TAP TO SEE WHY"), hero: "\(level)",
+            accentOverride: NB.lime1, curveSplit: peak.offset, curveSecondary: NB.white.opacity(0.42),
             targetOverride: .bodyBattery,
             data: .series(m.reserveCurve.map { Double($0.value) }),
             ttlMinutes: 60)

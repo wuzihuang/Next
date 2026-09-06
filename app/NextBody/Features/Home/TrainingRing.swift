@@ -27,13 +27,13 @@ struct TrainingRing: View {
 
             // Training now
             RingArc(from: 0, to: shown / Self.fullRing)
-                .stroke(NB.cyan1, style: StrokeStyle(lineWidth: 7.5 * s, lineCap: .round))
+                .stroke(NB.lime1, style: StrokeStyle(lineWidth: 7.5 * s, lineCap: .round))
                 .frame(width: 54 * s, height: 54 * s)
 
             // Optimal zone, on the outer lane
             if let zone {
                 RingArc(from: zone.lowerBound / Self.fullRing, to: zone.upperBound / Self.fullRing)
-                    .stroke(NB.cyan2, style: StrokeStyle(lineWidth: 4 * s, lineCap: .round))
+                    .stroke(NB.lime2, style: StrokeStyle(lineWidth: 4 * s, lineCap: .round))
                     .frame(width: 71 * s, height: 71 * s)
             }
 
@@ -41,7 +41,7 @@ struct TrainingRing: View {
             if let target {
                 let a = Angle.degrees(360 * target / Self.fullRing - 90)
                 Circle()
-                    .fill(NB.cyanPale)
+                    .fill(NB.limePale)
                     .frame(width: 6.5 * s, height: 6.5 * s)
                     .offset(x: 35.5 * s * cos(a.radians), y: 35.5 * s * sin(a.radians))
             }
@@ -49,7 +49,7 @@ struct TrainingRing: View {
             Text(Fmt.load(load))
                 .font(NBFont.dot(700, 16 * s))
                 .tracking(-0.02 * 16 * s)
-                .foregroundStyle(NB.cyan1)
+                .foregroundStyle(NB.lime1)
         }
         .frame(width: size, height: size)
         .onAppear {
@@ -62,7 +62,7 @@ struct TrainingRing: View {
             withAnimation(.easeOut(duration: 0.6)) { shown = v ?? 0 }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(MetricNames.trainingLoad.capitalized) \(Fmt.load(load)) out of 21")   // F5 §09
+        .accessibilityLabel(L("%@ %@ out of 21", MetricNames.trainingLoad, Fmt.load(load)))   // F5 §09
     }
 }
 

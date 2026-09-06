@@ -18,7 +18,7 @@ final class ChatStore: ObservableObject {
     private var accountID: String?
     private var archiveStore: ChatArchiveStore?
     private var storageReady = false
-    #if DEBUG
+    #if DEBUG && targetEnvironment(simulator)
     private var debugFixtureLocksPersistence = false
     private var debugFixtureApplied = false
     #endif
@@ -39,7 +39,7 @@ final class ChatStore: ObservableObject {
             archiveStore = nil
             storageReady = false
             persistenceError = nil
-            #if DEBUG
+            #if DEBUG && targetEnvironment(simulator)
             debugFixtureApplied = false
             debugFixtureLocksPersistence = false
             #endif
@@ -58,13 +58,13 @@ final class ChatStore: ObservableObject {
                 reportPersistenceError(error)
             }
         }
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         applyDebugChatFixtureIfNeeded()
         #endif
     }
 
     private func persist() {
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         if debugFixtureLocksPersistence { return }
         #endif
         guard storageReady, let archiveStore else { return }
@@ -172,7 +172,7 @@ final class ChatStore: ObservableObject {
         )
         let aiMsg = ChatMessage(
             sender: .assistant,
-            text: widget?.sentence ?? L("Unable to answer right now. Please try again."),
+            text: widget?.sentence ?? ai.lastError ?? L("Unable to answer right now. Please try again."),
             at: Date(),
             widget: widget
         )
@@ -198,7 +198,7 @@ final class ChatStore: ObservableObject {
         return result.reversed()
     }
 
-    #if DEBUG
+    #if DEBUG && targetEnvironment(simulator)
     /// `NB_DEBUG_CHAT_FIXTURE=markdown|long` paints a known thread so UI tests can
     /// check rendering and the landing scroll without calling the model.
     private func applyDebugChatFixtureIfNeeded() {

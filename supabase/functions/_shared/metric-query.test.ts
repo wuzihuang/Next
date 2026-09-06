@@ -265,3 +265,20 @@ Deno.test("full-range changes are computed by server without treating missing en
   assertEquals(result.data[0].stats.latestVsMean, null);
   assertEquals(result.data[0].stats.secondHalfVsFirstHalf, 30);
 });
+
+Deno.test("wear run of zero is absent, not a live count", async () => {
+  const result = await queryMetrics(
+    context({
+      daily_results: [
+        { user_id: "u", user_day: "2026-09-03", wear_run: 4 },
+        { user_id: "u", user_day: "2026-09-04", wear_run: 0 },
+      ],
+    }),
+    { metrics: ["wearRun"], from: "2026-09-03", to: "2026-09-04" },
+  );
+  if (!result.ok) throw Error("failed");
+  assertEquals(result.data[0].points, [
+    { dayKey: "2026-09-03", value: 4 },
+    { dayKey: "2026-09-04", value: null },
+  ]);
+});

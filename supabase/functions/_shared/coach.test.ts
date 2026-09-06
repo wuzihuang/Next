@@ -4,8 +4,8 @@ import { systemPrompt } from "./prompt.ts";
 
 Deno.test("coach prompt replaces panel constraints rather than appending overrides", () => {
   for (const locale of ["en-US", "zh-CN"]) {
-    const chat = systemPrompt(locale, undefined, "chat");
-    assert(chat.includes("AI Coach"));
+    const chat = systemPrompt(locale, "chat");
+    assert(chat.includes(locale.toLowerCase().startsWith("zh") ? "AI 教练" : "AI Coach"));
     assert(!chat.includes("S7 MEDICAL STOP"));
     assert(!chat.includes("S3 NUMBER LAW"));
     assert(!chat.includes("S0 IDENTITY"));

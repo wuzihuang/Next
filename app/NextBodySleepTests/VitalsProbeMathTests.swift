@@ -430,6 +430,109 @@ final class VitalsProbeMathTests: XCTestCase {
         XCTAssertEqual(marks[0].mid, 0.25, accuracy: 0.0001)
     }
 
+    func testFifteenMinuteSlotsTileARolling24HourWindow() {
+        let slots = VitalsProbeMath.timeSlots(seconds: 15 * 60, span: 24 * 3600)
+        XCTAssertEqual(slots.count, 96)
+        XCTAssertEqual(slots[0].start, 0)
+        XCTAssertEqual(slots[95].end, 1)
+        XCTAssertEqual(slots[0].end, slots[1].start)
+    }
+
+    func testOccupancyGapIsFourPercentOfTheRuler() {
+        XCTAssertEqual(VitalsProbeMath.occupancyGap(low: 40, high: 160), 4.8, accuracy: 0.0001)
+        XCTAssertEqual(VitalsProbeMath.occupancyGap(low: 0, high: 90), 3.6, accuracy: 0.0001)
+        XCTAssertEqual(VitalsProbeMath.occupancyGap(low: 85, high: 100), 0.6, accuracy: 0.0001)
+    }
+
+    func testOccupancyRunsLeaveAValueHoleEmpty() {
+        // 45 and 50 sit together; 90 is a second cluster. 70–75 was never touched.
+        let runs = VitalsProbeMath.occupancyRuns(values: [45, 50, 90], gap: 5)
+        XCTAssertEqual(runs.count, 2)
+        XCTAssertEqual(runs[0].low, 45)
+        XCTAssertEqual(runs[0].high, 50)
+        XCTAssertEqual(runs[1].low, 90)
+        XCTAssertEqual(runs[1].high, 90)
+    }
+
+    func testOccupancyRunsMergeValuesCloserThanTheGap() {
+        let runs = VitalsProbeMath.occupancyRuns(values: [45, 48, 50, 52], gap: 5)
+        XCTAssertEqual(runs.count, 1)
+        XCTAssertEqual(runs[0].low, 45)
+        XCTAssertEqual(runs[0].high, 52)
+    }
+
+    func testOccupancyRunsIgnoreNonFiniteValues() {
+        let runs = VitalsProbeMath.occupancyRuns(values: [70, .nan, 72], gap: 5)
+        XCTAssertEqual(runs.count, 1)
+        XCTAssertEqual(runs[0].low, 70)
+        XCTAssertEqual(runs[0].high, 72)
+    }
+
+    func testOccupancyRunsEmptyWhenNothingFiniteLanded() {
+        XCTAssertTrue(VitalsProbeMath.occupancyRuns(values: [.nan], gap: 5).isEmpty)
+    }
+
+    func testANonFiniteGapKeepsTheSlotAsOneMinMaxRun() {
+        let runs = VitalsProbeMath.occupancyRuns(values: [45, 90], gap: .infinity)
+        XCTAssertEqual(runs.count, 1)
+        XCTAssertEqual(runs[0].low, 45)
+        XCTAssertEqual(runs[0].high, 90)
+    }
+
+    func testEnvelopesSplitAValueHoleInsideOneSlot() {
+        let points: [(fraction: Double, value: Double)] = [
+            (0.1, 45), (0.2, 50), (0.3, 90)
+        ]
+        let marks = VitalsProbeMath.envelopes(points: points, seconds: 1800, span: 1800,
+                                              valueGap: 5)
+        XCTAssertEqual(marks.count, 2)
+        XCTAssertEqual(marks.map(\.index), [0, 0])
+        XCTAssertEqual(marks[0].low, 45)
+        XCTAssertEqual(marks[0].high, 50)
+        XCTAssertEqual(marks[1].low, 90)
+        XCTAssertEqual(marks[1].count, 1)
+    }
+
+    func testEnvelopesWithoutAValueGapStillFillMinToMax() {
+        // The default gap is infinity so slot-membership tests stay one mark.
+        let points: [(fraction: Double, value: Double)] = [(0.1, 45), (0.3, 90)]
+        let marks = VitalsProbeMath.envelopes(points: points, seconds: 1800, span: 1800)
+        XCTAssertEqual(marks.count, 1)
+        XCTAssertEqual(marks[0].low, 45)
+        XCTAssertEqual(marks[0].high, 90)
+    }
+
+    func testAShortLastSlotBarReachesTheRightEdge() {
+        // 7h12m night: fourteen full half hours and a twelve-minute tail. The tail
+        // still has to sit against the rail, or the night reads as cropped.
+        let slots = VitalsProbeMath.timeSlots(seconds: 1800, span: 7 * 3600 + 12 * 60)
+        let last = slots.last!
+        XCTAssertEqual(last.end, 1)
+        let bar = VitalsProbeMath.slotBar(start: last.start, end: last.end, field: 300)
+        XCTAssertGreaterThan(bar.x + bar.width, 297)
+        XCTAssertLessThanOrEqual(bar.x + bar.width, 300)
+    }
+
+    func testEqualNightSlotsFillTheField() {
+        let slots = VitalsProbeMath.timeSlots(seconds: 1800, span: 7 * 3600)
+        let last = slots.last!
+        let bar = VitalsProbeMath.slotBar(start: last.start, end: last.end, field: 300)
+        XCTAssertGreaterThan(bar.x + bar.width, 297)
+        XCTAssertGreaterThan(bar.width, 14)
+    }
+
+    func testDense24HourBarsStayNarrow() {
+        let slots = VitalsProbeMath.timeSlots(seconds: 1800, span: 24 * 3600)
+        let bar = VitalsProbeMath.slotBar(start: slots[0].start, end: slots[0].end, field: 300)
+        XCTAssertLessThan(bar.width, 8)
+        XCTAssertGreaterThan(bar.width, 2.4)
+    }
+
+    func testSlotBarRadiusCapsOnceTheSlotIsAColumn() {
+        XCTAssertEqual(VitalsProbeMath.slotBarRadius(width: 4), 2)
+        XCTAssertEqual(VitalsProbeMath.slotBarRadius(width: 18), 6)
+    }
+
     func testEqualSlotsKeepAMissingNightAsANamedVacant() {
         let slots = VitalsProbeMath.equalSlots(count: 7)
         XCTAssertEqual(slots.count, 7)

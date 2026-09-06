@@ -37,6 +37,14 @@
 				<string>com.googleusercontent.apps.285632967349-gnn01criesqi6itpf8kr4lfherfhu36i</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.nextbody.hoop</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nextbody</string>
+			</array>
+		</dict>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>

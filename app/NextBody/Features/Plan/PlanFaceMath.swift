@@ -22,9 +22,12 @@ public enum PlanFaceMath {
         case recovery, regularity, architecture, duration
     }
 
-    public enum ActionKind: String, Sendable {
-        case bed, load, strength, meal
+    public enum ActionKind: String, CaseIterable, Sendable {
+        case bed, load, strength, meal, quiet
     }
+
+    /// The catalog is always these five rows, even when a value is still a dash.
+    public static let catalog: [ActionKind] = [.bed, .load, .strength, .meal, .quiet]
 
     public struct Night: Equatable, Sendable {
         public var score: Int
@@ -170,9 +173,10 @@ public enum PlanFaceMath {
         return elapsed >= idleDelay && elapsed < idleDelay + Double(maxCycles) * cycleSeconds
     }
 
-    /// The lip hint loops as soon as the dock is up, until this launch has opened the plan.
-    public static func hintPlaying(openedThisLaunch: Bool, reduceMotion: Bool) -> Bool {
-        !openedThisLaunch && !reduceMotion
+    /// The lip chase is the arrow's resting motion. Opening the plan does
+    /// not retire it — Reduce Motion is the only stop.
+    public static func hintPlaying(reduceMotion: Bool) -> Bool {
+        !reduceMotion
     }
 
     public static func shouldCommit(translation: Double, velocity: Double,
@@ -222,28 +226,23 @@ public enum PlanFaceMath {
                             readyTo: String?, now: Date) -> Face {
         let empty = night == nil
         let weakest = night.flatMap(weakest(of:))
-        var actions: [Action] = []
-        if let night, !empty {
-            if let offset = night.bedOffset {
-                let bed = suggestedBed(offset: offset)
-                actions.append(Action(
-                    kind: .bed, trailing: bed.clock, bedClock: bed.clock,
-                    minutesLate: bed.minutesLate, regularity: night.regularity))
+        let bed: Action = {
+            if let night, let offset = night.bedOffset {
+                let suggested = suggestedBed(offset: offset)
+                return Action(kind: .bed, trailing: suggested.clock, bedClock: suggested.clock,
+                              minutesLate: suggested.minutesLate, regularity: night.regularity)
             }
-            if load.target != nil || load.yesterday != nil {
-                actions.append(Action(
-                    kind: .load, trailing: loadLabel(load.target),
-                    yesterday: load.yesterday, dayBefore: load.dayBefore,
-                    target: load.target))
-            }
-            if weakest == .recovery || (load.yesterday ?? 0) >= 10 {
-                actions.append(Action(kind: .strength, trailing: "RUN TOMORROW"))
-            }
-            if !mealsLogged {
-                actions.append(Action(kind: .meal, trailing: dash))
-            }
-            if actions.count > 4 { actions = Array(actions.prefix(4)) }
-        }
+            return Action(kind: .bed, trailing: dash)
+        }()
+        let loadAction = Action(
+            kind: .load,
+            trailing: load.target != nil || load.yesterday != nil ? loadLabel(load.target) : dash,
+            yesterday: load.yesterday, dayBefore: load.dayBefore, target: load.target)
+        let strengthOn = weakest == .recovery || (load.yesterday ?? 0) >= 10
+        let strength = Action(kind: .strength, trailing: strengthOn ? "RUN TOMORROW" : dash)
+        let meal = Action(kind: .meal, trailing: mealsLogged ? "LOGGED" : "UNLOGGED")
+        let quiet = Action(kind: .quiet, trailing: "16:00")
+        let actions = [bed, loadAction, strength, meal, quiet]
 
         let reads: [Read] = [
             Read(kind: "score",

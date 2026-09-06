@@ -78,6 +78,43 @@ final class SleepScoreMathTests: XCTestCase {
         XCTAssertEqual(SleepScoreMath.bedClock(offset: -60), "17:00")
     }
 
+    func testBoxOfNothingIsNothing() {
+        XCTAssertNil(SleepScoreMath.box([]))
+    }
+
+    func testBoxOfOneNightIsAPoint() {
+        let box = SleepScoreMath.box([330])
+        XCTAssertEqual(box?.min, 330)
+        XCTAssertEqual(box?.q1, 330)
+        XCTAssertEqual(box?.median, 330)
+        XCTAssertEqual(box?.q3, 330)
+        XCTAssertEqual(box?.max, 330)
+    }
+
+    /// Tukey hinges: the odd count's median stays out of both walls, so three nights
+    /// do not draw a box that contains the same night twice.
+    func testBoxOfThreeNightsKeepsTheMedianOutOfBothHinges() {
+        let box = SleepScoreMath.box([300, 330, 390])
+        XCTAssertEqual(box?.min, 300)
+        XCTAssertEqual(box?.q1, 300)
+        XCTAssertEqual(box?.median, 330)
+        XCTAssertEqual(box?.q3, 390)
+        XCTAssertEqual(box?.max, 390)
+    }
+
+    func testBoxOfFourteenNightsIsTheHabitBand() {
+        // Fourteen bedtimes around 23:30. One 01:20 night must not become the habit.
+        let offsets: [Double] = [310, 320, 325, 328, 330, 332, 334,
+                                 336, 338, 340, 345, 350, 360, 440]
+        let box = SleepScoreMath.box(offsets)
+        XCTAssertEqual(box?.min, 310)
+        XCTAssertEqual(box?.max, 440)
+        XCTAssertEqual(box?.median, 335)
+        XCTAssertEqual(box?.q1, 328)
+        XCTAssertEqual(box?.q3, 345)
+        XCTAssertLessThan(box?.q3 ?? 0, 400)
+    }
+
     // MARK: stage proportions
 
     func testStagesRenormaliseToOneHundred() {

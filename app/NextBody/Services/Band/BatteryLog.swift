@@ -76,10 +76,12 @@ enum BatteryLog {
     ) -> [BatteryObservation] {
         let incoming = BatteryObservation(
             at: at, isPercent: isPercent, percent: percent, level: level,
-            charge: charge, connected: connected)
+            charge: BatteryDrainMath.settle(charge, isPercent: isPercent, percent: percent, level: level),
+            connected: connected)
         var samples = existing
-            .filter { at.timeIntervalSince($0.at) <= keep }
+            .filter { at.timeIntervalSince($0.at) <= keep && !BatteryDrainMath.isGhost($0) }
             .sorted { $0.at < $1.at }
+        if BatteryDrainMath.isGhost(incoming) { return samples }
         if let last = samples.last {
             let same = last.isPercent == incoming.isPercent
                 && last.percent == incoming.percent

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 12B · Lime slab. Overview is one lime card; firmware is its own carbon card;
-/// DEBUG stays behind `#if DEBUG`. The battery numeral / TREND opens the trend.
+/// 12X · 04 ACTION TILES. Lime identity slab (HOOP + SYNC + 2×2), then two
+/// carbon bricks (Find HOOP / Alarms). No charge numeral on this card.
 struct DeviceView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
@@ -35,10 +35,13 @@ struct DeviceView: View {
     /// What Automatic measurement actually read — not a guess from capability bits.
     /// Kept outside DEBUG because Training can still open the sheet in Release.
     @State private var autoRead: AutoMonitoringRead?
+    /// After the first new-alarm read. The Alarms brick shows this number, not a guess.
+    @State private var alarmCount: Int?
     #if DEBUG
     /// The sport-mode probe sheet. Release builds carry neither the button nor the code.
     @State private var sportProbe = false
     @State private var healthLightProbe = false
+    @State private var capabilitySweep = false
     #endif
 
     private var connected: Bool { data.band.connected }
@@ -56,7 +59,9 @@ struct DeviceView: View {
             .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
         }) {
             VStack(alignment: .leading, spacing: 14) {
+                batteryCard
                 limeHero
+                actionTiles
                 if let syncMessage {
                     Text(syncMessage)
                         .font(NBFont.ui(400, 12))
@@ -131,6 +136,18 @@ struct DeviceView: View {
                 }
             }
             await checkForUpdate()
+            if let list = try? await Band.live.readAlarms() {
+                alarmCount = list.count
+            }
+            #if DEBUG
+            if let s = ProcessInfo.processInfo.environment["NB_DEBUG_DEVICE_SHEET"] {
+                switch s {
+                case "findHoop": sheet = .findHoop
+                case "bandAlarms": sheet = .bandAlarms
+                default: break
+                }
+            }
+            #endif
             await OriginDataSync.refreshNow(into: data)
             do {
                 autoRead = try await Band.live.readAutoMonitoring()
@@ -150,6 +167,9 @@ struct DeviceView: View {
                     data.applyBandObservation(identity: fresh)
                 }
                 if check == .idle { await checkForUpdate() }
+                if let list = try? await Band.live.readAlarms() {
+                    alarmCount = list.count
+                }
                 do {
                     autoRead = try await Band.live.readAutoMonitoring()
                     rememberOpticalSwitch(autoRead)
@@ -180,12 +200,20 @@ struct DeviceView: View {
                 case .syncCadence:     SyncCadenceSheet(minutes: $cadence)
                 case .unbind:          ForgetHoopSheet()
                 case .disconnect:      DisconnectSheet()
+                case .findBand:        WhyWontItConnectSheet()
+                case .findHoop:        FindHoopSheet()
+                case .bandAlarms:      AlarmsSheet { alarmCount = $0 }
                 default:               WhyWontItConnectSheet()
                 }
             }
-            .presentationDetents([r == .bandAutoMonitor ? .fraction(0.78) : .fraction(0.62)])
+            .presentationDetents([
+                [.bandAutoMonitor, .findHoop, .bandAlarms].contains(r)
+                    ? .fraction(0.78) : .fraction(0.62)
+            ])
             .presentationDragIndicator(.visible)
-            .presentationBackground(NB.carbon2)
+            .presentationBackground(
+                [.findHoop, .bandAlarms].contains(r) ? NB.carbon4 : NB.carbon2
+            )
             .presentationCornerRadius(NB.R.panel)
         }
         #if DEBUG
@@ -198,6 +226,13 @@ struct DeviceView: View {
         }
         .sheet(isPresented: $sportProbe) {
             SportProbeSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(NB.carbon2)
+                .presentationCornerRadius(NB.R.panel)
+        }
+        .sheet(isPresented: $capabilitySweep) {
+            CapabilitySweepSheet()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(NB.carbon2)
@@ -279,39 +314,6 @@ struct DeviceView: View {
             case .versionUnverified:  ota = .unverified
             }
             await Analytics.shared.track("DEV_OTA_END", ["RESULT": "\(result)", "MS": Int(Date().timeIntervalSince(t0) * 1000)])
-        }
-    }
-
-    /// Last packet BandPresence or this page wrote — the same value the home pip shows.
-    private var battery: BandBattery? { data.band.lastBattery }
-
-    /// The numeral only. The unit is a suffix: 72 % or 3 /4. A bar count never becomes %.
-    private var batteryValue: String {
-        guard let battery else { return data.band.batteryPercent.map(String.init) ?? Fmt.dash }
-        if battery.isPercent { return battery.percent.map(String.init) ?? Fmt.dash }
-        return battery.level.map(String.init) ?? Fmt.dash
-    }
-    private var batterySuffix: String { levelOnly ? "/4" : "%" }
-    /// 12 edge 1 · this firmware answers in bars, so nothing on the page may say percent.
-    private var levelOnly: Bool { battery.map { !$0.isPercent } ?? false }
-    private var ringFraction: Double {
-        battery?.ringFraction ?? Double(data.band.batteryPercent ?? 0) / 100
-    }
-
-    /// Last fact the band reported. Home's pip and this card share `data.band`.
-    private var displayedCharge: BandBattery.ChargeState {
-        if data.band.chargeState != .unknown { return data.band.chargeState }
-        return battery?.chargeState ?? .unknown
-    }
-
-    /// Charge state only. Remaining days are not on this card.
-    private var chargeLine: String {
-        guard connected else { return L("Still recording on your wrist") }
-        switch displayedCharge {
-        case .charging:  return L("Charging")
-        case .full:      return L("Charged")
-        case .unplugged: return L("Not charging")
-        case .unknown:   return Fmt.dash
         }
     }
 
@@ -429,94 +431,147 @@ struct DeviceView: View {
         }
     }
 
-    private func openBatteryTrend() {
-        router.open(Destination.battery, from: router.entry)
+    private var bandBattery: BandBattery? { data.band.lastBattery }
+
+    private var batteryReading: String {
+        if let battery = bandBattery {
+            if battery.isPercent { return battery.percent.map(String.init) ?? Fmt.dash }
+            return battery.level.map { "\($0)/4" } ?? Fmt.dash
+        }
+        return data.band.batteryPercent.map(String.init) ?? Fmt.dash
     }
 
-    /// Paper 12B · lime slab. The numeral, the bar and TREND open the trend; SYNC stays
-    /// its own control. Remaining days are not written.
+    private var batteryUnit: String {
+        guard connected else { return L("LAST SEEN") }
+        if let battery = bandBattery {
+            return battery.isPercent ? L("PERCENT") : L("BARS")
+        }
+        return L("PERCENT")
+    }
+
+    private var displayedCharge: BandBattery.ChargeState {
+        connected ? data.band.displayedCharge : .unknown
+    }
+
+    private var chargeLine: String? {
+        guard connected else { return L("Still recording on your wrist") }
+        switch displayedCharge {
+        case .charging: return L("Charging")
+        case .full:     return L("Charged")
+        default:        return nil
+        }
+    }
+
+    private var powerValue: String {
+        guard connected else { return L("UNKNOWN") }
+        switch displayedCharge {
+        case .charging:  return L("CHARGING")
+        case .full:      return L("FULL")
+        case .unplugged: return L("UNPLUGGED")
+        case .unknown:   return Fmt.dash
+        }
+    }
+
+    private var leftValue: String {
+        guard let left = BatteryDrainMath.left(in: data.batteryLog, now: Date()) else {
+            return Fmt.dash
+        }
+        switch left {
+        case .hours(let n): return "\(n) \(L("HRS"))"
+        case .days(let n): return "\(n) \(L("DAYS"))"
+        }
+    }
+
+    /// The ring is the number. TREND opens the chart page — the line is still there.
+    private var batteryCard: some View {
+        VStack(spacing: 16) {
+            if let battery = bandBattery, !battery.isPercent {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(spacing: 12) {
+                        HStack(spacing: 5) {
+                            ForEach(0..<4, id: \.self) { i in
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(i < (battery.level ?? 0) ? NB.lime1 : Color(hex: 0x2A2A32))
+                                    .frame(width: 22, height: 34)
+                            }
+                        }
+                        Text(L("%d OF 4 BARS", battery.level ?? 0))
+                            .font(NBFont.dot(700, 14)).tracking(0.14 * 14)
+                            .foregroundStyle(Color(hex: 0xB0B0BA))
+                        Text(L("This firmware reports level, not percent."))
+                            .font(NBFont.ui(300, 11.5)).tracking(0.03 * 11.5)
+                            .foregroundStyle(NB.text3Prod)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            } else {
+                HStack(spacing: 18) {
+                    ZStack {
+                        Circle().strokeBorder(NB.barTrack, lineWidth: 5).frame(width: 74, height: 74)
+                        RingArc(from: 0, to: bandBattery?.ringFraction
+                                ?? Double(data.band.batteryPercent ?? 0) / 100)
+                            .stroke(connected ? NB.lime1 : NB.white.opacity(0.28),
+                                    style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                            .frame(width: 69, height: 69)
+                        VStack(spacing: 2) {
+                            Text(batteryReading)
+                                .font(NBFont.dot(700, 20))
+                                .foregroundStyle(NB.text1)
+                            Text(batteryUnit)
+                                .font(NBFont.dot(500, 8)).tracking(0.16 * 8)
+                                .foregroundStyle(NB.white.opacity(0.34))
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(data.band.name)
+                            .font(NBFont.ui(600, 18)).tracking(0.02 * 18)
+                            .foregroundStyle(NB.text1)
+                        Text(L("NEXTBODY HOOP"))
+                            .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+                            .foregroundStyle(NB.white.opacity(0.34))
+                        if let chargeLine {
+                            Text(chargeLine)
+                                .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
+                                .foregroundStyle(connected ? NB.lime1 : NB.text2)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+
+            Hairline()
+
+            HStack(spacing: 0) {
+                DeviceFact(label: L("POWER"), value: powerValue)
+                DeviceFact(label: L("LEFT"), value: leftValue)
+                Button { router.open(.battery, from: router.entry) } label: {
+                    DeviceFact(label: L("TREND"), value: L("SEE"))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("device.trend")
+            }
+        }
+        .padding(18)
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .cardSkin()
+        .accessibilityIdentifier("device.battery")
+    }
+
+    /// Name + SYNC, then WORN / WITH YOU / SYNCED / LAST POINT.
     private var limeHero: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                Button(action: openBatteryTrend) {
-                    HStack(alignment: .lastTextBaseline, spacing: 4) {
-                        Text(batteryValue)
-                            .font(NBFont.dot(700, 72))
-                            .tracking(-0.04 * 72)
-                            .foregroundStyle(NB.carbon4)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.5)
-                        Text(batterySuffix)
-                            .font(NBFont.dot(600, 22))
-                            .tracking(0.04 * 22)
-                            .foregroundStyle(NB.carbon4.opacity(0.6))
-                    }
-                }
-                .buttonStyle(.plain)
-                .layoutPriority(1)
-                .accessibilityLabel(L("Battery trend"))
-                .accessibilityHint(L("See how the charge has moved."))
-                .accessibilityValue(batteryValue + batterySuffix)
-
-                Color.clear
-                    .frame(height: 6)
-                    .overlay {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(NB.carbon4.opacity(0.2))
-                                Capsule().fill(NB.carbon4)
-                                    .frame(width: max(4, geo.size.width * max(0, min(1, ringFraction))))
-                            }
-                        }
-                    }
-                    .accessibilityHidden(true)
-
+                Text(data.band.name)
+                    .font(NBFont.ui(600, 26))
+                    .tracking(-0.03 * 26)
+                    .foregroundStyle(NB.carbon4)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 deviceSyncButton
             }
             .padding(.horizontal, 16)
             .padding(.top, 18)
-            .padding(.bottom, 4)
-
-            Button(action: openBatteryTrend) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(data.band.name)
-                        .font(NBFont.ui(600, 26))
-                        .tracking(-0.03 * 26)
-                        .foregroundStyle(NB.carbon4)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    HStack(spacing: 8) {
-                        Text(chargeLine)
-                            .font(NBFont.ui(500, 13))
-                            .tracking(0.02 * 13)
-                            .foregroundStyle(NB.carbon4)
-                        Circle().fill(NB.carbon4.opacity(0.3)).frame(width: 3, height: 3)
-                        Text(L("TREND"))
-                            .font(NBFont.dot(600, 10))
-                            .tracking(0.16 * 10)
-                            .foregroundStyle(NB.carbon4)
-                        Path { p in
-                            p.move(to: CGPoint(x: 1, y: 1))
-                            p.addLine(to: CGPoint(x: 5, y: 5))
-                            p.addLine(to: CGPoint(x: 1, y: 9))
-                        }
-                        .stroke(NB.carbon4, style: StrokeStyle(lineWidth: 1.5, lineCap: .square))
-                        .frame(width: 6, height: 10)
-                    }
-                    if levelOnly {
-                        Text(L("This firmware reports level, not percent."))
-                            .font(NBFont.ui(300, 11))
-                            .tracking(0.03 * 11)
-                            .foregroundStyle(NB.carbon4.opacity(0.55))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
             .padding(.bottom, 16)
 
             Rectangle().fill(NB.carbon4.opacity(0.15)).frame(height: 1)
@@ -540,6 +595,55 @@ struct DeviceView: View {
         .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
             .stroke(NB.lime1, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+    }
+
+    /// Two carbon bricks. PING is the only lime word — Find HOOP is not a lime flood.
+    private var actionTiles: some View {
+        HStack(spacing: 10) {
+            Button { sheet = .findHoop } label: {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(L("PING"))
+                        .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                        .foregroundStyle(NB.lime1)
+                    Text(L("Find HOOP"))
+                        .font(NBFont.ui(600, 18))
+                        .tracking(-0.02 * 18)
+                        .foregroundStyle(NB.text1)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .cardSkin()
+            .accessibilityIdentifier("device.findHoop")
+
+            Button { sheet = .bandAlarms } label: {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text(L("CLOCK"))
+                            .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                            .foregroundStyle(NB.white.opacity(0.38))
+                        if let alarmCount {
+                            Text("\(alarmCount)")
+                                .font(NBFont.dot(700, 18))
+                                .foregroundStyle(NB.text1)
+                        }
+                    }
+                    Text(L("Alarms"))
+                        .font(NBFont.ui(600, 18))
+                        .tracking(-0.02 * 18)
+                        .foregroundStyle(NB.text1)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .cardSkin()
+            .accessibilityIdentifier("device.alarms")
+        }
+        .frame(width: NB.Layout.contentWidth)
     }
 
     /// Consecutive worn days from the same flame the home header uses. Amber / gray
@@ -703,8 +807,12 @@ struct DeviceView: View {
             NavRow(title: L("Health light"),
                    detail: L("TEST THE FOUR LIGHT STATES"),
                    value: "",
+                   valueTint: NB.ember1) { healthLightProbe = true }
+            NavRow(title: L("Capability sweep"),
+                   detail: L("READ WHAT THIS FIRMWARE ANSWERS"),
+                   value: "",
                    valueTint: NB.ember1,
-                   last: true) { healthLightProbe = true }
+                   last: true) { capabilitySweep = true }
         }
         .frame(width: NB.Layout.contentWidth)
         .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
@@ -798,6 +906,22 @@ private struct RowCard<Content: View>: View {
         VStack(spacing: 0) { content }
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
+    }
+}
+
+private struct DeviceFact: View {
+    let label: String
+    let value: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
+                .foregroundStyle(NB.text3Prod)
+            Text(value)
+                .font(NBFont.dot(600, 11)).tracking(0.1 * 11)
+                .foregroundStyle(NB.text2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -1497,6 +1621,74 @@ private struct SportProbeSheet: View {
             defer { probing = nil }
             do { results[raw] = try await Band.live.probeSportMode(raw) }
             catch { probeError = error.localizedDescription }
+        }
+    }
+}
+
+/// One tap: capability bits, female-health read, six seconds of GSensor, then ADC.
+/// Lines are the band's own words. Nothing here becomes a product row.
+private struct CapabilitySweepSheet: View {
+    @State private var lines: [String] = []
+    @State private var running = false
+    @State private var probeError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L("CAPABILITY SWEEP"))
+                .font(NBFont.ui(500, 20)).tracking(0.01 * 20)
+                .foregroundStyle(NB.text1)
+            Text(L("Reads the band's own capability bits, the female-health register, and six seconds of GSensor. Long optical tests stay off."))
+                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                .foregroundStyle(NB.white.opacity(0.38))
+                .padding(.top, 6)
+            Button(action: run) {
+                HStack {
+                    Text(running ? L("READING…") : L("RUN SWEEP"))
+                        .font(NBFont.dot(600, 12)).tracking(0.12 * 12)
+                        .foregroundStyle(NB.lime1)
+                    Spacer(minLength: 0)
+                    if running { ProgressView().tint(NB.lime1) }
+                }
+                .padding(.horizontal, 16).frame(height: 46)
+            }
+            .disabled(running)
+            .buttonStyle(.plain)
+            .cardSkin()
+            .padding(.top, 16)
+            if let probeError {
+                Text(probeError)
+                    .font(NBFont.dot(600, 10.5)).tracking(0.12 * 10.5)
+                    .foregroundStyle(NB.ember1)
+                    .padding(.top, 8)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(NBFont.dot(400, 10)).tracking(0.04 * 10)
+                            .foregroundStyle(NB.text1)
+                            .textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .cardSkin()
+                .padding(.top, 16)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+    }
+
+    private func run() {
+        running = true
+        probeError = nil
+        Task {
+            defer { running = false }
+            await LiveReadout.shared.standDown {
+                do { lines = try await Band.live.probeCapabilitySweep() }
+                catch { probeError = error.localizedDescription }
+            }
         }
     }
 }

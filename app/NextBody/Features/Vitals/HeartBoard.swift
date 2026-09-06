@@ -20,8 +20,8 @@ struct HeartBoard: View {
             VitalsChartLegend(
                 items: [
                     .init(text: range == .day
-                          ? L("EVERY %d MIN · LOW–HIGH", Int(DetailWindow(.heart, .day).slotMinutes))
-                          : L("EVERY DAY · LOW–HIGH"),
+                          ? L("EVERY %d MIN · MEASURED", Int(DetailWindow(.heart, .day).slotMinutes))
+                          : L("EVERY DAY · MEASURED"),
                           tint: NB.lime1, stops: dial?.legendStops)
                 ] + (readout.referenceLabel.map {
                     [VitalsChartLegend.Item(text: $0, tint: NB.lime1, isArea: true)]

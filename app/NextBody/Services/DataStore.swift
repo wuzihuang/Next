@@ -37,6 +37,7 @@ final class DataStore: ObservableObject {
             band.firmware = identity.firmware
         }
         if let battery {
+            let battery = battery.settled
             band.applyBattery(battery)
             recordBattery(battery, connected: band.connected)
         }
@@ -76,7 +77,17 @@ final class DataStore: ObservableObject {
     func hydrateBatteryLog() {
         guard !Band.allowsSeed else { return }
         let loaded = BatteryLogStore.load(owner: batteryOwner)
-        if batteryLog.isEmpty { batteryLog = loaded }
+        let cleaned = loaded.filter { !BatteryDrainMath.isGhost($0) }
+        if batteryLog.isEmpty {
+            batteryLog = cleaned
+            if cleaned.count != loaded.count { persistBatteryLog() }
+            return
+        }
+        let stripped = batteryLog.filter { !BatteryDrainMath.isGhost($0) }
+        if stripped.count != batteryLog.count {
+            batteryLog = stripped
+            persistBatteryLog()
+        }
     }
 
     private var batteryOwner: String {
@@ -87,13 +98,7 @@ final class DataStore: ObservableObject {
 
     private func recordBattery(_ battery: BandBattery, connected: Bool) {
         hydrateBatteryLog()
-        if battery.chargeState == .unknown,
-           let last = batteryLog.last(where: {
-               $0.connected && $0.plotValue != nil && $0.charge != .unknown
-           }),
-           Date().timeIntervalSince(last.at) < BatteryDrainMath.clash {
-            return
-        }
+        if battery.chargeState == .unknown { return }
         batteryLog = BatteryLog.record(
             batteryLog,
             at: Date(),
@@ -163,7 +168,12 @@ final class DataStore: ObservableObject {
         return WearRun.display(
             todayWorn: todayWorn,
             yesterday: yesterday.map {
-                WearRun.Yesterday(worn: $0.worn == true, run: $0.wearRun ?? 0, miss: $0.wearMiss ?? 2)
+                WearRun.yesterday(
+                    worn: $0.worn,
+                    run: $0.wearRun,
+                    miss: $0.wearMiss,
+                    localWorn: WearRun.isWornDay(
+                        samples: $0.vitalsCurve, day: $0.day, now: $0.day.end))
             })
     }
 
@@ -204,6 +214,7 @@ final class DataStore: ObservableObject {
             HomeSnapshot.hydrate(into: self)
             hydrateBatteryLog()
         }
+        WidgetGlancePublisher.publish(from: self)
     }
 
     /// 11 · DELETE EVERYTHING. By the time this runs the account is gone from the server,
@@ -215,11 +226,13 @@ final class DataStore: ObservableObject {
     func purge() {
         clearAccountDisplay()
         HomeSnapshot.removeAll()
+        WidgetGlancePublisher.clear()
     }
 
     /// Signing out clears visible identity and readings, while account-owned disk data
     /// and pending operations remain available when their owner signs in again.
     func clearAccountDisplay() {
+        WidgetGlancePublisher.clear()
         bandObservationRevision = 0
         today = DailyMetrics(day: UserDay.containing(Date()))
         history = []
@@ -317,6 +330,7 @@ final class DataStore: ObservableObject {
         )
         bodyBatteryPreview = Int(result.value.rounded())
         bodyBatteryPreviewAt = date
+        WidgetGlancePublisher.publish(from: self, numbersAt: date)
     }
 
     /// Board 04 · 01 默认 — the screen the whole product is measured against.
@@ -421,12 +435,22 @@ final class DataStore: ObservableObject {
                 percent: min(100, max(50, percent))))
             minute += 5
         }
+        var respiration: [SleepRespirationPoint] = []
+        minute = 0
+        while minute < 432 {
+            let wave = sin(Double(minute) / 55)
+            respiration.append(SleepRespirationPoint(
+                ts: sleepStart.addingTimeInterval(Double(minute) * 60),
+                breathsPerMinute: 13.6 + wave * 2.4))
+            minute += 5
+        }
         m.sleep = SleepSummary(totalMinutes: 432, deepMinutes: 108, lightMinutes: 324, wakeCount: 2,
                                line: [SleepStageRun(stage: 1, minutes: 84), SleepStageRun(stage: 0, minutes: 60),
                                       SleepStageRun(stage: 1, minutes: 110), SleepStageRun(stage: 4, minutes: 4),
                                       SleepStageRun(stage: 0, minutes: 48), SleepStageRun(stage: 1, minutes: 130),
                                       SleepStageRun(stage: 4, minutes: 4)],
-                               sleepStart: sleepStart, wakeAt: wakeAt, spo2: spo2)
+                               sleepStart: sleepStart, wakeAt: wakeAt, spo2: spo2,
+                               respiration: respiration)
         let stepTotal = ticks.reduce(0) { $0 + ($1.steps ?? 0) }
         let sessionAt = m.day.start.addingTimeInterval(14 * 3600)
         m.segments = [
@@ -839,6 +863,7 @@ final class DataStore: ObservableObject {
         if let t = today.targetIn { today.nextMeal = max(0, t - (today.eIn ?? 0)) }
         let slots = Set(confirmed.map(\.slot)).count
         today.fuelState = confirmed.isEmpty ? (isFasted ? .fasted : .unlogged) : (slots >= 4 ? .confirmed : .partial(slots: slots))
+        WidgetGlancePublisher.publish(from: self)
         // The macro rows are the day's own meals added up (same rule as Repository.load):
         // a plate logged just now moves the tile the same instant, not on the next reload.
         if !confirmed.isEmpty {
@@ -1037,14 +1062,25 @@ struct BandState: Hashable {
     var lastSync: Date
     var capabilities: Set<Capability>
 
+    /// 100% still on the charger is Charged. Firmware often never sends `.full`.
+    var displayedCharge: BandBattery.ChargeState {
+        if let packet = lastBattery { return packet.settled.chargeState }
+        if chargeState == .charging,
+           BatteryDrainMath.isToppedUp(
+            isPercent: batteryPercent != nil, percent: batteryPercent, level: nil) {
+            return .full
+        }
+        return chargeState
+    }
+
     mutating func applyBattery(_ battery: BandBattery) {
+        // An unknown read is "we did not hear", not a percent. Keep the last
+        // real packet so the hero and the pip do not dip to a stale ghost.
+        let battery = battery.settled
+        guard battery.chargeState != .unknown else { return }
         lastBattery = battery
         if let p = battery.percent { batteryPercent = p }
-        // An unknown read is "we did not hear", not "unplugged". Keep the last
-        // real state so Device and the pip do not flicker UNKNOWN → CHARGING.
-        if battery.chargeState != .unknown {
-            chargeState = battery.chargeState
-        }
+        chargeState = battery.chargeState
     }
 
     enum Capability: String, Hashable, CaseIterable {

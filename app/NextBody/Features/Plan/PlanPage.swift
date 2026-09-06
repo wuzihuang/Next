@@ -1,16 +1,21 @@
+import CoreHaptics
 import SwiftUI
+import UIKit
 
-/// Paper 04D · B 目录. Magazine index, not a sixth detail page.
+/// Paper 04E · 14 BRIEF. Lime strip, then five title/subtitle slabs.
 struct PlanPage: View {
     let face: PlanFaceMath.Face
     var flatten: CGFloat
     var reduceMotion: Bool
     var closeEnabled = true
+    var done: (PlanFaceMath.ActionKind) -> Bool = { _ in false }
+    var regenerating = false
+    var onToggle: (PlanFaceMath.ActionKind) -> Void = { _ in }
+    var onRegenerate: () -> Void = {}
     var onCloseDragChanged: (CGFloat) -> Void
     var onCloseDragEnded: (CGFloat, CGFloat) -> Void
 
-    @State private var scrollY: CGFloat = 0
-    @State private var closing = false
+    @State private var completing: Set<PlanFaceMath.ActionKind> = []
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -18,237 +23,167 @@ struct PlanPage: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     chrome
-                    head
-                    Rectangle().fill(Color.white.opacity(0.15)).frame(height: 1)
-                        .padding(.top, 14)
-                    contents
-                    readLog
-                    why
+                    summary
+                    tasks
                 }
-                .frame(width: NB.Layout.contentWidth)
                 .frame(maxWidth: .infinity)
-                .padding(.bottom, 28)
+                .background {
+                    PlanClosePan(enabled: closeEnabled,
+                                 onChanged: onCloseDragChanged,
+                                 onEnded: onCloseDragEnded)
+                    .frame(width: 0, height: 0)
+                }
             }
-            .scrollDisabled(closing)
-            .modifier(PlanScrollWatch(onChange: { scrollY = $0 }))
+            .safeAreaInset(edge: .bottom, spacing: 28) {
+                regenerate
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("plan.page")
-        // Keep `.all` once the close pull has started. `closeEnabled` is `planOpen`
-        // on the parent, and that flips false after one point of travel — dropping
-        // the mask mid-swipe cancelled the first pull and made people swipe twice.
-        .simultaneousGesture(
-            closeGesture,
-            including: (closeEnabled || closing) && canCloseFromHere ? .all : .subviews)
-    }
-
-    private var canCloseFromHere: Bool { scrollY <= 2 || closing }
-
-    private var closeGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                let dy = value.translation.height
-                guard dy > 0 else { return }
-                closing = true
-                onCloseDragChanged(dy)
-            }
-            .onEnded { value in
-                let dy = value.translation.height
-                closing = false
-                onCloseDragEnded(dy, value.velocity.height)
-            }
     }
 
     private var chrome: some View {
         VStack(spacing: 7) {
-            PlanChevron(up: false, playing: !reduceMotion, flatten: flatten,
+            PlanChevron(up: false, playing: !reduceMotion && flatten < 0.02, flatten: flatten,
                         armed: false, reduceMotion: reduceMotion)
-            HStack(spacing: 6) {
-                Circle().fill(NB.lime1).frame(width: 3, height: 3)
-                Text(L("AGENT · %@ generated", face.generatedClock))
-                    .font(NBFont.dot(600, 9))
-                    .tracking(0.24 * 9)
-                    .foregroundStyle(NB.lime1.opacity(0.60))
-            }
+            Text(L("TODAY · FIVE TASKS"))
+                .font(NBFont.dot(600, 9))
+                .tracking(em: 0.24, size: 9)
+                .foregroundStyle(NB.lime1.opacity(0.60))
         }
         // Home ignores the vertical safe area, so this page has to clear
         // the Dynamic Island itself — 8pt of air under the cutout.
         .padding(.top, ScreenMetrics.safeArea.top + 8)
-        .padding(.bottom, 2)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
         .accessibilityLabel(L("Swipe down for home"))
     }
 
-    private var head: some View {
-        HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(L("TODAY'S CONTENTS"))
-                    .font(NBFont.dot(600, 10))
-                    .tracking(0.30 * 10)
-                    .foregroundStyle(NB.lime1)
-                    .accessibilityIdentifier("plan.eyebrow")
-                Text(headline)
-                    .font(NBFont.brand(700, 24))
-                    .tracking(-0.01 * 24)
-                    .foregroundStyle(NB.white)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            if let score = face.score {
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("\(score)")
-                        .font(NBFont.dot(700, 26))
-                        .tracking(-0.02 * 26)
-                        .foregroundStyle(scoreTint(score))
-                    Text(L("SLEEP"))
-                        .font(NBFont.dot(600, 9))
-                        .tracking(0.20 * 9)
-                        .foregroundStyle(Color.white.opacity(0.42))
-                }
-            }
-        }
-        .padding(.top, 18)
-    }
-
-    private var contents: some View {
-        VStack(spacing: 17) {
-            if face.empty {
-                Text(L("No scored night. The plan stays silent."))
-                    .font(NBFont.ui(300, 13))
-                    .foregroundStyle(Color.white.opacity(0.60))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 8)
-            } else {
-                ForEach(Array(face.actions.enumerated()), id: \.offset) { index, action in
-                    actionRow(index: index, action: action)
-                }
-            }
-        }
-        .padding(.top, 16)
-    }
-
-    private func actionRow(index: Int, action: PlanFaceMath.Action) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(String(format: "%02d", index + 1))
-                .font(NBFont.dot(700, 21))
-                .foregroundStyle(NB.lime1)
-                .frame(width: 30, alignment: .leading)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .bottom, spacing: 8) {
-                    Text(actionTitle(action))
-                        .font(NBFont.brand(600, 15.5))
-                        .foregroundStyle(NB.white)
-                        .fixedSize()
-                    dashedLeader
-                    Text(action.kind == .strength ? L("RUN TOMORROW") : action.trailing)
-                        .font(NBFont.dot(700, 11))
-                        .tracking(0.04 * 11)
-                        .foregroundStyle(NB.lime1)
-                        .fixedSize()
-                }
-                Text(actionDetail(action))
-                    .font(NBFont.ui(300, 12))
-                    .foregroundStyle(Color.white.opacity(0.50))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private var dashedLeader: some View {
-        Line()
-            .stroke(style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
-            .foregroundStyle(Color.white.opacity(0.20))
-            .frame(height: 1)
-            .padding(.bottom, 5)
-    }
-
-    private var readLog: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(L("WHAT THE AI READ"))
-                    .font(NBFont.dot(600, 9))
-                    .tracking(0.26 * 9)
-                    .foregroundStyle(Color.white.opacity(0.55))
-                Spacer()
-                Text(L("4 READS · CAP 4"))
-                    .font(NBFont.dot(500, 9))
-                    .tracking(0.16 * 9)
-                    .foregroundStyle(Color.white.opacity(0.30))
-            }
-            .padding(.bottom, 9)
-            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
-            ForEach(Array(face.reads.enumerated()), id: \.offset) { index, read in
-                if index > 0 {
-                    Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(String(format: "%02d", index + 1))
-                        .font(NBFont.dot(600, 9))
-                        .foregroundStyle(NB.lime1)
-                        .frame(width: 14, alignment: .leading)
-                    Text(readTitle(read.kind))
-                        .font(NBFont.ui(500, 12))
-                        .foregroundStyle(Color.white.opacity(0.85))
-                        .frame(width: 118, alignment: .leading)
-                    Text(readGrain(read))
-                        .font(NBFont.dot(500, 9))
-                        .tracking(0.08 * 9)
-                        .foregroundStyle(Color.white.opacity(0.35))
-                        .frame(width: 62, alignment: .leading)
-                    Text(readValue(read))
-                        .font(NBFont.dot(600, 10))
-                        .tracking(0.04 * 10)
-                        .foregroundStyle(Color.white.opacity(0.60))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                .padding(.vertical, 9)
-            }
-            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
-            HStack {
-                Text(readyLine)
-                    .font(NBFont.dot(500, 9))
-                    .tracking(0.14 * 9)
-                    .foregroundStyle(Color.white.opacity(0.30))
-                Spacer()
-                Text(L("LOCAL · NO TURN"))
-                    .font(NBFont.dot(500, 9))
-                    .tracking(0.14 * 9)
-                    .foregroundStyle(Color.white.opacity(0.30))
-            }
-            .padding(.top, 9)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1))
-        .padding(.top, 20)
-    }
-
-    private var why: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 8) {
-                Text(L("WHY THESE FOUR"))
-                    .font(NBFont.dot(600, 9))
-                    .tracking(0.28 * 9)
-                    .foregroundStyle(Color.white.opacity(0.42))
-                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
-            }
-            Text(whyCopy)
-                .font(NBFont.ui(300, 13))
-                .lineSpacing(7)
-                .foregroundStyle(Color.white.opacity(0.60))
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(headline)
+                .font(NBFont.brand(700, 22))
+                .tracking(em: -0.03, size: 22)
+                .foregroundStyle(NB.panelInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("plan.eyebrow")
+            Text(briefCopy)
+                .font(NBFont.ui(400, 14))
+                .foregroundStyle(NB.panelInk)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.top, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+        .padding(.horizontal, 24)
+        .background(NB.lime1)
+    }
+
+    private var visibleActions: [PlanFaceMath.Action] {
+        face.actions.filter { action in
+            completing.contains(action.kind) || !done(action.kind)
+        }
+    }
+
+    private var tasks: some View {
+        VStack(spacing: 8) {
+            ForEach(visibleActions, id: \.kind) { action in
+                taskSlab(action)
+                    .transition(.asymmetric(
+                        insertion: .opacity,
+                        removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))))
+            }
+        }
+        .padding(.top, 10)
+        .padding(.horizontal, 16)
+        .animation(reduceMotion ? .easeOut(duration: 0.08) : .easeInOut(duration: 0.28),
+                   value: visibleActions.map(\.kind))
+    }
+
+    private func taskSlab(_ action: PlanFaceMath.Action) -> some View {
+        let on = completing.contains(action.kind) || done(action.kind)
+        let title = taskTitle(action)
+        return Button {
+            complete(action.kind)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                checkmark(on: on)
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(NBFont.brand(600, 16))
+                        .tracking(em: -0.02, size: 16)
+                        .foregroundStyle(NB.text1)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(taskDetail(action))
+                        .font(NBFont.ui(400, 13))
+                        .foregroundStyle(NB.text2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .background(NB.carbon4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(HotZoneTap())
+        .disabled(completing.contains(action.kind))
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(on ? [.isSelected] : [])
+        .accessibilityIdentifier("plan.check.\(action.kind.rawValue)")
+    }
+
+    private func complete(_ kind: PlanFaceMath.ActionKind) {
+        guard !done(kind), !completing.contains(kind) else { return }
+        completing.insert(kind)
+        PlanCompleteCue.play()
+        onToggle(kind)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 40 : 420))
+            completing.remove(kind)
+        }
+    }
+
+    private func checkmark(on: Bool) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(on ? NB.lime1 : .clear)
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .stroke(NB.lime1, lineWidth: 1.5)
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(NB.carbon)
+                .opacity(on ? 1 : 0)
+                .scaleEffect(on ? 1 : 0.55)
+        }
+        .frame(width: 20, height: 20)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: on)
+    }
+
+    private var regenerate: some View {
+        Button(action: onRegenerate) {
+            Text(regenerating ? L("GENERATING…") : L("REGENERATE"))
+                .font(NBFont.dot(700, 13))
+                .tracking(em: 0.16, size: 13)
+                .foregroundStyle(NB.text3Prod.opacity(regenerating ? 0.70 : 1))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 18)
+                .padding(.bottom, 10)
+        }
+        .buttonStyle(HotZoneTap())
+        .disabled(regenerating)
+        .accessibilityIdentifier("plan.regenerate")
+        .frame(maxWidth: .infinity)
+        .background(NB.carbon)
     }
 
     private var headline: String {
         if face.empty { return L("NO NIGHT YET") }
         switch face.weakest {
-        case .recovery:     return L("Put recovery back")
+        case .recovery:     return L("Take the day down")
         case .regularity:   return L("Bring bedtime back")
         case .architecture: return L("Fix last night's structure")
         case .duration:     return L("Sleep long enough")
@@ -256,121 +191,112 @@ struct PlanPage: View {
         }
     }
 
-    private func actionTitle(_ action: PlanFaceMath.Action) -> String {
-        switch action.kind {
-        case .bed:
-            return L("Bed at %@", action.bedClock ?? action.trailing)
-        case .load:
-            return L("Cap training load at %@", action.trailing)
-        case .strength:
-            return L("Strength only")
-        case .meal:
-            return L("Log today's meals")
-        }
-    }
-
-    private func actionDetail(_ action: PlanFaceMath.Action) -> String {
-        switch action.kind {
-        case .bed:
-            let late = action.minutesLate ?? 0
-            if let regularity = action.regularity,
-               let part = PlanFaceMath.weighted(regularity, weight: 15) {
-                return L("Fell asleep %d minutes later than your median · regularity %d/15",
-                         late, part)
-            }
-            return L("Fell asleep %d minutes later than your median", late)
-        case .load:
-            if let yesterday = action.yesterday, let dayBefore = action.dayBefore {
-                return L("Yesterday %@ · day before %@ · two days without a drop",
-                         PlanFaceMath.loadLabel(yesterday),
-                         PlanFaceMath.loadLabel(dayBefore))
-            }
-            if let yesterday = action.yesterday {
-                return L("Yesterday %@", PlanFaceMath.loadLabel(yesterday))
-            }
-            return L("Keep today's training load at the target.")
-        case .strength:
-            return L("Don't stack cardio volume before recovery returns")
-        case .meal:
-            return L("The calorie table is still UNLOGGED · DIFF cannot be named")
-        }
-    }
-
-    private func readTitle(_ kind: String) -> String {
-        switch kind {
-        case "score":  return L("SLEEP SCORE")
-        case "hrv":    return L("NIGHT HRV")
-        case "load":   return L("Training load")
-        default:       return L("ACTIVE MINUTES")
-        }
-    }
-
-    private func readGrain(_ read: PlanFaceMath.Read) -> String {
-        switch read.kind {
-        case "score":
-            if face.scoredNightCount > 0 {
-                return L("%d NIGHTS", face.scoredNightCount)
-            }
-            return PlanFaceMath.dash
-        case "hrv":    return L("30 MIN BUCKET")
-        case "load":   return L("DAILY")
-        default:       return L("DERIVED")
-        }
-    }
-
-    private func readValue(_ read: PlanFaceMath.Read) -> String {
-        switch read.kind {
-        case "score":
-            guard let night = face.night else { return PlanFaceMath.dash }
-            if let recovery = PlanFaceMath.weighted(night.recovery, weight: 35) {
-                return "\(night.score) · \(L("REC %d/35", recovery))"
-            }
-            return "\(night.score)"
-        case "hrv":
-            guard let ms = face.night?.hrvMs else { return PlanFaceMath.dash }
-            let value = L("%d MS", Int(ms.rounded()))
-            if let index = face.night?.nightIndex, index > 0 {
-                return "\(value) · \(L("NIGHT %d", index))"
-            }
-            return value
-        case "load":
-            let yesterday = PlanFaceMath.loadLabel(face.load.yesterday)
-            let dayBefore = PlanFaceMath.loadLabel(face.load.dayBefore)
-            if yesterday == PlanFaceMath.dash && dayBefore == PlanFaceMath.dash {
-                return PlanFaceMath.dash
-            }
-            return "\(yesterday) · \(dayBefore) · \(L("CAP 21"))"
-        default:
-            return read.value
-        }
-    }
-
-    private var readyLine: String {
-        if let from = face.readyFrom, let to = face.readyTo {
-            return L("READY %@ → %@", from, to)
-        }
-        return L("READY ——")
-    }
-
-    private var whyCopy: String {
+    private var briefCopy: String {
         if face.empty {
             return L("No scored night. The plan stays silent.")
         }
-        let night = face.night
-        let duration = PlanFaceMath.weighted(night?.duration, weight: 25).map(String.init) ?? PlanFaceMath.dash
-        let architecture = PlanFaceMath.weighted(night?.architecture, weight: 25).map(String.init) ?? PlanFaceMath.dash
-        let recovery = PlanFaceMath.weighted(night?.recovery, weight: 35).map(String.init) ?? PlanFaceMath.dash
-        let regularity = PlanFaceMath.weighted(night?.regularity, weight: 15).map(String.init) ?? PlanFaceMath.dash
-        return L("Duration took %@/25, structure %@/25. Recovery %@/35 is the low group, regularity %@/15 next. Recovery's levers today are training load — night HRV, resting heart, overnight oxygen are results, not actions. So the load comes down, and bedtime moves toward your own median. Meals do not enter the score, but DIFF cannot be named until they are logged.",
-                 duration, architecture, recovery, regularity)
+        switch face.weakest {
+        case .recovery:
+            return L("The night did not finish. Keep today light.")
+        case .regularity:
+            return L("Bedtime drifted. Move it toward your median.")
+        case .architecture:
+            return L("Last night's structure was the weak group. Keep the day quiet.")
+        case .duration:
+            return L("The night was short. Get to bed on time.")
+        case nil:
+            return L("Keep today light.")
+        }
     }
 
-    private func scoreTint(_ score: Int) -> Color {
-        switch score {
-        case 80...:   NB.optimal2
-        case 60..<80: NB.violet1
-        case 40..<60: NB.compareAmber
-        default:      NB.ember1
+    private func taskTitle(_ action: PlanFaceMath.Action) -> String {
+        switch action.kind {
+        case .bed:
+            if action.trailing == PlanFaceMath.dash { return L("Set a bedtime") }
+            return L("Lights out at %@", action.trailing)
+        case .load:
+            if action.trailing == PlanFaceMath.dash { return L("Cap today's load") }
+            return L("Cap load at %@", action.trailing)
+        case .strength:
+            return action.trailing == "RUN TOMORROW"
+                ? L("Run tomorrow")
+                : L("Leave strength off")
+        case .meal:
+            return action.trailing == "LOGGED"
+                ? L("Leave the meals as they are")
+                : L("Log the three meals")
+        case .quiet:
+            return L("Keep the afternoon quiet")
+        }
+    }
+
+    private func taskDetail(_ action: PlanFaceMath.Action) -> String {
+        switch action.kind {
+        case .bed:
+            return action.trailing == PlanFaceMath.dash
+                ? L("No night to read a median from.")
+                : L("Your median bedtime, not a new rule.")
+        case .load:
+            return action.trailing == PlanFaceMath.dash
+                ? L("No load target yet.")
+                : L("Easy work only until the night rebuilds.")
+        case .strength:
+            return action.trailing == "RUN TOMORROW"
+                ? L("Strength waits one more sleep.")
+                : L("The night does not ask for it.")
+        case .meal:
+            return action.trailing == "LOGGED"
+                ? L("Three plates already logged.")
+                : L("The plate is the only open check.")
+        case .quiet:
+            return L("No extra session after four.")
+        }
+    }
+
+}
+
+/// Two short needles, 150ms apart. UIKit's second rigid tap merges into one;
+/// Core Haptics transients stay two. No continuous event, no success-notification tail.
+@MainActor
+private enum PlanCompleteCue {
+    private static var engine: CHHapticEngine?
+    private static let fallback = UIImpactFeedbackGenerator(style: .rigid)
+
+    static func play() {
+        guard Haptics.on else { return }
+        fallback.prepare()
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else {
+            fallback.impactOccurred(intensity: 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                guard Haptics.on else { return }
+                fallback.impactOccurred(intensity: 1)
+            }
+            return
+        }
+        do {
+            if engine == nil {
+                let next = try CHHapticEngine()
+                next.playsHapticsOnly = true
+                next.isAutoShutdownEnabled = true
+                engine = next
+            }
+            try engine?.start()
+            let first = CHHapticEvent(eventType: .hapticTransient, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0),
+            ], relativeTime: 0)
+            let second = CHHapticEvent(eventType: .hapticTransient, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0),
+            ], relativeTime: 0.15)
+            let player = try engine?.makePlayer(with: CHHapticPattern(events: [first, second], parameters: []))
+            try player?.start(atTime: CHHapticTimeImmediate)
+        } catch {
+            fallback.impactOccurred(intensity: 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                guard Haptics.on else { return }
+                fallback.impactOccurred(intensity: 1)
+            }
         }
     }
 }
@@ -425,24 +351,123 @@ enum PlanSnapshot {
     }
 }
 
-private struct Line: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        return path
-    }
-}
+/// ADR-0001 · the catalog's own pan is the close pull. A second recognizer
+/// that only began at offset 0 lost the race with the list, so the face
+/// felt glued on unless the user first parked at the exact top. Downward
+/// travel freezes the list and moves the page; upward stays a scroll.
+private struct PlanClosePan: UIViewRepresentable {
+    var enabled: Bool
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (CGFloat, CGFloat) -> Void
 
-private struct PlanScrollWatch: ViewModifier {
-    let onChange: (CGFloat) -> Void
-    func body(content: Content) -> some View {
-        if #available(iOS 18, *) {
-            content.onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top
-            } action: { _, value in onChange(value) }
-        } else {
-            content
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        view.onWindow = { [weak view] _ in
+            guard let view else { return }
+            context.coordinator.attach(from: view)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        context.coordinator.enabled = enabled
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+        context.coordinator.attach(from: uiView)
+    }
+
+    static func dismantleUIView(_ uiView: ProbeView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class ProbeView: UIView {
+        var onWindow: ((UIWindow?) -> Void)?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            onWindow?(window)
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var enabled = true
+        var onChanged: (CGFloat) -> Void = { _ in }
+        var onEnded: (CGFloat, CGFloat) -> Void = { _, _ in }
+        private weak var scroll: UIScrollView?
+        private var pulling = false
+        private var pinned = CGPoint.zero
+        private var savedBounces = true
+
+        func attach(from probe: UIView) {
+            if let scroll = Self.nearestScrollView(from: probe) {
+                hook(scroll)
+                return
+            }
+            DispatchQueue.main.async { [weak self, weak probe] in
+                guard let self, let probe, self.scroll == nil else { return }
+                if let scroll = Self.nearestScrollView(from: probe) {
+                    self.hook(scroll)
+                }
+            }
+        }
+
+        func detach() {
+            scroll?.panGestureRecognizer.removeTarget(self, action: #selector(handle(_:)))
+            restore()
+            scroll = nil
+        }
+
+        private func hook(_ scroll: UIScrollView) {
+            if self.scroll === scroll { return }
+            detach()
+            self.scroll = scroll
+            scroll.panGestureRecognizer.addTarget(self, action: #selector(handle(_:)))
+        }
+
+        static func nearestScrollView(from view: UIView) -> UIScrollView? {
+            var current: UIView? = view
+            while let node = current {
+                if let scroll = node as? UIScrollView { return scroll }
+                current = node.superview
+            }
+            return nil
+        }
+
+        @objc func handle(_ gesture: UIPanGestureRecognizer) {
+            guard enabled, let scroll else { return }
+            let t = gesture.translation(in: scroll)
+            let v = gesture.velocity(in: scroll)
+            switch gesture.state {
+            case .began:
+                pulling = false
+            case .changed:
+                if !pulling {
+                    guard t.y > 0, t.y >= abs(t.x) else { return }
+                    pulling = true
+                    pinned = scroll.contentOffset
+                    savedBounces = scroll.bounces
+                    scroll.bounces = false
+                }
+                guard pulling else { return }
+                scroll.setContentOffset(pinned, animated: false)
+                onChanged(max(0, t.y))
+            case .ended:
+                if pulling { onEnded(max(0, t.y), v.y) }
+                restore()
+            case .cancelled, .failed:
+                if pulling { onEnded(0, 0) }
+                restore()
+            default:
+                break
+            }
+        }
+
+        private func restore() {
+            pulling = false
+            scroll?.bounces = savedBounces
         }
     }
 }

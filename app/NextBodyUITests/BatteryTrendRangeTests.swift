@@ -21,6 +21,8 @@ final class BatteryTrendRangeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["HIGH"].exists)
         XCTAssertTrue(app.staticTexts["LOW"].exists)
         XCTAssertTrue(app.staticTexts["LAST PLUG"].exists)
+        XCTAssertTrue(app.staticTexts["LEFT"].waitForExistence(timeout: 6),
+                      "the seed log has a learned slope — LEFT is how many days remain")
         XCTAssertFalse(app.staticTexts["Every plug-in and unplug is a step on this line."].exists,
                        "the lime hero does not belong on this page")
     }

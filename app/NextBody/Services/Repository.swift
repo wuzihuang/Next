@@ -924,6 +924,15 @@ final class Repository {
                 .init(name: "order", value: "ts.desc"),
                 .init(name: "limit", value: "1"),
             ])
+            // The inverse: a step / MET tick with no PPG. HEART's "now" is the last
+            // positive heart, not the newest null — same 24h join as stress.
+            async let liveHeartRowsAsync = db.select("raw_samples", query: [
+                .init(name: "select", value: "ts,heart"),
+                .init(name: "heart", value: "gt.0"),
+                .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
+                .init(name: "order", value: "ts.desc"),
+                .init(name: "limit", value: "1"),
+            ])
             // 04B · SLEEP card. Prefetched with the rest so Home does not wait a serial hop.
             async let nightRowsAsync = db.select("sleep_nights", query: [
                 .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line,sleep_start,wake_at,raw"),
@@ -962,6 +971,7 @@ final class Repository {
             let responseRows = try? await responseRowsAsync
             let liveRows = try await liveRowsAsync
             let liveStressRows = try? await liveStressRowsAsync
+            let liveHeartRows = try? await liveHeartRowsAsync
             let formal = try await formalRead
             let formalMetrics: [[String: Any]]?
             if let formal {
@@ -1328,8 +1338,16 @@ final class Repository {
                               let value = number(row["stress"]).map({ Int($0) }) else { return nil }
                         return (value, ts)
                     }
+                    let lastHeart = liveHeartRows?.first.flatMap { row -> (Int, Date)? in
+                        guard let ts = (row["ts"] as? String).flatMap(Self.timestamp),
+                              let value = number(row["heart"]).map({ Int($0) }) else { return nil }
+                        return (value, ts)
+                    }
                     store.vitals = LiveVitals(
-                        hr: number(live["heart"]).map { Int($0) },
+                        hr: VitalsTimelinePolicy.currentHeart(
+                            latest: number(live["heart"]).map { Int($0) },
+                            previous: lastHeart,
+                            at: at),
                         stress: VitalsTimelinePolicy.currentStress(
                             latest: number(live["stress"]).map { Int($0) },
                             previous: lastStress,

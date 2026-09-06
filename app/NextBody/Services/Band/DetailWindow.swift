@@ -52,7 +52,7 @@ struct DetailWindow: Hashable, Sendable {
 
     var slotMinutes: Double {
         switch (surface, range) {
-        case (.heart, .day), (.metric, .day), (.active, .day): return 30
+        case (.heart, .day), (.metric, .day), (.active, .day): return 15
         case (.heart, _), (.metric, _), (.active, _): return 1440
         default: return 0
         }

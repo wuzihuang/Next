@@ -34,7 +34,7 @@
 | 09 · 三处未知写法 | EATEN TODAY 用两道 ——，OUT / BALANCE 用一道 – | 同一件事三种写法 | 统一两道 ——。只有 14px 以下的行内值（—/145、— G PRO）退回一道 |
 | 09 · FOOD 卡 | 380 / 610 / 250，Doto 粗体精确到个位 | 估算值用了实测的排版，跟 OUT 那一列长得一样 | 卡头认领一次 ESTIMATED，或全部按 10 kcal 取整。二选一 |
 | 12 · FIRMWARE | Better sleep staging · about 4 min | D01：睡眠不上屏。更新说明里出现「分期」等于承诺了一个不做的功能 | 换一句不提睡眠分期的更新说明 |
-| 12 · 电量卡 | About 3 days of charge left | SDK 只给 percent / level / chargeState，天数是我们推的 | 没有实测耗电曲线之前整句不渲染 |
+| 12 · 电量卡 | About 3 days of charge left | SDK 只给 percent / level / chargeState，天数是我们推的 | 趋势页 LEFT 只来自学会的放电斜率；没学会 / 格数固件 / 充电中不写 |
 | 12S · Forget sheet | 12 weeks of nights and every reading | 保留期是编的，而且又提了 nights | 保留期先定数，文案改成不点名睡眠的说法 |
 | 07 · widget 全表 | hypnogram / split / o2night 三个 type，以及模板页 12 · sleep 整块 | D01：睡眠只在早上给一句，不展示分期不展示时长 | 三个 type 从 27 里摘掉或封存，sleep 那块模板不实现。⚠️ 摘掉就要同步改 F4 的 CI 门禁 1（27 这个数） |
 

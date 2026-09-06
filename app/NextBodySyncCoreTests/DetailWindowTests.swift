@@ -27,11 +27,11 @@ final class DetailWindowTests: XCTestCase {
         XCTAssertEqual(DetailWindow(.metric, .day).periodKey, "")
     }
 
-    func testHeartSlotsAreHalfHourOnDayAndOneBarADayAfter() {
-        XCTAssertEqual(DetailWindow(.heart, .day).slotMinutes, 30)
+    func testHeartSlotsAreQuarterHourOnDayAndOneBarADayAfter() {
+        XCTAssertEqual(DetailWindow(.heart, .day).slotMinutes, 15)
         XCTAssertEqual(DetailWindow(.heart, .week).slotMinutes, 1440)
         XCTAssertEqual(DetailWindow(.heart, .month).slotMinutes, 1440)
-        XCTAssertEqual(DetailWindow(.metric, .day).slotMinutes, 30)
+        XCTAssertEqual(DetailWindow(.metric, .day).slotMinutes, 15)
     }
 
     func testBatteryHoursAreRollingNotCalendar() {

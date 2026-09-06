@@ -36,10 +36,9 @@ final class PlanFaceMathTests: XCTestCase {
         XCTAssertFalse(PlanFaceMath.idlePlaying(elapsed: 4, openedThisLaunch: false, reduceMotion: true))
     }
 
-    func testHintPlaysUntilThePlanHasOpened() {
-        XCTAssertTrue(PlanFaceMath.hintPlaying(openedThisLaunch: false, reduceMotion: false))
-        XCTAssertFalse(PlanFaceMath.hintPlaying(openedThisLaunch: true, reduceMotion: false))
-        XCTAssertFalse(PlanFaceMath.hintPlaying(openedThisLaunch: false, reduceMotion: true))
+    func testHintKeepsPlayingAfterThePlanHasOpened() {
+        XCTAssertTrue(PlanFaceMath.hintPlaying(reduceMotion: false))
+        XCTAssertFalse(PlanFaceMath.hintPlaying(reduceMotion: true))
     }
 
     func testCommitUsesFortyPointsOrAFling() {
@@ -60,7 +59,7 @@ final class PlanFaceMathTests: XCTestCase {
         XCTAssertEqual(alreadyEarly.minutesLate, 10)
     }
 
-    func testEmptyNightWritesNoScoreAndNoActions() {
+    func testEmptyNightWritesNoScoreAndKeepsFiveRows() {
         let face = PlanFaceMath.face(
             night: nil,
             load: .init(yesterday: 14, dayBefore: 16, target: 6, activeMinutes: 68),
@@ -71,7 +70,12 @@ final class PlanFaceMathTests: XCTestCase {
             now: Date(timeIntervalSince1970: 0))
         XCTAssertTrue(face.empty)
         XCTAssertNil(face.score)
-        XCTAssertTrue(face.actions.isEmpty)
+        XCTAssertEqual(face.actions.map(\.kind), PlanFaceMath.catalog)
+        XCTAssertEqual(face.actions.count, 5)
+        XCTAssertEqual(face.actions[0].trailing, PlanFaceMath.dash)
+        XCTAssertEqual(face.actions[3].trailing, "UNLOGGED")
+        XCTAssertEqual(face.actions[4].kind, .quiet)
+        XCTAssertEqual(face.actions[4].trailing, "16:00")
         XCTAssertEqual(face.reads.first?.value, PlanFaceMath.dash)
     }
 
@@ -89,7 +93,7 @@ final class PlanFaceMathTests: XCTestCase {
         XCTAssertEqual(PlanFaceMath.weakest(of: recoveryNight), .recovery)
     }
 
-    func testFaceBuildsFourRealActionsFromAScoredNight() {
+    func testFaceBuildsFiveRealActionsFromAScoredNight() {
         let night = PlanFaceMath.Night(
             score: 61, duration: 84, architecture: 76, recovery: 40,
             regularity: 60, personalWeight: 0.4, hrvMs: 34,
@@ -104,10 +108,11 @@ final class PlanFaceMathTests: XCTestCase {
             now: Date(timeIntervalSince1970: 0))
         XCTAssertFalse(face.empty)
         XCTAssertEqual(face.score, 61)
-        XCTAssertEqual(face.actions.map(\.kind), [.bed, .load, .strength, .meal])
+        XCTAssertEqual(face.actions.map(\.kind), [.bed, .load, .strength, .meal, .quiet])
         XCTAssertEqual(face.actions[0].trailing, "22:32")
         XCTAssertEqual(face.actions[1].trailing, "6.0")
-        XCTAssertEqual(face.actions[3].trailing, PlanFaceMath.dash)
+        XCTAssertEqual(face.actions[3].trailing, "UNLOGGED")
+        XCTAssertEqual(face.actions[4].trailing, "16:00")
         XCTAssertEqual(face.reads[1].value, "34 MS · NIGHT 9")
     }
 
@@ -124,8 +129,9 @@ final class PlanFaceMathTests: XCTestCase {
             readyFrom: "08-16",
             readyTo: "09-05",
             now: Date(timeIntervalSince1970: 0))
-        XCTAssertFalse(face.actions.contains { $0.kind == .meal })
-        XCTAssertFalse(face.actions.contains { $0.kind == .strength })
+        XCTAssertEqual(face.actions.map(\.kind), PlanFaceMath.catalog)
+        XCTAssertEqual(face.actions[2].trailing, PlanFaceMath.dash)
+        XCTAssertEqual(face.actions[3].trailing, "LOGGED")
     }
 
     func testWeightedPrintsTheBoardFraction() {

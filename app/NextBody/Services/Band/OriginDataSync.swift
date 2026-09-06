@@ -422,7 +422,13 @@ final class OriginDataSync {
                 // than dashed.
                 if point.heart != nil || point.stress != nil {
                     latest = LiveVitals(
-                        hr: point.heart ?? latest?.hr,
+                        hr: VitalsTimelinePolicy.currentHeart(
+                            latest: point.heart,
+                            previous: latest.flatMap { reading in
+                                guard let value = reading.hr, let at = reading.at else { return nil }
+                                return (value, at)
+                            },
+                            at: ts),
                         stress: VitalsTimelinePolicy.currentStress(
                             latest: point.stress,
                             previous: latest.flatMap { reading in

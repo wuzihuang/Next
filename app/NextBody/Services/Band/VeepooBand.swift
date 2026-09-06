@@ -33,6 +33,16 @@ final class VeepooBand: BandService, @unchecked Sendable {
     /// previous stream must not clear the block a newer stream just installed — otherwise
     /// Battery Check sits on 「Still nothing on the key」 with a band that is measuring.
     private var heartTestGeneration = 0
+    /// Find-the-wrist callbacks keep firing after start. A newer start/stop must
+    /// ignore the previous generation's Timeout / Exit.
+    private var findGeneration = 0
+    /// Stale connected-RSSI replies must not overwrite a frozen LAST reading.
+    private var rssiEpoch = 0
+    private static let busyCommandPrefixes = [
+        "readAllData", "readHRV", "readTemperature", "readOxygen",
+        "hrvTest", "microTest", "healthGlance", "manualTestData",
+        "dfu", "startSportMode", "find.start",
+    ]
     @MainActor private let sportSubscription = BandSportSubscription()
     @MainActor private var sportReaders: [UUID: AsyncStream<SportLiveInfo>.Continuation] = [:]
     @MainActor private var sportPoll: Task<Void, Never>?
@@ -320,6 +330,69 @@ final class VeepooBand: BandService, @unchecked Sendable {
         func claim() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
     }
 
+    private final class GSensorBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var samples: [(x: Int, y: Int, z: Int, steps: Int)] = []
+
+        func add(_ dict: [AnyHashable: Any]) {
+            let x = Self.int(dict, "x")
+            let y = Self.int(dict, "y")
+            let z = Self.int(dict, "z")
+            guard x != nil || y != nil || z != nil else { return }
+            lock.lock()
+            samples.append((x ?? 0, y ?? 0, z ?? 0, Self.int(dict, "totalSteps") ?? 0))
+            lock.unlock()
+        }
+
+        func summary(seconds: Double) -> [String] {
+            lock.lock()
+            let snap = samples
+            lock.unlock()
+            guard let first = snap.first, let last = snap.last else {
+                return ["gsensor · 0 packets in \(String(format: "%.1f", seconds))s"]
+            }
+            let xs = snap.map(\.x)
+            let ys = snap.map(\.y)
+            let zs = snap.map(\.z)
+            return [
+                "gsensor · \(snap.count) packets in \(String(format: "%.1f", seconds))s x \(xs.min()!)…\(xs.max()!) y \(ys.min()!)…\(ys.max()!) z \(zs.min()!)…\(zs.max()!) steps \(last.steps)",
+                "gsensor.first · x \(first.x) y \(first.y) z \(first.z)",
+                "gsensor.last · x \(last.x) y \(last.y) z \(last.z)",
+            ]
+        }
+
+        private static func int(_ dict: [AnyHashable: Any], _ key: String) -> Int? {
+            if let n = dict[key] as? NSNumber { return n.intValue }
+            if let i = dict[key] as? Int { return i }
+            if let s = dict[key] as? String { return Int(s) }
+            return nil
+        }
+    }
+
+    private final class GSensorADCBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        private var bytes = 0
+        private var firstHex = ""
+
+        func add(_ data: Data) {
+            lock.lock()
+            count += 1
+            bytes += data.count
+            if firstHex.isEmpty {
+                firstHex = data.prefix(16).map { String(format: "%02x", $0) }.joined()
+            }
+            lock.unlock()
+        }
+
+        var summary: String {
+            lock.lock()
+            defer { lock.unlock() }
+            if count == 0 { return "gsensor.adc · 0 packets" }
+            return "gsensor.adc · \(count) packets \(bytes) bytes first \(firstHex)"
+        }
+    }
+
     /// The SDK reconnects to a peripheral it already knows by UUID; nothing is re-paired
     /// and no screen from the gate comes back.
     private var reconnectTask: Task<Void, Never>?
@@ -578,7 +651,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                             case .normal:   .unplugged
                             default:        .unknown
                             }
-                        }())
+                        }()).settled
                     self.hub.send(.battery(battery))
                     done(.success(battery))
                 }
@@ -1515,6 +1588,127 @@ final class VeepooBand: BandService, @unchecked Sendable {
         return after == before ? .versionUnverified : .completed(version: after)
     }
 
+    func startFindHoop() async throws {
+        guard let peripheral else { throw BandError.notConnected }
+        if central.peripheralModel.searchDeviceFunction != 1 {
+            throw BandError.unsupported("Find HOOP")
+        }
+        findGeneration += 1
+        let gen = findGeneration
+        try await queue.run("startFindHoop", priority: .p0) {
+            try await self.sdk("find.start", seconds: 8) { (done: @escaping (Result<Void, Error>) -> Void) in
+                peripheral.veepooSDK_searchDeviceFuntion(withState: true) { [weak self] _, sdkState in
+                    let phase = FindHoopPhase.from(rawValue: Int(sdkState.rawValue))
+                    if gen == self?.findGeneration {
+                        self?.hub.send(.findHoop(phase))
+                    }
+                    switch phase {
+                    case .unsupported:
+                        done(.failure(BandError.unsupported("Find HOOP")))
+                    case .enter, .exit, .timeout:
+                        done(.success(()))
+                    }
+                }
+            }
+        }
+    }
+
+    func stopFindHoop() async {
+        findGeneration += 1
+        rssiEpoch += 1
+        guard let peripheral else { return }
+        let gen = findGeneration
+        // STOP must return now. Waiting on the queue or the 6s SDK gate is what
+        // made hold-to-close feel stuck. Timeout from this call is not a find-timeout.
+        DispatchQueue.main.async {
+            peripheral.veepooSDK_searchDeviceFuntion(withState: false) { [weak self] _, sdkState in
+                let phase = FindHoopPhase.from(rawValue: Int(sdkState.rawValue))
+                guard gen == self?.findGeneration else { return }
+                if phase == .timeout || phase == .unsupported { return }
+                self?.hub.send(.findHoop(phase))
+            }
+        }
+    }
+
+    func readConnectedRSSI() async throws -> Int {
+        guard let peripheral else { throw BandError.notConnected }
+        let epoch = rssiEpoch
+        return try await queue.run("rssi", priority: .p1) {
+            try await self.sdk("rssi", seconds: 2) { done in
+                peripheral.veepooSDKReadConnectedPeripheralRSSIValue { rssi in
+                    if epoch != self.rssiEpoch {
+                        done(.failure(CancellationError()))
+                    } else {
+                        done(.success(Int(rssi)))
+                    }
+                }
+            }
+        }
+    }
+
+    func readAlarms() async throws -> [BandAlarm] {
+        try await mutateAlarms(mode: 2, alarm: .emptyRead())
+    }
+
+    func writeAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm] {
+        try await mutateAlarms(mode: 1, alarm: BandAlarmMath.prepared(alarm))
+    }
+
+    func deleteAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm] {
+        try await mutateAlarms(mode: 0, alarm: alarm)
+    }
+
+    private func refuseIfBusy() async throws {
+        guard let current = await queue.current else { return }
+        if Self.busyCommandPrefixes.contains(where: { current.hasPrefix($0) }) {
+            throw BandError.busy
+        }
+    }
+
+    private func mutateAlarms(mode: UInt, alarm: BandAlarm) async throws -> [BandAlarm] {
+        guard let peripheral else { throw BandError.notConnected }
+        try await refuseIfBusy()
+        let name = mode == 2 ? "alarms.read" : mode == 0 ? "alarms.delete" : "alarms.write"
+        return try await queue.run(name, priority: mode == 2 ? .p1 : .p0) {
+            try await self.sdk(name) { done in
+                peripheral.veepooSDKSettingDeviceNewAlarm(
+                    with: Self.sdkAlarm(alarm),
+                    settingMode: mode,
+                    successResult: { arr in
+                        done(.success((arr ?? []).compactMap { Self.bandAlarm($0) }))
+                    },
+                    failureResult: {
+                        done(.failure(BandError.rejected(
+                            mode == 2 ? "ALARM READ FAILED" : "ALARM WRITE FAILED")))
+                    })
+            }
+        }
+    }
+
+    private static func sdkAlarm(_ alarm: BandAlarm) -> VPDeviceNewAlarmModel {
+        let model = VPDeviceNewAlarmModel()
+        model.alarmHour = String(alarm.hour)
+        model.alarmMinute = String(alarm.minute)
+        model.alarmState = alarm.on ? "1" : "0"
+        model.alarmID = String(alarm.id)
+        model.repeatState = String(alarm.repeatMask)
+        model.alarmScene = String(BandAlarm.silentScene)
+        model.alarmDate = alarm.date
+        return model
+    }
+
+    private static func bandAlarm(_ raw: Any) -> BandAlarm? {
+        guard let model = raw as? VPDeviceNewAlarmModel else { return nil }
+        return BandAlarm(
+            id: Int(model.alarmID ?? "") ?? 0,
+            hour: Int(model.alarmHour ?? "") ?? 0,
+            minute: Int(model.alarmMinute ?? "") ?? 0,
+            on: model.alarmState == "1",
+            repeatMask: Int(model.repeatState ?? "") ?? 0,
+            date: model.alarmDate ?? BandAlarm.onceDatePlaceholder,
+            scene: Int(model.alarmScene ?? "") ?? BandAlarm.silentScene)
+    }
+
     func writeSetting(_ setting: BandSetting) async throws -> BandSetting {
         guard let peripheral else { throw BandError.notConnected }
         // F3 · the switch renders the value that came back. Optimistic UI here means the
@@ -1890,6 +2084,172 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     done(.success(rows))
                 }
             }
+        }
+    }
+
+    /// DEBUG · dump what this firmware actually answers on unused seams.
+    /// Reads first. GSensor is the only live stream, and it is stopped on the way out.
+    func probeCapabilitySweep() async throws -> [String] {
+        guard let peripheral else { throw BandError.notConnected }
+        guard let model = central.peripheralModel else { throw BandError.notConnected }
+        var lines = Self.capabilityLines(from: model)
+        Self.emitSweep(lines, persist: lines)
+        Self.log.notice("capsweep · female →")
+        let female = await readFemale(peripheral: peripheral)
+        lines.append(female)
+        Self.emitSweep([female], persist: lines)
+        await MainActor.run {
+            peripheral.veepooSDKTestHeartStart(false, testResult: { _, _ in })
+        }
+        Self.log.notice("capsweep · gsensor →")
+        let axes = await listenGSensor(peripheral: peripheral, seconds: 6)
+        lines.append(contentsOf: axes)
+        Self.emitSweep(axes, persist: lines)
+        let adc = await listenGSensorADC(peripheral: peripheral, seconds: 3)
+        lines.append(adc)
+        Self.emitSweep([adc], persist: lines)
+        // FuncAssessment often never answers on this firmware. Keep it last so a 5 s
+        // silence cannot hide the dump and the GSensor listen.
+        if let functions = try? await readHealthFunctions() {
+            let line: String
+            if functions.isEmpty {
+                line = "health · no FuncAssessment reply"
+            } else {
+                let yes = functions.filter(\.support).map {
+                    "\($0.name)=\($0.open ? "open" : "support")"
+                }.joined(separator: " ")
+                let no = functions.filter { !$0.support }.map(\.name).joined(separator: ", ")
+                line = "health · \(yes) · not: \(no)"
+            }
+            lines.append(line)
+            Self.emitSweep([line], persist: lines)
+        } else {
+            lines.append("health · read failed")
+            Self.emitSweep(["health · read failed"], persist: lines)
+        }
+        return lines
+    }
+
+    private static func emitSweep(_ added: [String], persist: [String]) {
+        for line in added {
+            Self.log.notice("capsweep · \(line, privacy: .public)")
+            NightDiagnostics.shared.record("capsweep", fields: ["line": line])
+        }
+        persistSweepFile(persist)
+    }
+
+    private static func persistSweepFile(_ lines: [String]) {
+        guard let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("capsweep.txt") else { return }
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let body = (["# \(stamp)"] + lines).joined(separator: "\n") + "\n"
+        try? body.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private static func capabilityLines(from model: VPPeripheralModel) -> [String] {
+        let femaleByte: String = {
+            guard let data = model.deviceFuctionData, data.count > 12 else { return "—" }
+            return String(data[12])
+        }()
+        return [
+            "model · \(model.deviceVersion ?? "—") hw \(model.deviceTestVersion ?? "—") cpu \(model.cpuType) no \(model.deviceNumber) days \(model.saveDays)",
+            "types · heart=\(model.heartRateType) sleep=\(model.sleepType) ecg=\(model.ecgType) temp=\(model.temperatureType) glucose=\(model.bloodGlucoseType) bp=\(model.bloodPressureType) oxygen=\(model.bloodOxygenType) hrv=\(model.hrvType) res=\(model.resRateType) analysis=\(model.bloodAnalysisType) bia=\(model.bodyCompositionType)",
+            "more · stress=\(model.stressType) met=\(model.metType) gsr=\(model.gsrType) emotion=\(model.emotionType) fatigue=\(model.fatigueLevelType) glance=\(model.healthGlanceType) light=\(model.healthLightType) weather=\(model.weatherType) contact=\(model.contactType) world=\(model.worldClockType) search=\(model.searchDeviceFunction) fall=\(model.securityProtection) motion=\(model.motionState) aiChat=\(model.aiChatType) 4g=\(model.isSupport4GType)",
+            "flags · hrvTest=\(model.isSupportHRVTest) bpTest=\(model.isSupportBPTest) metTest=\(model.isSupportMetTest) emotionTest=\(model.isSupportEmotionTest) glanceTest=\(model.supportHealthGlanceTest) hrvAllDay=\(model.hrvSupportAllDay)",
+            "function.female=\(femaleByte)",
+            "fn1 · \(hex(model.deviceFuctionData))",
+            "fn2 · \(hex(model.deviceFuctionDataTwo))",
+            "fn3 · \(hex(model.deviceFuctionDataThird))",
+            "sw1 · \(hex(model.deviceSwitchData))",
+            "sw2 · \(hex(model.deviceSwitchTwoData))",
+        ]
+    }
+
+    private static func hex(_ data: Data?) -> String {
+        guard let data, !data.isEmpty else { return "—" }
+        return data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func readFemale(peripheral: VPPeripheralBaseManage) async -> String {
+        do {
+            return try await queue.run("femaleRead", priority: .p1) {
+                try await self.sdk("femaleRead", seconds: 8) { done in
+                    peripheral.veepooSDKSettingDeviceFemale(
+                        with: VPDeviceFemaleModel(),
+                        settingMode: 2,
+                        successResult: { model in
+                            done(.success(Self.femaleLine(model)))
+                        },
+                        failureResult: {
+                            done(.success("female · refused"))
+                        }
+                    )
+                }
+            }
+        } catch {
+            return "female · \(error.localizedDescription)"
+        }
+    }
+
+    private static func femaleLine(_ model: VPDeviceFemaleModel?) -> String {
+        guard let model else { return "female · empty" }
+        return "female · state=\(model.femaleState.rawValue) cycle=\(model.menstrualCircle) days=\(model.menstrualDays) current=\(model.currentMenstrualDays) last=\(model.lastMenstrualDate ?? "—")"
+    }
+
+    private func listenGSensor(peripheral: VPPeripheralBaseManage, seconds: Double) async -> [String] {
+        do {
+            return try await queue.run("gsensor", priority: .p1) {
+                try await self.collectGSensor(peripheral: peripheral, seconds: seconds)
+            }
+        } catch {
+            return ["gsensor · \(error.localizedDescription)"]
+        }
+    }
+
+    private func collectGSensor(peripheral: VPPeripheralBaseManage, seconds: Double) async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            let once = Once()
+            let box = GSensorBox()
+            DispatchQueue.main.async {
+                peripheral.veepooSDKTestGSensorStart(true) { dict in
+                    guard let dict else { return }
+                    box.add(dict)
+                }
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                await MainActor.run {
+                    peripheral.veepooSDKTestGSensorStart(false) { _ in }
+                }
+                guard once.claim() else { return }
+                continuation.resume(returning: box.summary(seconds: seconds))
+            }
+        }
+    }
+
+    private func listenGSensorADC(peripheral: VPPeripheralBaseManage, seconds: Double) async -> String {
+        do {
+            return try await queue.run("gsensorADC", priority: .p1) {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                    let once = Once()
+                    let box = GSensorADCBox()
+                    DispatchQueue.main.async {
+                        peripheral.veepooSDKTestGSensorADCStart(true) { data in
+                            if let data { box.add(data) }
+                        }
+                    }
+                    Task {
+                        try? await Task.sleep(for: .seconds(seconds))
+                        await MainActor.run {
+                            peripheral.veepooSDKTestGSensorADCStart(false) { _ in }
+                        }
+                        guard once.claim() else { return }
+                        continuation.resume(returning: box.summary)
+                    }
+                }
+            }
+        } catch {
+            return "gsensor.adc · \(error.localizedDescription)"
         }
     }
 

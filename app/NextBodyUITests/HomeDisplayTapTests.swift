@@ -8,6 +8,20 @@ final class HomeDisplayTapTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testHeaderFlameUsesTheSeededWearRun() {
+        let app = XCUIApplication()
+        app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
+        app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
+        app.launchEnvironment["NB_DEBUG_LANG"] = "en"
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+
+        let flame = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "wear run")).firstMatch
+        XCTAssertTrue(flame.waitForExistence(timeout: 30),
+                      "home header never received the seeded wear-run flame")
+    }
+
     func testTappingStandbyDisplayStaysOnHome() {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"

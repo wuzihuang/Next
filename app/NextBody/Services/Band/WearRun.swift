@@ -49,6 +49,21 @@ enum WearRun: Sendable {
         return bins.count * 2 >= elapsed
     }
 
+    /// Server wear columns may still be missing on an older backend. `worn == nil`
+    /// then falls back to local ticks; an explicit `false` does not.
+    static func yesterday(
+        worn: Bool?,
+        run: Int?,
+        miss: Int?,
+        localWorn: Bool
+    ) -> Yesterday {
+        let isWorn = worn ?? localWorn
+        return Yesterday(
+            worn: isWorn,
+            run: run ?? (isWorn ? 1 : 0),
+            miss: miss ?? (isWorn ? 0 : 2))
+    }
+
     /// Today never cools the flame: an open user-day that is not yet a worn day still
     /// shows yesterday's live run. A closed miss is already sitting on yesterday.
     static func display(todayWorn: Bool, yesterday: Yesterday?) -> Flame {

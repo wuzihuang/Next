@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Paper 04D · the page's own two dots stay; PLAN sits on the line under them.
-/// The chasing chevron sits on the line above. No extra lime dots beside PLAN.
-/// iOS still paints the Home Indicator.
+/// Paper 04D · root chrome: chasing chevron, the two page dots, PLAN under them.
+/// The lane stays put through a horizontal page turn — only the dots crossfade.
+/// No extra lime dots beside PLAN. iOS still paints the Home Indicator.
 struct PlanLip: View {
     var pageFade: Double
     var playing: Bool
@@ -14,6 +14,7 @@ struct PlanLip: View {
         VStack(spacing: 5) {
             PlanChevron(up: true, playing: playing, flatten: flatten,
                         armed: armed, reduceMotion: reduceMotion)
+                .equatable()
             pageDots
             Text("PLAN")
                 .font(NBFont.dot(600, 10))

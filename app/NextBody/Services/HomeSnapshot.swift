@@ -282,6 +282,7 @@ enum HomeSnapshot {
                 }
             }
             #endif
+            WidgetGlancePublisher.publish(from: store, numbersAt: now)
             return true
         } catch {
             #if DEBUG

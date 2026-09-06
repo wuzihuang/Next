@@ -159,7 +159,11 @@ struct AIPanel: View {
                     Spacer(minLength: 0)
                     standbyReadout
                 }
-                .padding(.vertical, 16)
+                .padding(.top, 16)
+                // The charge cluster sits below the planet's limb. Equal 16pt
+                // vertical padding used to land BODY BATTERY and the 64pt %
+                // on the sphere when the lime band was on the near side.
+                .padding(.bottom, 4)
             }
         }
     }
@@ -238,12 +242,12 @@ struct AIPanel: View {
                 vitalsColumn(Fmt.int(readout.stress), label: L("STRESS"),
                              live: live.liveStress != nil, working: live.phase == .stress)
             }
-            .padding(.top, 12)
+            .padding(.top, 6)
 
             Text(L("%@ · TAP OR TALK — I'M UP", sourceLine))
                 .font(NBFont.dot(500, 10.5)).tracking(0.18 * 10.5)
                 .foregroundStyle(NB.white.opacity(0.42))
-                .padding(.top, 10)
+                .padding(.top, 8)
         }
     }
 
@@ -272,10 +276,13 @@ struct AIPanel: View {
     /// 13 · past six hours the tick's numbers are gone, not dimmed and not carried forward.
     /// 04 · a live reading outranks the tick, and each half falls back on its own: the stress
     /// test runs on a cadence, so a live HR beside a stored STRESS is the normal case.
+    /// A step-only newest tick must not dash HR when a PPG reading still sits in 24h.
     private var readout: (hr: Int?, stress: Int?) {
-        let tick: (hr: Int?, stress: Int?) = vitals.freshness == .gone ? (nil, nil)
-                                                                       : (vitals.hr, vitals.stress)
-        return (live.liveHR ?? tick.hr, live.liveStress ?? tick.stress)
+        let gone = vitals.freshness == .gone
+        let samples = VitalSample.rolling(m.vitalsCurve, endingAt: Date())
+        let tickHR = gone ? nil : (vitals.hr ?? samples.last(where: { $0.hr != nil })?.hr)
+        let tickStress = gone ? nil : (vitals.stress ?? samples.last(where: { $0.stress != nil })?.stress)
+        return (live.liveHR ?? tickHR, live.liveStress ?? tickStress)
     }
 
     /// 04 · the state word. OFFLINE is the link, NO CONTACT is the wrist, and LIVE is only

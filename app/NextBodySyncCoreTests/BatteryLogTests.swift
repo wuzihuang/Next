@@ -13,6 +13,19 @@ final class BatteryLogTests: XCTestCase {
         XCTAssertEqual(again.count, 1)
     }
 
+    func testChargingAtOneHundredIsRecordedAsFull() {
+        let row = BatteryLog.record([], at: t0, isPercent: true, percent: 100,
+                                    level: nil, charge: .charging, connected: true)
+        XCTAssertEqual(row.map(\.charge), [.full])
+        XCTAssertEqual(row.first?.percent, 100)
+    }
+
+    func testChargingAtNinetyNineStaysCharging() {
+        let row = BatteryLog.record([], at: t0, isPercent: true, percent: 99,
+                                    level: nil, charge: .charging, connected: true)
+        XCTAssertEqual(row.map(\.charge), [.charging])
+    }
+
     func testChargeSwitchIsKeptEvenWhenPercentDoesNotMove() {
         let first = BatteryLog.record([], at: t0, isPercent: true, percent: 40,
                                       level: nil, charge: .unplugged, connected: true)
@@ -89,6 +102,27 @@ final class BatteryLogTests: XCTestCase {
             abs($0.at.timeIntervalSince(midAt)) < abs($1.at.timeIntervalSince(midAt))
         }
         XCTAssertNotEqual(mid!.value, 79, accuracy: 0.05)
+    }
+
+    func testRecordDropsAValuedUnknownPacket() {
+        let first = BatteryLog.record([], at: t0, isPercent: true, percent: 30,
+                                      level: nil, charge: .charging, connected: true)
+        let ghost = BatteryLog.record(first, at: t0.addingTimeInterval(10 * 3600),
+                                      isPercent: true, percent: 23, level: nil,
+                                      charge: .unknown, connected: true)
+        XCTAssertEqual(ghost.map(\.percent), [30])
+        XCTAssertEqual(ghost.map(\.charge), [.charging])
+    }
+
+    func testRecordStillKeepsAnUnknownLinkRowWithNoReading() {
+        let first = BatteryLog.record([], at: t0, isPercent: true, percent: 70,
+                                      level: nil, charge: .unplugged, connected: true)
+        let link = BatteryLog.record(first, at: t0.addingTimeInterval(60),
+                                     isPercent: true, percent: nil, level: nil,
+                                     charge: .unknown, connected: true)
+        XCTAssertEqual(link.count, 2)
+        XCTAssertNil(link.last?.percent)
+        XCTAssertEqual(link.last?.charge, .unknown)
     }
 
     func testUnknownChargeGhostsDoNotDipTheChargeClimb() {

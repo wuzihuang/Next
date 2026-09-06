@@ -8,12 +8,15 @@
 03 Range constraints are the iOS ∩ Android set: sedentary interval 30–240 min, end > start, interval <
    (end − start); heartRateAlarm 30–250 bpm, lower < upper; healthReminder 1–255. Blocked at input.
 04 Sedentary reminder never shows weekdays (Android lacks the mask). Time window and interval only.
-05 Alarms are a whole-table replace; capacity 3 / 10 / 20 known only on write. Add = write then confirm;
-   on failure roll the table back and state the limit. Screenless band alarms vibrate only — on the group title.
+05 Alarms use the new-alarm API (mode 0 delete / 1 set / 2 read). Capacity is `?` until the first
+   read; demo ceiling 20, this G70's real cap only after a refused write or a full table. Add = write
+   then confirm; on failure roll the table back and state the limit. Scene stays 0 — screenless band
+   alarms vibrate only. Find-the-wrist is a sheet (START then STOP), not `.findBand`.
 06 Automatic measurement is a second-level page, not one switch: readAutoMeasureSetting() returns one row
    per funType 0–8; isSlotModify / isIntervalModify decide what is editable.
-07 Battery binds the batteryData event, no polling. isPercent === false → 0–4 bars, days hidden; never
-   derive a percent from bars.
+07 Battery binds the batteryData event, no polling. isPercent === false → 0–4 bars, days / LEFT hidden; never
+   derive a percent from bars. Remaining days live on the battery trend (`Destination.battery`) from
+   the learned unplugged slope (`BatteryDrainMath.left`), same silence as EST · EMPTY. Never the spec pack.
 08 OTA is three-state: completed / failed / versionUnverified. The third has its own copy pointing at
    「去核对手环上的版本」. Pre-check via checkFirmwareUpdate().blockedReason; battery gate > 30%.
 09 Commands are serial; a write during a measurement returns DEVICE_BUSY — queue and say so. Android
@@ -23,7 +26,7 @@
 
 ## Edge cases · 05 「固件说了算，UI 只负责如实转述」
 1 LEVEL ONLY — four bars (3 lime + 1 grey) · `3 OF 4 BARS` · "This firmware reports level, not percent."
-  The 「还能撑 3 天」 sentence is not rendered.
+  LEFT / 「还能撑几天」 is not rendered — bars are not a percent.
 2 UNSUPPORTED — the row is simply gone (here Wear detection). Not greyed, no 「不支持」.
 3 WRITE CLAMPED — Move reminder `45 MIN` · `YOU ASKED FOR 60` (amber) · "THE BAND SET WHAT IT COULD. THIS
   IS ITS ANSWER, NOT OURS." Render the readback.
@@ -33,7 +36,8 @@
   not read the new version back. Check the band before trying again."
 
 ## Before ship
-! 「大约还能撑 3 天」 has no basis — measured drain curve (two, by lowPower) or don't write it.
+! LEFT is the learned unplugged slope on the battery trend, or it is absent. Never write a day count
+  from the spec pack, 150 mAh, or bars.
 ! disconnectAlert has no capability bit (may read unknown forever): on, off, or hidden — pick one.
 ! wearDetection has no read on Android; initial value may be empty.
 ! "Why won't it connect?" page not drawn. ! Alarms and Automatic measurement pages not drawn (built as

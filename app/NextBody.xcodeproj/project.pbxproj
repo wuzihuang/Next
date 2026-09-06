@@ -25,6 +25,9 @@
 		FE0000000000000000000203 /* SessionAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000202 /* SessionAttributes.swift */; };
 		FE0000000000000000000281 /* NextBodyLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000201 /* NextBodyLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FE0000000000000000000300 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = FE0000000000000000000301 /* GoogleSignIn */; };
+		FE0000000000000000000403 /* WidgetFaceMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000402 /* WidgetFaceMath.swift */; };
+		FE0000000000000000000405 /* FuelCardMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000404 /* FuelCardMath.swift */; };
+		FE0000000000000000000407 /* WidgetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000406 /* WidgetBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,6 +87,10 @@
 		FE0000000000000000000201 /* NextBodyLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NextBodyLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE0000000000000000000202 /* SessionAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SessionAttributes.swift; path = NextBodyLiveActivity/SessionAttributes.swift; sourceTree = "<group>"; };
 		FE0000000000000000000204 /* NextBodyLiveActivity-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "NextBodyLiveActivity-Info.plist"; sourceTree = "<group>"; };
+		FE0000000000000000000402 /* WidgetFaceMath.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetFaceMath.swift; path = NextBody/Services/Band/WidgetFaceMath.swift; sourceTree = "<group>"; };
+		FE0000000000000000000404 /* FuelCardMath.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FuelCardMath.swift; path = NextBody/Services/Band/FuelCardMath.swift; sourceTree = "<group>"; };
+		FE0000000000000000000406 /* WidgetBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetBridge.swift; path = NextBodyLiveActivity/WidgetBridge.swift; sourceTree = "<group>"; };
+		FE0000000000000000000408 /* NextBodyLiveActivity.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = NextBodyLiveActivity.entitlements; path = NextBodyLiveActivity/NextBodyLiveActivity.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -189,6 +196,10 @@
 			isa = PBXGroup;
 			children = (
 				FE0000000000000000000202 /* SessionAttributes.swift */,
+				FE0000000000000000000402 /* WidgetFaceMath.swift */,
+				FE0000000000000000000404 /* FuelCardMath.swift */,
+				FE0000000000000000000406 /* WidgetBridge.swift */,
+				FE0000000000000000000408 /* NextBodyLiveActivity.entitlements */,
 			);
 			name = "Shared with the extension";
 			sourceTree = "<group>";
@@ -353,6 +364,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FE0000000000000000000203 /* SessionAttributes.swift in Sources */,
+				FE0000000000000000000407 /* WidgetBridge.swift in Sources */,
 				3EFCE7376796A974E1FCA53C /* FMDatabaseQueue.m in Sources */,
 				815F86CF9C5BC1F4BAA3BB86 /* FMDatabaseAdditions.m in Sources */,
 				2455F8E1A8F19BFDBD0CBC26 /* FMDatabase.m in Sources */,
@@ -382,6 +394,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE0000000000000000000403 /* WidgetFaceMath.swift in Sources */,
+				FE0000000000000000000405 /* FuelCardMath.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -598,6 +612,7 @@
 		FE0000000000000000000272 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NextBodyLiveActivity/NextBodyLiveActivity.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BP7F7PYU33;
@@ -622,6 +637,7 @@
 		FE0000000000000000000273 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NextBodyLiveActivity/NextBodyLiveActivity.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BP7F7PYU33;

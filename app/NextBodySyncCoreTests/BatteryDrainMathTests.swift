@@ -73,6 +73,16 @@ final class BatteryDrainMathTests: XCTestCase {
         XCTAssertEqual(BatteryDrainMath.collapse(samples).compactMap(\.percent), [30, 31, 32])
     }
 
+    func testCollapseDropsAnIsolatedUnknownHoursLater() {
+        let samples = [
+            obs(t0, 25, .unplugged),
+            BatteryObservation(at: t0.addingTimeInterval(10 * 3600), isPercent: true,
+                               percent: 18, level: nil, charge: .unknown, connected: true),
+            obs(t0.addingTimeInterval(10 * 3600 + 1), 12, .unplugged),
+        ]
+        XCTAssertEqual(BatteryDrainMath.collapse(samples).compactMap(\.percent), [25, 12])
+    }
+
     func testCollapseKeepsTheLaterPacketOfAFirstConnectCliff() {
         let noon = t0.addingTimeInterval(9 * 3600)
         let stale = BatteryObservation(at: noon, isPercent: true, percent: 80, level: nil,
@@ -105,6 +115,134 @@ final class BatteryDrainMathTests: XCTestCase {
         XCTAssertEqual(spans.count, 1)
         XCTAssertEqual(spans[0].start, t0)
         XCTAssertEqual(spans[0].end, t0.addingTimeInterval(3600))
+    }
+
+    func testSettlePromotesAToppedUpChargeToFull() {
+        XCTAssertEqual(
+            BatteryDrainMath.settle(.charging, isPercent: true, percent: 100, level: nil),
+            .full)
+        XCTAssertEqual(
+            BatteryDrainMath.settle(.charging, isPercent: false, percent: nil, level: 4),
+            .full)
+        XCTAssertEqual(
+            BatteryDrainMath.settle(.charging, isPercent: true, percent: 99, level: nil),
+            .charging)
+        XCTAssertEqual(
+            BatteryDrainMath.settle(.unplugged, isPercent: true, percent: 100, level: nil),
+            .unplugged)
+    }
+
+    func testEtaNamesAFullClockFromALearnedChargeClimb() {
+        let samples = [
+            obs(t0, 40, .charging),
+            obs(t0.addingTimeInterval(3600), 70, .charging),
+        ]
+        let eta = BatteryDrainMath.eta(in: samples, now: t0.addingTimeInterval(3600))
+        guard case .full(let at) = eta else {
+            return XCTFail("expected a full clock")
+        }
+        XCTAssertEqual(at.timeIntervalSince(t0.addingTimeInterval(3600)), 3600, accuracy: 1)
+    }
+
+    func testEtaNamesAnEmptyClockFromALearnedDrain() {
+        let samples = [
+            obs(t0, 90),
+            obs(t0.addingTimeInterval(3600), 88),
+            obs(t0.addingTimeInterval(7200), 86),
+        ]
+        let eta = BatteryDrainMath.eta(in: samples, now: t0.addingTimeInterval(7200))
+        guard case .empty(let at) = eta else {
+            return XCTFail("expected an empty clock")
+        }
+        XCTAssertEqual(at.timeIntervalSince(t0.addingTimeInterval(7200)), 43 * 3600, accuracy: 1)
+    }
+
+    func testEtaStaysSilentWithoutALearnedSlope() {
+        XCTAssertNil(BatteryDrainMath.eta(in: [obs(t0, 80)], now: t0))
+    }
+
+    func testEtaIgnoresAFiveMinuteChargeJump() {
+        let samples = [
+            obs(t0, 30, .charging),
+            obs(t0.addingTimeInterval(5 * 60), 39, .charging),
+        ]
+        XCTAssertNil(BatteryDrainMath.eta(in: samples, now: t0.addingTimeInterval(5 * 60)))
+    }
+
+    func testEtaDoesNotSpeakForBars() {
+        let samples = [
+            BatteryObservation(at: t0, isPercent: false, percent: nil, level: 3,
+                               charge: .unplugged, connected: true),
+            BatteryObservation(at: t0.addingTimeInterval(3600), isPercent: false,
+                               percent: nil, level: 2, charge: .unplugged, connected: true),
+        ]
+        XCTAssertNil(BatteryDrainMath.eta(in: samples, now: t0.addingTimeInterval(3600)))
+    }
+
+    func testEtaAgesTheLastPacketBeforeItNamesTheClock() {
+        let samples = [
+            obs(t0, 90),
+            obs(t0.addingTimeInterval(3600), 88),
+        ]
+        let now = t0.addingTimeInterval(2 * 3600)
+        let eta = BatteryDrainMath.eta(in: samples, now: now)
+        guard case .empty(let at) = eta else {
+            return XCTFail("expected an empty clock after aging")
+        }
+        XCTAssertEqual(at.timeIntervalSince(now), 43 * 3600, accuracy: 1)
+    }
+
+    func testLeftNamesDaysFromALearnedDrain() {
+        let samples = [
+            obs(t0, 90),
+            obs(t0.addingTimeInterval(3600), 88),
+            obs(t0.addingTimeInterval(7200), 86),
+        ]
+        XCTAssertEqual(
+            BatteryDrainMath.left(in: samples, now: t0.addingTimeInterval(7200)),
+            .days(2))
+    }
+
+    func testLeftNamesHoursWhenEmptyIsToday() {
+        let samples = [
+            obs(t0, 10),
+            obs(t0.addingTimeInterval(3600), 8),
+        ]
+        XCTAssertEqual(
+            BatteryDrainMath.left(in: samples, now: t0.addingTimeInterval(3600)),
+            .hours(4))
+    }
+
+    func testLeftStaysSilentWithoutALearnedSlope() {
+        XCTAssertNil(BatteryDrainMath.left(in: [obs(t0, 80)], now: t0))
+    }
+
+    func testLeftStaysSilentWhileCharging() {
+        let samples = [
+            obs(t0, 40, .charging),
+            obs(t0.addingTimeInterval(3600), 70, .charging),
+        ]
+        XCTAssertNil(BatteryDrainMath.left(in: samples, now: t0.addingTimeInterval(3600)))
+    }
+
+    func testLeftStaysSilentForBars() {
+        let samples = [
+            BatteryObservation(at: t0, isPercent: false, percent: nil, level: 3,
+                               charge: .unplugged, connected: true),
+            BatteryObservation(at: t0.addingTimeInterval(3600), isPercent: false,
+                               percent: nil, level: 2, charge: .unplugged, connected: true),
+        ]
+        XCTAssertNil(BatteryDrainMath.left(in: samples, now: t0.addingTimeInterval(3600)))
+    }
+
+    func testSeedLogHasALearnedLeft() {
+        let now = t0.addingTimeInterval(30 * 24 * 3600)
+        let left = BatteryDrainMath.left(in: BatteryLog.seed(now: now, percent: 82), now: now)
+        XCTAssertNotNil(left, "the walk-through seed must teach a slope so LEFT can print")
+        if case .days(let n) = left {
+            XCTAssertGreaterThanOrEqual(n, 1)
+            XCTAssertLessThanOrEqual(n, 14)
+        }
     }
 
     func testAShortSpanHasNoInterior() {

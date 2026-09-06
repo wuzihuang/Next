@@ -58,6 +58,15 @@ protocol BandService: AnyObject {
     func measureHRV(timeout: TimeInterval) async throws -> Int
 
     func writeSetting(_ setting: BandSetting) async throws -> BandSetting
+    /// 12Y · phone finds the wrist. Start does not ring until this returns Enter.
+    /// `.findBand` is still "Why won't it connect?" — do not reuse it here.
+    func startFindHoop() async throws
+    func stopFindHoop() async
+    func readConnectedRSSI() async throws -> Int
+    /// New-alarm table. Mode 2 read / 1 set / 0 delete. Scene stays 0.
+    func readAlarms() async throws -> [BandAlarm]
+    func writeAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm]
+    func deleteAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm]
     /// Ask the update server whether this band has newer firmware. `nil` is "up to date";
     /// a throw is "could not ask" — the two are never drawn the same way.
     func checkFirmwareUpdate() async throws -> FirmwareOffer?
@@ -128,6 +137,12 @@ protocol BandService: AnyObject {
     /// already happened twice here (the auto-measure row, and the stress test's own gate).
     /// This is a plain read: no measurement, no sensor time.
     func readHealthFunctions() async throws -> [BandHealthFunction]
+
+    /// DEBUG · one pass over unused SDK seams: capability fields, health-function list,
+    /// female-health read, six seconds of GSensor, then a short ADC listen.
+    /// ⚠️ GSensor is a live stream and the SDK says the daily step test must be off or
+    /// the axes stay empty. The sweep stops both streams itself. Not a product surface.
+    func probeCapabilitySweep() async throws -> [String]
 }
 
 extension BandService {
@@ -270,6 +285,8 @@ enum BandEvent {
     case battery(BandBattery)
     /// The band finished a measurement it started on its own wrist, not one we asked for.
     case deviceInitiatedMeasurementFinished
+    /// Firmware find-the-wrist: Enter / Exit / Timeout after `startFindHoop`.
+    case findHoop(FindHoopPhase)
 }
 
 /// Fan-out for `BandService.events`. A bare `AsyncStream` has one consumer and ends for good
@@ -378,6 +395,16 @@ struct BandBattery: Hashable {
     let chargeState: ChargeState
 
     enum ChargeState: String, Hashable { case unplugged, charging, full, unknown }
+
+    /// Firmware often stays on `.charging` after the pack is already full.
+    var settled: BandBattery {
+        let charge = BatteryDrainMath.settle(
+            BatteryObservation.Charge(rawValue: chargeState.rawValue) ?? .unknown,
+            isPercent: isPercent, percent: percent, level: level)
+        let next = ChargeState(rawValue: charge.rawValue) ?? chargeState
+        guard next != chargeState else { return self }
+        return BandBattery(isPercent: isPercent, percent: percent, level: level, chargeState: next)
+    }
 
     /// What the ring can draw. A bar count is not a percentage and is never shown as one.
     var ringFraction: Double? {
@@ -672,4 +699,11 @@ final class DisconnectedBand: BandService, @unchecked Sendable {
         AsyncThrowingStream { $0.finish(throwing: BandError.notConnected) }
     }
     func probeMicroTest(progress _: @escaping @MainActor (Int) -> Void) async throws -> [(name: String, value: Double)] { throw BandError.notConnected }
+    func probeCapabilitySweep() async throws -> [String] { throw BandError.notConnected }
+    func startFindHoop() async throws { throw BandError.notConnected }
+    func stopFindHoop() async {}
+    func readConnectedRSSI() async throws -> Int { throw BandError.notConnected }
+    func readAlarms() async throws -> [BandAlarm] { throw BandError.notConnected }
+    func writeAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm] { throw BandError.notConnected }
+    func deleteAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm] { throw BandError.notConnected }
 }

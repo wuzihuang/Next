@@ -28,12 +28,16 @@ _Avoid_: 滑动 (that word already names 翻页拖动), scrub, tooltip, 让英�
 The vertical dashed line on a probed chart card. It sits on the probed sample's x, never between samples.
 _Avoid_: crosshair, cursor, 准星
 
+**包络 (envelope)**:
+A time-sliced occupancy of measured values. Each 15-minute slot paints only the value bands that have ticks; a hole like 70–75 stays empty. A slot the band skipped is absent.
+_Avoid_: min–max fill, connecting the slot's lowest tick to its highest across empty values
+
 **夜间 HRV (night HRV)**:
 The night's RMSSD over the band's recorded sleep window. It belongs to the night (the SLEEP surface), not to a page-two instrument of its own. The sleep page's NIGHT HRV tile is its home. The HEART page may draw the same-clock RMSSD as a companion envelope, not as a page-two card and not as a second night number.
 _Avoid_: 睡眠 HRV as a second number, last-night HRV as its own vitals card, daytime RMSSD as a vitals instrument
 
 **食物反应点 (Food response point)**:
-A unitless wrist optical point on page two. The card label is RESPONSE; the number is the latest measured point. The detail page has DAY / WEEK / MONTH rolling windows (last 24 hours / 7 user days / 30 user days), not calendar weeks or months. Day draws a 30-minute envelope like HEART; week and month are one mark a user day, empty days left vacant. After five valid days the page compares against this person's own daytime median (Near is ±8%). Day's hero is the latest point; week and month heroes are the arithmetic mean of the daily means. The hero is a partitioned dial: Below / Near / Above, the needle on the lit segment. It is not a blood concentration and carries no mmol/L or /100.
+A unitless wrist optical point on page two. The card label is RESPONSE; the number is the latest measured point. The detail page has DAY / WEEK / MONTH rolling windows (last 24 hours / 7 user days / 30 user days), not calendar weeks or months. Day draws a 15-minute occupancy envelope like HEART; week and month are one mark a user day, empty days left vacant. After five valid days the page compares against this person's own daytime median (Near is ±8%). Day's hero is the latest point; week and month heroes are the arithmetic mean of the daily means. The hero is a partitioned dial: Below / Near / Above, the needle on the lit segment. It is not a blood concentration and carries no mmol/L or /100.
 _Avoid_: 血糖, 代谢压力, metabolic load, MEAL as the card label (that word belongs to fuel), 自然周 / 自然月, 把周/月顶上的数写成中位
 
 **夜间血氧 (overnight SpO2)**:
@@ -57,7 +61,7 @@ _Avoid_: 把 Apple 登录、邮箱登录分别称为不同用户
 _Avoid_: 蓝牙连接、手机配对
 
 **陪伴天数 (companion days)**:
-这个健康账号上，最早一次腕上采样或最早一次手环归属（含已解除的行）起到今天的用户日个数，含当天。设备页石灰卡上的 WITH YOU。不是当前 `devices` 行的 `bound_at`——换 BLE 标识、模拟器种子手环抢绑，都不许把陪伴清零。不是连续佩戴，也不是手环还能存几天历史。缺起点画 ——，不编一个数。
+这个健康账号上，最早一次腕上采样或最早一次手环归属（含已解除的行）起到今天的用户日个数，含当天。设备页石灰卡上的 WITH YOU。不是当前 `devices` 行的 `bound_at`——换 BLE 标识、模拟器种子手环抢绑，都不许把陪伴清零。不是连续佩戴，也不是手环还能存几天历史，也不是电量还能用几天。缺起点画 ——，不编一个数。
 _Avoid_: ON DEVICE, 在设备上, 把 saveDays 印成陪伴, 把最新一次绑定当成第一天, streak
 
 **手环转让 (band transfer)**:
@@ -65,7 +69,7 @@ _Avoid_: ON DEVICE, 在设备上, 把 saveDays 印成陪伴, 把最新一次绑�
 _Avoid_: 换账号、重新连接
 
 **电量趋势 (battery trend)**:
-手环电量随时间的折线，由每次电量上报、充电接入/拔出、以及连接通断记录而成。电话没听到的长间隔不拉直尺到 NOW，而是按放电曲线估算（先撑住再掉；充电则先快后慢），虚线画出；首次连接叠在同一分钟的旧包+新读数当虚点丢掉。过夜列对齐睡眠页的 sleepStart→wakeAt，不是 04:00，也不是充电时段。曲线与 HEART 一样可探点。设备页大数字仍是最后一次真读数。它属于设备页，点电量百分比进入；不是 Body Battery，格数固件也不把格数画成百分比。
+手环电量随时间的折线，由每次电量上报、充电接入/拔出、以及连接通断记录而成。电话没听到的长间隔不拉直尺到 NOW，而是按放电曲线估算（先撑住再掉；充电则先快后慢），虚线画出；首次连接叠在同一分钟的旧包+新读数当虚点丢掉。SDK 带电量、充电态 unknown 的脏包不写入、不进图，旧日志加载时清掉。过夜列对齐睡眠页的 sleepStart→wakeAt，不是 04:00，也不是充电时段。曲线与 HEART 一样可探点。趋势卡底下一行淡字是学会的斜率外推的时刻（EST · FULL / EST · EMPTY），没学会就不写；不是规格书 10 天，也不是 150 mAh 除以假设电流。学会放电斜率后，同一张卡多一格 LEFT：还能用的整天或小时，来自同一条斜率（`BatteryDrainMath.left`）。没学会、格数固件、正在充、已充满都不写 LEFT。设备页大数字仍是最后一次真读数。还在充但已 100%（或 4/4）写 Charged / 已充满，不写充电中——固件常常不发 `.full`。设备页顶部是电量环（POWER / LEFT / TREND）；TREND 打开趋势图（`Destination.battery`）。首页电量 pip 仍进设备页。不是 Body Battery，格数固件也不把格数画成百分比。
 _Avoid_: Body Battery, 把 0–4 格写成 %, 把没听到的时段画成水平直线, 把过夜画在 04:00 切日上
 
 **训练负荷 (training load)**:
@@ -161,8 +165,8 @@ _Avoid_: 压力测量 (固件拒绝主动压力腿，产品里没有它), 测一
 _Avoid_: 心电记录 / ECG (产品不呈现也不解读波形), 测量历史 (听起来像被动曲线的时间窗), 把面板上那个 widget 当成记录
 
 **计划页 (plan face)**:
-首页根上的第三张脸。竖向上滑打开、下滑关闭；不是第六个详情页，也不进 NavigationStack。顶上的下滑线箭和 `AGENT · 生成` 落在灵动岛下面，不和开孔抢位。内容由当夜已结算的睡眠分数、训练负荷和未记的饭在本地拼出，不上滑就打 `/turn`。没有夜就不写假分数。
-_Avoid_: 第六个详情, 横向第三页, 可编辑计划, 日历周, 推送督促, 把 61 写进空夜
+首页根上的第三张脸。竖向上滑打开、下滑关闭；不是第六个详情页，也不进 NavigationStack。顶上的下滑线箭和 `AGENT · 生成` 落在灵动岛下面，不和开孔抢位。一页只留标题、副标题、一段说明、四个带对勾的指标、以及 AI 读了什么。对勾表示今天做完了；点对勾或底下一行「重新生成」才打 `/turn`。没有夜就不写假分数。
+_Avoid_: 第六个详情, 横向第三页, 带对勾标题的目录卡, 「为什么是这四件事」, 日历周, 推送督促, 把 61 写进空夜, 上滑就打 /turn
 
 **计划把手 (plan lip)**:
 底栏一条竖线：上头两条 1.6pt 圆头石灰折线追逐向上，中间仍是原来那两枚 4pt 分页点，下头单独一行 `PLAN`。不在 PLAN 两边再画点。系统 Home Indicator 仍由 iOS 画，不画假的。

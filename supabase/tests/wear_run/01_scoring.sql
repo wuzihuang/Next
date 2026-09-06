@@ -81,4 +81,34 @@ begin
   if (select worn from public.daily_results where user_id = u and user_day = d + 5) then
     raise exception 'zero-step empty-heart ticks are not worn';
   end if;
+
+  -- Everyday daytime: 08:00–23:00 is 180 of 288.
+  insert into public.raw_samples(user_id, ts, heart)
+  select u, ((d + 6 + time '04:00') at time zone 'UTC') + make_interval(mins => g * 5), 70
+  from generate_series(48, 227) g;
+  insert into public.daily_results(user_id, user_day) values (u, d + 6);
+  if not (select worn from public.daily_results where user_id = u and user_day = d + 6) then
+    raise exception '08-23 wear should be a worn day';
+  end if;
+
+  -- Short daytime: 09:00–20:00 is 132 of 288.
+  insert into public.raw_samples(user_id, ts, heart)
+  select u, ((d + 7 + time '04:00') at time zone 'UTC') + make_interval(mins => g * 5), 70
+  from generate_series(60, 191) g;
+  insert into public.daily_results(user_id, user_day) values (u, d + 7);
+  if (select worn from public.daily_results where user_id = u and user_day = d + 7) then
+    raise exception '09-20 wear must not be a worn day';
+  end if;
+  if (select wear_miss from public.daily_results where user_id = u and user_day = d + 7) <> 1 then
+    raise exception 'a closed miss after a worn day is amber';
+  end if;
+
+  -- A missing calendar yesterday breaks the run instead of skipping the hole.
+  insert into public.raw_samples(user_id, ts, heart)
+  select u, ((d + 9 + time '04:00') at time zone 'UTC') + make_interval(mins => g * 5), 70
+  from generate_series(0, 199) g;
+  insert into public.daily_results(user_id, user_day) values (u, d + 9);
+  if (select wear_run from public.daily_results where user_id = u and user_day = d + 9) <> 1 then
+    raise exception 'a hole in user_day must restart the run';
+  end if;
 end $$;

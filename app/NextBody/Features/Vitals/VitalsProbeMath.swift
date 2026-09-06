@@ -249,18 +249,18 @@ public enum VitalsProbeMath {
         return slots
     }
 
-    /// One slot of a trace reduced to the lowest and highest tick recorded inside it.
+    /// One occupied value run inside a time slot.
     ///
-    /// ⚠️ This is not a smoothing pass. `low` and `high` are two ticks that actually
-    /// happened, and neither is ever borrowed across the slot's own edge — which is why a
-    /// slot the band did not report is absent from the result rather than flat at zero.
+    /// ⚠️ This is not a min–max fill. `low` and `high` are the ends of ticks that actually
+    /// sat next to each other; a hole such as 70–75 with no sample stays out of the mark.
+    /// A slot the band did not report is absent from the result rather than flat at zero.
     public struct Envelope: Equatable, Sendable {
         public var index: Int
         public var start: Double
         public var end: Double
         public var low: Double
         public var high: Double
-        /// How many ticks the slot reduced. One tick is a legitimate envelope of no height.
+        /// How many ticks this run reduced. One tick is a legitimate envelope of no height.
         public var count: Int
 
         public init(index: Int, start: Double, end: Double,
@@ -276,27 +276,85 @@ public enum VitalsProbeMath {
         public var mid: Double { (start + end) / 2 }
     }
 
-    /// Reduce a window's ticks to one envelope per slot. 288 ticks over 24 hours become 48
-    /// half-hour envelopes: the shape survives, the lock-tooth crowding does not.
+    /// The mark that occupies one envelope's own slot. Width follows the slot, not a
+    /// 7pt cap: a night of twenty-eight quarter-hours on a 300pt field is ~10pt a slot,
+    /// and a 7pt pill left a dead strip against the rail that read as a cropped window.
+    public static func slotBar(start: Double, end: Double, field: Double,
+                               gap: Double = 2, minWidth: Double = 2.5)
+        -> (x: Double, width: Double) {
+        let left = field * min(1, max(0, start))
+        let right = field * min(1, max(start, end))
+        let span = max(0, right - left)
+        let inset = min(gap, span * 0.25)
+        let width = max(minWidth, span - inset)
+        // A slot shorter than the minimum mark still sits flush on its right edge, so
+        // the last ten minutes of a night do not leave a hole against the rail.
+        let x = width >= span ? max(0, right - width) : left + (span - width) / 2
+        return (x, width)
+    }
+
+    /// Capsule heads stay a column, not a pill, once a slot is wider than 12pt.
+    public static func slotBarRadius(width: Double, cap: Double = 6) -> Double {
+        min(max(width / 2, 0), cap)
+    }
+
+    /// A hole larger than this fraction of the ruler is left empty. 4% of 40–160 is
+    /// 4.8 BPM: two ticks 8 BPM apart stay two marks; a dense climb stays one run.
+    public static let occupancyGapFraction = 0.04
+
+    /// The merge distance for occupancy runs on a given ruler.
+    public static func occupancyGap(low: Double, high: Double) -> Double {
+        max(0, (high - low) * occupancyGapFraction)
+    }
+
+    /// Cluster ticks that sit next to each other. A gap larger than `gap` starts a new
+    /// run, so a slot that recorded 45, 50 and 90 paints 45–50 and 90, never 45–90.
+    ///
+    /// A non-finite gap (the default on `envelopes`) keeps the old one-run min–max, so
+    /// arithmetic tests that only care about slot membership still compile as one mark.
+    public static func occupancyRuns(values: [Double], gap: Double)
+        -> [(low: Double, high: Double)] {
+        let sorted = values.filter(\.isFinite).sorted()
+        guard let first = sorted.first, let last = sorted.last else { return [] }
+        if !gap.isFinite || gap < 0 { return [(first, last)] }
+        var runs: [(low: Double, high: Double)] = []
+        var lo = first
+        var hi = first
+        for value in sorted.dropFirst() {
+            if value - hi > gap {
+                runs.append((lo, hi))
+                lo = value
+                hi = value
+            } else {
+                hi = value
+            }
+        }
+        runs.append((lo, hi))
+        return runs
+    }
+
+    /// Reduce a window's ticks to occupied runs per slot. 288 ticks over 24 hours become
+    /// 96 fifteen-minute columns; each column only paints the value bands that have ticks.
     public static func envelopes(points: [(fraction: Double, value: Double)],
-                                 seconds: TimeInterval, span: TimeInterval) -> [Envelope] {
+                                 seconds: TimeInterval, span: TimeInterval,
+                                 valueGap: Double = .infinity) -> [Envelope] {
         let slots = timeSlots(seconds: seconds, span: span)
         guard !slots.isEmpty else { return [] }
-        var lows = [Double?](repeating: nil, count: slots.count)
-        var highs = [Double?](repeating: nil, count: slots.count)
-        var counts = [Int](repeating: 0, count: slots.count)
+        var buckets = [[Double]](repeating: [], count: slots.count)
         for point in points {
             guard point.value.isFinite else { continue }
             let slot = clamp(point.fraction) * span / seconds
             let index = min(slots.count - 1, max(0, Int(slot.rounded(.down))))
-            counts[index] += 1
-            lows[index] = min(lows[index] ?? point.value, point.value)
-            highs[index] = max(highs[index] ?? point.value, point.value)
+            buckets[index].append(point.value)
         }
-        return slots.compactMap { slot in
-            guard let low = lows[slot.index], let high = highs[slot.index] else { return nil }
-            return Envelope(index: slot.index, start: slot.start, end: slot.end,
-                            low: low, high: high, count: counts[slot.index])
+        return slots.flatMap { slot -> [Envelope] in
+            let values = buckets[slot.index]
+            guard !values.isEmpty else { return [] }
+            return occupancyRuns(values: values, gap: valueGap).map { run in
+                Envelope(index: slot.index, start: slot.start, end: slot.end,
+                         low: run.low, high: run.high,
+                         count: values.filter { $0 >= run.low && $0 <= run.high }.count)
+            }
         }
     }
 

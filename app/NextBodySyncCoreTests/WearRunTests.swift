@@ -73,6 +73,23 @@ final class WearRunTests: XCTestCase {
         XCTAssertEqual(WearRun.display(todayWorn: true, yesterday: yesterday), .live(1))
     }
 
+    func testMissingServerWornFallsBackToLocalTicks() {
+        let yesterday = WearRun.yesterday(worn: nil, run: nil, miss: nil, localWorn: true)
+        XCTAssertEqual(yesterday, WearRun.Yesterday(worn: true, run: 1, miss: 0))
+        XCTAssertEqual(WearRun.display(todayWorn: false, yesterday: yesterday), .live(1))
+    }
+
+    func testExplicitUnwornDoesNotTakeLocalTicks() {
+        let yesterday = WearRun.yesterday(worn: false, run: 0, miss: 2, localWorn: true)
+        XCTAssertEqual(yesterday.worn, false)
+        XCTAssertEqual(WearRun.display(todayWorn: false, yesterday: yesterday), .gray)
+    }
+
+    func testSettledRunWinsOverLocalPreview() {
+        let yesterday = WearRun.yesterday(worn: true, run: 6, miss: 0, localWorn: false)
+        XCTAssertEqual(WearRun.display(todayWorn: true, yesterday: yesterday), .live(7))
+    }
+
     private func tick(at slot: Int, hr: Int?) -> VitalSample {
         VitalSample(ts: day.start.addingTimeInterval(TimeInterval(slot) * 300), hr: hr, stress: nil)
     }

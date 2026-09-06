@@ -419,7 +419,7 @@ extension VitalsReadout {
             footLeft: foot,
             footRight: footRight,
             chartNote: range == .day
-                ? L("EVERY %d MIN · LOW–HIGH", Int(VitalsTrace.defaultSlotMinutes))
+                ? L("EVERY %d MIN · MEASURED", Int(VitalsTrace.defaultSlotMinutes))
                 : L("DAILY VS OWN"),
             splitTitle: L("VS OWN MEDIAN"),
             splitTrailing: pointCount == 0 ? nil : L("%d POINTS", pointCount),

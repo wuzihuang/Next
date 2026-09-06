@@ -173,7 +173,7 @@ struct HomeHeader: View {
     let initials: String
     let batteryPercent: Int?
     var chargeState: BandBattery.ChargeState = .unknown
-    var flame: WearRun.Flame = .gray
+    let flame: WearRun.Flame
     var width: CGFloat = NB.Layout.contentWidth
     let onProfile: () -> Void
     /// 12 · the band battery is the way into the device page.

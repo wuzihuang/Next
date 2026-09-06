@@ -373,37 +373,61 @@ struct SleepDurationBar: View {
 
 // MARK: - regularity
 
-/// Bedtime against this person's own habit. Regularity is the one group that cannot be
-/// scored against a population — "on time" only means anything relative to yourself — so the
-/// chart is the last fourteen nights' bedtimes, the median as a line, and tonight picked out.
-struct SleepBedtimeScatter: View {
+/// Bedtime against this person's own habit. Regularity cannot be scored against a
+/// population — "on time" only means anything relative to yourself — so the chart is a
+/// box of the last fourteen nights: whiskers are the nights that happened, the box is
+/// the habit (Q1–Q3), the line is the median the score already names as "usually", and
+/// tonight is the mark. Fourteen stacked dots were a distribution nobody could read.
+struct SleepBedtimeBox: View {
     /// (night, minutes past 18:00). Oldest first.
     let offsets: [(day: String, offset: Double)]
-    let median: Double?
-    var height: CGFloat = 92
+    var height: CGFloat = 72
     /// 18:00 to 06:00 — the window a bedtime can fall in without the axis lying.
     private static let span = 720.0
 
-    private static func x(_ offset: Double, in width: CGFloat) -> CGFloat {
-        width * min(max(offset, 0), span) / span
-    }
+    private var box: SleepScoreMath.Box? { SleepScoreMath.box(offsets.map(\.offset)) }
+    private var tonight: Double? { offsets.last?.offset }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            GeometryReader { geo in
-                ZStack(alignment: .topLeading) {
-                    if let median {
-                        Rectangle().fill(NB.violet1.opacity(0.5))
-                            .frame(width: 1).offset(x: Self.x(median, in: geo.size.width))
-                    }
-                    ForEach(Array(offsets.enumerated()), id: \.element.day) { index, entry in
-                        let last = index == offsets.count - 1
-                        Circle()
-                            .fill(last ? NB.violet1 : NB.white.opacity(0.22))
-                            .frame(width: last ? 7 : 5, height: last ? 7 : 5)
-                            .offset(x: Self.x(entry.offset, in: geo.size.width) - (last ? 3.5 : 2.5),
-                                    y: CGFloat(index) * (height - 8) / CGFloat(max(offsets.count - 1, 1)))
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            Canvas { ctx, size in
+                let mid = size.height / 2
+                func x(_ offset: Double) -> CGFloat {
+                    size.width * min(max(offset, 0), Self.span) / Self.span
+                }
+
+                ctx.fill(Path(roundedRect: CGRect(x: 0, y: mid - 5, width: size.width, height: 10),
+                              cornerRadius: 5),
+                         with: .color(NB.barTrack))
+
+                guard let box else { return }
+
+                var whisker = Path()
+                whisker.move(to: CGPoint(x: x(box.min), y: mid))
+                whisker.addLine(to: CGPoint(x: x(box.max), y: mid))
+                ctx.stroke(whisker, with: .color(NB.white.opacity(0.38)), lineWidth: 1.5)
+                for cap in [box.min, box.max] {
+                    var tick = Path()
+                    tick.move(to: CGPoint(x: x(cap), y: mid - 7))
+                    tick.addLine(to: CGPoint(x: x(cap), y: mid + 7))
+                    ctx.stroke(tick, with: .color(NB.white.opacity(0.38)), lineWidth: 1.5)
+                }
+
+                let boxLeft = x(box.q1)
+                let boxWidth = max(4, x(box.q3) - boxLeft)
+                ctx.fill(Path(roundedRect: CGRect(x: boxLeft, y: mid - 11, width: boxWidth, height: 22),
+                              cornerRadius: 6),
+                         with: .color(NB.violet1.opacity(0.38)))
+
+                var median = Path()
+                median.move(to: CGPoint(x: x(box.median), y: mid - 13))
+                median.addLine(to: CGPoint(x: x(box.median), y: mid + 13))
+                ctx.stroke(median, with: .color(NB.violet1), lineWidth: 2)
+
+                if let tonight {
+                    let px = x(tonight)
+                    ctx.fill(Path(ellipseIn: CGRect(x: px - 5, y: mid - 5, width: 10, height: 10)),
+                             with: .color(NB.violet1))
                 }
             }
             .frame(height: height)
@@ -414,9 +438,21 @@ struct SleepBedtimeScatter: View {
                 Spacer()
                 Text("06:00").font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
             }
+            VitalsChartLegend(
+                items: [
+                    .init(text: L("YOUR HABIT"), tint: NB.violet1, isArea: true),
+                    .init(text: L("TONIGHT"), tint: NB.violet1),
+                ],
+                trailing: nil)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L("BEDTIME"))
-        .accessibilityValue(offsets.last.map { SleepScoreMath.bedClock(offset: $0.offset) } ?? "")
+        .accessibilityValue(accessValue)
+    }
+
+    private var accessValue: String {
+        let night = tonight.map { SleepScoreMath.bedClock(offset: $0) } ?? Fmt.dash
+        let usual = box.map { SleepScoreMath.bedClock(offset: $0.median) } ?? Fmt.dash
+        return L("%@ · USUALLY %@", night, usual)
     }
 }

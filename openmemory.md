@@ -78,6 +78,11 @@ model credentials and tool execution server-side.
 - **BodyBatteryEngine** — Pure five-minute reserve model. Fuses HR/HRV/stress/steps/MET,
   saturates sleep recovery toward 95, allows bounded verified rest recovery, and holds
   off-wrist ticks.
+- **G70 capability sweep** — DEBUG `NB_DEBUG_PROBE=capsweep` (or Device → Capability sweep)
+  dumps `VPPeripheralModel` types, reads female mode 2, listens 6s GSensor + 3s ADC, then
+  `readFuncAssessment`. Results persist to `Documents/capsweep.txt`. 2026-09-06 wrist:
+  firmware `00.80.01`, female byte 12 = 0 and calendar empty, GSensor xyz = 0 packets,
+  GSensor ADC = 6 packets / 1434 bytes, FuncAssessment timeout. Not a product feature.
 - **Body Battery server replay** — `nb.reserve_replay` expands `sleep_nights.sleep_line` using
   Veepoo stage ids and writes the authoritative daily curve through normal settlement. Sleep
   improves recovery but is not an output gate: a worn daytime cold start uses an assumed 50
@@ -86,6 +91,11 @@ model credentials and tool execution server-side.
   when a v2 curve proves the score was calculated. A `daily_results` trigger removes stale
   reserve details/curves whenever reserve computation is unknown; deployment also clears and
   recomputes today with an audited migration reason.
+- **FindDistanceMath / BandAlarmMath** — SyncCore. RSSI → NEAR/CLOSE/AWAY/FAR
+  (vendor cuts, distance words). New-alarm week bitmask (LSB Monday),
+  `2 / ?` until capacity is known, demo ceiling 20, one-shot date, scene 0.
+  Sheets: `FindHoopSheet` (START then STOP), `AlarmsSheet` (SWITCH, no top
+  hairline, Add has no rocker). Band API on `BandService`.
 - **UserDay calendar** — `UserDay.last` / `hours` / `weekRolls` in SyncCore.
   Last-N 用户日, the 04:00 clock, and 7-day cuts. `rollingBack` is the instance
   form of `last`. Battery wall hours stay off this seam.
@@ -103,11 +113,24 @@ model credentials and tool execution server-side.
   plate sits between identity and COMPOSITION; back from profile is `back()`.
 - **Plan face (Paper 04D)** — `Features/Plan/`: `PlanFaceMath` assembles today's catalog
   from the settled night, training load, and meal state. `PlanLip` stacks the chasing
-  chevron, the two page dots, then `PLAN` under them. `PlanPage` is the vertical
+  chevron, the two page dots, then `PLAN` under them. That lane is root chrome:
+  it stays put through a horizontal home page turn (only the dots crossfade via
+  `pageFade`). Hiding it on `homeDrag == .horizontal` flashed the chevron and
+  dots. The chasing chevron is the lip's resting motion: opening then closing
+  Plan must not retire it. `hintPlaying` only stops for Reduce Motion.
+  `PlanPage` is the vertical
   third face. No `/turn` on open. Empty night prints `NO NIGHT YET`. Arithmetic is
-  PlanCore-tested. Close is one continuous pull: `PlanPage.closing` keeps the
-  dismiss gesture after `planOpen` flips false, and Home paging stays off unless
-  `planY` is idle or `homeDrag == .plan`.
+  PlanCore-tested. The catalog is five checkable tasks (bed / load /
+  strength / meals / afternoon quiet). The face is Paper `04E · 14 BRIEF`:
+  a short lime plate with title plus one sentence, then five carbon slabs
+  each with a title, a subtitle, and a check. Tapping a task completes it
+  one way: lime box with a carbon checkmark, two Core Haptics needles
+  150ms apart (no sound, no success-notification tail), then the slab
+  leaves. Checks live in `plan.checks.2.` so a test sweep can start clean.
+  Done rows stay off the list. REGENERATE sits in a bottom inset, not
+  under the last task. No hero score, no WHAT THE AI READ. A complete or
+  the footer REGENERATE is an explicit `/turn`. Close rides the catalog's
+  own pan. Casting boards on `Hoop Sport` page `4-0` stay as reference.
 - **Home FuelCard (Paper 09C)** — `BottomStrip.FuelCard` + `FuelCardMath`. Two numbers
   only: EATEN and the signed delta (`eaten − target`). TO GO is negative, OVER is
   positive, equal is `0 TO GO`. An ember fill is EATEN / TARGET and stops at full.
@@ -126,6 +149,20 @@ model credentials and tool execution server-side.
   active energy. Accumulated OUT is `FuelWindowMath.burnCurve` (same points as the
   calories page, lime instead of cyan). Vendor tick calories stay out. Missing parts
   print ——.
+- **Header flame / wear run (ADR 0010)** — `WearRun` scores a worn day from wrist
+  evidence in at least half of elapsed 5-minute slots (HR / stress / HRV / steps > 0;
+  temperature and vendor calories do not count). `DataStore.wearFlame` previews today
+  from local ticks and, when `daily_results.worn` is still nil, yesterday from that
+  day's curve. `HomeHeader` must take `flame:` — the default used to leave the mark
+  gray forever. Consecutive count is a server-settled daily_results value; migration
+  `20260905120000_wear_run.sql` is what persists `worn` / `wear_run` / `wear_miss`.
+  Lime + number is a live run, amber is the first closed miss, gray is cold. Not a
+  spark (that word is the panel trend), not Daily Direction coverage. Scenario
+  lives live in `WearRunScenarioTests`: 08–23 wear lights at 12:00 and holds the
+  previous run overnight; 09–20 (11 h) can light an open evening then drop after
+  ~02:00 and close amber; 10-minute HR all day is barely worn, 15-minute HR over
+  16 h is not. Random stress is 200 × 30 days × 5 clocks. SQL extras in
+  `supabase/tests/wear_run/01_scoring.sql`.
 
 ## Patterns
 - Deep conversational AI interactions navigate to the dedicated full-screen Cyber Telemetry terminal (`/chat`), while the Home display maintains focus on immediate ambient widget metrics.
@@ -137,14 +174,18 @@ model credentials and tool execution server-side.
 - Veepoo accurate sleep stages: 0 deep, 1 light, 2 REM, 3 insomnia, 4 awake.
 - Sleep page prints a server-settled night score (ADR 0008) plus staging, night HRV, and
   overnight SpO2. The hero dial colours the score on 40 / 60 / 80 bands and does not
-  name the night. Overnight SpO2 lives in `oxygen_samples`.
+  name the night. Overnight SpO2 lives in `oxygen_samples`. Day-board HRV, SpO2 and
+  respiration are `VitalsTrace` occupancy envelopes on the night clock (same
+  15-min measured-value capsules as HEART). A slot paints only the value bands
+  that have ticks; a hole like 70–75 stays empty. Bedtime vs habit is a Tukey
+  box (Q1–Q3 + whiskers + tonight mark), not a scatter of fourteen dots.
 - **VitalsDial** — Shared hero on every vitals second-level page (`VitalsDetailChrome`).
   Named zones on a fixed ruler; the occupied zone lights and a white needle marks the
   reading. Arithmetic lives in `VitalsDialMath`. Replaces the old min–now–peak fill rail.
 - Page two RESPONSE is the meal-response index, never a blood test: card label RESPONSE,
   tint compare-amber, no mmol/L / glucose / 血糖 / SPIKE on screens, export, or AI frames.
   The detail page reuses the sleep-style DAY/WEEK/MONTH pills (ADR 0012): day is a
-  30-minute envelope, week is seven daily bars, month is a 30-cell heat. Week/month
+  15-minute occupancy envelope, week is seven daily bars, month is a 30-cell heat. Week/month
   hero is the mean of daily means; the own daytime median stays the comparison.
 - **ResponseRangeBoard** — `app/NextBody/Features/Vitals/ResponseRangeBoard.swift`.
   Window math lives in `MealResponseIndex.horizonWindow`; chrome is `ResponseDayBars`
@@ -198,11 +239,33 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
+- **System widget (Paper THREE TIERS)** — TODAY on `NextBodyLiveActivity`
+  ships three families on one carbon, no tile columns: small = body battery
+  only; medium = three rings then a rail (`NEXTBODY` white, no lime square,
+  plus the home-header band cell); large = that rail on top, rings with
+  air between them, then a 2×3 of SLEEP / ACTIVE / HR and STRESS /
+  STEPS / DISTANCE (no TEMP). Band cell is `WidgetBandPip` (same 12×7 as
+  `BandBatteryPip`); it does not withdraw at 90 minutes. A second kind,
+  Shot (`NextBodyShot`, small only) is Paper 02 LIME: lime viewfinder,
+  lime lens, `LOG A MEAL`. Tap opens `nextbody://log?via=photo` and Home
+  fires `openCamera(sendFood: true)`. Gallery name is "Log a meal". App Group
+  `group.com.nextbody.hoop` carries the glance (`widget.glance.v1.json`);
+  `UserDefaults.standard` is never a fallback for numbers. Shot pending is
+  app-process `UserDefaults.standard` only. The widget process does not
+  talk BLE. `signedIn` follows Keychain `userId`. Unlogged EATEN stays ——.
 - **App Icon** — Shipping mark is the StandbyArt planet: carbon ground, lime-1 charge
   band (gap at top-left), violet-2 tilted orbit, lime stand. Paper `NEXTBODY-HOOP`
-  page `APP ICON` (`P-0`) holds a 20-face casting (NOW / CHARGE / HOOP / ECLIPSE /
-  PIXEL / LETTER / LED / CORE / RING / STACK / DIAL / LOAD / SLAB / FLASH / SPLIT /
-  CUT / HALO / WORD / FLAME / GRID). Stay on these tokens and product marks.
+  page `APP ICON` holds four icon castings: `20 FACES`, `100 FACES`, `BOLD`
+  (floods — rejected as sloppy), and `CASTING · TITLES` under BOLD (12 lockups
+  set as mastheads: N+pip, NEXT, BODY, HOOP, MARK, LINE, FOUR, NOW, PIXEL,
+  CHARGE, FLAME, NB). Titles use Inter Tight display + Doto machine line.
+  User picks by number before any 1024 export.
+- **Default avatar** — Home/Profile still render `Avatar` as initials (`Chrome.swift`).
+  Paper `NEXTBODY-HOOP` page `APP ICON` holds `DEFAULT · 50 HEADS` (below the
+  20-face sheet). First pass was rejected as timid UI glyphs. Current pass is
+  signage: cropped posters, lime as paint, 10×5 on smoke-key. Names 01 GRIN
+  through 50 DOUBLE. Not a second app icon, not a photo, not initials. User
+  picks by number before any bundle asset or Swift change.
 - `GateRoute` / `LaunchGate` / `SessionStore.resolveLaunch`: F1 §02 cold start. After a session exists, `devices.unbound_at is null` plus a finished About You (sex / height / birth_date) decide Connect vs Onboarding vs Home. Pairing writes the devices row immediately; Forget writes `unbound_at` and returns to Connect.
 - `HomeLaunchPolicy` / `HomeSnapshot` / `Repository.bootstrapHome`: same-day disk snapshot paints Home on the first frame; a still-valid access token skips the grant round trip; today's `daily_results` plus two-day samples load in parallel and replace the snapshot. 182-day history, composition, and BLE origin pull continue in the background.
 - `DirectionHeatMap` / `DailyDirectionPolicy`: Profile COMPOSITION is 26×7 Daily Direction
@@ -235,24 +298,55 @@ model credentials and tool execution server-side.
   multi-domain questions keep the full source and renderer catalogue.
 - `PlusMenuSheet`: three groups — ADD (`Photograph your meal` / `拍照记录食物` opens the camera and auto-sends; Photo library still attaches), SPORT MODE (`Start a session` → `SportModeView`), MEASURE. Copy follows `AppLanguage`.
 - Dock orb: tap opens `PlusMenuSheet`; a 0.45 s hold on the same key calls `openCamera(sendFood: true)` and skips the sheet. VoiceOver exposes `Photograph your meal` as a custom action. Home's first-run skip `TapGesture` is masked with `including: firstRun.playing ? .all : .none` — a parent tap after idle cancels the orb's UIKit `PressHold`, so the sheet never opened. Regression: `NextBodyUITests/DockOrbPlusMenuTests`.
-- `DeviceView`: Paper **12B Lime slab** (`3XL-0`). Lime overview card (72pt charge +
-  6pt bar + carbon SYNC, name, Not charging·TREND, 2×2 WORN / WITH YOU / SYNCED /
-  LAST POINT), then a FIRMWARE card (VERSION + MODEL / HARDWARE / BLUETOOTH /
-  LAST PLUG / LAST LINK / SPORT — no device number, no heart-rate alarm). DEBUG
-  (dump + automatic measurement / cadence / sport probe / health light) is
-  `#if DEBUG` only; CONNECTION is unchanged. TREND / the numeral open
-  `BatteryTrendView`. SYNC is `pullBandNow`. WORN reads `wearFlame`; WITH YOU
-  is inclusive user days from the earliest bind or wrist tick on this account
-  (`DeviceCompanionMath` + `Repository.loadCompanionSince`), never the latest
-  `devices.bound_at` after a BLE/seed swap, and never firmware `saveDays`.
-  LAST PLUG / LAST LINK come from `BatteryLog`. Remaining days are not written.
-  Automatic measurement still exposes Scientific sleep as the band's real
-  `VPSettingAutomaticPPGTest` state; Training can still open that sheet via
-  `.deviceAutoMonitor`.
+- `DeviceView`: Paper **12X 04 ACTION TILES**. Lime identity slab is HOOP + carbon
+  SYNC + 2×2 WORN / WITH YOU / SYNCED / LAST POINT — no 96%, charge bar,
+  Not charging, or TREND. Two carbon bricks under it: Find HOOP (PING is the
+  only lime word) and Alarms (CLOCK + count after the first read). FIRMWARE
+  card unchanged (VERSION + MODEL / HARDWARE / BLUETOOTH / LAST PLUG / LAST
+  LINK / SPORT). CONNECTION still has Disconnect / Why won't it connect? /
+  Forget; `.findBand` is that help sheet, not find-the-wrist.
+  **FIND** is `FindHoopSheet` (`.findHoop`, ≤78%): Paper **12Y 02 LED** faces
+  KLF-0 / LFQ-0. Opens READY · LIVE with a giant Doto dBm and START; START
+  then ENTER · RINGING and STOP. Four lamps are a stepped lime falloff
+  (current = lime-1, one step farther = lime 40%, the rest hairline), not a
+  single isolated cell. Cuts: NEAR `> −60`, CLOSE `−70…−60` inclusive
+  (−70 is CLOSE), AWAY `−85…< −70` (−85 is AWAY), FAR `< −85`. Never
+  V.GOOD / GOOD / MID / POOR. STOP / dismiss is instant (0.12s hold or tap);
+  `stopFindHoop` does not wait on `HoopQueue` or the 6s SDK gate, and a
+  user-stop Timeout is not painted as LAST. Firmware Timeout is KXX-0
+  (ember TIMEOUT + Timed out + frozen RSSI + ember DONE). RSSI reads go
+  through `HoopQueue` and freeze on Timeout / dismiss. Ring via
+  `veepooSDK_searchDeviceFuntionWithState`.
+  **ALARMS** is `AlarmsSheet` (`.bandAlarms`, ≤78%): Paper **12Y 04 SWITCH**.
+  Huge Doto time + week phrase + 68pt rocker only when `repeatState ≠ 0`.
+  The rocker sits beside the row button, not inside it. No hairline above
+  the first clock. Add an alarm has no rocker and shows `2 / ?` until
+  capacity is known. A refused add learns that count as the cap and flips
+  FULL. Busy writes say DEVICE BUSY, not ALARM WRITE FAILED. Week pills
+  are lime stroke, not lime fill — SAVE is the one lime plate. Edit stays
+  on the same sheet. New-alarm API mode 0/1/2; scene locked to 0; write
+  failure rolls the table back. Demo ceiling 20.
+  Band methods: `startFindHoop` / `stopFindHoop` / `readConnectedRSSI` /
+  `readAlarms` / `writeAlarm` / `deleteAlarm`. DEBUG `NB_DEBUG_DEVICE_SHEET`
+  = `findHoop` | `bandAlarms`. UITest `FindHoopAlarmsTests`. Battery trend
+  remains `Destination.battery` from the home pip. SYNC is `pullBandNow`.
+  WORN reads `wearFlame`; WITH YOU is `DeviceCompanionMath`. LAST PLUG /
+  LAST LINK come from `BatteryLog`. The charge ring is back on Device
+  (POWER / LEFT / TREND). TREND opens `Destination.battery`. LEFT also
+  sits on the trend card (`BatteryDrainMath.left`).
+  100% or 4/4 still on the charger is Charged (`BatteryDrainMath.settle`).
+  Automatic measurement still exposes Scientific sleep; Training can still
+  open that sheet via `.deviceAutoMonitor`.
 - `BatteryLog` / `BatteryDrainMath` / `BatteryTrendView`: local append-only log
   (30 days). A quiet stretch is a dashed drain curve, not a ruler to NOW. A
   first-connect cliff (stale last packet + fresh read in the same two minutes)
   is collapsed; estimated points that land on a heard packet are scrubbed.
+  A valued `charge == .unknown` packet is a vendor ghost: `BatteryLog.record`
+  refuses it, `collapse` strips it, hydrate rewrites the stored log without it.
+  A small EST · FULL / EST · EMPTY clock under the facts is `BatteryDrainMath.eta`
+  from a learned slope only — never the five-day pack, never 150 mAh.
+  LEFT is the same unplugged slope as hours (< 18) or whole days; silent
+  wherever `eta` is silent.
   Reconnect does not stamp `lastBattery` at NOW. Overnight columns and week
   ticks use each night's `sleepStart` → `wakeAt` (same clock as sleep), not
   04:00 and not charge spans. The line takes `VitalsChartProbe` (`battery.probe`).
@@ -265,13 +359,18 @@ model credentials and tool execution server-side.
   without opening Device.
 - `SportModeView` / `SportModeCatalog`: catalogued modes (raw 0…47); start/stop via `BandService.startSportMode` / `stopSportMode`. Firmware refusals stay greyed for the page life.
 - `VitalsTimelinePolicy` + `VitalsDetailView`: sleep uses its recorded night and now also
-  draws night HRV (window RMSSD scatter) and overnight SpO2 (`oxygen_samples`, 85–100
-  curve) on that same clock. The nav word is the instrument itself (`HEART` / 心率), never
+  draws night HRV, overnight SpO2 and sleep respiration as 15-min occupancy
+  envelopes on that same clock (`VitalsTrace`; a column only paints the value
+  bands that have ticks, and capsule width follows the slot so a short last
+  quarter-hour still sits against the rail). The nav word is the instrument itself (`HEART` / 心率), never
   a `VITALS ·` / `体征 ·` prefix. Page two's retired HRV slot is RESPONSE (`MealResponseIndex`):
   unitless signed percent versus own daytime median, compare-amber, rolling-24h scatter,
   no mmol/L. `vitals.hrv` still deep-links to sleep. Heart now has the same DAY/WEEK/MONTH
   pills as sleep and RESPONSE (ADR 0013): day stays last-24h, week/month are user days,
-  companions share the clock. Stress and temperature stay rolling 24 hours; steps,
+  companions share the clock. `LiveVitals` NOW for HEART and STRESS is
+  `currentHeart` / `currentStress`: the newest tick's own field, else the last
+  positive reading inside 24h. A step/MET row must not dash the HEART card.
+  Stress and temperature stay rolling 24 hours; steps,
   distance, and active calories use the current 04:00 user day only through now.
   ACTIVE ENERGY (Paper `HY1-0`, ADR 0016) is a lime ledger: home card 174-wide with lived
   hourly bars and `RESTING + ACTIVE = OUT`; the day board is hero OUT + five cards.
@@ -280,7 +379,8 @@ model credentials and tool execution server-side.
   vendor `raw_samples.cal`. Arithmetic lives in `ActiveEnergyMath.swift` (SyncCore) and
   `ActiveEnergyBoard.swift`.
 - `VitalsChartProbe` / `VitalsProbeMath`: 探点 on vitals detail chart cards. Arithmetic
-  (snap, gap, vacant hour, idle, VoiceOver step, axis lock, `timeSlots`, `envelopes`) lives
+  (snap, gap, vacant hour, idle, VoiceOver step, axis lock, `timeSlots`, `envelopes`,
+  `occupancyRuns`) lives
   in `VitalsProbeMath` and is covered by `NextBodySleepTests/VitalsProbeMathTests`. The
   shell axis-locks at 10pt: horizontal travel owns the chart, vertical travel stays page
   scroll. The 标线 snaps onto a recorded sample (or names `——` in a gap). Plot field is
@@ -305,9 +405,11 @@ model credentials and tool execution server-side.
   which instruments carry the rail, and `VitalsAxis` is padded by `VitalsScaleRail.gutter`
   so axis clocks stay aligned under the plot rather than under the rail.
 - `VitalsTrace` / `VitalsHistogram` / `VitalsClimb` (`VitalsDetailCharts.swift`): the three
-  chart bodies on that skeleton. Trace is a min–max envelope (`VitalsProbeMath.envelopes`
-  over 30-minute slots) drawn as capsules, not a polyline, so dense ticks stop reading as
-  noise. Trace and Histogram both take an optional `zones: VitalsDial.Model`: given one,
+  chart bodies on that skeleton. Trace is an occupancy envelope (`VitalsProbeMath.envelopes`
+  + `occupancyRuns` over 15-minute slots) drawn as capsules, not a polyline and not a
+  min–max fill: a hole such as 70–75 with no sample stays empty. Capsule width follows
+  the slot (`VitalsProbeMath.slotBar`) so a night of ~28 quarter-hours fills the window;
+  a 7pt cap left a dead strip against the rail. Trace and Histogram both take an optional `zones: VitalsDial.Model`: given one,
   every mark is coloured by the zone it occupies and a mark that crossed a cut carries both
   colours with the edge *on* the cut. ⚠️ A capsule is coloured over its clamped ends, so a
   190 BPM spike on a 40–160 field does not paint its whole visible height in the top zone.
@@ -327,6 +429,9 @@ model credentials and tool execution server-side.
   to the recorded night — never restored onto `raw_samples.spo2`.
 
 ## Patterns
+- Female health stays off the product surface. G70 answers the female read with
+  `state=None` and `function.female=0`; it is a calendar write (SDK business lock),
+  not a sensor, and F1 already spent both second-level pages. Sweep it in DEBUG only.
 - Gate branching is `LaunchGate.stage(hasBoundBand:profileComplete:)` — never the last `nb.gate.stage` alone. A finished profile is not asked again after re-pair; a kill mid-About You restores `nb.onboarding.draft.<userId>`.
 - Daily Direction on the heat map uses live E_OUT_NOW; `nb.compute_fuel` no longer writes a null direction for an open day. Two snacks in one slot still stay GREY_NOTHING.
 - Use design tokens from `NB`; do not introduce hard-coded colors outside `DesignSystem/Tokens.swift`.
@@ -340,7 +445,7 @@ model credentials and tool execution server-side.
 - Chinese UI/brand type uses Fusion Pixel 12px proportional zh_hans, cascaded behind Doto/Jost/Inter Tight so numbers stay pixel-dot and CJK stays pixel.
 - AI turns carry `AppLanguage.serverLocale`. The system prompt, meal vision prompt, and chart slot descriptions are written in the selected language and lock the frame to that language regardless of user input.
 - The idle panel is represented by `widget == nil`; THINKING and completed personalized frames are represented by non-nil widgets.
-- `StandbyArt` (the planet) lives only on `idlePlate`. `AIPanel` switches idle / occupied / ceremony as one exclusive tree with animations disabled on the swap, so the orbit cannot cross-fade under a reading. Photo answers paint an opaque unlit LED field under the words (`unlitField`); they used to sit on `Color.clear`.
+- `StandbyArt` (the planet) lives only on `idlePlate`. `AIPanel` switches idle / occupied / ceremony as one exclusive tree with animations disabled on the swap, so the orbit cannot cross-fade under a reading. Photo answers paint an opaque unlit LED field under the words (`unlitField`); they used to sit on `Color.clear`. The standby charge cluster (`BODY BATTERY` + the 64pt %) sits below the planet's limb (bottom pad 4, vitals 6 above, hint 8 above) so the lime band on the near side does not cross the hero.
 - Every asynchronous panel request carries a request ID; dismissing or starting another request invalidates late results so they cannot replace STANDBY.
 - The panel’s chart layer is drawn behind `HalftoneScreen`, while text remains crisp above it.
 - Home horizontal paging owns recognized drags; panel and card taps must not fire at the end of a page swipe. A 探点 on a vitals detail chart card is the same rule on a different axis: horizontal travel owns the chart, vertical travel stays page scroll.

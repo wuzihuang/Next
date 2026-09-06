@@ -66,9 +66,10 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 12 + 12S | Device, and its two sheets | built, walked on device |
 | 13 | Body Battery detail · Paper 13A/13B A CURVE + DAY/WEEK/MONTH (1 / 7 / 30 user days); hero stays 0–100; lime not violet | built |
 | 04B | Home · page two, the eight instruments | built · swipe reworked (direction lock, no mis-taps), edge states F1–F5, sleepLine strip, PAGE2_* events |
-| 04D | Home · plan, the third face | built · B lip + B catalog page from Paper `DX2-0`; local assembly, no `/turn`; empty night stays empty |
-| 04C | Page two RESPONSE (retired HRV slot) | built · dial hero + DAY/WEEK/MONTH rolling windows; day is 30-min envelope, week daily bars, month heat; week/month hero is daily-mean average vs own daytime median (ADR 0012) |
+| 04D | Home · plan, the third face | built · Paper 04E 14 BRIEF: lime title+sentence, five title/subtitle slabs, regenerate; no hero score; local assembly until an explicit turn; empty night stays empty |
+| 04C | Page two RESPONSE (retired HRV slot) | built · dial hero + DAY/WEEK/MONTH rolling windows; day is 15-min occupancy envelope, week daily bars, month heat; week/month hero is daily-mean average vs own daytime median (ADR 0012) |
 | 04K | HEART second level | built · Lead layout (ADR 0013): zone dial + DAY/WEEK/MONTH; HRV and overnight SpO2 share the heart clock; week/month hero is the median of daily medians |
+| Q-0 | System widget · TODAY medium | built · one WidgetKit face on the Live Activity extension (battery / load / eaten rings); App Group glance; LOG left off — widgets cannot hold-to-talk |
 
 04B notes:
 
@@ -110,7 +111,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
   `RESPONSE_DETAIL_OPEN`, `PAGE2_CARD_STATE{CARD,STATE}` on
   every page-two open, `PAGE2_NOT_SYNCED{PLATFORM}`, `PAGE2_OFF_WRIST{MIN}` once per user day.
 - The eight detail rulers now name one honest window: SLEEP is the recorded completed night;
-  HEART and RESPONSE add DAY/WEEK/MONTH rolling windows (HEART: 30-min envelope on day,
+  HEART and RESPONSE add DAY/WEEK/MONTH rolling windows (HEART: 15-min occupancy envelope on day,
   one bar a user day on week/month, HRV + overnight SpO2 as same-clock companions — ADR 0013);
   STRESS / TEMP stay rolling 24 hours; STEPS / DISTANCE / ACTIVE run from the
   04:00 user-day boundary to now. ACTIVE ENERGY is Paper `HY1-0` (ADR 0016): lime
@@ -1036,8 +1037,8 @@ Also from the rules: `SettingRow` gained a sub-line (11 rule 10), `CardBlock` an
 the training ring a tint and halo, and the cumulative curve dashed gaps (08 rule 07).
 
 ### Still open from these five boards
-- 09 PAST DAY and 10 BACKFILL receipts (server events). 12 "About 3 days of charge left" stays
-  on percent firmware because the main board draws it; the board itself says it has no basis.
+- 09 PAST DAY and 10 BACKFILL receipts (server events). 12 remaining days are LEFT on the
+  battery trend from the learned unplugged slope; silent without a slope, on bars, or while charging.
 - The thresholds the boards leave to 拍板: OUT-trust hours (09), 5/7 (10), disconnectAlert with
   no capability bit (12).
 

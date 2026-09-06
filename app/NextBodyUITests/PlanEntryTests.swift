@@ -16,9 +16,12 @@ final class PlanEntryTests: XCTestCase {
         swipeUpFromLip(app)
         XCTAssertTrue(planOpened(app),
                       "swipe up from the lip did not open the plan face")
-        XCTAssertTrue(app.staticTexts["TODAY'S CONTENTS"].exists
-                        || app.staticTexts["NO NIGHT YET"].exists,
-                      "plan page is missing its eyebrow")
+        XCTAssertTrue(app.staticTexts["plan.eyebrow"].exists
+                        || app.otherElements["plan.eyebrow"].exists
+                        || app.staticTexts["NO NIGHT YET"].exists
+                        || app.staticTexts["TODAY'S CONTENTS"].exists
+                        || app.staticTexts["TODAY · FIVE TASKS"].exists,
+                      "plan page is missing its title")
     }
 
     func testSwipeDownFromPlanReturnsHome() {
@@ -41,6 +44,26 @@ final class PlanEntryTests: XCTestCase {
                        "plan page stayed up after the close swipe")
     }
 
+    func testSlowSwipeDownFromPlanReturnsHome() {
+        let app = launchHome()
+        XCTAssertTrue(app.otherElements["plan.lip"].waitForExistence(timeout: 40),
+                      "plan lip never appeared on home")
+        swipeUpFromLip(app)
+        XCTAssertTrue(planOpened(app), "plan did not open before the slow close swipe")
+
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.12))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.70))
+        start.press(forDuration: 0.2, thenDragTo: end,
+                    withVelocity: XCUIGestureVelocity(140), thenHoldForDuration: 0)
+        Thread.sleep(forTimeInterval: 1.4)
+
+        XCTAssertTrue(app.otherElements["plan.lip"].waitForExistence(timeout: 4),
+                      "a slow downward drag did not return home")
+        XCTAssertFalse(app.otherElements["plan.page"].exists,
+                       "plan page stayed up after the slow close swipe")
+    }
+
     func testHorizontalSwipeStillTurnsPage() {
         let app = launchHome()
         XCTAssertTrue(app.otherElements["plan.lip"].waitForExistence(timeout: 40),
@@ -61,6 +84,8 @@ final class PlanEntryTests: XCTestCase {
 
         XCTAssertTrue(sleepMarker(app).exists,
                       "horizontal drag no longer turns to page two")
+        XCTAssertTrue(app.otherElements["plan.lip"].waitForExistence(timeout: 2),
+                      "a page turn hid the plan lip")
         XCTAssertFalse(app.otherElements["plan.page"].exists,
                        "a page turn opened the plan face")
         XCTAssertFalse(app.buttons["Back"].exists,
@@ -100,8 +125,11 @@ final class PlanEntryTests: XCTestCase {
     }
 
     private func planOpened(_ app: XCUIApplication) -> Bool {
-        app.otherElements["plan.page"].waitForExistence(timeout: 3)
+        app.descendants(matching: .any)["plan.page"].waitForExistence(timeout: 3)
+            || app.buttons["plan.regenerate"].waitForExistence(timeout: 1)
+            || app.staticTexts["NO NIGHT YET"].waitForExistence(timeout: 1)
             || app.staticTexts["TODAY'S CONTENTS"].waitForExistence(timeout: 1)
+            || app.staticTexts["TODAY · FIVE TASKS"].waitForExistence(timeout: 1)
     }
 
     private func sleepMarker(_ app: XCUIApplication) -> XCUIElement {

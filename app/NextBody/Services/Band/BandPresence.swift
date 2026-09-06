@@ -122,6 +122,21 @@ final class BandPresence {
             }
         }
 
+        if ProcessInfo.processInfo.environment["NB_DEBUG_PROBE"] == "capsweep" {
+            let log = Logger(subsystem: "com.nextbody.hoop", category: "probe")
+            log.notice("capability sweep · reading unused SDK seams, then 6s GSensor")
+            await LiveReadout.shared.standDown {
+                guard isCurrent() else { return }
+                do {
+                    let lines = try await Band.live.probeCapabilitySweep()
+                    log.notice("capability sweep · \(lines.count) line(s)")
+                    for line in lines { log.notice("capability sweep · \(line, privacy: .public)") }
+                } catch {
+                    log.error("capability sweep · \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+
         if ProcessInfo.processInfo.environment["NB_DEBUG_PROBE"] == "healthglance" {
             let log = Logger(subsystem: "com.nextbody.hoop", category: "probe")
             log.notice("health glance probe · starting a real measurement")

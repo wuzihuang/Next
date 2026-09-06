@@ -120,12 +120,19 @@ struct VitalsPage: View {
     private var heartCard: some View {
         let peak = m.peakHR ?? ticks.compactMap(\.hr).max()
         let resting = m.nightInputs?.rhr.map { Int($0.rounded()) }
+        // The newest tick often has steps or MET and no PPG. The number is the last
+        // heart reading in the same 24h window the spark is drawn from — same rule as
+        // the detail page and the STRESS card — not only LiveVitals.hr on that newest row.
+        let samples = VitalSample.rolling(
+            VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks),
+            endingAt: Date())
+        let latest = gone ? nil : (vitals.hr ?? samples.last(where: { $0.hr != nil })?.hr)
         // 04B F5 · DAY ONE. No tick has ever landed: the number is ——, the curve is not
         // drawn, and the card says so in words — an empty page, not a zeroed one.
         let dayOne = vitals.at == nil && ticks.isEmpty
         return InstrumentCard(label: L("HEART"), tag: L("NOW"), tint: NB.lime1,
                               height: cardHeight,
-                              value: gone ? nil : vitals.hr.map(String.init), unit: "BPM",
+                              value: latest.map(String.init), unit: "BPM",
                               foot: L("RESTING %@ · PEAK %@", Fmt.int(resting), Fmt.int(peak)),
                               dim: dim,
                               // 04B F3 · GONE keeps the unit, greyed with the dash — the
@@ -273,7 +280,7 @@ struct VitalsPage: View {
             }
         }
         let day = m.day, ticks = m.vitalsCurve
-        let rollingStress = VitalSample.rolling(
+        let rolling = VitalSample.rolling(
             VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks),
             endingAt: Date())
         let steps = m.steps.map(Double.init) ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: { $0.steps.map(Double.init) }))
@@ -285,9 +292,9 @@ struct VitalsPage: View {
             zerosToday: mealResponseZerosToday)
         return [
             "SLEEP": m.sleep == nil ? "EMPTY" : "FRESH",
-            "HEART": nowCard(vitals.hr != nil),
+            "HEART": nowCard(vitals.hr != nil || rolling.contains { $0.hr != nil }),
             "RESPONSE": response.analyticsState,
-            "STRESS": nowCard(vitals.stress != nil || rollingStress.contains { $0.stress != nil }),
+            "STRESS": nowCard(vitals.stress != nil || rolling.contains { $0.stress != nil }),
             // Which of the night-range states the card is actually in, not just whether a
             // tick arrived — LEARNING and a real verdict are different products.
             "TEMP": SkinTempPresentation.nightRange(today: m, history: history).analyticsState,

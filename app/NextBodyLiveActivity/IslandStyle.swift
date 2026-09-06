@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 
 /// The house palette and type, as much of it as the island needs.
@@ -15,11 +16,31 @@ enum Island {
 
     /// Doto — the dot-matrix numerals. Same names the app registers.
     static func dot(_ weight: Int, _ size: CGFloat) -> Font {
+        registerFonts()
         let style = weight >= 700 ? "Bold" : weight >= 600 ? "SemiBold" : "Medium"
         return .custom("Doto-\(style)", size: size)
     }
     /// Inter Tight — the brand face, for the readout numbers.
-    static func brand(_ size: CGFloat) -> Font { .custom("InterTight-Bold", size: size) }
+    static func brand(_ size: CGFloat) -> Font {
+        registerFonts()
+        return .custom("InterTight-Bold", size: size)
+    }
+
+    /// WidgetKit does not always honour `UIAppFonts`. Register from the extension bundle.
+    private static func registerFonts() {
+        _ = registered
+    }
+
+    private static let registered: Bool = {
+        let files = ["Doto-Bold", "Doto-SemiBold", "Doto-Medium", "InterTight-Bold"]
+        for file in files {
+            let url = Bundle.main.url(forResource: file, withExtension: "ttf", subdirectory: "Fonts")
+                ?? Bundle.main.url(forResource: file, withExtension: "ttf")
+            guard let url else { continue }
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+        return true
+    }()
 
     /// The one colour decision: the lime warms toward amber as the heart climbs. Interpolated
     /// by hand because `Color.mix` is iOS 18 and this ships to 17.

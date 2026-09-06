@@ -72,7 +72,7 @@ enum MeasureKind: String, Hashable, CaseIterable {
     case heartRate, bloodOxygen, bloodPressure, ecg, temperature, bodyComposition
 }
 
-/// Bottom sheets · 13 of them. The screen underneath always shows its title and one row of value.
+/// Bottom sheets. The screen underneath always shows its title and one row of value.
 enum SheetRoute: Hashable, Identifiable {
     // 03 · onboarding
     case height, weightBaseline, birthday
@@ -85,6 +85,10 @@ enum SheetRoute: Hashable, Identifiable {
     case measurement(UUID)
     // 12S · device
     case bandAutoMonitor, findBand, unbind, disconnect, firmware, syncCadence
+    /// 12Y · find the wrist (LED). Not `.findBand`.
+    case findHoop
+    /// 12Y · new-alarm table (SWITCH).
+    case bandAlarms
     // dock
     case plusMenu
     var id: String { String(describing: self) }

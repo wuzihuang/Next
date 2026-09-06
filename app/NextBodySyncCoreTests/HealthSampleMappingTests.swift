@@ -512,6 +512,60 @@ final class HealthSampleMappingTests: XCTestCase {
         XCTAssertEqual(value, 41)
     }
 
+    func testCurrentHeartJoinsLastPositiveReadingInside24h() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let earlier = now.addingTimeInterval(-3 * 3600)
+        let value = VitalsTimelinePolicy.currentHeart(
+            latest: nil,
+            previous: (72, earlier),
+            at: now)
+
+        XCTAssertEqual(value, 72)
+    }
+
+    func testCurrentHeartDoesNotJoinReadingOlderThan24h() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let earlier = now.addingTimeInterval(-25 * 3600)
+        let value = VitalsTimelinePolicy.currentHeart(
+            latest: nil,
+            previous: (72, earlier),
+            at: now)
+
+        XCTAssertNil(value)
+    }
+
+    func testCurrentHeartPrefersTheLatestTick() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let value = VitalsTimelinePolicy.currentHeart(
+            latest: 88,
+            previous: (72, now.addingTimeInterval(-3600)),
+            at: now)
+
+        XCTAssertEqual(value, 88)
+    }
+
+    func testRollingSamplesKeepYesterdayAfternoonHeart() {
+        let now = Date(timeIntervalSince1970: 1_788_453_900)
+        let yesterdayAfternoon = now.addingTimeInterval(-12 * 3600)
+        let thisMorning = now.addingTimeInterval(-1 * 3600)
+        let samples = [
+            VitalSample(ts: yesterdayAfternoon, hr: 72, stress: 33),
+            VitalSample(ts: thisMorning, hr: nil, stress: 18),
+        ]
+
+        let rolling = VitalSample.rolling(samples, endingAt: now)
+        let nowHeart = VitalsTimelinePolicy.currentHeart(
+            latest: nil,
+            previous: rolling.last(where: { $0.hr != nil }).flatMap { sample in
+                sample.hr.map { ($0, sample.ts) }
+            },
+            at: now)
+
+        XCTAssertEqual(rolling.count, 2)
+        XCTAssertEqual(rolling.compactMap(\.hr), [72])
+        XCTAssertEqual(nowHeart, 72)
+    }
+
     func testRollingSamplesKeepYesterdayAfternoonStress() {
         let now = Date(timeIntervalSince1970: 1_788_453_900)
         let yesterdayAfternoon = now.addingTimeInterval(-12 * 3600)

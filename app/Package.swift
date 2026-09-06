@@ -47,7 +47,7 @@ let package = Package(
         .target(
             name: "NextBodyPlanCore",
             path: "NextBody/Features/Plan",
-            exclude: ["PlanChevron.swift", "PlanLip.swift", "PlanPage.swift"],
+            exclude: ["PlanChevron.swift", "PlanLip.swift", "PlanPage.swift", "PlanChecks.swift"],
             sources: ["PlanFaceMath.swift"]
         ),
         .testTarget(
@@ -72,6 +72,8 @@ let package = Package(
                 "SessionBoundTransport.swift",
                 "DailyDirectionPolicy.swift",
                 "DeviceCompanionMath.swift",
+                "FindDistanceMath.swift",
+                "BandAlarmMath.swift",
                 "HealthSampleMapping.swift",
                 "MealResponseIndex.swift",
                 "SkinTempNightRange.swift",
@@ -101,6 +103,7 @@ let package = Package(
                 "CompositionWindowMath.swift",
                 "TrainingWindowMath.swift",
                 "BodyBatteryWindowMath.swift",
+                "WidgetFaceMath.swift",
             ]
         ),
         .testTarget(

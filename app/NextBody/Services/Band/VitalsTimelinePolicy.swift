@@ -31,6 +31,21 @@ enum VitalsTimelinePolicy {
     /// Stress is often missing on the newest worn tick — sleep PPG still has heart.
     /// Join the last positive reading if it still sits inside the rolling 24h window.
     static func currentStress(latest: Int?, previous: (value: Int, at: Date)?, at tickAt: Date) -> Int? {
+        currentJoinedReading(latest: latest, previous: previous, at: tickAt)
+    }
+
+    /// The newest row is often a step / MET / calorie tick with no PPG. Heart stays
+    /// that tick's own reading when it has one; otherwise the last positive reading
+    /// inside the same 24h window the instrument already uses.
+    static func currentHeart(latest: Int?, previous: (value: Int, at: Date)?, at tickAt: Date) -> Int? {
+        currentJoinedReading(latest: latest, previous: previous, at: tickAt)
+    }
+
+    private static func currentJoinedReading(
+        latest: Int?,
+        previous: (value: Int, at: Date)?,
+        at tickAt: Date
+    ) -> Int? {
         if let latest { return latest }
         guard let previous else { return nil }
         return rolling24Hours(endingAt: tickAt).contains(previous.at) ? previous.value : nil

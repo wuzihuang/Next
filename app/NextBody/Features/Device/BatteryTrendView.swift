@@ -140,6 +140,24 @@ struct BatteryTrendView: View {
                 Rectangle().fill(NB.hairline).frame(width: 1)
                 BatteryFact(label: L("LAST PLUG"), value: lastPlug)
             }
+
+            if let leftParts {
+                Rectangle().fill(NB.hairline).frame(height: 1)
+                BatteryFact(label: L("LEFT"), value: leftParts.value, unit: leftParts.unit)
+                    .accessibilityIdentifier("battery.left")
+            }
+
+            if let etaLine {
+                Rectangle().fill(NB.hairline).frame(height: 1)
+                Text(etaLine)
+                    .font(NBFont.dot(500, 10))
+                    .tracking(0.10 * 10)
+                    .foregroundStyle(NB.white.opacity(0.38))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("battery.eta")
+            }
         }
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
         .cardSkin()
@@ -162,6 +180,40 @@ struct BatteryTrendView: View {
     private func factParts(_ value: Double?) -> (String, String?) {
         guard let value else { return (Fmt.dash, nil) }
         return ("\(Int(value.rounded()))", plot.isPercent ? "%" : "/4")
+    }
+
+    /// Learned unplugged slope only. Silent with `eta` — never the five-day pack.
+    private var leftParts: (value: String, unit: String)? {
+        guard plot.isPercent, !plot.points.isEmpty,
+              let left = BatteryDrainMath.left(in: data.batteryLog, now: now) else { return nil }
+        switch left {
+        case .hours(let n): return ("\(n)", L("HRS"))
+        case .days(let n): return ("\(n)", L("DAYS"))
+        }
+    }
+
+    /// Small because it is a slope, not a reading. Silent when the log has not
+    /// learned a rate — the five-day pack must not become a clock.
+    private var etaLine: String? {
+        guard plot.isPercent, !plot.points.isEmpty,
+              let eta = BatteryDrainMath.eta(in: data.batteryLog, now: now) else { return nil }
+        switch eta {
+        case .full(let at):
+            return L("EST · FULL %@", stamp(at))
+        case .empty(let at):
+            return L("EST · EMPTY %@", stamp(at))
+        }
+    }
+
+    private func stamp(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDate(date, inSameDayAs: now) { return Fmt.clock(date) }
+        let start = calendar.startOfDay(for: now)
+        let days = calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: date)).day ?? 0
+        if (1...6).contains(days) {
+            return "\(Fmt.weekday(date)) \(Fmt.clock(date))"
+        }
+        return "\(Fmt.displayDate(date, format: "MM-dd")) \(Fmt.clock(date))"
     }
 
     private var lastPlug: String {

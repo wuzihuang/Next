@@ -15,6 +15,50 @@ public enum SleepScoreMath {
                                               : sorted[middle]
     }
 
+    /// Tukey hinges for a bedtime box. The box is this person's habit (Q1–Q3), the
+    /// whiskers are the nights that actually happened, and the median is the line the
+    /// regularity score already names as "usually".
+    public struct Box: Equatable, Sendable {
+        public var min: Double
+        public var q1: Double
+        public var median: Double
+        public var q3: Double
+        public var max: Double
+
+        public init(min: Double, q1: Double, median: Double, q3: Double, max: Double) {
+            self.min = min
+            self.q1 = q1
+            self.median = median
+            self.q3 = q3
+            self.max = max
+        }
+    }
+
+    /// Lower and upper halves exclude the median on an odd count, so a three-night run
+    /// does not put the same night in both walls of the box.
+    public static func box(_ values: [Double]) -> Box? {
+        guard !values.isEmpty else { return nil }
+        let sorted = values.sorted()
+        let n = sorted.count
+        let low = sorted[0]
+        let high = sorted[n - 1]
+        guard let mid = median(sorted) else { return nil }
+        if n == 1 {
+            return Box(min: low, q1: low, median: mid, q3: high, max: high)
+        }
+        let split = n / 2
+        let lower = Array(sorted[0..<split])
+        let upper = n.isMultiple(of: 2)
+            ? Array(sorted[split..<n])
+            : Array(sorted[(split + 1)..<n])
+        return Box(
+            min: low,
+            q1: median(lower) ?? low,
+            median: mid,
+            q3: median(upper) ?? high,
+            max: high)
+    }
+
     /// The lowest-scoring member, which is what the week and month hero names as the thing
     /// dragging. Ties go to the first in the given order, so the caller's order is the
     /// tie-break and the answer never flickers between two equal groups.

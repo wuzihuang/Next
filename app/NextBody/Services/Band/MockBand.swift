@@ -33,6 +33,15 @@ final class MockBand: BandService, @unchecked Sendable {
               startHour: 8, endHour: 22, intervalMinutes: 30, intervalStepMinutes: 5),
     ]
 
+    private var alarms: [BandAlarm] = [
+        BandAlarm(id: 1, hour: 7, minute: 30, on: true,
+                  repeatMask: BandAlarmMath.weekdaysMask,
+                  date: BandAlarm.onceDatePlaceholder, scene: 0),
+        BandAlarm(id: 2, hour: 8, minute: 45, on: true,
+                  repeatMask: BandAlarmMath.weekdaysMask,
+                  date: BandAlarm.onceDatePlaceholder, scene: 0),
+    ]
+
     func startScan() async {
         state = .scanning
         try? await Task.sleep(for: .seconds(2.2))
@@ -522,6 +531,65 @@ final class MockBand: BandService, @unchecked Sendable {
         }
         return [("heart rate", 71), ("blood oxygen", 97), ("stress", 28), ("blood sugar", 5.4),
                 ("body temperature", 36.4), ("systolic", 118), ("diastolic", 76), ("HRV", 46)]
+    }
+
+    func startFindHoop() async throws {
+        try await requireConnection()
+        hub.send(.findHoop(.enter))
+        if ProcessInfo.processInfo.environment["NB_DEBUG_FIND_TIMEOUT"] == "1" {
+            Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                hub.send(.findHoop(.timeout))
+            }
+        }
+    }
+
+    func stopFindHoop() async {
+        hub.send(.findHoop(.exit))
+    }
+
+    func readConnectedRSSI() async throws -> Int {
+        try await requireConnection()
+        return -52
+    }
+
+    func readAlarms() async throws -> [BandAlarm] {
+        try await requireConnection()
+        try? await Task.sleep(for: .milliseconds(180))
+        return alarms
+    }
+
+    func writeAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm] {
+        try await requireConnection()
+        let next = BandAlarmMath.prepared(alarm)
+        if let index = alarms.firstIndex(where: { $0.id == next.id }) {
+            alarms[index] = next
+        } else if BandAlarmMath.isFull(alarms) {
+            throw BandError.rejected("THIS HOOP IS FULL")
+        } else {
+            alarms.append(next)
+        }
+        return alarms
+    }
+
+    func deleteAlarm(_ alarm: BandAlarm) async throws -> [BandAlarm] {
+        try await requireConnection()
+        alarms.removeAll { $0.id == alarm.id }
+        return alarms
+    }
+
+    func probeCapabilitySweep() async throws -> [String] {
+        try await requireConnection()
+        try? await Task.sleep(for: .milliseconds(240))
+        return [
+            "model · MOCK-G70 hw MOCK-1 cpu 1",
+            "types · heart=1 sleep=3 ecg=2 temp=2 glucose=0 bp=0 oxygen=1 hrv=1",
+            "function.female=0",
+            "health · stress=open HRV=open body composition=open · not: blood glucose, AI chat",
+            "female · refused",
+            "gsensor · 12 packets in 6.0s x -18…22 y -4…9 z 980…1024 steps 0",
+            "gsensor.adc · 0 bytes",
+        ]
     }
 
     private func requireConnection() async throws {

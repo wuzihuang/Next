@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Paper 04D MOTION · two 1.6pt round-cap chevrons that chase along one shared clock.
 /// A second `repeatForever` on each stroke would drift; both marks read the same `t`.
-struct PlanChevron: View {
+struct PlanChevron: View, Equatable {
     var up = true
     var playing = false
     var flatten: CGFloat = 0

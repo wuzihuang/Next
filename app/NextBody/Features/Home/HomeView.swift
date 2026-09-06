@@ -89,8 +89,12 @@ struct HomeView: View {
     @State private var planY: CGFloat = 0
     @State private var planYAtTouch: CGFloat = 0
     @State private var planDragDy: CGFloat = 0
-    @State private var planOpenedThisLaunch = false
+    /// Stays true for the whole close pull. A 1pt planY threshold must not
+    /// drive the lip or hit-testing — that rebuild flashed the face.
+    @State private var planSettledOpen = false
     @State private var planFaceCache: PlanFaceMath.Face?
+    @State private var planDone: Set<String> = []
+    @State private var planGenerating = false
 
     // MARK: geometry · the page is laid out against the device, not against the board's
     // 390 × 844. Header under the status bar, dock over the home indicator, the strip above
@@ -155,14 +159,12 @@ struct HomeView: View {
     /// 04D · chevron, the two page dots, then PLAN, just above the Home Indicator.
     private var planLipLane: CGFloat { safe.bottom + 52 }
     private var pageTwoHeight: CGFloat { screen.height - panelTop - planLipLane - 12 }
-    private var planOpen: Bool { planY <= -screen.height + 1 }
     private var planFlatten: CGFloat { CGFloat(PlanFaceMath.flatten(translation: Double(planDragDy))) }
     private var planMotionReduced: Bool {
         reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
     }
     private var planLipPlaying: Bool {
-        PlanFaceMath.hintPlaying(openedThisLaunch: planOpenedThisLaunch,
-                                 reduceMotion: planMotionReduced)
+        PlanFaceMath.hintPlaying(reduceMotion: planMotionReduced) && !planSettledOpen
     }
     private var planFace: PlanFaceMath.Face {
         planFaceCache ?? PlanSnapshot.make(
@@ -187,6 +189,13 @@ struct HomeView: View {
             .zIndex(1)
     }
 
+    /// Chevron + dots + PLAN are root chrome. A page turn only crossfades the
+    /// dots (`pageFade`). Hiding the lane on `homeDrag == .horizontal` flashed
+    /// both marks at lock and unlock.
+    private var planLipVisible: Bool {
+        firstRun.dockVisible && !planSettledOpen
+    }
+
     private var planLipLayer: some View {
         PlanLip(pageFade: pageFade, playing: planLipPlaying, flatten: planFlatten,
                 armed: homeDrag == .plan, reduceMotion: planMotionReduced)
@@ -194,8 +203,8 @@ struct HomeView: View {
             .contentShape(Rectangle())
             .highPriorityGesture(planOpenGesture)
             .offset(y: screen.height - planLipLane - 16)
-            .opacity(firstRun.dockVisible && homeDrag != .horizontal && !planOpen ? 1 : 0)
-            .allowsHitTesting(firstRun.dockVisible && !planOpen)
+            .opacity(planLipVisible ? 1 : 0)
+            .allowsHitTesting(planLipVisible)
             .zIndex(2)
     }
 
@@ -209,8 +218,7 @@ struct HomeView: View {
                     Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "PLAN"]) }
                 }
                 guard homeDrag == .plan else { return }
-                planDragDy = value.translation.height
-                planY = min(0, max(-screen.height, planYAtTouch + value.translation.height))
+                dragPlan(to: planYAtTouch + value.translation.height, dy: value.translation.height)
                 swiping = true
             }
             .onEnded { value in
@@ -225,10 +233,13 @@ struct HomeView: View {
     private var planPageLayer: some View {
         if abs(planY) > 0.5 {
             PlanPage(face: planFace, flatten: planFlatten, reduceMotion: planMotionReduced,
-                     closeEnabled: planOpen,
+                     closeEnabled: true,
+                     done: { planDone.contains($0.rawValue) },
+                     regenerating: planGenerating,
+                     onToggle: togglePlanCheck,
+                     onRegenerate: { regeneratePlan() },
                      onCloseDragChanged: { dy in
-                         planDragDy = dy
-                         planY = min(0, max(-screen.height, -screen.height + dy))
+                         dragPlan(to: -screen.height + dy, dy: dy)
                      },
                      onCloseDragEnded: { dy, vel in
                          settlePlan(translation: dy, velocity: vel, opening: false)
@@ -354,11 +365,16 @@ struct HomeView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .active { fireWidgetShot() }
             guard phase != .active else { return }
             readoutHold?.cancel()
             readoutHold = nil
             readoutHeldOnPageTwo = false
         }
+        .onReceive(NotificationCenter.default.publisher(for: WidgetBridge.photoDidArrive)) { _ in
+            fireWidgetShot()
+        }
+        .onAppear { fireWidgetShot() }
         .onChange(of: router.measuredWidget) { _, w in
             guard let w else { return }
             withAnimation(.spring(response: 0.50, dampingFraction: 0.80)) { widget = w }
@@ -549,7 +565,8 @@ struct HomeView: View {
             // ◇8 · the top bar slides in from −8px as the card lands.
             HomeHeader(name: data.profile.displayName, initials: data.profile.initials,
                        batteryPercent: data.band.batteryPercent,
-                       chargeState: data.band.connected ? data.band.chargeState : .unknown,
+                       chargeState: data.band.connected ? data.band.displayedCharge : .unknown,
+                       flame: data.wearFlame,
                        width: columnWidth,
                        onProfile: { router.open(.profile, from: .home) },
                        onDevice: { router.open(.device, from: .home) })
@@ -742,11 +759,10 @@ struct HomeView: View {
                 }
                 switch homeDrag {
                 case .horizontal:
-                    pageX = min(0, max(-screen.width, pageXAtTouch + dx))
+                    dragPage(to: pageXAtTouch + dx)
                     swiping = true
                 case .plan:
-                    planDragDy = dy
-                    planY = min(0, max(-screen.height, planYAtTouch + dy))
+                    dragPlan(to: planYAtTouch + dy, dy: dy)
                     swiping = true
                 case .dead, nil:
                     break
@@ -777,10 +793,6 @@ struct HomeView: View {
                     }
                 default:
                     pageX = -CGFloat(from) * screen.width
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        planY = planOpen ? -screen.height : 0
-                        planDragDy = 0
-                    }
                 }
             }
     }
@@ -790,9 +802,77 @@ struct HomeView: View {
             today: data.today, history: data.history, scores: data.sleepScores)
     }
 
+    private func loadPlanChecks() {
+        planDone = PlanChecks.load(dayKey: data.today.day.key)
+    }
+
+    private func togglePlanCheck(_ kind: PlanFaceMath.ActionKind) {
+        guard !planDone.contains(kind.rawValue) else { return }
+        planDone.insert(kind.rawValue)
+        PlanChecks.save(dayKey: data.today.day.key, done: planDone)
+        regeneratePlan(mark: kind, done: true)
+    }
+
+    private func regeneratePlan(mark: PlanFaceMath.ActionKind? = nil, done: Bool? = nil) {
+        guard ConsentStore.shared.granted else { router.takeover = .consent; return }
+        if !reachability.isOnline || DebugEdge.on("offline") {
+            note(DockNote(line: L("NO CONNECTION"), text: L("It stays here. Send it when you're back.")))
+            return
+        }
+        guard !planGenerating else { return }
+        planGenerating = true
+        let text: String
+        if let mark, let done {
+            text = L("Today's plan: %@ is %@. Regenerate the plan.",
+                     planMetricName(mark), done ? L("DONE") : L("NOT DONE"))
+        } else {
+            text = L("Regenerate today's plan from the latest reads.")
+        }
+        let day = data.today.day
+        let requestID = beginPanelRequest()
+        Task {
+            let frame = await ai.turn(text, day: day, store: data)
+            await Analytics.shared.track("PLAN_REGENERATE", ["MARK": mark?.rawValue ?? "ALL"])
+            await MainActor.run {
+                planGenerating = false
+                refreshPlanFace()
+                guard panelRequestID == requestID else { return }
+                if let frame { widget = frame }
+            }
+        }
+    }
+
+    private func planMetricName(_ kind: PlanFaceMath.ActionKind) -> String {
+        switch kind {
+        case .bed:      L("BEDTIME")
+        case .load:     L("Training load")
+        case .strength: L("STRENGTH")
+        case .meal:     L("MEALS")
+        case .quiet:    L("AFTERNOON")
+        }
+    }
+
+    private func dragPage(to x: CGFloat) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            pageX = min(0, max(-screen.width, x))
+        }
+    }
+
+    private func dragPlan(to y: CGFloat, dy: CGFloat) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            planDragDy = dy
+            planY = min(0, max(-screen.height, y))
+        }
+    }
+
     private func openPlan(fromIdle: Bool) {
         refreshPlanFace()
-        planOpenedThisLaunch = true
+        loadPlanChecks()
+        planSettledOpen = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             planY = -screen.height
             planDragDy = 0
@@ -806,12 +886,14 @@ struct HomeView: View {
                                      opening: opening) {
             if opening { openPlan(fromIdle: false) }
             else {
+                planSettledOpen = false
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     planY = 0
                     planDragDy = 0
                 }
             }
         } else {
+            planSettledOpen = !opening
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 planY = opening ? 0 : -screen.height
                 planDragDy = 0
@@ -846,6 +928,12 @@ struct HomeView: View {
     }
 
     @State private var showPicker = false
+
+    /// A Shot widget tap lands here. The shutter is the send — same as plus-menu food photo.
+    private func fireWidgetShot() {
+        guard WidgetBridge.consumePhoto() else { return }
+        openCamera(sendFood: true)
+    }
 
     /// Plus · Photograph your meal, and a hold on the dock orb, open the camera and send
     /// the plate; the keyboard-field camera key attaches and waits for a caption.

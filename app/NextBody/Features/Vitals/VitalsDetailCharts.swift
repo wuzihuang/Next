@@ -121,13 +121,13 @@ struct VitalsWindow {
 }
 
 /// The 24-hour trace: heart, autonomic load, skin temperature. A fixed vertical ruler that
-/// stands beside the field, an optional reference band behind the marks, and one envelope
-/// per half hour — the lowest and highest tick the band filed in it.
+/// stands beside the field, an optional reference band behind the marks, and occupancy
+/// runs inside each quarter hour — only the value bands that have ticks.
 ///
-/// ⚠️ An envelope is not a smoothing pass and not an average. Its two ends are ticks that
-/// actually happened, so 08 rule 07 · a gap is never interpolated still holds: a half hour
-/// the band did not report draws nothing at all, which is the same fact the old dashed
-/// bridge was trying to tell and a good deal harder to misread.
+/// ⚠️ An envelope is not a min–max fill, not a smoothing pass, and not an average. A
+/// hole such as 70–75 with no sample stays empty; a quarter hour the band did not
+/// report draws nothing at all. 08 rule 07 · a gap is never interpolated still holds
+/// on both axes.
 ///
 /// ⚠️ Nothing is printed inside the field. The ruler lives in `VitalsScaleRail`, the band's
 /// name and the extreme in `VitalsChartLegend` under the clock. A caption drawn on top of
@@ -155,9 +155,10 @@ struct VitalsTrace: View {
     var height: CGFloat = 160
     /// Additional measured series share the same chart without impersonating another vital.
     var measuredPoints: [(ts: Date, value: Double)]? = nil
-    /// How wide one envelope is. Half an hour over a rolling 24 hours is 48 marks — dense
-    /// enough to keep the day's shape, sparse enough that the marks stop touching.
-    static let defaultSlotMinutes: Double = 30
+    /// How wide one envelope is. A quarter hour over a rolling 24 hours is 96
+    /// columns. A night window has far fewer slots; width follows the slot so the
+    /// last quarter hour sits against the rail instead of leaving a dead strip.
+    static let defaultSlotMinutes: Double = 15
     var slotMinutes: Double = VitalsTrace.defaultSlotMinutes
     /// A value without its unit: `72`, `36.4`. Drives the rail and both ends of the readout.
     var valueFormat: (Double) -> String = { String(format: "%.0f", $0) }
@@ -223,23 +224,25 @@ struct VitalsTrace: View {
 
                     let marks = envelopes
                     guard !marks.isEmpty else { return }
-                    let pitch = size.width / CGFloat(max(1, slotCount))
-                    let barWidth = max(2.5, min(7, pitch - 2))
-                    let peak = extremeSlot
+                    let peak = extremeMark
 
                     for mark in marks {
                         let top = y(mark.high)
                         let bottom = y(mark.low)
+                        let bar = VitalsProbeMath.slotBar(start: mark.start, end: mark.end,
+                                                          field: Double(size.width))
+                        let barWidth = CGFloat(bar.width)
+                        let radius = CGFloat(VitalsProbeMath.slotBarRadius(width: bar.width))
                         // A slot that reduced one tick has no height of its own; it draws as
-                        // a round mark of exactly the bar's width, centred on its own value,
+                        // a round mark of the capsule's head, centred on its own value,
                         // rather than as a hairline that reads as missing data.
-                        let barHeight = max(barWidth, bottom - top)
+                        let barHeight = max(radius * 2, bottom - top)
                         let centre = (top + bottom) / 2
                         let originY = min(max(0, centre - barHeight / 2), size.height - barHeight)
-                        let rect = CGRect(x: size.width * mark.mid - barWidth / 2,
-                                          y: originY, width: barWidth, height: barHeight)
-                        let isPeak = !probing && mark.index == peak
-                        let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
+                        let rect = CGRect(x: CGFloat(bar.x), y: originY,
+                                          width: barWidth, height: barHeight)
+                        let isPeak = !probing && peak.map { $0 == mark } == true
+                        let path = Path(roundedRect: rect, cornerRadius: radius)
                         // ⚠️ The clamped ends, not the raw ones. A capsule pinned to the top
                         // of the ruler must be coloured by the stretch it actually shows, or
                         // a 190 BPM spike on a 40–160 field paints its whole visible height
@@ -267,10 +270,6 @@ struct VitalsTrace: View {
 
     private var slotSeconds: TimeInterval { slotMinutes * 60 }
 
-    private var slotCount: Int {
-        VitalsProbeMath.timeSlots(seconds: slotSeconds, span: window.span).count
-    }
-
     private var windowPoints: [(fraction: Double, value: Double)] {
         let raw = measuredPoints ?? samples.compactMap { sample in
             value(sample).map { (ts: sample.ts, value: $0) }
@@ -281,37 +280,49 @@ struct VitalsTrace: View {
         }
     }
 
-    private var envelopes: [VitalsProbeMath.Envelope] {
-        VitalsProbeMath.envelopes(points: windowPoints, seconds: slotSeconds, span: window.span)
+    private var occupancyGap: Double {
+        VitalsProbeMath.occupancyGap(low: low, high: high)
     }
 
-    /// Which slot holds the window's extreme, so the field can pick it out without printing
-    /// a number over it. nil on a chart too short to have an interesting extreme.
-    private var extremeSlot: Int? {
+    private var envelopes: [VitalsProbeMath.Envelope] {
+        VitalsProbeMath.envelopes(points: windowPoints, seconds: slotSeconds,
+                                  span: window.span, valueGap: occupancyGap)
+    }
+
+    /// Which occupied run holds the window's extreme, so the field can pick it out
+    /// without printing a number over it. nil on a chart too short to have an
+    /// interesting extreme. Identity is the mark itself — a slot can hold more than
+    /// one run, and only the extreme run lights.
+    private var extremeMark: VitalsProbeMath.Envelope? {
         let marks = envelopes
         guard marks.count > 2 else { return nil }
         return marksMaximum
-            ? marks.max(by: { $0.high < $1.high })?.index
-            : marks.min(by: { $0.low < $1.low })?.index
+            ? marks.max(by: { $0.high < $1.high })
+            : marks.min(by: { $0.low < $1.low })
     }
 
-    /// Every slot the window has room for, filled or not. A half hour the band skipped is
-    /// still a slot the finger can land on — it just reads `——`.
+    /// Every slot the window has room for, filled or not. A quarter hour the band
+    /// skipped is still a slot the finger can land on — it just reads `——`. A slot
+    /// with two occupied runs names both, never the hollow min–max between them.
     private var probeBins: [VitalsProbeMath.Bin] {
-        let filled = Dictionary(envelopes.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+        let grouped = Dictionary(grouping: envelopes, by: \.index)
         return VitalsProbeMath.timeSlots(seconds: slotSeconds, span: window.span).map { slot in
             let clock = window.clock(atFraction: (slot.start + slot.end) / 2)
-            guard let mark = filled[slot.index] else {
+            guard let marks = grouped[slot.index], !marks.isEmpty else {
                 return .init(start: slot.start, end: slot.end, yFraction: nil,
                              text: VitalsProbeCopy.gap(clock), vacant: true)
             }
+            let ordered = marks.sorted { $0.low < $1.low }
+            let top = ordered.map(\.high).max() ?? ordered[0].high
             return .init(
                 start: slot.start,
                 end: slot.end,
-                // The dot lands on the top of the mark, the way the histogram's does.
-                yFraction: VitalsProbeMath.yFraction(value: mark.high, low: low, high: high),
-                text: VitalsProbeCopy.range(clock, low: valueFormat(mark.low),
-                                            high: valueFormat(mark.high), unit: unit),
+                // The dot lands on the top of the highest occupied run.
+                yFraction: VitalsProbeMath.yFraction(value: top, low: low, high: high),
+                text: VitalsProbeCopy.ranges(
+                    clock,
+                    spans: ordered.map { (valueFormat($0.low), valueFormat($0.high)) },
+                    unit: unit),
                 vacant: false
             )
         }

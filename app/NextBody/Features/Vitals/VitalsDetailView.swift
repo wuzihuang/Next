@@ -451,13 +451,26 @@ struct VitalsDetailView: View {
 
         // ---- RECOVERY · what the body did while it was down there
         SleepSectionHeader(group: .recovery, score: score?.recovery)
-        CardBlock(title: L("NIGHT HRV"), trailing: L("RMSSD IN THE WINDOW")) {
+        CardBlock(title: L("NIGHT HRV"), trailing: L("FIXED 0–90 MS")) {
             let sleepHRV = VitalsReadout.sleepHRVSamples(night: m.sleep, fallback: ticks)
             if !sleepHRV.isEmpty {
                 let nightly = data.history.suffix(15).dropLast().compactMap { $0.nightInputs?.hrv }
-                VitalsScatter(samples: sleepHRV, window: window,
-                              envelope: nightly.count >= 5 ? nightly.min()!...nightly.max()! : nil,
-                              baseline: m.nightInputs?.hrvBase, tint: NB.blue1)
+                let habit = nightly.count >= 5 ? nightly.min()!...nightly.max()! : nil
+                VitalsTrace(samples: sleepHRV, value: { $0.hrv },
+                            window: window, low: 0, high: 90, tint: NB.blue1,
+                            referenceBand: habit,
+                            unit: "MS")
+                VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.blue1)
+                    .padding(.trailing, VitalsScaleRail.gutter)
+                VitalsChartLegend(
+                    items: [
+                        .init(text: L("EVERY %d MIN · MEASURED", Int(VitalsTrace.defaultSlotMinutes)),
+                              tint: NB.blue1)
+                    ] + (habit.map { _ in
+                        [VitalsChartLegend.Item(text: L("14-NIGHT RANGE"), tint: NB.blue1, isArea: true)]
+                    } ?? []),
+                    trailing: sleepHRV.compactMap(\.hrv).max().map { L("NIGHT HIGH %d", Int($0.rounded())) },
+                    trailingTint: NB.blue1)
             } else {
                 let todaySamples = m.vitalsCurve.filter { $0.ts >= m.day.start && $0.ts < m.day.end }
                 let hasOutsideReadings = VitalsReadout.hasHRVOutsideSleep(night: m.sleep, samples: todaySamples)
@@ -466,18 +479,31 @@ struct VitalsDetailView: View {
                                      ? L("HRV RECEIVED OUTSIDE SLEEP; NO VALID SAMPLES DURING THIS SLEEP")
                                      : L("NO VALID HRV SAMPLES FOR THIS SLEEP"),
                                  subLineLimit: 2)
+                VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.blue1)
             }
-            VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.blue1)
         }
         CardBlock(title: L("NIGHT SPO2"), trailing: L("FIXED 85–100 %")) {
             let points = (m.sleep?.spo2 ?? []).filter { m.sleep?.containsSleepTimestamp($0.ts) == true }
             if !points.isEmpty {
-                VitalsOxygenTrace(points: points, window: window, tint: NB.cyan1)
+                VitalsTrace(samples: [], value: { _ in nil },
+                            window: window, low: 85, high: 100, tint: NB.cyan1,
+                            marksMaximum: false,
+                            measuredPoints: points.map { (ts: $0.ts, value: Double($0.percent)) },
+                            unit: "%")
+                VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.cyan1)
+                    .padding(.trailing, VitalsScaleRail.gutter)
+                VitalsChartLegend(
+                    items: [
+                        .init(text: L("EVERY %d MIN · MEASURED", Int(VitalsTrace.defaultSlotMinutes)),
+                              tint: NB.cyan1)
+                    ],
+                    trailing: points.map(\.percent).min().map { L("MIN %d", $0) },
+                    trailingTint: NB.cyan1)
             } else {
                 VitalsChartEmpty(line: L("NO OVERNIGHT OXYGEN"),
                                  sub: L("AUTO NIGHT MEASUREMENT WAS OFF OR EMPTY"))
+                VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.cyan1)
             }
-            VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.cyan1)
         }
         CardBlock(title: L("SLEEP RESPIRATION"), trailing: L("FIXED 0–60 /MIN")) {
             let points = (m.sleep?.respiration ?? []).filter {
@@ -489,13 +515,23 @@ struct VitalsDetailView: View {
                             tint: NB.violet2,
                             measuredPoints: points.map { (ts: $0.ts, value: $0.breathsPerMinute) },
                             unit: "/MIN")
+                VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.violet2)
+                    .padding(.trailing, VitalsScaleRail.gutter)
+                VitalsChartLegend(
+                    items: [
+                        .init(text: L("EVERY %d MIN · MEASURED", Int(VitalsTrace.defaultSlotMinutes)),
+                              tint: NB.violet2)
+                    ],
+                    trailing: points.map(\.breathsPerMinute).max().map {
+                        L("NIGHT HIGH %d", Int($0.rounded()))
+                    },
+                    trailingTint: NB.violet2)
             } else {
                 VitalsChartEmpty(line: L("NO SLEEP RESPIRATION"),
                                  sub: window.span > 0 ? L("THE BAND FILED NO RESPIRATION READINGS")
                                                      : L("WINDOW NOT ON RECORD"))
+                VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.violet2)
             }
-            VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.violet2)
-                .padding(.trailing, VitalsScaleRail.gutter)
         }
         if let oxygenMin = r.extraLeft, let respiration = r.respirationLeft {
             VitalsStatPair(left: oxygenMin, right: respiration)
@@ -506,8 +542,7 @@ struct VitalsDetailView: View {
         CardBlock(title: L("BEDTIME VS YOUR HABIT"), trailing: bedtimeTrailing) {
             let history = bedtimeHistory
             if history.count >= 3 {
-                SleepBedtimeScatter(offsets: history,
-                                    median: SleepScoreMath.median(history.map(\.offset)))
+                SleepBedtimeBox(offsets: history)
             } else {
                 VitalsChartEmpty(line: L("NOT ENOUGH NIGHTS YET"),
                                  sub: L("REGULARITY SCORES FROM THE 14TH NIGHT"))
@@ -808,7 +843,7 @@ struct VitalsDetailView: View {
         case .stress, .temp:
             if let extreme = traceExtreme {
                 VitalsChartLegend(
-                    items: [.init(text: L("EVERY DAY · LOW–HIGH"), tint: metric.tint,
+                    items: [.init(text: L("EVERY DAY · MEASURED"), tint: metric.tint,
                                   stops: r.dial?.legendStops)]
                         + (r.referenceLabel.map {
                             [VitalsChartLegend.Item(text: $0, tint: metric.tint, isArea: true)]
@@ -834,7 +869,7 @@ struct VitalsDetailView: View {
             if hasTicks {
                 VitalsChartLegend(
                     items: [
-                        .init(text: L("EVERY %d MIN · LOW–HIGH", Int(VitalsTrace.defaultSlotMinutes)),
+                        .init(text: L("EVERY %d MIN · MEASURED", Int(VitalsTrace.defaultSlotMinutes)),
                               tint: metric.tint, stops: r.dial?.legendStops)
                     ] + (r.referenceLabel.map { [VitalsChartLegend.Item(text: $0, tint: metric.tint, isArea: true)] } ?? []),
                     trailing: traceExtreme.map(traceExtremeLabel),
@@ -869,7 +904,7 @@ struct VitalsDetailView: View {
                 if !mealIndex.trendPoints.isEmpty {
                     VitalsChartLegend(
                         items: [
-                            .init(text: L("EVERY %d MIN · LOW–HIGH", Int(VitalsTrace.defaultSlotMinutes)),
+                            .init(text: L("EVERY %d MIN · MEASURED", Int(VitalsTrace.defaultSlotMinutes)),
                                   tint: metric.tint)
                         ] + (r.referenceLabel.map {
                             [VitalsChartLegend.Item(text: $0, tint: metric.tint, isArea: true)]

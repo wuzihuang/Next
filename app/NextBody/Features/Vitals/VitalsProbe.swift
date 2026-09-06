@@ -14,8 +14,15 @@ enum VitalsProbeCopy {
     /// One envelope's readout. A slot that reduced a single tick has nothing to hyphenate,
     /// so it prints as the one value it is rather than as `62–62`.
     static func range(_ time: String, low: String, high: String, unit: String) -> String {
-        let reading = low == high ? low : L("%@–%@", low, high)
-        return line(time, unit.isEmpty ? reading : L("%@ %@", reading, unit))
+        ranges(time, spans: [(low, high)], unit: unit)
+    }
+
+    /// Occupied runs in one slot. Two clusters print as `48–52 · 88–90 BPM`, never
+    /// as the hollow `48–90` that would fill the hole between them.
+    static func ranges(_ time: String, spans: [(String, String)], unit: String) -> String {
+        let body = spans.map { $0.0 == $0.1 ? $0.0 : L("%@–%@", $0.0, $0.1) }
+            .joined(separator: " · ")
+        return line(time, unit.isEmpty ? body : L("%@ %@", body, unit))
     }
 }
 

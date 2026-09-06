@@ -1,10 +1,12 @@
 import SwiftUI
 import WidgetKit
 
-/// The extension's whole contents: one Live Activity and no home-screen widgets.
+/// Live Activity, the TODAY glance, and the Shot shutter.
 @main
 struct NextBodyLiveActivityBundle: WidgetBundle {
     var body: some Widget {
         SessionLiveActivity()
+        TodayWidget()
+        ShotWidget()
     }
 }

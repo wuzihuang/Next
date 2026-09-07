@@ -1,12 +1,14 @@
 begin;
-select plan(23);
+select plan(24);
 select set_config('nb.test_day',nb.user_day_of(now(),'UTC')::text,true);
 select has_function('public', 'calculation_status', array['date','date']);
 select has_column('public', 'daily_results', 'result_revision', 'result revision exists');
 select has_column('public', 'daily_results', 'calculation_as_of', 'calculation instant exists');
 select ok(not has_function_privilege('anon', 'public.settle_now(integer)', 'EXECUTE'), 'anonymous cannot settle');
-select is(nb.user_day_of('2026-03-08 07:59+00', 'America/New_York'), '2026-03-07'::date, 'DST before 04:00 remains previous day');
-select is(nb.user_day_of('2026-03-08 08:00+00', 'America/New_York'), '2026-03-08'::date, 'DST 04:00 starts day');
+select is(nb.user_day_of('2026-03-08 04:59+00', 'America/New_York'), '2026-03-07'::date, 'DST before midnight remains previous day');
+select is(nb.user_day_of('2026-03-08 05:00+00', 'America/New_York'), '2026-03-08'::date, 'DST midnight starts day');
+-- The spring-forward hour itself is inside the new day, not straddling a 04:00 seam.
+select is(nb.user_day_of('2026-03-08 07:59+00', 'America/New_York'), '2026-03-08'::date, 'the skipped hour stays on its own day');
 insert into auth.users(id) values('09090909-0000-0000-0000-000000000001'),('09090909-0000-0000-0000-000000000002');
 insert into public.profiles(user_id,timezone,sex,height_cm,birth_date) values
  ('09090909-0000-0000-0000-000000000001','UTC','male',180,'1990-01-01'),

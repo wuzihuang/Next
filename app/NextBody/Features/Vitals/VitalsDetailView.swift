@@ -85,7 +85,7 @@ struct VitalsDetailView: View {
                                     now: now, sleep: m.sleep)
     }
 
-    /// A rolling window crosses the 04:00 boundary, so today's row alone is insufficient.
+    /// A multi-day window spans more than today's row, so today's row alone is insufficient.
     /// Merge history with the immediately synced local curve and then clip to the exact ruler.
     private var ticks: [VitalSample] {
         memoised(\.ticks) {
@@ -419,10 +419,10 @@ struct VitalsDetailView: View {
         switch metric.timeline {
         // ⚠️ The hypnogram is laid out along the *line's own minutes*, not along a clock —
         // that is what drawing the band's staging as-is means. Printing the day's
-        // `04 · 08 · 12 · 16 · 20` under it labelled a 7-hour chart as 24 hours.
+        // `00 · 04 · 08 · 12 · 16 · 20` under it labelled a 7-hour chart as 24 hours.
         case .lastNight:
             sleepAxisLabels
-        case .rolling24Hours, .userDayToNow:
+        case .userDayToNow:
             window.labels
         }
     }

@@ -103,6 +103,7 @@ let package = Package(
                 "VitalsTimelinePolicy.swift",
                 "WearRun.swift",
                 "UserDay.swift",
+                "SleepWakeClamp.swift",
                 "RollingPills.swift",
                 "DetailWindow.swift",
                 "FuelWindowMath.swift",

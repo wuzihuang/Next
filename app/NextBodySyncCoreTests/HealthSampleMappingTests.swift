@@ -544,41 +544,34 @@ final class HealthSampleMappingTests: XCTestCase {
         XCTAssertEqual(value, 88)
     }
 
-    func testRollingSamplesKeepYesterdayAfternoonHeart() {
-        let now = Date(timeIntervalSince1970: 1_788_453_900)
-        let yesterdayAfternoon = now.addingTimeInterval(-12 * 3600)
-        let thisMorning = now.addingTimeInterval(-1 * 3600)
+    /// Issue #19 · a card labelled TODAY draws today. Yesterday evening is not today,
+    /// however recently it was measured.
+    func testTodaySamplesDropYesterdayEveningHeart() {
+        let day = UserDay.containing(Date())
+        let now = day.start.addingTimeInterval(9 * 3600)
+        let yesterdayEvening = day.start.addingTimeInterval(-3 * 3600)
+        let thisMorning = day.start.addingTimeInterval(8 * 3600)
         let samples = [
-            VitalSample(ts: yesterdayAfternoon, hr: 72, stress: 33),
-            VitalSample(ts: thisMorning, hr: nil, stress: 18),
+            VitalSample(ts: yesterdayEvening, hr: 72, stress: 33),
+            VitalSample(ts: thisMorning, hr: 61, stress: 18),
         ]
 
-        let rolling = VitalSample.rolling(samples, endingAt: now)
-        let nowHeart = VitalsTimelinePolicy.currentHeart(
-            latest: nil,
-            previous: rolling.last(where: { $0.hr != nil }).flatMap { sample in
-                sample.hr.map { ($0, sample.ts) }
-            },
-            at: now)
+        let today = VitalSample.today(samples, endingAt: now)
 
-        XCTAssertEqual(rolling.count, 2)
-        XCTAssertEqual(rolling.compactMap(\.hr), [72])
-        XCTAssertEqual(nowHeart, 72)
+        XCTAssertEqual(today.count, 1)
+        XCTAssertEqual(today.compactMap(\.hr), [61])
     }
 
-    func testRollingSamplesKeepYesterdayAfternoonStress() {
-        let now = Date(timeIntervalSince1970: 1_788_453_900)
-        let yesterdayAfternoon = now.addingTimeInterval(-12 * 3600)
-        let thisMorning = now.addingTimeInterval(-1 * 3600)
-        let samples = [
-            VitalSample(ts: yesterdayAfternoon, hr: 70, stress: 33),
-            VitalSample(ts: thisMorning, hr: 54, stress: nil),
-        ]
+    func testTodaySamplesStartAtLocalMidnightNotFourAM() {
+        let day = UserDay.containing(Date())
+        let now = day.start.addingTimeInterval(9 * 3600)
+        let smallHours = day.start.addingTimeInterval(2 * 3600)
+        let samples = [VitalSample(ts: smallHours, hr: 55, stress: 12)]
 
-        let rolling = VitalSample.rolling(samples, endingAt: now)
+        let today = VitalSample.today(samples, endingAt: now)
 
-        XCTAssertEqual(rolling.count, 2)
-        XCTAssertEqual(rolling.compactMap(\.stress), [33])
+        XCTAssertEqual(today.compactMap(\.stress), [12],
+                       "02:00 is inside today, not the tail of yesterday")
     }
 
     func testRawVitalsLoadIsNotGatedByDailyResultsSettlement() throws {

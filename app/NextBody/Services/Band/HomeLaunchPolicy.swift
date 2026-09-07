@@ -140,4 +140,22 @@ extension HomeLaunchPolicy {
         guard let pending, !pending.isEmpty else { return true }
         return pending.contains { $0 != false }
     }
+
+    /// Issue #21 · Body Battery and the sleep score keep moving while the phone is in a
+    /// pocket: the reserve drains against the clock, so today's row goes stale without a
+    /// single new fact arriving and `pending` stays false. The hourly cron was the only
+    /// thing that moved it, which is why opening the app could show an hour-old number.
+    /// Coming forward now always asks for today, whether or not new evidence exists.
+    ///
+    /// The floor is the server's own calculation tick: nb.recompute_range bins `now` into
+    /// five minutes and skips a day already settled at that tick, so asking more often
+    /// than this cannot produce a different number — it can only cost a round trip.
+    static let foregroundSettleInterval: TimeInterval = 300
+
+    static func shouldSettleOnForeground(pending: [Bool?]?, lastSettledAt: Date?,
+                                         now: Date = Date()) -> Bool {
+        if needsEvidenceSettlement(pending: pending) { return true }
+        guard let lastSettledAt else { return true }
+        return now.timeIntervalSince(lastSettledAt) >= foregroundSettleInterval
+    }
 }

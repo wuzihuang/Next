@@ -90,7 +90,7 @@ const README = `NEXTBODY DATA EXPORT
 
 Each .ndjson file contains canonical account-owned rows, one JSON object per line.
 measurements is body_composition; daily_rollup is daily_results. Detail tables join
-on result_id. A user day runs local 04:00 to 04:00. Null is unknown, never zero.
+on result_id. A user day runs local 00:00 to 00:00. Null is unknown, never zero.
 meals retains original and soft-deleted/amended records, including operation IDs.
 sleep_nights includes actual sleep stage runs and recorded sleep/wake times.
 night_score is the settled sleep score for each night with its four group scores and the measured inputs behind them; a group score is a weighted mean over the inputs that existed.

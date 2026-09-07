@@ -17,13 +17,13 @@ final class DetailWindowTests: XCTestCase {
     func testPeriodKeysStayPerInstrument() {
         XCTAssertEqual(DetailWindow(.fuel, .week).periodKey, "7 DAYS")
         XCTAssertEqual(DetailWindow(.fuel, .month).periodKey, "4 WEEKS")
-        XCTAssertEqual(DetailWindow(.heart, .day).periodKey, "LAST 24H")
+        XCTAssertEqual(DetailWindow(.heart, .day).periodKey, "TODAY")
         XCTAssertEqual(DetailWindow(.heart, .week).periodKey, "LAST 7 DAYS")
         XCTAssertEqual(DetailWindow(.sleep, .week).periodKey, "LAST 7 NIGHTS")
         XCTAssertEqual(DetailWindow(.sleep, .month).periodKey, "LAST 30 NIGHTS")
         XCTAssertEqual(DetailWindow(.training, .day).periodKey, "TODAY")
         XCTAssertEqual(DetailWindow(.bodyBattery, .day).periodKey, "TODAY")
-        XCTAssertEqual(DetailWindow(.battery, .day).periodKey, "LAST 24H")
+        XCTAssertEqual(DetailWindow(.battery, .day).periodKey, "TODAY")
         XCTAssertEqual(DetailWindow(.metric, .day).periodKey, "")
     }
 
@@ -72,6 +72,7 @@ final class DetailWindowTests: XCTestCase {
         gmt.timeZone = TimeZone(secondsFromGMT: 0)!
         let three = gmt.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 3))!
         let day = UserDay.containing(three, calendar: gmt)
-        XCTAssertEqual(day.start, gmt.date(from: DateComponents(year: 2026, month: 9, day: 5, hour: 4)))
+        // Issue #19 · 03:00 is the small hours of the 6th, not the tail of the 5th.
+        XCTAssertEqual(day.start, gmt.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 0)))
     }
 }

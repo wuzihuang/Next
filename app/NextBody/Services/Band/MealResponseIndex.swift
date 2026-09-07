@@ -76,7 +76,7 @@ enum MealResponseIndex {
         switchOff: Bool = false,
         allZeros: Bool = false,
         calendar: Calendar = .current,
-        dayBoundaryHour: Int = 4
+        dayBoundaryHour: Int = UserDay.boundaryHour
     ) -> Result {
         let valid = points.filter { $0.optical.isFinite && $0.optical > 0 }
         let todayStart = UserDay.containing(now, calendar: calendar, boundaryHour: dayBoundaryHour).start
@@ -168,10 +168,10 @@ enum MealResponseIndex {
             percents: percents)
     }
 
-    /// Rolling windows the RESPONSE board can open. Day is a clock; week and month are
-    /// user days counted backwards from today, never a calendar week or month.
+    /// Rolling windows the RESPONSE board can open: user days counted backwards from
+    /// today, never a calendar week or month. Day is one user day (issue #19), not a
+    /// rolling clock — the card says TODAY and now means it.
     enum Horizon: Equatable, Sendable {
-        case rolling24Hours
         case userDays(Int)
     }
 
@@ -258,7 +258,7 @@ enum MealResponseIndex {
         now: Date,
         horizon: Horizon,
         calendar: Calendar = .current,
-        dayBoundaryHour: Int = 4
+        dayBoundaryHour: Int = UserDay.boundaryHour
     ) -> HorizonWindow {
         let valid = points.filter { $0.optical.isFinite && $0.optical > 0 && $0.ts <= now }
         let todayStart = UserDay.containing(now, calendar: calendar, boundaryHour: dayBoundaryHour).start
@@ -266,10 +266,6 @@ enum MealResponseIndex {
         let windowPoints: [Point]
         let slots: [DaySlot]
         switch horizon {
-        case .rolling24Hours:
-            let start = now.addingTimeInterval(-24 * 60 * 60)
-            windowPoints = valid.filter { $0.ts >= start }.sorted { $0.ts < $1.ts }
-            slots = []
         case .userDays(let days):
             slots = daySlots(points: valid, todayStart: todayStart, days: days, now: now, calendar: calendar)
             let start = slots.first?.start ?? todayStart

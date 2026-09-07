@@ -43,8 +43,13 @@ create table public.weigh_ins(user_id uuid);
 create table public.body_composition(user_id uuid);
 create table public.screen_frames(created_at timestamptz);
 create table public.analytics_events(server_ts timestamptz);
-create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
-create table storage.objects(bucket_id text,name text);
+-- The real column set, from storage-api's own tenant migrations (0002 base plus the
+-- later add-column ones; the linked project sits at 0064). A stub narrower than this
+-- hides collisions between our plpgsql variables and storage's own columns: naming a
+-- variable `owner_id` broke public.account_delete for every caller and no test saw it,
+-- because the stub it ran against had no owner_id to be ambiguous with.
+create table storage.buckets(id text primary key,name text,owner uuid,created_at timestamptz default now(),updated_at timestamptz default now(),public boolean default false,avif_autodetection boolean default false,file_size_limit bigint,max_file_size_kb int,allowed_mime_types text[],owner_id text);
+create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text references storage.buckets(id),name text,owner uuid,created_at timestamptz default now(),updated_at timestamptz default now(),last_accessed_at timestamptz default now(),metadata jsonb,path_tokens text[] generated always as (string_to_array(name,'/')) stored,version text,owner_id text,user_metadata jsonb,level int);
 '''
 sql += function('20260901120200_compute.sql', 'nb.user_day_of')
 rev = (root / '20260904085910_reproducible_calculation_revisions.sql').read_text()

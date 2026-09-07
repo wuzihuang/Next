@@ -102,8 +102,11 @@ struct VitalSample: Codable, Hashable {
         )
     }
 
-    static func rolling(_ samples: [VitalSample], endingAt now: Date) -> [VitalSample] {
-        let window = VitalsTimelinePolicy.rolling24Hours(endingAt: now)
+    /// Issue #19 · the samples a card labelled TODAY may draw: this user day's, from
+    /// local midnight to now. It used to be a rolling 24 hours, which put last night's
+    /// evening on this morning's card.
+    static func today(_ samples: [VitalSample], endingAt now: Date) -> [VitalSample] {
+        let window = VitalsTimelinePolicy.today(endingAt: now)
         return samples.filter { window.contains($0.ts) }
     }
 }

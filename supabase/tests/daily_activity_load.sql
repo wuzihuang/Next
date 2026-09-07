@@ -69,10 +69,14 @@ values('06060606-0000-0000-0000-000000000003','America/New_York','male',180,'199
 on conflict(user_id) do update set timezone='America/New_York',sex='male',height_cm=180,birth_date='1990-01-01';
 insert into public.weigh_ins(user_id,measured_at,weight_kg,source,client_op_id)
 values('06060606-0000-0000-0000-000000000003','2026-03-06 09:00+00',75,'manual','06060606-0000-0000-0000-000000000004');
-select set_config('nb.calculation_as_of','2026-03-08 08:00+00',true);
-select is((select bmr_kcal from nb.fuel_components('06060606-0000-0000-0000-000000000003','2026-03-07')),1700,'23-hour spring user day ends at the full daily baseline');
-select set_config('nb.calculation_as_of','2026-10-31 20:30+00',true);
-select is((select bmr_kcal from nb.fuel_components('06060606-0000-0000-0000-000000000003','2026-10-31')),850,'half of the 25-hour autumn user day uses half the daily baseline');
+-- ADR 0020 · the short and long days are the ones the clock actually changes on, and
+-- with a midnight seam that is the transition date itself, not the evening before it.
+-- 2026-03-08 runs 00:00 EST -> 00:00 EDT (23 hours) and closes at 2026-03-09 05:00Z;
+-- 2026-11-01 runs 00:00 EDT -> 00:00 EST (25 hours) and is half spent at 2026-11-01 16:30Z.
+select set_config('nb.calculation_as_of','2026-03-09 05:00+00',true);
+select is((select bmr_kcal from nb.fuel_components('06060606-0000-0000-0000-000000000003','2026-03-08')),1700,'23-hour spring user day ends at the full daily baseline');
+select set_config('nb.calculation_as_of','2026-11-01 16:30+00',true);
+select is((select bmr_kcal from nb.fuel_components('06060606-0000-0000-0000-000000000003','2026-11-01')),850,'half of the 25-hour autumn user day uses half the daily baseline');
 
 -- Explicit strength modes use their observed live intervals in the same energy ledger.
 insert into auth.users(id) values ('06060606-0000-0000-0000-000000000010');

@@ -75,8 +75,8 @@ create function nb.calculation_clock() returns timestamptz language sql stable a
     '2026-10-01T00:00:00Z'::timestamptz) $$;
 create function nb.user_day_bounds(p_day date, p_tz text)
   returns table(starts_at timestamptz, ends_at timestamptz) language sql stable as $$
-  select (p_day+time '04:00') at time zone p_tz,
-         (p_day+1+time '04:00') at time zone p_tz $$;
+  select (p_day+time '00:00') at time zone p_tz,
+         (p_day+1+time '00:00') at time zone p_tz $$;
 create table public.reserve_samples  (user_id uuid);
 create table public.sync_runs        (user_id uuid);
 create table public.device_capabilities (user_id uuid);

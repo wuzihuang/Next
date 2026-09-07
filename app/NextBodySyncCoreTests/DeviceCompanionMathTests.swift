@@ -25,8 +25,16 @@ final class DeviceCompanionMathTests: XCTestCase {
         XCTAssertEqual(DeviceCompanionMath.days(boundAt: bound, now: now, calendar: calendar), 1)
     }
 
-    func testBeforeFourIsThePreviousUserDay() {
+    /// Issue #19 · 03:00 and 05:00 are the same day now, so binding at three and looking
+    /// at five is still the first day of companionship, not the second.
+    func testTheSmallHoursAreTheSameUserDayAsTheMorning() {
         let bound = date(year: 2026, month: 9, day: 6, hour: 3)
+        let now = date(year: 2026, month: 9, day: 6, hour: 5)
+        XCTAssertEqual(DeviceCompanionMath.days(boundAt: bound, now: now, calendar: calendar), 1)
+    }
+
+    func testBindingBeforeMidnightIsThePreviousUserDay() {
+        let bound = date(year: 2026, month: 9, day: 5, hour: 23)
         let now = date(year: 2026, month: 9, day: 6, hour: 5)
         XCTAssertEqual(DeviceCompanionMath.days(boundAt: bound, now: now, calendar: calendar), 2)
     }

@@ -16,6 +16,15 @@ struct VitalsTimelineRange: Equatable {
 
 /// Product time semantics shared by the sync tests and the eight Vitals detail pages.
 enum VitalsTimelinePolicy {
+    /// Issue #19 · every card's day. Local midnight on `now`'s user day to `now`.
+    /// The only window a card labelled TODAY may draw.
+    static func today(endingAt now: Date, calendar: Calendar = .current) -> VitalsTimelineRange {
+        let day = UserDay.containing(now, calendar: calendar)
+        return userDay(start: day.start, end: day.end, now: now)
+    }
+
+    /// A tick's own freshness, not a card window: how far back a NOW reading may be
+    /// joined from when the newest row carries no value of its own.
     static func rolling24Hours(endingAt now: Date) -> VitalsTimelineRange {
         VitalsTimelineRange(
             start: now.addingTimeInterval(-24 * 60 * 60),

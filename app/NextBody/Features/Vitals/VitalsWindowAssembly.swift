@@ -19,8 +19,6 @@ enum VitalsWindowAssembly {
                 end: sleep?.wakeAt,
                 fallback: day
             )
-        case .rolling24Hours:
-            return VitalsWindow.rolling24Hours(endingAt: now)
         case .userDayToNow:
             return VitalsWindow.userDay(day, now: now)
         }
@@ -42,7 +40,7 @@ enum VitalsWindowAssembly {
                                today: DailyMetrics, ticks: [VitalSample]) -> DailyMetrics {
         var metrics = today
         metrics.vitalsCurve = ticks
-        if metric.timeline == .rolling24Hours || (metric == .heart && range != .day) {
+        if range != .day {
             metrics.zoneMinutes = nil
             metrics.peakHR = nil
         }

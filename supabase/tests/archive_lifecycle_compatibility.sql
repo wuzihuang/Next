@@ -1,5 +1,15 @@
 begin;
-select plan(4);
+select plan(6);
+-- ⚠️ Tests 1 and 2 below call public.account_delete, which reads storage.objects. They can
+-- only see a collision between one of its columns and a plpgsql variable if the table this
+-- runs against actually has that column. A `storage.objects(bucket_id, name)` stub passes
+-- them while the deployed function raises 42702 on every call, which is exactly how the
+-- `owner_id` ambiguity survived from 20260906140000 to 20260907030000. Assert the shape
+-- first, so a thin storage schema fails loudly here instead of hiding a live break.
+select has_column('storage', 'objects', 'owner_id',
+  'the runner has a real storage.objects, not a two-column stub');
+select has_column('storage', 'objects', 'metadata',
+  'the runner has a real storage.objects, not a two-column stub');
 insert into auth.users(id) values('dddddddd-1111-1111-1111-111111111111');
 insert into public.profiles(user_id) values('dddddddd-1111-1111-1111-111111111111') on conflict do nothing;
 select public.prepare_sample_archive('dddddddd-1111-1111-1111-111111111111',

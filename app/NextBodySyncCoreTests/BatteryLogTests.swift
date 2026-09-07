@@ -75,7 +75,7 @@ final class BatteryLogTests: XCTestCase {
         XCTAssertEqual(day.end.timeIntervalSince(day.start), 24 * 3600, accuracy: 0.001)
         XCTAssertEqual(week.end.timeIntervalSince(week.start), 7 * 24 * 3600, accuracy: 0.001)
         XCTAssertEqual(month.end.timeIntervalSince(month.start), 30 * 24 * 3600, accuracy: 0.001)
-        XCTAssertEqual(DetailWindow(.battery, .day).periodKey, "LAST 24H")
+        XCTAssertEqual(DetailWindow(.battery, .day).periodKey, "TODAY")
         XCTAssertEqual(DetailWindow(.battery, .week).periodKey, "LAST 7 DAYS")
         XCTAssertEqual(DetailWindow(.battery, .month).periodKey, "LAST 30 DAYS")
     }

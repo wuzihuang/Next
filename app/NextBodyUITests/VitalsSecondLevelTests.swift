@@ -11,13 +11,13 @@ final class VitalsSecondLevelTests: XCTestCase {
     /// nav word — the metric's own name, never a `VITALS ·` prefix.
     private static let cards: [(card: String, title: String, sensor: String, period: String)] = [
         ("SLEEP",    "SLEEP",          "OVERNIGHT STAGING",           "LAST NIGHT"),
-        ("HEART",    "HEART",          "OPTICAL PPG SENSOR",          "LAST 24H"),
-        ("RESPONSE", "RESPONSE",       "RESPONSE · LAST 24H",         "LAST 24H"),
-        ("STRESS",   "STRESS",         "PHYSIOLOGICAL STRAIN",        "LAST 24H"),
-        ("TEMP",     "TEMP",           "SKIN BASELINE OFFSET",        "LAST 24H"),
-        ("STEPS",    "STEPS",          "DAILY CADENCE ACCUMULATED",   "TODAY · 04→NOW"),
-        ("DISTANCE", "DISTANCE",       "SPATIAL DISPLACEMENT",        "TODAY · 04→NOW"),
-        ("ACTIVE",   "ACTIVE ENERGY",  "DAILY METABOLIC BURN",        "TODAY · 04→NOW"),
+        ("HEART",    "HEART",          "OPTICAL PPG SENSOR",          "TODAY"),
+        ("RESPONSE", "RESPONSE",       "RESPONSE · LAST 24H",         "TODAY"),
+        ("STRESS",   "STRESS",         "PHYSIOLOGICAL STRAIN",        "TODAY"),
+        ("TEMP",     "TEMP",           "SKIN BASELINE OFFSET",        "TODAY"),
+        ("STEPS",    "STEPS",          "DAILY CADENCE ACCUMULATED",   "TODAY"),
+        ("DISTANCE", "DISTANCE",       "SPATIAL DISPLACEMENT",        "TODAY"),
+        ("ACTIVE",   "ACTIVE ENERGY",  "DAILY METABOLIC BURN",        "TODAY"),
     ]
 
     override func setUpWithError() throws {

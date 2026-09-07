@@ -155,13 +155,13 @@ final class FuelWindowMathTests: XCTestCase {
         }
     }
 
-    func testUserDayStillStartsAtFourOnTheDSTTransitionDate() {
+    func testUserDayStillStartsAtMidnightOnTheDSTTransitionDate() {
         var local = Calendar(identifier: .gregorian)
         local.timeZone = TimeZone(identifier: "America/New_York")!
         for (month, day) in [(3, 8), (11, 1)] {
             let noon = local.date(from: DateComponents(year: 2026, month: month, day: day, hour: 12))!
             let userDay = UserDay.containing(noon, calendar: local)
-            XCTAssertEqual(local.component(.hour, from: userDay.start), 4)
+            XCTAssertEqual(local.component(.hour, from: userDay.start), 0)
         }
     }
 

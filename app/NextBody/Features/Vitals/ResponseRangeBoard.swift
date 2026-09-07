@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// RESPONSE's three rolling windows. Day is the last 24 hours; week and month are the
+/// RESPONSE's three rolling windows. Day is this user day; week and month are the
 /// last 7 and 30 user days. Not a calendar week or month — the same reason sleep's
 /// windows roll (ADR 0008), reopened here for food-response points (ADR 0012).
 ///
@@ -9,7 +9,7 @@ import SwiftUI
 extension RollingPills {
     var responseHeroSensor: String {
         switch self {
-        case .day:   L("RESPONSE · LAST 24H")
+        case .day:   L("RESPONSE · TODAY")
         case .week:  L("RESPONSE · LAST 7D")
         case .month: L("RESPONSE · LAST 30D")
         }

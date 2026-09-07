@@ -101,9 +101,9 @@ export function zoned(dayKey: string, hour: number, tz: string): Date {
   return new Date(guess);
 }
 
-/// F2 rule 03 · a user day runs local 04:00 → 04:00 the next day.
+/// F2 rule 03 · a user day runs local 00:00 → 00:00 the next day (ADR 0020).
 export function dayBounds(dayKey: string, tz: string): { start: Date; end: Date } {
-  return { start: zoned(dayKey, 4, tz), end: zoned(addDays(dayKey, 1), 4, tz) };
+  return { start: zoned(dayKey, 0, tz), end: zoned(addDays(dayKey, 1), 0, tz) };
 }
 
 export function addDays(dayKey: string, n: number): string {
@@ -123,13 +123,10 @@ function hhmm(iso: string, tz: string): string {
 
 function mmdd(dayKey: string): string { return dayKey.slice(5); }
 
-/// Which user day an instant belongs to, as a key. Before 04:00 is still yesterday.
+/// Which user day an instant belongs to, as a key: the local calendar date (ADR 0020).
 export function dayOf(iso: string, tz: string): string {
-  const at = new Date(iso);
-  const p = tzParts(at, tz);
-  const midnight = Date.UTC(p.year, p.month - 1, p.day);
-  const start = p.hour < 4 ? midnight - 86_400_000 : midnight;
-  return new Date(start).toISOString().slice(0, 10);
+  const p = tzParts(new Date(iso), tz);
+  return new Date(Date.UTC(p.year, p.month - 1, p.day)).toISOString().slice(0, 10);
 }
 
 const r1 = (x: number) => Math.round(x * 10) / 10;

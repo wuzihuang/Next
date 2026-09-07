@@ -101,7 +101,7 @@ enum SkinTempNightRange {
         nights: [Night],
         now: Date,
         calendar: Calendar = .current,
-        dayBoundaryHour: Int = 4
+        dayBoundaryHour: Int = UserDay.boundaryHour
     ) -> Result {
         let valid = points
             .filter { $0.celsius.isFinite && (10...50).contains($0.celsius) && $0.ts <= now }

@@ -5,7 +5,7 @@ import Foundation
 /// arithmetic stays in each page's WindowMath.
 ///
 /// ⚠️ Fuel's month is 28 user days (four weeks, spoken as a typical day). Everything
-/// else that counts days uses 30. Sleep counts nights. Battery counts rolling hours.
+/// else that counts days uses 30. Sleep counts nights. Every DAY window is the user day.
 enum DetailSurface: String, Sendable {
     case sleep, heart, response, metric, active, fuel, training, composition, battery
     /// 13 / ADR 0017 · 身体电量。跟设备页的 `.battery` 不是同一个表面。
@@ -40,8 +40,9 @@ struct DetailWindow: Hashable, Sendable {
         case (.sleep, .day): return "LAST NIGHT"
         case (.sleep, .week): return "LAST 7 NIGHTS"
         case (.sleep, .month): return "LAST 30 NIGHTS"
-        case (.heart, .day), (.response, .day), (.battery, .day): return "LAST 24H"
-        case (.fuel, .day), (.training, .day), (.composition, .day), (.bodyBattery, .day): return "TODAY"
+        // Issue #19 · a day is a day. No surface answers DAY with a rolling 24 hours.
+        case (.heart, .day), (.response, .day), (.battery, .day),
+             (.fuel, .day), (.training, .day), (.composition, .day), (.bodyBattery, .day): return "TODAY"
         case (.metric, .day), (.active, .day): return ""
         case (.fuel, .week): return "7 DAYS"
         case (.fuel, .month): return "4 WEEKS"
@@ -60,7 +61,7 @@ struct DetailWindow: Hashable, Sendable {
 
     var responseHorizon: MealResponseIndex.Horizon {
         switch range {
-        case .day: return .rolling24Hours
+        case .day: return .userDays(1)
         case .week: return .userDays(7)
         case .month: return .userDays(30)
         }

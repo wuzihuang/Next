@@ -39,11 +39,6 @@ struct VitalsWindow {
         VitalsTimelineRange(start: start, end: start.addingTimeInterval(span))
     }
 
-    static func rolling24Hours(endingAt now: Date) -> VitalsWindow {
-        let range = VitalsTimelinePolicy.rolling24Hours(endingAt: now)
-        return make(range: range, endsNow: true)
-    }
-
     static func userDay(_ day: UserDay, now: Date) -> VitalsWindow {
         let range = VitalsTimelinePolicy.userDay(start: day.start, end: day.end, now: now)
         return make(range: range, endsNow: now >= day.start && now < day.end)
@@ -155,7 +150,7 @@ struct VitalsTrace: View {
     var height: CGFloat = 160
     /// Additional measured series share the same chart without impersonating another vital.
     var measuredPoints: [(ts: Date, value: Double)]? = nil
-    /// How wide one envelope is. A quarter hour over a rolling 24 hours is 96
+    /// How wide one envelope is. A quarter hour over a full day is 96
     /// columns. A night window has far fewer slots; width follows the slot so the
     /// last quarter hour sits against the rail instead of leaving a dead strip.
     static let defaultSlotMinutes: Double = 15

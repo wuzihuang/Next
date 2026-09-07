@@ -857,7 +857,13 @@ final class OriginDataSync {
             if let intervals = night?.intervals { result.intervals = intervals }
             else if sameWindow && result.intervals == nil { result.intervals = existing?.intervals }
         }
-        let intervals = result.intervals ?? [SleepInterval(start: start, end: wake)]
+        // Issue #20 · the band's wake is the last word only until the phone contradicts it.
+        // Cutting here, before the per-minute series are filtered, keeps oxygen, respiration
+        // and HRV inside the night that is actually filed rather than the one the wrist
+        // guessed. `start` cannot move; only the end of the night can.
+        result = SleepWakeClamp.applying(AwakeEvidence.marks(), to: result)
+        let ended = result.wakeAt ?? wake
+        let intervals = result.intervals ?? [SleepInterval(start: start, end: ended)]
         func inSleep(_ ts: Date) -> Bool { intervals.contains { ts >= $0.start && ts < $0.end } }
         let savedOxygen = Dictionary((existing?.spo2 ?? []).filter { inSleep($0.ts) }
             .map { ($0.ts, $0.percent) }, uniquingKeysWith: { _, fresh in fresh })

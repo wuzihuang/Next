@@ -48,7 +48,7 @@ export function json(body: unknown, status = 200): Response {
   });
 }
 
-/// F2 rule 03 · one calendar. A user day runs local 04:00 → 04:00 the next day.
+/// F2 rule 03 · one calendar. A user day runs local 00:00 → 00:00 the next day (ADR 0020).
 ///
 /// ⚠️ This is not `new Date().toISOString().slice(0, 10)`. That is the UTC date, and for
 /// anyone west of Greenwich it names a day the user has not reached — the turn then asks
@@ -58,13 +58,9 @@ export function json(body: unknown, status = 200): Response {
 export function userDayKey(timezone: string, at: Date = new Date()): string {
   const fmt = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", hour12: false,
   });
   const p = Object.fromEntries(fmt.formatToParts(at).map((x) => [x.type, x.value]));
-  const midnight = Date.parse(`${p.year}-${p.month}-${p.day}T00:00:00Z`);
-  // Before 04:00 still belongs to the day that opened yesterday.
-  const start = Number(p.hour) < 4 ? midnight - 86_400_000 : midnight;
-  return new Date(start).toISOString().slice(0, 10);
+  return `${p.year}-${p.month}-${p.day}`;
 }
 
 /// The signed-in user's timezone, or UTC. Every day boundary in the product is cut in it.

@@ -123,7 +123,7 @@ struct VitalsPage: View {
         // The newest tick often has steps or MET and no PPG. The number is the last
         // heart reading in the same 24h window the spark is drawn from — same rule as
         // the detail page and the STRESS card — not only LiveVitals.hr on that newest row.
-        let samples = VitalSample.rolling(
+        let samples = VitalSample.today(
             VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks),
             endingAt: Date())
         let latest = gone ? nil : (vitals.hr ?? samples.last(where: { $0.hr != nil })?.hr)
@@ -187,14 +187,14 @@ struct VitalsPage: View {
 
     private var stressCard: some View {
         let now = Date()
-        let window = VitalsTimelinePolicy.rolling24Hours(endingAt: now)
-        let samples = VitalSample.rolling(
+        let window = VitalsTimelinePolicy.today(endingAt: now)
+        let samples = VitalSample.today(
             VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks),
             endingAt: now)
         let bins = VitalsMath.halfHourMean(samples, range: window, value: { $0.stress.map(Double.init) })
         let peak = VitalsMath.peak(bins)
         // The newest tick often has heart from PPG and no stress. The number is the last
-        // stress reading in the same 24h window the bars are drawn from — same rule as
+        // stress reading in the same today window the bars are drawn from — same rule as
         // the detail page — not only LiveVitals.stress on that newest row.
         let latest = gone ? nil : (vitals.stress ?? samples.last(where: { $0.stress != nil })?.stress)
         return InstrumentCard(label: L("STRESS"), tag: L("TODAY"), tint: NB.ember1,
@@ -212,7 +212,7 @@ struct VitalsPage: View {
     }
 
     private var tempCard: some View {
-        let window = VitalsTimelinePolicy.rolling24Hours(endingAt: Date())
+        let window = VitalsTimelinePolicy.today(endingAt: Date())
         let samples = VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks)
             .filter { window.contains($0.ts) }
         let last = gone ? nil : samples.last(where: { $0.temp != nil })?.temp
@@ -291,7 +291,7 @@ struct VitalsPage: View {
             }
         }
         let day = m.day, ticks = m.vitalsCurve
-        let rolling = VitalSample.rolling(
+        let rolling = VitalSample.today(
             VitalSample.merging(history.flatMap(\.vitalsCurve), with: ticks),
             endingAt: Date())
         let steps = m.steps.map(Double.init) ?? VitalsMath.total(VitalsMath.hourSum(ticks, day: day, value: { $0.steps.map(Double.init) }))
@@ -551,7 +551,7 @@ struct ResponseSpark: View {
     }
 }
 
-/// A day of one tick series, 04:00 → 04:00 across the width, y on a fixed scale — the ruler
+/// A day of one tick series, midnight → midnight across the width, y on a fixed scale — the ruler
 /// never changes with the day (04B rule 04). A gap in the ticks is a dashed gap in the line,
 /// never a straight segment across it; the last tick carries a dot.
 struct DaySpark: View {

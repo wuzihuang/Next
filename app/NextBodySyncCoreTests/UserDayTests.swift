@@ -28,14 +28,14 @@ final class UserDayTests: XCTestCase {
         XCTAssertEqual(UserDay.last(-4, endingAt: focus), [])
     }
 
-    func testHoursSitOnTheFourOClockCut() {
+    func testHoursSitOnTheMidnightCut() {
         let day = UserDay.containing(
             calendar.date(from: DateComponents(year: 2026, month: 9, day: 5, hour: 12))!,
             calendar: calendar)
         XCTAssertEqual(UserDay.hours(day.start, in: day), 0, accuracy: 0.001)
         XCTAssertEqual(UserDay.hours(day.end, in: day), 24, accuracy: 0.001)
         let noon = calendar.date(from: DateComponents(year: 2026, month: 9, day: 5, hour: 12))!
-        XCTAssertEqual(UserDay.hours(noon, in: day), 8, accuracy: 0.001)
+        XCTAssertEqual(UserDay.hours(noon, in: day), 12, accuracy: 0.001)
     }
 
     func testWeekRollsPutTheRemainderOnTheOldestGroup() {
@@ -49,18 +49,20 @@ final class UserDayTests: XCTestCase {
         XCTAssertEqual(thirty.last, 23..<30)
     }
 
-    func testFourAMBoundaryIsALocalClockTimeAcrossDST() throws {
+    /// Issue #19 · the seam is local midnight, and midnight is a local clock time —
+    /// a day that springs forward still opens at 00:00, not 23:00 the evening before.
+    func testMidnightBoundaryIsALocalClockTimeAcrossDST() throws {
         var eastern = Calendar(identifier: .gregorian)
         eastern.timeZone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
         for stamp in ["2026-03-08 12:00", "2026-11-01 12:00"] {
             let now = try XCTUnwrap(HealthSampleMapping.sleepInstant(stamp, calendar: eastern))
             let day = UserDay.containing(now, calendar: eastern)
-            XCTAssertEqual(eastern.component(.hour, from: day.start), 4)
+            XCTAssertEqual(eastern.component(.hour, from: day.start), 0)
             XCTAssertEqual(eastern.component(.minute, from: day.start), 0)
             XCTAssertTrue(eastern.isDate(day.start, inSameDayAs: now))
             let beforeCut = day.start.addingTimeInterval(-1)
             let previous = UserDay.containing(beforeCut, calendar: eastern)
-            XCTAssertEqual(eastern.component(.hour, from: previous.start), 4)
+            XCTAssertEqual(eastern.component(.hour, from: previous.start), 0)
             XCTAssertEqual(eastern.dateComponents([.day], from: previous.start, to: day.start).day, 1)
         }
     }
@@ -70,10 +72,12 @@ final class UserDayTests: XCTestCase {
         NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
         defer { NSTimeZone.default = savedZone }
         let local = Calendar.current
-        for (stamp, minutes) in [("2026-03-07 12:00", 1_380), ("2026-10-31 12:00", 1_500)] {
+        // The short and long days are the ones the clock actually changes on: with a
+        // midnight seam that is the 8th and the 1st, not the evenings before them.
+        for (stamp, minutes) in [("2026-03-08 12:00", 1_380), ("2026-11-01 12:00", 1_500)] {
             let now = try XCTUnwrap(HealthSampleMapping.sleepInstant(stamp, calendar: local))
             let day = UserDay.containing(now)
-            XCTAssertEqual(local.component(.hour, from: day.end), 4)
+            XCTAssertEqual(local.component(.hour, from: day.end), 0)
             XCTAssertEqual(day.end.timeIntervalSince(day.start), Double(minutes * 60), accuracy: 0.001)
             XCTAssertEqual(day.elapsedMinutes(at: day.end), minutes)
             XCTAssertEqual(day.elapsedMinutes(at: day.end.addingTimeInterval(3_600)), minutes)
@@ -82,7 +86,9 @@ final class UserDayTests: XCTestCase {
         }
     }
 
-    func testPinningClockKeepsTheUserDayAcrossTheFourOClockCut() {
+    /// With a midnight seam every clock time lands on the day itself; 01:20 is the
+    /// small hours of this day, not the tail of it.
+    func testPinningClockKeepsEveryHourOnTheDayItself() {
         let day = UserDay.containing(
             calendar.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 12))!,
             calendar: calendar)
@@ -94,7 +100,7 @@ final class UserDayTests: XCTestCase {
         let pinned = day.pinningClock(lateClock, calendar: calendar)
         XCTAssertEqual(calendar.component(.hour, from: pinned), 1)
         XCTAssertEqual(calendar.component(.minute, from: pinned), 20)
-        XCTAssertEqual(calendar.component(.day, from: pinned), 7)
+        XCTAssertEqual(calendar.component(.day, from: pinned), 6)
         XCTAssertEqual(UserDay.containing(pinned, calendar: calendar), day)
     }
 }

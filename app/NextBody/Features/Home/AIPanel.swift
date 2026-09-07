@@ -290,7 +290,7 @@ struct AIPanel: View {
     /// A step-only newest tick must not dash HR when a PPG reading still sits in 24h.
     private var readout: (hr: Int?, stress: Int?) {
         let gone = vitals.freshness == .gone
-        let samples = VitalSample.rolling(m.vitalsCurve, endingAt: Date())
+        let samples = VitalSample.today(m.vitalsCurve, endingAt: Date())
         let tickHR = gone ? nil : (vitals.hr ?? samples.last(where: { $0.hr != nil })?.hr)
         let tickStress = gone ? nil : (vitals.stress ?? samples.last(where: { $0.stress != nil })?.stress)
         return (live.liveHR ?? tickHR, live.liveStress ?? tickStress)

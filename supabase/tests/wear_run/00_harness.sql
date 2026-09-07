@@ -49,6 +49,6 @@ language sql
 immutable
 set search_path = ''
 as $$
-  select ((p_user_day + time '04:00') at time zone p_tz),
-         ((p_user_day + 1 + time '04:00') at time zone p_tz);
+  select ((p_user_day + time '00:00') at time zone p_tz),
+         ((p_user_day + 1 + time '00:00') at time zone p_tz);
 $$;

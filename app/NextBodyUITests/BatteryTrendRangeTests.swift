@@ -10,7 +10,7 @@ final class BatteryTrendRangeTests: XCTestCase {
 
     func testDayIsTheLandingRange() {
         let app = launchTrend()
-        XCTAssertTrue(app.staticTexts["LAST 24H"].waitForExistence(timeout: 30),
+        XCTAssertTrue(app.staticTexts["TODAY"].waitForExistence(timeout: 30),
                       "battery trend should open on the last 24 hours")
         XCTAssertTrue(app.buttons["range.DAY"].exists)
         XCTAssertTrue(app.buttons["range.WEEK"].exists)
@@ -36,7 +36,7 @@ final class BatteryTrendRangeTests: XCTestCase {
         week.tap()
         XCTAssertTrue(app.staticTexts["LAST 7 DAYS"].waitForExistence(timeout: 6),
                       "WEEK should switch the window to the last 7 days")
-        XCTAssertFalse(app.staticTexts["LAST 24H"].exists)
+        XCTAssertFalse(app.staticTexts["TODAY"].exists)
 
         app.buttons["range.MONTH"].tap()
         XCTAssertTrue(app.staticTexts["LAST 30 DAYS"].waitForExistence(timeout: 6),

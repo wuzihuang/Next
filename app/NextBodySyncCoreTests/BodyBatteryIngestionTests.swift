@@ -72,29 +72,34 @@ final class BodyBatteryIngestionTests: XCTestCase {
         XCTAssertNil(HealthSampleMapping.distanceMeters(from: Double.greatestFiniteMagnitude))
     }
 
-    func testBeforeFourAMRefreshReadsYesterdayUserDayUsingNaturalDayOffsets() throws {
+    /// Issue #19 · the small hours are today. A 02:00 refresh reads today's page, and
+    /// closing the previous user day reaches back exactly one natural day, not two.
+    func testSmallHoursRefreshReadsTodayUsingNaturalDayOffsets() throws {
         let calendar = easternCalendar
         let now = try date("2026-09-06 02:00", calendar: calendar)
         // refreshNow first closes the previous user day, then refreshes the current one.
         let today = UserDay.containing(now, calendar: calendar)
         let previous = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: today.start))
-        XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: previous, now: now, calendar: calendar), [2, 1])
-        XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: today.start, now: now, calendar: calendar), [1, 0])
+        // A midnight user day never straddles two calendar days, so one page answers it.
+        XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: previous, now: now, calendar: calendar), [1])
+        XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: today.start, now: now, calendar: calendar), [0])
         // readSleep receives the maximum page offset, which must name the requested wake date.
-        for (start, expectedWakeDay) in [(previous, 4), (today.start, 5)] {
+        for (start, expectedWakeDay) in [(previous, 5), (today.start, 6)] {
             let offset = try XCTUnwrap(HealthSampleMapping.deviceDayOffsets(start: start, now: now, calendar: calendar).max())
             let wakeDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -offset, to: now))
             XCTAssertEqual(calendar.component(.day, from: wakeDay), expectedWakeDay)
         }
     }
 
-    func testPagesAfterFourAMAndAtMidnightKeepTheCorrectNaturalDates() throws {
+    func testPagesAtNoonAndAtMidnightKeepTheCorrectNaturalDates() throws {
         let calendar = easternCalendar
         let noon = try date("2026-09-06 12:00", calendar: calendar)
         let today = UserDay.containing(noon, calendar: calendar)
         XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: today.start, now: noon, calendar: calendar), [0])
+        // The 7th's midnight closes the 6th exactly: the window is empty on the 7th,
+        // so only the 6th's page is asked for.
         let midnight = try date("2026-09-07 00:00", calendar: calendar)
-        XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: today.start, now: midnight, calendar: calendar), [1, 0])
+        XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: today.start, now: midnight, calendar: calendar), [1])
         let future = try date("2026-09-07 04:00", calendar: calendar)
         XCTAssertTrue(HealthSampleMapping.deviceDayOffsets(start: future, now: noon, calendar: calendar).isEmpty)
     }
@@ -105,7 +110,7 @@ final class BodyBatteryIngestionTests: XCTestCase {
             let now = try date(nowString, calendar: calendar)
             let today = UserDay.containing(now, calendar: calendar)
             let previous = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: today.start))
-            XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: previous, now: now, calendar: calendar), [2, 1])
+            XCTAssertEqual(HealthSampleMapping.deviceDayOffsets(start: previous, now: now, calendar: calendar), [1])
         }
     }
 

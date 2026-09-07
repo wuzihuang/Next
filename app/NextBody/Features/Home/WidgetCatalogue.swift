@@ -186,6 +186,11 @@ struct WidgetCatalogue: View {
             f.plate = PlateBlock(name: L("Chicken salad"), portion: L("1 bowl"), kcal: 420,
                                  protein: 32, carb: 18, fat: 22, pctOfBudget: 31)
             f.footer = L("660 KCAL LEFT · KITCHEN CLOSES 21:00")
+            // ⚠️ A real food frame always carries one: `screen.render.food` is a draft the
+            // screen submits, and turn/index.ts forces its action to 「确认记录」 / CONFIRM.
+            // The sample had none, so the catalogue showed a plate that looked finished —
+            // which is how the missing confirm (issue #22) stayed invisible in review too.
+            f.action = L("CONFIRM")
             return f
         case .plan:
             // ADR 0018 · the plan face's frame: the tasks are rows, the summary is the sentence.

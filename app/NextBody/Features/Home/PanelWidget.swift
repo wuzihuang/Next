@@ -334,7 +334,7 @@ struct PanelWidgetView: View {
             if layer != .chart {
             // Slot 1 · title
             Text(L(widget.title).uppercased())
-                .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                .font(NBFont.dot(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(widget.accent)
                 .offset(x: Slot.safeX, y: Slot.topY)
 
@@ -354,7 +354,7 @@ struct PanelWidgetView: View {
             if layer != .chart {
             // Slot 6 · sentence — the brightest text on the screen
             Text(L(widget.sentence))
-                .font(NBFont.brand(500, 18))
+                .font(NBFont.dot(500, 18))
                 .lineSpacing(7)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white)
@@ -364,7 +364,7 @@ struct PanelWidgetView: View {
             // Slot 7 · facts
             if let footer = widget.footer {
                 Text(footer)
-                    .font(NBFont.brand(400, 11.5))
+                    .font(NBFont.dot(400, 11.5))
                     .foregroundStyle(NB.white.opacity(0.50))
                     .frame(width: 358, alignment: .center)
                     .offset(y: Slot.factsY)
@@ -399,7 +399,7 @@ struct PanelWidgetView: View {
     @ViewBuilder private func headlineCanvas(_ h: HeadlineBlock) -> some View {
         if layer != .chart {
             Text(L(widget.title).uppercased())
-                .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                .font(NBFont.dot(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(widget.accent)
                 .offset(x: Slot.safeX, y: Slot.topY)
             if let tag = widget.tag {
@@ -430,7 +430,7 @@ struct PanelWidgetView: View {
                     .offset(y: 232)
             }
             Text(L(widget.sentence))
-                .font(NBFont.brand(400, 13))
+                .font(NBFont.dot(400, 13))
                 .foregroundStyle(NB.white.opacity(0.72))
                 .multilineTextAlignment(.center)
                 .frame(width: Slot.sentence.width, alignment: .center)
@@ -454,8 +454,9 @@ struct PanelWidgetView: View {
 
     // MARK: 07 · 20 · FOOD — one plate
 
-    /// name y118 (32) · kcal y168 (64, the hero) · the budget line y246 · three macro rows
-    /// from y300 with their own bars · sentence y352 · footer y434.
+    /// name y104 (30) · kcal y150 (62, the hero) · the budget line y228 · three macro rows
+    /// from y248 with their own bars · sentence y376 · the CONFIRM pill at y420, or the
+    /// footer at y434 when there is nothing to confirm.
     @ViewBuilder private func plateCanvas(_ plate: PlateBlock) -> some View {
         let macros: [(String, Double?, Color)] = [
             ("PROTEIN", plate.protein, NB.cyan1),
@@ -466,7 +467,7 @@ struct PanelWidgetView: View {
         let mx = max(present.compactMap { $0.1 }.max() ?? 1, 1)
         if layer != .chart {
             Text(L(widget.title).uppercased())
-                .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                .font(NBFont.dot(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(widget.accent)
                 .offset(x: Slot.safeX, y: Slot.topY)
             Text((plate.portion ?? widget.tag?.rawValue ?? "").uppercased())
@@ -475,7 +476,7 @@ struct PanelWidgetView: View {
                 .frame(width: topRowWidth, alignment: .trailing)
                 .offset(x: Slot.safeX, y: Slot.topY)
             Text(plate.name)
-                .font(NBFont.brand(700, 30)).tracking(-0.02 * 30)
+                .font(NBFont.dot(700, 30))
                 .foregroundStyle(NB.white)
                 .lineLimit(1).minimumScaleFactor(0.6)
                 .frame(width: 358 - Slot.safeX * 2, alignment: .center)
@@ -483,7 +484,7 @@ struct PanelWidgetView: View {
             // ⚠️ No kcal unless a tool returned one: S3, and 07's own rule that an absent
             // number is a long dash rather than a guess.
             Text(plate.kcal.map { "\(Int($0)) kcal" } ?? Fmt.dash)
-                .font(NBFont.brand(700, 62)).tracking(-0.045 * 62)
+                .font(NBFont.dot(700, 62))
                 .foregroundStyle(NB.white.opacity(0.45))
                 .lineLimit(1).minimumScaleFactor(0.6)
                 .frame(width: 358 - Slot.safeX * 2, alignment: .center)
@@ -514,15 +515,40 @@ struct PanelWidgetView: View {
                     }
                 }
                 .frame(width: 358 - Slot.safeX * 2)
-                .offset(x: Slot.safeX, y: 262 + CGFloat(i) * 44)
+                .offset(x: Slot.safeX, y: 248 + CGFloat(i) * 44)
             }
             Text(L(widget.sentence))
-                .font(NBFont.brand(500, 16)).lineSpacing(5)
+                .font(NBFont.dot(500, 16)).lineSpacing(5)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white)
                 .frame(width: Slot.sentence.width, alignment: .center)
-                .offset(x: Slot.sentence.minX, y: 396)
-            if let footer = widget.footer {
+                .offset(x: Slot.sentence.minX, y: 376)
+            // Slot 8 · the action, and on this canvas it is a control rather than a caption.
+            //
+            // ⚠️ This canvas spent y434 on the footer, so `food` — the one frame whose whole
+            // purpose is a confirmation, a draft plate the screen submits (ADR 0018, and
+            // `screen.render.food` has its action forced to 「确认记录」 server-side) — was the
+            // only layout on the board that drew no action at all. The tap has always
+            // worked; nothing on screen ever said so, which is issue #22.
+            //
+            // A plate waiting to be recorded is the one frame where the action is the whole
+            // point, so it wears the outlined pill the photo answer already uses for LOG THE
+            // PLATE rather than the dim caption the other layouts put at y434. In this card's
+            // own accent, never lime — a lime LOG A MEAL pill is on the fuel window's Avoid
+            // list. The footer keeps y434 when there is nothing to confirm.
+            if let action = widget.action {
+                Button(action: go) {
+                    Text(L(action).uppercased())
+                        .font(NBFont.dot(600, 11)).tracking(0.16 * 11)
+                        .foregroundStyle(widget.accent)
+                        .frame(width: 200, height: 38)
+                        .contentShape(Capsule())
+                        .overlay(Capsule().stroke(widget.accent.opacity(0.65), lineWidth: 2.5))
+                }
+                .buttonStyle(HotZoneTap(pressedScale: 1))
+                .frame(width: 358, alignment: .center)
+                .offset(y: 420)
+            } else if let footer = widget.footer {
                 Text(footer.uppercased())
                     .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
                     .foregroundStyle(NB.white.opacity(0.34))
@@ -555,7 +581,7 @@ struct PanelWidgetView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(L(widget.title).uppercased())
-                    .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                    .font(NBFont.dot(500, 11.5)).tracking(0.08 * 11.5)
                     .foregroundStyle(NB.lime1)
                 Spacer(minLength: 0)
                 Text(L("JUST NOW"))
@@ -567,7 +593,7 @@ struct PanelWidgetView: View {
             }
 
             Text(b.headline)
-                .font(NBFont.brand(500, 21)).tracking(-0.01 * 21)
+                .font(NBFont.dot(500, 21))
                 .foregroundStyle(NB.text1)
                 .padding(.top, 14)
 
@@ -668,7 +694,7 @@ struct PanelWidgetView: View {
         // header · the title in the accent, JUST NOW where the tag sits
         HStack {
             Text(L(widget.title).uppercased())
-                .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+                .font(NBFont.dot(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(NB.lime1)
             Spacer(minLength: 0)
             Text(L("JUST NOW"))
@@ -681,7 +707,7 @@ struct PanelWidgetView: View {
         // hero · the number the scan settled, and where it stood last time
         VStack(spacing: 10) {
             Text(widget.hero ?? Fmt.dash)
-                .font(NBFont.brand(700, 66)).tracking(-0.045 * 66)
+                .font(NBFont.dot(700, 66))
                 .foregroundStyle(NB.lime1)
             Text(L(c.heroSub).uppercased())
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
@@ -698,7 +724,7 @@ struct PanelWidgetView: View {
                         .font(NBFont.dot(600, 9)).tracking(0.16 * 9)
                         .foregroundStyle(f.tint)
                     Text(f.value)
-                        .font(NBFont.brand(600, 18)).tracking(-0.02 * 18)
+                        .font(NBFont.dot(600, 18))
                         .foregroundStyle(NB.white)
                 }
                 .padding(.vertical, 10)
@@ -712,7 +738,7 @@ struct PanelWidgetView: View {
 
         // the sentence · the brightest text on the screen
         Text(L(widget.sentence))
-            .font(NBFont.brand(500, 19)).tracking(-0.01 * 19)
+            .font(NBFont.dot(500, 19))
             .lineSpacing(7)
             .multilineTextAlignment(.center)
             .foregroundStyle(NB.white)
@@ -724,7 +750,7 @@ struct PanelWidgetView: View {
             Rectangle().fill(NB.hairline).frame(width: 318, height: 1)
             if let footer = widget.footer {
                 Text(footer)
-                    .font(NBFont.brand(400, 11.5)).tracking(0.02 * 11.5)
+                    .font(NBFont.dot(400, 11.5)).tracking(0.02 * 11.5)
                     .foregroundStyle(NB.white.opacity(0.50))
             }
             if let action = widget.action {
@@ -747,7 +773,7 @@ struct PanelWidgetView: View {
     /// The same 358 × 470 canvas as A·08 / B·07, plus the source chip and the logged line.
     @ViewBuilder private func photoCanvas(_ photo: PhotoAnswer) -> some View {
         Text(L("FROM YOUR PHOTO"))
-            .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
+            .font(NBFont.dot(500, 11.5)).tracking(0.08 * 11.5)
             .foregroundStyle(NB.white.opacity(0.70))
             .offset(x: Slot.safeX, y: Slot.topY)
         Text(L("PHOTO + TEXT"))
@@ -782,7 +808,7 @@ struct PanelWidgetView: View {
             .frame(width: 358, alignment: .center)
             .offset(y: 118)
         Text(L(widget.sentence))
-            .font(NBFont.brand(500, 22)).lineSpacing(9)
+            .font(NBFont.dot(500, 22)).lineSpacing(9)
             .multilineTextAlignment(.center)
             .foregroundStyle(NB.white)
             .frame(width: 286, alignment: .center)
@@ -811,7 +837,7 @@ struct PanelWidgetView: View {
         .offset(y: 318)
         Rectangle().fill(Color(hex: 0x24242C)).frame(width: 310, height: 2).offset(x: 24, y: 381)
         Text(photo.pulled)
-            .font(NBFont.brand(400, 11.5))
+            .font(NBFont.dot(400, 11.5))
             .foregroundStyle(NB.white.opacity(0.50))
             .frame(width: 358, alignment: .center)
             .offset(y: 398)
@@ -828,7 +854,7 @@ struct PanelWidgetView: View {
         switch widget.type.hero {
         case .large:
             Text(heroValue)
-                .font(NBFont.brand(700, 84)).tracking(-0.045 * 84)
+                .font(NBFont.dot(700, 84))
                 .foregroundStyle(NB.white.opacity(0.45))
                 .frame(width: 358, alignment: .center)
                 .lineLimit(1).minimumScaleFactor(0.5)
@@ -854,7 +880,7 @@ struct PanelWidgetView: View {
         case .small:
             let size: CGFloat = widget.heroLarge ? 60 : 44
             Text(heroValue)
-                .font(NBFont.brand(700, size)).tracking(-0.045 * size)
+                .font(NBFont.dot(700, size))
                 .foregroundStyle(widget.heroLarge ? widget.accent : NB.white.opacity(0.45))
                 .offset(x: Slot.heroSmall.x, y: Slot.heroSmall.y)
             if widget.heroLarge, let sub = widget.heroSub {
@@ -878,7 +904,7 @@ struct PanelWidgetView: View {
             // renderer keeps quiet. The flat rendering leaves it to the renderer, as before.
             if layer == .text {
                 Text(arcLabel)
-                    .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
+                    .font(NBFont.dot(700, 44))
                     .foregroundStyle(NB.white.opacity(0.45))
                     .frame(width: Slot.heroRing.width, height: Slot.heroRing.height)
                     .offset(x: Slot.heroRing.minX, y: Slot.heroRing.minY)

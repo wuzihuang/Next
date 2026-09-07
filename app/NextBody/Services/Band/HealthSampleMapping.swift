@@ -83,13 +83,15 @@ enum HealthSampleMapping {
 
     static func deviceDayOffsets(daysBack: Int, straddles: Bool) -> [Int] {
         guard straddles else { return [max(0, daysBack)] }
-        // A user day D 04:00 → D+1 04:00 spans calendar day D and the following day.
-        // Device offsets count backwards, so the second page is one *smaller* offset.
+        // A window that straddles two calendar days needs both pages; device offsets
+        // count backwards, so the second page is one *smaller* offset. Since issue #19
+        // moved the user day onto midnight nothing in the app passes straddles: true —
+        // `deviceDayOffsets(start:now:)` below enumerates the real days instead.
         if daysBack == 0 { return [0, 1] }
         return [daysBack, daysBack - 1]
     }
 
-    /// SDK page zero is the current natural calendar day, even before the 04:00 cut.
+    /// SDK page zero is the current natural calendar day.
     /// Enumerate the calendar days actually intersecting the requested user-day window.
     static func deviceDayOffsets(start: Date, now: Date, calendar: Calendar = .current) -> [Int] {
         guard start <= now,

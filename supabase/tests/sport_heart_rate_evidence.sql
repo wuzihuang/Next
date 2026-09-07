@@ -11,15 +11,15 @@ update nb.calculation_work set dirty_from=null where user_id='33333333-3333-4333
 select set_config('request.jwt.claim.sub','33333333-3333-4333-8333-333333333339',true);
 set local role authenticated;
 do $$ declare result jsonb; batch jsonb:='[
- {"id":"55555555-5555-4555-8555-555555555550","session_id":"66666666-6666-4666-8666-666666666666","continuity_id":"77777777-7777-4777-8777-777777777777","observed_at":"2026-09-01T03:59:58.125Z","heart_rate":100,"sport_mode":1,"sampled_tz":"UTC","user_id":"44444444-4444-4444-8444-444444444449"},
- {"id":"55555555-5555-4555-8555-555555555551","session_id":"66666666-6666-4666-8666-666666666666","continuity_id":"77777777-7777-4777-8777-777777777777","observed_at":"2026-09-01T04:00:02.125Z","heart_rate":180,"sampled_tz":"UTC"}]';
+ {"id":"55555555-5555-4555-8555-555555555550","session_id":"66666666-6666-4666-8666-666666666666","continuity_id":"77777777-7777-4777-8777-777777777777","observed_at":"2026-08-31T23:59:58.125Z","heart_rate":100,"sport_mode":1,"sampled_tz":"UTC","user_id":"44444444-4444-4444-8444-444444444449"},
+ {"id":"55555555-5555-4555-8555-555555555551","session_id":"66666666-6666-4666-8666-666666666666","continuity_id":"77777777-7777-4777-8777-777777777777","observed_at":"2026-09-01T00:00:02.125Z","heart_rate":180,"sampled_tz":"UTC"}]';
 begin
  result:=public.ingest_sport_heart_rate(batch);
  if result->>'inserted'<>'2' or jsonb_array_length(result->'acknowledged_ids')<>2 then
    raise exception 'batch not confirmed: %',result; end if;
  if exists(select 1 from public.sport_heart_rate_samples where user_id<>auth.uid()) then
    raise exception 'payload owner injection accepted'; end if;
- if not exists(select 1 from public.sport_heart_rate_samples where observed_at='2026-09-01T03:59:58.125Z'
+ if not exists(select 1 from public.sport_heart_rate_samples where observed_at='2026-08-31T23:59:58.125Z'
    and heart_rate=100 and session_id='66666666-6666-4666-8666-666666666666'
    and continuity_id='77777777-7777-4777-8777-777777777777') then
    raise exception 'original timestamp or continuity lost'; end if;
@@ -48,7 +48,7 @@ end $$;
 reset role;
 do $$ begin
  if (select dirty_from from nb.calculation_work where user_id='33333333-3333-4333-8333-333333333339')<>'2026-08-31'::date then
-   raise exception '04:00 lookbehind did not invalidate preceding user day'; end if;
+   raise exception 'midnight lookbehind did not invalidate preceding user day'; end if;
  if (select input_revision from nb.calculation_work where user_id='33333333-3333-4333-8333-333333333339')<>2 then
    raise exception 'batch/retries invalidated more than once'; end if;
  if has_function_privilege('anon','public.ingest_sport_heart_rate(jsonb)','execute') then

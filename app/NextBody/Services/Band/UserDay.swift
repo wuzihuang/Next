@@ -4,9 +4,9 @@ import Foundation
 // day in the user-day's own five-minute slots, and the type it counts them in cannot live
 // in a file the package does not compile. Pure Foundation, unchanged otherwise.
 
-/// F2 rule 03 · one calendar. A user day runs local 04:00 → 04:00 next day.
+/// F2 rule 03 · one calendar. A user day runs local 00:00 → 00:00 next day.
 struct UserDay: Hashable, Identifiable, Comparable, Codable {
-    /// The instant the window opens: local 04:00 on the day it starts.
+    /// The instant the window opens: local midnight on the day it starts.
     let date: Date
     var id: Date { date }
 
@@ -22,7 +22,10 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
         hasher.combine(c.year); hasher.combine(c.month); hasher.combine(c.day)
     }
 
-    static let boundaryHour = 4
+    /// Issue #19 · the cards say TODAY and the person reads midnight. They now agree.
+    /// A night that ends at 02:40 still belongs to the night it started, because a night is
+    /// keyed to the day the person woke on and stored, never cut out of this window.
+    static let boundaryHour = 0
 
     static func containing(_ instant: Date, calendar: Calendar = .current,
                            boundaryHour: Int = boundaryHour) -> UserDay {
@@ -45,7 +48,7 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
         Self.last(count, endingAt: self)
     }
 
-    /// Elapsed hours since this day's local 04:00 cut (23 or 25 across DST, otherwise 24).
+    /// Elapsed hours since this day's local midnight (23 or 25 across DST, otherwise 24).
     static func hours(_ instant: Date, in day: UserDay) -> Double {
         instant.timeIntervalSince(day.start) / 3600
     }
@@ -84,8 +87,8 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
 
     var isClosed: Bool { Date() >= end }
 
-    /// Applies a clock to this user day. Hours before the 04:00 cut land on the next
-    /// calendar morning (`01:20 +1`); the user day itself does not move.
+    /// Applies a clock to this user day. With a midnight seam every hour lands on the
+    /// day itself; the branch survives so a non-zero `boundaryHour` still reads correctly.
     func pinningClock(_ instant: Date, calendar: Calendar = .current) -> Date {
         let hour = calendar.component(.hour, from: instant)
         let minute = calendar.component(.minute, from: instant)

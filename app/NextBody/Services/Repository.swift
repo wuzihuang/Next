@@ -139,6 +139,10 @@ final class Repository {
         if generation == sessionGeneration { evidencePublicationTask = nil }
     }
 
+    /// Issue #21 · when this account last asked the server to settle today from the
+    /// foreground. Nil until the first request of the process, so a cold launch always asks.
+    private var lastForegroundSettleAt: Date?
+
     private func publishPendingEvidence(account: String, generation: UInt) async {
         guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
               !Task.isCancelled else { return }
@@ -159,9 +163,11 @@ final class Repository {
                     return row["pending"] as? Bool
                 }
             }
-            guard HomeLaunchPolicy.needsEvidenceSettlement(pending: pending),
+            guard HomeLaunchPolicy.shouldSettleOnForeground(pending: pending,
+                                                            lastSettledAt: lastForegroundSettleAt),
                   account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
                   !Task.isCancelled else { return }
+            lastForegroundSettleAt = Date()
             // The server drains its persisted dirty range, even when this retry uploaded
             // no new facts. Its revision check avoids replaying already-current days.
             _ = try await db.rpc("settle_now", args: ["p_days": 0], expectedOwner: account)

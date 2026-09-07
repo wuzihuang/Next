@@ -77,6 +77,9 @@ struct NextBodyApp: App {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     BandLiveLifecycle.shared.setPhase(.active)
+                    // Issue #20 · someone reading this screen is awake, whatever the wrist
+                    // says. The mark is what SleepWakeClamp cuts the recorded night at.
+                    AwakeEvidence.record()
                     requestForegroundRefresh(reason: "foreground")
                     // ADR 0018 · idle sessions fold into memory the next time the app is in front.
                     AISession.shared.settleIfDue()

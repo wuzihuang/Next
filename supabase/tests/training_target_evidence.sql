@@ -24,10 +24,12 @@ select is((select wake_value from morning_targets where user_id='96170800-0000-4
  (select round(value)::smallint from nb.reserve_replay('96170800-0000-4000-8000-000000000001','2026-09-04') where ts='2026-09-04 09:10+00'),
  'late sleep and a nighttime awakening use the actual final wake bucket');
 select ok((select wake_value is not null from morning_targets where user_id='96170800-0000-4000-8000-000000000002'),
- 'a wake before the 04:00 boundary still supplies the morning target');
+ 'a wake in the small hours still supplies the morning target');
+-- ADR 0020 · the user day opens at midnight, so a 03:00 wake is this day's own. It used
+-- to fall on the far side of the 04:00 seam and had to be read from the preceding day.
 select is((select wake_value from morning_targets where user_id='96170800-0000-4000-8000-000000000002'),
- (select round(value)::smallint from nb.reserve_replay('96170800-0000-4000-8000-000000000002','2026-09-03') where ts='2026-09-04 02:55+00'),
- 'early wake uses the preceding user day replay');
+ (select round(value)::smallint from nb.reserve_replay('96170800-0000-4000-8000-000000000002','2026-09-04') where ts='2026-09-04 02:55+00'),
+ 'a small-hours wake is found in this user day replay, not the preceding one');
 
 insert into public.raw_samples(user_id,ts,sampled_tz,heart,step,met)
  select p.user_id,t,'UTC',150,200,2 from public.profiles p
@@ -76,7 +78,13 @@ select is(nb.hr_rest('96170800-0000-4000-8000-000000000001','2026-09-04','UTC'),
 
 insert into public.sleep_nights(user_id,user_day,total_minutes,deep_minutes,light_minutes,sleep_start,wake_at,sleep_line)
  select '96170800-0000-4000-8000-000000000003',d::date,60,60,0,d,d+interval '1 hour','0:60'
- from unnest(array['2026-08-29 00:00+00'::timestamptz,'2026-08-30 00:00+00'::timestamptz,'2026-09-04 00:00+00'::timestamptz]) d;
+ from unnest(array['2026-08-29 00:00+00'::timestamptz,'2026-08-30 00:00+00'::timestamptz]) d;
+-- ADR 0020 · this night is a Body Battery input, not a training observation. It ends
+-- exactly at midnight so its readings stay outside 2026-09-04's own coverage window and
+-- test 21 below keeps isolating the four training ticks. Before the seam moved, an
+-- 00:00-01:00 night was already on the far side of it.
+insert into public.sleep_nights(user_id,user_day,total_minutes,deep_minutes,light_minutes,sleep_start,wake_at,sleep_line)
+ values('96170800-0000-4000-8000-000000000003','2026-09-04',60,60,0,'2026-09-03 23:00+00','2026-09-04 00:00+00','0:60');
 insert into public.raw_samples(user_id,ts,sampled_tz,heart,hrv)
  select n.user_id,t,'UTC',case when n.user_day='2026-09-04' then 90 else 60 end,
  case when n.user_day='2026-09-04' then 20 else 60 end from public.sleep_nights n
@@ -91,7 +99,9 @@ select ok(nb.night_inputs('96170800-0000-4000-8000-000000000003','2026-09-04') ?
 select is(nb.hr_rest('96170800-0000-4000-8000-000000000003','2026-09-04','UTC'),60::numeric,
  'current night does not silently replace the frozen exercise baseline');
 
-select set_config('nb.calculation_as_of','2026-09-04 00:30+00',true);
+-- Mid-night, before this night's 00:00 wake. The instant sits ahead of the user day it
+-- is asked about, exactly as the old 00:30-against-an-04:00-seam fixture did.
+select set_config('nb.calculation_as_of','2026-09-03 23:30+00',true);
 select is(nb.charge_multiplier('96170800-0000-4000-8000-000000000003','2026-09-04','UTC'),1::numeric,
  'an unfinished night cannot be used as a completed recovery input');
 select set_config('nb.calculation_as_of','2026-09-04 18:00+00',true);

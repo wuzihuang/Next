@@ -10,7 +10,7 @@ final class HeartRangeTests: XCTestCase {
 
     func testDayIsTheLandingRange() {
         let app = launchHeart()
-        XCTAssertTrue(app.staticTexts["LAST 24H"].waitForExistence(timeout: 30),
+        XCTAssertTrue(app.staticTexts["TODAY"].waitForExistence(timeout: 30),
                       "heart should open on the last 24 hours")
         XCTAssertTrue(app.buttons["range.DAY"].exists)
         XCTAssertTrue(app.buttons["range.WEEK"].exists)
@@ -32,7 +32,7 @@ final class HeartRangeTests: XCTestCase {
         XCTAssertTrue(month.staticTexts["LAST 30 DAYS"].waitForExistence(timeout: 30),
                       "MONTH should open the last 30 user days")
         XCTAssertTrue(month.staticTexts["WINDOW MAX"].waitForExistence(timeout: 6))
-        XCTAssertFalse(month.staticTexts["LAST 24H"].exists)
+        XCTAssertFalse(month.staticTexts["TODAY"].exists)
     }
 
     func testDebugRangeOpensOnMonth() {

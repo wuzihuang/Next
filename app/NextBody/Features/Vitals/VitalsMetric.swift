@@ -78,12 +78,12 @@ enum VitalsMetric: String, Hashable, CaseIterable {
     /// drawn against, named so a flat line cannot be mistaken for a rescaled one.
     var chartTitle: String {
         switch self {
-        case .heart:    L("LAST 24H TELEMETRY")
+        case .heart:    L("TODAY'S TELEMETRY")
         case .sleep:    L("STAGES HYPNOGRAM")
-        case .hrv:      L("LAST 24H RMSSD SCATTER")
-        case .response: L("LAST 24H FOOD RESPONSE POINTS")
-        case .stress:   L("LAST 24H AUTONOMIC LOAD")
-        case .temp:     L("LAST 24H SKIN TEMPERATURE")
+        case .hrv:      L("TODAY'S RMSSD SCATTER")
+        case .response: L("TODAY'S FOOD RESPONSE POINTS")
+        case .stress:   L("TODAY'S AUTONOMIC LOAD")
+        case .temp:     L("TODAY'S SKIN TEMPERATURE")
         case .steps:    L("TODAY'S CADENCE HISTOGRAM")
         case .distance: L("TODAY'S DISTANCE CLIMB")
         case .active:   L("TODAY'S METABOLIC BURN")
@@ -102,16 +102,16 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         }
     }
 
-    /// Trace values need enough context to expose gaps and trends. Accumulated values keep
-    /// the product's 04:00 user-day boundary so their totals and their charts describe the
-    /// same ledger. Sleep alone belongs to one completed night.
+    /// Issue #19 · one day on every card. Traces used to draw a rolling 24 hours while
+    /// accumulated values drew the user day, so two cards on the same screen answered
+    /// "today" with two different windows and the trace cards carried yesterday's evening
+    /// into this morning. They all draw local midnight → now. Sleep alone belongs to one
+    /// completed night and keeps its own clock.
     var timeline: VitalsTimelineKind {
         switch self {
         case .sleep:
             .lastNight
-        case .heart, .hrv, .response, .stress, .temp:
-            .rolling24Hours
-        case .steps, .distance, .active:
+        case .heart, .hrv, .response, .stress, .temp, .steps, .distance, .active:
             .userDayToNow
         }
     }
@@ -120,10 +120,8 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         switch timeline {
         case .lastNight:
             L("LAST NIGHT")
-        case .rolling24Hours:
-            L("LAST 24H")
         case .userDayToNow:
-            L("TODAY · 04→NOW")
+            L("TODAY")
         }
     }
 
@@ -134,7 +132,7 @@ enum VitalsMetric: String, Hashable, CaseIterable {
 
 enum VitalsTimelineKind {
     case lastNight
-    case rolling24Hours
+    /// Local midnight → now. The only day a card draws (issue #19).
     case userDayToNow
 }
 

@@ -80,6 +80,7 @@ enum ActiveEnergyMath {
     static func split(dayStart: Date, now: Date, bmr: Double?, bmrFull: Double?,
                       eActive: Double?, eTrain: Double?, eOutNow: Double?,
                       ticks: [VitalSample], sportWindows: [(Date, Date)],
+                      energyDistribution: [FuelEnergyPoint]? = nil,
                       calendar: Calendar = .current) -> ActiveEnergySplit {
         let totals = totals(bmr: bmr, eActive: eActive, eTrain: eTrain, eOutNow: eOutNow)
         let dayEnd = FuelWindowMath.dayEnd(dayStart: dayStart, calendar: calendar)
@@ -94,7 +95,22 @@ enum ActiveEnergyMath {
             raw.add(kind: kind, met: met, steps: sample.steps, minutes: 5)
         }
 
-        let parts = allocate([raw.sport, raw.steps, raw.incidental], onto: totals.active)
+        var weights = [raw.sport, raw.steps, raw.incidental]
+        if let energyDistribution {
+            weights = [0, 0, 0]
+            for p in energyDistribution where p.epoch >= dayStart.timeIntervalSince1970 && p.epoch <= now.timeIntervalSince1970 {
+                weights[0] += p.strengthWeight
+                let at = Date(timeIntervalSince1970: p.epoch)
+                let met = ticks.first { abs($0.ts.timeIntervalSince(at)) < 1 }
+                    .flatMap { activityMet(met: $0.met, steps: $0.steps) } ?? 1
+                switch classify(met: met, inSport: inside(at, sportWindows)) {
+                case .sport: weights[0] += p.originWeight
+                case .steps: weights[1] += p.originWeight
+                default: weights[2] += p.originWeight
+                }
+            }
+        }
+        let parts = allocate(weights, onto: totals.active)
         var sport = parts[0]
         var walk = parts[1]
         var incidental = parts[2]

@@ -10,7 +10,12 @@ struct ProfileView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
-    private var hasScans: Bool { !data.weighIns.isEmpty }
+    private var hasScans: Bool {
+        #if DEBUG
+        if DebugEdge.on("empty") { return false }
+        #endif
+        return !data.weighIns.isEmpty
+    }
 
     /// Lime / outline / red — not the two greys. Weigh-ins never colour this map
     /// (F0 D05); an empty grid with five morning scans was the copy lying.
@@ -104,6 +109,8 @@ struct ProfileView: View {
                             router.takeover = .consent
                         }
                     }
+                    // ADR 0018 · what the AI remembers, visible and erasable.
+                    SettingRow(title: L("AI MEMORY"), value: L("VIEW")) { router.open(.aiMemory, from: .profile) }
                     // 11 edge 3 · export is async, not modal: the row says PREPARING… and the page can
                     // be left.
                     SettingRow(title: L("EXPORT MY DATA"),
@@ -141,6 +148,11 @@ struct ProfileView: View {
         } onBack: {
             router.backToRoot()
         }
+        #if DEBUG
+        .task {
+            if DebugEdge.on("exporting") { data.exportPreparing = true }
+        }
+        #endif
     }
 
     /// 11 rule 06 · true only on the day the goal was changed.

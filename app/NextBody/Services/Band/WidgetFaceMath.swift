@@ -10,8 +10,16 @@ import Foundation
 /// body numbers withdraw; an unlogged EATEN stays "——" because that is
 /// still the truth. Last night's score, HRV, SpO2 and the band pip do not
 /// withdraw with them.
+///
+/// Body battery is the exception: it keeps `TickFreshness`'s three states so
+/// the widget and the app agree about the same tick. Ninety minutes only dims
+/// it (the app shows SYNCED HH:MM at that point); the number itself withdraws
+/// at six hours. A widget that blanked at ninety while the app still printed
+/// the score read as a bug, not as a freshness rule.
 enum WidgetFaceMath {
     static let staleAfter: TimeInterval = 90 * 60
+    /// `TickFreshness.gone` — the age at which the reserve score stops being printable.
+    static let goneAfter: TimeInterval = 6 * 3600
     static let loadCeiling = 21.0
     static let batteryCeiling = 100.0
     static let dash = "——"
@@ -85,6 +93,8 @@ enum WidgetFaceMath {
     struct TodayReadout: Equatable, Sendable {
         var batteryText: String
         var batteryProgress: Double
+        /// The reserve tick is 90 minutes to under 6 hours old — printed, but unlit.
+        var batteryDim: Bool = false
         var loadText: String
         var loadProgress: Double
         var eatenText: String
@@ -180,8 +190,12 @@ enum WidgetFaceMath {
         let staleAt = glance.numbersAt.addingTimeInterval(staleAfter)
         let tick = now.addingTimeInterval(15 * 60)
         var next = staleAt > now ? min(staleAt, tick) : tick
-        if let reserveAt = glance.batteryObservedAt?.addingTimeInterval(staleAfter), reserveAt > now {
-            next = min(next, reserveAt)
+        if let at = glance.batteryObservedAt {
+            // Both reserve edges: the dim at ninety minutes and the withdraw at six hours.
+            for edge in [at.addingTimeInterval(staleAfter), at.addingTimeInterval(goneAfter)]
+            where edge > now {
+                next = min(next, edge)
+            }
         }
         return next
     }
@@ -190,9 +204,13 @@ enum WidgetFaceMath {
         let signedOut = !glance.signedIn
         let stale = !signedOut && !isFresh(glance, now: now)
         let hideLive = signedOut || stale
-        let hideBattery = signedOut || glance.batteryObservedAt.map {
-            now.timeIntervalSince($0) < 0 || now.timeIntervalSince($0) >= staleAfter
-        } ?? true
+        // The reserve score answers to its own clock, so a meal or a heart tick cannot
+        // renew it — but a glance too old to carry `batteryObservedAt` proves nothing
+        // either way, and falls back to the live window rather than blanking outright.
+        let batteryAge = glance.batteryObservedAt.map { now.timeIntervalSince($0) }
+        let hideBattery = signedOut
+            || (batteryAge.map { $0 < 0 || $0 >= goneAfter } ?? hideLive)
+        let dimBattery = !hideBattery && (batteryAge.map { $0 >= staleAfter } ?? false)
         let eatenKnown = glance.eaten != nil
         let eatenHidden = hideLive && eatenKnown
         let eaten = eatenHidden ? nil : glance.eaten
@@ -200,6 +218,7 @@ enum WidgetFaceMath {
             batteryText: hideBattery ? dash : batteryText(glance.battery),
             batteryProgress: hideBattery ? 0 : progress(
                 value: glance.battery.map(Double.init), ceiling: batteryCeiling),
+            batteryDim: dimBattery,
             loadText: hideLive ? dash : loadText(glance.load),
             loadProgress: hideLive ? 0 : progress(value: glance.load, ceiling: loadCeiling),
             eatenText: kcalText(eaten),

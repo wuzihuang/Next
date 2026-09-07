@@ -9,6 +9,10 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
     case battery, metric, text, line, band, bars, days, sparks, ring, gauge, split
     case cells, hypnogram, zones, wave, table, workout, events, heat, o2night
     case food, meal, fuel, balance, recomp, delta, dual
+    /// ADR 0018 · the plan face's own frame: title, summary, three to five tasks.
+    case plan
+    /// 2026-09-06 gap audit · six shapes the database had data for and the screen did not.
+    case score, poincare, matrix, call, curve, response
 
     /// ⚠️ Ruling reversed on 2026-09-03: the user asked for sleep staging on the screen,
     /// in front of board 07, which draws all three (12 hypnogram · 10 split · 19 o2night).
@@ -37,21 +41,31 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
         case .hypnogram:                            return .lanes
         case .zones:                                return .columns
         case .wave:                                 return .trace
-        case .sparks, .table, .events, .workout, .meal, .food: return .rows
+        case .sparks, .table, .events, .workout, .meal, .food, .plan: return .rows
+        // 2026-09-06 · curve and response ride the curve renderer; the marks and the
+        // threshold are its own optional slots, not a second renderer.
+        case .curve, .response:                     return .curve
+        case .score:                                return .meter
+        case .poincare:                             return .scatter
+        case .matrix:                               return .matrix
+        case .call:                                 return .verdict
         }
     }
 
     /// 05 · ACCENT MAP — colour is the data domain, not decoration.
     var accent: Color {
         switch self {
-        case .battery, .days, .cells, .recomp:              return NB.lime1      // move · steps
+        case .battery, .days, .cells, .recomp, .plan:       return NB.lime1      // move · steps
         case .fuel, .meal, .food, .balance, .split:         return NB.cyan1      // fuel · protein
         case .hypnogram, .delta, .dual:                     return NB.violet1    // recover · sleep
         case .metric, .ring, .gauge, .line, .bars, .heat, .workout, .events, .table:
                                                             return NB.ember1     // heart · fat
         case .o2night, .band:                               return NB.blue1      // spo2 · carbs
-        case .zones:                                        return NB.ember1
-        case .wave:                                         return NB.alert2     // warning · ecg
+        case .zones, .curve:                                return NB.ember1
+        case .score, .poincare:                             return NB.violet1
+        case .matrix, .call:                                return NB.lime1
+        case .response:                                     return NB.cyan1
+        case .wave:                                         return NB.alert2     // warning · rr
         case .sparks, .text:                                return NB.white      // stress · hrv
         }
     }
@@ -62,6 +76,9 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
         case .metric:               return .large
         case .ring, .gauge, .battery: return .ring
         case .sparks:               return .none
+        // ⚠️ Not .large: that slot is sized for a short number ("68 bpm") and a six-letter
+        // verdict at 60 pt ran straight through the chart. The word takes the ordinary hero
+        // line; the renderer under it shows the set it was chosen from.
         case .text, .food:          return .own
         default:                    return .small
         }
@@ -74,6 +91,11 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
         case .battery, .hypnogram, .o2night:                                   return .bodyBattery
         case .food, .meal, .fuel, .balance:                                    return .fuel
         case .recomp, .delta, .dual:                                           return .composition(date: nil)
+        case .plan:                                                            return .planFace
+        case .score, .poincare, .wave:                                         return .bodyBattery
+        case .response:                                                        return .fuel
+        case .call:                                                            return .composition(date: nil)
+        case .matrix:                                                          return .profile
         default:                                                               return .training
         }
     }
@@ -81,6 +103,14 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
 
 enum PanelRenderer: String, Hashable {
     case number, curve, pair, column, arc, stack, grid, strip, trace, rows
+    /// score · a total plus the sub-scores that make it, each against its own full value.
+    case meter
+    /// poincare · the beat-to-beat cloud.
+    case scatter
+    /// matrix · domain × day, five states in five colours rather than one ramp.
+    case matrix
+    /// call · one word out of a closed set, with the evidence behind it.
+    case verdict
     /// 26 · dual · two series on their own scales, no fill between them.
     case dual
     /// 12 · hypnogram · AWAKE / LIGHT / DEEP lanes, run-length blocks.
@@ -110,6 +140,10 @@ struct PanelWidget: Identifiable, Hashable {
     /// 13 col 01 · where the night ends and the day begins on a curve, and the day's colour.
     var curveSplit: Int?
     var curveSecondary: Color?
+    /// 2026-09-06 · the threshold a curve is read against (21 for the day's load), and the
+    /// sample indices worth a hairline (a meal's first minute, the minute it settled).
+    var curveMark: Double?
+    var curveMarks: [Int] = []
     /// F0 rule 06 · where a tap lands, as the envelope declared it.
     ///
     /// ⚠️ The server has always sent this — `contract.ts` marks the field "No target, no
@@ -190,6 +224,15 @@ enum PanelData: Hashable {
     case zones([Double])
     case trace(samples: [Double], hz: Double)                 // trace
     case rows([RowItem])                                      // rows
+    /// score · (label, value, full value) per sub-score.
+    case meter(parts: [(String, Double, Double)])
+    /// poincare · consecutive interval pairs in milliseconds, the box to draw them in, and
+    /// the readings that stand beside it. A cloud with no numbers is a shape, not a reading.
+    case scatter(points: [CGPoint], lo: Double, hi: Double, stats: [(String, String)])
+    /// matrix · domain rows × day columns, one state code per cell.
+    case matrix(rows: Int, cols: Int, values: [Int], rowLabels: [String])
+    /// call · the verdict, what it was not, and how much evidence stands behind it.
+    case verdict(word: String, options: [String], confidence: Int, steps: Int)
 
     struct RowItem: Hashable {
         var label: String
@@ -899,9 +942,12 @@ struct PanelWidgetView: View {
             guard let h = hi.last, let l = lo.last else { return Fmt.dash }
             return "\(Fmt.kg(h, decimals: 0))/\(Fmt.kg(l, decimals: 0))"
         case .pair(let hi, _):                    return hi.last.map { Fmt.kg($0) } ?? Fmt.dash
-        // 09 · wave's HERO is the strip's average heart rate, with its unit.
+        // 09 · wave's HERO was the strip's average heart rate. 2026-09-06 · the trace it
+        // actually gets is the RR tachogram, whose samples are milliseconds — averaging them
+        // and printing BPM would have put a plainly wrong number on the panel.
         case .trace(let s, _):
-            return s.isEmpty ? Fmt.dash : "\(Int((s.reduce(0, +) / Double(s.count)).rounded())) BPM AVG"
+            return s.isEmpty ? Fmt.dash
+                : "\(Int((s.reduce(0, +) / Double(s.count)).rounded())) MS AVG"
         case .strip(let s):                       return "\(s.count)"
         case .lanes(let runs, _, _):
             let total = runs.reduce(0) { $0 + $1.1 }
@@ -910,6 +956,16 @@ struct PanelWidgetView: View {
             // 09 · zones' HERO is `current_zone`, which the board writes as "Z4 · 26 min".
             guard let top = z.indices.max(by: { z[$0] < z[$1] }), z[top] > 0 else { return Fmt.dash }
             return "Z\(top + 1) · \(Int(z[top])) MIN"
+        // 2026-09-06 · score is the total, call is the verdict word itself, matrix counts the
+        // cells that are not complete, poincare has no scalar of its own — the server's hero
+        // (SDNN) is the only honest one, so an absent hero stays absent.
+        case .meter(let parts):
+            return parts.isEmpty ? Fmt.dash : Fmt.kg(parts.map(\.1).reduce(0, +) / Double(parts.count), decimals: 0)
+        case .verdict(let word, _, _, _):         return word
+        case .matrix(_, _, let v, _):             return "\(v.filter { $0 != 4 }.count) OF \(v.count)"
+        case .scatter(let pts, _, _, let stats):
+            // The reading is SDNN, not the number of dots; the server names it.
+            return stats.first?.1 ?? (pts.isEmpty ? Fmt.dash : "\(pts.count)")
         case .none:                               return ""
         }
     }
@@ -941,7 +997,8 @@ struct PanelWidgetView: View {
             case .curve:
                 if shapes, case .series(let s) = widget.data {
                     CurveRenderer(values: s, accent: widget.accent,
-                                  splitAt: widget.curveSplit, accent2: widget.curveSecondary, led: led).frame(height: h)
+                                  splitAt: widget.curveSplit, accent2: widget.curveSecondary, led: led,
+                                  mark: widget.curveMark, marks: widget.curveMarks).frame(height: h)
                 }
             case .pair:
                 if shapes, case .pair(let hi, let lo) = widget.data {
@@ -998,6 +1055,28 @@ struct PanelWidgetView: View {
             case .rows:
                 if text, case .rows(let r) = widget.data {
                     RowsRenderer(items: r, accent: widget.accent).frame(height: h)
+                }
+            // 2026-09-06 · bars and cells are LEDs and go behind the screen; the labels,
+            // the verdict chips and the domain names are text and stay in front of it.
+            case .meter:
+                if case .meter(let parts) = widget.data {
+                    MeterRenderer(parts: parts, accent: widget.accent,
+                                  showBars: shapes, showLabels: text).frame(height: h)
+                }
+            case .scatter:
+                if case .scatter(let pts, let lo, let hi, let stats) = widget.data {
+                    ScatterRenderer(points: pts, lo: lo, hi: hi, stats: stats, accent: widget.accent,
+                                    showCloud: shapes, showLabels: text).frame(height: h)
+                }
+            case .matrix:
+                if case .matrix(let r, let c, let v, let labels) = widget.data {
+                    MatrixRenderer(rows: r, cols: c, values: v, rowLabels: labels,
+                                   showCells: shapes, showLabels: text).frame(height: h)
+                }
+            case .verdict:
+                if case .verdict(let w, let o, let conf, let steps) = widget.data {
+                    VerdictRenderer(word: w, options: o, confidence: conf, steps: steps,
+                                    accent: widget.accent, showBars: shapes, showLabels: text).frame(height: h)
                 }
             }
         }

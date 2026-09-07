@@ -1,10 +1,12 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   bucketTicks,
   catalogForUser,
   dataCatalog,
+  dataReadSchema,
   MAX_TICK_DAYS,
   readData,
+  spanDays,
 } from "./data-read.ts";
 import { queryMetrics, TICK_METRICS } from "./metric-query.ts";
 import type { Ctx } from "./sources.ts";
@@ -256,4 +258,38 @@ Deno.test("the catalogue reports the actual span of rows this user has", async (
   assertEquals(ticks?.coverage, { from: "2026-09-02", to: "2026-09-04" });
   const load = catalog.find((row) => row.metric === "trainingLoad");
   assertEquals(load?.coverage, { from: "2026-09-03", to: "2026-09-03" });
+});
+
+// ⚠️ 2026-09-06 coverage sweep · a guessed metric name ("fatMassKg" before it existed) hit
+// `z.enum(DATA_METRICS)` and the SDK turned it into a dead turn. Names are checked in the
+// tool body now, and the answer names the real ones.
+Deno.test("an unknown metric name parses and comes back as a list of the real ones", async () => {
+  const parsed = dataReadSchema.safeParse({ metric: "fatMassInKilos", from: "2026-09-01", to: "2026-09-06" });
+  assert(parsed.success, "the schema must not reject a misremembered name");
+  const result = await readData(
+    { db: null as never, userId: "u", dayKey: "2026-09-06", tz: "UTC", cache: new Map() },
+    parsed.data,
+  ) as { ok: false; error: string; say: string };
+  assertEquals(result.ok, false);
+  assertEquals(result.error, "UNKNOWN_METRIC");
+  assert(result.say.includes("bodyFatPct"), result.say);
+});
+
+Deno.test("the metrics the composition charts draw are all readable", () => {
+  for (const metric of ["bodyFatPct", "fatMassKg", "leanMassKg", "weight", "sleepScore"]) {
+    assert(dataCatalog().some((row) => row.metric === metric), `${metric} is drawn but cannot be read`);
+  }
+});
+
+// ⚠️ 2026-09-06 · "12 周窗口内仅 2 天有记录" was rejected as an untraceable 12: the ledger
+// could derive a span from a series of timestamps but not from the range the read was
+// given. The window a read covered is a fact about that read, in both units people use.
+Deno.test("the window a read covers is inclusive, and says itself in weeks", () => {
+  assertEquals(spanDays("2026-06-14", "2026-09-06"), 85);
+  assertEquals(Math.round(spanDays("2026-06-14", "2026-09-06") / 7), 12);
+  assertEquals(spanDays("2026-09-06", "2026-09-06"), 1);
+  assertEquals(spanDays("2026-08-31", "2026-09-06"), 7);
+  // A backwards or unparseable window is one day, never a negative one.
+  assertEquals(spanDays("2026-09-06", "2026-09-01"), 1);
+  assertEquals(spanDays("nonsense", "2026-09-06"), 1);
 });

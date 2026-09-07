@@ -1,5 +1,16 @@
 import Foundation
 
+/// Published energy weights, not raw sensor MET. Both components exclude resting.
+struct FuelEnergyPoint: Codable, Hashable {
+    let epoch: Double
+    let originWeight: Double
+    let strengthWeight: Double
+    var tick: VitalSample {
+        VitalSample(ts: Date(timeIntervalSince1970: epoch), hr: nil, stress: nil,
+                    met: 1 + (originWeight + strengthWeight) / 300)
+    }
+}
+
 struct FuelDayFacts: Equatable, Sendable {
     var day: UserDay
     var intake: Double?

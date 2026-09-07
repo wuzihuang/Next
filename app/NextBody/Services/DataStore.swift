@@ -40,6 +40,7 @@ final class DataStore: ObservableObject {
             let battery = battery.settled
             band.applyBattery(battery)
             recordBattery(battery, connected: band.connected)
+            NotificationReach.evaluate(store: self)
         }
         bandObservationRevision += 1
     }
@@ -48,6 +49,8 @@ final class DataStore: ObservableObject {
         let was = band.connected
         band.connected = connected
         guard was != connected else { return }
+        NotificationReach.stampDisconnect(connected: connected)
+        NotificationReach.evaluate(store: self)
         if connected {
             // A reconnect must not stamp the last packet at NOW. That packet is hours
             // old and sits on the first fresh read as a noon cliff.
@@ -735,6 +738,7 @@ final class DataStore: ObservableObject {
     func logMeal(_ entry: MealEntry) {
         meals.append(entry)
         recomputeFuel()
+        NotificationReach.evaluate(store: self)
     }
 
     /// Hand-typed from the calories plate. Macros stay 0 until a later model read.
@@ -770,6 +774,9 @@ final class DataStore: ObservableObject {
                 "model_version": "manual-entry-v1",
                 "client_op_id": UUID().uuidString.lowercased(),
             ])
+            // Insert only dirties the day. Settle before reload so kcal_in can catch
+            // up; load still recomputes EATEN from the plates if the header lags.
+            _ = try? await SupabaseClient.shared.rpc("settle_now", args: ["p_days": 1], expectedOwner: owner)
             await Repository.shared.loadToday(into: self)
         } catch {
             AIService.shared.lastError = error.localizedDescription
@@ -786,23 +793,33 @@ final class DataStore: ObservableObject {
     }
 
     /// A correction appends a replacement and soft-deletes the old cloud record.
-    func amendMeal(_ id: UUID, kcal: Double, text: String) {
-        guard let entry = meals.first(where: { $0.id == id }), canEdit(entry), kcal.isFinite, kcal > 0,
+    func amendMeal(_ id: UUID, text: String, kcal: Double, protein: Int, carb: Int, fat: Int,
+                   at: Date, slot: MealEntry.Slot) {
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = meals.first(where: { $0.id == id }) ?? recentMeals.first(where: { $0.id == id })
+        guard let entry = source, canEdit(entry), kcal.isFinite, kcal > 0, !name.isEmpty,
+              protein >= 0, carb >= 0, fat >= 0,
               let owner = SupabaseClient.currentUserIdSnapshot() else { return }
+        let eatenAt = entry.day.pinningClock(at)
         let replacementID = UUID()
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let stamp = ISO8601DateFormatter()
+        stamp.formatOptions = [.withInternetDateTime]
         let replacement: [String: Any] = [
-            "id": replacementID.uuidString.lowercased(), "user_day": f.string(from: entry.day.start),
-            "slot": entry.slot.rawValue, "name": text, "kcal": Int(kcal),
-            "protein_g": entry.protein, "carb_g": entry.carb, "fat_g": entry.fat,
+            "id": replacementID.uuidString.lowercased(), "user_day": entry.day.key,
+            "slot": slot.rawValue, "name": name, "kcal": Int(kcal),
+            "protein_g": protein, "carb_g": carb, "fat_g": fat,
+            "logged_at": stamp.string(from: eatenAt),
             "confidence": "HIGH", "model_version": "manual-amendment-v1",
         ]
         do { try MealQueue.shared.enqueueAmend(mealID: id, replacement: replacement, ownerUserId: owner) }
         catch { AIService.shared.lastError = error.localizedDescription; return }
-        meals = meals.filter { $0.id != id } + [MealEntry(
-            id: replacementID, day: entry.day, at: entry.at, slot: entry.slot, status: .confirmed,
-            text: text, kcal: kcal, protein: entry.protein, carb: entry.carb, fat: entry.fat,
-            revisions: entry.revisions + 1, source: entry.source)]
+        let next = MealEntry(
+            id: replacementID, day: entry.day, at: eatenAt, slot: slot, status: .confirmed,
+            text: name, kcal: kcal, protein: protein, carb: carb, fat: fat,
+            revisions: entry.revisions + 1, source: entry.source)
+        meals = meals.filter { $0.id != id && $0.id != replacementID }
+        if next.day == UserDay.containing(Date()) { meals.append(next) }
+        recentMeals = recentMeals.filter { $0.id != id && $0.id != replacementID } + [next]
         recomputeFuel()
     }
 
@@ -811,6 +828,16 @@ final class DataStore: ObservableObject {
         meals = meals.filter { !removedIDs.contains($0.id) && !replacementIDs.contains($0.id) }
             + entries.filter { $0.day == UserDay.containing(Date()) }
         recentMeals = recentMeals.filter { !removedIDs.contains($0.id) && !replacementIDs.contains($0.id) } + entries
+        recomputeFuel()
+    }
+
+    /// Confirmed plates on screen are EATEN. A stale UNLOGGED/0 header after load
+    /// must not blank a day the food table already lists. No plates keeps the
+    /// server number so a failed meal fetch does not wipe a settled header.
+    func refreshIntakeFromMeals() {
+        let day = UserDay.containing(Date())
+        let confirmed = meals.filter { $0.day == day && $0.status == .confirmed }
+        guard !confirmed.isEmpty else { return }
         recomputeFuel()
     }
 
@@ -1139,6 +1166,9 @@ final class SessionStore: ObservableObject {
     }
 
     func markLaunchReady() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["NB_DEBUG_LAUNCH_MARK"] == "1" { return }
+        #endif
         guard !launchReady else { return }
         launchReady = true
         holdingLaunchStill = false
@@ -1223,6 +1253,8 @@ final class SessionStore: ObservableObject {
         WeighInQueue.shared.purge()
         BodyCompositionQueue.shared.purge()
         BalanceCheckQueue.shared.purge()
+        PlanCheckQueue.shared.purge()
+        PlanStore.shared.reset()
         ConsentStore.shared.purge()
         Task { await Analytics.shared.purge() }
 

@@ -54,6 +54,35 @@ struct FindHoopSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(NB.carbon2)
         .task { await listen() }
+        #if DEBUG
+        .onAppear {
+            if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_FIND"], !raw.isEmpty {
+                rssiFrozen = true
+                switch raw {
+                case "timeout":
+                    beat = .timeout
+                    rssi = -90
+                case "near":
+                    beat = .ringing
+                    rssi = -48
+                case "close":
+                    beat = .ringing
+                    rssi = -65
+                case "away":
+                    beat = .ringing
+                    rssi = -78
+                case "far":
+                    beat = .ringing
+                    rssi = -92
+                case "ringing":
+                    beat = .ringing
+                    rssi = Int(ProcessInfo.processInfo.environment["NB_DEBUG_FIND_RSSI"] ?? "") ?? -52
+                default:
+                    break
+                }
+            }
+        }
+        #endif
         .onDisappear {
             rssiFrozen = true
             Task { await Band.live.stopFindHoop() }
@@ -295,6 +324,13 @@ struct FindHoopSheet: View {
     }
 
     private func apply(_ phase: FindHoopPhase) {
+        #if DEBUG
+        if rssiFrozen,
+           let pin = ProcessInfo.processInfo.environment["NB_DEBUG_FIND"],
+           !pin.isEmpty {
+            return
+        }
+        #endif
         switch phase {
         case .enter:
             beat = .ringing

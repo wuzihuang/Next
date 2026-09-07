@@ -36,11 +36,16 @@ import { createTurnContext, withTurnRange, workflowRangeSchema, type TurnContext
 import { estimateMeal, type MealEstimateDraft } from "../_shared/meal-estimate.ts";
 import type { Ctx } from "../_shared/sources.ts";
 import { repairTextToolCall } from "../_shared/tool-repair.ts";
-import { PHONE_TOOLS, phoneToolDescription, phoneToolResult, type PhoneToolRequest } from "../_shared/phone-tools.ts";
+import { PHONE_TOOLS, normalizePhoneArgs, phoneToolDescription, phoneToolResult, type PhoneToolRequest } from "../_shared/phone-tools.ts";
 import { loadMemory, memoryContext } from "../_shared/memory.ts";
-import { buildPlanTool, planContext, PLAN_RENDER } from "../_shared/plan.ts";
+import { buildPlanTool, planContext, savePlanRow, PLAN_LOOKBACK_DAYS, PLAN_RENDER, type PlanRow } from "../_shared/plan.ts";
+import { addDays } from "../_shared/sources.ts";
 
 const HOURLY = 60;
+/// Phone tools whose ok:true result backs a "logged / set / started" sentence.
+const PHONE_WRITE_TOOLS = new Set(["meal.log", "device.alarm.set", "device.alarm.delete", "sport.start", "sport.stop"]);
+/// The banned-phrase sources that exist only because the model could not write.
+const WRITE_CLAIM_PATTERNS = ["已记录", "已记入", "已保存", "记好了", "logged", "saved"];
 /// A suspended turn waits this long for the phone. Confirmation dialogs time out at 60 s
 /// on the phone; the rest is transport.
 const SUSPEND_TTL_MS = 5 * 60_000;
@@ -301,7 +306,10 @@ export async function handleTurn(
 
     // One workflow owns all modalities. The model chooses the read/estimate tools;
     // neither client keywords nor automatic image preflight select a second AI path.
-    const deadline = started + 50_000;
+    // ADR 0005 left this open: F4 writes 55 s and the code wrote 50. Aligned on the spec —
+    // a 12-week composition question spends three steps and was losing the render to the
+    // gap between the two numbers.
+    const deadline = started + 55_000;
     const signal = AbortSignal.any([AbortSignal.timeout(Math.max(1, deadline - Date.now())), req.signal]);
     const assertModelBudget = async () => {
       signal.throwIfAborted();
@@ -336,6 +344,14 @@ export async function handleTurn(
             await assertModelBudget();
             extracted = await inspectImage(image, text, locale, deps, db, turnId, signal);
             ledger.harvest(extracted, "image.inspect");
+            // ⚠️ visibleText is a string, and harvest only walks numbers. A photo whose text
+            // the model transcribed ("101") was then rejected as untraceable when it quoted
+            // it back. A number the tool read off the image is a number the tool returned.
+            for (const key of ["visibleText", "summary"]) {
+              const value = extracted[key];
+              if (typeof value !== "string") continue;
+              for (const m of value.matchAll(/-?\d+(?:\.\d+)?/g)) ledger.add(Number(m[0]), `image.inspect.${key}`);
+            }
           }
           return { ok: true, data: extracted };
         },
@@ -350,7 +366,17 @@ export async function handleTurn(
       phoneTools[def.name] = {
         description: phoneToolDescription(def),
         parameters: def.parameters,
-        execute: (args: Record<string, unknown>) => {
+        execute: (raw: Record<string, unknown>) => {
+          // The phone gets clean arguments or the model gets a sentence; neither is a throw.
+          const normalized = normalizePhoneArgs(def.name, raw ?? {});
+          // Only when the arguments had to be rewritten or refused: a wrong alarm has to be
+          // traceable to what the model actually sent, not guessed from the sentence on
+          // screen — and a clean call should not print anything.
+          if (!normalized.ok || JSON.stringify(normalized.args) !== JSON.stringify(raw ?? {})) {
+            console.error("PHONE_ARGS", def.name, JSON.stringify(raw), "→", JSON.stringify(normalized));
+          }
+          if (!normalized.ok) return Promise.resolve({ ok: false, code: "BAD_ARGS", say: normalized.say });
+          let args = normalized.args;
           if (def.name === "meal.log") {
             if (!mealDraft) return Promise.resolve({ ok: false, code: "ESTIMATE_REQUIRED", say: "Call meal.estimate first." });
             args = { ...args, draft: mealDraft };
@@ -364,8 +390,11 @@ export async function handleTurn(
 
     let envelope: Envelope | null = null;
     const renderTools = buildChartTools(ctx, ledger, (env) => { envelope = env; }, locale);
-    Object.assign(renderTools, buildPlanTool(db, userId, dayKey, turnId, ledger, (env) => { envelope = env; }, locale,
-      plan ? plan.window : { from: resolved.from, to: resolved.to }));
+    // The plan row always names the three-day window it is written from, whichever
+    // surface asked for it; a chat turn's own range is the chart's, not the plan's.
+    let planRow: PlanRow | null = null;
+    Object.assign(renderTools, buildPlanTool(db, userId, dayKey, turnId, ledger, (env, row) => { envelope = env; planRow = row; }, locale,
+      plan ? plan.window : { from: addDays(dayKey, -PLAN_LOOKBACK_DAYS), to: dayKey }));
     const food = renderTools["screen.render.food"];
     if (food?.execute) {
       const renderFood = food.execute;
@@ -399,10 +428,18 @@ export async function handleTurn(
     const controls: Record<string, Tool> = {
       [WORKFLOW_READY]: {
         description: "Finish evidence gathering and enter output. Call as soon as you have enough evidence, including when no personal data is needed. Choose the exact chart user-day range if relevant; no keyword parser chooses it for you.",
-        parameters: z.object({ range: workflowRangeSchema.optional() }),
-        execute: ({ range }) => {
-          if (range) {
-            resolved = withTurnRange(resolved, range);
+        // ⚠️ Permissive on purpose: the model sent `range` as a JSON *string* once and the
+        // strict object schema threw AI_InvalidToolArgumentsError, killing the turn on the
+        // one call whose whole job is to move it forward.
+        parameters: z.object({ range: z.any().optional().describe("{ from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }") }),
+        execute: ({ range }: { range?: unknown }) => {
+          const parsed = parseRange(range);
+          if (parsed === "invalid") {
+            return Promise.resolve({ ok: false, error: "E_RANGE",
+              say: "range must be an object like {\"from\":\"2026-08-30\",\"to\":\"2026-09-06\"} with real dates, at most 366 days. Call workflow.ready again with a valid range or with none." });
+          }
+          if (parsed) {
+            resolved = withTurnRange(resolved, parsed);
             ctx.dayKey = resolved.dayKey;
             ctx.from = resolved.from;
             ctx.to = resolved.to;
@@ -598,8 +635,16 @@ export async function handleTurn(
       parsed.data.data.headline, parsed.data.data.eyebrow, parsed.data.data.sub, parsed.data.data.summary,
       ...(Array.isArray(parsed.data.data.tasks) ? parsed.data.data.tasks.flatMap((t: Record<string, unknown>) => [t.title, t.sub, t.basis]) : [])]
       .filter(Boolean).join(" ");
-    const hit = banned.find((re) => re.test(blob));
+    // ADR 0018 · "logged / saved / 已记录" are banned because the model could not write.
+    // Once a phone write tool has answered ok:true in this turn, the claim is backed.
+    const wroteOnPhone = trace.some((t) => {
+      const r = t as { tool?: string; result?: { ok?: boolean } };
+      return typeof r.tool === "string" && PHONE_WRITE_TOOLS.has(r.tool) && r.result?.ok === true;
+    });
+    const scanned = wroteOnPhone ? banned.filter((re) => !WRITE_CLAIM_PATTERNS.some((w) => re.source.includes(w))) : banned;
+    const hit = scanned.find((re) => re.test(blob));
     if (hit) {
+      console.error("E_CLAIM", hit.source, JSON.stringify(parsed.data).slice(0, 600));
       const fb = await fallback();
       await save(fb, trace, Date.now() - started);
       // F5 C7 · a banned phrase is E_CLAIM, not a schema error: the frame was well-formed and
@@ -610,9 +655,14 @@ export async function handleTurn(
     }
 
     // F4 §06 · one untraceable number rejects the frame.
+    // ADR 0018 · a plan task's title and how-to are prescriptions ("walk 25–35 min"), not
+    // measurements; the summary and each task's basis still trace to evidence.
+    const audited = parsed.data.type === "plan" && Array.isArray(parsed.data.data.tasks)
+      ? { ...parsed.data, data: { ...parsed.data.data, tasks: parsed.data.data.tasks.map((t: Record<string, unknown>) => ({ basis: t.basis ?? "" })) } }
+      : parsed.data;
     const audit = isChat && parsed.data.type === "text"
       ? { ok: true as const }
-      : auditFrame(parsed.data as unknown as Record<string, unknown>, ledger);
+      : auditFrame(audited as unknown as Record<string, unknown>, ledger);
     if (!audit.ok) {
       const fb = await fallback();
       await save(fb, trace, Date.now() - started);
@@ -624,6 +674,17 @@ export async function handleTurn(
       });
       send("done", {});
       return;
+    }
+
+    // ADR 0018 · the plan row lands only once the frame has passed every gate above.
+    if (parsed.data.type === "plan" && planRow) {
+      if (!await savePlanRow(db, planRow)) {
+        const fb = await fallback();
+        await save(fb, trace, Date.now() - started);
+        send("error", { code: "PLAN_SAVE_FAILED", fallback_frame: fb });
+        send("done", {});
+        return;
+      }
     }
 
     // Transport identifiers are server metadata, not numbers claimed on screen.
@@ -645,6 +706,18 @@ export async function handleTurn(
 }
 
 if (import.meta.main) Deno.serve((req) => handleTurn(req));
+
+/// The model writes `range` as an object, and sometimes as the JSON text of one.
+/// Returns the range, undefined when none was given, or "invalid" to ask for it again.
+function parseRange(raw: unknown): z.infer<typeof workflowRangeSchema> | undefined | "invalid" {
+  if (raw == null || raw === "") return undefined;
+  let value: unknown = raw;
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); } catch { return "invalid"; }
+  }
+  const parsed = workflowRangeSchema.safeParse(value);
+  return parsed.success ? parsed.data : "invalid";
+}
 
 /// The plan face never goes empty either: a failed generation says so in its own words.
 function planFallback(locale: "zh-CN" | "en-US"): Envelope {

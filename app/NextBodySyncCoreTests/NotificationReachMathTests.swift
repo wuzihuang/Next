@@ -289,4 +289,47 @@ final class NotificationReachMathTests: XCTestCase {
                 calendar: calendar),
             .fire(.bandBattery, mealSlot: nil, weekly: false))
     }
+
+    func testTrainingSilentOnceLoadMeetsTarget() {
+        let now = date(2026, 9, 6, 16)
+        XCTAssertEqual(
+            NotificationReachMath.decide(
+                snap(now: now, trainingOn: true, trainingLoad: 14.5, targetLoad: 14.5,
+                     reserveNow: 40, prevReserve: 55, bbWake: 72, dayHigh: 72),
+                calendar: calendar),
+            .skip)
+        XCTAssertEqual(
+            NotificationReachMath.decide(
+                snap(now: now, trainingOn: true, trainingLoad: 15, targetLoad: 14.5,
+                     reserveNow: 40, prevReserve: 55, bbWake: 72, dayHigh: 72),
+                calendar: calendar),
+            .skip)
+    }
+
+    func testDailyDoesNotRefireAndDoesNotSwallowOnHome() {
+        let now = date(2026, 9, 6, 16)
+        XCTAssertEqual(
+            NotificationReachMath.decide(
+                snap(now: now, delivered: [.daily], wrapOn: true,
+                     trainingLoad: 3.9, hasNightCharge: true, hasConfirmedMeal: true),
+                calendar: calendar),
+            .skip)
+        XCTAssertFalse(NotificationReachMath.swallows(.daily, page: .other))
+        XCTAssertTrue(NotificationReachMath.swallows(.meal, page: .fuel))
+        XCTAssertTrue(NotificationReachMath.swallows(.morning, page: .bodyBattery))
+    }
+
+    func testQuietHoldDropsIfWindowAlreadyClosed() {
+        let wake = date(2026, 9, 6, 3)
+        XCTAssertEqual(
+            NotificationReachMath.decide(
+                snap(now: date(2026, 9, 6, 3, 20), quiet: true, morningOn: true, wakePeak: wake),
+                calendar: calendar),
+            .later(.morning, at: date(2026, 9, 6, 7), mealSlot: nil, weekly: false))
+        XCTAssertEqual(
+            NotificationReachMath.decide(
+                snap(now: date(2026, 9, 6, 10), quiet: true, morningOn: true, wakePeak: wake),
+                calendar: calendar),
+            .skip)
+    }
 }

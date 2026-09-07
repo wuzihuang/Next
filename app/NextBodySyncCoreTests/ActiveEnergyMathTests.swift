@@ -2,6 +2,21 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class ActiveEnergyMathTests: XCTestCase {
+    func testPublishedStrengthEnergyHasCurveAndSportShareWithoutOriginSamples() {
+        let start = Date(timeIntervalSince1970: 0)
+        let now = start.addingTimeInterval(3600)
+        let points = [FuelEnergyPoint(epoch: 1800, originWeight: 0, strengthWeight: 750)]
+        let split = ActiveEnergyMath.split(dayStart: start, now: now, bmr: 80,
+            bmrFull: 1920, eActive: 10, eTrain: nil, eOutNow: 90,
+            ticks: [], sportWindows: [], energyDistribution: points)
+        XCTAssertEqual(split.sport, 10)
+        XCTAssertNil(split.steps)
+        let curve = FuelWindowMath.burnCurve(dayStart: start, now: now, burnedNow: 90,
+            burnedFull: nil, restingNow: 80, ticks: points.map(\.tick))
+        XCTAssertFalse(curve.solid.isEmpty)
+        XCTAssertEqual(curve.solid.last?.y, 90)
+        XCTAssertTrue(curve.solid.contains { abs($0.y - 50) < 0.001 })
+    }
     private let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!

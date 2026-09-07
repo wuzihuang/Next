@@ -75,6 +75,14 @@ struct LiveSessionTakeover: View {
             if let s = ProcessInfo.processInfo.environment["NB_DEBUG_SESSION_STOP"], let sec = Double(s) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + sec) { stopNow() }
             }
+            if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_SESSION_HOLD"],
+               let frac = Double(raw) {
+                holding = true
+                hold = CGFloat(min(1, max(0, frac)))
+            }
+            if ProcessInfo.processInfo.environment["NB_DEBUG_SESSION_HINT"] == "1" {
+                hint = true
+            }
             #endif
         }
         // The band said no. The screen folds back the way it came, with the reason.
@@ -288,7 +296,7 @@ struct LiveSessionTakeover: View {
         if hint { return L("HOLD THE KEY TO STOP") }
         switch store.wrist {
         case .off:       return L("TIMING · THE WRIST IS NOT BEING READ")
-        case .reaching:  return L("REACHING THE WRIST")
+        case .reaching:  return L("READING HEART RATE")
         case .live:      return L("HEART RATE FROM THE WRIST · LIVE")
         case .noContact: return L("NO CONTACT · TIGHTEN THE BAND")
         case .offline:   return L("BAND OFFLINE · THE CLOCK KEEPS RUNNING")

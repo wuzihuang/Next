@@ -30,6 +30,71 @@ model credentials and tool execution server-side.
   `新版设计` (`N-0`), not redrawn. Headlines: SEE LAST NIGHT / KNOW YOUR CHARGE /
   HIT TODAY'S RING / EAT TO THE NUMBER / READ YOUR NIGHT. Ground is lime-1 `#EFF65A`.
   Device chrome uses CSS `zoom: 2.554` so the 390×844 phone fills a 1032-wide bezel.
+- Full-app walk-through screenshots (real iPhone 16e sim, English) live on Paper
+  `NEXTBODY-HOOP` page `截图` (`T-0`). Shots only — no redraws. Capture uses
+  `SIMCTL_CHILD_NB_DEBUG_*` + `/tmp/nextbody-t0-capture.py`. System keyboard
+  frames need hardware keyboard off, then `axe tap` on the field. Walk-through
+  also pins pairing 100%, fuelDay, chat sending, plus-row press / offline,
+  measure fold-back, dock thinking → answer, session fold, camera permission,
+  Find HOOP lamps (READY / NEAR / CLOSE / AWAY / FAR / TIMEOUT), live session
+  hold / hint / Swim / Yoga plus wrist lines (READING / NO CONTACT / OFFLINE /
+  PAUSED / opening / refuse), Training NO TARGET, Home NOT COLLECTING,
+  and RESPONSE empty / needs-5-days / SWITCH OFF / ALL ZEROS.
+  Later remaining-product strip also pins measure opening, body-scan
+  contact / result / fold, weigh-in FROM HEALTH + OUT OF RANGE,
+  Body Battery empty day, and Home LAST NIGHT morning widget
+  (`NB_DEBUG_MORNING=1`, seed metrics so cloud bootstrap cannot wipe it).
+  Empty/disconnect strip pins Device DISCONNECTED, Fuel NOTHING LOGGED /
+  FASTED / OUT-unknown, and Profile NO WEIGH-INS YET.
+  Product-edges strip pins Composition 0 SCANS, Training SCALE LIMIT /
+  AUTO HR IS OFF, Chat long thread + photo attached, Measurements
+  NOTHING KEPT YET, Plan NO PLAN YET (`NB_DEBUG_PLAN=empty` without
+  generate), Device OTA UPDATING 42 %, Dock TOO SHORT / NOTHING HEARD /
+  INTERRUPTED / UPLOAD FAILED, Response SWITCH OFF / ALL ZEROS,
+  Profile EXPORT PREPARING…, and Home charging pip 64 %.
+  Consent-and-settle strip pins the collect checkbox (amber / unchecked
+  Continue vs lime / checked Continue), Device OTA Installed and
+  out-of-range fail, Composition first-scan (no previous row), AI Memory
+  NOTHING YET, Home 100% charged, and Body Battery confidence card.
+  Leftover-product strip pins weigh-in LB (213.8 lb + LB toggle), Device
+  NEW ALARM editor (07:30 weekdays), Profile COLLECTING HEALTH DATA OFF,
+  Sleep LAST 30 NIGHTS, Sport Mode #33–#47, plus-menu camera row press,
+  CAMERA OFF / Open Settings, Chat empty + system keyboard, Health
+  weigh-in 173.3 LB, and Body Battery WHY math (four drivers + 64→68).
+  WHY/units/Live Activity strip pins the Body Battery WHY 72 card (FROM 46
+  AT 04:00), Units LB + FT, Lock Screen Live Activity permission, and the
+  allowed Outdoor Run Live Activity (elapsed / 134 BPM / burned).
+  Springboard Today strip pins the NextBody icon, the icon-menu size
+  picker (App / small / medium / large), Today small (BODY BATTERY 68),
+  Today medium (BATTERY 68 / LOAD 2.6 / EATEN -- / band 82%), and Today
+  large (three rings plus SLEEP/ACTIVE/HR / STRESS/STEPS/DISTANCE /
+  RESPONSE/HRV/SPO2). Shot strip pins `ShotWidget` LOG A MEAL on the
+  home screen (yellow viewfinder) and the same Shot beside a filled
+  Today medium (BATTERY 72 / LOAD 12.4 / EATEN 1,240). Inject Shot via
+  IconState `widgetIdentifier=NextBodyShot` then `simctl shutdown` /
+  `boot` — the in-app widget gallery stayed blank. Q-0 VOICE / HOLDING
+  / four casting faces are design-only; do not clone them.
+  Firmware-check strip pins Device VERSION 2.4.1 Up to date, and
+  Could not reach the update server (`NB_DEBUG_EDGE=uptodate` /
+  `otacheckfail` on MockBand).
+  Week-vitals strip pins Stress / Temp / Steps / Distance / Active
+  LAST 7 DAYS, measure `noreading` (Couldn't get a clean read /
+  NO READING · NOTHING KEPT), and Fuel yesterday (SAT 5 SEP, CLOSED).
+  Auto-measurement strip pins firmware switches (HR/SpO2 on, HRV off,
+  Stress on), interval empty (DID NOT REPORT), no switches, and
+  refuse (THE BAND DID NOT ANSWER). `NB_DEBUG_ROUTE=deviceAutoMonitor`
+  plus `NB_DEBUG_DEVICE_SHEET=bandAutoMonitor` after `readAutoMonitoring`.
+  Host-shell leftover `SIMCTL_CHILD_NB_DEBUG_SESSION=1` starts a fake
+  Outdoor Run on every Home launch — unset it before language / Chinese
+  Home shots. `launch()` now also deletes those keys from `os.environ`.
+  After a simulator reboot, language sheet pins 简体中文 selected
+  (`语言` / yellow dot) and Home paints 身体电量 72% in zh-Hans.
+  Vitals MONTH strip pins Stress / Temp / Steps / Distance / Active
+  LAST 30 DAYS (`NB_DEBUG_METRIC_RANGE=MONTH`).
+  `NB_DEBUG_SCROLL_TO=bb-why` centres that card. Lock capture is
+  `axe button lock` then `home` to wake the lock screen.
+  `SheetHost` must present `FindHoopSheet` for `.findHoop` (not `ProfileSheet`'s
+  `EmptyView`). Capture batches live in `/tmp/nextbody-t0-capture.py`.
 
 ## User Defined Namespaces
 

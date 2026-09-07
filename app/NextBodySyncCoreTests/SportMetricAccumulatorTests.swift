@@ -18,9 +18,51 @@ final class SportMetricAccumulatorTests: XCTestCase {
         let nativeZero = report(estimated, 11, kcal: 0)
         XCTAssertEqual(nativeZero.kcal, 0)
         XCTAssertEqual(nativeZero.calorieSource, .band)
+        XCTAssertTrue(nativeZero.hasEnergyEvidence)
         XCTAssertEqual(nativeZero.calorieCorrection?.previousKcal, estimated.kcal)
         XCTAssertEqual(nativeZero.calorieCorrection?.replacementKcal, 0)
         XCTAssertEqual(report(nativeZero, 15).kcal, 0)
+    }
+
+    func testProfileAloneDoesNotPublishZeroAsMeasuredEnergy() {
+        XCTAssertTrue(empty.estimationAvailable)
+        XCTAssertFalse(empty.hasEnergyEvidence)
+        XCTAssertFalse(report(empty, 0).hasEnergyEvidence)
+        XCTAssertFalse(report(report(empty, 0), 16).hasEnergyEvidence)
+        XCTAssertTrue(report(report(empty, 0), 15).hasEnergyEvidence)
+    }
+
+    func testStrengthModeUsesObservedRunningIntervalsWithoutRequiringHeartRate() {
+        let strength = SportMetricAccumulator(
+            weightKg: 70, age: 34, male: true, sportMode: 25)
+        let first = report(strength, 0, hr: nil)
+        let second = report(first, 10, hr: nil)
+
+        let expected = (3.5 - 1) * 3.5 * 70 / 200 * 10 / 60
+        XCTAssertEqual(second.kcal, expected, accuracy: 0.000001)
+        XCTAssertEqual(second.estimatedSeconds, 10, accuracy: 0.000001)
+        XCTAssertTrue(second.hasEnergyEvidence)
+        XCTAssertNil(second.heartRate)
+    }
+
+    func testStrengthModeDoesNotInferDurationFromFallbackHeartCallbacks() {
+        let strength = SportMetricAccumulator(
+            weightKg: 70, age: 34, male: true, sportMode: 25)
+        let second = report(report(strength, 0, run: nil), 10, run: nil)
+
+        XCTAssertEqual(second.kcal, 0)
+        XCTAssertEqual(second.estimatedSeconds, 0)
+        XCTAssertFalse(second.hasEnergyEvidence)
+        XCTAssertEqual(second.heartRate, 120)
+    }
+
+    func testStrengthModesHaveExplicitConservativeMETMappings() {
+        XCTAssertEqual(SportMetricAccumulator.strengthMET(sportMode: 25), 3.5)
+        XCTAssertEqual(SportMetricAccumulator.strengthMET(sportMode: 29), 5.0)
+        XCTAssertEqual(SportMetricAccumulator.strengthMET(sportMode: 46), 3.0)
+        XCTAssertEqual(SportMetricAccumulator.strengthMET(sportMode: 47), 3.5)
+        XCTAssertNil(SportMetricAccumulator.strengthMET(sportMode: 24))
+        XCTAssertNil(SportMetricAccumulator.strengthMET(sportMode: nil))
     }
 
     func testCumulativeNativeTotalsReplaceRatherThanAddIncludingCorrections() {

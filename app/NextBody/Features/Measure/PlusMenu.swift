@@ -83,6 +83,12 @@ struct PlusMenuSheet: View {
         // re-armed `band.connected` after a transient drop except revisiting home, which left
         // both measurements dead in a session where the band was reachable all along.
         .task {
+            #if DEBUG
+            if DebugEdge.on("noband") {
+                data.band.connected = false
+                return
+            }
+            #endif
             if Band.live.state != .connected { await Band.live.reconnectIfBound() }
             data.band.connected = Band.live.state == .connected
         }
@@ -140,16 +146,41 @@ private struct MenuRow: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 62)
-            .background(pressed ? NB.lime1 : .clear,
+            .background((pressed || debugHold) ? NB.lime1 : .clear,
                         in: RoundedRectangle(cornerRadius: NB.R.tile, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(unavailable != nil)
+        .onAppear {
+            #if DEBUG
+            if debugHold { pressed = true }
+            #endif
+        }
         .simultaneousGesture(DragGesture(minimumDistance: 0)
             .onChanged { _ in withAnimation(.easeOut(duration: 0.12)) { pressed = true } }
-            .onEnded { _ in withAnimation(.easeOut(duration: 0.12)) { pressed = false } })
+            .onEnded { _ in
+                #if DEBUG
+                if debugHold { return }
+                #endif
+                withAnimation(.easeOut(duration: 0.12)) { pressed = false }
+            })
     }
+
+    #if DEBUG
+    private var debugHold: Bool {
+        switch ProcessInfo.processInfo.environment["NB_DEBUG_PLUS_PRESS"] {
+        case "balance": return icon == .pulse
+        case "scan", "body": return icon == .body
+        case "sport": return icon == .sport
+        case "camera": return icon == .camera
+        case "library": return icon == .library
+        default: return false
+        }
+    }
+    #else
+    private var debugHold: Bool { false }
+    #endif
 }
 
 private struct MenuIcon: View {

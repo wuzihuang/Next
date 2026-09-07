@@ -30,15 +30,15 @@ struct WidgetCatalogue: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    /// All 27. The night's three came back on 2026-09-03 with the user's own ruling, so the
-    /// catalogue covers the contract in full again.
+    /// All 34. The night's three came back on 2026-09-03 with the user's own ruling, and the
+    /// 2026-09-06 gap audit added six more, so the catalogue covers the contract in full.
     private var types: [PanelType] { PanelType.allCases }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
                 HStack {
-                    Text(L("%d TYPES · 12 RENDERERS", types.count))
+                    Text(L("%d TYPES · 16 RENDERERS", types.count))
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.text3Prod)
                     Spacer(minLength: 12)
@@ -151,7 +151,15 @@ struct WidgetCatalogue: View {
             return w(type, "NIGHT O2", "Mean 95% · lowest 89%",
                      .series([97, 96, 96, 95, 97, 96, 89, 94, 96, 97, 91, 96]))
         case .wave:
-            return w(type, "ECG", "avg 68 bpm", .trace(samples: series, hz: 4))
+            // 2026-09-06 · wave used to be captioned ECG, which the band does not produce
+            // (metric-query marks ecg unsupported). Its source is the RR tachogram: one
+            // sample per beat, in milliseconds, so the copy is milliseconds too.
+            var wv = w(type, "RR INTERVALS", "Steady beat to beat", hero: "48 BEATS",
+                       .trace(samples: [812, 796, 824, 808, 788, 832, 800, 776, 820, 804,
+                                        796, 840, 812, 784, 808, 828, 792, 816, 800, 780],
+                              hz: 1.3))
+            wv.footer = L("MEAN 806 MS · LAST READING")
+            return wv
         case .table:
             return w(type, "TODAY'S BUILD", "Three sources, 5.0 total",
                      .rows([.init(label: L("MORNING WALK"), value: "+2.0"),
@@ -179,6 +187,12 @@ struct WidgetCatalogue: View {
                                  protein: 32, carb: 18, fat: 22, pctOfBudget: 31)
             f.footer = L("660 KCAL LEFT · KITCHEN CLOSES 21:00")
             return f
+        case .plan:
+            // ADR 0018 · the plan face's frame: the tasks are rows, the summary is the sentence.
+            return w(type, "EASY DAY", "Yesterday was light. Keep it easy, sleep early.",
+                     .rows([.init(label: L("BED BY 23:00"), value: ""),
+                            .init(label: L("WALK 30 MIN"), value: ""),
+                            .init(label: L("PROTEIN AT DINNER"), value: "")]))
         case .meal:
             return w(type, "LUNCH", "532 kcal · 50 g protein", hero: "532",
                      .rows([.init(label: L("CHICKEN"), value: "310"),
@@ -205,6 +219,65 @@ struct WidgetCatalogue: View {
         case .dual:
             return w(type, "FAT VS LEAN", "The lines crossed in week 9",
                      .pair(hi: series, lo: series.map { $0 * 0.8 }))
+        // ---------------------------------------------------------- 2026-09-06 gap audit
+        case .score:
+            // The sub-score that dragged the night down is the point of the panel, so the
+            // sentence names it and the renderer tints that one bar alert.
+            var sc = w(type, "SLEEP SCORE", "Architecture is the drag — 42 min deep", hero: "73",
+                       .meter(parts: [("DURATION", 78, 100), ("ARCHITECTURE", 61, 100),
+                                      ("RECOVERY", 84, 100), ("REGULARITY", 92, 100)]))
+            sc.footer = L("6 BELOW YOUR 7-DAY MEAN")
+            return sc
+        case .poincare:
+            // A cloud along the diagonal with a narrow waist: rest-led, spread 48 ms.
+            var pts: [CGPoint] = []
+            var seed = 7.0
+            for _ in 0..<90 {
+                seed = (seed * 9301 + 49297).truncatingRemainder(dividingBy: 233280)
+                let a = seed / 233280
+                seed = (seed * 9301 + 49297).truncatingRemainder(dividingBy: 233280)
+                let b = seed / 233280
+                let along = 760 + (a - 0.5) * 220
+                let across = (b - 0.5) * 46
+                pts.append(CGPoint(x: along - across, y: along + across))
+            }
+            var po = w(type, "BALANCE CHECK", "Tight cloud, rest side leading", hero: "48 ms",
+                       .scatter(points: pts, lo: 600, hi: 900,
+                                stats: [("SDNN", "48 ms"), ("LEAD", "REST"), ("REST SHARE", "64 %")]))
+            po.footer = L("812 BEATS · 2 MIN 14 S")
+            return po
+        case .matrix:
+            // 0 not collected · 1 unsupported · 2 failed · 3 partial · 4 complete.
+            let m: [[Int]] = [[4, 4, 4, 4, 4, 4, 4],
+                              [4, 4, 3, 4, 4, 4, 4],
+                              [4, 4, 0, 0, 4, 2, 4],
+                              [4, 4, 4, 4, 4, 4, 4],
+                              [0, 0, 4, 0, 0, 0, 4]]
+            var mx = w(type, "SYNC STATUS", "Body comp is the gap — 5 days missing",
+                       .matrix(rows: 5, cols: 7, values: m.flatMap { $0 },
+                               rowLabels: [L("HEART"), L("SLEEP"), L("SPO2"), L("STEPS"), L("BODY")]))
+            mx.footer = L("9 OF 35 CELLS NOT COMPLETE")
+            return mx
+        case .call:
+            var c = w(type, "THE CALL", "Weight flat, lean +0.4 kg, fat −0.5 kg",
+                      .verdict(word: "RECOMP", options: ["RECOMP", "CUT", "BULK", "DRIFT", "NO_CHANGE"],
+                               confidence: 2, steps: 3))
+            c.footer = L("MEDIUM · 4 WEIGH-INS IN 14 DAYS")
+            return c
+        case .curve:
+            // The day's TRAINING LOAD accumulating towards its full value of 21.
+            var cv = w(type, "LOAD TODAY", "Two blocks, most of it before noon", hero: "14.2",
+                       .series([0, 0.4, 1.2, 2.6, 4.1, 6.8, 9.2, 10.1, 10.3, 10.4, 11.8, 13.6, 14.2]))
+            cv.curveMark = 21
+            cv.footer = L("Z4+Z5 11 MIN · PEAK 178 BPM")
+            return cv
+        case .response:
+            // Unitless on purpose: the rise over this meal's own baseline. Never a lab unit.
+            var rp = w(type, "MEAL RESPONSE", "Peak at 42 min, back down by 14:05", hero: "+38",
+                       .series([2, 1, 3, 12, 26, 35, 38, 34, 27, 19, 12, 7, 4, 3, 2]))
+            rp.curveMarks = [2, 12]
+            rp.footer = L("LUNCH · 115 MIN TO BASELINE")
+            return rp
         }
     }
 

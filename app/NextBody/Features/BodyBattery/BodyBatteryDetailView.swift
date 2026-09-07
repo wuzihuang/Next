@@ -18,6 +18,11 @@ struct BodyBatteryDetailView: View {
     private var hasNight: Bool { m.bbWake != nil }
     private var hasScore: Bool { m.bodyBatteryForDisplay(at: Date()) != nil }
     private var hasRecord: Bool { m.bodyBatteryObservedAt != nil }
+    #if DEBUG
+    private var forceEmpty: Bool { DebugEdge.on("empty") }
+    #else
+    private var forceEmpty: Bool { false }
+    #endif
     private var isDim: Bool { m.bodyBatteryFreshness(at: Date()) != .fresh }
     private var observationLabel: String {
         guard let at = m.bodyBatteryObservedAt else { return L("NO TICK") }
@@ -117,7 +122,11 @@ struct BodyBatteryDetailView: View {
     // MARK: DAY
 
     @ViewBuilder private var dayBoard: some View {
-        if hasScore || hasRecord {
+        if forceEmpty || !(hasScore || hasRecord) {
+            emptyCard
+            needsCard
+            footer
+        } else {
             heroCard
             if drivers != nil && hasScore { whyCard }
             if hasNight {
@@ -128,10 +137,6 @@ struct BodyBatteryDetailView: View {
             }
             vitalsCard
             confidenceCard
-            footer
-        } else {
-            emptyCard
-            needsCard
             footer
         }
     }
@@ -202,6 +207,7 @@ struct BodyBatteryDetailView: View {
                     .foregroundStyle(NB.white.opacity(0.62))
             }
         }
+        .id("bb-why")
     }
 
     /// HRV and resting heart rate are allowed on screen because we measure them and they have

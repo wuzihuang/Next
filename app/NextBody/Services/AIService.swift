@@ -68,7 +68,7 @@ final class AIService: ObservableObject {
     /// Only acknowledgment and server calculation readiness can promote a pending record.
     /// Local live estimates are never submitted as authoritative health facts.
     private func prepareFreshness(day: UserDay, owner: String) async -> [String: Any] {
-        let kinds = ["meal", "weigh-in", "body-composition", "band-domain", "band-sleep"]
+        let kinds = ["meal", "weigh-in", "body-composition", "band-domain", "band-sleep", "plan-check"]
         @MainActor func pendingCount() -> Int? {
             do {
                 let local = try LocalDataStore.shared()
@@ -121,14 +121,14 @@ final class AIService: ObservableObject {
 
     // MARK: a conversational turn
 
+    /// ADR 0018 · one user action is one turn, even when the turn pauses for the phone. A
+    /// `tool.request` runs here through `PhoneToolRunner`, and the same Idempotency-Key goes
+    /// back with the result until the server answers with a frame.
     func turn(_ text: String, day: UserDay, store: DataStore,
               imageDataURL: String? = nil, surface: String = "panel",
               history: [[String: String]] = [], conversationID: UUID? = nil, turnID: UUID = UUID()) async -> PanelWidget? {
         #if DEBUG
         let latencyStarted = Date()
-        var loggedFirstEvent = false
-        var loggedFirstThought = false
-        var loggedFirstTool = false
         os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
             .notice("NB latency · turn start")
         #endif
@@ -153,10 +153,70 @@ final class AIService: ObservableObject {
             lastError = L("Please sign in and allow access to your data.")
             return nil
         }
-        let freshness = await prepareFreshness(day: day, owner: requestOwner)
+        AISession.shared.settleIfDue()
+        var freshness = await prepareFreshness(day: day, owner: requestOwner)
+        freshness["device"] = PhoneToolRunner.shared.deviceState(store: store)
         guard activeTurnID == turnID, !Task.isCancelled, ConsentStore.shared.granted,
               SupabaseClient.currentUserIdSnapshot() == requestOwner else { return nil }
 
+        var payload: [String: Any] = [
+            "text": text, "dayKey": dayKey, "locale": AppLanguage.locale,
+            "surface": surface, "freshness": freshness,
+            "session_id": AISession.shared.idForTurn().uuidString.lowercased(),
+        ]
+        if surface == "chat" { payload["history"] = history }
+        if let conversationID { payload["conversation_id"] = conversationID.uuidString }
+        if let imageDataURL { payload["image"] = imageDataURL }
+
+        // The same body every time: the server hashes text + conversation into the lease.
+        var toolResult: [String: Any]?
+        for hop in 0...Self.maxResumes {
+            var attempt = payload
+            if let toolResult { attempt["tool_result"] = toolResult }
+            let outcome = await stream(attempt, owner: requestOwner, turnID: turnID, day: day, surface: surface, text: text)
+            guard activeTurnID == turnID else { return nil }
+            switch outcome {
+            case .frame(let widget):
+                #if DEBUG
+                os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+                    .notice("NB latency · turn done ms=\(Int(Date().timeIntervalSince(latencyStarted) * 1_000), privacy: .public) hops=\(hop, privacy: .public)")
+                #endif
+                return widget
+            case .suspended(let request):
+                guard hop < Self.maxResumes else {
+                    lastErrorCode = "RESUME_BUDGET"
+                    lastError = L("Could not complete that request. Please try again.")
+                    return surface == "chat" ? nil : offlineFrame(text)
+                }
+                reading = request.name
+                let result = await PhoneToolRunner.shared.run(request, store: store)
+                guard activeTurnID == turnID, ConsentStore.shared.granted,
+                      SupabaseClient.currentUserIdSnapshot() == requestOwner else { return nil }
+                toolResult = result.payload(callID: request.callID)
+                thoughts = []
+            case .failed(let widget):
+                return widget
+            }
+        }
+        return surface == "chat" ? nil : offlineFrame(text)
+    }
+
+    static let maxResumes = 3
+
+    private enum Outcome {
+        case frame(PanelWidget?)
+        case suspended(PhoneToolRunner.Request)
+        case failed(PanelWidget?)
+    }
+
+    private func stream(_ payload: [String: Any], owner requestOwner: String, turnID: UUID,
+                        day: UserDay, surface: String, text: String) async -> Outcome {
+        #if DEBUG
+        let latencyStarted = Date()
+        var loggedFirstEvent = false
+        var loggedFirstThought = false
+        var loggedFirstTool = false
+        #endif
         do {
             // ⚠️ `turn` streams. It had been called as though it returned one JSON object,
             // so the parse threw on the very first `event:` line and every server turn —
@@ -164,16 +224,10 @@ final class AIService: ObservableObject {
             // frame. The DEBUG path masked it by answering in its place.
             var frame: [String: Any]?
             var responseFailed = false
-            var payload: [String: Any] = [
-                "text": text, "dayKey": dayKey, "locale": AppLanguage.locale,
-                "surface": surface, "freshness": freshness,
-            ]
-            if surface == "chat" { payload["history"] = history }
-            if let conversationID { payload["conversation_id"] = conversationID.uuidString }
-            if let imageDataURL { payload["image"] = imageDataURL }
+            var request: PhoneToolRunner.Request?
             for try await chunk in SupabaseClient.shared.streamFunction("turn", payload: payload, expectedOwner: requestOwner, requestID: turnID) {
                 guard activeTurnID == turnID, !Task.isCancelled, ConsentStore.shared.granted,
-                      SupabaseClient.currentUserIdSnapshot() == requestOwner else { return nil }
+                      SupabaseClient.currentUserIdSnapshot() == requestOwner else { return .failed(nil) }
                 let parts = chunk.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parts.count == 2,
                       let data = parts[1].data(using: .utf8),
@@ -209,6 +263,9 @@ final class AIService: ObservableObject {
                     if let t = obj["text"] as? String, !t.isEmpty {
                         thoughts = Array((thoughts + [Thought(text: t, at: Date())]).suffix(Self.thoughtsKept))
                     }
+                case "tool.request":
+                    // ADR 0018 · the turn is pausing for the phone.
+                    request = PhoneToolRunner.Request(obj)
                 case "screen.render":
                     frame = obj["envelope"] as? [String: Any]
                     #if DEBUG
@@ -227,16 +284,16 @@ final class AIService: ObservableObject {
                     break
                 }
             }
-            guard activeTurnID == turnID else { return nil }
+            guard activeTurnID == turnID else { return .failed(nil) }
             reading = nil
-            #if DEBUG
-            let completedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
-            os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
-                .notice("NB latency · turn done ms=\(completedMs, privacy: .public)")
-            #endif
-            if responseFailed && (surface == "chat" || lastErrorCode == "RATE_LIMITED") { return nil }
+            if let request, frame == nil, !responseFailed { return .suspended(request) }
+            if responseFailed && (surface == "chat" || lastErrorCode == "RATE_LIMITED") { return .failed(nil) }
             if let frame {
-                let w = widget(from: frame)
+                // ⚠️ A frame this build cannot decode — a type the server learned after the
+                // app shipped, or a malformed envelope — used to come back as nil, and Home
+                // then left the panel on THINKING forever. Every envelope carries a title
+                // and a sentence; print those rather than hang.
+                let w = widget(from: frame) ?? undecodedFrame(frame)
                 if !responseFailed, let w, let fields = frame["data"] as? [String: Any],
                    let draftID = fields["draft_id"] as? String, UUID(uuidString: draftID) != nil,
                    let macros = fields["macros"] as? [String: Any] {
@@ -250,26 +307,31 @@ final class AIService: ObservableObject {
                 os.Logger(subsystem: "com.nextbody.hoop", category: "turn")
                     .notice("NB turn · type=\((frame["type"] as? String) ?? "?", privacy: .public) title=\((frame["title"] as? String) ?? "", privacy: .public) sentence=\((frame["sentence"] as? String) ?? "", privacy: .public) decoded=\(w != nil, privacy: .public)")
                 #endif
-                return w
+                return responseFailed ? .failed(w) : .frame(w)
             }
         } catch {
-            guard activeTurnID == turnID else { return nil }
+            guard activeTurnID == turnID else { return .failed(nil) }
             reading = nil
             if case SupabaseClient.Failure.http(let status, let body) = error {
                 let fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
                 lastErrorCode = fields?["error"] as? String
+                // ADR 0018 · the server still holds a suspended turn for this key: run its tool.
+                if status == 409, lastErrorCode == "TURN_SUSPENDED",
+                   let raw = fields?["tool_request"] as? [String: Any], let request = PhoneToolRunner.Request(raw) {
+                    return .suspended(request)
+                }
                 if status == 429 {
                     lastErrorCode = "RATE_LIMITED"
                     lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
                         ?? L("Your AI allowance is unavailable. Please try again later.")
-                    return nil
+                    return .failed(nil)
                 }
                 lastError = L("Could not complete that request. Please try again.")
             } else {
                 lastError = error.localizedDescription
             }
         }
-        return surface == "chat" ? nil : offlineFrame(text)
+        return .failed(surface == "chat" ? nil : offlineFrame(text))
     }
 
     private struct MealDraft {
@@ -290,32 +352,54 @@ final class AIService: ObservableObject {
     func confirmMeal(frameID: UUID, slot: MealEntry.Slot, into store: DataStore) -> PanelWidget? {
         guard let draft = mealDraft, canConfirmMeal(frameID: frameID), ConsentStore.shared.granted else { return nil }
         do {
-            if draft.day == store.today.day, case .fasted = store.today.fuelState {
-                throw LocalDataStore.Failure.database(L("This day is marked as fasted."))
-            }
-            let output = draft.output
-            let entry = MealEntry(id: draft.mealID, day: draft.day, at: Date(), slot: slot,
-                                  status: .confirmed, text: output["name"] as? String ?? "",
-                                  kcal: 0, protein: 0, carb: 0, fat: 0,
-                                  source: output["source"] as? String == "photo" ? .photo : .typed)
-            let envelope: [String: Any] = ["kind": "estimate", "meal_id": entry.id.uuidString.lowercased(),
-                "body": ["user_day": Self.dayFormatter.string(from: draft.day.start), "slot": slot.rawValue, "name": entry.text]]
-            let operation = LocalOperation(id: entry.id.uuidString.lowercased(), account: draft.owner, kind: "meal",
-                                          payload: try JSONSerialization.data(withJSONObject: envelope))
-            let promoted = try MealOutboxPolicy.promotedEstimate(operation, output: output)
-            guard let fields = try JSONSerialization.jsonObject(with: promoted) as? [String: Any],
-                  let body = fields["body"] as? [String: Any], let kcal = numberOf(body["kcal"]) else { return nil }
-            try MealQueue.shared.enqueueCreate(mealID: entry.id, payload: body, ownerUserId: draft.owner)
-            store.logMeal(entry)
-            store.updateMeal(entry.id, kcal: kcal, text: entry.text)
-            store.applyMacros(entry.id, protein: Int(numberOf(body["protein_g"]) ?? 0),
-                              carb: Int(numberOf(body["carb_g"]) ?? 0), fat: Int(numberOf(body["fat_g"]) ?? 0))
+            let logged = try logMealDraft(draft.output, slot: slot, day: draft.day, owner: draft.owner, mealID: draft.mealID, into: store)
             mealDraft = nil
-            return loggedFrame(name: entry.text, kcal: kcal, store: store)
+            return loggedFrame(name: logged.name, kcal: logged.kcal, store: store)
         } catch {
             lastError = error.localizedDescription
             return nil
         }
+    }
+
+    struct LoggedMeal { let id: UUID; let name: String; let kcal: Double }
+
+    /// ADR 0018 · the one write path for a meal draft: the CONFIRM tap on a food frame and the
+    /// `meal.log` phone tool both land here. The draft is the server's estimate; nothing is
+    /// re-estimated on the way in.
+    @discardableResult
+    func logMealDraft(_ output: [String: Any], slot: MealEntry.Slot, day: UserDay, owner: String? = nil,
+                      mealID: UUID = UUID(), into store: DataStore) throws -> LoggedMeal {
+        guard ConsentStore.shared.granted, let owner = owner ?? SupabaseClient.currentUserIdSnapshot() else {
+            throw LocalDataStore.Failure.database(L("Please sign in and allow access to your data."))
+        }
+        if day == store.today.day, case .fasted = store.today.fuelState {
+            throw LocalDataStore.Failure.database(L("This day is marked as fasted."))
+        }
+        var output = output
+        if let macros = output["macros"] as? [String: Any] {
+            output["protein_g"] = output["protein_g"] ?? macros["p"]
+            output["carb_g"] = output["carb_g"] ?? macros["c"]
+            output["fat_g"] = output["fat_g"] ?? macros["f"]
+        }
+        let entry = MealEntry(id: mealID, day: day, at: Date(), slot: slot,
+                              status: .confirmed, text: output["name"] as? String ?? "",
+                              kcal: 0, protein: 0, carb: 0, fat: 0,
+                              source: output["source"] as? String == "photo" ? .photo : .typed)
+        let envelope: [String: Any] = ["kind": "estimate", "meal_id": entry.id.uuidString.lowercased(),
+            "body": ["user_day": Self.dayFormatter.string(from: day.start), "slot": slot.rawValue, "name": entry.text]]
+        let operation = LocalOperation(id: entry.id.uuidString.lowercased(), account: owner, kind: "meal",
+                                      payload: try JSONSerialization.data(withJSONObject: envelope))
+        let promoted = try MealOutboxPolicy.promotedEstimate(operation, output: output)
+        guard let fields = try JSONSerialization.jsonObject(with: promoted) as? [String: Any],
+              let body = fields["body"] as? [String: Any], let kcal = numberOf(body["kcal"]) else {
+            throw LocalDataStore.Failure.database(L("Could not complete that request. Please try again."))
+        }
+        try MealQueue.shared.enqueueCreate(mealID: entry.id, payload: body, ownerUserId: owner)
+        store.logMeal(entry)
+        store.updateMeal(entry.id, kcal: kcal, text: entry.text)
+        store.applyMacros(entry.id, protein: Int(numberOf(body["protein_g"]) ?? 0),
+                          carb: Int(numberOf(body["carb_g"]) ?? 0), fat: Int(numberOf(body["fat_g"]) ?? 0))
+        return LoggedMeal(id: entry.id, name: entry.text, kcal: kcal)
     }
 
     /// 05 · speech in, one sentence out. The clip goes to `asr` and is deleted the moment the
@@ -466,6 +550,8 @@ final class AIService: ObservableObject {
             accentOverride: accent ?? (split != nil ? NB.violet1 : nil),
             curveSplit: split,
             curveSecondary: split != nil ? NB.lime1 : nil,
+            curveMark: (data["mark"] as? Double) ?? (data["mark"] as? Int).map(Double.init),
+            curveMarks: (data["marks"] as? [Int]) ?? [],
             targetOverride: target,
             data: Self.decodeData(data, type: type),
             headline: headline,
@@ -592,21 +678,74 @@ final class AIService: ObservableObject {
             return .trace(samples: numbers(d["samples"] ?? d["series"]),
                           hz: (d["hz"] as? Double) ?? 125)
         case .rows:
-            let raw = (d["rows"] ?? d["items"] ?? d["logged"] ?? d["events"] ?? d["points"])
+            // ADR 0018 · a plan frame's tasks read as rows: title, then the one-line how.
+            let raw = (d["rows"] ?? d["items"] ?? d["logged"] ?? d["events"] ?? d["points"] ?? (type == .plan ? d["tasks"] : nil))
             let rows = (raw as? [[String: Any]])?.map { r -> PanelData.RowItem in
                 let label = (r["label"] as? String) ?? (r["name"] as? String)
                     ?? (r["slot"] as? String) ?? (r["dayKey"] as? String) ?? ""
-                let value = r["value"] ?? r["kcal"] ?? r["v"] ?? r["minutes"] ?? ""
+                let value = r["value"] ?? r["kcal"] ?? r["v"] ?? r["minutes"] ?? r["sub"] ?? ""
                 return PanelData.RowItem(label: label, value: "\(value)",
                                          spark: numbers(r["spark"]).isEmpty ? nil : numbers(r["spark"]))
             } ?? []
             return .rows(rows)
+        case .meter:
+            // A sub-score with no full value is scored out of 100 — every score in the
+            // contract is. A part with no number at all is dropped, not zeroed.
+            let parts = ((d["parts"] as? [[String: Any]]) ?? []).compactMap { p -> (String, Double, Double)? in
+                guard let v = (p["value"] as? Double) ?? (p["value"] as? Int).map(Double.init) else { return nil }
+                let mx = (p["max"] as? Double) ?? (p["max"] as? Int).map(Double.init) ?? 100
+                return ((p["label"] as? String) ?? "", v, mx)
+            }
+            return .meter(parts: parts)
+        case .scatter:
+            let pts = ((d["points"] as? [[Any]]) ?? []).compactMap { pair -> CGPoint? in
+                guard pair.count >= 2,
+                      let x = (pair[0] as? Double) ?? (pair[0] as? Int).map(Double.init),
+                      let y = (pair[1] as? Double) ?? (pair[1] as? Int).map(Double.init) else { return nil }
+                return CGPoint(x: x, y: y)
+            }
+            let lo = (d["lo"] as? Double) ?? (d["lo"] as? Int).map(Double.init) ?? 0
+            let hi = (d["hi"] as? Double) ?? (d["hi"] as? Int).map(Double.init) ?? 0
+            let stats = ((d["stats"] as? [[String: Any]]) ?? []).map {
+                (($0["label"] as? String) ?? "", "\($0["value"] ?? "")")
+            }
+            return .scatter(points: pts, lo: lo, hi: hi, stats: stats)
+        case .matrix:
+            let cells = (d["cells"] as? [[Int]])?.flatMap { $0 } ?? (d["cells"] as? [Int]) ?? []
+            let labels = (d["rowLabels"] as? [String]) ?? []
+            return .matrix(rows: (d["rows"] as? Int) ?? labels.count,
+                           cols: (d["cols"] as? Int) ?? 7, values: cells, rowLabels: labels)
+        case .verdict:
+            return .verdict(word: (d["word"] as? String) ?? "",
+                            options: (d["options"] as? [String]) ?? [],
+                            confidence: (d["confidence"] as? Int) ?? 0,
+                            steps: (d["steps"] as? Int) ?? 3)
         case .number:
             return .none
         }
     }
 
     // MARK: honest failure
+
+    /// The envelope arrived and said something; only its shape was unknown to this build.
+    private func undecodedFrame(_ env: [String: Any]) -> PanelWidget? {
+        let sentence = (env["sentence"] as? String) ?? ""
+        let title = (env["title"] as? String) ?? ""
+        guard !sentence.isEmpty || !title.isEmpty else { return nil }
+        #if DEBUG
+        os.Logger(subsystem: "com.nextbody.hoop", category: "turn")
+            .error("NB turn · undecodable type=\((env["type"] as? String) ?? "?", privacy: .public)")
+        #endif
+        return PanelWidget(type: .text, title: title.isEmpty ? L("AI COACH") : title, tag: nil,
+                           sentence: sentence,
+                           footer: (env["footer"] as? String).map { String($0.prefix(42)) },
+                           action: nil,
+                           targetOverride: (env["target"] as? String).flatMap(Destination.init(envelopeTarget:)),
+                           data: .none,
+                           headline: ((env["data"] as? [String: Any])?["headline"] as? String).map {
+                               HeadlineBlock(headline: String($0.prefix(14)))
+                           })
+    }
 
     /// A failed turn has not saved a meal or scheduled another model call.
     private func offlineFrame(_ text: String) -> PanelWidget {

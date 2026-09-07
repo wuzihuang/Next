@@ -38,7 +38,12 @@ struct AlarmsSheet: View {
         .padding(.bottom, DeviceSheet.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(NB.carbon2)
-        .task { await reload() }
+        .task {
+            await reload()
+            #if DEBUG
+            if DebugEdge.on("alarmedit") { addAlarm() }
+            #endif
+        }
     }
 
     /// No alarms on this HOOP. The header already said what an alarm is; the face is
@@ -295,6 +300,8 @@ struct AlarmsSheet: View {
     private func reload() async {
         do {
             alarms = try await Band.live.readAlarms()
+            // ADR 0018 · the next turn cites these without a second BLE read.
+            PhoneToolRunner.shared.remember(alarms)
             didRead = true
             if BandAlarmMath.isFull(alarms) { capacity = BandAlarm.demoCeiling }
             onCount(alarms.count)

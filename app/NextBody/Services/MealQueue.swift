@@ -81,7 +81,8 @@ final class MealQueue: ObservableObject {
                       let noon = Calendar.current.date(byAdding: .hour, value: 12, to: midnight),
                       let slot = (fields["slot"] as? String).flatMap(MealEntry.Slot.init(rawValue:)) else { continue }
                 let day = UserDay.containing(noon)
-                entries = entries.filter { $0.id != uuid } + [MealEntry(id: uuid, day: day, at: noon,
+                let eatenAt = (fields["logged_at"] as? String).flatMap(Repository.timestamp) ?? noon
+                entries = entries.filter { $0.id != uuid } + [MealEntry(id: uuid, day: day, at: eatenAt,
                     slot: slot, status: kind == "estimate" || envelope["rejection"] != nil ? .open : .confirmed, text: fields["name"] as? String ?? "",
                     kcal: (fields["kcal"] as? NSNumber)?.doubleValue ?? 0,
                     protein: (fields["protein_g"] as? NSNumber)?.intValue ?? 0,

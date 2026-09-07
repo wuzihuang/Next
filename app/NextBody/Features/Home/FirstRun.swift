@@ -47,6 +47,23 @@ final class FirstRun: ObservableObject {
     static func markPlayed() { UserDefaults.standard.set(true, forKey: key) }
 
     func start(reduceMotion: Bool, lowPower: Bool) {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_FIRSTRUN_BEAT"], !raw.isEmpty {
+            let named: [String: Beat] = [
+                "black": .black, "core": .core, "sweep": .sweep, "alive": .alive,
+                "type": .type, "lime": .lime, "key": .key, "top": .top,
+                "stagger": .stagger, "input": .input, "idle": .idle,
+            ]
+            if let beat = named[raw] {
+                playing = true
+                self.beat = beat
+                if beat >= .type {
+                    typed = (Self.lineOne.count, beat >= .lime ? Self.lineTwo.count : 0)
+                }
+                return
+            }
+        }
+        #endif
         if playing { return }
         guard Self.shouldPlay else { finish(); return }
         playing = true

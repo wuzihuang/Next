@@ -71,6 +71,7 @@ Deno.serve(async (req) => {
       "sync_runs",
       "device_capabilities",
       "devices",
+      "push_tokens",
     ]
   ) {
     const result = await db.from(table).delete().eq("user_id", userId);

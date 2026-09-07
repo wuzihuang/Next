@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 
 struct ChatDetailView: View {
     let sessionID: String?
@@ -29,6 +30,7 @@ struct ChatDetailView: View {
                 ChatTopBarView(
                     onBack: {
                         isInputFocused = false
+                        AISession.shared.endChat()
                         router.back()
                     },
                     onHistory: {
@@ -64,6 +66,7 @@ struct ChatDetailView: View {
             .navigationBarBackButtonHidden()
             .detailEdgeBack {
                 isInputFocused = false
+                AISession.shared.endChat()
                 router.back()
             }
             .sheet(isPresented: $showHistorySheet) {
@@ -104,6 +107,23 @@ struct ChatDetailView: View {
                     try? await Task.sleep(for: .milliseconds(350))
                     isInputFocused = true
                 }
+                #if DEBUG
+                if let draft = ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_DRAFT"] {
+                    inputText = draft
+                    isInputFocused = true
+                }
+                if ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_HISTORY"] == "1" {
+                    showHistorySheet = true
+                }
+                if ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_PHOTO"] == "1" {
+                    attachedImage = Self.debugPlateImage()
+                    if inputText.isEmpty {
+                        inputText = ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_DRAFT"]
+                            ?? "Is this enough protein"
+                    }
+                    isInputFocused = true
+                }
+                #endif
             }
     }
 
@@ -253,6 +273,21 @@ struct ChatDetailView: View {
             attachedDataURL = "data:image/jpeg;base64," + jpeg.base64EncodedString()
         }
     }
+
+    #if DEBUG && targetEnvironment(simulator)
+    private static func debugPlateImage() -> UIImage {
+        let size = CGSize(width: 240, height: 240)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            UIColor(red: 0.11, green: 0.11, blue: 0.13, alpha: 1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            UIColor(red: 0.94, green: 0.64, blue: 0.11, alpha: 1).setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: 28, y: 28, width: 184, height: 184))
+            UIColor(red: 0.86, green: 0.35, blue: 0.12, alpha: 1).setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: 70, y: 78, width: 100, height: 70))
+        }
+    }
+    #endif
 }
 
 // MARK: - Top Bar · Cyber Telemetry

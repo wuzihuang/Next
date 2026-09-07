@@ -140,6 +140,11 @@ struct ConsentScreen: View {
         .background(NB.carbon.ignoresSafeArea())
         .task {
             shownAt = Date()
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["NB_DEBUG_CONSENT_CHECK"] == "1" {
+                agreed = true
+            }
+            #endif
             await Analytics.shared.track("CONSENT_SHOWN", ["VERSION": ConsentStore.version,
                                                           "IS_DELTA": ConsentStore.shared.decided])
         }

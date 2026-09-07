@@ -35,7 +35,15 @@ struct WordmarkAnimation: View {
 
     var body: some View {
         TimelineView(.animation) { tl in
+            #if DEBUG
+            let t: Double = {
+                if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_WORDMARK_T"],
+                   let pin = Double(raw) { return pin }
+                return reduceMotion ? Self.total : tl.date.timeIntervalSince(start)
+            }()
+            #else
             let t = reduceMotion ? Self.total : tl.date.timeIntervalSince(start)
+            #endif
             ZStack {
                 Color.black.ignoresSafeArea()
 
@@ -58,7 +66,12 @@ struct WordmarkAnimation: View {
                         .opacity(subOpacity(t))
                 }
             }
-            .onChange(of: t >= Self.total) { _, done in if done { onFinish() } }
+            .onChange(of: t >= Self.total) { _, done in
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["NB_DEBUG_WORDMARK_T"] != nil { return }
+                #endif
+                if done { onFinish() }
+            }
         }
         .statusBarHidden()
         .onDisappear { haptics.stop() }
@@ -70,6 +83,9 @@ struct WordmarkAnimation: View {
             haptics.prepare()
             start = Date()
             haptics.play(still: reduceMotion)
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["NB_DEBUG_WORDMARK_T"] != nil { return }
+            #endif
             if reduceMotion {
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.still) { onFinish() }
                 return
@@ -127,6 +143,30 @@ struct LaunchMark: View {
     }
 
     func play(word: String, line: String) async {
+        #if DEBUG
+        if let step = ProcessInfo.processInfo.environment["NB_DEBUG_LAUNCH_STEP"] {
+            switch step {
+            case "blank":
+                break
+            case "word":
+                wordCount = max(1, word.count / 2)
+            case "wordfull":
+                wordCount = word.count
+            case "pip":
+                wordCount = word.count
+                showPip = true
+            case "line":
+                wordCount = word.count
+                showPip = true
+                lineCount = max(1, line.count / 2)
+            default:
+                wordCount = word.count
+                showPip = true
+                lineCount = line.count
+            }
+            return
+        }
+        #endif
         if reduceMotion {
             wordCount = word.count
             showPip = true

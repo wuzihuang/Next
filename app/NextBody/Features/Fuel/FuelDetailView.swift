@@ -21,19 +21,42 @@ struct FuelDetailView: View {
     private var isPast: Bool { day < today }
 
     private var m: DailyMetrics {
-        guard isPast else { return data.today }
-        var row = data.history.first { $0.day == day } ?? DailyMetrics(day: day)
+        var row = isPast
+            ? (data.history.first { $0.day == day } ?? DailyMetrics(day: day))
+            : data.today
+        #if DEBUG
+        if DebugEdge.on("unlogged") {
+            row.eIn = nil
+            row.fuelState = .unlogged
+            row.protein = row.protein.map { MacroSlot(target: $0.target, eaten: 0) }
+            row.carb = row.carb.map { MacroSlot(target: $0.target, eaten: 0) }
+            row.fat = row.fat.map { MacroSlot(target: $0.target, eaten: 0) }
+            return row
+        }
+        if DebugEdge.on("fasted") {
+            row.eIn = 0
+            row.fuelState = .fasted
+            row.protein = row.protein.map { MacroSlot(target: $0.target, eaten: 0) }
+            row.carb = row.carb.map { MacroSlot(target: $0.target, eaten: 0) }
+            row.fat = row.fat.map { MacroSlot(target: $0.target, eaten: 0) }
+            return row
+        }
+        #endif
         // History rows carry what went in as totals; the macro slots are filled from them so
         // the same card reads the same way on a past day.
         row.protein = row.protein.map { MacroSlot(target: $0.target, eaten: row.proteinIn ?? dayMeals.reduce(0) { $0 + $1.protein }) }
         row.carb    = row.carb.map    { MacroSlot(target: $0.target, eaten: row.carbIn    ?? dayMeals.reduce(0) { $0 + $1.carb }) }
         row.fat     = row.fat.map     { MacroSlot(target: $0.target, eaten: row.fatIn     ?? dayMeals.reduce(0) { $0 + $1.fat }) }
-        if row.eIn == nil, !dayMeals.isEmpty { row.eIn = dayMeals.reduce(0) { $0 + $1.kcal } }
+        let fasted = row.fuelState == .fasted
+        row.eIn = FuelCardMath.eaten(mealKcals: dayMeals.map(\.kcal), server: row.eIn, fasted: fasted)
         return row
     }
     /// The day's own rows: today's from `meals`, a past day's from the week window, plus
     /// anything back-logged in this session.
     private var dayMeals: [MealEntry] {
+        #if DEBUG
+        if DebugEdge.on("unlogged") || DebugEdge.on("fasted") { return [] }
+        #endif
         let own = data.meals.filter { $0.day == day && $0.status == .confirmed }
         let window = data.recentMeals.filter { r in r.day == day && !own.contains { $0.id == r.id } }
         return (own + window).sorted { $0.at < $1.at }
@@ -377,6 +400,7 @@ struct FuelDetailView: View {
     /// Five-minute steps on this user day. The cyan line uses them so a walk is
     /// steeper than sitting — not a ruler from 04:00 to now.
     private var dayBurnTicks: [VitalSample] {
+        if let distribution = m.energyDistribution { return distribution.map(\.tick) }
         let curve = data.history.first(where: { $0.day == day && !$0.vitalsCurve.isEmpty })?.vitalsCurve
             ?? m.vitalsCurve
         return curve
@@ -396,7 +420,7 @@ struct FuelDetailView: View {
             let meals = (data.meals + data.recentMeals).filter { $0.day == slot && $0.status == .confirmed }
             let unique = Dictionary(meals.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }).values
             let fasted = row?.fuelState == .fasted
-            let intake = row?.eIn ?? (unique.isEmpty ? (fasted ? 0 : nil) : unique.reduce(0) { $0 + $1.kcal })
+            let intake = FuelCardMath.eaten(mealKcals: unique.map(\.kcal), server: row?.eIn, fasted: fasted)
             return FuelDayFacts(
                 day: slot,
                 intake: intake,
@@ -581,36 +605,55 @@ struct EditMealSheet: View {
 
     @State private var text = ""
     @State private var kcal = ""
+    @State private var protein = ""
+    @State private var carb = ""
+    @State private var fat = ""
+    @State private var eatenAt = Date()
+    @State private var slot = MealEntry.Slot.snack
 
     private var canSave: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (Double(kcal) ?? 0) > 0
+            && grams(protein) != nil
+            && grams(carb) != nil
+            && grams(fat) != nil
     }
 
     var body: some View {
         SheetFrame(title: L("Edit this meal"), fillsHeight: false) {
-            VStack(spacing: 10) {
-                HStack {
-                    Text(L(entry.slot.rawValue))
-                        .font(NBFont.ui(500, 13))
-                        .foregroundStyle(NB.text3Prod)
-                    Spacer(minLength: 0)
-                    Text(Fmt.clock(entry.at))
-                        .font(NBFont.dot(600, 11)).tracking(0.12 * 11)
-                        .foregroundStyle(NB.ember1)
+            ScrollView {
+                VStack(spacing: 10) {
+                    slotRow
+                    TimeFieldBox(label: L("Eaten at"), date: $eatenAt)
+                        .accessibilityIdentifier("fuel.edit.time")
+                    FieldBox(label: L("What you ate"), text: $text)
+                    FieldBox(label: L("KCAL"), text: $kcal, keyboard: .numberPad)
+                    HStack(spacing: 10) {
+                        FieldBox(label: L("PROTEIN"), text: $protein, keyboard: .numberPad)
+                        FieldBox(label: L("CARB"), text: $carb, keyboard: .numberPad)
+                        FieldBox(label: L("FAT"), text: $fat, keyboard: .numberPad)
+                    }
+                    Text(L("This recomputes the user day. Range is the last 7 days."))
+                        .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                        .foregroundStyle(NB.white.opacity(0.38))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 6)
                 }
-                FieldBox(label: L("What you ate"), text: $text)
-                FieldBox(label: L("KCAL"), text: $kcal, keyboard: .numberPad)
             }
-            Text(L("This recomputes the user day. Range is the last 7 days."))
-                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
-                .foregroundStyle(NB.white.opacity(0.38))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 6)
+            .scrollDismissesKeyboard(.interactively)
+            .frame(maxHeight: 420)
         } footer: {
             VStack(spacing: 14) {
                 LimePillButton(title: L("Save"), enabled: canSave) {
-                    data.amendMeal(entry.id, kcal: Double(kcal) ?? entry.kcal, text: text)
+                    data.amendMeal(
+                        entry.id,
+                        text: text,
+                        kcal: Double(kcal) ?? entry.kcal,
+                        protein: grams(protein) ?? entry.protein,
+                        carb: grams(carb) ?? entry.carb,
+                        fat: grams(fat) ?? entry.fat,
+                        at: entry.day.pinningClock(eatenAt),
+                        slot: slot)
                     onClose()
                 }
                 Button {
@@ -626,6 +669,42 @@ struct EditMealSheet: View {
             }
         }
         .padding(.bottom, max(8, Chrome.homeIndicatorBlock - 8))
-        .onAppear { text = entry.text; kcal = String(Int(entry.kcal)) }
+        .onAppear {
+            text = entry.text
+            kcal = String(Int(entry.kcal))
+            protein = String(entry.protein)
+            carb = String(entry.carb)
+            fat = String(entry.fat)
+            eatenAt = entry.at
+            slot = entry.slot
+        }
+    }
+
+    private var slotRow: some View {
+        HStack(spacing: 6) {
+            ForEach(MealEntry.Slot.allCases, id: \.self) { item in
+                let on = slot == item
+                Button { slot = item } label: {
+                    Text(L(item.rawValue))
+                        .font(NBFont.dot(600, 11))
+                        .foregroundStyle(on ? NB.ember1 : NB.text2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
+                        .background(NB.carbon4, in: Capsule())
+                        .overlay(Capsule().stroke(on ? NB.ember1 : NB.hairline, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("fuel.edit.slot.\(item.rawValue)")
+            }
+        }
+    }
+
+    private func grams(_ raw: String) -> Int? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return 0 }
+        guard let value = Int(trimmed), (0...100_000).contains(value) else { return nil }
+        return value
     }
 }

@@ -20,6 +20,8 @@ import type { NumberLedger } from "./ledger.ts";
 const FAMILY_KIND: Record<ChartSkill["family"], Kind> = {
   number: "rows", curve: "curve", pair: "pair", column: "column", arc: "arc",
   gauge: "gauge", stack: "stack", grid: "grid", strip: "strip", rows: "rows",
+  // 2026-09-06 gap audit · four shapes the first ten families could not hold.
+  meter: "meter", scatter: "scatter", verdict: "verdict", trace: "trace",
 };
 
 /// The four text slots, plus target and hero. Same on every chart.
@@ -36,18 +38,26 @@ const TAGS = ["MOVE", "FUEL", "RECOVER", "ALERT"] as const;
 function wordsFor(locale: string) {
   const en = locale.startsWith("en");
   return {
-    claims: z.array(z.object({id:z.string(),metric:z.string(),unit:z.string().nullable(),from:z.string().nullable(),to:z.string(),value:z.number().finite()})).max(32).optional().describe("Measured claims must cite exact current evidence ID, metric, unit and range. Mismatches are rejected."),
-    title: z.string().describe(en ? "≤ 18 characters, upper-cased on screen; 'METRIC · WINDOW'" : "≤ 18 个字符，屏上会转大写；写「指标 · 窗口」"),
-    tag: z.string().optional().describe(en ? `One of ${TAGS.join(" / ")}, optional` : `只取 ${TAGS.join(" / ")} 之一，可省略`),
-    sentence: z.string().describe(en ? "≤ 48 characters, two lines at most, required, in English; every number comes from a tool return this turn" : "≤ 48 字，两行封顶，必填；数字必须来自本轮读到的值"),
-    footer: z.string().optional().describe(en ? "≤ 42 characters, segments joined by ' · ', in English" : "≤ 42 字，几段用 ' · ' 连"),
-    action: z.string().optional().describe(en ? "≤ 32 characters, only when there is a real next step" : "≤ 32 字，只在真有下一步时写"),
-    hero: z.string().optional().describe(en ? "≤ 16 characters, the big number; omit to use the source's own" : "≤ 16 字的大字；省略则服务端用数据源自己的"),
-    target: z.string().optional().describe(en ? `The page a tap opens, one of ${TARGETS.join(" / ")}` : `点击落到哪一页，只取 ${TARGETS.join(" / ")} 之一`),
+    // ⚠️ Every one of these lines is serialized into all 33 render tools and re-sent on
+    // every model step: the render step's schema payload measured 44k characters, and each
+    // step was costing 15 s. The rules live in the system prompt (S3, S5, S11); the slot
+    // descriptions here only name the cap.
+    claims: z.array(z.object({id:z.string(),metric:z.string(),unit:z.string().nullable(),from:z.string().nullable(),to:z.string(),value:z.coerce.number().finite()})).max(32).optional().describe("Measured claims: cite this turn's evidence id, metric, unit, range, value."),
+    // ⚠️ Optional in the schema, required in execute(). Seen on production: the model left
+    // `title` out of screen.render.food and the SDK threw AI_InvalidToolArgumentsError,
+    // which kills the whole turn — the panel fell to the battery frame over a missing word.
+    // A missing slot has to come back as a tool result the model can act on, never as a throw.
+    title: z.string().optional().describe(en ? "Required, ≤ 18 chars: METRIC · WINDOW" : "必填，≤ 18 字：指标 · 窗口"),
+    tag: z.string().optional().describe(TAGS.join("/")),
+    sentence: z.string().optional().describe(en ? "Required, ≤ 48 chars; numbers only from this turn's tools" : "必填，≤ 48 字；数字只能来自本轮工具"),
+    footer: z.string().optional().describe(en ? "≤ 42 chars, joined by ' · '" : "≤ 42 字，用 ' · ' 连"),
+    action: z.string().optional().describe(en ? "≤ 32 chars, only for a real next step" : "≤ 32 字，只在真有下一步时写"),
+    hero: z.string().optional().describe(en ? "≤ 16 chars, the big number; omit to use the source's" : "≤ 16 字大字；省略则用数据源自己的"),
+    target: z.string().optional().describe(TARGETS.join("/")),
   };
 }
 
-export type Rendered = { rendered: true; type: string; hero?: string } | { rendered: false; error: "NO_DATA" | "QUERY_FAILED" | "INVALID_EVIDENCE"; say: string };
+export type Rendered = { rendered: true; type: string; hero?: string } | { rendered: false; error: "NO_DATA" | "QUERY_FAILED" | "INVALID_EVIDENCE" | "MISSING_TEXT"; say: string };
 
 export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: Envelope) => void,
                                 locale = "en-US") {
@@ -67,6 +77,13 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
       parameters: params,
       // deno-lint-ignore no-explicit-any
       execute: async (args: any): Promise<Rendered> => {
+        // The two slots the envelope cannot do without. Asking for them back costs one
+        // model step; throwing costs the whole turn.
+        const missing = ["title", "sentence"].filter((k) => !words_(args[k]));
+        if (missing.length) {
+          return { rendered: false, error: "MISSING_TEXT",
+            say: `${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} required on every chart. Call this tool again with ${missing.join(" and ")} filled in.` };
+        }
         let data: Record<string, unknown>;
         let hero: string | undefined = args.hero;
         if (skillSources.length) {
@@ -136,7 +153,7 @@ function literalSchema(skill: ChartSkill, words: ReturnType<typeof wordsFor>) {
     case "text":
       return z.object({
         ...words,
-        headline: z.string().describe("≤ 12 characters, the one big word on the panel"),
+        headline: z.string().optional().describe("≤ 12 characters, the one big word on the panel; falls back to title"),
         eyebrow: z.string().optional().describe("the line above the headline, e.g. 'BATTERY 86% · TARGET 14.5'"),
         sub: z.string().optional().describe("the line under the headline, e.g. 'STRENGTH · 45 MIN'"),
       });
@@ -147,16 +164,18 @@ function literalSchema(skill: ChartSkill, words: ReturnType<typeof wordsFor>) {
         ...words,
         name: z.string().describe("The dish"),
         portion: z.string().optional().describe("Portion, e.g. 'one bowl'"),
-        kcal: z.number().optional().describe("kcal, only if a tool returned it"),
-        protein_g: z.number().optional(),
-        carb_g: z.number().optional(),
-        fat_g: z.number().optional(),
-        pct_of_budget: z.number().optional().describe("share of today's target, only if computed"),
+        // ⚠️ coerce, don't reject: qwen sends {"kcal":"350"} about as often as {"kcal":350},
+        // and a strict z.number() there threw AI_InvalidToolArgumentsError and killed the turn.
+        kcal: z.coerce.number().optional().describe("kcal, only if a tool returned it"),
+        protein_g: z.coerce.number().optional(),
+        carb_g: z.coerce.number().optional(),
+        fat_g: z.coerce.number().optional(),
+        pct_of_budget: z.coerce.number().optional().describe("share of today's target, only if computed"),
       });
     case "metric":
       return z.object({
         ...words,
-        value: z.string().describe("The number, straight from a tool return this turn, e.g. '72'"),
+        value: z.coerce.string().describe("The number, straight from a tool return this turn, e.g. '72'"),
         unit: z.string().optional().describe("Unit, e.g. 'bpm'"),
         label: z.string().optional().describe("Metric name; overrides title"),
         ref: z.string().optional().describe("Reference, e.g. '+4 VS RHR 52'"),
@@ -171,8 +190,10 @@ function literalData(skill: ChartSkill, a: any): Record<string, unknown> {
   switch (skill.type) {
     case "metric":
       return { hero: [a.value, a.unit].filter(Boolean).join(" "), value: a.value, unit: a.unit, label: a.label, ref: a.ref };
+    // A text panel with no headline draws an empty highlight; the title is the honest
+    // stand-in, which is what the tool-call repair already did before it could parse.
     case "text":
-      return { headline: a.headline, eyebrow: a.eyebrow, sub: a.sub };
+      return { headline: words_(a.headline) ?? words_(a.title), eyebrow: a.eyebrow, sub: a.sub };
     case "food":
       return {
         name: a.name, portion: a.portion, kcal: a.kcal,
@@ -188,7 +209,8 @@ function literalData(skill: ChartSkill, a: any): Record<string, unknown> {
 /// The renderer's own keys, exactly as AIService.decodeData reads them.
 function shape(d: ChartData): Record<string, unknown> {
   switch (d.kind) {
-    case "curve":  return { series: d.series, ...(d.split != null ? { split: d.split } : {}) };
+    case "curve":  return { series: d.series, ...(d.split != null ? { split: d.split } : {}),
+                            ...(d.mark != null ? { mark: d.mark } : {}), ...(d.marks ? { marks: d.marks } : {}) };
     case "pair":   return { hi: d.hi, lo: d.lo, a: d.a, b: d.b };
     case "column": return { bins: d.bins, unit: d.unit, total: d.total };
     case "arc":    return { value: d.value, goal: d.goal, unit: d.unit };
@@ -197,6 +219,10 @@ function shape(d: ChartData): Record<string, unknown> {
     case "grid":   return { rows: d.rows, cols: d.cols, cells: d.cells, scale: d.scale, rowLabels: d.rowLabels, colLabels: d.colLabels };
     case "strip":  return { minutes: d.minutes, current_zone: d.current_zone, lanes: d.lanes, from: d.from, to: d.to };
     case "rows":   return { rows: d.rows };
+    case "meter":  return { value: d.value, max: d.max, parts: d.parts };
+    case "scatter": return { points: d.points, lo: d.lo, hi: d.hi, stats: d.stats };
+    case "verdict": return { word: d.word, options: d.options, confidence: d.confidence, steps: d.steps };
+    case "trace":  return { samples: d.samples, hz: d.hz };
   }
 }
 
@@ -209,6 +235,8 @@ function axisNumbers(d: ChartData): number[] {
   if (d.kind === "stack") take(d.parts);
   if (d.kind === "grid") { d.colLabels?.forEach((l) => labels.push(l)); d.rowLabels?.forEach((l) => labels.push(l)); }
   if (d.kind === "rows") d.rows.forEach((r) => labels.push(r.label));
+  if (d.kind === "meter") d.parts.forEach((p) => labels.push(p.label));
+  if (d.kind === "scatter") d.stats.forEach((p) => labels.push(p.value));
   return labels.flatMap((l) => numbersIn(l));
 }
 

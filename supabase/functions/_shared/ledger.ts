@@ -229,6 +229,11 @@ const WHITELIST = [
   /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g,
   /\b\d{1,2}:\d{2}\b/g,          // HH:MM
   /\d{4}-\d{2}-\d{2}/g,          // YYYY-MM-DD
+  // ADR 0018 · a plan's basis names days the way a person does: "9-04", "9/5", "09-05".
+  // A date is an axis, not a claim. ⚠️ It has to be shaped like a real month and day and
+  // fenced off from digits and dots on both sides: a loose \d{1,2}-\d{1,2} eats the middle
+  // of the training range "12.5-16.5" and leaves behind two numbers nobody wrote.
+  /(?<![\d.])(0?[1-9]|1[0-2])[-\/](0?[1-9]|[12]\d|3[01])(?![\d.])/g,
   /\bZONE\s*\d\b/gi,             // ZONE n
   /\bZ[1-5]\b/g,
   /\bSLOT\s*\d\b/gi,

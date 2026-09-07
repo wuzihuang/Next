@@ -15,7 +15,10 @@ import { SEED_MEAL_VERSION } from "./db.ts";
 export type Point = [string, number];
 
 export type ChartData =
-  | { kind: "curve"; series: Point[]; split?: number }
+  /// `mark` is a horizontal threshold (a zone floor); `marks` are x indices worth naming
+  /// (the minute a meal started, the minute the curve came back to baseline). Both are
+  /// optional and only the two 2026-09-06 curves send them.
+  | { kind: "curve"; series: Point[]; split?: number; mark?: number; marks?: number[] }
   | { kind: "pair"; hi: Point[]; lo: Point[]; a?: string; b?: string }
   | { kind: "column"; bins: Point[]; unit?: string; total?: number }
   | { kind: "arc"; value: number; goal: number; unit: string }
@@ -23,7 +26,17 @@ export type ChartData =
   | { kind: "stack"; parts: Point[] }
   | { kind: "grid"; rows: number; cols: number; cells: number[][]; scale: number; rowLabels?: string[]; colLabels?: string[] }
   | { kind: "strip"; minutes?: number[]; current_zone?: number; lanes?: [number, number][]; from?: string; to?: string }
-  | { kind: "rows"; rows: { label: string; value: string; spark?: number[] }[] };
+  | { kind: "rows"; rows: { label: string; value: string; spark?: number[] }[] }
+  /// One total plus the sub-scores that make it, each against its own full value. Not a
+  /// stack: the parts are independent readings, they do not add up to the total.
+  | { kind: "meter"; value: number; max: number; parts: { label: string; value: number; max: number }[] }
+  /// A beat-to-beat cloud: (this interval, the next) in milliseconds, the box to draw it in,
+  /// and the readings that go beside it — the cloud alone is a shape, not a reading.
+  | { kind: "scatter"; points: [number, number][]; lo: number; hi: number; stats: { label: string; value: string }[] }
+  /// A closed verdict: which one of `options` it landed on, and how much evidence backs it.
+  | { kind: "verdict"; word: string; options: string[]; confidence: number; steps: number }
+  /// One sample per beat, drawn as a trace. `hz` is what the renderer times the sweep by.
+  | { kind: "trace"; samples: number[]; hz: number };
 
 export type Kind = ChartData["kind"];
 
@@ -428,7 +441,10 @@ export const SOURCES: Source[] = [
       const rows = await dayRows(ctx, ctx.dayKey, ctx.dayKey);
       const v = rows?.[0]?.training_load;
       if (v == null) return null;
-      return { data: { kind: "arc", value: v, goal: 21, unit: "" }, agg: { value: v, goal: 21, pct: Math.round(v / 21 * 100) }, hero: `${v}`, window: "TODAY" };
+      // F7 §08 · the remainder is a number the ring's own caption asks for («还差多少»),
+      // so the server computes it. The model may not subtract: 21 − 2.6 came back as an
+      // untraceable 18.4 and threw the whole frame away.
+      return { data: { kind: "arc", value: v, goal: 21, unit: "" }, agg: { value: v, goal: 21, left: r1(21 - v), pct: Math.round(v / 21 * 100) }, hero: `${v}`, window: "TODAY" };
     },
   },
   {
@@ -438,7 +454,7 @@ export const SOURCES: Source[] = [
       const rd = one(rows?.[0]?.reserve_daily);
       const v = rd?.current_value ?? rows?.[0]?.reserve_score ?? null;
       if (v == null) return null;
-      return { data: { kind: "arc", value: v, goal: 100, unit: "%" }, agg: { value: v, wake: rd?.wake_value ?? null, min: rd?.min_value ?? null, sinceWake: rd?.wake_value != null ? v - rd.wake_value : null }, hero: `${v}`, unit: "%", window: "NOW" };
+      return { data: { kind: "arc", value: v, goal: 100, unit: "%" }, agg: { value: v, goal: 100, left: r1(100 - v), wake: rd?.wake_value ?? null, min: rd?.min_value ?? null, sinceWake: rd?.wake_value != null ? v - rd.wake_value : null }, hero: `${v}`, unit: "%", window: "NOW" };
     },
   },
   {
@@ -715,7 +731,289 @@ export const SOURCES: Source[] = [
       return { data: { kind: "rows", rows }, agg, hero: `${ev.length}`, window: "TODAY" };
     },
   },
+  ...gaps(),
 ];
+
+/// The band writes one band_rr_evidence row per HRV sample — a handful of intervals each —
+/// so a reading is a run of rows, not one. This gathers the newest run: every row inside
+/// `minutes` of the latest one, oldest first, concatenated.
+///
+/// The filter is AutonomicBalance's own: 300 ms is 200 bpm and 2000 ms is 30 bpm, and one
+/// dropped or doubled beat moves SD1 more than the wearer's state does. Twelve clean
+/// intervals is the same floor the app refuses to draw under.
+const RR_MIN_INTERVALS = 12;
+async function recentIntervals(ctx: Ctx, minutes: number, notAfter?: string): Promise<{ beats: number[]; at: string } | null> {
+  let q = ctx.db.from("band_rr_evidence").select("ts, rr_ms").eq("user_id", ctx.userId);
+  if (notAfter) q = q.lte("ts", notAfter);
+  const { data, error } = await q.order("ts", { ascending: false }).limit(60);
+  if (error) throw new Error("SOURCE_QUERY_FAILED");
+  const rows = (data ?? []) as { ts: string; rr_ms: number[] }[];
+  if (!rows.length) return null;
+  const newest = Date.parse(rows[0].ts);
+  const run = rows.filter((r) => newest - Date.parse(r.ts) <= minutes * 60_000).reverse();
+  const beats = run.flatMap((r) => (r.rr_ms ?? []).map(Number))
+    .filter((v) => v >= 300 && v <= 2000);
+  return beats.length >= RR_MIN_INTERVALS ? { beats, at: rows[0].ts } : null;
+}
+
+// ---------------------------------------------------------------- 2026-09-06 gap audit
+//
+// Six tables the database filled and no chart ever read, plus the tachogram that finally
+// gives `wave` a source. Nothing here invents a number: each source returns null when the
+// rows are not there, which is what makes the panel say —— instead of 0.
+//
+// ⚠️ Two things the audit got wrong on paper and the schema corrected:
+//   · daily_training.curve is [[epoch, cumulative TRAINING LOAD], …] at five minutes —
+//     the load accumulating through the day, not a session heart-rate trace.
+//   · `ecg` is marked unsupported in metric-query.ts: the band does not produce it. The
+//     trace `wave` wanted is band_rr_evidence.rr_ms, a real ordered interval series.
+function gaps(): Source[] {
+  return [
+    {
+      id: "sleep.score.night", kind: "meter",
+      says: "上一夜的睡眠总分，以及时长 / 结构 / 恢复 / 规律四个子分（0–100）",
+      async fetch(ctx) {
+        const from = addDays(ctx.dayKey, -1);
+        const { data, error } = await ctx.db.from("night_score")
+          .select("user_day, score, duration_score, architecture_score, recovery_score, regularity_score")
+          .eq("user_id", ctx.userId).gte("user_day", from).lte("user_day", ctx.dayKey)
+          .order("user_day", { ascending: false }).limit(1);
+        if (error) throw new Error("SOURCE_QUERY_FAILED");
+        const row = (data ?? [])[0] as Record<string, number | string | null> | undefined;
+        if (!row || row.score == null) return null;
+        const named: [string, string][] = [
+          ["DURATION", "duration_score"], ["ARCHITECTURE", "architecture_score"],
+          ["RECOVERY", "recovery_score"], ["REGULARITY", "regularity_score"],
+        ];
+        // A sub-score that was not computed is absent, not zero: it is dropped.
+        const parts = named
+          .filter(([, k]) => row[k] != null)
+          .map(([label, k]) => ({ label, value: Number(row[k]), max: 100 }));
+        if (!parts.length) return null;
+        const worst = parts.reduce((a, b) => (b.value < a.value ? b : a));
+        const agg: Record<string, number | null> = { score: Number(row.score), parts: parts.length, worst: worst.value };
+        for (const p of parts) agg[p.label.toLowerCase()] = p.value;
+        return {
+          data: { kind: "meter", value: Number(row.score), max: 100, parts },
+          agg, hero: `${row.score}`, window: "LAST NIGHT",
+        };
+      },
+    },
+    {
+      id: "balance.check.last", kind: "scatter",
+      says: "上一次平衡测试的逐拍散点（Poincaré），带 SDNN、主导侧与静息占比",
+      async fetch(ctx) {
+        const { data, error } = await ctx.db.from("balance_checks")
+          .select("measured_at, lead, rest_share, sd1_ms, sd2_ms, sdnn_ms, heart_rate, beat_count, algo_version")
+          .eq("user_id", ctx.userId).order("measured_at", { ascending: false }).limit(1);
+        if (error) throw new Error("SOURCE_QUERY_FAILED");
+        const check = (data ?? [])[0] as Record<string, string | number | null> | undefined;
+        if (!check) return null;
+        // The cloud itself is the interval run; the summary row does not carry the beats.
+        const run = await recentIntervals(ctx, 10, String(check.measured_at));
+        if (!run) return null;
+        const rr = run.beats;
+        const points: [number, number][] = [];
+        for (let i = 1; i < rr.length; i++) points.push([rr[i - 1], rr[i]]);
+        if (points.length < RR_MIN_INTERVALS) return null;
+        const flat = points.flat();
+        const lo = Math.min(...flat), hi = Math.max(...flat);
+        return {
+          data: {
+            kind: "scatter", points, lo: Math.floor(lo / 50) * 50, hi: Math.ceil(hi / 50) * 50,
+            stats: [
+              { label: "SDNN", value: `${Math.round(Number(check.sdnn_ms))} ms` },
+              { label: "LEAD", value: String(check.lead).toUpperCase() },
+              { label: "REST SHARE", value: `${Number(check.rest_share)} %` },
+            ],
+          },
+          agg: {
+            sdnn: Number(check.sdnn_ms), sd1: Number(check.sd1_ms), sd2: Number(check.sd2_ms),
+            restShare: Number(check.rest_share), beats: Number(check.beat_count),
+            heartRate: check.heart_rate == null ? null : Number(check.heart_rate),
+            pairs: points.length,
+          },
+          hero: `${Math.round(Number(check.sdnn_ms))} ms`, unit: "ms",
+          window: String(check.lead).toUpperCase(),
+        };
+      },
+    },
+    {
+      id: "sync.status.7d", kind: "grid",
+      says: "最近 7 天每个域的同步状态：完整 / 部分 / 失败 / 没采到 / 不支持",
+      async fetch(ctx) {
+        const days = window(ctx, 7);
+        const { data, error } = await ctx.db.from("sync_domain_status")
+          .select("user_day, domain, status")
+          .eq("user_id", ctx.userId).gte("user_day", days[0]).lte("user_day", ctx.dayKey);
+        if (error) throw new Error("SOURCE_QUERY_FAILED");
+        const rows = (data ?? []) as { user_day: string; domain: string; status: string }[];
+        if (!rows.length) return null;
+        // 0 not_collected · 1 unsupported · 2 failed · 3 partial · 4 complete. The order is
+        // the palette's order on the panel, worst to best; 0 is also the never-attempted cell.
+        const CODE: Record<string, number> = { not_collected: 0, unsupported: 1, failed: 2, partial: 3, complete: 4 };
+        const domains = [...new Set(rows.map((r) => r.domain))].sort();
+        const state = new Map(rows.map((r) => [`${r.domain}|${r.user_day}`, CODE[r.status] ?? 0]));
+        const cells = domains.map((d) => days.map((day) => state.get(`${d}|${day}`) ?? 0));
+        const flat = cells.flat();
+        return {
+          data: {
+            kind: "grid", rows: domains.length, cols: days.length, cells, scale: 4,
+            rowLabels: domains.map((d) => d.toUpperCase()), colLabels: days.map(weekday),
+          },
+          agg: {
+            complete: flat.filter((c) => c === 4).length, partial: flat.filter((c) => c === 3).length,
+            failed: flat.filter((c) => c === 2).length, unsupported: flat.filter((c) => c === 1).length,
+            missing: flat.filter((c) => c === 0).length,
+            domains: domains.length, windowDays: days.length, cells: flat.length,
+          },
+          hero: `${flat.filter((c) => c !== 4).length}`, window: "7 DAYS",
+        };
+      },
+    },
+    {
+      id: "composition.call", kind: "verdict",
+      says: "体成分的判定（RECOMP / CUT / BULK / DRIFT / NO_CHANGE）与它的置信度",
+      async fetch(ctx) {
+        const from = addDays(ctx.dayKey, -14);
+        const { data, error } = await ctx.db.from("daily_results")
+          .select("user_day, the_call, the_call_confidence")
+          .eq("user_id", ctx.userId).gte("user_day", from).lte("user_day", ctx.dayKey)
+          .not("the_call", "is", null).order("user_day", { ascending: false }).limit(1);
+        if (error) throw new Error("SOURCE_QUERY_FAILED");
+        const row = (data ?? [])[0] as { user_day: string; the_call: string; the_call_confidence: string | null } | undefined;
+        if (!row) return null;
+        // What the verdict rests on: how many times she actually stood on the scale.
+        const weighs = await ctx.db.from("weigh_ins").select("measured_at")
+          .eq("user_id", ctx.userId)
+          .gte("measured_at", zoned(from, 4, ctx.tz).toISOString())
+          .lt("measured_at", dayBounds(ctx.dayKey, ctx.tz).end.toISOString());
+        if (weighs.error) throw new Error("SOURCE_QUERY_FAILED");
+        const STEPS: Record<string, number> = { PENDING: 1, MEDIUM: 2, HIGH: 3 };
+        const confidence = STEPS[row.the_call_confidence ?? "PENDING"] ?? 1;
+        return {
+          data: {
+            kind: "verdict", word: row.the_call,
+            options: ["RECOMP", "CUT", "BULK", "DRIFT", "NO_CHANGE"],
+            confidence, steps: 3,
+          },
+          agg: { confidence, weighIns: (weighs.data ?? []).length, windowDays: 14 },
+          hero: row.the_call, window: "14 DAYS",
+        };
+      },
+    },
+    {
+      id: "load.curve.today", kind: "curve",
+      says: "今天训练负荷是怎么攒起来的：五分钟一点的累积曲线（0–21），标出 21 的满值线",
+      async fetch(ctx) {
+        // ⚠️ Not through dayRows: its nested select lists daily_training's small columns and
+        // deliberately leaves `curve` out, so reading it from there is always undefined —
+        // which is exactly how this source shipped returning NULL against real rows. The
+        // jsonb is fetched here, for the one chart that wants it.
+        const day = await ctx.db.from("daily_results").select("id")
+          .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).limit(1);
+        if (day.error) throw new Error("SOURCE_QUERY_FAILED");
+        const resultId = (day.data ?? [])[0]?.id;
+        if (!resultId) return null;
+        const { data, error } = await ctx.db.from("daily_training")
+          .select("curve, peak_hr, zone_minutes").eq("result_id", resultId).limit(1);
+        if (error) throw new Error("SOURCE_QUERY_FAILED");
+        const t = (data ?? [])[0] as { curve: unknown; peak_hr: number | null; zone_minutes: number[] | null } | undefined;
+        const raw = (t?.curve ?? []) as [number, number][];
+        if (!Array.isArray(raw) || raw.length < 2) return null;
+        const series: Point[] = raw
+          .filter((p) => Array.isArray(p) && p.length >= 2 && p[1] != null)
+          .map((p) => [hhmm(new Date(Number(p[0]) * 1000).toISOString(), ctx.tz), Number(p[1])]);
+        if (series.length < 2) return null;
+        const zone = (t?.zone_minutes ?? []) as number[];
+        const vals = series.map((p) => p[1]);
+        const s = stats(vals);
+        return {
+          // The full value is 21, the same ceiling ring uses; the panel draws it as a line.
+          data: { kind: "curve", series, mark: 21 },
+          agg: {
+            ...s, peakHr: t?.peak_hr ?? null, points: series.length,
+            z4: zone[3] ?? null, z5: zone[4] ?? null,
+            hardMinutes: (zone[3] ?? 0) + (zone[4] ?? 0),
+          },
+          hero: `${s.latest}`, window: "TODAY",
+        };
+      },
+    },
+    {
+      id: "response.meal.last", kind: "curve",
+      says: "最近一餐之后的腕上光学反应指数（无量纲，不是血糖）：开饭一刻与回到基线的一刻都标出来",
+      async fetch(ctx) {
+        const { start, end } = dayBounds(ctx.dayKey, ctx.tz);
+        const meals = await ctx.db.from("meals").select("logged_at, slot")
+          .eq("user_id", ctx.userId).gte("logged_at", start.toISOString()).lt("logged_at", end.toISOString())
+          .order("logged_at", { ascending: false }).limit(1);
+        if (meals.error) throw new Error("SOURCE_QUERY_FAILED");
+        const meal = (meals.data ?? [])[0] as { logged_at: string; slot: string } | undefined;
+        if (!meal) return null;
+        const at = Date.parse(meal.logged_at);
+        // ⚠️ The band samples this roughly every half hour, not every minute. A 30-minute
+        // baseline window and a six-point floor — the shape a dense signal would want —
+        // never once filled against real rows. The window is the cadence's, not a
+        // continuous monitor's: 90 minutes before for a baseline, three hours after for the
+        // response, and at least one sample on each side or there is no index to compute.
+        const { data, error } = await ctx.db.from("response_samples").select("ts, optical")
+          .eq("user_id", ctx.userId)
+          .gte("ts", new Date(at - 90 * 60_000).toISOString())
+          .lt("ts", new Date(at + 180 * 60_000).toISOString())
+          .order("ts").limit(400);
+        if (error) throw new Error("SOURCE_QUERY_FAILED");
+        const rows = (data ?? []) as { ts: string; optical: number }[];
+        if (rows.length < 4) return null;
+        const before = rows.filter((r) => Date.parse(r.ts) < at).map((r) => r.optical);
+        const baseline = mean(before);
+        if (baseline == null || baseline <= 0) return null;
+        if (rows.length - before.length < 2) return null;
+        // Unitless on purpose: the index is the rise over this meal's own baseline, never
+        // a vendor scalar and never a lab unit. The table's comment is the rule.
+        const series: Point[] = rows.map((r) => [hhmm(r.ts, ctx.tz), Math.round((r.optical / baseline - 1) * 100)]);
+        const startIdx = rows.findIndex((r) => Date.parse(r.ts) >= at);
+        if (startIdx < 0) return null;
+        // ⚠️ The peak is the meal's peak, so it is searched from the meal forward. Searching
+        // the whole series let a quiet pre-meal sample win and printed "peak at −86 min" —
+        // a number that is not wrong by a little, it is describing the wrong event.
+        let peakIdx = startIdx;
+        for (let i = startIdx; i < series.length; i++) if (series[i][1] > series[peakIdx][1]) peakIdx = i;
+        const backIdx = series.findIndex((p, i) => i > peakIdx && p[1] <= 5);
+        const marks = [startIdx, backIdx].filter((i) => i >= 0);
+        const minsFrom = (i: number) => Math.round((Date.parse(rows[i].ts) - at) / 60_000);
+        return {
+          data: { kind: "curve", series, marks },
+          agg: {
+            peak: series[peakIdx][1], peakAfterMin: minsFrom(peakIdx),
+            settleMin: backIdx >= 0 ? minsFrom(backIdx) : null,
+            points: series.length, baselineSamples: before.length,
+          },
+          hero: `${series[peakIdx][1] > 0 ? "+" : ""}${series[peakIdx][1]}`,
+          window: meal.slot.toUpperCase(),
+        };
+      },
+    },
+    {
+      id: "rr.tachogram.last", kind: "trace",
+      says: "上一段逐拍间期（RR，毫秒）按拍号画成一条迹线——band_rr_evidence 的原始数组",
+      async fetch(ctx) {
+        const run = await recentIntervals(ctx, 10);
+        if (!run) return null;
+        const beats = run.beats;
+        const s = stats(beats);
+        // The trace renderer eats samples + hz; a tachogram is one sample per beat, so the
+        // rate is the mean beat rate rather than a fixed sampling frequency.
+        const hz = s.mean ? r1(1000 / s.mean) : 1;
+        return {
+          data: { kind: "trace", samples: beats, hz },
+          agg: { ...s, beats: beats.length, hz },
+          hero: `${beats.length}`, unit: "ms", window: "LAST READING",
+        };
+      },
+    },
+  ];
+}
 
 /// A daily metric over 7 or 30 days, as a curve (line) or a column (days). One source id
 /// serves both: the chart decides the kind it wants, see `fetchAs`.

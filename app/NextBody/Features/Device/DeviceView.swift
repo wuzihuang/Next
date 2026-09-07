@@ -100,10 +100,31 @@ struct DeviceView: View {
         } onBack: {
             router.back()
         }
+        #if DEBUG
+        .onAppear {
+            if let s = ProcessInfo.processInfo.environment["NB_DEBUG_DEVICE_SHEET"] {
+                switch s {
+                case "findHoop": sheet = .findHoop
+                case "bandAlarms": sheet = .bandAlarms
+                case "bandAutoMonitor": sheet = .bandAutoMonitor
+                default: break
+                }
+            }
+        }
+        #endif
         .task {
+            if DebugEdge.on("disconnected") {
+                data.band.connected = false
+            }
             if DebugEdge.on("clamped") { clamped = ("Heart rate alarm", "50–140 BPM", "50–130 BPM") }
             if DebugEdge.on("busy") { busyQueued = true }
             if DebugEdge.on("otaunverified") { ota = .unverified }
+            if DebugEdge.on("otarunning") {
+                ota = .running
+                otaProgress = 0.42
+            }
+            if DebugEdge.on("otacompleted") { ota = .completed }
+            if DebugEdge.on("otafailed") { ota = .failed("The band moved out of range") }
             if DebugEdge.on("levelonly") {
                 data.applyBandObservation(battery: BandBattery(isPercent: false, percent: nil, level: 3, chargeState: .unplugged))
             }
@@ -143,6 +164,7 @@ struct DeviceView: View {
                 switch s {
                 case "findHoop": sheet = .findHoop
                 case "bandAlarms": sheet = .bandAlarms
+                case "bandAutoMonitor": sheet = .bandAutoMonitor
                 default: break
                 }
             }
@@ -154,6 +176,14 @@ struct DeviceView: View {
             } catch {
                 autoRead = .failed(error)
             }
+            #if DEBUG
+            if DebugEdge.on("otarunning") {
+                ota = .running
+                otaProgress = 0.42
+            }
+            if DebugEdge.on("otacompleted") { ota = .completed }
+            if DebugEdge.on("otafailed") { ota = .failed("The band moved out of range") }
+            #endif
         }
         .onChange(of: connected) { _, on in
             guard on else { autoRead = nil; return }

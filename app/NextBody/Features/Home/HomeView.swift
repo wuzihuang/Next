@@ -92,9 +92,9 @@ struct HomeView: View {
     /// Stays true for the whole close pull. A 1pt planY threshold must not
     /// drive the lip or hit-testing — that rebuild flashed the face.
     @State private var planSettledOpen = false
-    @State private var planFaceCache: PlanFaceMath.Face?
-    @State private var planDone: Set<String> = []
-    @State private var planGenerating = false
+    /// ADR 0018 · the plan is a server row; this is its store and the thinking clock.
+    @ObservedObject private var planStore = PlanStore.shared
+    @State private var planThinkingStartedAt = Date()
 
     // MARK: geometry · the page is laid out against the device, not against the board's
     // 390 × 844. Header under the status bar, dock over the home indicator, the strip above
@@ -174,11 +174,6 @@ struct HomeView: View {
     private var planLipPlaying: Bool {
         PlanFaceMath.hintPlaying(reduceMotion: planMotionReduced) && !planSettledOpen
     }
-    private var planFace: PlanFaceMath.Face {
-        planFaceCache ?? PlanSnapshot.make(
-            today: data.today, history: data.history, scores: data.sleepScores)
-    }
-
     /// Named so Home's ZStack does not type-check the eight-card page inline.
     private var instrumentsPage: some View {
         VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
@@ -222,7 +217,7 @@ struct HomeView: View {
                 if homeDrag == nil {
                     homeDrag = .plan
                     planYAtTouch = planY
-                    if planFaceCache == nil { refreshPlanFace() }
+                    Task { await planStore.load(dayKey: data.today.day.key) }
                     Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "PLAN"]) }
                 }
                 guard homeDrag == .plan else { return }
@@ -240,12 +235,17 @@ struct HomeView: View {
     @ViewBuilder
     private var planPageLayer: some View {
         if abs(planY) > 0.5 {
-            PlanPage(face: planFace, flatten: planFlatten, reduceMotion: planMotionReduced,
+            PlanPage(plan: planStore.plan, checked: planStore.checked,
+                     flatten: planFlatten, reduceMotion: planMotionReduced,
                      closeEnabled: true,
-                     done: { planDone.contains($0.rawValue) },
-                     regenerating: planGenerating,
-                     onToggle: togglePlanCheck,
-                     onRegenerate: { regeneratePlan() },
+                     loading: planStore.loading,
+                     generating: planStore.generating,
+                     errorLine: planStore.errorLine,
+                     thinkingReading: ai.reading ?? PhoneToolRunner.shared.running,
+                     thoughts: ai.thoughts,
+                     thinkingStartedAt: planThinkingStartedAt,
+                     onTick: { planStore.tick($0, dayKey: data.today.day.key) },
+                     onRegenerate: { generatePlan() },
                      onCloseDragChanged: { dy in
                          dragPlan(to: -screen.height + dy, dy: dy)
                      },
@@ -375,6 +375,7 @@ struct HomeView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { fireWidgetShot() }
             guard phase != .active else { return }
+            cancelInterruptedDrag()
             readoutHold?.cancel()
             readoutHold = nil
             readoutHeldOnPageTwo = false
@@ -383,6 +384,17 @@ struct HomeView: View {
             fireWidgetShot()
         }
         .onAppear { fireWidgetShot() }
+        .onChange(of: router.planRequest) { _, _ in
+            // ADR 0018 · a plan frame or app.open("plan") lands on the face.
+            if abs(planY) < 1 { openPlan(fromIdle: false) }
+        }
+        .onChange(of: router.pendingHomePanel) { _, panel in
+            guard panel == "body_battery" else { return }
+            if let morning = MorningWidget.frame(today: data.today, history: data.history, ignoreShown: true) {
+                withAnimation { widget = morning }
+            }
+            router.pendingHomePanel = nil
+        }
         .onChange(of: router.measuredWidget) { _, w in
             guard let w else { return }
             withAnimation(.spring(response: 0.50, dampingFraction: 0.80)) { widget = w }
@@ -449,21 +461,81 @@ struct HomeView: View {
             case "nospeech":    note(DockNote(line: L("NOTHING HEARD"), text: L("Say it again, or type it.")))
             case "offline":     note(DockNote(line: L("NO CONNECTION"), text: L("It stays here. Send it when you're back.")))
             case "interrupted": note(DockNote(line: L("INTERRUPTED AT 0:07"), text: L("Not saved. Say it again when you're free.")))
+            case "uploadfailed": note(DockNote(line: L("UPLOAD FAILED"), text: L("Tap the photo to retry, or remove it.")))
             // 05M · B·03 / B·04 · the chamber and its cancel state, on a simulator that has no
             // microphone to hold; the waveform shows the board's own bars.
             case "recording", "cancelling": dockMode = .listening
             default: break
             }
             #if DEBUG
+            // Session takeover does not need home hydration. Waiting for bootstrap
+            // made 12s captures land on Home after a cold install.
+            if LiveSessionStore.debugFakeWrist {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(0.8))
+                    liveSession.debugAutoStart(profile: data.profile, weightKg: data.today.weightKg)
+                }
+            }
+            if ProcessInfo.processInfo.environment["NB_DEBUG_MORNING"] == "1" {
+                let metrics = Band.allowsSeed ? DataStore.seedToday() : data.today
+                if let frame = MorningWidget.frame(today: metrics, history: data.history, ignoreShown: true) {
+                    widget = frame
+                }
+            }
+            if ProcessInfo.processInfo.environment["NB_DEBUG_PLUS"] == "open" {
+                plusOpen = true
+            }
+            if ProcessInfo.processInfo.environment["NB_DEBUG_PLUS"] == "dismiss" {
+                plusOpen = true
+                sheetDrag = 240
+            }
+            if ProcessInfo.processInfo.environment["NB_DEBUG_CAMERA"] == "1" {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.2))
+                    openCamera(sendFood: true)
+                }
+            }
+            if let dock = ProcessInfo.processInfo.environment["NB_DEBUG_DOCK"] {
+                switch dock {
+                case "keyboard":
+                    dockMode = .keyboard
+                    if let text = ProcessInfo.processInfo.environment["NB_DEBUG_DRAFT"] {
+                        draft = text
+                    }
+                case "listening":
+                    dockMode = .listening
+                default:
+                    break
+                }
+            }
+            #endif
+            #if DEBUG
             // `SIMCTL_CHILD_NB_DEBUG_HOME_DRAG=0.45` freezes a mid-swipe frame: the pages and
             // both sets of dots hold exactly where a 45 % drag would leave them.
             if ProcessInfo.processInfo.environment["NB_DEBUG_HOME_PAGE"] == "1" {
                 router.homePage = 1
             }
-            if ProcessInfo.processInfo.environment["NB_DEBUG_PLAN"] == "1" {
+            if ProcessInfo.processInfo.environment["NB_DEBUG_PLAN"] == "empty" {
+                Task { @MainActor in
+                    planStore.reset()
+                    try? await Task.sleep(for: .seconds(0.8))
+                    planSettledOpen = true
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        planY = -screen.height
+                        planDragDy = 0
+                    }
+                }
+            } else if ProcessInfo.processInfo.environment["NB_DEBUG_PLAN"] == "1" {
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(1))
                     openPlan(fromIdle: true)
+                }
+            }
+            if DebugEdge.on("charging") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.2))
+                    data.applyBandObservation(battery: BandBattery(
+                        isPercent: true, percent: 64, level: 3, chargeState: .charging))
                 }
             }
             if let f = debugDragFraction, router.homePage == 0, pageX == 0 {
@@ -511,13 +583,22 @@ struct HomeView: View {
                 return
             }
 
-            // 13 col 01 · 昨夜, once a day, within six hours of waking. F5 C4 · the notification
-            // primer follows the first real morning and nothing else.
+            // 13 col 01 · 昨夜, once a day, within six hours of waking. F5 C4 · the
+            // primer still follows the first real morning; later edges do not re-ask.
             if widget == nil, let morning = MorningWidget.frame(today: data.today, history: data.history) {
                 withAnimation { widget = morning }
                 await MorningWidget.markShown(day: data.today.day, widget: morning)
+                NotificationReach.cancelMorning()
                 if await NotificationPrimer.shouldOffer() { router.takeover = .notificationPrimer }
             }
+            await NotificationReach.refresh(today: data.today, history: data.history,
+                                            store: data, page: router.notifyPage,
+                                            appIsActive: scenePhase == .active)
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["NB_DEBUG_NOTIFY"] == "1" {
+                await NotificationReach.debugFireNow()
+            }
+            #endif
 
             #if DEBUG
             // `NB_DEBUG_TURN=今天心率怎么样` · one question through the real dock path, on a
@@ -533,22 +614,37 @@ struct HomeView: View {
             // enough to see and too short to check. `=<type>` pins one catalogue sample of
             // that widget instead, which is the only way to reach a chart whose data the
             // account does not have today.
-            // `NB_DEBUG_SESSION=1` · a sport session on home with no band, wrist played.
-            if LiveSessionStore.debugFakeWrist {
+            if ProcessInfo.processInfo.environment["NB_DEBUG_MORNING"] == "1" {
+                let metrics = Band.allowsSeed ? DataStore.seedToday() : data.today
+                if let frame = MorningWidget.frame(today: metrics, history: data.history, ignoreShown: true) {
+                    widget = frame
+                }
                 Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(3))
-                    liveSession.debugAutoStart(profile: data.profile, weightKg: data.today.weightKg)
+                    for _ in 0..<20 {
+                        let metrics = Band.allowsSeed ? DataStore.seedToday() : data.today
+                        if let frame = MorningWidget.frame(today: metrics, history: data.history, ignoreShown: true) {
+                            widget = frame
+                        }
+                        try? await Task.sleep(for: .seconds(1.5))
+                    }
                 }
             }
             if let want = ProcessInfo.processInfo.environment["NB_DEBUG_PANEL"], !want.isEmpty {
+                func pinned() -> PanelWidget? {
+                    if want == "thinking" { return .thinking("Why am I so tired today?") }
+                    if want == "balance-result" { return WidgetCatalogue.balanceResult }
+                    return PanelType(rawValue: want).map { WidgetCatalogue.sample($0) }
+                }
+                // Pin before bootstrap returns. The old 4s delay started *after*
+                // `bootstrapHome`, so a 5s capture still photographed STANDBY.
+                if let frame = pinned() { widget = frame }
                 Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(4))
-                    if want == "thinking" {
-                        widget = .thinking("Why am I so tired today?")
-                    } else if want == "balance-result" {
-                        widget = WidgetCatalogue.balanceResult
-                    } else if let t = PanelType(rawValue: want) {
-                        widget = WidgetCatalogue.sample(t)
+                    guard let frame = pinned() else { return }
+                    for _ in 0..<40 {
+                        if widget?.type != frame.type || widget?.title != frame.title {
+                            widget = pinned()
+                        }
+                        try? await Task.sleep(for: .seconds(1.5))
                     }
                 }
             }
@@ -771,7 +867,7 @@ struct HomeView: View {
                         if planY != 0 || lip {
                             homeDrag = .plan
                             planYAtTouch = planY
-                            if planFaceCache == nil { refreshPlanFace() }
+                            Task { await planStore.load(dayKey: data.today.day.key) }
                             Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "PLAN"]) }
                         } else {
                             homeDrag = .dead
@@ -819,40 +915,20 @@ struct HomeView: View {
             }
     }
 
-    private func refreshPlanFace() {
-        planFaceCache = PlanSnapshot.make(
-            today: data.today, history: data.history, scores: data.sleepScores)
-    }
-
-    private func loadPlanChecks() {
-        planDone = PlanChecks.load(dayKey: data.today.day.key)
-    }
-
-    private func togglePlanCheck(_ kind: PlanFaceMath.ActionKind) {
-        guard !planDone.contains(kind.rawValue) else { return }
-        planDone.insert(kind.rawValue)
-        PlanChecks.save(dayKey: data.today.day.key, done: planDone)
-        // ADR 0018 · a tick is a record, not a turn. It used to fire /turn per tick and
-        // spend half the day's allowance on five checkboxes.
-        refreshPlanFace()
-    }
-
-    private func regeneratePlan(mark: PlanFaceMath.ActionKind? = nil, done: Bool? = nil) {
+    /// ADR 0018 · one turn on the plan surface. The face shows the thinking stream while it
+    /// runs; the row lands on the server, so a face closed mid-way finds it on the next pull.
+    private func generatePlan() {
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
-        // ADR 0018 · until the plan surface lands (docs/plans/2026-09-06-ai-plan-memory-actions.md
-        // phase 2) this only reassembles the local face. The old path sent a panel turn whose
-        // frame replaced the Home widget behind the plan page, which is not what the button says.
-        refreshPlanFace()
-        Task { await Analytics.shared.track("PLAN_REGENERATE", ["MARK": mark?.rawValue ?? "ALL"]) }
-    }
-
-    private func planMetricName(_ kind: PlanFaceMath.ActionKind) -> String {
-        switch kind {
-        case .bed:      L("BEDTIME")
-        case .load:     L("Training load")
-        case .strength: L("STRENGTH")
-        case .meal:     L("MEALS")
-        case .quiet:    L("AFTERNOON")
+        if !reachability.isOnline || DebugEdge.on("offline") {
+            note(DockNote(line: L("NO CONNECTION"), text: L("It stays here. Send it when you're back.")))
+            return
+        }
+        guard !planStore.generating else { return }
+        planThinkingStartedAt = Date()
+        let day = data.today.day
+        Task {
+            await planStore.generate(day: day, store: data, ai: ai)
+            await Analytics.shared.track("PLAN_GENERATE", ["HAS_PLAN": planStore.plan != nil])
         }
     }
 
@@ -861,6 +937,33 @@ struct HomeView: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             pageX = min(0, max(-screen.width, x))
+        }
+    }
+
+    /// A touch the system takes away — the swipe-up to the home screen starts in the lip's
+    /// hot zone, Control Center, an incoming call — gets `onChanged` and never `onEnded`.
+    /// Left alone, `swiping` / `homeDrag` / a half-way `planY` stay set, every
+    /// `allowsHitTesting(!swiping && planY == 0)` on the page stays false, and the app comes
+    /// back from the background looking frozen until it is relaunched. So the moment the
+    /// scene stops being active the touch is treated as cancelled: the page snaps back to
+    /// the page it was on and the plan face to whichever end it had settled at.
+    private func cancelInterruptedDrag() {
+        guard swiping || homeDrag != nil else { return }
+        let drag = homeDrag
+        swiping = false
+        homeDrag = nil
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            switch drag {
+            case .horizontal:
+                pageX = -CGFloat(router.homePage) * screen.width
+            case .plan:
+                planY = planSettledOpen ? -screen.height : 0
+                planDragDy = 0
+            case .dead, nil:
+                break
+            }
         }
     }
 
@@ -874,9 +977,12 @@ struct HomeView: View {
     }
 
     private func openPlan(fromIdle: Bool) {
-        refreshPlanFace()
-        loadPlanChecks()
         planSettledOpen = true
+        // The day's first open writes the plan; later opens read the row.
+        Task {
+            await planStore.load(dayKey: data.today.day.key)
+            if planStore.plan == nil, !planStore.generating, planSettledOpen { generatePlan() }
+        }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             planY = -screen.height
             planDragDy = 0

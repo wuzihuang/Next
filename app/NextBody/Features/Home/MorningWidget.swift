@@ -20,16 +20,27 @@ enum MorningWidget {
         #endif
     }
 
-    static func frame(today m: DailyMetrics, history: [DailyMetrics], now clock: Date? = nil) -> PanelWidget? {
+    static func frame(today m: DailyMetrics, history: [DailyMetrics], now clock: Date? = nil,
+                     ignoreShown: Bool = false) -> PanelWidget? {
         let now = clock ?? debugNow ?? Date()
-        guard ConsentStore.shared.granted else { return suppress("NO_CONSENT") }
+        #if DEBUG
+        let pinMorning = ProcessInfo.processInfo.environment["NB_DEBUG_MORNING"] == "1"
+        #else
+        let pinMorning = false
+        #endif
+        if !pinMorning {
+            guard ConsentStore.shared.granted else { return suppress("NO_CONSENT") }
+        }
         guard let wake = m.bbWake, let wakeAt = m.bodyBatteryWakeAt,
               let drivers = m.reserveDrivers, let nightCharge = drivers.nightCharge
         else { return suppress("NO_NIGHT") }
-        if UserDefaults.standard.string(forKey: shownKey) == m.day.key { return suppress("ALREADY_SHOWN") }
-
-        guard now >= wakeAt, now <= wakeAt.addingTimeInterval(6 * 3600)
-        else { return suppress("PAST_WINDOW") }
+        if !pinMorning, !ignoreShown, UserDefaults.standard.string(forKey: shownKey) == m.day.key {
+            return suppress("ALREADY_SHOWN")
+        }
+        if !pinMorning {
+            guard now >= wakeAt, now <= wakeAt.addingTimeInterval(6 * 3600)
+            else { return suppress("PAST_WINDOW") }
+        }
 
         let charge = Int(nightCharge.rounded())
         let tier = L(BodyBattery.chargeWord(charge))

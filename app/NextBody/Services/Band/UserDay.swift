@@ -84,5 +84,16 @@ struct UserDay: Hashable, Identifiable, Comparable, Codable {
 
     var isClosed: Bool { Date() >= end }
 
+    /// Applies a clock to this user day. Hours before the 04:00 cut land on the next
+    /// calendar morning (`01:20 +1`); the user day itself does not move.
+    func pinningClock(_ instant: Date, calendar: Calendar = .current) -> Date {
+        let hour = calendar.component(.hour, from: instant)
+        let minute = calendar.component(.minute, from: instant)
+        let base = hour < Self.boundaryHour
+            ? (calendar.date(byAdding: .day, value: 1, to: start) ?? start)
+            : start
+        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: base) ?? start
+    }
+
     static func < (a: UserDay, b: UserDay) -> Bool { a.date < b.date }
 }

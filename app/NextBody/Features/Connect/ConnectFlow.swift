@@ -60,7 +60,32 @@ struct ConnectFlow: View {
         // the screen only, none of the scan or pairing work behind it.
         .onAppear {
             if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_CONNECT_STEP"],
-               let n = Int(raw), let st = Step(rawValue: n) { step = st }
+               let n = Int(raw), let st = Step(rawValue: n) {
+                step = st
+                if st == .searching {
+                    if DebugEdge.on("nothingfound") { scanEdge = .nothingFound }
+                    else if DebugEdge.on("btoff") { scanEdge = .bluetoothOff }
+                    else if DebugEdge.on("permission") { scanEdge = .permission }
+                }
+                if st == .found, found == nil {
+                    found = DiscoveredBand(id: "debug-found", name: "NEXTBODY HOOP",
+                                          rssi: -48, batteryPercent: 96)
+                }
+                if st == .pairing {
+                    if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_PAIR_PROGRESS"],
+                       let pin = Double(raw) {
+                        progress = min(1, max(0, pin))
+                    } else {
+                        progress = 0.60
+                    }
+                    pairStage = 2
+                    if DebugEdge.on("stopped") { pairEdge = .stopped; pairFailures = 1 }
+                    if DebugEdge.on("taken") { pairEdge = .taken }
+                }
+                if st == .connected, DebugEdge.on("lowbattery") {
+                    lowBatteryLine = "BATTERY 8%"
+                }
+            }
         }
         #endif
     }
@@ -821,7 +846,15 @@ private struct Connected: View {
         // F5 C11 · Reduce Motion gets the finished picture, not a paused one.
         TimelineView(.animation(paused: reduceMotion)) { tl in
             let elapsed = began.map { tl.date.timeIntervalSince($0) } ?? 0
+            #if DEBUG
+            let t: Double = {
+                if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_LINK_T"],
+                   let pin = Double(raw) { return pin }
+                return reduceMotion ? LinkChoreo.finished : LinkChoreo.looped(elapsed)
+            }()
+            #else
             let t = reduceMotion ? LinkChoreo.finished : LinkChoreo.looped(elapsed)
+            #endif
             stage(at: t)
                 // A looped replay re-fires the score from its first beat.
                 .onChange(of: LinkChoreo.cycle(elapsed)) { _, _ in

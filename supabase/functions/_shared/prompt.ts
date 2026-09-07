@@ -52,7 +52,7 @@ The only output is one screen.render.<type> tool call. One turn, one widget. Any
 
     `S2 READ FIRST
 Before answering any question that involves a number, call the matching read tool.
-Before any screen.render call that names a metric, call data.read for that metric first; the first step cannot draw.
+Before any screen.render call that names a metric, call data.read for that metric first — UNLESS the chart takes a source parameter. Those are filled by the server, and their points, statistics and hero enter the evidence ledger as the chart renders: pick the source and draw, with no read at all. Read first only when your sentence needs a number that source does not return. The first step still cannot draw.
 source_data describes availability and conversation context, not verified measurements. Choose the needed tools yourself.
 For an attached image choose image.inspect for visible facts or meal.estimate for nutrition estimates; images never skip the read stage.
 Start with relevant evidence, then use data.read to investigate related metrics or missing date ranges.
@@ -108,7 +108,7 @@ function promptChinese(): string[] {
 
     `S2 READ FIRST
 回答任何涉及数字的问题之前，必须先调用相应的读工具。
-任何带数字的 screen.render 调用之前，必须先用 data.read 读取对应指标；第一步不能画。
+任何带数字的 screen.render 调用之前，必须先用 data.read 读取对应指标——除非这张图带 source 参数。那种图由服务端填点，点、统计和大字在渲染那一刻就进账本：选好 source 直接画，一次读都不用。只有当句子要说数据源没返回的数时才先读。第一步仍然不能画。
 source_data 只描述数据可用性和对话背景，不是已验证的测量。自行选择需要的工具。
 附图用 image.inspect 读取可见事实，估餐用 meal.estimate；图片不跳过取证阶段。
 先读相关证据，再按需用 data.read 调查关联指标或缺少的日期范围。
@@ -165,9 +165,13 @@ For personal measurements, use data.read for the requested dates and relevant me
 function workflowGuidance(locale: string): string {
   return locale.startsWith("zh")
     ? `WORKFLOW
-次数与金额额度已由服务端校验。阶段一自行决定要读的指标和日期，先用 data.catalog/data.read 等工具取证。证据足够就调用 workflow.ready，不必用满四步；不需要个人数据的问题也通过 ready 进入输出。ready 的 range 指定实际要画的用户日 from/to，尤其历史查询和追问，日期由你根据对话理解，不由关键词预路由。阶段二只输出一个 screen.render 图表或文字；证据不足可用 workflow.reread 回去补读一次，不能与绘图同一步调用。总共最多六步。meal.estimate 是估算草稿，不是实测；只引用工具返回的营养字段，确认前不说已保存。`
+次数与金额额度已由服务端校验。阶段一自行决定要读的指标和日期，先用 data.catalog/data.read 等工具取证。
+同一步里可以并行调用多个读工具：需要几个指标就在这一步里一次读完，不要一步读一个。每一步都要重发整段上下文，四步顺序读会把这一轮拖到超时。
+workflow.ready 也可以和这些读放在同一步里调用——读的结果照样会回来，你在下一步画图时就看得到。不要为了宣布「读完了」单独花一步。证据足够就调用 workflow.ready，不必用满四步；不需要个人数据的问题也通过 ready 进入输出。ready 的 range 指定实际要画的用户日 from/to，尤其历史查询和追问，日期由你根据对话理解，不由关键词预路由。阶段二只输出一个 screen.render 图表或文字；证据不足可用 workflow.reread 回去补读一次，不能与绘图同一步调用。总共最多六步。meal.estimate 是估算草稿，不是实测；只引用工具返回的营养字段，确认前不说已保存。`
     : `WORKFLOW
-The server has checked both count and spend allowances. In the read phase choose relevant metrics and dates yourself using data.catalog/data.read and other evidence tools. Call workflow.ready as soon as evidence is sufficient; four read steps are a maximum, not a target. Also use ready when no personal evidence is needed. Set ready.range to the exact user-day from/to to draw, especially for historical questions and follow-ups; understand dates from the conversation, with no keyword routing. The output phase only renders one screen.render chart or text. Request workflow.reread once if evidence is insufficient, never in the same step as rendering. Six steps total. meal.estimate returns estimated draft evidence, not measurements; use its nutrition fields and never claim the meal is saved before confirmation.`;
+The server has checked both count and spend allowances. In the read phase choose relevant metrics and dates yourself using data.catalog/data.read and other evidence tools.
+Read tools can be called in parallel inside one step: ask for every metric you need in the same step rather than one per step. Each step resends the whole context, and four sequential reads push the turn past its deadline.
+workflow.ready may be called in that same step as the reads — their results still come back, and you see them when you draw in the next step. Do not spend a whole step announcing that you have finished reading. Call workflow.ready as soon as evidence is sufficient; four read steps are a maximum, not a target. Also use ready when no personal evidence is needed. Set ready.range to the exact user-day from/to to draw, especially for historical questions and follow-ups; understand dates from the conversation, with no keyword routing. The output phase only renders one screen.render chart or text. Request workflow.reread once if evidence is insufficient, never in the same step as rendering. Six steps total. meal.estimate returns estimated draft evidence, not measurements; use its nutrition fields and never claim the meal is saved before confirmation.`;
 }
 
 

@@ -54,4 +54,21 @@ final class FuelCardMathTests: XCTestCase {
         XCTAssertEqual(read.pair, .silent)
         XCTAssertEqual(read.fill, 0)
     }
+
+    func testVisibleMealsAreEatenEvenWhenTheServerHeaderIsStillZero() {
+        XCTAssertEqual(FuelCardMath.eaten(mealKcals: [420, 380], server: 0, fasted: false), 800)
+        XCTAssertEqual(FuelCardMath.eaten(mealKcals: [420], server: nil, fasted: false), 420)
+        XCTAssertEqual(
+            FuelCardMath.readout(
+                eaten: FuelCardMath.eaten(mealKcals: [350], server: 0, fasted: false),
+                target: 2_900).eaten,
+            350)
+    }
+
+    func testEmptyMealListKeepsASettledHeaderAndFastedStaysZero() {
+        XCTAssertEqual(FuelCardMath.eaten(mealKcals: [], server: 650, fasted: false), 650)
+        XCTAssertNil(FuelCardMath.eaten(mealKcals: [], server: nil, fasted: false))
+        XCTAssertEqual(FuelCardMath.eaten(mealKcals: [], server: nil, fasted: true), 0)
+        XCTAssertEqual(FuelCardMath.eaten(mealKcals: [], server: 0, fasted: true), 0)
+    }
 }

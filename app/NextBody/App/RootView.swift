@@ -4,6 +4,7 @@ import os
 struct RootView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var router: Router
+    @ObservedObject private var phoneTools = PhoneToolRunner.shared
 
     var body: some View {
         ZStack {
@@ -32,6 +33,19 @@ struct RootView: View {
         .sheet(item: $router.sheet) { s in
             SheetHost(route: s)
         }
+        // ADR 0018 · a phone tool with a side effect asks here, wherever the turn started.
+        // ⚠️ The legacy `.alert(item:) { Alert(...) }` form re-wrapped the navigation bar and
+        // UIKit aborted at launch ("nest wrapped navigation controllers"); this form does not.
+        .alert(phoneTools.confirmation?.title ?? "",
+               isPresented: Binding(get: { phoneTools.confirmation != nil },
+                                    set: { if !$0 { phoneTools.confirmation?.resolve(false) } }),
+               presenting: phoneTools.confirmation) { c in
+            Button(L("CONFIRM ACTION")) { c.resolve(true) }
+            Button(L("CANCEL"), role: .cancel) { c.resolve(false) }
+        } message: { c in
+            Text(c.detail)
+        }
+        .onAppear { phoneTools.router = router }
     }
 
     #if DEBUG
@@ -43,9 +57,13 @@ struct RootView: View {
         if let target = Destination(envelopeTarget: raw) { return target }
         switch raw {
         case "device":               return .device
+        case "deviceAutoMonitor", "autoMonitor": return .deviceAutoMonitor
         case "battery":              return .battery
         case "measurements":         return .measurements
         case "sportMode", "sport":   return .sportMode
+        case "aiMemory", "memory":   return .aiMemory
+        case "fuelDay":
+            return .fuelDay(UserDay.containing(Date()).adding(days: -1))
         default:                     return nil
         }
     }
@@ -80,6 +98,8 @@ struct RootView: View {
                     case .sportMode:             SportModeView()
                     case .chat(let sessionID, let initialQuery, let attachmentDataURL):
                         ChatDetailView(sessionID: sessionID, initialQuery: initialQuery, initialAttachmentDataURL: attachmentDataURL)
+                    case .planFace:               HomeView()
+                    case .aiMemory:               AIMemoryView()
                     }
                 }
         }
@@ -133,15 +153,31 @@ struct RootView: View {
             // whatever the route landed on, for a walk of a sheet that lives behind a tap.
             if let s = ProcessInfo.processInfo.environment["NB_DEBUG_SHEET"] {
                 let sheet: SheetRoute? = switch s {
-                case "export":        .export
-                case "deleteAccount": .deleteAccount
-                case "privacy":       .privacy
-                case "about":         .about
-                case "language":      .language
-                case "units":         .units
-                case "plusMenu":      .plusMenu
-                case "weighIn":       .weighIn
-                default:              nil
+                case "export":           .export
+                case "deleteAccount":    .deleteAccount
+                case "privacy":          .privacy
+                case "about":            .about
+                case "language":         .language
+                case "units":            .units
+                case "plusMenu":         .plusMenu
+                case "weighIn":          .weighIn
+                case "profileEdit":      .profileEdit
+                case "goal":             .goal
+                case "notifications":    .notifications
+                case "appleHealth":      .appleHealth
+                case "signOut":          .signOut
+                case "height":           .height
+                case "weightBaseline":   .weightBaseline
+                case "birthday":         .birthday
+                case "findBand":         .findBand
+                case "unbind":           .unbind
+                case "disconnect":       .disconnect
+                case "firmware":         .firmware
+                case "syncCadence":      .syncCadence
+                case "bandAutoMonitor":  .bandAutoMonitor
+                case "findHoop":         .findHoop
+                case "bandAlarms":       .bandAlarms
+                default:                 nil
                 }
                 if let sheet {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { router.sheet = sheet }
@@ -165,6 +201,8 @@ struct RootView: View {
                 case "wordmark": .wordmark
                 case "bodyscan": .measure(.bodyComposition)
                 case "battery":  .measure(.heartRate)
+                case "consent":  .consent
+                case "notify":   .notificationPrimer
                 default:         nil
                 }
                 // The measurements wait for the link the home screen's task restores; the
@@ -216,6 +254,7 @@ struct SheetHost: View {
             case .weighIn:        WeighInSheet()
             case .plusMenu:       PlusMenuSheet()
             case .measurement(let id): MeasurementSheet(id: id)
+            case .findHoop:       FindHoopSheet()
             default:              ProfileSheet(route: route)
             }
         }

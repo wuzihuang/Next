@@ -1,5 +1,5 @@
 begin;
-select plan(30);
+select plan(36);
 insert into auth.users(id) values ('06060606-0000-0000-0000-000000000001');
 insert into public.profiles(user_id,timezone,sex,height_cm,birth_date) values ('06060606-0000-0000-0000-000000000001','UTC','male',180,'1990-01-01') on conflict(user_id) do update set timezone='UTC',sex='male',height_cm=180,birth_date='1990-01-01';
 select set_config('nb.calculation_as_of','2026-09-04 18:00+00',true);
@@ -73,5 +73,47 @@ select set_config('nb.calculation_as_of','2026-03-08 08:00+00',true);
 select is((select bmr_kcal from nb.fuel_components('06060606-0000-0000-0000-000000000003','2026-03-07')),1700,'23-hour spring user day ends at the full daily baseline');
 select set_config('nb.calculation_as_of','2026-10-31 20:30+00',true);
 select is((select bmr_kcal from nb.fuel_components('06060606-0000-0000-0000-000000000003','2026-10-31')),850,'half of the 25-hour autumn user day uses half the daily baseline');
+
+-- Explicit strength modes use their observed live intervals in the same energy ledger.
+insert into auth.users(id) values ('06060606-0000-0000-0000-000000000010');
+insert into public.profiles(user_id,timezone,sex,height_cm,birth_date)
+values('06060606-0000-0000-0000-000000000010','UTC','male',180,'1990-01-01');
+insert into public.weigh_ins(user_id,measured_at,weight_kg,source,client_op_id)
+values('06060606-0000-0000-0000-000000000010','2026-09-01 09:00+00',75,'manual',
+ '06060606-0000-0000-0000-000000000011');
+select set_config('nb.calculation_as_of','2026-09-04 18:00+00',true);
+insert into public.sport_energy_samples(user_id,id,session_id,continuity_id,
+ observed_at,sport_mode,sampled_tz) values
+ ('06060606-0000-0000-0000-000000000010','06060606-0000-0000-0000-000000000012',
+  '06060606-0000-0000-0000-000000000013','06060606-0000-0000-0000-000000000014',
+  '2026-09-04 12:00:00+00',25,'UTC'),
+ ('06060606-0000-0000-0000-000000000010','06060606-0000-0000-0000-000000000015',
+  '06060606-0000-0000-0000-000000000013','06060606-0000-0000-0000-000000000014',
+  '2026-09-04 12:00:10+00',25,'UTC');
+select is((select active_kcal from nb.fuel_components(
+ '06060606-0000-0000-0000-000000000010','2026-09-04')),1,
+ 'observed weightlifting seconds produce net activity energy without steps or origin MET');
+insert into public.sport_energy_samples(user_id,id,session_id,continuity_id,
+ observed_at,sport_mode,sampled_tz) values
+ ('06060606-0000-0000-0000-000000000010','06060606-0000-0000-0000-000000000016',
+  '06060606-0000-0000-0000-000000000017','06060606-0000-0000-0000-000000000018',
+  '2026-09-04 12:00:00+00',25,'UTC'),
+ ('06060606-0000-0000-0000-000000000010','06060606-0000-0000-0000-000000000019',
+  '06060606-0000-0000-0000-000000000017','06060606-0000-0000-0000-000000000018',
+  '2026-09-04 12:00:10+00',25,'UTC');
+select is((select active_kcal from nb.fuel_components(
+ '06060606-0000-0000-0000-000000000010','2026-09-04')),1,
+ 'overlapping strength sessions own each second once');
+insert into public.raw_samples(user_id,ts,sampled_tz,heart,step,met)
+values('06060606-0000-0000-0000-000000000010','2026-09-04 12:00+00','UTC',120,0,3);
+select is((select active_kcal from nb.fuel_components(
+ '06060606-0000-0000-0000-000000000010','2026-09-04')),13,
+ 'strength energy replaces the overlapping origin seconds instead of being added twice');
+select ok(not has_function_privilege('authenticated','nb.strength_energy_ticks(uuid,date)','EXECUTE'),
+ 'clients cannot calculate another account strength energy directly');
+select is((nb.energy_distribution('06060606-0000-0000-0000-000000000010','2026-09-04')->0->>'strength_weight')::numeric,
+ 25::numeric,'published curve retains 10 seconds of net 2.5 MET strength energy');
+select is((nb.energy_distribution('06060606-0000-0000-0000-000000000010','2026-09-04')->0->>'origin_weight')::numeric,
+ 580::numeric,'published curve removes the same 10 seconds from the 2 net MET origin slot');
 select * from finish();
 rollback;

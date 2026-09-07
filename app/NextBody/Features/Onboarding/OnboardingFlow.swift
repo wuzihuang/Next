@@ -213,6 +213,11 @@ struct OnboardingFlow: View {
         await session.ensureSession()
         await Analytics.shared.track("ONBOARD_ENTER", [:])
         if DebugEdge.name != nil { return }
+        #if DEBUG
+        // Walk-through pins must not be overwritten by a finished demo profile.
+        if ProcessInfo.processInfo.environment["NB_DEBUG_ONB_STEP"] != nil { return }
+        if ProcessInfo.processInfo.environment["NB_DEBUG_SCAN_LEFT"] != nil { return }
+        #endif
         if UserDefaults.standard.bool(forKey: "nb.onboarding.resumeAtBaseline") {
             UserDefaults.standard.removeObject(forKey: "nb.onboarding.resumeAtBaseline")
             return
@@ -855,6 +860,9 @@ private struct ScanningScreen: View {
     private func scanTask() async {
             // DEBUG walks on the mock: `lifted` pauses at 3 s and lifts again at 9 s;
             // `banddropped` loses the band at 2 s.
+            #if DEBUG
+            if applyDebugScanPin() { return }
+            #endif
             if DebugEdge.on("lifted") {
                 remaining = 30; measuring = true
                 for _ in 0..<3 { try? await Task.sleep(for: .seconds(1)); withAnimation { remaining -= 1 } }
@@ -881,6 +889,33 @@ private struct ScanningScreen: View {
             defer { watch.cancel() }
             await runScan()
     }
+
+    #if DEBUG
+    /// `NB_DEBUG_SCAN_LEFT=24` freezes the body-fill figure at that remaining second.
+    /// `NB_DEBUG_SCAN_HOLD=1` paints the amber lift; `nocontact` raises the nudge sheet.
+    private func applyDebugScanPin() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        guard let raw = env["NB_DEBUG_SCAN_LEFT"], let left = Int(raw) else { return false }
+        remaining = min(30, max(0, left))
+        beatAt = Date()
+        measuring = env["NB_DEBUG_SCAN_HOLD"] != "1"
+            && !DebugEdge.on("nocontact")
+            && !DebugEdge.on("banddropped")
+        holding = env["NB_DEBUG_SCAN_HOLD"] == "1" || DebugEdge.on("lifted")
+        if holding { measuring = true }
+        if DebugEdge.on("nocontact") {
+            measuring = false
+            holding = false
+            nudge = true
+        }
+        if DebugEdge.on("banddropped") {
+            dropped = true
+            measuring = false
+            holding = false
+        }
+        return true
+    }
+    #endif
 
     /// Start (or restart) the no-contact clock: the sheet rises if nothing has changed by then.
     private func armNudge(after seconds: Double) {

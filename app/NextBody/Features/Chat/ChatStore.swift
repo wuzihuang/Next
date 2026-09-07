@@ -199,7 +199,7 @@ final class ChatStore: ObservableObject {
     }
 
     #if DEBUG && targetEnvironment(simulator)
-    /// `NB_DEBUG_CHAT_FIXTURE=markdown|long` paints a known thread so UI tests can
+    /// `NB_DEBUG_CHAT_FIXTURE=empty|markdown|long|sending` paints a known thread so UI tests can
     /// check rendering and the landing scroll without calling the model.
     private func applyDebugChatFixtureIfNeeded() {
         let fixture = ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_FIXTURE"] ?? ""
@@ -210,6 +210,20 @@ final class ChatStore: ObservableObject {
         persistenceError = nil
         let now = Date()
         switch fixture {
+        case "empty":
+            let sessionID = "debug-empty"
+            sessions = [
+                ChatSession(
+                    id: sessionID,
+                    title: "New chat",
+                    subtitle: "",
+                    updatedAt: now,
+                    tags: ["DEBUG"],
+                    photosCount: 0,
+                    messages: []
+                ),
+            ]
+            currentSessionID = sessionID
         case "markdown":
             let sessionID = "debug-markdown"
             sessions = [
@@ -257,6 +271,31 @@ final class ChatStore: ObservableObject {
                 ),
             ]
             currentSessionID = sessionID
+        case "sending":
+            let sessionID = "debug-sending"
+            let userMsg = ChatMessage(
+                sender: .user,
+                text: "Why am I so tired today?",
+                at: now.addingTimeInterval(-8)
+            )
+            sessions = [
+                ChatSession(
+                    id: sessionID,
+                    title: "Why am I so tired",
+                    subtitle: "Why am I so tired today?",
+                    updatedAt: now,
+                    tags: ["DEBUG"],
+                    photosCount: 0,
+                    messages: [userMsg]
+                ),
+            ]
+            currentSessionID = sessionID
+            sendingScope = ChatTurnScope(
+                accountID: currentAccountID,
+                sessionID: sessionID,
+                turnID: userMsg.id
+            )
+            ai.debugPlayThoughts()
         default:
             break
         }

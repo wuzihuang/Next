@@ -2,20 +2,29 @@ import CoreHaptics
 import SwiftUI
 import UIKit
 
-/// Paper 04E · 14 BRIEF. Lime strip, then five title/subtitle slabs.
+/// Paper 04E · 14 BRIEF. Lime strip, then the tasks the server wrote.
+///
+/// ADR 0018 · the plan is a server row: one title, one summary, three to five tasks the
+/// model chose. While the first one of the day is being written, the thinking stream runs
+/// here; a tick is the user's own claim and never calls the model.
 struct PlanPage: View {
-    let face: PlanFaceMath.Face
+    let plan: DailyPlan?
+    var checked: Set<String> = []
     var flatten: CGFloat
     var reduceMotion: Bool
     var closeEnabled = true
-    var done: (PlanFaceMath.ActionKind) -> Bool = { _ in false }
-    var regenerating = false
-    var onToggle: (PlanFaceMath.ActionKind) -> Void = { _ in }
+    var loading = false
+    var generating = false
+    var errorLine: String?
+    var thinkingReading: String?
+    var thoughts: [AIService.Thought] = []
+    var thinkingStartedAt: Date = Date()
+    var onTick: (String) -> Void = { _ in }
     var onRegenerate: () -> Void = {}
     var onCloseDragChanged: (CGFloat) -> Void
     var onCloseDragEnded: (CGFloat, CGFloat) -> Void
 
-    @State private var completing: Set<PlanFaceMath.ActionKind> = []
+    @State private var completing: Set<String> = []
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -23,8 +32,15 @@ struct PlanPage: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     chrome
-                    summary
-                    tasks
+                    if generating {
+                        thinking
+                    } else if let plan {
+                        summary(plan)
+                        if let errorLine { failed(errorLine) }
+                        tasks(plan)
+                    } else {
+                        empty
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .background {
@@ -46,7 +62,7 @@ struct PlanPage: View {
         VStack(spacing: 7) {
             PlanChevron(up: false, playing: !reduceMotion && flatten < 0.02, flatten: flatten,
                         armed: false, reduceMotion: reduceMotion)
-            Text(L("TODAY · FIVE TASKS"))
+            Text(plan.map { L("TODAY · %d TASKS", $0.tasks.count) } ?? L("TODAY"))
                 .font(NBFont.dot(600, 9))
                 .tracking(em: 0.24, size: 9)
                 .foregroundStyle(NB.lime1.opacity(0.60))
@@ -59,15 +75,62 @@ struct PlanPage: View {
         .accessibilityLabel(L("Swipe down for home"))
     }
 
-    private var summary: some View {
+    /// The same stream the home panel prints while a turn runs.
+    private var thinking: some View {
+        ThinkingStage(question: L("TODAY'S PLAN"), reading: thinkingReading,
+                      thoughts: thoughts, startedAt: thinkingStartedAt)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 360)
+            .padding(.horizontal, 16)
+            .accessibilityIdentifier("plan.thinking")
+    }
+
+    private func summary(_ plan: DailyPlan) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(headline)
+            Text(plan.title)
                 .font(NBFont.brand(700, 22))
                 .tracking(em: -0.03, size: 22)
                 .foregroundStyle(NB.panelInk)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("plan.eyebrow")
-            Text(briefCopy)
+            Text(plan.summary)
+                .font(NBFont.ui(400, 14))
+                .foregroundStyle(NB.panelInk)
+                .fixedSize(horizontal: false, vertical: true)
+            if !plan.readFrom.isEmpty {
+                Text(L("AI READ %@ → %@", monthDay(plan.readFrom), monthDay(plan.readTo)))
+                    .font(NBFont.dot(500, 10))
+                    .tracking(em: 0.16, size: 10)
+                    .foregroundStyle(NB.panelInk.opacity(0.7))
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+        .padding(.horizontal, 24)
+        .background(NB.lime1)
+    }
+
+    /// A regenerate that did not land keeps the plan on screen and says so under it.
+    private func failed(_ line: String) -> some View {
+        Text(line)
+            .font(NBFont.dot(500, 11))
+            .tracking(em: 0.12, size: 11)
+            .foregroundStyle(NB.alert2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.top, 10)
+            .accessibilityIdentifier("plan.error")
+    }
+
+    private var empty: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(loading ? L("READING…") : L("NO PLAN YET"))
+                .font(NBFont.brand(700, 22))
+                .tracking(em: -0.03, size: 22)
+                .foregroundStyle(NB.panelInk)
+            Text(errorLine ?? (loading ? L("Looking for today's plan.") : L("Pull one from the last three days.")))
                 .font(NBFont.ui(400, 14))
                 .foregroundStyle(NB.panelInk)
                 .fixedSize(horizontal: false, vertical: true)
@@ -82,50 +145,59 @@ struct PlanPage: View {
     /// Open rows first, done rows sink to the bottom. A row that is still
     /// settling (strike drawing, ink greying) holds its place so the eye sees
     /// the tick land before the row moves; it sinks once `completing` clears.
-    private var orderedActions: [PlanFaceMath.Action] {
-        let open = face.actions.filter { !settled($0.kind) }
-        let sunk = face.actions.filter { settled($0.kind) }
+    private func orderedTasks(_ plan: DailyPlan) -> [DailyPlan.Task] {
+        let open = plan.tasks.filter { !settled($0.id) }
+        let sunk = plan.tasks.filter { settled($0.id) }
         return open + sunk
     }
 
-    private func settled(_ kind: PlanFaceMath.ActionKind) -> Bool {
-        done(kind) && !completing.contains(kind)
+    private func settled(_ id: String) -> Bool {
+        checked.contains(id) && !completing.contains(id)
     }
 
-    private var tasks: some View {
-        VStack(spacing: 8) {
-            ForEach(orderedActions, id: \.kind) { action in
-                taskSlab(action)
+    private func tasks(_ plan: DailyPlan) -> some View {
+        let ordered = orderedTasks(plan)
+        return VStack(spacing: 8) {
+            ForEach(ordered) { task in
+                taskSlab(task)
             }
         }
         .padding(.top, 10)
         .padding(.horizontal, 16)
         .animation(reduceMotion ? .easeOut(duration: 0.08) : .spring(duration: 0.42, bounce: 0.12),
-                   value: orderedActions.map(\.kind))
+                   value: ordered.map(\.id))
     }
 
-    private func taskSlab(_ action: PlanFaceMath.Action) -> some View {
-        let on = completing.contains(action.kind) || done(action.kind)
-        let title = taskTitle(action)
+    private func taskSlab(_ task: DailyPlan.Task) -> some View {
+        let on = completing.contains(task.id) || checked.contains(task.id)
         return Button {
-            complete(action.kind)
+            complete(task.id)
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 checkmark(on: on)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
+                    Text(task.title)
                         .font(NBFont.brand(600, 16))
                         .tracking(em: -0.02, size: 16)
                         .foregroundStyle(on ? NB.text3Prod : NB.text1)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                         .overlay(alignment: .leading) { strike(on: on) }
-                    Text(taskDetail(action))
+                    Text(task.sub)
                         .font(NBFont.ui(400, 13))
                         .foregroundStyle(on ? NB.text3Prod.opacity(0.6) : NB.text2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let basis = task.basis {
+                        Text(basis)
+                            .font(NBFont.dot(500, 10))
+                            .tracking(em: 0.12, size: 10)
+                            .foregroundStyle(NB.text3Prod)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 2)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -137,9 +209,9 @@ struct PlanPage: View {
         }
         .buttonStyle(HotZoneTap())
         .disabled(on)
-        .accessibilityLabel(on ? L("%@, done", title) : title)
+        .accessibilityLabel(on ? L("%@, done", task.title) : task.title)
         .accessibilityAddTraits(on ? [.isSelected] : [])
-        .accessibilityIdentifier("plan.check.\(action.kind.rawValue)")
+        .accessibilityIdentifier("plan.check.\(task.id)")
     }
 
     /// The strike draws left to right over the title as the ink greys. It is a
@@ -158,14 +230,14 @@ struct PlanPage: View {
     /// Tap → two needles → tick fills, strike draws, ink greys → row sinks.
     /// The hold before `completing` clears is the strike's own duration, so the
     /// row only moves once the line has reached the end of the title.
-    private func complete(_ kind: PlanFaceMath.ActionKind) {
-        guard !done(kind), !completing.contains(kind) else { return }
-        completing.insert(kind)
+    private func complete(_ id: String) {
+        guard !checked.contains(id), !completing.contains(id) else { return }
+        completing.insert(id)
         PlanCompleteCue.play()
-        onToggle(kind)
+        onTick(id)
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 40 : 520))
-            completing.remove(kind)
+            completing.remove(id)
         }
     }
 
@@ -187,94 +259,30 @@ struct PlanPage: View {
 
     private var regenerate: some View {
         Button(action: onRegenerate) {
-            Text(regenerating ? L("GENERATING…") : L("REGENERATE"))
+            Text(generating ? L("GENERATING…") : (plan == nil ? L("GENERATE") : L("REGENERATE")))
                 .font(NBFont.dot(700, 13))
                 .tracking(em: 0.16, size: 13)
-                .foregroundStyle(NB.text3Prod.opacity(regenerating ? 0.70 : 1))
+                .foregroundStyle(NB.text3Prod.opacity(generating ? 0.70 : 1))
                 .frame(maxWidth: .infinity)
                 .padding(.top, 18)
                 .padding(.bottom, 10)
         }
         .buttonStyle(HotZoneTap())
-        .disabled(regenerating)
+        .disabled(generating || loading)
         .accessibilityIdentifier("plan.regenerate")
         .frame(maxWidth: .infinity)
         .background(NB.carbon)
     }
 
-    private var headline: String {
-        if face.empty { return L("NO NIGHT YET") }
-        switch face.weakest {
-        case .recovery:     return L("Take the day down")
-        case .regularity:   return L("Bring bedtime back")
-        case .architecture: return L("Fix last night's structure")
-        case .duration:     return L("Sleep long enough")
-        case nil:           return L("TODAY'S CONTENTS")
-        }
+    private static let dayIn: DateFormatter = {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f
+    }()
+    private static let dayOut: DateFormatter = {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "MM-dd"; return f
+    }()
+    private func monthDay(_ key: String) -> String {
+        Self.dayIn.date(from: key).map { Self.dayOut.string(from: $0) } ?? key
     }
-
-    private var briefCopy: String {
-        if face.empty {
-            return L("No scored night. The plan stays silent.")
-        }
-        switch face.weakest {
-        case .recovery:
-            return L("The night did not finish. Keep today light.")
-        case .regularity:
-            return L("Bedtime drifted. Move it toward your median.")
-        case .architecture:
-            return L("Last night's structure was the weak group. Keep the day quiet.")
-        case .duration:
-            return L("The night was short. Get to bed on time.")
-        case nil:
-            return L("Keep today light.")
-        }
-    }
-
-    private func taskTitle(_ action: PlanFaceMath.Action) -> String {
-        switch action.kind {
-        case .bed:
-            if action.trailing == PlanFaceMath.dash { return L("Set a bedtime") }
-            return L("Lights out at %@", action.trailing)
-        case .load:
-            if action.trailing == PlanFaceMath.dash { return L("Cap today's load") }
-            return L("Cap load at %@", action.trailing)
-        case .strength:
-            return action.trailing == "RUN TOMORROW"
-                ? L("Run tomorrow")
-                : L("Leave strength off")
-        case .meal:
-            return action.trailing == "LOGGED"
-                ? L("Leave the meals as they are")
-                : L("Log the three meals")
-        case .quiet:
-            return L("Keep the afternoon quiet")
-        }
-    }
-
-    private func taskDetail(_ action: PlanFaceMath.Action) -> String {
-        switch action.kind {
-        case .bed:
-            return action.trailing == PlanFaceMath.dash
-                ? L("No night to read a median from.")
-                : L("Your median bedtime, not a new rule.")
-        case .load:
-            return action.trailing == PlanFaceMath.dash
-                ? L("No load target yet.")
-                : L("Easy work only until the night rebuilds.")
-        case .strength:
-            return action.trailing == "RUN TOMORROW"
-                ? L("Strength waits one more sleep.")
-                : L("The night does not ask for it.")
-        case .meal:
-            return action.trailing == "LOGGED"
-                ? L("Three plates already logged.")
-                : L("The plate is the only open check.")
-        case .quiet:
-            return L("No extra session after four.")
-        }
-    }
-
 }
 
 /// Two short needles, 150ms apart. UIKit's second rigid tap merges into one;
@@ -320,56 +328,6 @@ private enum PlanCompleteCue {
                 fallback.impactOccurred(intensity: 1)
             }
         }
-    }
-}
-
-enum PlanSnapshot {
-    private static let monthDay: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "MM-dd"
-        return formatter
-    }()
-
-    static func make(today: DailyMetrics, history: [DailyMetrics],
-                     scores: [String: SleepScore], now: Date = Date()) -> PlanFaceMath.Face {
-        let past = history.filter { $0.day < today.day }.sorted { $0.day < $1.day }
-        let yesterday = past.last
-        let dayBefore = past.dropLast().last
-        let load = PlanFaceMath.Load(
-            yesterday: yesterday?.trainingLoad,
-            dayBefore: dayBefore?.trainingLoad,
-            target: today.targetLoad ?? yesterday?.targetLoad,
-            activeMinutes: today.activeMinutes)
-        let mealsLogged = today.fuelState != .unlogged
-        let scored = (0..<7).compactMap { back -> (UserDay, SleepScore)? in
-            let day = today.day.adding(days: -back)
-            guard let score = scores[day.key] else { return nil }
-            return (day, score)
-        }
-        let readyFrom = scored.last.map { monthDay.string(from: $0.0.date) }
-        let readyTo = scored.first.map { monthDay.string(from: $0.0.date) }
-        let nightScore = scores[today.day.key] ?? today.sleepScore
-        let night = nightScore.map { score in
-            PlanFaceMath.Night(
-                score: score.score,
-                duration: score.duration,
-                architecture: score.architecture,
-                recovery: score.recovery,
-                regularity: score.regularity,
-                personalWeight: score.personalWeight,
-                hrvMs: score.inputs["hrv_ms"],
-                bedOffset: score.inputs["bed_offset"],
-                nightIndex: scores.count)
-        }
-        return PlanFaceMath.face(
-            night: night,
-            load: load,
-            mealsLogged: mealsLogged,
-            scoredNightCount: scores.count,
-            readyFrom: readyFrom,
-            readyTo: readyTo,
-            now: now)
     }
 }
 

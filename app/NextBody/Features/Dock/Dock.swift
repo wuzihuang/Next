@@ -269,8 +269,8 @@ struct DockCircleButton<Glyph: View>: View {
     var body: some View {
         if let onLongPress {
             face
-                .scaleEffect(holding ? 1.22 : pressing ? 0.96 : 1)
-                .shadow(color: NB.lime1.opacity(holding ? 0.28 : 0), radius: holding ? 14 : 0)
+                .scaleEffect(holding || debugHold ? 1.22 : pressing || debugPress ? 0.96 : 1)
+                .shadow(color: NB.lime1.opacity((holding || debugHold) ? 0.28 : 0), radius: (holding || debugHold) ? 14 : 0)
                 // The swell has to arrive with the click, not after it: at 0.42 s the glow
                 // was still growing while the finger was already deciding to lift.
                 .animation(holding
@@ -287,6 +287,9 @@ struct DockCircleButton<Glyph: View>: View {
                             if down { HoldHaptics.shared.prepare() }
                         },
                         onArm: {
+                            #if DEBUG
+                            if debugPress || debugHold { return }
+                            #endif
                             pressing = false
                             holding = true
                             HoldHaptics.shared.beginHold()
@@ -301,6 +304,9 @@ struct DockCircleButton<Glyph: View>: View {
                             pressing = false
                             guard holding else { return }
                             holding = false
+                            #if DEBUG
+                            if debugPress || debugHold { return }
+                            #endif
                             if interrupted {
                                 HoldHaptics.shared.cancel()
                             } else {
@@ -312,6 +318,12 @@ struct DockCircleButton<Glyph: View>: View {
                     )
                     .contentShape(Circle())
                 }
+                .onAppear {
+                    #if DEBUG
+                    if debugPress { pressing = true }
+                    if debugHold { holding = true }
+                    #endif
+                }
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction(.default, action)
         } else {
@@ -319,6 +331,18 @@ struct DockCircleButton<Glyph: View>: View {
                 .buttonStyle(.plain)
         }
     }
+
+    #if DEBUG
+    private var debugPress: Bool {
+        ProcessInfo.processInfo.environment["NB_DEBUG_PLUS_KEY"] == "press"
+    }
+    private var debugHold: Bool {
+        ProcessInfo.processInfo.environment["NB_DEBUG_PLUS_KEY"] == "hold"
+    }
+    #else
+    private var debugPress: Bool { false }
+    private var debugHold: Bool { false }
+    #endif
 
     private var face: some View {
         ZStack {

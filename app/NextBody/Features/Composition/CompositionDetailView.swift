@@ -15,7 +15,13 @@ struct CompositionDetailView: View {
     private var day: UserDay { UserDay.containing(focus ?? Date()) }
     private var now: Date { Date() }
 
-    private var scans: [CompositionScan] { data.compositionScans }
+    private var scans: [CompositionScan] {
+        #if DEBUG
+        if DebugEdge.on("empty") { return [] }
+        if DebugEdge.on("firstscan") { return Array(data.compositionScans.prefix(1)) }
+        #endif
+        return data.compositionScans
+    }
 
     private var window: (start: Date, end: Date) {
         CompositionWindowMath.bounds(range: range, endingOn: day, now: now)

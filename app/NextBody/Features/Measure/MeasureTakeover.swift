@@ -492,19 +492,72 @@ struct MeasureTakeover: View {
         done()
     }
 
+    #if DEBUG
+    private func applyDebugPhase(_ forced: Phase) {
+        grown = true
+        phase = forced
+        switch forced {
+        case .counting:
+            remaining = isBalance ? 28 : (isBodyScan ? 22 : 42)
+            reading = PartialReading(heartRate: 72)
+            studyProgress = 0.32
+            fields = 4
+        case .halfway:
+            remaining = isBalance ? 16 : (isBodyScan ? 12 : 26)
+            reading = PartialReading(heartRate: 74)
+            studyProgress = 0.62
+            fields = 8
+        case .computing:
+            remaining = 0
+            reading = PartialReading(heartRate: 68)
+            studyProgress = 1
+            fields = 14
+        case .result:
+            remaining = 0
+            reading = PartialReading(heartRate: 68)
+            studyProgress = 1
+            fields = 14
+            if ProcessInfo.processInfo.environment["NB_DEBUG_MEASURE_FOLD"] == "1" {
+                router.measuredWidget = isBalance
+                    ? WidgetCatalogue.balanceResult
+                    : (isBodyScan ? WidgetCatalogue.sample(.recomp) : WidgetCatalogue.sample(.metric))
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(700))
+                    done()
+                }
+            }
+        case .lost:
+            remaining = 37
+            lostGrace = 2.1
+            reading = PartialReading(heartRate: 71)
+        case .failed:
+            failure = L("No reading this time.")
+        case .nudge:
+            remaining = total
+        default:
+            break
+        }
+    }
+    #endif
+
     private func open() {
         remaining = total
         bandClock = false
         reading = nil
         hrSamples = []
         withAnimation(.spring(response: 0.46, dampingFraction: 0.86)) { grown = true }
+        #if DEBUG
         // DEBUG · 06 edges on the mock band, which never fails on its own.
-        if let forced: Phase = ["notwearing": .notWearing, "busy": .busy, "dropped": .dropped, "noreading": .noReading,
-                                    // E01–E04 · the two frames a mock band passes through too fast to look at.
-                                    "waiting": .waiting, "contact": .contact][DebugEdge.name ?? ""] {
-            run = Task { try? await Task.sleep(for: .milliseconds(700)); withAnimation { phase = forced } }
+        if let forced: Phase = [
+            "notwearing": .notWearing, "busy": .busy, "dropped": .dropped, "noreading": .noReading,
+            "opening": .opening, "waiting": .waiting, "contact": .contact, "nudge": .nudge,
+            "counting": .counting, "halfway": .halfway, "lost": .lost,
+            "computing": .computing, "result": .result, "failed": .failed,
+        ][DebugEdge.name ?? ""] {
+            applyDebugPhase(forced)
             return
         }
+        #endif
 
         run = Task {
             try? await Task.sleep(for: .milliseconds(460))

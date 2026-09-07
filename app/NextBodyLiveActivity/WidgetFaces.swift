@@ -20,19 +20,24 @@ struct WidgetRing: View {
     var diameter: CGFloat = 96
     var stroke: CGFloat = 8
     var labelSize: CGFloat = 8
+    /// The reading is older than ninety minutes: still true, no longer lit. The app
+    /// greys the same number rather than dropping it, so the ring follows it here.
+    var dim: Bool = false
 
     var body: some View {
-        VStack(spacing: 6) {
+        let ink = dim ? WidgetPaint.text3 : (tint == Island.lime ? Island.lime : Island.white)
+        return VStack(spacing: 6) {
             ZStack {
                 Circle()
                     .stroke(WidgetPaint.track, lineWidth: stroke)
                 Circle()
                     .trim(from: 0, to: max(0, min(1, progress)))
-                    .stroke(tint, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                    .stroke(dim ? WidgetPaint.text3 : tint,
+                            style: StrokeStyle(lineWidth: stroke, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 Text(value)
                     .font(Island.dot(700, valueSize))
-                    .foregroundStyle(tint == Island.lime ? Island.lime : Island.white)
+                    .foregroundStyle(ink)
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                     .padding(.horizontal, 12)
@@ -118,7 +123,7 @@ struct TodayWidgetFace: View {
         VStack(spacing: 8) {
             WidgetRing(progress: readout.batteryProgress, value: readout.batteryText,
                        label: "BODY BATTERY", tint: Island.lime, valueSize: 28,
-                       diameter: 112, stroke: 9, labelSize: 8)
+                       diameter: 112, stroke: 9, labelSize: 8, dim: readout.batteryDim)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Island.carbon)
@@ -211,7 +216,8 @@ struct TodayWidgetFace: View {
                 HStack(spacing: 0) {
                     WidgetRing(progress: readout.batteryProgress, value: readout.batteryText,
                                label: "BATTERY", tint: Island.lime, valueSize: valueSize.0,
-                               diameter: d, stroke: stroke, labelSize: 8)
+                               diameter: d, stroke: stroke, labelSize: 8,
+                               dim: readout.batteryDim)
                     Spacer(minLength: minGap)
                     WidgetRing(progress: readout.loadProgress, value: readout.loadText,
                                label: "LOAD", tint: Island.white, valueSize: valueSize.1,

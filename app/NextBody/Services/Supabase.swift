@@ -150,6 +150,15 @@ actor SupabaseClient {
     func restoreSession() async -> Bool {
         let restoringGeneration = sessionGeneration
         if accessToken != nil { return true }
+        #if DEBUG && targetEnvironment(simulator)
+        // `SIMCTL_CHILD_NB_DEBUG_REFRESH_TOKEN=<token>` seeds a simulator with a real
+        // account's session (minted with the admin magic-link path), so the AI paths can be
+        // walked end to end without OTP mail. Simulator only; the keychain is the app's own.
+        if SessionKeychain.refreshToken == nil,
+           let seeded = ProcessInfo.processInfo.environment["NB_DEBUG_REFRESH_TOKEN"], !seeded.isEmpty {
+            SessionKeychain.refreshToken = seeded
+        }
+        #endif
         if let stored = SessionKeychain.accessToken,
            HomeLaunchPolicy.isAccessTokenUsable(stored),
            let sub = HomeLaunchPolicy.jwtSubject(stored) {

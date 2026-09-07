@@ -29,7 +29,7 @@ struct SignInFlow: View {
     enum CodeError: Equatable { case wrong, locked, expired, rateLimited, noNetwork }
     @State private var codeError: CodeError?
     @State private var sending = false
-    @State private var authFailed = false
+    @State private var authFailed = DebugEdge.on("authfail")
     @State private var appleSignIn = AppleSignIn()
     /// 02M ◇5 · where the film hands the screen over: Connect, unless this account already
     /// has a band bound to it, in which case the gate is behind them and home is next.
@@ -68,6 +68,37 @@ struct SignInFlow: View {
             }
         }
         .carbonPage()
+        #if DEBUG
+        .onAppear {
+            if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_SIGN_STEP"] {
+                switch raw {
+                case "email":
+                    if email.isEmpty {
+                        email = ProcessInfo.processInfo.environment["NB_DEBUG_EMAIL"] ?? "you@nextbody.app"
+                    }
+                    if DebugEdge.on("ratelimited") { codeError = .rateLimited }
+                    if DebugEdge.on("nonetwork") { codeError = .noNetwork }
+                    if DebugEdge.on("sending") { sending = true }
+                    step = .email
+                case "code":
+                    if email.isEmpty {
+                        email = ProcessInfo.processInfo.environment["NB_DEBUG_EMAIL"] ?? "you@nextbody.app"
+                    }
+                    if DebugEdge.on("wrongcode") { codeError = .wrong }
+                    if DebugEdge.on("locked") { codeError = .locked }
+                    if DebugEdge.on("expired") { codeError = .expired }
+                    if DebugEdge.on("ratelimited") { codeError = .rateLimited }
+                    if DebugEdge.on("nonetwork") { codeError = .noNetwork }
+                    step = .code
+                case "wordmark":
+                    playingWordmark = true
+                default:
+                    break
+                }
+            }
+            if DebugEdge.on("authfail") { authFailed = true }
+        }
+        #endif
     }
 
     /// The same shape as Apple, one endpoint later: the account picker mints an identity

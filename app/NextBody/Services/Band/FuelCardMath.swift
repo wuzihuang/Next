@@ -24,6 +24,17 @@ enum FuelCardMath {
         var fill: Double
     }
 
+    /// EATEN is the sum of concluded plates. The `day_fuel` header can still be
+    /// UNLOGGED / 0 after a meal write: insert only dirties the day, and the next
+    /// `load` used to paint that stale header over rows the user can already read.
+    /// An empty list keeps `server` so a failed meal fetch does not blank a settled
+    /// number. Fasted with no plates is the explicit zero.
+    static func eaten(mealKcals: [Double], server: Double?, fasted: Bool) -> Double? {
+        if !mealKcals.isEmpty { return mealKcals.reduce(0, +) }
+        if fasted { return 0 }
+        return server
+    }
+
     static func readout(eaten: Double?, target: Double?) -> Readout {
         guard let eaten else {
             return Readout(eaten: nil, target: target, pair: .silent, fill: 0)

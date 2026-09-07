@@ -70,10 +70,17 @@ async function providerTranscribe(
         input: { messages: [{ role: "user", content: [{ audio: dataUri }] }] },
         parameters: { asr_options: { language: "zh" } },
       }),
-      signal: AbortSignal.timeout(11_000),
+      // The whole clip travels as base64 inside the JSON body, so the budget has
+      // to cover the upload as well as the recognition. 11 s cut a 10 s clip off
+      // mid-flight and the dock reported it as "didn't catch that" (2026-09-06).
+      // The client gives up at 30 s; stay under that so it sees our answer.
+      signal: AbortSignal.timeout(22_000),
     },
   );
-  if (!res.ok) return { ok: false, error: "MODEL_UNAVAILABLE", status: 503 };
+  if (!res.ok) {
+    console.error("ASR_PROVIDER_REJECTED", res.status, (await res.text()).slice(0, 300));
+    return { ok: false, error: "MODEL_UNAVAILABLE", status: 503 };
+  }
   const out = await res.json();
   const parts = out?.output?.choices?.[0]?.message?.content as
     | { text?: string }[]
@@ -150,7 +157,13 @@ export async function handleAsr(
     try {
       result = await deps.transcribe(bytes, file.type || "audio/wav");
       if (result.ok && result.usage) usage = result.usage;
-    } catch {
+    } catch (error) {
+      // Without this the timeout and a torn connection both left the log silent
+      // and only the client could see that anything had gone wrong.
+      console.error(
+        "ASR_PROVIDER_FAILED",
+        error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+      );
       result = { ok: false, error: "MODEL_UNAVAILABLE", status: 503 };
     }
     // Account even for silence and failed attempts: audio already reached the provider.
@@ -196,6 +209,15 @@ function streamTranscription(
   let closed = false;
   let byteCount = 0;
   let submittedBytes = 0;
+  const segments: string[] = [];
+  let lastPartial = "";
+  let partialCount = 0;
+  let lastPartialAt = 0;
+  let widestGap = 0;
+  let grace: number | undefined;
+  let ceiling: number | undefined;
+  const openedAt = Date.now();
+  const since = () => Date.now() - openedAt;
   const pending: Uint8Array[] = [];
 
   let resolveLifetime: () => void = () => {};
@@ -216,6 +238,17 @@ function streamTranscription(
     if (closed) return;
     closed = true;
     clearTimeout(timeout);
+    clearTimeout(grace);
+    clearTimeout(ceiling);
+    console.log(
+      "ASR_STREAM_CLOSED",
+      JSON.stringify({
+        ms: since(),
+        partials: partialCount,
+        final: finalEvent ? (finalEvent.text ? "text" : "no_speech") : "none",
+        seconds: submittedBytes / 32_000,
+      }),
+    );
     pending.forEach((bytes) => bytes.fill(0));
     pending.length = 0;
     if (upstream && upstream.readyState < NodeWebSocket.CLOSING) {
@@ -246,6 +279,9 @@ function streamTranscription(
     })();
   };
   const fail = (message: string) => {
+    // The reason used to reach the client and nowhere else, so a stream that
+    // always fell back to the slow path could not be diagnosed from the logs.
+    console.error("ASR_STREAM_FAILED", message);
     finalEvent = null;
     sendClient({ type: "error", error: "MODEL_UNAVAILABLE", reason: message });
     close();
@@ -269,10 +305,51 @@ function streamTranscription(
     if (!finishRequested || !upstreamReady || finishSent || closed) return;
     finishSent = true;
     for (const event of finishEvents()) upstream?.send(event);
+    // ⚠️ 2026-09-06 · the provider accepts the audio and then answers the commit
+    // with nothing at all — the client sat out its whole 8 s patience and
+    // re-uploaded the same clip as a file, thirteen seconds to transcribe four.
+    // The increments already on the wire are the transcript. But they are still
+    // GROWING when the commit lands: settling on a fixed deadline handed back
+    // half a sentence («我还吃了一块酱牛肉» came back cut in two). So the stream
+    // settles on the words going quiet, never on a stopwatch — a gap with no new
+    // increment means the provider has caught up with the audio.
+    settleWhenQuiet();
+    ceiling = setTimeout(() => settle("CEILING"), 6_500);
+  };
+  // 600 ms is a bit over twice the 280 ms the increments were actually spaced by,
+  // so a settle can only fire once the provider has stopped producing words —
+  // and once it has declared a sentence complete, only a second sentence could
+  // still be coming, which starts near instantly or not at all.
+  const settleWhenQuiet = () => {
+    if (closed || !finishSent) return;
+    clearTimeout(grace);
+    grace = setTimeout(() => settle("QUIET"), segments.length > 0 ? 250 : 600);
+  };
+  const settle = (reason: string) => {
+    if (closed || finalEvent) return;
+    // Sentence by sentence: a second `completed` used to overwrite the first,
+    // which loses the front half of anything said in two breaths.
+    const text = `${segments.join("")}${lastPartial}`.trim();
+    console.log(
+      "ASR_STREAM_SETTLED",
+      JSON.stringify({
+        reason, ms: since(), sinceLastWord: since() - lastPartialAt, widestGap,
+        partials: partialCount, segments: segments.length, chars: text.length,
+      }),
+    );
+    if (text && !isFiller(text)) {
+      finalEvent = { type: "done", text };
+      close();
+    } else {
+      fail("PROVIDER_SILENT");
+    }
   };
   const timeout = setTimeout(() => fail("STREAM_TIMEOUT"), 70_000);
 
-  socket.onopen = () => {
+  // Connecting to the provider is the longest silent stretch of the whole turn
+  // (1878 ms measured on 2026-09-06 before the first increment could arrive).
+  // It starts now, in parallel with the client's own upgrade, instead of after.
+  const openUpstream = () => {
     upstream = new NodeWebSocket(realtimeURL(), {
       headers: {
         Authorization: `Bearer ${key}`,
@@ -285,22 +362,39 @@ function streamTranscription(
       switch (event.kind) {
         case "ready":
           upstreamReady = true;
+          console.log("ASR_STREAM_READY", since());
           pending.splice(0).forEach(sendAudio);
           sendClient({ type: "ready" });
           finishProvider();
           break;
         case "partial":
-          if (event.text) sendClient({ type: "partial", text: event.text });
+          if (event.text) {
+            lastPartial = event.text;
+            if (partialCount === 0) console.log("ASR_STREAM_FIRST_PARTIAL", since());
+            else widestGap = Math.max(widestGap, since() - lastPartialAt);
+            lastPartialAt = since();
+            partialCount += 1;
+            sendClient({ type: "partial", text: event.text });
+            settleWhenQuiet();
+          }
           break;
         case "completed":
-          finalEvent = !event.text.trim() || isFiller(event.text)
-            ? { type: "done", error: "NO_SPEECH" }
-            : { type: "done", text: event.text };
+          console.log("ASR_STREAM_COMPLETED", since());
+          // One finished sentence, not the whole answer: keep it and let the
+          // next one start clean. The stream ends when the words stop, not here.
+          if (event.text.trim()) segments.push(event.text.trim());
+          lastPartial = "";
+          settleWhenQuiet();
           break;
-        case "finished":
-          finalEvent ??= { type: "done", error: "NO_SPEECH" };
+        case "finished": {
+          console.log("ASR_STREAM_FINISHED", since());
+          const text = `${segments.join("")}${lastPartial}`.trim();
+          finalEvent ??= text && !isFiller(text)
+            ? { type: "done", text }
+            : { type: "done", error: "NO_SPEECH" };
           close();
           break;
+        }
         case "error":
           fail(event.message);
           break;
@@ -313,6 +407,7 @@ function streamTranscription(
       if (!closed) fail("PROVIDER_CLOSED");
     });
   };
+  openUpstream();
 
   socket.onmessage = (event) => {
     if (closed) return;

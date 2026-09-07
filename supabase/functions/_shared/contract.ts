@@ -12,6 +12,12 @@ export const PANEL_TYPES = [
   "o2night", "food", "meal", "fuel", "balance", "recomp", "delta", "dual",
   // ADR 0018 · the plan face's own frame: title, summary, three to five tasks.
   "plan",
+  // 2026-09-06 gap audit · six shapes the database had data for and the screen had no
+  // frame for. Each one answers a question the existing types cannot: a score with the
+  // sub-score that dragged it down, a beat-to-beat cloud, why a day has no data, which
+  // way the body went and on how much evidence, one session's own curve, one meal's own
+  // response. See docs/plans/2026-09-06-panel-catalog-and-gaps.md.
+  "score", "poincare", "matrix", "call", "curve", "response",
 ] as const;
 
 export type PanelType = (typeof PANEL_TYPES)[number];

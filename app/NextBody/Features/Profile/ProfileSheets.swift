@@ -313,6 +313,14 @@ struct UnitsSheet: View {
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
         }
+        .onAppear {
+            #if DEBUG
+            if DebugEdge.on("imperial") {
+                weightUnit = "LB"
+                heightUnit = "FT"
+            }
+            #endif
+        }
         .onChange(of: weightUnit) { _, v in
             data.profile.usesMetric = (v == "KG")
             let saved = data.profile

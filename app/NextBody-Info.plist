@@ -73,6 +73,11 @@
 	<!-- F5 §03 · the string is the board's own; its two "never"s are promises. Four read types, nothing written back. -->
 	<key>NSHealthShareUsageDescription</key>
 	<string>HOOP reads your sex, date of birth, height and weight from Health to set up your baseline. It never writes to Health, and never shares this data.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>NextBody uses Health only to read your body measurements for your baseline. It does not write to Health.</string>
+	<!-- Required by linked band SDK APIs; the app does not request library access. -->
+	<key>NSAppleMusicUsageDescription</key>
+	<string>NextBody does not access your music library. You can use all workout features without granting music access.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Talk to NextBody instead of typing.</string>
 	<key>NSMotionUsageDescription</key>

@@ -55,6 +55,28 @@ Deno.test("amendment preserves replacement and deletion rejects unexpected repla
   assertEquals(invalid.status, 422);
 });
 
+Deno.test("amendment forwards logged_at and rejects an unparseable eating time", async () => {
+  const { draft_id: _, ...replacement } = base;
+  const loggedAt = "2026-09-06T16:40:00Z";
+  let received: unknown;
+  const response = await handleMealWrite(request({ operation_id: op, kind: "amend", meal_id: meal,
+    replacement: { ...replacement, id: op, protein_g: 28, carb_g: 40, fat_g: 12, logged_at: loggedAt } }),
+    "operation", {
+      ...dependencies(), apply: (_req, args) => {
+        received = args.p_payload;
+        return dependencies().apply(_req, args);
+      },
+    });
+  assertEquals(response.status, 200);
+  assertEquals((received as Record<string, unknown>).logged_at, loggedAt);
+  assertEquals((received as Record<string, unknown>).protein_g, 28);
+  const bad = await handleMealWrite(request({ operation_id: op, kind: "amend", meal_id: meal,
+    replacement: { ...replacement, id: op, logged_at: "not-a-time" } }), "operation", {
+    ...dependencies(), apply: () => { throw new Error("must not call"); },
+  });
+  assertEquals(bad.status, 422);
+});
+
 Deno.test("legacy canonical reconciliation requires every stored field to match", async () => {
   const fields = { user_day: "2026-09-04", slot: "LUNCH", name: "Rice", kcal: 500,
     protein_g: 30, carb_g: 60, fat_g: 10, confidence: "LOW", model_version: "model-v1" };

@@ -8,9 +8,15 @@ struct MeasurementsView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
 
+    #if DEBUG
+    private var kept: [MeasurementRecord] { DebugEdge.on("empty") ? [] : data.measurements }
+    #else
+    private var kept: [MeasurementRecord] { data.measurements }
+    #endif
+
     /// 按月分组，月内倒序。⚠️ 这里不做筛选也不做统计：清单只是清单。
     private var months: [(key: String, label: String, records: [MeasurementRecord])] {
-        let sorted = data.measurements.sorted { $0.at > $1.at }
+        let sorted = kept.sorted { $0.at > $1.at }
         var order: [String] = []
         var buckets: [String: [MeasurementRecord]] = [:]
         for record in sorted {
@@ -27,12 +33,12 @@ struct MeasurementsView: View {
     var body: some View {
         DetailScroll(glow: NB.lime1, title: L("MEASUREMENTS")) {
             // ⚠️ KEPT 是留下的行数，不是尝试次数——失败的测量从没进过这张表。
-            Text(L("%d KEPT", data.measurements.count))
+            Text(L("%d KEPT", kept.count))
                 .font(NBFont.dot(500, 12)).tracking(0.04 * 12)
                 .foregroundStyle(NB.macroValue)
         } content: {
             VStack(alignment: .leading, spacing: 0) {
-                if data.measurements.isEmpty {
+                if kept.isEmpty {
                     emptyState
                 } else {
                     ForEach(months, id: \.key) { month in

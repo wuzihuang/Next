@@ -10,7 +10,10 @@
 
 import type { PanelType } from "./contract.ts";
 
-export type Family = "number" | "curve" | "pair" | "column" | "arc" | "gauge" | "stack" | "grid" | "strip" | "rows";
+export type Family = "number" | "curve" | "pair" | "column" | "arc" | "gauge" | "stack" | "grid" | "strip" | "rows"
+  // 2026-09-06 gap audit · a total with its sub-scores, a beat-to-beat cloud, a closed
+  // verdict, and the raw interval trace. None of them fit the first ten.
+  | "meter" | "scatter" | "verdict" | "trace";
 
 export interface ChartSkill {
   type: PanelType;
@@ -238,6 +241,63 @@ export const CHART_SKILLS: ChartSkill[] = [
     copy: "hero 写最新体脂率；sentence 说两条线有没有交叉或拉开；footer 写各自的变化量。",
     target: "composition",
   },
+  // ---------------------------------------------------------------- 2026-09-06 gap audit
+  {
+    type: "score", family: "meter", shape: "SCORE · SUB-SCORES",
+    use: "问昨晚睡得几分、或者为什么分低：一个总分加时长 / 结构 / 恢复 / 规律四个子分。",
+    avoid: "只要一个 0–100 的读数用 gauge；问三段占多少用 split；问几点睡几点醒用 hypnogram。",
+    sources: ["sleep.score.night"],
+    copy: "hero 是总分；sentence 点名最低的那个子分并说它低多少；footer 写没算出来的子分（缺就别提）。",
+    target: "bodyBattery",
+  },
+  {
+    type: "poincare", family: "scatter", shape: "BEAT-TO-BEAT CLOUD",
+    use: "刚做完平衡测试、或者问上一次平衡测试的结果：逐拍散点加 SDNN、主导侧、静息占比。",
+    avoid: "问一段时间的 HRV 走势用 line；问此刻压力用 gauge。",
+    sources: ["balance.check.last"],
+    copy: "hero 写 SDNN 与单位；sentence 说云是聚还是散、哪一侧主导；footer 写拍数与时长。",
+    target: "bodyBattery",
+  },
+  {
+    type: "matrix", family: "grid", shape: "DOMAIN × DAY STATUS",
+    use: "读工具返回了 NO_DATA、或者用户问「为什么没有数据 / 是不是漏了」：每个域每天的同步状态。",
+    avoid: "问某个指标一周的规律用 heat；问做到了几天用 cells。",
+    sources: ["sync.status.7d"],
+    copy: "hero 写不完整的格子数；sentence 点名缺得最多的那个域；footer 写窗口与域的个数。不许把没采到说成 0。",
+    target: "profile",
+  },
+  {
+    type: "call", family: "verdict", shape: "THE CALL · CONFIDENCE",
+    use: "问「我到底在增肌还是减脂」：五个判定之一，连着它的置信度一起给。",
+    avoid: "问 12 周的方向用 recomp；问两条线用 dual；问一次的变化用 delta。",
+    sources: ["composition.call"],
+    copy: "hero 就是判定词；sentence 说凭什么这么判；footer 必须写置信度和支撑它的称重次数——置信度不写就等于没说。",
+    target: "composition",
+  },
+  {
+    type: "curve", family: "curve", shape: "LOAD ACCUMULATING",
+    use: "问今天的训练负荷是怎么攒起来的：五分钟一点的累积曲线，21 是满值。",
+    avoid: "问逐天的负荷用 line 或 days；问区间分钟用 zones；问一个数对满值用 ring。",
+    sources: ["load.curve.today"],
+    copy: "hero 写此刻的累积值；sentence 说它是一口气上去的还是分几段；footer 写 Z4+Z5 的分钟与峰值心率。",
+    target: "training",
+  },
+  {
+    type: "response", family: "curve", shape: "MEAL RESPONSE",
+    use: "问最近一餐之后身体的反应：腕上光学的无量纲指数曲线，标出开饭与回到基线两刻。",
+    avoid: "问这顿吃了多少用 food 或 meal；问一天的摄入对消耗用 balance。",
+    sources: ["response.meal.last"],
+    copy: "hero 写峰值指数（带符号）；sentence 说多久到峰、多久回落；footer 写这一餐的槽位。⚠️ 不是血糖、不是化验值：文案里不许出现血糖、mmol、mg/dL。",
+    target: "fuel",
+  },
+  {
+    type: "wave", family: "trace", shape: "RR TACHOGRAM",
+    use: "问逐拍间期本身：上一段测量的 RR 毫秒序列按拍号画成迹线。",
+    avoid: "问那次测量的结论用 poincare；问心率曲线用 line。",
+    sources: ["rr.tachogram.last"],
+    copy: "hero 写拍数；sentence 说间期稳不稳；footer 写均值与单位（ms）。",
+    target: "bodyBattery",
+  },
 ];
 
 export const SKILL_BY_TYPE = new Map(CHART_SKILLS.map((s) => [s.type, s]));
@@ -262,6 +322,8 @@ export function chartChoicePrompt(en = true): string {
       "· last night: minute stages → hypnogram; three-way split → split; overnight SpO2 → o2night",
       "· fuel: macros vs target → fuel; in vs out → balance; which meals today → meal; user reports a plate → food",
       "· several metrics together → sparks; days completed → cells; 12-week composition direction → recomp",
+      "· last night's score with its sub-scores → score; which way the body went → call; today's load accumulating → curve",
+      "· a balance check just finished → poincare; the raw beat intervals → wave; a read came back NO_DATA → matrix; after a meal → response",
       "Series charts only pick a source; the server fills the points. If a tool returns NO_DATA, switch chart or write —— as text. Do not invent points.",
       "Use text only when no chart fits. One render per turn.",
     ].join("\n")
@@ -275,6 +337,8 @@ export function chartChoicePrompt(en = true): string {
       "· 昨夜：逐分钟分期 → hypnogram；三段占比 → split；夜间血氧 → o2night",
       "· 燃料：三大营养素对目标 → fuel；吃进对消耗 → balance；今天记了哪几餐 → meal；用户报一顿吃的 → food",
       "· 几项指标一起看 → sparks；做到了几天 → cells；12 周体成分的方向 → recomp",
+      "· 昨夜总分与四个子分 → score；增肌还是减脂的判定 → call；今天负荷怎么攒起来的 → curve",
+      "· 刚做完平衡测试 → poincare；逐拍间期本身 → wave；读回 NO_DATA / 问为什么没数据 → matrix；一餐之后的反应 → response",
       "序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换一种图或用 text 写 ——，不许自己造点。",
       "没有任何图配得上时才用 text。一轮只渲染一次。",
     ].join("\n");

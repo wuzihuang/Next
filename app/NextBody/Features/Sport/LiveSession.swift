@@ -54,8 +54,9 @@ final class LiveSessionStore: ObservableObject {
 
     private var metrics = SportMetricAccumulator(weightKg: nil, age: nil, male: false)
     private var heartEvidence = SportHeartRateEvidenceStream()
+    private var energyEvidence = SportEnergyEvidenceStream()
     var caloriesAreEstimated: Bool { metrics.calorieSource == .estimate }
-    var hasCalories: Bool { metrics.calorieSource == .band || metrics.estimationAvailable }
+    var hasCalories: Bool { metrics.hasEnergyEvidence }
     var energyLabel: String {
         if !caloriesAreEstimated { return L("BURNED") }
         return session?.joined == true ? L("ESTIMATE SINCE JOIN") : L("ESTIMATED BURN")
@@ -71,6 +72,10 @@ final class LiveSessionStore: ObservableObject {
     /// the view. `bluetooth-central` in the Info.plist is what keeps the app alive for it.
     private var wristTask: Task<Void, Never>?
     private var hrMax = 190
+    /// First running report of this seek. Optical lock is timed from here, not the tap.
+    private var seekBeganAt: Date?
+    /// Last valid beat in this seek. Survives a zero report so a dropout is not a verdict.
+    private var lastHeartAt: Date?
 
     /// A heart rate older than this is not the wrist now. Same window as the panel's.
     static let liveWindow = SportMetricAccumulator.liveWindow
@@ -94,10 +99,14 @@ final class LiveSessionStore: ObservableObject {
             return
         }
         self.hrMax = profile.hrMax
-        metrics = SportMetricAccumulator(weightKg: weightKg, age: profile.age, male: profile.sexIsMale)
+        metrics = SportMetricAccumulator(weightKg: weightKg, age: profile.age,
+                                         male: profile.sexIsMale, sportMode: mode.rawValue)
         heartEvidence = SportHeartRateEvidenceStream()
+        energyEvidence = SportEnergyEvidenceStream()
         kcal = 0
         hr = nil; hrAt = nil
+        seekBeganAt = nil
+        lastHeartAt = nil
         errorLine = nil
         refusal = nil
         wrist = .off
@@ -290,7 +299,8 @@ final class LiveSessionStore: ObservableObject {
         if !Self.debugFakeWrist { Task { await Repository.shared.flushPendingEvidence() } }
         Task { await Analytics.shared.track("SESSION_END", [
             "MODE": session.mode.rawValue, "SEC": sec,
-            "AVG_HR": average, "KCAL": calories, "CLOSED": didClose,
+            "AVG_HR": average, "KCAL": calories,
+            "ENERGY_SEC": Int(metrics.estimatedSeconds.rounded()), "CLOSED": didClose,
         ]) }
         return summaryWidget(session, seconds: sec, closed: closed)
     }
@@ -303,6 +313,7 @@ final class LiveSessionStore: ObservableObject {
         let endingOwner = lifetime
         lifetime = nil
         heartEvidence.interrupted()
+        energyEvidence.interrupted()
         let readingTask = wristTask
         let openingTask = openTask
         readingTask?.cancel()
@@ -331,6 +342,8 @@ final class LiveSessionStore: ObservableObject {
         opening = false
         wrist = .off
         hr = nil; hrAt = nil
+        seekBeganAt = nil
+        lastHeartAt = nil
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
@@ -374,6 +387,7 @@ final class LiveSessionStore: ObservableObject {
     /// to the heart test on its own.
     private func consumeReport(owner: SportSessionLifetime) async -> Bool {
         interruptMetrics()
+        seekBeganAt = Date()
         wrist = .reaching
         var heard = false
         for await info in Band.live.sportLiveInfo() {
@@ -390,6 +404,7 @@ final class LiveSessionStore: ObservableObject {
     }
 
     private func consumeHeart(owner: SportSessionLifetime) async {
+        seekBeganAt = Date()
         wrist = .reaching
         do {
             for try await progress in Band.live.measureHeartRate() {
@@ -435,6 +450,18 @@ final class LiveSessionStore: ObservableObject {
         let now = Date()
         if !Self.debugFakeWrist, let owner = lifetime, accepts(owner),
            let account = owner.account,
+           let sample = energyEvidence.accept(at: now, runState: info.runState,
+                sportMode: session?.joined == true ? nil : session?.mode.rawValue,
+                timeZone: TimeZone.current.identifier) {
+            do { try SportEvidenceQueue.shared.enqueue(sample, ownerUserId: account) }
+            catch {
+                energyEvidence.interrupted()
+                BandLog.shared.record("sport energy evidence persistence", error: error)
+                errorLine = L("Energy evidence could not be saved on this phone.")
+            }
+        }
+        if !Self.debugFakeWrist, let owner = lifetime, accepts(owner),
+           let account = owner.account,
            let sample = heartEvidence.accept(at: now, heartRate: info.heartRate,
                 runState: info.runState, sportMode: session?.joined == true ? nil : session?.mode.rawValue,
                 timeZone: TimeZone.current.identifier) {
@@ -456,25 +483,44 @@ final class LiveSessionStore: ObservableObject {
                 session = s
             }
         }
+        if seekBeganAt == nil { seekBeganAt = now }
         metrics = metrics.accepting(timestamp: now, heartRate: info.heartRate,
                                     caloriesKcal: info.caloriesKcal, runState: info.runState)
         hr = metrics.heartRate
         hrAt = metrics.heartRateAt
         kcal = metrics.kcal
+        if hr != nil { lastHeartAt = now }
         if metrics.calorieCorrection != nil {
             Self.log.notice("session energy corrected by cumulative device report")
         }
-        wrist = info.runState == 2 ? .paused : (hr == nil ? .noContact : .live)
+        // A zero on the sport report is the sensor still locking, not a loose strap.
+        // Tighten waits for the acquire window (or a dropout after a real lock).
+        wrist = Self.wrist(from: SportWristMath.face(
+            runState: info.runState, heartRate: hr, hadHeart: lastHeartAt != nil,
+            seekingFor: now.timeIntervalSince(seekBeganAt ?? now),
+            silentFor: lastHeartAt.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude))
         if hr != nil {
             Self.log.notice("session receipt count=\(self.metrics.sampleCount) mode=\(self.session?.mode.rawValue ?? -1)")
         }
         pushIsland()
     }
 
+    private static func wrist(from face: SportWristMath.Face) -> Wrist {
+        switch face {
+        case .reaching: return .reaching
+        case .live: return .live
+        case .noContact: return .noContact
+        case .paused: return .paused
+        }
+    }
+
     private func interruptMetrics() {
         heartEvidence.interrupted()
+        energyEvidence.interrupted()
         metrics = metrics.interrupted()
         hr = nil; hrAt = nil
+        lastHeartAt = nil
+        seekBeganAt = nil
     }
 
     // MARK: the island
@@ -506,7 +552,7 @@ final class LiveSessionStore: ObservableObject {
         if opening { return L("OPENING ON THE BAND") }
         switch wrist {
         case .live:      return session?.joined == true && caloriesAreEstimated ? L("ESTIMATE SINCE JOIN") : nil
-        case .reaching:  return L("REACHING THE WRIST")
+        case .reaching:  return L("READING HEART RATE")
         case .noContact: return L("NO CONTACT · TIGHTEN THE BAND")
         case .offline:   return L("BAND OFFLINE · STILL TIMING")
         case .paused:    return L("PAUSED ON THE BAND")
@@ -573,11 +619,32 @@ final class LiveSessionStore: ObservableObject {
         let mode = SportModeCatalog.modes.first { "\($0.rawValue)" == raw }
             ?? SportModeCatalog.modes.first { $0.rawValue == 1 }!
         begin(mode, profile: profile, weightKg: weightKg)
+        if ProcessInfo.processInfo.environment["NB_DEBUG_SESSION_OPEN"] == "1" {
+            opening = true
+        }
+        if let refuse = ProcessInfo.processInfo.environment["NB_DEBUG_SESSION_REFUSE"], !refuse.isEmpty {
+            refusal = refuse == "1" ? L("The band refused this mode.") : refuse
+        }
     }
     #endif
 
     private func fakeWrist() async {
         guard Band.allowsSeed else { return }
+        #if DEBUG
+        if let pin = ProcessInfo.processInfo.environment["NB_DEBUG_SESSION_WRIST"], !pin.isEmpty {
+            switch pin {
+            case "off": wrist = .off
+            case "nocontact": wrist = .noContact
+            case "offline": wrist = .offline
+            case "paused": wrist = .paused
+            default: wrist = .reaching
+            }
+            while !Task.isCancelled, session != nil {
+                try? await Task.sleep(for: .seconds(30))
+            }
+            return
+        }
+        #endif
         wrist = .reaching
         try? await Task.sleep(for: .seconds(1))
         var beat = 96.0

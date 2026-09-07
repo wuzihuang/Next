@@ -81,4 +81,20 @@ final class UserDayTests: XCTestCase {
             XCTAssertEqual(day.adding(days: 1).start, day.end)
         }
     }
+
+    func testPinningClockKeepsTheUserDayAcrossTheFourOClockCut() {
+        let day = UserDay.containing(
+            calendar.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 12))!,
+            calendar: calendar)
+        let lunch = calendar.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 12, minute: 40))!
+        XCTAssertEqual(day.pinningClock(lunch, calendar: calendar), lunch)
+        let otherDay = calendar.date(from: DateComponents(year: 2026, month: 9, day: 8, hour: 12, minute: 40))!
+        XCTAssertEqual(day.pinningClock(otherDay, calendar: calendar), lunch)
+        let lateClock = calendar.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 1, minute: 20))!
+        let pinned = day.pinningClock(lateClock, calendar: calendar)
+        XCTAssertEqual(calendar.component(.hour, from: pinned), 1)
+        XCTAssertEqual(calendar.component(.minute, from: pinned), 20)
+        XCTAssertEqual(calendar.component(.day, from: pinned), 7)
+        XCTAssertEqual(UserDay.containing(pinned, calendar: calendar), day)
+    }
 }

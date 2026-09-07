@@ -78,6 +78,8 @@ struct NextBodyApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     BandLiveLifecycle.shared.setPhase(.active)
                     requestForegroundRefresh(reason: "foreground")
+                    // ADR 0018 · idle sessions fold into memory the next time the app is in front.
+                    AISession.shared.settleIfDue()
                 }
         }
     }

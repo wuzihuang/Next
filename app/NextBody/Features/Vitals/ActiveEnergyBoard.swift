@@ -22,17 +22,18 @@ struct ActiveEnergyModel {
     static func make(m: DailyMetrics, now: Date, history: [DailyMetrics]) -> ActiveEnergyModel {
         let now = min(now, min(m.asOf ?? now, m.day.end))
         let ticks = m.vitalsCurve
+        let energyTicks = m.energyDistribution?.map(\.tick) ?? ticks
         let windows = sportWindows(m)
         let split = ActiveEnergyMath.split(
             dayStart: m.day.start, now: now, bmr: m.bmr, bmrFull: m.bmrFull,
             eActive: m.eActive, eTrain: m.eTrain, eOutNow: m.eOutNow,
-            ticks: ticks, sportWindows: windows)
+            ticks: ticks, sportWindows: windows, energyDistribution: m.energyDistribution)
         let hours = ActiveEnergyMath.hourly(
             dayStart: m.day.start, now: now, split: split,
-            ticks: ticks, sportWindows: windows)
+            ticks: energyTicks, sportWindows: windows)
         let out = split.out.map {
             ActiveEnergyMath.outCurve(dayStart: m.day.start, now: now, burnedNow: $0,
-                                      burnedFull: m.eOutFull, restingNow: split.resting, ticks: ticks)
+                                      burnedFull: m.eOutFull, restingNow: split.resting, ticks: energyTicks)
         }
         let rest = split.resting.map {
             ActiveEnergyMath.restCurve(dayStart: m.day.start, now: now, resting: $0)

@@ -1,25 +1,36 @@
 import { z } from "npm:zod@3.25.76";
 import { type Metric, METRICS, queryMetrics } from "./metric-query.ts";
 import { type Ctx, dayOf } from "./sources.ts";
+// ⚠️ Strings, not enums, for the same reason data.read stopped using one: a misremembered
+// metric name must come back as a tool result the model can fix, never as
+// AI_InvalidToolArgumentsError — that kills the turn.
 export const metricComparisonSchema = z.object({
-  left: z.enum(METRICS),
-  right: z.enum(METRICS),
-  from: z.string(),
-  to: z.string(),
-  timezone: z.string().optional(),
+  left: z.coerce.string().describe("A day-grain metric id"),
+  right: z.coerce.string().describe("A day-grain metric id"),
+  from: z.coerce.string(),
+  to: z.coerce.string(),
+  timezone: z.coerce.string().optional(),
 });
 export async function compareMetrics(
   ctx: Ctx,
   request: {
-    left: Metric;
-    right: Metric;
+    left: string;
+    right: string;
     from: string;
     to: string;
     timezone?: string;
   },
 ) {
+  const unknown = [request.left, request.right].filter((m) => !(METRICS as readonly string[]).includes(m));
+  if (unknown.length) {
+    return {
+      ok: false as const,
+      error: "UNKNOWN_METRIC",
+      say: `${unknown.map((m) => `"${m}"`).join(" and ")} ${unknown.length > 1 ? "are" : "is"} not a metric. Compare two of: ${METRICS.join(", ")}.`,
+    };
+  }
   const result = await queryMetrics(ctx, {
-    metrics: [request.left, request.right],
+    metrics: [request.left as Metric, request.right as Metric],
     from: request.from,
     to: request.to,
     timezone: request.timezone,

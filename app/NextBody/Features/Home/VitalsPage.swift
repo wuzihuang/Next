@@ -154,7 +154,7 @@ struct VitalsPage: View {
     private var responseCard: some View {
         let index = mealIndex
         let hero = index.latestPoint.map(MealResponseIndex.pointValue)
-        let status: (String, String)?
+        var status: (String, String)?
         switch index.empty {
         case .needs5Days: status = (L("NEEDS 5 DAYS"), L("OWN MEDIAN NOT READY"))
         case .switchOff:  status = (L("SWITCH OFF"), L("AUTO MEASURE IS OFF"))
@@ -162,6 +162,17 @@ struct VitalsPage: View {
         case .empty:      status = (L("NO TICKS TODAY"), L("OWN MEDIAN READY"))
         case nil:         status = nil
         }
+        #if DEBUG
+        if DebugEdge.on("needs5days") {
+            status = (L("NEEDS 5 DAYS"), L("OWN MEDIAN NOT READY"))
+        } else if DebugEdge.on("noticks") {
+            status = (L("NO TICKS TODAY"), L("OWN MEDIAN READY"))
+        } else if DebugEdge.on("switchoff") {
+            status = (L("SWITCH OFF"), L("AUTO MEASURE IS OFF"))
+        } else if DebugEdge.on("allzeros") {
+            status = (L("ALL ZEROS"), L("NOT A READING"))
+        }
+        #endif
         return InstrumentCard(
             label: L("RESPONSE"), tag: "NOW", tint: NB.compareAmber,
             height: cardHeight,

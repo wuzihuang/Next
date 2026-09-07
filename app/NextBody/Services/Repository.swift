@@ -904,7 +904,7 @@ final class Repository {
             let stamp = ISO8601DateFormatter()
             async let fuelRows = selectByResultId(
                 "day_fuel",
-                columns: "result_id,intake_state,kcal_in,kcal_out,protein_in_g,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,carb_in_g,fat_in_g,weight_kg",
+                columns: "result_id,intake_state,kcal_in,kcal_out,protein_in_g,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,carb_in_g,fat_in_g,weight_kg,energy_distribution",
                 ids: resultIds)
             async let reserveRows = selectByResultId(
                 "reserve_daily",
@@ -1212,6 +1212,14 @@ final class Repository {
                     m.weightKg = number(fu["weight_kg"]) ?? m.weightKg
                     m.bmr = number(fu["bmr_kcal"])
                     m.eActive = number(fu["active_kcal"])
+                    m.energyDistribution = (fu["energy_distribution"] as? [[String: Any]])?.compactMap {
+                        guard let epoch = number($0["epoch"]),
+                              let origin = number($0["origin_weight"]),
+                              let strength = number($0["strength_weight"]),
+                              epoch.isFinite, origin.isFinite, strength.isFinite,
+                              origin >= 0, strength >= 0 else { return nil }
+                        return FuelEnergyPoint(epoch: epoch, originWeight: origin, strengthWeight: strength)
+                    }
                     if formalMetrics == nil {
                         // Legacy deployments can publish OUT using an older formula
                         // than their explicit resting and active components.
@@ -1508,19 +1516,10 @@ final class Repository {
                 store.today.sleepScore = store.sleepScores[store.today.day.key]
             }
 
-            // The macro rows are the day's own meals added up. The targets are computed
-            // locally from bodyweight and goal (F2 §04, P → F → C); what was eaten is not
-            // a target minus a guess, it is the sum of the rows the user can go and read.
-            if day == UserDay.containing(Date()), !store.meals.isEmpty {
-                let eatenP = store.meals.reduce(0) { $0 + $1.protein }
-                let eatenC = store.meals.reduce(0) { $0 + $1.carb }
-                let eatenF = store.meals.reduce(0) { $0 + $1.fat }
-                store.today.proteinIn = eatenP
-                store.today.carbIn = eatenC
-                store.today.fatIn = eatenF
-                store.today.protein = store.today.protein.map { MacroSlot(target: $0.target, eaten: eatenP) }
-                store.today.carb    = store.today.carb.map    { MacroSlot(target: $0.target, eaten: eatenC) }
-                store.today.fat     = store.today.fat.map     { MacroSlot(target: $0.target, eaten: eatenF) }
+            // Plates on screen are the EATEN number. Macros already followed that
+            // rule; the header used to keep a stale UNLOGGED/0 from day_fuel.
+            if day == UserDay.containing(Date()) {
+                store.refreshIntakeFromMeals()
             }
             // WEIGHT_KG · the most recent weigh-in is what the identity card shows.
             if let latest = weighIns.first, let kg = number(latest["weight_kg"]) {

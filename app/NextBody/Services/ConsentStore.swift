@@ -40,7 +40,11 @@ final class ConsentStore: ObservableObject {
         // `SIMCTL_CHILD_NB_DEBUG_CONSENT=granted` walks the panel's collecting face without
         // driving the consent screen first — same shape as NB_DEBUG_STAGE, memory only.
         #if DEBUG
-        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_CONSENT"] == "granted" { choice = .granted }
+        if Band.allowsSeed,
+           let raw = ProcessInfo.processInfo.environment["NB_DEBUG_CONSENT"],
+           let pinned = Choice(rawValue: raw) {
+            choice = pinned
+        }
         #endif
     }
 

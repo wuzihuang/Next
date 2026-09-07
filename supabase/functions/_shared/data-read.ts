@@ -22,6 +22,12 @@ export {
   type TickMetric,
 } from "./metric-query.ts";
 
+/// Inclusive day count of a from→to window, at least 1.
+export function spanDays(from: string, to: string): number {
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
+  return Number.isFinite(days) ? Math.max(1, days) : 1;
+}
+
 const BLOCKED_TABLES = new Set([
   "ai_turns",
   "screen_frames",
@@ -31,11 +37,15 @@ const BLOCKED_TABLES = new Set([
   "ai_model_calls",
 ]);
 
+// ⚠️ Permissive on purpose. `metric: z.enum(DATA_METRICS)` threw
+// AI_InvalidToolArgumentsError on a guessed name ("fatMassKg" before it existed) and the
+// SDK turns that into a dead turn — the panel falls back over a spelling. The name is
+// checked in readData(), which answers with the list of real ones.
 export const dataReadSchema = z.object({
-  metric: z.enum(DATA_METRICS),
-  from: z.string().optional(),
-  to: z.string().optional(),
-  bucketMinutes: z.number().int().min(5).max(120).optional(),
+  metric: z.coerce.string().describe("A metric id from data.catalog"),
+  from: z.coerce.string().optional(),
+  to: z.coerce.string().optional(),
+  bucketMinutes: z.coerce.number().int().min(5).max(120).optional(),
 });
 
 export type DataReadRequest = z.infer<typeof dataReadSchema>;
@@ -148,8 +158,16 @@ export function bucketTicks(
 }
 
 export async function readData(ctx: Ctx, request: DataReadRequest) {
-  const metric = request.metric;
+  const metric = request.metric as DataMetric;
   const def = definitions[metric];
+  // A name the registry does not have comes back as the list of names it does have.
+  if (!def) {
+    return {
+      ok: false as const,
+      error: "UNKNOWN_METRIC",
+      say: `"${request.metric}" is not a metric. Read one of: ${DATA_METRICS.join(", ")}.`,
+    };
+  }
   const from = request.from ?? ctx.dayKey;
   const to = request.to ?? ctx.dayKey;
   if (BLOCKED_TABLES.has(def.table)) {
@@ -172,11 +190,17 @@ export async function readData(ctx: Ctx, request: DataReadRequest) {
     timezone: ctx.tz,
   });
   if (!result.ok) return result;
+  // ⚠️ The window the read actually covered, in the two units a person says it in. Asked
+  // for twelve weeks of composition and finding two days, the model wrote "12 周窗口内仅 2 天
+  // 有记录" — true, honest, and thrown away as an untraceable 12, because a span was
+  // derivable for a series of timestamps and not for the range the read was given.
+  const windowDays = spanDays(from, end);
   return {
     ok: true as const,
     data: result.data.map((row) => ({
       ...row,
       truncated,
+      stats: { ...row.stats, days: windowDays, weeks: Math.round(windowDays / 7) },
       evidence: {
         ...row.evidence,
         to: end,
@@ -229,6 +253,7 @@ async function readTicks(
     def.agg ?? "mean",
   );
   const cap = 60;
+  const windowDays = spanDays(from, to);
   const clipped = points.length > cap;
   const kept = clipped ? points.slice(0, cap) : points;
   const values = kept.map((point) => point.value);
@@ -249,6 +274,12 @@ async function readTicks(
         min: values.length ? Math.min(...values) : null,
         max: values.length ? Math.max(...values) : null,
         latest: values.at(-1) ?? null,
+        // ⚠️ The window this read covered, in the two units a person says it in. Asked for
+        // twelve weeks of composition and finding two days, the model wrote "12 周窗口内仅 2
+        // 天有记录" — true, honest, and thrown away as an untraceable 12, because a span was
+        // derivable for a series of timestamps and not for the range the read was given.
+        days: windowDays,
+        weeks: Math.round(windowDays / 7),
       },
       truncated: partial,
       evidence: {

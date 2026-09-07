@@ -11,11 +11,13 @@ export const METRICS = [
   "proteinG",
   "weight",
   "bodyFatPct",
+  "fatMassKg",
   "leanMassKg",
   "nightHRV",
   "hrvBaseline",
   "nightRHR",
   "sleepMinutes",
+  "sleepScore",
   "bloodOxygen",
   "bloodPressure",
   "ecg",
@@ -148,6 +150,19 @@ export const definitions: Record<DataMetric, MetricDefinition> = {
     measuredAtColumn: "measured_at",
     maxDays: MAX_DAY_SPAN,
   },
+  // ⚠️ `composition.dual` draws 脂肪量 vs 瘦体重, but only lean mass was readable: asked for
+  // the 12-week comparison the model guessed the name "fatMassKg", the enum rejected it and
+  // the turn died. A number the screen draws has to be a number the model can read.
+  fatMassKg: {
+    table: "body_composition",
+    column: "fat_mass_kg",
+    unit: "kg",
+    timestamp: true,
+    origin: "derived",
+    grain: "measurement",
+    measuredAtColumn: "measured_at",
+    maxDays: MAX_DAY_SPAN,
+  },
   leanMassKg: {
     table: "body_composition",
     column: "lean_body_mass_kg",
@@ -196,6 +211,19 @@ export const definitions: Record<DataMetric, MetricDefinition> = {
     grain: "day",
     measuredAtColumn: "wake_at",
     maxDays: MAX_DAY_SPAN,
+  },
+  // ⚠️ ADR 0008 settles a 0–100 score every night and the sleep page prints it, but the
+  // read registry did not list it: asked to compare sleep with training load, the model
+  // answered "there is no sleep score in the system" and fell back to duration.
+  sleepScore: {
+    table: "night_score",
+    column: "score",
+    unit: "",
+    origin: "derived",
+    grain: "day",
+    measuredAtColumn: "computed_at",
+    maxDays: MAX_DAY_SPAN,
+    says: "ADR 0008 · the settled sleep score, 0–100, from duration, architecture, recovery and regularity. Derived, not a measurement.",
   },
   bloodOxygen: {
     table: "oxygen_samples",

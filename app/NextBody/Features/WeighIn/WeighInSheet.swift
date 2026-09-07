@@ -34,6 +34,20 @@ struct WeighInSheet: View {
         }
         .background(NB.carbon2)
         .task {
+            #if DEBUG
+            if DebugEdge.on("imperial") || DebugEdge.on("fromhealthlb") {
+                data.profile.usesMetric = false
+                unit = "LB"
+            }
+            if DebugEdge.on("fromhealth") || DebugEdge.on("fromhealthlb") {
+                healthCandidate = (78.6, "TODAY 07:12", Date(), "debug-health")
+                mode = .fromHealth
+                return
+            }
+            if DebugEdge.on("outofrange") {
+                typed = "9"
+            }
+            #endif
             // Only a weigh-in newer than HOOP's own last one is worth confirming.
             if let w = await HealthService.shared.latestWeight(),
                w.at > (data.weighIns.first?.date ?? .distantPast) {
@@ -44,9 +58,21 @@ struct WeighInSheet: View {
             }
         }
         .onAppear {
+            #if DEBUG
+            if DebugEdge.on("imperial") || DebugEdge.on("fromhealthlb") {
+                data.profile.usesMetric = false
+                unit = "LB"
+            }
+            #endif
             // The keypad opens on what they weigh now, not on an empty field: most entries
             // are a small correction to the last one.
-            if typed.isEmpty { typed = Fmt.kg(data.today.weightKg) }
+            if typed.isEmpty {
+                if unit == "LB", let kg = data.today.weightKg {
+                    typed = String(format: "%.1f", kg * 2.2046226)
+                } else {
+                    typed = Fmt.kg(data.today.weightKg)
+                }
+            }
         }
     }
 
@@ -121,6 +147,13 @@ struct WeighInSheet: View {
         }
     }
 
+    private var healthUsesMetric: Bool {
+        #if DEBUG
+        if DebugEdge.on("fromhealthlb") || DebugEdge.on("imperial") { return false }
+        #endif
+        return data.profile.usesMetric
+    }
+
     private var todayLabel: String {
         return L("TODAY · %@", Fmt.displayDate(Date(), format: "MMM d").uppercased())
     }
@@ -167,10 +200,10 @@ struct WeighInSheet: View {
 
             if let c = healthCandidate {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(data.profile.usesMetric ? Fmt.kg(c.kg) : String(format: "%.1f", c.kg * 2.2046226))
+                    Text(healthUsesMetric ? Fmt.kg(c.kg) : String(format: "%.1f", c.kg * 2.2046226))
                         .font(NBFont.brand(700, 54)).tracking(-0.045 * 54)
                         .foregroundStyle(NB.text1)
-                    Text(data.profile.usesMetric ? "KG" : "LB")
+                    Text(healthUsesMetric ? "KG" : "LB")
                         .font(NBFont.dot(500, 14))
                         .foregroundStyle(NB.white.opacity(0.34))
                 }

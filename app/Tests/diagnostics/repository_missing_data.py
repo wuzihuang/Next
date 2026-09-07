@@ -25,6 +25,15 @@ final class DataStore {
  var weighIns: [WeighIn] = []; var vitals = LiveVitals(); var isOffline = false
  func rebaseBodyBatteryPreview() {}
  func metrics(for day: UserDay) -> DailyMetrics? { day == today.day ? today : history.first { $0.day == day } }
+ func refreshIntakeFromMeals() {
+  let confirmed = meals.filter { $0.day == today.day && $0.status == .confirmed }
+  guard !confirmed.isEmpty else { return }
+  today.eIn = confirmed.reduce(0) { $0 + $1.kcal }
+  today.proteinIn = confirmed.reduce(0) { $0 + $1.protein }
+  today.carbIn = confirmed.reduce(0) { $0 + $1.carb }
+  today.fatIn = confirmed.reduce(0) { $0 + $1.fat }
+  today.balance = today.eIn.flatMap { intake in today.eOutNow.map { intake - $0 } }
+ }
 }
 struct HomeSnapshot { static func saveDetail(_ d: DailyMetrics, userId: String) {}; static func save(from s: DataStore) {} }
 struct MealQueue { static let shared = Self(); func overlayPending(into s: DataStore, ownerUserId: String) {} }
@@ -51,7 +60,7 @@ struct WeighInQueue { static let shared = Self(); func flush() async {} }
    return [row]
   }
   if table == "day_fuel" {
-   let row: [String: Any] = ["result_id":"fixture-result", "intake_state":"CONFIRMED", "kcal_in":650, "kcal_out":mode == "legacy-burn-drift" ? 900 : 1000, "protein_in_g":30, "bmr_kcal":800, "active_kcal":200]
+   let row: [String: Any] = ["result_id":"fixture-result", "intake_state": mode == "stale-zero-intake" ? "UNLOGGED" : "CONFIRMED", "kcal_in": mode == "stale-zero-intake" ? 0 : 650, "kcal_out":mode == "legacy-burn-drift" ? 900 : 1000, "protein_in_g":30, "bmr_kcal":800, "active_kcal":200]
    let fields = Set((query.first { $0.name == "select" }?.value ?? "").split(separator: ",").map(String.init))
    return [row.filter { fields.contains($0.key) }]
   }
@@ -102,7 +111,7 @@ struct WeighInQueue { static let shared = Self(); func flush() async {} }
   calls.append(name)
   if mode.hasPrefix("function-") { throw Failure.http(Int(mode.split(separator: "-").last!)!, "unavailable") }
   if mode == "missing-function" || mode == "legacy" || mode == "legacy-burn-drift" { throw Failure.http(404, "Requested function was not found") }
-  var vals: [String: Double] = ["intakeKcal":650, "burnKcal":1000, "deltaKcal":-350, "proteinG":30, "sleepMinutes":420, "nightHRV":52, "hrvBaseline":50, "nightRHR":58]
+  var vals: [String: Double] = ["intakeKcal": mode == "stale-zero-intake" ? 0 : 650, "burnKcal":1000, "deltaKcal":-350, "proteinG":30, "sleepMinutes":420, "nightHRV":52, "hrvBaseline":50, "nightRHR":58]
   if mode == "modern-burn-drift" { vals["burnKcal"] = 1005; vals["deltaKcal"] = -355 }
   if mode == "modern-null" {
    return ["ok":true,"data":vals.map { ["metric":$0.key,"points":[["dayKey":day,"value":NSNull(),"resultRevision":"r1"]]] }]
@@ -156,8 +165,8 @@ let checks = mode == "wrong-sleep-day" ? [("sleep from a different wake date is 
 }())] : mode == "stale-sleep" ? [("remote partial night cannot overwrite completed local night", store.today.sleep?.totalMinutes == 420 && store.today.sleep?.wakeAt == store.today.day.start.addingTimeInterval(8*3600) && store.today.sleep?.respiration?.first?.breathsPerMinute == 16)] : mode == "history-sleep" ? [("all requested days retain raw sleep, respiration and temperature", (0...3).allSatisfy { (offset: Int) in
  let m = store.metrics(for: store.today.day.adding(days: -offset))
  return m?.sleep?.hrv?.count == 1 && m?.sleep?.hrv?.first?.rmssdMS == (offset == 0 ? 53 : 51) && m?.sleep?.hrv?.first?.ts == m?.day.start.addingTimeInterval(59*60) && m?.sleep?.totalMinutes == 420 + offset && m?.sleep?.intervals?.count == 2 && m?.sleep?.line.first?.offsetMinutes == 240 && m?.sleep?.respiration?.count == (offset == 0 ? 2 : 1) && m?.sleep?.respiration?.first?.breathsPerMinute == (offset == 0 ? 14 : 15) && m?.vitalsCurve.first?.temp == 33.6 && (offset != 0 || m?.sleep?.spo2.first?.percent == 97 && m?.sleep?.spo2.count == 1 && m?.sleep?.respiration?.map { $0.breathsPerMinute }.reduce(0, +) == 30)
-})] : mode == "modern-burn-drift" ? [("formal burn overrides inconsistent legacy components", store.today.eOutNow == 1005 && store.today.balance == -355 && ActiveEnergyMath.totals(bmr: store.today.bmr, eActive: store.today.eActive, eTrain: store.today.eTrain, eOutNow: store.today.eOutNow).out == 1005)] : mode == "modern-null" ? [("recorded sleep despite formal null", store.today.sleep?.totalMinutes == 420),
- ("formal intake null", store.today.eIn == nil), ("formal burn null", store.today.eOutNow == nil),
+})] : mode == "stale-zero-intake" ? [("stale zero header does not hide plates", store.today.eIn == 650 && store.meals.count == 1)] : mode == "modern-burn-drift" ? [("formal burn overrides inconsistent legacy components", store.today.eOutNow == 1005 && store.today.balance == -355 && ActiveEnergyMath.totals(bmr: store.today.bmr, eActive: store.today.eActive, eTrain: store.today.eTrain, eOutNow: store.today.eOutNow).out == 1005)] : mode == "modern-null" ? [("recorded sleep despite formal null", store.today.sleep?.totalMinutes == 420),
+ ("plates fill a null formal intake header", store.today.eIn == 650), ("formal burn null", store.today.eOutNow == nil),
  ("formal burn null cannot reappear in active charts", ActiveEnergyMath.totals(bmr: store.today.bmr, eActive: store.today.eActive, eTrain: store.today.eTrain, eOutNow: store.today.eOutNow).out == nil && store.today.activeForecast == nil && store.today.eOutFull == nil),
  ("formal protein", store.today.proteinIn == 30), ("formal balance null", store.today.balance == nil),
  ("formal HRV null", store.today.nightInputs?.hrv == nil), ("recorded meal", store.meals.count == 1),
@@ -171,7 +180,7 @@ with tempfile.TemporaryDirectory(prefix='next-repository-repro-') as tmp:
     result=subprocess.run(['swiftc','-swift-version','5',str(p/'main.swift'),'-o',str(p/'repro')],capture_output=True,text=True)
     if result.returncode: print(result.stderr); raise SystemExit(result.returncode)
     import sys
-    modes=sys.argv[1:] or ['modern','legacy','old-schema','missing-function','missing-status','offline-cached','function-401','function-403','function-500','status-401','status-403','status-500','revision-mismatch','status-mismatch','schema-401','schema-403','schema-500','other-column','modern-null','modern-burn-drift','legacy-burn-drift','history-sleep','local-sleep','stale-sleep','interval-missing','interval-empty','interval-invalid','wrong-sleep-day']
+    modes=sys.argv[1:] or ['modern','legacy','old-schema','missing-function','missing-status','offline-cached','function-401','function-403','function-500','status-401','status-403','status-500','revision-mismatch','status-mismatch','schema-401','schema-403','schema-500','other-column','modern-null','stale-zero-intake','modern-burn-drift','legacy-burn-drift','history-sleep','local-sleep','stale-sleep','interval-missing','interval-empty','interval-invalid','wrong-sleep-day']
     failed=False
     for mode in modes:
         result=subprocess.run([str(p/'repro'),mode],env={**os.environ,'TZ':'UTC'})

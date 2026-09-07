@@ -10,6 +10,7 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertEqual(read.loadText, "12.4")
         XCTAssertEqual(read.eatenText, "1,240")
         XCTAssertEqual(read.batteryProgress, 0.72, accuracy: 0.0001)
+        XCTAssertFalse(read.batteryDim)
         XCTAssertEqual(read.loadProgress, 12.4 / 21, accuracy: 0.0001)
         XCTAssertEqual(read.eatenProgress, 1_240 / 1_900, accuracy: 0.0001)
         XCTAssertFalse(read.stale)
@@ -53,10 +54,13 @@ final class WidgetFaceMathTests: XCTestCase {
         let now = Date(timeIntervalSince1970: WidgetFaceMath.staleAfter + 1)
         let read = WidgetFaceMath.today(glance, now: now)
         XCTAssertTrue(read.stale)
-        XCTAssertEqual(read.batteryText, WidgetFaceMath.dash)
+        // The reserve score dims at ninety minutes instead of withdrawing — the app
+        // still prints it until six hours, and the two faces must not disagree.
+        XCTAssertEqual(read.batteryText, "72")
+        XCTAssertTrue(read.batteryDim)
+        XCTAssertEqual(read.batteryProgress, 0.72, accuracy: 0.0001)
         XCTAssertEqual(read.loadText, WidgetFaceMath.dash)
         XCTAssertEqual(read.eatenText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.batteryProgress, 0)
         XCTAssertEqual(read.clock, WidgetFaceMath.clockText(glance.numbersAt))
         XCTAssertEqual(read.bandText, "82%")
         XCTAssertEqual(read.heartText, WidgetFaceMath.dash)
@@ -159,19 +163,83 @@ final class WidgetFaceMathTests: XCTestCase {
         glance.numbersAt = now
         glance.eaten = 1_500
         let read = WidgetFaceMath.today(glance, now: now)
-        XCTAssertEqual(read.batteryText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.batteryProgress, 0)
+        // A fresh meal makes the rest of the face live again; the two-hour-old
+        // reserve score stays on its own clock and only dims.
+        XCTAssertEqual(read.batteryText, "72")
+        XCTAssertTrue(read.batteryDim)
         XCTAssertEqual(read.eatenText, "1,500")
         XCTAssertEqual(read.loadText, "12.4")
     }
 
-    func testLegacyGlanceWithoutReserveTimestampDoesNotInventFreshness() throws {
+    /// The widget's three reserve states are `TickFreshness`'s: lit under ninety
+    /// minutes, dim to six hours, withdrawn after — same rule the app applies in
+    /// `Metrics.bodyBatteryForDisplay`.
+    func testBodyBatteryFollowsTheAppsThreeFreshnessStates() {
+        var glance = WidgetFaceMath.Glance.placeholder
+        let observed = glance.numbersAt
+        glance.batteryObservedAt = observed
+
+        let lit = WidgetFaceMath.today(
+            glance, now: observed.addingTimeInterval(WidgetFaceMath.staleAfter - 1))
+        XCTAssertEqual(lit.batteryText, "72")
+        XCTAssertFalse(lit.batteryDim)
+
+        let dimmed = WidgetFaceMath.today(
+            glance, now: observed.addingTimeInterval(92 * 60))
+        XCTAssertEqual(dimmed.batteryText, "72")
+        XCTAssertTrue(dimmed.batteryDim)
+        XCTAssertEqual(dimmed.batteryProgress, 0.72, accuracy: 0.0001)
+
+        let edge = WidgetFaceMath.today(
+            glance, now: observed.addingTimeInterval(WidgetFaceMath.goneAfter - 1))
+        XCTAssertEqual(edge.batteryText, "72")
+        XCTAssertTrue(edge.batteryDim)
+
+        let gone = WidgetFaceMath.today(
+            glance, now: observed.addingTimeInterval(WidgetFaceMath.goneAfter))
+        XCTAssertEqual(gone.batteryText, WidgetFaceMath.dash)
+        XCTAssertFalse(gone.batteryDim)
+        XCTAssertEqual(gone.batteryProgress, 0)
+    }
+
+    func testAFutureReserveTimestampIsNotATick() {
+        var glance = WidgetFaceMath.Glance.placeholder
+        glance.batteryObservedAt = glance.numbersAt.addingTimeInterval(60)
+        let read = WidgetFaceMath.today(glance, now: glance.numbersAt)
+        XCTAssertEqual(read.batteryText, WidgetFaceMath.dash)
+        XCTAssertFalse(read.batteryDim)
+        XCTAssertEqual(read.batteryProgress, 0)
+    }
+
+    /// A glance written before `batteryObservedAt` existed cannot prove the reserve
+    /// score's age, so it borrows the live window rather than blanking a number the
+    /// app is still showing.
+    func testLegacyGlanceWithoutReserveTimestampFallsBackToTheLiveWindow() throws {
         var glance = WidgetFaceMath.Glance.placeholder
         glance.batteryObservedAt = nil
         let encoded = try JSONEncoder().encode(glance)
         let decoded = try JSONDecoder().decode(WidgetFaceMath.Glance.self, from: encoded)
-        XCTAssertEqual(WidgetFaceMath.today(decoded, now: decoded.numbersAt).batteryText,
-                       WidgetFaceMath.dash)
+        XCTAssertNil(decoded.batteryObservedAt)
+
+        let fresh = WidgetFaceMath.today(decoded, now: decoded.numbersAt)
+        XCTAssertEqual(fresh.batteryText, "72")
+        XCTAssertFalse(fresh.batteryDim)
+        XCTAssertEqual(fresh.batteryProgress, 0.72, accuracy: 0.0001)
+
+        let stale = WidgetFaceMath.today(
+            decoded, now: decoded.numbersAt.addingTimeInterval(WidgetFaceMath.staleAfter))
+        XCTAssertEqual(stale.batteryText, WidgetFaceMath.dash)
+        XCTAssertFalse(stale.batteryDim)
+        XCTAssertEqual(stale.batteryProgress, 0)
+    }
+
+    func testSignedOutBatteryIsNeverDim() {
+        var glance = WidgetFaceMath.Glance.placeholder
+        glance.signedIn = false
+        glance.batteryObservedAt = glance.numbersAt.addingTimeInterval(-2 * 3600)
+        let read = WidgetFaceMath.today(glance, now: glance.numbersAt)
+        XCTAssertEqual(read.batteryText, WidgetFaceMath.dash)
+        XCTAssertFalse(read.batteryDim)
     }
 
     func testBatteryExpirySchedulesReloadEvenWhenOtherNumbersAreNew() {
@@ -180,6 +248,17 @@ final class WidgetFaceMathTests: XCTestCase {
         let now = start.addingTimeInterval(80 * 60)
         glance.numbersAt = now
         XCTAssertEqual(WidgetFaceMath.nextReload(after: glance, now: now),
-                       start.addingTimeInterval(90 * 60))
+                       start.addingTimeInterval(WidgetFaceMath.staleAfter))
+    }
+
+    /// Past the dim edge the next thing that changes is the withdraw, and the
+    /// timeline has to be awake for it — the fifteen-minute tick would land later.
+    func testTheSixHourWithdrawIsAlsoAScheduledEdge() {
+        var glance = WidgetFaceMath.Glance.placeholder
+        let start = glance.numbersAt
+        let now = start.addingTimeInterval(WidgetFaceMath.goneAfter - 5 * 60)
+        glance.numbersAt = now
+        XCTAssertEqual(WidgetFaceMath.nextReload(after: glance, now: now),
+                       start.addingTimeInterval(WidgetFaceMath.goneAfter))
     }
 }

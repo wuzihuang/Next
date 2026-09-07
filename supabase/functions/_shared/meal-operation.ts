@@ -14,6 +14,7 @@ const Fields = z.object({
   protein_g: z.number().int().min(0).max(100000).default(0),
   carb_g: z.number().int().min(0).max(100000).default(0),
   fat_g: z.number().int().min(0).max(100000).default(0),
+  logged_at: z.string().min(10).max(64).refine((value) => Number.isFinite(Date.parse(value))).optional(),
   confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
   model_version: z.string().max(256).default(""),
 });

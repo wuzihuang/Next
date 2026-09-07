@@ -487,6 +487,13 @@ struct DetailScroll<Trailing: View, Content: View>: View {
             // `SIMCTL_CHILD_NB_DEBUG_SCROLL=1` drives the page down, part way back up, then to
             // the top, so the bar's states can be screenshotted without a finger.
             .task {
+                if let target = ProcessInfo.processInfo.environment["NB_DEBUG_SCROLL_TO"], !target.isEmpty {
+                    try? await Task.sleep(for: .seconds(1.6))
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        proxy.scrollTo(target, anchor: .center)
+                    }
+                    return
+                }
                 guard ProcessInfo.processInfo.environment["NB_DEBUG_SCROLL"] != nil else { return }
                 try? await Task.sleep(for: .seconds(1.5))
                 withAnimation(.easeInOut(duration: 0.8)) { proxy.scrollTo("detail-bottom", anchor: .bottom) }

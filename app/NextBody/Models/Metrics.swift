@@ -414,6 +414,7 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var bmr: Double?                   // the part of the baseline that has elapsed
     var bmrFull: Double?               // the whole day's baseline — 10's header is an estimate
     var eActive: Double?
+    var energyDistribution: [FuelEnergyPoint]?
     var eTrain: Double?
     var eTrainPlan: Double?
     var eOutNow: Double?
@@ -477,7 +478,7 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case day, trainingLoad, targetLoad, zoneMinutes, activeMinutes, distanceM, bbWake, bodyBattery
         case trainingEvidence, recordedSteps
-        case bmr, eActive, eTrain, eTrainPlan, eOutNow, activeForecast, eOutFull
+        case bmr, eActive, eTrain, eTrainPlan, eOutNow, activeForecast, eOutFull, energyDistribution
         case eIn, balance, targetIn, nextMeal, protein, carb, fat
         case weightKg, fatKg, leanKg, fatSource
         case fatEmaDelta7d, leanEmaDelta7d, confidence, scans7d, logged7d

@@ -1,69 +1,20 @@
-import {useLoaderData, Link} from 'react-router';
+import {useLoaderData} from 'react-router';
 import type {Route} from './+types/policies._index';
-import type {PoliciesQuery, PolicyItemFragment} from 'storefrontapi.generated';
+import {PolicyIndexView} from '~/components/shop/SiteViews';
+import {localeFromRequest} from '~/lib/locale';
+import {readLocale} from '~/lib/localShop.server';
+import {POLICIES} from '~/lib/policies';
 
-export async function loader({context}: Route.LoaderArgs) {
-  const data: PoliciesQuery = await context.storefront.query(POLICIES_QUERY);
+export const meta: Route.MetaFunction = ({data}) => {
+  return [{title: data?.locale === 'zh' ? 'NEXTBODY · 法律' : 'NEXTBODY · Policies'}];
+};
 
-  const shopPolicies = data.shop;
-  const policies: PolicyItemFragment[] = [
-    shopPolicies?.privacyPolicy,
-    shopPolicies?.shippingPolicy,
-    shopPolicies?.termsOfService,
-    shopPolicies?.refundPolicy,
-    shopPolicies?.subscriptionPolicy,
-  ].filter((policy): policy is PolicyItemFragment => policy != null);
-
-  if (!policies.length) {
-    throw new Response('No policies found', {status: 404});
-  }
-
-  return {policies};
+export async function loader({request, context}: Route.LoaderArgs) {
+  const locale = localeFromRequest(request, readLocale(context.session));
+  return {locale, policies: POLICIES};
 }
 
-export default function Policies() {
-  const {policies} = useLoaderData<typeof loader>();
-
-  return (
-    <div className="policies">
-      <h1>Policies</h1>
-      <div>
-        {policies.map((policy) => (
-          <fieldset key={policy.id}>
-            <Link to={`/policies/${policy.handle}`}>{policy.title}</Link>
-          </fieldset>
-        ))}
-      </div>
-    </div>
-  );
+export default function PoliciesIndex() {
+  const {locale, policies} = useLoaderData<typeof loader>();
+  return <PolicyIndexView locale={locale} policies={policies} />;
 }
-
-const POLICIES_QUERY = `#graphql
-  fragment PolicyItem on ShopPolicy {
-    id
-    title
-    handle
-  }
-  query Policies ($country: CountryCode, $language: LanguageCode)
-    @inContext(country: $country, language: $language) {
-    shop {
-      privacyPolicy {
-        ...PolicyItem
-      }
-      shippingPolicy {
-        ...PolicyItem
-      }
-      termsOfService {
-        ...PolicyItem
-      }
-      refundPolicy {
-        ...PolicyItem
-      }
-      subscriptionPolicy {
-        id
-        title
-        handle
-      }
-    }
-  }
-` as const;

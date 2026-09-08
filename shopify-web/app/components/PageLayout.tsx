@@ -1,165 +1,94 @@
-import {Await, Link, useLocation} from 'react-router';
-import {Suspense, useId} from 'react';
-import type {
-  CartApiQueryFragment,
-  FooterQuery,
-  HeaderQuery,
-} from 'storefrontapi.generated';
-import {Aside} from '~/components/Aside';
+import {Form, Link, useLocation, useSearchParams} from 'react-router';
+import {useEffect} from 'react';
+import {Aside, useAside} from '~/components/Aside';
 import {Footer} from '~/components/Footer';
 import {Header, HeaderMenu} from '~/components/Header';
-import {CartMain} from '~/components/CartMain';
-import {
-  SEARCH_ENDPOINT,
-  SearchFormPredictive,
-} from '~/components/SearchFormPredictive';
-import {SearchResultsPredictive} from '~/components/SearchResultsPredictive';
-
-interface PageLayoutProps {
-  cart: Promise<CartApiQueryFragment | null>;
-  footer: Promise<FooterQuery | null>;
-  header: HeaderQuery;
-  isLoggedIn: Promise<boolean>;
-  publicStoreDomain: string;
-  children?: React.ReactNode;
-}
+import {CartView} from '~/components/shop/CartView';
+import type {ShopState} from '~/lib/localShop.server';
+import type {ShopLocale} from '~/lib/locale';
+import {shopCopy} from '~/lib/shopCopy';
 
 export function PageLayout({
-  cart,
-  children = null,
-  footer,
-  header,
-  isLoggedIn,
-  publicStoreDomain,
-}: PageLayoutProps) {
+  children,
+  shop,
+}: {
+  children?: React.ReactNode;
+  shop: ShopState;
+}) {
   const location = useLocation();
-  const isHome = location.pathname === '/';
+  const isLanding = location.pathname === '/' || location.pathname === '/zh';
+  const locale = shop.locale;
+
+  if (isLanding) {
+    return (
+      <Aside.Provider>
+        {children}
+      </Aside.Provider>
+    );
+  }
 
   return (
     <Aside.Provider>
-      <CartAside cart={cart} />
-      <SearchAside />
-      <MobileMenuAside />
-      {header && (
+      <div className="lp shop-app" data-locale={locale}>
+        <CartAside locale={locale} shop={shop} />
+        <SearchAside locale={locale} />
+        <MobileMenuAside locale={locale} />
+        <CartOpener />
         <Header
-          header={header}
-          cart={cart}
-          isLoggedIn={isLoggedIn}
-          publicStoreDomain={publicStoreDomain}
+          cartCount={shop.totals.quantity}
+          isLoggedIn={Boolean(shop.account)}
+          locale={locale}
         />
-      )}
-      <main className={isHome ? 'site-main is-home' : 'site-main'}>
-        {children}
-      </main>
-      <Footer
-        footer={footer}
-        header={header}
-        publicStoreDomain={publicStoreDomain}
-      />
+        <main className="site-main">{children}</main>
+        <Footer locale={locale} />
+      </div>
     </Aside.Provider>
   );
 }
 
-function CartAside({cart}: {cart: PageLayoutProps['cart']}) {
+function CartOpener() {
+  const [params] = useSearchParams();
+  const {open} = useAside();
+  useEffect(() => {
+    if (params.get('cart') === 'open') open('cart');
+  }, [open, params]);
+  return null;
+}
+
+function CartAside({locale, shop}: {locale: ShopLocale; shop: ShopState}) {
+  const t = shopCopy(locale);
   return (
-    <Aside type="cart" heading="CART">
-      <Suspense fallback={<p>Loading cart ...</p>}>
-        <Await resolve={cart}>
-          {(cart) => {
-            return <CartMain cart={cart} layout="aside" />;
-          }}
-        </Await>
-      </Suspense>
+    <Aside heading={t.cart.title} type="cart">
+      <CartView layout="aside" locale={locale} shop={shop} />
     </Aside>
   );
 }
 
-function SearchAside() {
-  const queriesDatalistId = useId();
+function SearchAside({locale}: {locale: ShopLocale}) {
+  const t = shopCopy(locale);
+  const {close} = useAside();
   return (
-    <Aside type="search" heading="SEARCH">
-      <div className="predictive-search">
-        <br />
-        <SearchFormPredictive>
-          {({fetchResults, goToSearch, inputRef}) => (
-            <>
-              <input
-                name="q"
-                onChange={fetchResults}
-                onFocus={fetchResults}
-                placeholder="Search"
-                ref={inputRef}
-                type="search"
-                list={queriesDatalistId}
-              />
-              &nbsp;
-              <button onClick={goToSearch}>Search</button>
-            </>
-          )}
-        </SearchFormPredictive>
-
-        <SearchResultsPredictive>
-          {({items, total, term, state, closeSearch}) => {
-            const {articles, collections, pages, products, queries} = items;
-
-            if (state === 'loading' && term.current) {
-              return <div>Loading...</div>;
-            }
-
-            if (!total) {
-              return <SearchResultsPredictive.Empty term={term} />;
-            }
-
-            return (
-              <>
-                <SearchResultsPredictive.Queries
-                  queries={queries}
-                  queriesDatalistId={queriesDatalistId}
-                />
-                <SearchResultsPredictive.Products
-                  products={products}
-                  closeSearch={closeSearch}
-                  term={term}
-                />
-                <SearchResultsPredictive.Collections
-                  collections={collections}
-                  closeSearch={closeSearch}
-                  term={term}
-                />
-                <SearchResultsPredictive.Pages
-                  pages={pages}
-                  closeSearch={closeSearch}
-                  term={term}
-                />
-                <SearchResultsPredictive.Articles
-                  articles={articles}
-                  closeSearch={closeSearch}
-                  term={term}
-                />
-                {term.current && total ? (
-                  <Link
-                    onClick={closeSearch}
-                    to={`${SEARCH_ENDPOINT}?q=${term.current}`}
-                  >
-                    <p>
-                      View all results for <q>{term.current}</q>
-                      &nbsp; →
-                    </p>
-                  </Link>
-                ) : null}
-              </>
-            );
-          }}
-        </SearchResultsPredictive>
-      </div>
+    <Aside heading={t.search.title} type="search">
+      <Form action="/search" className="shop-search" onSubmit={close}>
+        <input name="q" placeholder={t.search.placeholder} type="search" />
+        <button className="lp-pill" type="submit">
+          {t.search.submit}
+        </button>
+      </Form>
+      <p>
+        <Link onClick={close} prefetch="intent" to="/search">
+          {t.search.title}
+        </Link>
+      </p>
     </Aside>
   );
 }
 
-function MobileMenuAside() {
+function MobileMenuAside({locale}: {locale: ShopLocale}) {
+  const t = shopCopy(locale);
   return (
-    <Aside type="mobile" heading="MENU">
-      <HeaderMenu viewport="mobile" />
+    <Aside heading={t.nav.menu} type="mobile">
+      <HeaderMenu locale={locale} />
     </Aside>
   );
 }

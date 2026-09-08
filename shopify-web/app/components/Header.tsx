@@ -1,189 +1,123 @@
-import {Suspense} from 'react';
-import {Await, NavLink, useAsyncValue} from 'react-router';
-import {
-  type CartViewPayload,
-  useAnalytics,
-  useOptimisticCart,
-} from '@shopify/hydrogen';
-import type {HeaderQuery, CartApiQueryFragment} from 'storefrontapi.generated';
+import {Form, Link, NavLink, useLocation} from 'react-router';
 import {useAside} from '~/components/Aside';
-
-interface HeaderProps {
-  header: HeaderQuery;
-  cart: Promise<CartApiQueryFragment | null>;
-  isLoggedIn: Promise<boolean>;
-  publicStoreDomain: string;
-}
-
-type Viewport = 'desktop' | 'mobile';
-
-const MARKETING_NAV = [
-  {id: 'band', title: 'The Band', href: '/#band'},
-  {id: 'shop', title: 'Shop', to: '/collections/all'},
-  {id: 'science', title: 'Science', href: '/#science'},
-] as const;
+import type {ShopLocale} from '~/lib/locale';
+import {localeHome} from '~/lib/locale';
+import {shopCopy} from '~/lib/shopCopy';
 
 export function Header({
+  locale,
+  cartCount,
   isLoggedIn,
-  cart,
-}: HeaderProps) {
+}: {
+  locale: ShopLocale;
+  cartCount: number;
+  isLoggedIn: boolean;
+}) {
+  const t = shopCopy(locale);
+  const home = localeHome(locale);
+  const {open} = useAside();
+
   return (
-    <header className="header">
-      <HeaderMenuMobileToggle />
-      <NavLink className="wordmark" prefetch="intent" to="/" end>
-        <span className="wordmark-name">NEXTBODY</span>
-        <span className="wordmark-pip" aria-hidden="true" />
-      </NavLink>
-      <HeaderMenu viewport="desktop" />
-      <HeaderCtas isLoggedIn={isLoggedIn} cart={cart} />
+    <header className="lp-nav shop-nav">
+      <Link className="lp-wordmark" prefetch="intent" to={home}>
+        <span className="lp-wordmark-name">NEXTBODY</span>
+        <span className="lp-pip" aria-hidden="true" />
+      </Link>
+      <nav className="lp-nav-mid" aria-label="Primary">
+        <Link className="lp-nav-link" prefetch="intent" to={`${home}#band`}>
+          {t.nav.band}
+        </Link>
+        <NavLink className="lp-nav-link" prefetch="intent" to="/collections/all">
+          {t.nav.shop}
+        </NavLink>
+        <NavLink className="lp-nav-link" prefetch="intent" to="/pages/science">
+          {t.nav.science}
+        </NavLink>
+      </nav>
+      <div className="lp-nav-end">
+        <button className="shop-menu-btn" onClick={() => open('mobile')} type="button">
+          {t.nav.menu}
+        </button>
+        <div className="lp-langs">
+          <LocaleSwitch locale={locale} />
+        </div>
+        <NavLink className="lp-sign" prefetch="intent" to={isLoggedIn ? '/account' : '/account/login'}>
+          {isLoggedIn ? t.nav.account : t.nav.signIn}
+        </NavLink>
+        <button className="shop-search-btn" onClick={() => open('search')} type="button">
+          {t.nav.search}
+        </button>
+        <button className="shop-cart-link" onClick={() => open('cart')} type="button">
+          {t.nav.cart}
+          <b>{cartCount}</b>
+        </button>
+        <Link className="lp-pill" prefetch="intent" to="/products/hoop">
+          {t.nav.getHoop}
+        </Link>
+      </div>
     </header>
   );
 }
 
-export function HeaderMenu({viewport}: {viewport: Viewport}) {
-  const className = `header-menu-${viewport}`;
-  const {close, open} = useAside();
-
+export function HeaderMenu({locale}: {locale: ShopLocale}) {
+  const t = shopCopy(locale);
+  const home = localeHome(locale);
+  const {close} = useAside();
   return (
-    <nav className={className} role="navigation" aria-label="Primary">
-      {MARKETING_NAV.map((item) =>
-        'href' in item ? (
-          <a className="header-link" href={item.href} key={item.id} onClick={close}>
-            {item.title}
-          </a>
-        ) : (
-          <NavLink
-            className={({isActive, isPending}) => navClass(isActive, isPending)}
-            end
-            key={item.id}
-            onClick={close}
-            prefetch="intent"
-            to={item.to}
-          >
-            {item.title}
-          </NavLink>
-        ),
-      )}
-      {viewport === 'mobile' ? (
-        <>
-          <NavLink
-            className={({isActive, isPending}) => navClass(isActive, isPending)}
-            onClick={close}
-            prefetch="intent"
-            to="/account"
-          >
-            Account
-          </NavLink>
-          <button
-            className="reset header-link"
-            onClick={() => {
-              close();
-              open('search');
-            }}
-            type="button"
-          >
-            Search
+    <nav className="header-menu-mobile" aria-label="Primary">
+      <Link onClick={close} prefetch="intent" to={`${home}#band`}>
+        {t.nav.band}
+      </Link>
+      <Link onClick={close} prefetch="intent" to="/collections/all">
+        {t.nav.shop}
+      </Link>
+      <Link onClick={close} prefetch="intent" to="/pages/science">
+        {t.nav.science}
+      </Link>
+      <Link onClick={close} prefetch="intent" to="/account">
+        {t.nav.account}
+      </Link>
+      <Link onClick={close} prefetch="intent" to="/search">
+        {t.nav.search}
+      </Link>
+      <Link onClick={close} prefetch="intent" to="/cart">
+        {t.nav.cart}
+      </Link>
+      <Link onClick={close} prefetch="intent" to="/products/hoop">
+        {t.nav.getHoop}
+      </Link>
+    </nav>
+  );
+}
+
+function LocaleSwitch({locale}: {locale: ShopLocale}) {
+  const location = useLocation();
+  const redirectTo = `${location.pathname}${location.search}`;
+  return (
+    <>
+      {locale === 'en' ? (
+        <span className="lp-lang is-on">EN</span>
+      ) : (
+        <Form action="/locale">
+          <input name="lang" type="hidden" value="en" />
+          <input name="redirectTo" type="hidden" value={redirectTo} />
+          <button className="lp-lang" type="submit">
+            EN
           </button>
-        </>
-      ) : null}
-    </nav>
+        </Form>
+      )}
+      <span className="lp-lang-rule" />
+      {locale === 'zh' ? (
+        <span className="lp-lang is-on">中文</span>
+      ) : (
+        <Form action="/locale">
+          <input name="lang" type="hidden" value="zh" />
+          <input name="redirectTo" type="hidden" value={redirectTo} />
+          <button className="lp-lang" type="submit">
+            中文
+          </button>
+        </Form>
+      )}
+    </>
   );
-}
-
-function HeaderCtas({
-  isLoggedIn,
-  cart,
-}: Pick<HeaderProps, 'isLoggedIn' | 'cart'>) {
-  return (
-    <nav className="header-ctas" role="navigation" aria-label="Account">
-      <NavLink
-        className={({isActive, isPending}) => navClass(isActive, isPending)}
-        prefetch="intent"
-        to="/account"
-      >
-        <Suspense fallback="Sign in">
-          <Await resolve={isLoggedIn} errorElement="Sign in">
-            {(loggedIn) => (loggedIn ? 'Account' : 'Sign in')}
-          </Await>
-        </Suspense>
-      </NavLink>
-      <SearchToggle />
-      <CartToggle cart={cart} />
-      <NavLink className="btn header-get" prefetch="intent" to="/collections/all">
-        Get HOOP
-      </NavLink>
-    </nav>
-  );
-}
-
-function HeaderMenuMobileToggle() {
-  const {open} = useAside();
-  return (
-    <button
-      className="header-menu-mobile-toggle reset"
-      onClick={() => open('mobile')}
-      type="button"
-    >
-      Menu
-    </button>
-  );
-}
-
-function SearchToggle() {
-  const {open} = useAside();
-  return (
-    <button className="reset header-text-btn" onClick={() => open('search')} type="button">
-      Search
-    </button>
-  );
-}
-
-function CartBadge({count}: {count: number}) {
-  const {open} = useAside();
-  const {publish, shop, cart, prevCart} = useAnalytics();
-
-  return (
-    <a
-      className="header-cart"
-      href="/cart"
-      onClick={(event) => {
-        event.preventDefault();
-        open('cart');
-        publish('cart_viewed', {
-          cart,
-          prevCart,
-          shop,
-          url: window.location.href || '',
-        } as CartViewPayload);
-      }}
-    >
-      Cart <span aria-label={`${count} items`}>{count}</span>
-    </a>
-  );
-}
-
-function CartToggle({cart}: Pick<HeaderProps, 'cart'>) {
-  return (
-    <Suspense fallback={<CartBadge count={0} />}>
-      <Await resolve={cart}>
-        <CartBanner />
-      </Await>
-    </Suspense>
-  );
-}
-
-function CartBanner() {
-  const originalCart = useAsyncValue() as CartApiQueryFragment | null;
-  const cart = useOptimisticCart(originalCart);
-  return <CartBadge count={cart?.totalQuantity ?? 0} />;
-}
-
-function navClass(isActive: boolean, isPending: boolean) {
-  return [
-    'header-link',
-    isActive ? 'is-active' : '',
-    isPending ? 'is-pending' : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
 }

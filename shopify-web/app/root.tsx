@@ -1,6 +1,7 @@
 import {Analytics, getShopAnalytics, useNonce} from '@shopify/hydrogen';
 import {
   Outlet,
+  useLocation,
   useRouteError,
   isRouteErrorResponse,
   type ShouldRevalidateFunction,
@@ -12,7 +13,10 @@ import {
 } from 'react-router';
 import type {Route} from './+types/root';
 import favicon from '~/assets/favicon.svg';
-import {FOOTER_QUERY, HEADER_QUERY} from '~/lib/fragments';
+import {HEADER_QUERY} from '~/lib/fragments';
+import {getShopState, readLocale} from '~/lib/localShop.server';
+import {localeFromRequest} from '~/lib/locale';
+import {NotFoundView} from '~/components/shop/SiteViews';
 import '@fontsource/oswald/500.css';
 import '@fontsource/oswald/600.css';
 import '@fontsource/oswald/700.css';
@@ -22,6 +26,8 @@ import '@fontsource/manrope/700.css';
 import resetStyles from '~/styles/reset.css?url';
 import appStyles from '~/styles/app.css?url';
 import appScreensStyles from '~/styles/app-screens.css?url';
+import landingStyles from '~/styles/landing.css?url';
+import shopStyles from '~/styles/shop.css?url';
 import {PageLayout} from './components/PageLayout';
 
 export type RootLoader = typeof loader;
@@ -79,21 +85,22 @@ export async function loader(args: Route.LoaderArgs) {
   // Await the critical data required to render initial state of the page
   const criticalData = await loadCriticalData(args);
 
-  const {storefront, env} = args.context;
+  const {storefront, env, session} = args.context;
+  const locale = localeFromRequest(args.request, readLocale(session));
 
   return {
     ...deferredData,
     ...criticalData,
+    localShop: getShopState(session, locale),
     publicStoreDomain: env.PUBLIC_STORE_DOMAIN,
     shop: getShopAnalytics({
       storefront,
       publicStorefrontId: env.PUBLIC_STOREFRONT_ID,
     }),
     consent: {
-      checkoutDomain: env.PUBLIC_CHECKOUT_DOMAIN,
+      checkoutDomain: env.PUBLIC_CHECKOUT_DOMAIN || env.PUBLIC_STORE_DOMAIN,
       storefrontAccessToken: env.PUBLIC_STOREFRONT_API_TOKEN,
       withPrivacyBanner: false,
-      // localize the privacy banner
       country: args.context.storefront.i18n.country,
       language: args.context.storefront.i18n.language,
     },
@@ -107,15 +114,14 @@ export async function loader(args: Route.LoaderArgs) {
 async function loadCriticalData({context}: Route.LoaderArgs) {
   const {storefront} = context;
 
-  const [header] = await Promise.all([
-    storefront.query(HEADER_QUERY, {
+  const header = await storefront
+    .query(HEADER_QUERY, {
       cache: storefront.CacheLong(),
       variables: {
-        headerMenuHandle: 'main-menu', // Adjust to your header menu handle
+        headerMenuHandle: 'main-menu',
       },
-    }),
-    // Add other queries here, so that they are loaded in parallel
-  ]);
+    })
+    .catch(() => null);
 
   return {header};
 }
@@ -126,39 +132,38 @@ async function loadCriticalData({context}: Route.LoaderArgs) {
  * Make sure to not throw any errors here, as it will cause the page to 500.
  */
 function loadDeferredData({context}: Route.LoaderArgs) {
-  const {storefront, customerAccount, cart} = context;
-
-  // defer the footer query (below the fold)
-  const footer = storefront
-    .query(FOOTER_QUERY, {
-      cache: storefront.CacheLong(),
-      variables: {
-        footerMenuHandle: 'footer', // Adjust to your footer menu handle
-      },
-    })
-    .catch((error: Error) => {
-      // Log query errors, but don't throw them so the page can still render
-      console.error(error);
-      return null;
-    });
   return {
-    cart: cart.get(),
-    isLoggedIn: customerAccount.isLoggedIn(),
-    footer,
+    cart: context.cart.get(),
   };
 }
 
 export function Layout({children}: {children?: React.ReactNode}) {
   const nonce = useNonce();
+  const {pathname} = useLocation();
+  const data = useRouteLoaderData<RootLoader>('root');
+  const htmlLang =
+    data?.localShop.locale === 'zh' ||
+    pathname === '/zh' ||
+    pathname.startsWith('/zh/')
+      ? 'zh-Hans'
+      : 'en';
 
   return (
-    <html lang="en">
+    <html lang={htmlLang}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Doto:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=Jost:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;600&display=swap"
+        />
         <link rel="stylesheet" href={resetStyles}></link>
         <link rel="stylesheet" href={appStyles}></link>
         <link rel="stylesheet" href={appScreensStyles}></link>
+        <link rel="stylesheet" href={landingStyles}></link>
+        <link rel="stylesheet" href={shopStyles}></link>
         <Meta />
         <Links />
       </head>
@@ -184,7 +189,7 @@ export default function App() {
       shop={data.shop}
       consent={data.consent}
     >
-      <PageLayout {...data}>
+      <PageLayout shop={data.localShop}>
         <Outlet />
       </PageLayout>
     </Analytics.Provider>
@@ -192,10 +197,14 @@ export default function App() {
 }
 
 export function ErrorBoundary() {
+  const data = useRouteLoaderData<RootLoader>('root');
   const error = useRouteError();
+  if (isRouteErrorResponse(error) && error.status === 404) {
+    return <NotFoundView locale={data?.localShop.locale ?? 'en'} />;
+  }
+
   let errorMessage = 'Unknown error';
   let errorStatus = 500;
-
   if (isRouteErrorResponse(error)) {
     errorMessage = error?.data?.message ?? error.data;
     errorStatus = error.status;
@@ -204,14 +213,10 @@ export function ErrorBoundary() {
   }
 
   return (
-    <div className="route-error">
+    <div className="route-error shop-page">
       <h1>Oops</h1>
       <h2>{errorStatus}</h2>
-      {errorMessage && (
-        <fieldset>
-          <pre>{errorMessage}</pre>
-        </fieldset>
-      )}
+      {errorMessage ? <p>{String(errorMessage)}</p> : null}
     </div>
   );
 }

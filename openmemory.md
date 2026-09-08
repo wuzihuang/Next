@@ -15,10 +15,25 @@ model credentials and tool execution server-side.
 - `supabase/functions/_shared/`: model provider, prompt, tool catalogue, data sources,
   render contract, numeric ledger, and thought-stream processing.
 - `supabase/migrations/`: Postgres schema, RLS policies, and data lifecycle changes.
-- `shopify-web/`: Hydrogen + React Router storefront. Marketing chrome is a Whoop-style
-  dark page (full-bleed hero, centered nav, pill CTAs). Brand is NEXTBODY / HOOP, never
-  G Band. Product stills live in `shopify-web/public/band/`. Catalog still comes from
-  the linked Storefront API (`mock.shop` until `npx shopify hydrogen link`).
+- `shopify-web/`: Hydrogen + React Router storefront. Home `/` and `/zh` are a 1:1
+  Paper `Hoop-WEB` landing (`MQ-0` EN / `30G-0` 中文): 1440 desktop, ink `#070709`,
+  lime `#EFF65A`, Inter Tight / Jost / Doto / Noto Sans SC. Brand is NEXTBODY / HOOP,
+  never G Band. Landing stills live in `shopify-web/public/landing/`. Shop
+  catalog, cart, and checkout are local (`app/lib/catalog.ts`,
+  `app/lib/localShop.server.ts`): HOOP $99 (black/white × knit/sport) plus
+  $19 straps, using `/band/` and `/landing/` images. Session cookie holds
+  cart, locale, test account, and test orders. Checkout is a closed test
+  (card `4242…`, code `TEST10`); no processor, no charge. Legal / science /
+  FAQ / about / contact / journal are local pages. The linked shop
+  `pnca9j-07.myshopify.com` is still empty of products. Public storefront
+  domain is `nextbody.ai`. Landing CSS has a 1100 / 720 mobile reflow. Phone (≤720): one-row nav
+  (mid links + current lang hidden; only the other locale + GET HOOP),
+  stacked 3:4 product shots, highlight cards 1-col with 280px media,
+  five phones / faces as peek carousels, coach/plan/stress type and
+  padding scaled for 390, composition phone stacked under the wrist.
+  Tablet (≤1100) keeps two-row nav and horizontal snap rows. Development-store Oxygen URLs
+  require staff login. Old Whoop chrome (`HomeLanding`, `public/band/`)
+  remains for Shop routes.
 - `docs/STATUS.md`: current implementation and verification record.
 - `CONTEXT.md` plus `docs/adr/`: domain vocabulary and architectural decisions.
 - App Store Connect: NextBody `6799623125` (`com.nextbody.hoop`, SKU `nextbody-hoop-ios`,
@@ -102,11 +117,23 @@ model credentials and tool execution server-side.
 
 ## Components
 
-- **Shopify storefront (Whoop-style)** — `shopify-web/`. Header / Footer / `HomeLanding`
-  sell HOOP as a screenless wristband. Tokens: ink `#070707`, paper `#F3F1EC`, accent
-  lime used like Whoop uses JOIN NOW. Display Oswald, body Manrope. Claims stay on
-  NextBody law: no ECG, overnight oxygen only, not medical, 18+. Hero CTA is a white
-  pill; nav CTA is the lime `GET HOOP` pill.
+- **Shopify Paper landing** — `shopify-web/app/components/landing/` +
+  `app/lib/landing.ts` + `app/styles/landing.css`. `/` English, `/zh` Chinese
+  (default English). `PageLayout` hides old Header/Footer on those routes.
+  Twelve sections from Paper `MQ-0` / `30G-0`: 72px nav, 820 hero, THE OBJECT
+  gallery (buckle / weave / dashed sensor), highlights `#F5F5F7` 6 cards,
+  five-phone app, three-core radar, composition wrist + baseline phone
+  (`LandingCompositionPhone`), stress, 9 generated faces (`LandingFaces` from
+  Paper JSX), AI coach well, next body / chase, two finishes `$99`, twelve
+  signals, YOUR MOVE close. Claims: no ECG, not medical, 18+, `$99` once, no
+  subscription, 5 days a charge, black or white. Get HOOP CTA `/products/hoop`.
+  Shop chrome (header/footer/cart) uses landing tokens on every non-landing
+  route. Deploy is Hydrogen → Oxygen after `shopify hydrogen link`.
+- **Local shop loop** — `shopify-web/app/lib/shopMath.ts` + `shopCopy.ts` +
+  `policies.ts` + `sitePages.ts` + `app/components/shop/*` + `app/styles/shop.css`.
+  Add to cart, aside/page cart, test checkout, order confirmation, account
+  with session orders. EN/ZH from session (`/` sets en, `/zh` sets zh).
+  `npm run test:shop` covers totals, TEST10, and test-card helpers.
 - **App screens as web components** — `shopify-web/app/components/AppScreens.tsx` +
   `app/styles/app-screens.css`. Home, Vitals, Body Battery, Sleep, Training, Fuel,
   Plan, and Chat drawn in NextBody's own carbon/lime/Doto language, scaled with `em`
@@ -246,7 +273,8 @@ model credentials and tool execution server-side.
   unsynced live sensor minutes; the next settlement always replaces the preview anchor.
 - **MealResponseIndex** — Pure SyncCore index: timestamped optical points and recorded sleep
   windows in, signed percent versus own daytime median out. Near is ±8%. Vendor zeros never
-  become points. Page two prints RESPONSE; ingest stores `response_samples.optical`.
+  become points. Ingest stores `response_samples.optical`. The RESPONSE board
+  remains at `vitals.response`; page two's slot is Body Battery.
 - **OriginDataSync** — Joins original-data ticks with separate HRV, overnight oxygen, and
   wrist optical meal-response histories. Optical points upload as domain `response` into
   `response_samples` (never a glucose column). Screens print only the unitless RESPONSE index.
@@ -288,11 +316,14 @@ model credentials and tool execution server-side.
 - **VitalsDial** — Shared hero on every vitals second-level page (`VitalsDetailChrome`).
   Named zones on a fixed ruler; the occupied zone lights and a white needle marks the
   reading. Arithmetic lives in `VitalsDialMath`. Replaces the old min–now–peak fill rail.
-- Page two RESPONSE is the meal-response index, never a blood test: card label RESPONSE,
-  tint compare-amber, no mmol/L / glucose / 血糖 / SPIKE on screens, export, or AI frames.
-  The detail page reuses the sleep-style DAY/WEEK/MONTH pills (ADR 0012): day is a
-  15-minute occupancy envelope, week is seven daily bars, month is a 30-cell heat. Week/month
-  hero is the mean of daily means; the own daytime median stays the comparison.
+- Page two's retired RESPONSE slot is Body Battery (`Destination.bodyBattery`): lime
+  reserve score, compact `BatteryCurve`, tap opens the same 13 page as Profile and
+  the morning widget. RESPONSE is no longer a page-two card; `vitals.response` still
+  opens the meal-response board. That board is never a blood test: no mmol/L /
+  glucose / 血糖 / SPIKE on screens, export, or AI frames. It reuses the sleep-style
+  DAY/WEEK/MONTH pills (ADR 0012): day is a 15-minute occupancy envelope, week is
+  seven daily bars, month is a 30-cell heat. Week/month hero is the mean of daily
+  means; the own daytime median stays the comparison.
 - **ResponseRangeBoard** — `app/NextBody/Features/Vitals/ResponseRangeBoard.swift`.
   Window math lives in `MealResponseIndex.horizonWindow`; chrome is `ResponseDayBars`
   and `ResponseDayHeat`. Debug hook `NB_DEBUG_RESPONSE_RANGE=WEEK|MONTH`.
@@ -550,9 +581,10 @@ model credentials and tool execution server-side.
   envelopes on that same clock (`VitalsTrace`; a column only paints the value
   bands that have ticks, and capsule width follows the slot so a short last
   quarter-hour still sits against the rail). The nav word is the instrument itself (`HEART` / 心率), never
-  a `VITALS ·` / `体征 ·` prefix. Page two's retired HRV slot is RESPONSE (`MealResponseIndex`):
-  unitless signed percent versus own daytime median, compare-amber, rolling-24h scatter,
-  no mmol/L. `vitals.hrv` still deep-links to sleep. Heart now has the same DAY/WEEK/MONTH
+  a `VITALS ·` / `体征 ·` prefix. Page two's retired RESPONSE slot is Body Battery.
+  `vitals.response` still deep-links to the meal-response board (`MealResponseIndex`):
+  unitless signed percent versus own daytime median, compare-amber, no mmol/L.
+  `vitals.hrv` still deep-links to sleep. Heart now has the same DAY/WEEK/MONTH
   pills as sleep and RESPONSE (ADR 0013): day stays last-24h, week/month are user days,
   companions share the clock. `LiveVitals` NOW for HEART and STRESS is
   `currentHeart` / `currentStress`: the newest tick's own field, else the last

@@ -9,6 +9,7 @@
     "dev": "shopify hydrogen dev --codegen",
     "preview": "shopify hydrogen preview --build",
     "lint": "eslint --no-error-on-unmatched-pattern .",
+    "test:shop": "node --experimental-strip-types --test app/lib/shopMath.test.ts",
     "typecheck": "react-router typegen && tsc --noEmit",
     "codegen": "shopify hydrogen codegen && react-router typegen"
   },

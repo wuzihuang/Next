@@ -32,6 +32,7 @@ export default [
       '**/*.generated.d.ts',
       '**/.react-router/',
       '**/packages/hydrogen/dist/',
+      '**/*.test.ts',
     ],
   },
   ...fixupConfigRules(

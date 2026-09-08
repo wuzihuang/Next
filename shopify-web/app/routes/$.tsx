@@ -1,11 +1,8 @@
-import type {Route} from './+types/$';
-
-export async function loader({request}: Route.LoaderArgs) {
-  throw new Response(`${new URL(request.url).pathname} not found`, {
-    status: 404,
-  });
-}
+import {useRouteLoaderData} from 'react-router';
+import type {RootLoader} from '~/root';
+import {NotFoundView} from '~/components/shop/SiteViews';
 
 export default function CatchAllPage() {
-  return null;
+  const data = useRouteLoaderData<RootLoader>('root');
+  return <NotFoundView locale={data?.localShop.locale ?? 'en'} />;
 }

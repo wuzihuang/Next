@@ -16,19 +16,54 @@ model credentials and tool execution server-side.
   render contract, numeric ledger, and thought-stream processing.
 - `supabase/migrations/`: Postgres schema, RLS policies, and data lifecycle changes.
 - `shopify-web/`: Hydrogen + React Router storefront. Home `/` and `/zh` are a 1:1
-  Paper `Hoop-WEB` landing (`MQ-0` EN / `30G-0` 中文): 1440 desktop, ink `#070709`,
+  Paper `Hoop-WEB` landing (`MQ-0` EN / `30G-0` 中文): 1440 artboard, live
+  layout is full-bleed (`.lp-shell` has no max-width; `--lp-max: none`), ink `#070709`,
   lime `#EFF65A`, Inter Tight / Jost / Doto / Noto Sans SC. Brand is NEXTBODY / HOOP,
   never G Band. Landing stills live in `shopify-web/public/landing/`. Shop
   catalog, cart, and checkout are local (`app/lib/catalog.ts`,
-  `app/lib/localShop.server.ts`): HOOP $99 (black/white × knit/sport) plus
-  $19 straps, using `/band/` and `/landing/` images. Session cookie holds
+  `app/lib/localShop.server.ts`): one SKU, HOOP $99, finish Black or White
+  only. Knit nylon and sport straps both ship in the box — no strap picker
+  and no $19 strap SKUs. Product stills are transparent `/kit/hoop-*.png`
+  (black-studio cutouts). Session cookie holds
   cart, locale, test account, and test orders. Checkout is a closed test
   (card `4242…`, code `TEST10`); no processor, no charge. Legal / science /
   FAQ / about / contact / journal are local pages. The linked shop
   `pnca9j-07.myshopify.com` is still empty of products. Public storefront
   domain is `nextbody.ai`. Landing CSS has a 1100 / 720 mobile reflow. Phone (≤720): one-row nav
-  (mid links + current lang hidden; only the other locale + GET HOOP),
-  stacked 3:4 product shots, highlight cards 1-col with 280px media,
+  (mid links + current lang hidden; only the other locale + GET HOOP).
+  Live `nextbody.ai` is the Liquid theme `NEXTBODY HOOP` (`shopify-theme/`),
+  not Hydrogen. Favicon is the iOS App Icon hoop mark (`favicon-32.png`,
+  `favicon-192.png`, `apple-touch-icon.png`, `favicon.ico`) rendered from
+  `snippets/favicon.liquid` after `content_for_header`. Hydrogen `root.tsx`
+  uses the same PNGs. GET HOOP goes to `/collections/all?product=hoop` — a local
+  catalog + cart + test checkout in the theme (`snippets/shop-app.liquid`,
+  `assets/shop.js`). Buy box matches App tokens (carbon `#0B0B0D`,
+  carbon4 `#101014`, lime `#EFF65A`, Doto price, hairline cards). Color is
+  Black or White only; both straps are in the box.   The `.kit-*` buy box sets
+  `font-family` on `.shop-app` (otherwise the theme falls back to Times) and
+  scopes `.shop-pdp .kit-title` so the landing `.shop-page h1` rule cannot win.
+  Shop pages are sized for a 16" laptop first screen: `.shop-page` max-width
+  1280 and 20/40 padding; kit grid is `calc(100svh - 176px)` / max 640px;
+  title 28 / price 36; long `.kit-body` copy is hidden; shop footer collapses
+  to a single link row so nav + kit + footer fit a 1440×900 viewport.
+  Cart / checkout / order confirmation / account reuse the kit card language
+  (block "Cart / checkout / orders" at the end of both `shop.css` files):
+  carbon4 + hairline cards with `--r-card`, 9px 0.2em eyebrow labels, Doto
+  prices with the total in lime, 38px ink inputs with lime focus, checkout
+  legends floated (`float:left; width:100%`) so they leave the fieldset
+  border slot, checkout summary lists lines first (`order:-1`), confirmation
+  is a stacked receipt card. Theme `.shop-line` price is `<em>`, orders store
+  `variant` + `image` so the receipt shows thumbnails, mini-media uses `<img>`.
+  Kit PNGs live in `assets/hoop-*.png`, cut out by
+  `scripts/punch-hoop-alpha.py` (the studio shots were composited on `#000`,
+  so ring interiors stayed opaque until a connected-component pass lifted
+  them). Four renders show a green screen UI and must stay out of the gallery:
+  `hoop-black-d4/d5`, `hoop-white-d10/d11`. Filenames also lie about color —
+  `black-e7/e9` are white units, `white-b4/c6/c8` are black; judge by median
+  luminance, not the name. Shopify Admin still has no products; `/products/hoop`
+  404s at the platform and is redirected into that shop view. Hydrogen
+  `shopify-web` remains the local/Oxygen storefront.
+  Phone landing: stacked 3:4 product shots, highlight cards 1-col with 280px media,
   five phones / faces as peek carousels, coach/plan/stress type and
   padding scaled for 390, composition phone stacked under the wrist.
   Tablet (≤1100) keeps two-row nav and horizontal snap rows. Development-store Oxygen URLs
@@ -121,7 +156,9 @@ model credentials and tool execution server-side.
   `app/lib/landing.ts` + `app/styles/landing.css`. `/` English, `/zh` Chinese
   (default English). `PageLayout` hides old Header/Footer on those routes.
   Twelve sections from Paper `MQ-0` / `30G-0`: 72px nav, 820 hero, THE OBJECT
-  gallery (buckle / weave / dashed sensor), highlights `#F5F5F7` 6 cards,
+  gallery (buckle / weave / dashed sensor), highlights `#F5F5F7` 6 cards
+  (last card is AI DISPLAY: spoken query + lime night-dot grid, not Home /
+  lock screen),
   five-phone app, three-core radar, composition wrist + baseline phone
   (`LandingCompositionPhone`), stress, 9 generated faces (`LandingFaces` from
   Paper JSX), AI coach well, next body / chase, two finishes `$99`, twelve

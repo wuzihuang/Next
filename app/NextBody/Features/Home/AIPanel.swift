@@ -116,11 +116,15 @@ struct AIPanel: View {
     }
 
     @ViewBuilder private var idlePlate: some View {
+        // #25 · the plate reads the same readout every other entry reads. A wrist that
+        // stopped answering leaves the art unknown rather than drawing the last number
+        // it saw as though it were still true.
+        let reserve = m.bodyBatteryForDisplay()
         ZStack {
             HalftoneScreen {
                 StandbyArt(
-                    charge: m.bodyBattery.map { Double($0) / 100 } ?? 0,
-                    chargeKnown: m.bodyBattery != nil
+                    charge: reserve.map { Double($0) / 100 } ?? 0,
+                    chargeKnown: reserve != nil
                 )
             }
             if !consent.granted {

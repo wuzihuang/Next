@@ -19,6 +19,12 @@ const render = {
 const ready = { name: "workflow.ready", args: {} };
 type Call = { name: string; args: Record<string, unknown> };
 type Step = { calls?: Call[]; text?: string };
+type TurnStorage = { state: unknown; frame?: unknown };
+type PersistenceBehavior = {
+  store?: TurnStorage;
+  fail?: string[];
+  beforeClear?: () => Promise<void>;
+};
 
 function request(body: Record<string, unknown> = {}): Request {
   return new Request("http://localhost/turn", {
@@ -36,7 +42,8 @@ function request(body: Record<string, unknown> = {}): Request {
   });
 }
 
-function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, stored?: unknown) {
+function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, stored?: unknown,
+  persistence: PersistenceBehavior = {}) {
   const saved: Record<string, unknown>[] = [];
   const upserts: { table: string; row: unknown }[] = [];
   const states: Record<string, unknown>[] = [];
@@ -44,12 +51,13 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, store
   const activeTools: string[][] = [];
   const prompts: unknown[] = [];
   const events: string[] = [];
-  let frame: unknown;
+  const rpcCalls: string[] = [];
+  const storage = persistence.store ?? { state: structuredClone(stored ?? null) };
   const db = {
     from(table: string) {
       const result = () =>
         table === "screen_frames"
-          ? { data: { widget_tree: frame }, error: null }
+          ? { data: { widget_tree: storage.frame }, error: null }
           : table === "consents"
           ? { data: { choice: "granted" }, error: null }
           : table === "profiles"
@@ -105,23 +113,35 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, store
       };
       return q;
     },
-    rpc(name: string, args?: Record<string, unknown>) {
+    async rpc(name: string, args?: Record<string, unknown>) {
+      rpcCalls.push(name);
+      if (persistence.fail?.includes(name)) {
+        return { data: null, error: { message: "test persistence failure" } };
+      }
       if (name === "claim_ai_turn") {
-        return Promise.resolve({ data: { status: "claimed" }, error: null });
+        return { data: storage.frame
+          ? { status: "replay", frame_id: "frame" }
+          : { status: "claimed" }, error: null };
       }
       if (name === "save_ai_turn_state") {
-        states.push(args!.p_state as Record<string, unknown>);
-        return Promise.resolve({ data: null, error: null });
+        storage.state = structuredClone(args!.p_state);
+        states.push(structuredClone(args!.p_state) as Record<string, unknown>);
+        return { data: null, error: null };
       }
       if (name === "load_ai_turn_state") {
-        return Promise.resolve({ data: stored ?? null, error: null });
+        return { data: structuredClone(storage.state), error: null };
+      }
+      if (name === "clear_ai_turn_state") {
+        await persistence.beforeClear?.();
+        storage.state = null;
+        return { data: null, error: null };
       }
       if (name === "record_claimed_ai_turn") {
-        saved.push(args!);
-        frame = args!.p_envelope;
-        return Promise.resolve({ data: { frame_id: "frame" }, error: null });
+        saved.push(structuredClone(args!));
+        storage.frame = structuredClone(args!.p_envelope);
+        return { data: { frame_id: "frame" }, error: null };
       }
-      return Promise.resolve({ data: [], error: null });
+      return { data: [], error: null };
     },
   };
   const mock = new MockLanguageModelV1({
@@ -188,7 +208,7 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, store
     },
     ...overrides,
   };
-  return { deps, saved, usages, activeTools, prompts, events, upserts, states };
+  return { deps, saved, usages, activeTools, prompts, events, upserts, states, storage, rpcCalls };
 }
 
 function assertSuccess(body: string) {
@@ -422,6 +442,155 @@ Deno.test("a resumed turn hands the phone's result to the model and renders with
   assertEquals(trace[1].result?.ok, true);
 });
 
+Deno.test("three phone-tool suspensions survive successive requests, then completion replays", async () => {
+  const store: TurnStorage = { state: null };
+  let toolResult: { call_id: string; ok: boolean; code: string } | undefined;
+  let admissions = 0;
+  for (let hop = 0; hop < 3; hop++) {
+    const h = harness([{ calls: [alarm] }], {}, undefined, { store });
+    const body = await (await handleTurn(request({ tool_result: toolResult }), h.deps)).text();
+    assert(body.includes("event: tool.request"), body);
+    assert(store.state, "the next request must load the newly saved suspension");
+    const state = store.state as { pending: { call_id: string }; resumes: number };
+    assertEquals(state.resumes, hop + 1);
+    assertEquals(h.rpcCalls.includes("clear_ai_turn_state"), false);
+    assert(h.rpcCalls.includes("release_ai_turn"));
+    admissions += h.events.filter((event) => event === "quota").length;
+    toolResult = { call_id: state.pending.call_id, ok: true, code: "OK" };
+  }
+  const last = harness([{ calls: [ready] }, { calls: [render] }], {}, undefined, { store });
+  const body = await (await handleTurn(request({ tool_result: toolResult }), last.deps)).text();
+  assertSuccess(body);
+  assertEquals(store.state, null, "terminal persistence retires the suspension");
+  assertEquals(last.events.includes("quota"), false);
+  assertEquals(admissions, 1, "the operation pays once across all phone tools");
+
+  const replay = harness([], {}, undefined, { store });
+  const replayBody = await (await handleTurn(request({ tool_result: toolResult }), replay.deps)).text();
+  assertSuccess(replayBody);
+  assert(replayBody.includes('"replay":true'));
+  assertEquals(replay.activeTools.length, 0);
+  assertEquals(replay.events.includes("quota"), false);
+});
+
+Deno.test("completion awaits state cleanup before releasing its lease", async () => {
+  const first = harness([{ calls: [alarm] }]);
+  await (await handleTurn(request(), first.deps)).text();
+  const store = first.storage;
+  const callId = (store.state as { pending: { call_id: string } }).pending.call_id;
+  let notifyClear!: () => void;
+  let allowClear!: () => void;
+  const clearing = new Promise<void>((resolve) => { notifyClear = resolve; });
+  const canClear = new Promise<void>((resolve) => { allowClear = resolve; });
+  const h = harness([{ calls: [ready] }, { calls: [render] }], {}, undefined, {
+    store,
+    beforeClear: async () => { notifyClear(); await canClear; },
+  });
+  const body = (await handleTurn(request({
+    tool_result: { call_id: callId, ok: true, code: "OK" },
+  }), h.deps)).text();
+  await clearing;
+  const releasedEarly = h.rpcCalls.includes("release_ai_turn");
+  allowClear();
+  assertSuccess(await body);
+  assertEquals(releasedEarly, false);
+  assertEquals(store.state, null);
+  assert(h.rpcCalls.indexOf("record_claimed_ai_turn") < h.rpcCalls.indexOf("clear_ai_turn_state"));
+  assert(h.rpcCalls.includes("release_ai_turn"));
+});
+
+Deno.test("failed terminal persistence keeps the original suspension available for retry", async () => {
+  const first = harness([{ calls: [alarm] }]);
+  await (await handleTurn(request(), first.deps)).text();
+  const store = first.storage;
+  const original = structuredClone(store.state);
+  const callId = (store.state as { pending: { call_id: string } }).pending.call_id;
+  const h = harness([{ calls: [ready] }, { calls: [render] }], {}, undefined, {
+    store, fail: ["record_claimed_ai_turn"],
+  });
+  const body = await (await handleTurn(request({
+    tool_result: { call_id: callId, ok: true, code: "OK" },
+  }), h.deps)).text();
+  assert(body.includes("TURN_UNAVAILABLE"), body);
+  assertEquals(h.rpcCalls.includes("clear_ai_turn_state"), false);
+  assert(h.rpcCalls.includes("release_ai_turn"));
+  assertEquals(store.state, original, "resumption must not mutate the durable snapshot");
+
+  const retry = harness([{ calls: [ready] }, { calls: [render] }], {}, undefined, { store });
+  assertSuccess(await (await handleTurn(request({
+    tool_result: { call_id: callId, ok: true, code: "OK" },
+  }), retry.deps)).text());
+  assertEquals(retry.events.includes("quota"), false);
+  assertEquals(store.state, null);
+});
+
+Deno.test("failed resuspension retires old state only when its fallback is durably saved", async () => {
+  for (const terminalFails of [false, true]) {
+    const first = harness([{ calls: [alarm] }]);
+    await (await handleTurn(request(), first.deps)).text();
+    const store = first.storage;
+    const original = structuredClone(store.state);
+    const callId = (store.state as { pending: { call_id: string } }).pending.call_id;
+    const h = harness([{ calls: [alarm] }], {}, undefined, {
+      store, fail: ["save_ai_turn_state", ...(terminalFails ? ["record_claimed_ai_turn"] : [])],
+    });
+    const body = await (await handleTurn(request({
+      tool_result: { call_id: callId, ok: true, code: "OK" },
+    }), h.deps)).text();
+    assertEquals(body.includes("event: tool.request"), false);
+    assert(body.includes(terminalFails ? "TURN_UNAVAILABLE" : "SUSPEND_FAILED"), body);
+    assertEquals(store.state, terminalFails ? original : null);
+    assertEquals(h.rpcCalls.includes("clear_ai_turn_state"), !terminalFails);
+    assert(h.rpcCalls.includes("release_ai_turn"));
+  }
+});
+
+Deno.test("state-read failure releases the lease without starting another operation", async () => {
+  const h = harness([], {}, undefined, { fail: ["load_ai_turn_state"] });
+  const response = await handleTurn(request(), h.deps);
+  assertEquals(response.status, 503);
+  assert((await response.text()).includes("TURN_STATE_UNAVAILABLE"));
+  assertEquals(h.events.includes("quota"), false);
+  assertEquals(h.activeTools.length, 0);
+  assertEquals(h.rpcCalls.includes("clear_ai_turn_state"), false);
+  assert(h.rpcCalls.includes("release_ai_turn"));
+});
+
+Deno.test("an unexpected pre-stream failure releases the claimed lease", async () => {
+  const h = harness([], {
+    quota: () => Promise.reject(new Error("test admission connection failure")),
+  });
+  const response = await handleTurn(request(), h.deps);
+  assertEquals(response.status, 503);
+  assert((await response.text()).includes("TURN_UNAVAILABLE"));
+  assertEquals(h.activeTools.length, 0);
+  assertEquals(h.rpcCalls.includes("clear_ai_turn_state"), false);
+  assert(h.rpcCalls.includes("release_ai_turn"));
+});
+
+Deno.test("cleanup failure preserves the durable terminal response and releases the lease", async () => {
+  for (const throws of [false, true]) {
+    const first = harness([{ calls: [alarm] }]);
+    await (await handleTurn(request(), first.deps)).text();
+    const store = first.storage;
+    const callId = (store.state as { pending: { call_id: string } }).pending.call_id;
+    const h = harness([{ calls: [ready] }, { calls: [render] }], {}, undefined, {
+      store,
+      fail: throws ? [] : ["clear_ai_turn_state"],
+      beforeClear: throws ? () => Promise.reject(new Error("test cleanup failure")) : undefined,
+    });
+    assertSuccess(await (await handleTurn(request({
+      tool_result: { call_id: callId, ok: true, code: "OK" },
+    }), h.deps)).text());
+    assert(store.frame);
+    assert(store.state, "failed cleanup leaves the expiring snapshot intact");
+    assert(h.rpcCalls.includes("release_ai_turn"));
+    const replay = harness([], {}, undefined, { store });
+    assertSuccess(await (await handleTurn(request(), replay.deps)).text());
+    assertEquals(replay.activeTools.length, 0);
+  }
+});
+
 Deno.test("a resume whose call id does not match the stored request is refused", async () => {
   const first = harness([{ calls: [alarm] }]);
   await (await handleTurn(request({ text: "set an alarm at 7" }), first.deps)).text();
@@ -432,6 +601,9 @@ Deno.test("a resume whose call id does not match the stored request is refused",
   assertEquals(response.status, 409);
   assert((await response.text()).includes("TOOL_RESULT_MISMATCH"));
   assertEquals(h.activeTools.length, 0);
+  assertEquals(h.storage.state, first.storage.state);
+  assertEquals(h.rpcCalls.includes("clear_ai_turn_state"), false);
+  assert(h.rpcCalls.includes("release_ai_turn"));
 });
 
 Deno.test("meal.log without an estimate fails inside the turn instead of reaching the phone", async () => {

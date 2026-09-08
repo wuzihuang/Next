@@ -365,8 +365,11 @@ final class HealthSampleMappingTests: XCTestCase {
             anchor: 70, ticks: Array(repeating: minute, count: 5), baseline: baseline
         )
 
-        XCTAssertEqual(oneTick.value, fiveMinutes.value, accuracy: 0.001)
-        XCTAssertEqual(oneTick.drivers.stress, fiveMinutes.drivers.stress, accuracy: 0.001)
+        // The drain is scaled by the charge remaining at the start of each tick, so five
+        // one-minute steps recompute that scale four more times than one five-minute step.
+        // The two agree to first order; the residual is thousandths of a point.
+        XCTAssertEqual(oneTick.value, fiveMinutes.value, accuracy: 0.01)
+        XCTAssertEqual(oneTick.drivers.stress, fiveMinutes.drivers.stress, accuracy: 0.01)
     }
 
     func testBodyBatteryStageFourIsAwakeRatherThanFrozenSleep() {

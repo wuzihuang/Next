@@ -151,10 +151,9 @@ export function AccountOrderView({
       <ul className="shop-mini-lines">
         {order.lines.map((line) => (
           <li key={line.variantId}>
-            <span
-              className="shop-mini-media"
-              style={{backgroundImage: `url(${line.image})`}}
-            />
+            <span className="shop-mini-media">
+              <img alt="" src={line.image} />
+            </span>
             <div>
               <strong>
                 {pickLocale(locale, line.productTitle.en, line.productTitle.zh)}

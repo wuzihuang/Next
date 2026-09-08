@@ -2,14 +2,12 @@ import {Form, Link, useLocation} from 'react-router';
 import {
   defaultSelection,
   findVariant,
-  relatedProducts,
   type CatalogProduct,
 } from '~/lib/catalog';
 import type {ShopLocale} from '~/lib/locale';
 import {pickLocale} from '~/lib/locale';
 import {shopCopy} from '~/lib/shopCopy';
 import {formatMoney} from '~/lib/shopMath';
-import {ProductCard} from './CatalogView';
 
 export function ProductView({
   locale,
@@ -32,17 +30,15 @@ export function ProductView({
   const variant = findVariant(product, selected) ?? product.variants[0];
   const images = variant?.images?.length ? variant.images : [variant?.image];
   const activeImage = search.get('img') || images[0];
-  const related = relatedProducts(product.handle);
+  const finish = selected.finish || variant.options.finish;
+  const includes = pickLocale(locale, product.includes.en, product.includes.zh);
 
   return (
-    <div className="shop-page shop-pdp">
-      <section className="pdp">
-        <div className="pdp-gallery">
-          <div
-            className="pdp-hero-shot"
-            style={{backgroundImage: `url(${activeImage})`}}
-          />
-          <div className="pdp-thumbs">
+    <div className="shop-page shop-pdp kit-page">
+      <section className="kit">
+        <div className="kit-well">
+          <img alt="" className="kit-hero" src={activeImage} />
+          <div className="kit-thumbs">
             {images.map((image) => (
               <Link
                 key={image}
@@ -51,31 +47,39 @@ export function ProductView({
                 replace
                 to={`${location.pathname}?${nextParams(search, {img: image})}`}
               >
-                <span style={{backgroundImage: `url(${image})`}} />
+                <img alt="" src={image} />
               </Link>
             ))}
           </div>
         </div>
-        <div className="pdp-buy">
-          <p className="shop-kicker">
+        <aside className="kit-box">
+          <p className="kit-eye">
             {pickLocale(locale, product.kicker.en, product.kicker.zh)}
           </p>
-          <h1>{pickLocale(locale, product.title.en, product.title.zh)}</h1>
-          <p className="pdp-price">{formatMoney(product.price)}</p>
-          <p className="shop-lede">
+          <h1 className="kit-title">
+            {pickLocale(locale, product.title.en, product.title.zh)}
+          </h1>
+          <p className="kit-price">
+            <span className="kit-price-mark">$</span>
+            {product.price}
+          </p>
+          <p className="kit-lede">
             {pickLocale(locale, product.lede.en, product.lede.zh)}
           </p>
-          <Form className="pdp-form" id="pdp-cart" method="post" action="/cart">
+          <Form className="kit-form" id="pdp-cart" method="post" action="/cart">
             <input type="hidden" name="intent" value="add" />
             <input type="hidden" name="variantId" value={variant.id} />
             <input type="hidden" name="quantity" value="1" />
             {product.options.map((option) => (
-              <fieldset key={option.id} className="pdp-option">
+              <fieldset key={option.id} className="kit-option">
                 <legend>{pickLocale(locale, option.name.en, option.name.zh)}</legend>
-                <div className="pdp-swatches">
+                <div className="kit-swatches">
                   {option.values.map((value) => {
                     const next = {...selected, [option.id]: value.id};
-                    const href = `${location.pathname}?${nextParams(search, next)}`;
+                    const href = `${location.pathname}?${nextParams(search, {
+                      ...next,
+                      img: '',
+                    })}`;
                     const on = selected[option.id] === value.id;
                     return (
                       <Link
@@ -85,6 +89,7 @@ export function ProductView({
                         replace
                         to={href}
                       >
+                        <i className={`kit-dot kit-dot-${value.id}`} />
                         {pickLocale(locale, value.label.en, value.label.zh)}
                       </Link>
                     );
@@ -92,12 +97,20 @@ export function ProductView({
                 </div>
               </fieldset>
             ))}
-            <div className="pdp-actions">
-              <button className="lp-pill" type="submit">
+            <div className="kit-include">
+              <p>{t.product.inBox}</p>
+              <ul>
+                {includes.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="kit-actions">
+              <button className="kit-btn" type="submit">
                 {variant.available ? t.product.add : t.product.soldOut}
               </button>
               <button
-                className="lp-pill lp-pill-lime"
+                className="kit-btn kit-btn-lime"
                 name="redirectTo"
                 type="submit"
                 value="/checkout"
@@ -106,35 +119,11 @@ export function ProductView({
               </button>
             </div>
           </Form>
-          <div className="pdp-sticky-buy">
-            <p>
-              <span>{pickLocale(locale, product.title.en, product.title.zh)}</span>
-              <strong>{formatMoney(product.price)}</strong>
-            </p>
-            <button
-              className="lp-pill"
-              disabled={!variant.available}
-              form="pdp-cart"
-              type="submit"
-            >
-              {variant.available ? t.product.add : t.product.soldOut}
-            </button>
-            <button
-              className="lp-pill lp-pill-lime"
-              disabled={!variant.available}
-              form="pdp-cart"
-              name="redirectTo"
-              type="submit"
-              value="/checkout"
-            >
-              {t.product.buy}
-            </button>
-          </div>
-          <p className="pdp-ship">
+          <p className="kit-ship">
             <b>{t.product.shipping}</b>
             <span>{t.product.shippingNote}</span>
           </p>
-          <div className="pdp-facts">
+          <div className="kit-facts">
             {product.facts.map((fact) => (
               <div key={fact.label.en}>
                 <strong>{pickLocale(locale, fact.value.en, fact.value.zh)}</strong>
@@ -142,28 +131,55 @@ export function ProductView({
               </div>
             ))}
           </div>
-          <div className="pdp-body">
+          <div className="kit-body">
             {pickLocale(locale, product.description.en, product.description.zh).map(
               (para) => (
                 <p key={para}>{para}</p>
               ),
             )}
-            <p className="pdp-legal">{t.product.legal}</p>
+            <p className="kit-legal">{t.product.legal}</p>
           </div>
-        </div>
+        </aside>
       </section>
-      {related.length ? (
-        <section className="shop-related">
-          <h2>{t.product.related}</h2>
-          <div className="shop-grid">
-            {related.map((item) => (
-              <ProductCard key={item.handle} locale={locale} product={item} />
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <div className="kit-dock">
+        <p>
+          <span>
+            {pickLocale(locale, product.title.en, product.title.zh)}
+            {finish ? ` · ${finishLabel(product, finish, locale)}` : ''}
+          </span>
+          <strong>{formatMoney(product.price)}</strong>
+        </p>
+        <button
+          className="kit-btn"
+          disabled={!variant.available}
+          form="pdp-cart"
+          type="submit"
+        >
+          {variant.available ? t.product.add : t.product.soldOut}
+        </button>
+        <button
+          className="kit-btn kit-btn-lime"
+          disabled={!variant.available}
+          form="pdp-cart"
+          name="redirectTo"
+          type="submit"
+          value="/checkout"
+        >
+          {t.product.buy}
+        </button>
+      </div>
     </div>
   );
+}
+
+function finishLabel(
+  product: CatalogProduct,
+  finish: string,
+  locale: ShopLocale,
+): string {
+  const option = product.options.find((item) => item.id === 'finish');
+  const value = option?.values.find((item) => item.id === finish);
+  return value ? pickLocale(locale, value.label.en, value.label.zh) : finish;
 }
 
 function nextParams(
@@ -172,7 +188,8 @@ function nextParams(
 ): string {
   const next = new URLSearchParams(search);
   for (const [key, value] of Object.entries(patch)) {
-    next.set(key, value);
+    if (value) next.set(key, value);
+    else next.delete(key);
   }
   return next.toString();
 }

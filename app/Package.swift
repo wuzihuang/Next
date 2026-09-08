@@ -57,6 +57,7 @@ let package = Package(
         ),
         .target(
             name: "NextBodySyncCore",
+            dependencies: ["NextBodyLocalData"],
             path: "NextBody/Services/Band",
             exclude: [
                 "BandPresence.swift", "BandReadiness.swift", "BandLiveLifecycle.swift", "BandService.swift", "BluetoothState.swift",
@@ -69,6 +70,7 @@ let package = Package(
                 "BodyBatteryEngine.swift",
                 "OriginObservationPolicy.swift",
                 "BandDomainSyncState.swift",
+                "BandEvidencePublication.swift",
                 "AIFreshnessPolicy.swift",
                 "SessionBoundTransport.swift",
                 "DailyDirectionPolicy.swift",
@@ -116,7 +118,7 @@ let package = Package(
         ),
         .testTarget(
             name: "NextBodySyncCoreTests",
-            dependencies: ["NextBodySyncCore"],
+            dependencies: ["NextBodySyncCore", "NextBodyLocalData"],
             path: "NextBodySyncCoreTests"
         ),
     ]

@@ -35,6 +35,9 @@ t=(root/'20260904085910_reproducible_calculation_revisions.sql').read_text()
 schema+=re.search(r'create function nb.reserve_replay\([\s\S]+?\$\$;',t)[0]+'\n'
 # Integration-only version/publication machinery is separately tested against all migrations.
 schema+=(root/'20260906130331_body_battery_evidence_contract.sql').read_text().split('-- Keep publication, caching, historical profile/clock, archive recovery and locking.')[0]
+# The calibrated replay replaces the bb-2.1 body wholesale, so it is loaded last.
+# The harness keeps the bb-2.1 version strings: it audits the formula, not publication.
+schema+=f('20260908090000_everyday_load_and_reserve_calibration.sql','reserve_replay_uncached')
 schema+='''
 create function nb.audit_save(p_user uuid,p_day date) returns void language plpgsql as $$
 declare id uuid;

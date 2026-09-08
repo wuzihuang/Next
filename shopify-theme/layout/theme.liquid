@@ -8,7 +8,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=Jost:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;600&display=swap">
   {{ 'landing.css' | asset_url | stylesheet_tag }}
+  {{ 'shop.css' | asset_url | stylesheet_tag }}
   {{ content_for_header }}
+  {% render 'favicon' %}
   <style>
     html, body { margin: 0; background: #070709; }
     .site-main { margin: 0; }

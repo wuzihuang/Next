@@ -1,28 +1,33 @@
 import {useLoaderData} from 'react-router';
 import type {Route} from './+types/collections.all';
-import {CatalogView} from '~/components/shop/CatalogView';
-import {getCollection, productsForCollection} from '~/lib/catalog';
+import {ProductView} from '~/components/shop/ProductView';
+import {getProduct} from '~/lib/catalog';
 import {localeFromRequest} from '~/lib/locale';
 import {readLocale} from '~/lib/localShop.server';
+
 export const meta: Route.MetaFunction = ({data}) => {
-  const title = data?.locale === 'zh' ? 'NEXTBODY · 商店' : 'NEXTBODY · Shop';
+  const title = data?.locale === 'zh' ? 'NEXTBODY · HOOP' : 'NEXTBODY · HOOP';
   return [{title}];
 };
 
 export async function loader({request, context}: Route.LoaderArgs) {
   const locale = localeFromRequest(request, readLocale(context.session));
-  const collection = getCollection('all');
-  if (!collection) throw new Response(null, {status: 404});
+  const product = getProduct('hoop');
+  if (!product) throw new Response(null, {status: 404});
   return {
     locale,
-    collection,
-    products: productsForCollection('all'),
+    product,
+    search: Object.fromEntries(new URL(request.url).searchParams),
   };
 }
 
 export default function ShopAll() {
-  const {locale, collection, products} = useLoaderData<typeof loader>();
+  const {locale, product, search} = useLoaderData<typeof loader>();
   return (
-    <CatalogView collection={collection} locale={locale} products={products} />
+    <ProductView
+      locale={locale}
+      product={product}
+      search={new URLSearchParams(search)}
+    />
   );
 }

@@ -1458,7 +1458,13 @@ extension UIImage {
         let scale = min(1, maxSide / max(size.width, size.height))
         guard scale < 1 else { return self }
         let target = CGSize(width: size.width * scale, height: size.height * scale)
-        return UIGraphicsImageRenderer(size: target).image { _ in draw(in: CGRect(origin: .zero, size: target)) }
+        // ⚠️ The renderer defaults to the screen's scale, so on a 3× phone a "640 px" resize
+        // came back 1920 px wide and its JPEG weighed roughly nine times what the caller asked
+        // for. maxSide is pixels, and the receiver is a byte budget: pin the scale to 1.
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: target, format: format)
+            .image { _ in draw(in: CGRect(origin: .zero, size: target)) }
     }
 }
 

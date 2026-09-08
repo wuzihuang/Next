@@ -1,0 +1,27 @@
+Mode: Built-in image_gen
+
+Use case: compositing
+EDIT INPUT IMAGE 1 AS THE BASE IMAGE. Keep its three phone bodies, their exact positions, camera angles, side rails, lighting, perspective, scale, black background, image aspect ratio, and bottom-edge cropping. Replace ONLY the screen imagery with the provided NextBody screenshots, plus the specified battery/text edits. This is a precise screen replacement in the supplied physical mockup, not a new phone arrangement.
+
+INPUT ROLES:
+1. The Oura three-phone mockup is the BASE COMPOSITION AND GEOMETRY TO PRESERVE EXACTLY.
+2. BODY BATTERY screenshot is the screen texture for the LEFT phone.
+3. TRAINING screenshot is the screen texture for the CENTER phone.
+4. CALORIES screenshot is the screen texture for the RIGHT phone.
+
+CRITICAL ANGLE CORRECTION:
+Match image 1 literally. The left phone's top screen edge rises toward the right: its outer left top corner is LOWER and its inner right top corner is HIGHER. The left phone's thick RIGHT physical side rail is visible next to the center phone. The right phone is the mirror: its top edge falls toward the right; its inner left top corner is HIGHER and its outer right top corner is LOWER. The right phone's thick LEFT physical side rail is visible next to the center phone. Thus both visible metal side rails are on the INNER sides nearest the center phone. The side phones have pronounced three-quarter perspective, about 30–40 degrees of horizontal yaw, like the reference. Vertical edges remain upright. The center phone is frontal, larger, wider, taller and in the foreground.
+Do NOT reverse these side angles. Do NOT show the left phone's outer left side rail or the right phone's outer right side rail as the dominant visible rails. Do NOT shrink the phones to show all three complete bodies.
+
+EXACT FRAMING:
+Keep the landscape 7:4 composition of image 1. For reference, in a 1680x960 frame: center housing starts around x550 y40 and ends around x1137, extending below the frame. Left housing occupies roughly x105–518 with uppermost corner around x438 y123 and outer corner around x127 y215. Right housing occupies roughly x1168–1584, mirroring the left. Match these observed locations and phone silhouettes closely. The BOTTOMS OF ALL THREE PHONES EXTEND BEYOND THE IMAGE AND ARE CROPPED by its bottom edge. Minimal top margin. The side phones begin lower than the center, as in the reference. Preserve the close, large, dramatic hardware crop instead of a zoomed-out full-device catalog view.
+
+SCREEN CONTENT:
+Texture-map input 2 faithfully onto the left display, input 3 onto center, input 4 onto right, naturally following each display plane. Show the original UI at its original proportions, aligned at the top of each screen; the lower part may continue below the bottom crop exactly as happens in the reference. Do not compress the entire UI vertically just to fit it in the crop. Keep all original app numbers, graph shapes, labels, dot-matrix typography, dark surfaces, accent colors and card proportions.
+Make ONLY these content edits:
+- Top-right iOS phone battery in each of the three screenshots: fully filled white battery with black "100", replacing 49, 49 and 37 respectively.
+- The first FOOD-table item in CALORIES: replace "每日坚果" with exact white English text "Daily Mixed Nuts" in the original style.
+Preserve app BODY BATTERY score "59", TRAINING score "14.9", CALORIES "331", "1,059", "-728", and every other data value; the requested 100 refers only to the phone status bar.
+Remove all Oura logos, all Oura interface content, and its photographic app backgrounds through the screen replacement. Outside of the screens, keep input 1 unchanged. No added captions, logos or watermark. Screens sharp, no glare.
+Deliver one high-resolution landscape raster image in the same 7:4 aspect ratio as input 1, ideally 3360x1920.
+

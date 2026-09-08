@@ -93,8 +93,8 @@ enum TickFreshness {
         guard let at else { return .gone }
         let age = now.timeIntervalSince(at)
         guard age >= 0 else { return .gone }
-        if age >= 6 * 3600 { return .gone }
-        if age >= 90 * 60 { return .stale }
+        if age >= BodyBatteryReadoutPolicy.goneAfter { return .gone }
+        if age >= BodyBatteryReadoutPolicy.staleAfter { return .stale }
         return .fresh
     }
 }

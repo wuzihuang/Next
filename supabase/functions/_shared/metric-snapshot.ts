@@ -1,4 +1,4 @@
-import type { Ctx } from "./sources.ts";
+import type { ReadContext as Ctx } from "./read-context.ts";
 type Revision = Record<string, unknown>;
 const observed = new WeakMap<Ctx, Map<string, string>>();
 export async function readSnapshot(

@@ -269,10 +269,13 @@ struct ChatDetailView: View {
             guard let item,
                   let data = try? await item.loadTransferable(type: Data.self),
                   let image = UIImage(data: data) else { return }
-            let resized = image.nb_resized(maxSide: 1024)
-            let jpeg = resized.jpegData(compressionQuality: 0.72) ?? data
-            attachedImage = resized
-            attachedDataURL = "data:image/jpeg;base64," + jpeg.base64EncodedString()
+            // ⚠️ This used to encode 1024 px at 0.72 with no ceiling. A detailed photo came out
+            // past `turn`'s 500 000-character body limit, the server answered 413
+            // IMAGE_TOO_LARGE, and every picture in Chat came back as the generic retry line.
+            // AIImagePayload is the one encoder both faces share — 640 px, 96 KiB soft cap.
+            guard let payload = AIImagePayload.prepare(image) else { return }
+            attachedImage = payload.preview
+            attachedDataURL = payload.dataURL
         }
     }
 

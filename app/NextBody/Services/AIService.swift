@@ -326,7 +326,13 @@ final class AIService: ObservableObject {
                         ?? L("Your AI allowance is unavailable. Please try again later.")
                     return .failed(nil)
                 }
-                lastError = L("Could not complete that request. Please try again.")
+                // A rejected photo is a photo problem, not a mystery. Saying so is the
+                // difference between retrying forever and picking a smaller picture.
+                if status == 413 || lastErrorCode == "IMAGE_TOO_LARGE" {
+                    lastError = L("That photo was too large to send. Try a smaller one.")
+                } else {
+                    lastError = L("Could not complete that request. Please try again.")
+                }
             } else {
                 lastError = error.localizedDescription
             }

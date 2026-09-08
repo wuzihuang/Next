@@ -51,6 +51,8 @@ export type ShopCopy = {
     legal: string;
     related: string;
     qty: string;
+    color: string;
+    inBox: string;
   };
   cart: {
     title: string;
@@ -178,7 +180,7 @@ const en: ShopCopy = {
   shop: {
     kicker: 'NEXTBODY',
     title: 'Get HOOP.',
-    lede: '$99 once. No subscription. Black or white, knit or sport.',
+    lede: '$99 once. No subscription. Black or white. Both straps in the box.',
     empty: 'Nothing in this collection yet.',
     view: 'View',
     from: 'From',
@@ -188,11 +190,13 @@ const en: ShopCopy = {
     buy: 'Buy now',
     added: 'Added to cart',
     soldOut: 'Sold out',
-    shipping: 'Free shipping at $99',
-    shippingNote: 'Straps ship for $8, or free with HOOP. 5–10 business days.',
+    shipping: 'FREE SHIPPING',
+    shippingNote: 'HOOP ships free. 5–10 business days.',
     legal: '18+. Not a medical device. HOOP does not take an ECG and does not diagnose.',
     related: 'Also in the kit',
     qty: 'Qty',
+    color: 'COLOR',
+    inBox: 'IN THE BOX',
   },
   cart: {
     title: 'Cart',
@@ -280,9 +284,9 @@ const en: ShopCopy = {
   },
   search: {
     title: 'Search',
-    placeholder: 'HOOP, strap, band…',
+    placeholder: 'HOOP, band…',
     submit: 'Search',
-    empty: 'Nothing matched. Try HOOP or strap.',
+    empty: 'Nothing matched. Try HOOP.',
     results: 'Results',
   },
   notFound: {
@@ -331,7 +335,7 @@ const zh: ShopCopy = {
   shop: {
     kicker: 'NEXTBODY',
     title: '购买 HOOP。',
-    lede: '$99 一次付清。永不订阅。黑色或白色，编织或运动表带。',
+    lede: '$99 一次付清。永不订阅。黑色或白色。盒内两条表带都有。',
     empty: '这个系列里还没有商品。',
     view: '查看',
     from: '起',
@@ -341,11 +345,13 @@ const zh: ShopCopy = {
     buy: '立即购买',
     added: '已加入购物车',
     soldOut: '已售罄',
-    shipping: '满 $99 包邮',
-    shippingNote: '单独买表带运费 $8，和 HOOP 一起买则免运费。5–10 个工作日。',
+    shipping: '免运费',
+    shippingNote: 'HOOP 免运费。5–10 个工作日。',
     legal: '18 岁以上。HOOP 不是医疗器械，不做心电图，也不做诊断。',
     related: '还可以一起买',
     qty: '数量',
+    color: '颜色',
+    inBox: '盒内含',
   },
   cart: {
     title: '购物车',
@@ -433,9 +439,9 @@ const zh: ShopCopy = {
   },
   search: {
     title: '搜索',
-    placeholder: 'HOOP、表带、手环…',
+    placeholder: 'HOOP、手环…',
     submit: '搜索',
-    empty: '没有匹配。试试 HOOP 或表带。',
+    empty: '没有匹配。试试 HOOP。',
     results: '结果',
   },
   notFound: {

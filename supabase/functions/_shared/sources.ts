@@ -8,7 +8,10 @@ import { readSnapshot, acceptSnapshot } from "./metric-snapshot.ts";
 //
 // null means "no data": the panel writes —— and the model picks another chart. Never 0.
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
+import type { ReadContext } from "./read-context.ts";
+import { addDays, dayBounds, dayOf, hhmm, weekday, zoned } from "./calendar.ts";
+import { queryMetrics, type Metric } from "./metric-query.ts";
+export { addDays, dayBounds, dayOf, weekday, zoned } from "./calendar.ts";
 import { readSampleHistory } from "./archive.ts";
 import { SEED_MEAL_VERSION } from "./db.ts";
 
@@ -52,14 +55,7 @@ export interface SourceResult {
   window: string;
 }
 
-export interface Ctx {
-  db: SupabaseClient;
-  userId: string;
-  /// The user day being asked about, YYYY-MM-DD in the user's calendar.
-  dayKey: string;
-  tz: string;
-  from?: string;
-  to?: string;
+export interface Ctx extends ReadContext {
   cache?: Map<string, Promise<SourceResult | null>>;
 }
 
@@ -73,61 +69,7 @@ export interface Source {
 
 // ---------------------------------------------------------------- calendar helpers
 
-const WD = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-
-function tzParts(at: Date, tz: string) {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-  });
-  const p = Object.fromEntries(fmt.formatToParts(at).map((x) => [x.type, x.value]));
-  return {
-    year: Number(p.year), month: Number(p.month), day: Number(p.day),
-    hour: Number(p.hour), minute: Number(p.minute), second: Number(p.second),
-  };
-}
-
-function offsetMs(at: Date, tz: string): number {
-  const p = tzParts(at, tz);
-  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - at.getTime();
-}
-
-/// The instant of `hour:00` local time on `dayKey` in `tz`. Two passes settle a DST edge.
-export function zoned(dayKey: string, hour: number, tz: string): Date {
-  const [y, m, d] = dayKey.split("-").map(Number);
-  const wall = Date.UTC(y, m - 1, d, hour);
-  let guess = wall;
-  for (let i = 0; i < 2; i++) guess = wall - offsetMs(new Date(guess), tz);
-  return new Date(guess);
-}
-
-/// F2 rule 03 · a user day runs local 00:00 → 00:00 the next day (ADR 0020).
-export function dayBounds(dayKey: string, tz: string): { start: Date; end: Date } {
-  return { start: zoned(dayKey, 0, tz), end: zoned(addDays(dayKey, 1), 0, tz) };
-}
-
-export function addDays(dayKey: string, n: number): string {
-  const [y, m, d] = dayKey.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
-}
-
-export function weekday(dayKey: string): string {
-  const [y, m, d] = dayKey.split("-").map(Number);
-  return WD[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-}
-
-function hhmm(iso: string, tz: string): string {
-  const p = tzParts(new Date(iso), tz);
-  return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
-}
-
 function mmdd(dayKey: string): string { return dayKey.slice(5); }
-
-/// Which user day an instant belongs to, as a key: the local calendar date (ADR 0020).
-export function dayOf(iso: string, tz: string): string {
-  const p = tzParts(new Date(iso), tz);
-  return new Date(Date.UTC(p.year, p.month - 1, p.day)).toISOString().slice(0, 10);
-}
 
 const r1 = (x: number) => Math.round(x * 10) / 10;
 const mean = (xs: number[]) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
@@ -308,44 +250,38 @@ export const SOURCES: Source[] = [
       };
     },
   },
-  ...dailySeries("trainingLoad", "TRAINING LOAD", "", (r) => r.training_load, [7, 30]),
-  ...dailySeries("bodyBattery", "BODY BATTERY", "%", (r) => r.reserve_score, [7, 30]),
-  ...dailySeries("intakeKcal", "EATEN", "kcal", (r) => one(r.day_fuel)?.kcal_in ?? null, [7, 30]),
+  ...dailySeries("trainingLoad", "TRAINING LOAD", "", [7, 30]),
+  ...dailySeries("bodyBattery", "BODY BATTERY", "%", [7, 30]),
+  ...dailySeries("intakeKcal", "EATEN", "kcal", [7, 30]),
   {
     id: "deltaKcal.7d", kind: "column", says: "最近 7 天每天吃进减消耗（kcal，有正有负）",
     async fetch(ctx) {
-      const days = window(ctx, 7);
-      const rows = await dayRows(ctx, days[0], ctx.dayKey);
-      if (!rows) return null;
-      const byDay = new Map(rows.map((r) => [r.user_day, r.fuel_balance_kcal]));
-      const present = days.filter((d) => byDay.get(d) != null);
+      const { reading, days } = await readMetricWindow(ctx, "deltaKcal", 7);
+      const present = observedPoints(reading);
       if (present.length < 2) return null;
-      const bins: Point[] = present.map((d) => [weekday(d), byDay.get(d)!]);
+      const bins: Point[] = present.map((p) => [weekday(p.dayKey), p.value]);
       const vals = bins.map((b) => b[1]);
-      const s = stats(vals);
       const net = vals.reduce((a, b) => a + b, 0);
       return {
         data: { kind: "column", bins, unit: "kcal", total: net },
-        agg: { ...s, net, up: vals.filter((v) => v > 0).length, down: vals.filter((v) => v < 0).length, windowDays: 7 },
-        hero: `${net > 0 ? "+" : ""}${net} kcal`, unit: "kcal", window: "7 DAYS",
+        agg: { ...reading.stats, net, up: vals.filter((v) => v > 0).length, down: vals.filter((v) => v < 0).length, windowDays: days.length },
+        evidence: reading.evidence,
+        hero: `${net > 0 ? "+" : ""}${net} kcal`, unit: "kcal", window: `${days.length} DAYS`,
       };
     },
   },
   ...[30, 90].map<Source>((n) => ({
     id: `weight.${n}d`, kind: "curve", says: `最近 ${n} 天的体重（kg）`,
     async fetch(ctx) {
-      const from = zoned(ctx.from ?? addDays(ctx.dayKey, 1 - n), 4, ctx.tz).toISOString();
-      const data = await pageAll<{measured_at:string;weight_kg:number}>((lo,hi) => ctx.db.from("weigh_ins").select("measured_at, weight_kg")
-        .eq("user_id", ctx.userId).gte("measured_at", from).lt("measured_at",dayBounds(ctx.to ?? ctx.dayKey,ctx.tz).end.toISOString()).order("measured_at").order("id").range(lo,hi));
-      const rows = (data ?? []) as { measured_at: string; weight_kg: number }[];
-      if (rows.length < 2) return null;
-      const series: Point[] = rows.map((r) => [mmdd(dayOf(r.measured_at, ctx.tz)), Number(r.weight_kg)]);
-      const vals = series.map((p) => p[1]);
-      const s = stats(vals);
+      const { reading, days } = await readMetricWindow(ctx, "weight", n);
+      const present = observedPoints(reading);
+      if (present.length < 2) return null;
+      const series: Point[] = present.map((p) => [mmdd(dayOf(p.dayKey, ctx.tz)), p.value]);
       return {
         data: { kind: "curve", series },
-        agg: { ...s, first: vals[0], change: r1(vals[vals.length - 1] - vals[0]), days: n },
-        hero: `${s.latest} kg`, unit: "kg", window: `${n} DAYS`,
+        agg: { ...reading.stats, first: present[0].value, change: reading.stats.firstToLastObservedChange, days: days.length },
+        evidence: reading.evidence,
+        hero: reading.stats.latest == null ? "——" : `${reading.stats.latest} kg`, unit: "kg", window: `${days.length} DAYS`,
       };
     },
   })),
@@ -392,7 +328,7 @@ export const SOURCES: Source[] = [
       const cells = raw.map((row) => row.map((v) => v == null ? 0 : 1 + Math.min(3, Math.floor((v - lo) / span * 4))));
       let best = { d: 0, c: 0, v: -1 };
       raw.forEach((row, d) => row.forEach((v, c) => { if (v != null && v > best.v) best = { d, c, v }; }));
-      const hour = (c: number) => String((4 + c * 2) % 24).padStart(2, "0");
+      const hour = (c: number) => hhmm(new Date(dayBounds(days[best.d], ctx.tz).start.getTime() + c * 7_200_000).toISOString(), ctx.tz);
       return {
         data: { kind: "grid", rows: 7, cols: 12, cells, scale: 4, rowLabels: days.map(weekday), colLabels: Array.from({ length: 12 }, (_, c) => hour(c)) },
         agg: { peak: Math.round(best.v), min: Math.round(lo), max: Math.round(hi), days: 7 },
@@ -435,13 +371,13 @@ export const SOURCES: Source[] = [
   {
     id: "load.today", kind: "arc", says: "今天的 TRAINING LOAD，满值 21",
     async fetch(ctx) {
-      const rows = await dayRows(ctx, ctx.dayKey, ctx.dayKey);
-      const v = rows?.[0]?.training_load;
+      const { reading } = await readMetricWindow(ctx, "trainingLoad", 1);
+      const v = reading.stats.latest;
       if (v == null) return null;
       // F7 §08 · the remainder is a number the ring's own caption asks for («还差多少»),
       // so the server computes it. The model may not subtract: 21 − 2.6 came back as an
       // untraceable 18.4 and threw the whole frame away.
-      return { data: { kind: "arc", value: v, goal: 21, unit: "" }, agg: { value: v, goal: 21, left: r1(21 - v), pct: Math.round(v / 21 * 100) }, hero: `${v}`, window: "TODAY" };
+      return { data: { kind: "arc", value: v, goal: 21, unit: "" }, agg: { value: v, goal: 21, left: r1(21 - v), pct: Math.round(v / 21 * 100) }, evidence: reading.evidence, hero: `${v}`, window: reading.evidence.to === ctx.dayKey ? "TODAY" : reading.evidence.to };
     },
   },
   {
@@ -550,15 +486,12 @@ export const SOURCES: Source[] = [
   {
     id: "weighins.7d", kind: "grid", says: "最近 7 天哪几天称了体重",
     async fetch(ctx) {
-      const days = window(ctx, 7);
-      const from = dayBounds(days[0], ctx.tz).start.toISOString();
-      const { data, error } = await ctx.db.from("weigh_ins").select("measured_at").eq("user_id", ctx.userId).gte("measured_at", from);
-      if (error) throw new Error("SOURCE_QUERY_FAILED");
-      const have = new Set((data ?? []).map((w) => dayOf(w.measured_at, ctx.tz)));
+      const { reading, days } = await readMetricWindow(ctx, "weight", 7);
+      const have = new Set(observedPoints(reading).map((p) => dayOf(p.dayKey, ctx.tz)));
       const cells: number[][] = [days.map((d) => (have.has(d) ? 1 : 0))];
       const filled = cells[0].reduce((a, b) => a + b, 0);
       if (!filled) return null;
-      return { data: { kind: "grid", rows: 1, cols: 7, cells, scale: 1, colLabels: days.map(weekday) }, agg: { filled, total: 7 }, hero: `${filled} OF 7`, window: "7 DAYS" };
+      return { data: { kind: "grid", rows: 1, cols: days.length, cells, scale: 1, colLabels: days.map(weekday) }, agg: { filled, total: days.length }, evidence: reading.evidence, hero: `${filled} OF ${days.length}`, window: `${days.length} DAYS` };
     },
   },
   {
@@ -1042,7 +975,7 @@ function dailySeries(id: string, label: string, unit: string, pick: (r: DayRow) 
 function composition(): Source[] {
   interface Comp { measured_at: string; body_fat_pct: number | null; fat_mass_kg: number | null; lean_body_mass_kg: number | null }
   const load = async (ctx: Ctx, weeks: number): Promise<Comp[] | null> => {
-    const from = zoned(ctx.from ?? addDays(ctx.dayKey, -7 * weeks), 4, ctx.tz).toISOString();
+    const from = dayBounds(ctx.from ?? addDays(ctx.to ?? ctx.dayKey, 1 - 7 * weeks), ctx.tz).start.toISOString();
     const data = await pageAll<Comp>((lo,hi) => ctx.db.from("body_composition")
       .select("measured_at, body_fat_pct, fat_mass_kg, lean_body_mass_kg")
       .eq("user_id", ctx.userId).gte("measured_at", from).lt("measured_at",dayBounds(ctx.to ?? ctx.dayKey,ctx.tz).end.toISOString()).order("measured_at").order("id").range(lo,hi));

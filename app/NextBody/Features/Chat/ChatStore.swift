@@ -142,9 +142,9 @@ final class ChatStore: ObservableObject {
         }
 
         let history = contextHistory(sessions[index].messages)
-        let attachment = dataURL ?? image?.jpegData(compressionQuality: 0.7).map {
-            "data:image/jpeg;base64," + $0.base64EncodedString()
-        }
+        // A caller that hands over a bare UIImage gets the same bounded encoding the picker
+        // uses; an unbounded JPEG here reached the server as 413 IMAGE_TOO_LARGE.
+        let attachment = dataURL ?? image.flatMap { AIImagePayload.prepare($0)?.dataURL }
         let userMsg = ChatMessage(
             sender: .user,
             text: text,

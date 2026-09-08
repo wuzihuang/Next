@@ -77,10 +77,12 @@ begin
  select value into q from nb.reserve_replay('00000000-0000-0000-0000-000000000011','2026-09-04');
  perform audit_check('transaction_replay_cache_preserved',q=42,jsonb_build_object('value',q),'The publication cache wrapper remains active after replacing only the uncached engine.');
  perform set_config('nb.replay_key','',true);
- -- At 06:00 only fully elapsed slots are published: no phantom 06:00–06:05 slot.
+ -- Since 20260907040000 the horizon is decided by the data: the last complete slot, or
+ -- the slot holding the newest real sample, whichever is later. Neither can start after
+ -- the calculation instant, so 06:00 is reachable and 06:05 is not.
  perform set_config('nb.calculation_as_of','2026-09-04 06:00Z',true);
  select max(ts) into a from nb.reserve_replay('00000000-0000-0000-0000-000000000013','2026-09-04');
- perform audit_check('replay_respects_calculation_clock',a.max<'2026-09-04 06:00Z',to_jsonb(a),'No replay slot reaches beyond the fixed calculation instant.');
+ perform audit_check('replay_respects_calculation_clock',a.max<='2026-09-04 06:00Z',to_jsonb(a),'No replay slot starts after the fixed calculation instant.');
  perform set_config('nb.calculation_as_of','',true);
 end $$;
 -- Quiet qualification requires measured stress/HRV/steps and only discounts time
@@ -88,12 +90,22 @@ end $$;
 insert into raw_samples(user_id,ts,heart,hrv,stress,step,met)
 select '00000000-0000-0000-0000-000000000017',t,30,60,20,0,1
 from generate_series('2026-09-04 09:00Z'::timestamptz,'2026-09-04 09:20Z'::timestamptz,interval '5 minutes')t;
-do $$ declare a numeric; b numeric;
+-- Stated as slot-to-slot deltas rather than absolute points: an undiscounted slot differs
+-- from the one before it only by the charge softener, far under one percent, so the check
+-- survives recalibration of the basal rate itself.
+do $$ declare b05 numeric; b10 numeric; b15 numeric; b20 numeric; d4 numeric; d5 numeric;
 begin
- select d_basal into a from nb.reserve_replay('00000000-0000-0000-0000-000000000017','2026-09-04') where ts='2026-09-04 09:15Z';
- select d_basal into b from nb.reserve_replay('00000000-0000-0000-0000-000000000017','2026-09-04') where ts='2026-09-04 09:20Z';
- perform audit_check('quiet_twenty_minutes_has_no_early_discount',abs(a+0.48)<0.000001,jsonb_build_object('basal_20min',a),'Reaching twenty minutes qualifies only subsequent quiet time.');
- perform audit_check('quiet_twenty_five_minutes_discounts_only_last_slot',b-a>-0.12 and b-a<0,jsonb_build_object('last_slot',b-a),'Only the five minutes after the quiet threshold receive a drain discount.');
+ select d_basal into b05 from nb.reserve_replay('00000000-0000-0000-0000-000000000017','2026-09-04') where ts='2026-09-04 09:05Z';
+ select d_basal into b10 from nb.reserve_replay('00000000-0000-0000-0000-000000000017','2026-09-04') where ts='2026-09-04 09:10Z';
+ select d_basal into b15 from nb.reserve_replay('00000000-0000-0000-0000-000000000017','2026-09-04') where ts='2026-09-04 09:15Z';
+ select d_basal into b20 from nb.reserve_replay('00000000-0000-0000-0000-000000000017','2026-09-04') where ts='2026-09-04 09:20Z';
+ d4:=b15-b10; d5:=b20-b15;
+ perform audit_check('quiet_twenty_minutes_has_no_early_discount',
+  d4<0 and abs(d4-(b10-b05))<0.01*abs(b10-b05),
+  jsonb_build_object('slot_20min',d4,'slot_15min',b10-b05),
+  'Reaching twenty minutes qualifies only subsequent quiet time.');
+ perform audit_check('quiet_twenty_five_minutes_discounts_only_last_slot',d5<0 and abs(d5)<0.95*abs(d4),
+  jsonb_build_object('last_slot',d5,'previous_slot',d4),'Only the five minutes after the quiet threshold receive a drain discount.');
 end $$;
 select name,status from audit_findings order by status,name;
 select name,observed,contract from audit_findings where status<>'CHECK_PASSED';

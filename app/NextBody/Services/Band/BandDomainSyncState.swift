@@ -57,19 +57,3 @@ struct BandDomainSyncState: Codable, Sendable {
         "nb.sync.domains.v1.\(user).\(device).\(day)"
     }
 }
-
-/// One drain owns a finite snapshot; newly queued observations belong to the next drain.
-enum EvidenceDrainPolicy {
-    static func batches<T>(_ pending: [T], limit: Int) -> [[T]] {
-        guard limit > 0 else { return [] }
-        return stride(from: 0, to: pending.count, by: limit).map {
-            Array(pending[$0..<min($0 + limit, pending.count)])
-        }
-    }
-    static func confirmedIDs(_ ids: [String], offeredSamples: Int,
-                             acknowledgment: BandIngestionAcknowledgment) -> [String] {
-        guard offeredSamples > 0, acknowledgment.confirms(offered: offeredSamples) else { return [] }
-        return ids
-    }
-    static func shouldContinue(acknowledged: Int) -> Bool { acknowledged > 0 }
-}

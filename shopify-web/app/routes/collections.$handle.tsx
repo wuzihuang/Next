@@ -1,7 +1,8 @@
 import {useLoaderData} from 'react-router';
 import type {Route} from './+types/collections.$handle';
 import {CatalogView} from '~/components/shop/CatalogView';
-import {getCollection, productsForCollection} from '~/lib/catalog';
+import {ProductView} from '~/components/shop/ProductView';
+import {getCollection, getProduct, productsForCollection} from '~/lib/catalog';
 import {localeFromRequest, pickLocale} from '~/lib/locale';
 import {readLocale} from '~/lib/localShop.server';
 
@@ -21,11 +22,22 @@ export async function loader({request, context, params}: Route.LoaderArgs) {
     locale,
     collection,
     products: productsForCollection(handle),
+    search: Object.fromEntries(new URL(request.url).searchParams),
   };
 }
 
 export default function CollectionHandle() {
-  const {locale, collection, products} = useLoaderData<typeof loader>();
+  const {locale, collection, products, search} = useLoaderData<typeof loader>();
+  const hoop = products.length === 1 ? getProduct(products[0].handle) : undefined;
+  if (hoop?.handle === 'hoop') {
+    return (
+      <ProductView
+        locale={locale}
+        product={hoop}
+        search={new URLSearchParams(search)}
+      />
+    );
+  }
   return (
     <CatalogView collection={collection} locale={locale} products={products} />
   );

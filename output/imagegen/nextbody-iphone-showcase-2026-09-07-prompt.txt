@@ -1,0 +1,19 @@
+Mode: Built-in image_gen
+
+Use case: compositing
+Create one polished, photorealistic three-iPhone app showcase by editing/compositing the four provided images.
+Input 1 is the BODY BATTERY screenshot, an edit target for the LEFT phone.
+Input 2 is the TRAINING screenshot, an edit target for the CENTER phone.
+Input 3 is the CALORIES screenshot, an edit target for the RIGHT phone.
+Input 4 is ONLY the reference for the physical black iPhone housing, camera angle, studio rendering and three-phone arrangement. Do not copy any Oura interface, branding, backgrounds or text from input 4.
+
+First make two precise UI edits:
+1. In EACH of screenshots 1, 2, 3, change ONLY the iOS status-bar battery at the top right to a completely filled white battery with a crisp black "100" inside. These are phone battery percentages. Preserve all app metric values: especially BODY BATTERY 59, TRAINING 14.9, and CALORIES 331 / 1,059 / -728. Do not change their graphs or any other app data.
+2. In screenshot 3's FOOD table, replace the Chinese label "每日坚果" in the 12:15 row with the exact English label "Daily Mixed Nuts", using the same white sans-serif weight and height, aligned to the original item column. Preserve the row's 96, 2, 11, 5 and every other label. No Chinese text should remain.
+
+Then fit the edited screenshots inside three realistic black/graphite iPhone bodies with rounded screen corners, slim glossy black bezels, precise metallic edge highlights, small physical side buttons, and a subtle black Dynamic Island in the empty top-center status-bar area. Screens must be the provided screenshot images, faithfully preserved as textures: keep original type, pixel/dot-matrix numerals, all graphs, row spacing, card borders and accent colors. Do not reinterpret or redesign the app interface. Keep all supplied screenshot content visible, including the FOOD table in screenshot 3, without cropping information.
+
+Composition follows input 4: center phone larger and straight-on, left and right phones slightly smaller, set farther back and turned in three-quarter perspective toward the center, with matching angles and subtle visible side rails. All three upright portrait devices, naturally grouped. Unlike the cropped reference, fit the entire three devices inside the canvas with a small comfortable outer margin so the full edited screens can be reviewed. Center phone may overlap only the exterior edges of the other housings; do not obscure their screens.
+Pure black studio background, no added headings, captions, logos, decoration or watermarks. Realistic premium hardware rendering, restrained reflections on the frames only; sharp, readable screens with no glare or perspective distortion of individual text beyond the natural plane transform.
+Deliver one high-resolution landscape image, ideally 3072 by 2048 pixels. Preserve screenshot fidelity as the top priority.
+

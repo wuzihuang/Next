@@ -189,35 +189,7 @@ export function LandingPage({locale}: {locale: LandingLocale}) {
               <HlCopy card={t.highlights.cards[4]} />
             </article>
             <article className="lp-hl-card">
-              <div className="lp-lock">
-                <div className="lp-island">
-                  <div className="lp-island-l">
-                    <i />
-                    <span>{t.highlights.lock.run}</span>
-                  </div>
-                  <div className="lp-island-r">
-                    <strong>{t.highlights.lock.bpm}</strong>
-                    <span>{t.highlights.lock.bpmUnit}</span>
-                  </div>
-                </div>
-                <div className="lp-today">
-                  <div className="lp-today-k">{t.highlights.lock.today}</div>
-                  <div className="lp-today-row">
-                    <div className="lp-today-col">
-                      <strong>{t.highlights.lock.battery}</strong>
-                      <span>{t.highlights.lock.batteryLabel}</span>
-                    </div>
-                    <div className="lp-today-col">
-                      <strong>{t.highlights.lock.load}</strong>
-                      <span>{t.highlights.lock.loadLabel}</span>
-                    </div>
-                    <div className="lp-today-col">
-                      <strong>{t.highlights.lock.eaten}</strong>
-                      <span>{t.highlights.lock.eatenLabel}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <AiDisplayCard copy={t.highlights.aiDisplay} />
               <HlCopy card={t.highlights.cards[5]} />
             </article>
           </div>
@@ -530,6 +502,163 @@ export function LandingPage({locale}: {locale: LandingLocale}) {
         </div>
       </div>
     </div>
+  );
+}
+
+const AI_DISPLAY_ROWS = [
+  [false, true, false, false, true, true, false, false, false, false],
+  [true, false, false, false, false, true, true, false, false, false],
+  [true, false, false, false, false, true, false, false, true, false],
+] as const;
+
+function AiDisplayCard({
+  copy,
+}: {
+  copy: {question: string; nights: string; caption: string};
+}) {
+  return (
+    <div className="lp-ai-display">
+      <div className="lp-ai-inner">
+        <div className="lp-ai-q">
+          <span>{copy.question}</span>
+        </div>
+        <div className="lp-ai-card">
+          <div className="lp-ai-grid">
+            {AI_DISPLAY_ROWS.map((row) => {
+              const rowKey = row.map((on) => (on ? '1' : '0')).join('');
+              return (
+                <div className="lp-ai-row" key={rowKey}>
+                  {row.map((on, dotIndex) => (
+                    <i
+                      className={on ? 'is-on' : undefined}
+                      key={`${rowKey}-${'abcdefghij'[dotIndex]}`}
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+          <div className="lp-ai-sum">
+            <strong>{copy.nights}</strong>
+            <span>{copy.caption}</span>
+          </div>
+        </div>
+        <div className="lp-ai-bar">
+          <div className="lp-ai-round" aria-hidden="true">
+            <AiKeyboardIcon />
+          </div>
+          <div className="lp-ai-listen" aria-hidden="true">
+            <AiListenDots />
+          </div>
+          <div className="lp-ai-round" aria-hidden="true">
+            <AiOrbIcon />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AiKeyboardIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="2.5" y="5.5" width="19" height="13" rx="3" fill="none" stroke="#E8E8EA" strokeWidth="1.6" />
+      <rect x="5.6" y="9" width="1.8" height="1.8" rx="0.4" fill="#E8E8EA" />
+      <rect x="9.1" y="9" width="1.8" height="1.8" rx="0.4" fill="#E8E8EA" />
+      <rect x="12.6" y="9" width="1.8" height="1.8" rx="0.4" fill="#E8E8EA" />
+      <rect x="16.1" y="9" width="1.8" height="1.8" rx="0.4" fill="#E8E8EA" />
+      <rect x="5.6" y="12.4" width="1.8" height="1.8" rx="0.4" fill="#E8E8EA" />
+      <rect x="16.1" y="12.4" width="1.8" height="1.8" rx="0.4" fill="#E8E8EA" />
+      <rect x="8" y="15.8" width="8" height="1.6" rx="0.8" fill="#E8E8EA" />
+    </svg>
+  );
+}
+
+function AiListenDots() {
+  return (
+    <svg width="96" height="32" viewBox="0 0 96 32" aria-hidden="true">
+      {[
+        [3.2, 3.2, 0.2],
+        [86.4, 3.2, 0.2],
+        [3.2, 28.8, 0.2],
+        [86.4, 28.8, 0.2],
+        [86.4, 9.6, 0.31],
+        [86.4, 16, 0.31],
+        [86.4, 22.4, 0.31],
+        [9.6, 3.2, 0.43],
+        [80, 3.2, 0.43],
+        [3.2, 9.6, 0.43],
+        [3.2, 16, 0.43],
+        [3.2, 22.4, 0.43],
+        [9.6, 28.8, 0.43],
+        [80, 28.8, 0.43],
+        [80, 9.6, 0.66],
+        [80, 16, 0.66],
+        [80, 22.4, 0.66],
+      ].map(([cx, cy, opacity]) => (
+        <circle cx={cx} cy={cy} r="1.3" fill="#000" key={`${cx}-${cy}`} style={{opacity}} />
+      ))}
+      {Array.from({length: 10}, (_, col) =>
+        [3.2, 9.6, 16, 22.4, 28.8].map((cy, row) => {
+          const cx = 16 + col * 6.4;
+          if ((row === 0 || row === 4) && (col === 0 || col === 9)) {
+            return null;
+          }
+          return <circle cx={cx} cy={cy} r="1.3" fill="#000" key={`${cx}-${cy}`} style={{opacity: 0.78}} />;
+        }),
+      )}
+    </svg>
+  );
+}
+
+function AiOrbIcon() {
+  return (
+    <svg width="54" height="54" viewBox="0 0 54 54" aria-hidden="true">
+      {[
+        [27, 27, 1.05, '#E8E8EA', 0.9],
+        [24.8, 29, 1.04, '#E8E8EA', 0.89],
+        [30.1, 25.3, 1.04, '#E8E8EA', 0.88],
+        [31.1, 31.8, 1.03, '#E8E8EA', 0.88],
+        [24.2, 35.4, 1.02, '#EFF65A', 0.85],
+        [35.5, 24.3, 1.02, '#EFF65A', 0.85],
+        [20.3, 22.3, 1.02, '#E8E8EA', 0.86],
+        [18.5, 30.6, 1.01, '#E8E8EA', 0.85],
+        [26.5, 20, 0.99, '#E8E8EA', 0.81],
+        [21, 23.8, 0.99, '#E8E8EA', 0.82],
+        [38.8, 30.4, 0.98, '#E8E8EA', 0.8],
+        [19.6, 34.2, 0.84, '#EFF65A', 0.61],
+        [35, 23.3, 0.94, '#EFF65A', 0.74],
+        [29.7, 36.3, 0.9, '#EFF65A', 0.69],
+        [19.7, 12.9, 0.91, '#EFF65A', 0.7],
+        [10.1, 25.4, 0.86, '#EFF65A', 0.63],
+        [42.7, 19.3, 0.82, '#EFF65A', 0.58],
+        [14.9, 39.4, 0.77, '#EFF65A', 0.51],
+        [31.7, 12.9, 0.67, '#EFF65A', 0.37],
+        [25.5, 20.1, 0.61, '#EFF65A', 0.29],
+        [15.2, 19.5, 0.95, '#E8E8EA', 0.76],
+        [13.2, 27.5, 0.95, '#E8E8EA', 0.76],
+        [23.6, 34.4, 0.96, '#E8E8EA', 0.77],
+        [31.9, 38.6, 0.97, '#E8E8EA', 0.79],
+        [24, 15.4, 0.98, '#E8E8EA', 0.81],
+        [38.3, 36.9, 0.93, '#E8E8EA', 0.73],
+        [15.3, 36.1, 0.93, '#E8E8EA', 0.74],
+        [42.5, 24.5, 0.91, '#E8E8EA', 0.71],
+        [18, 29, 0.92, '#E8E8EA', 0.72],
+        [27.4, 10.5, 0.88, '#E8E8EA', 0.67],
+        [43.5, 31, 0.86, '#E8E8EA', 0.63],
+        [11.3, 33.7, 0.85, '#E8E8EA', 0.62],
+        [41.1, 37.3, 0.82, '#E8E8EA', 0.57],
+        [10.6, 32, 0.75, '#E8E8EA', 0.48],
+        [26, 10.1, 0.74, '#E8E8EA', 0.46],
+        [42.7, 32.3, 0.72, '#E8E8EA', 0.44],
+        [13.2, 30.1, 0.65, '#E8E8EA', 0.34],
+        [40.4, 26.8, 0.64, '#E8E8EA', 0.33],
+        [36.5, 32.7, 0.61, '#E8E8EA', 0.28],
+        [18.2, 27.3, 0.58, '#E8E8EA', 0.25],
+      ].map(([cx, cy, r, fill, opacity]) => (
+        <circle cx={cx} cy={cy} r={r} fill={fill} key={`${cx}-${cy}-${r}`} style={{opacity}} />
+      ))}
+    </svg>
   );
 }
 

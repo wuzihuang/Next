@@ -9,7 +9,7 @@ import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import type { Envelope } from "./contract.ts";
 import type { NumberLedger } from "./ledger.ts";
-import { addDays } from "./sources.ts";
+import { addDays } from "./calendar.ts";
 
 export const PLAN_RENDER = "plan.render";
 export const PLAN_LOOKBACK_DAYS = 3;

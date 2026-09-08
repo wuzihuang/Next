@@ -56,7 +56,9 @@ export function ProductCard({
   const image = product.variants[0]?.image || product.variants[0]?.images[0];
   return (
     <Link className="shop-card" prefetch="intent" to={`/products/${product.handle}`}>
-      <div className="shop-card-media" style={{backgroundImage: `url(${image})`}} />
+      <div className="shop-card-media">
+        {image ? <img alt="" src={image} /> : null}
+      </div>
       <div className="shop-card-copy">
         <span>{pickLocale(locale, product.kicker.en, product.kicker.zh)}</span>
         <strong>{pickLocale(locale, product.title.en, product.title.zh)}</strong>

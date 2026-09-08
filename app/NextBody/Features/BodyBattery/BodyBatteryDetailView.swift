@@ -24,8 +24,13 @@ struct BodyBatteryDetailView: View {
     private var forceEmpty: Bool { false }
     #endif
     private var isDim: Bool { m.bodyBatteryFreshness(at: Date()) != .fresh }
+    /// #25 · 0% is a measurement; —— is the absence of one. When the hero is showing ——
+    /// this line has to name the wrist, not a sync, or the two read the same.
     private var observationLabel: String {
         guard let at = m.bodyBatteryObservedAt else { return L("NO TICK") }
+        if m.bodyBatteryReadout(at: Date()).isPlaceholder {
+            return L("NOT WORN SINCE %@ · NO CURRENT READING", Fmt.clock(at))
+        }
         return L("SYNCED %@", Fmt.clock(at))
     }
 

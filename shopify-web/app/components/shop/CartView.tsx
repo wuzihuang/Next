@@ -102,9 +102,10 @@ function CartLineRow({
       <Link
         className="shop-line-media"
         prefetch="intent"
-        style={{backgroundImage: `url(${line.image})`}}
         to={`/products/${line.productHandle}`}
-      />
+      >
+        <img alt="" src={line.image} />
+      </Link>
       <div className="shop-line-copy">
         <strong>{pickLocale(locale, line.productTitle.en, line.productTitle.zh)}</strong>
         <span>{pickLocale(locale, line.variantLabel.en, line.variantLabel.zh)}</span>

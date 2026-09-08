@@ -34,17 +34,10 @@ export type LandingCopy = {
     triad: Array<{value: string; label: string}>;
     scan: {fat: string; fatUnit: string; fatLabel: string; bmi: string; bmiLabel: string};
     coach: {question: string; kicker: string; answer: string; action: string};
-    lock: {
-      run: string;
-      bpm: string;
-      bpmUnit: string;
-      today: string;
-      battery: string;
-      batteryLabel: string;
-      load: string;
-      loadLabel: string;
-      eaten: string;
-      eatenLabel: string;
+    aiDisplay: {
+      question: string;
+      nights: string;
+      caption: string;
     };
   };
   appRead: {
@@ -197,7 +190,7 @@ const en: LandingCopy = {
       {kicker: 'THREE NUMBERS', title: 'When to train. How much to eat.'},
       {kicker: 'BODY SCAN', title: 'Body fat from the wrist. No scale.'},
       {kicker: 'AI COACH', title: 'Reads your night. Plans your day.'},
-      {kicker: 'HOME SCREEN', title: 'Your day, without opening the app.'},
+      {kicker: 'AI DISPLAY', title: 'Ask out loud. It draws the screen.'},
     ],
     triad: [
       {value: '72%', label: 'BODY BATTERY'},
@@ -217,17 +210,10 @@ const en: LandingCopy = {
       answer: 'Short night. Take today light.',
       action: 'Adjust today’s plan',
     },
-    lock: {
-      run: 'RUN 24:13',
-      bpm: '142',
-      bpmUnit: 'BPM',
-      today: 'TODAY',
-      battery: '72',
-      batteryLabel: 'BATTERY',
-      load: '14.9',
-      loadLabel: 'LOAD',
-      eaten: '1,240',
-      eatenLabel: 'EATEN',
+    aiDisplay: {
+      question: 'Show me the nights I actually slept enough.',
+      nights: '9',
+      caption: 'NIGHTS OVER 7H · SEPTEMBER',
     },
   },
   appRead: {
@@ -442,7 +428,7 @@ const zh: LandingCopy = {
       {kicker: '三个数', title: '什么时候练，吃多少。'},
       {kicker: '身体成分', title: '手腕上量体脂，不用体脂秤。'},
       {kicker: 'AI 教练', title: '读你的夜，排你的天。'},
-      {kicker: '主屏', title: '不打开 App 也知道今天。'},
+      {kicker: 'AI 表盘', title: '开口问。它画出屏幕。'},
     ],
     triad: [
       {value: '72%', label: 'BODY BATTERY'},
@@ -462,17 +448,10 @@ const zh: LandingCopy = {
       answer: '夜太短。今天轻一点。',
       action: '调整今天的计划',
     },
-    lock: {
-      run: 'RUN 24:13',
-      bpm: '142',
-      bpmUnit: 'BPM',
-      today: 'TODAY',
-      battery: '72',
-      batteryLabel: 'BATTERY',
-      load: '14.9',
-      loadLabel: 'LOAD',
-      eaten: '1,240',
-      eatenLabel: 'EATEN',
+    aiDisplay: {
+      question: '把我真正睡够的那些夜找出来。',
+      nights: '9',
+      caption: '超过 7 小时的夜 · 九月',
     },
   },
   appRead: {

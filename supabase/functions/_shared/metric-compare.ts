@@ -1,6 +1,7 @@
 import { z } from "npm:zod@3.25.76";
 import { type Metric, METRICS, queryMetrics } from "./metric-query.ts";
-import { type Ctx, dayOf } from "./sources.ts";
+import { dayOf } from "./calendar.ts";
+import type { ReadContext as Ctx } from "./read-context.ts";
 // ⚠️ Strings, not enums, for the same reason data.read stopped using one: a misremembered
 // metric name must come back as a tool result the model can fix, never as
 // AI_InvalidToolArgumentsError — that kills the turn.

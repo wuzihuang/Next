@@ -11,7 +11,8 @@ import {
   type DataMetric,
   type Metric,
 } from "./metric-query.ts";
-import { addDays, dayBounds, type Ctx } from "./sources.ts";
+import { addDays, dayBounds } from "./calendar.ts";
+import type { ReadContext as Ctx } from "./read-context.ts";
 
 export {
   DATA_METRICS,

@@ -71,9 +71,9 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'How much is HOOP?', zh: 'HOOP 多少钱？'},
         body: {
           en: [
-            '$99 once. Black or white. Knit nylon or sport strap. There is no subscription for the app that reads the band.',
+            '$99 once. Black or white. Knit nylon and the sport strap both come in the box. There is no subscription for the app that reads the band.',
           ],
-          zh: ['$99 一次付清。黑色或白色。编织尼龙或运动表带。读取手环的 App 没有订阅费。'],
+          zh: ['$99 一次付清。黑色或白色。编织尼龙和运动表带都在盒里。读取手环的 App 没有订阅费。'],
         },
       },
       {

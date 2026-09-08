@@ -1,0 +1,5 @@
+{% if request.path contains '/products/' or request.path contains '/policies/' or request.path contains '/blogs/' or request.path contains '/pages/science' or request.path contains '/pages/faq' or request.path contains '/pages/about' or request.path contains '/pages/contact' %}
+  {% render 'shop-app' %}
+{% else %}
+  {% render 'shop-app' %}
+{% endif %}

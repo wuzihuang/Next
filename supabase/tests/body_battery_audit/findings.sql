@@ -65,8 +65,10 @@ begin
 
   select value into a from audit_observations where name='2_worn_ticks_16h_gap';
   perform audit_check('unworn_gap_does_not_drain',
-    (a->>'count')::int=2 and abs((a->>'final')::numeric-49.76)<0.000001,a,
-    'A sixteen-hour gap holds battery; only its two worn endpoints each spend 0.12.');
+    (a->>'count')::int=2 and abs((a->>'final')::numeric
+      -(50-0.15*(0.35+0.65*0.50)
+          -0.15*(0.35+0.65*(50-0.15*(0.35+0.65*0.50))/100)))<0.000001,a,
+    'A sixteen-hour gap holds battery; only its two worn endpoints each spend the softened basal.');
 
   select value into a from audit_observations where name='unbroken_4h';
   perform audit_check('sleep_saturation_matches_closed_form',

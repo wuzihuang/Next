@@ -1,0 +1,86 @@
+{% assign shop_locale = 'en' %}
+{% if request.path contains '/pages/zh' or request.query_parameters.lang == 'zh' %}
+  {% assign shop_locale = 'zh' %}
+{% endif %}
+
+<div class="shop-app" id="nb-shop" data-locale="{{ shop_locale }}"></div>
+
+<script type="application/json" id="nb-catalog">
+{
+  "hero": {{ 'hoop-black-a2.png' | asset_url | json }},
+  "products": [
+    {
+      "handle": "hoop",
+      "price": 99,
+      "title": {"en": "HOOP", "zh": "HOOP"},
+      "kicker": {"en": "THE BAND", "zh": "手环"},
+      "lede": {
+        "en": "No screen. The wrist stays quiet. NextBody reads the day. $99 once. Both straps in the box.",
+        "zh": "没有屏幕。手腕保持安静。NextBody 读这一天。$99 一次付清。盒内两条表带都有。"
+      },
+      "description": {
+        "en": [
+          "A brushed steel frame. No glass, no glow. The band is the whole design.",
+          "Pick black or white. Knit nylon and the sport strap both ship in the box. Swap them — no tools.",
+          "Heart, HRV, stress, skin temperature, steps, and overnight oxygen. The reading lives in the app — not on the band."
+        ],
+        "zh": [
+          "拉丝钢框架。没有玻璃，没有发光。手环本身就是全部设计。",
+          "选黑色或白色。编织尼龙和运动表带都在盒里。换带不用工具。",
+          "心率、HRV、压力、皮温、步数和夜间血氧。读数在 App 里，不在手环上。"
+        ]
+      },
+      "includes": {
+        "en": ["HOOP", "Knit nylon strap", "Sport strap"],
+        "zh": ["HOOP 手环", "编织尼龙表带", "运动表带"]
+      },
+      "facts": [
+        {"value": {"en": "0", "zh": "0"}, "label": {"en": "PER MONTH", "zh": "每月"}},
+        {"value": {"en": "5", "zh": "5"}, "label": {"en": "DAYS / CHARGE", "zh": "天 / 次充电"}},
+        {"value": {"en": "18+", "zh": "18+"}, "label": {"en": "NOT MEDICAL", "zh": "非医疗器械"}}
+      ],
+      "options": [
+        {
+          "id": "finish",
+          "name": {"en": "Color", "zh": "颜色"},
+          "values": [
+            {"id": "black", "label": {"en": "Black", "zh": "黑色"}},
+            {"id": "white", "label": {"en": "White", "zh": "白色"}}
+          ]
+        }
+      ],
+      "variants": [
+        {
+          "id": "hoop-black",
+          "options": {"finish": "black"},
+          "image": {{ 'hoop-black-a2.png' | asset_url | json }},
+          "images": [
+            {{ 'hoop-black-a2.png' | asset_url | json }},
+            {{ 'hoop-black-f11.png' | asset_url | json }},
+            {{ 'hoop-black-c6.png' | asset_url | json }},
+            {{ 'hoop-black-a1.png' | asset_url | json }},
+            {{ 'hoop-black-e8.png' | asset_url | json }},
+            {{ 'hoop-black-b3.png' | asset_url | json }}
+          ]
+        },
+        {
+          "id": "hoop-white",
+          "options": {"finish": "white"},
+          "image": {{ 'hoop-white-a1.png' | asset_url | json }},
+          "images": [
+            {{ 'hoop-white-a1.png' | asset_url | json }},
+            {{ 'hoop-white-f13.png' | asset_url | json }},
+            {{ 'hoop-white-c7.png' | asset_url | json }},
+            {{ 'hoop-white-c9.png' | asset_url | json }},
+            {{ 'hoop-white-e7.png' | asset_url | json }},
+            {{ 'hoop-white-b5.png' | asset_url | json }}
+          ]
+        }
+      ]
+    }
+  ]
+}
+</script>
+
+<script src="{{ 'cart-pricing.js' | asset_url }}" defer></script>
+<script src="{{ 'shop.js' | asset_url }}" defer></script>

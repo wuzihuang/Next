@@ -1,6 +1,7 @@
 import { acceptSnapshot, readSnapshot } from "./metric-snapshot.ts";
 import { z } from "npm:zod@3.25.76";
-import { addDays, type Ctx, dayBounds, dayOf } from "./sources.ts";
+import { addDays, dayBounds, dayOf } from "./calendar.ts";
+import type { ReadContext as Ctx } from "./read-context.ts";
 
 export const METRICS = [
   "trainingLoad",

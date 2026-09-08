@@ -400,9 +400,14 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
         TickFreshness.of(bodyBatteryObservedAt, now: now)
     }
 
+    /// #25 · the single answer to 「现在该印数字还是 ——」. Every entry asks this one,
+    /// so a not-worn wrist can never reach a screen dressed as a real reserve.
+    func bodyBatteryReadout(at now: Date = Date()) -> BodyBatteryReadout {
+        BodyBatteryReadoutPolicy.readout(value: bodyBattery, observedAt: bodyBatteryObservedAt, now: now)
+    }
+
     func bodyBatteryForDisplay(at now: Date = Date()) -> Int? {
-        guard bodyBatteryFreshness(at: now) != .gone else { return nil }
-        return bodyBattery
+        bodyBatteryReadout(at: now).value
     }
     /// ADR 0008 · the settled sleep score for the night that ended on this day. nil until
     /// the server has settled it, which is also what a night with no record looks like.

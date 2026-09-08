@@ -12,7 +12,9 @@ import {
   useRouteLoaderData,
 } from 'react-router';
 import type {Route} from './+types/root';
-import favicon from '~/assets/favicon.svg';
+import appleTouchIcon from '~/assets/apple-touch-icon.png';
+import favicon192 from '~/assets/favicon-192.png';
+import favicon32 from '~/assets/favicon-32.png';
 import {HEADER_QUERY} from '~/lib/fragments';
 import {getShopState, readLocale} from '~/lib/localShop.server';
 import {localeFromRequest} from '~/lib/locale';
@@ -74,7 +76,9 @@ export function links() {
       rel: 'preconnect',
       href: 'https://shop.app',
     },
-    {rel: 'icon', type: 'image/svg+xml', href: favicon},
+    {rel: 'icon', type: 'image/png', sizes: '32x32', href: favicon32},
+    {rel: 'icon', type: 'image/png', sizes: '192x192', href: favicon192},
+    {rel: 'apple-touch-icon', sizes: '180x180', href: appleTouchIcon},
   ];
 }
 

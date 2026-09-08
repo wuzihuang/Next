@@ -5,13 +5,15 @@
   "version": "2026.4.6",
   "type": "module",
   "scripts": {
-    "build": "shopify hydrogen build --codegen",
+    "build": "npm run check:shop-core && shopify hydrogen build --codegen",
     "dev": "shopify hydrogen dev --codegen",
     "preview": "shopify hydrogen preview --build",
     "lint": "eslint --no-error-on-unmatched-pattern .",
-    "test:shop": "node --experimental-strip-types --test app/lib/shopMath.test.ts",
+    "test:shop": "npm run check:shop-core && node --experimental-strip-types --test app/lib/shopMath.test.ts app/lib/cartPricing.test.ts",
     "typecheck": "react-router typegen && tsc --noEmit",
-    "codegen": "shopify hydrogen codegen && react-router typegen"
+    "codegen": "shopify hydrogen codegen && react-router typegen",
+    "build:shop-core": "node scripts/build-cart-pricing.mjs",
+    "check:shop-core": "node scripts/build-cart-pricing.mjs --check"
   },
   "prettier": "@shopify/prettier-config",
   "dependencies": {

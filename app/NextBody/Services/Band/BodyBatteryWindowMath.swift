@@ -75,3 +75,44 @@ enum BodyBatteryWindowMath {
         return rolls.reversed()
     }
 }
+
+/// #25 · 未佩戴和真实的 0% 是两件事。An empty battery is a measurement someone earned;
+/// a battery with no recent evidence is not, and every entry prints `——` for it rather
+/// than a number the wrist never proved. The two states must never share a glyph.
+enum BodyBatteryReadout: Equatable, Sendable {
+    /// A settled value whose evidence is young enough to print. `dim` marks the
+    /// 90-minute-to-six-hour window: the number is real, but it is no longer live.
+    case reading(Int, dim: Bool)
+    /// Nothing recent enough to print. `since` is the last real tick, when there was one.
+    case notWorn(since: Date?)
+
+    var value: Int? {
+        if case let .reading(v, _) = self { return v }
+        return nil
+    }
+
+    /// True while the entry must show a placeholder instead of a number.
+    var isPlaceholder: Bool { value == nil }
+
+    var isDim: Bool {
+        if case let .reading(_, dim) = self { return dim }
+        return true
+    }
+}
+
+/// One set of thresholds for every body battery entry, so a card and its page can never
+/// disagree about whether the wrist is still answering. `TickFreshness` reads them too.
+enum BodyBatteryReadoutPolicy {
+    /// The number stays real but stops being live.
+    static let staleAfter: TimeInterval = 90 * 60
+    /// The number stops being printable at all.
+    static let goneAfter: TimeInterval = 6 * 3600
+
+    static func readout(value: Int?, observedAt: Date?, now: Date) -> BodyBatteryReadout {
+        guard let observedAt, let value else { return .notWorn(since: observedAt) }
+        let age = now.timeIntervalSince(observedAt)
+        // A future observation is a broken clock, not a fresh reading.
+        guard age >= 0, age < goneAfter else { return .notWorn(since: observedAt) }
+        return .reading(value, dim: age >= staleAfter)
+    }
+}

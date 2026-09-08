@@ -181,10 +181,9 @@ export function CheckoutView({
           <ul className="shop-mini-lines">
             {shop.lines.map((line) => (
               <li key={line.variantId}>
-                <span
-                  className="shop-mini-media"
-                  style={{backgroundImage: `url(${line.image})`}}
-                />
+                <span className="shop-mini-media">
+              <img alt="" src={line.image} />
+            </span>
                 <div>
                   <strong>
                     {pickLocale(locale, line.productTitle.en, line.productTitle.zh)}
@@ -250,10 +249,9 @@ export function CompleteView({
       <ul className="shop-mini-lines">
         {order.lines.map((line) => (
           <li key={line.variantId}>
-            <span
-              className="shop-mini-media"
-              style={{backgroundImage: `url(${line.image})`}}
-            />
+            <span className="shop-mini-media">
+              <img alt="" src={line.image} />
+            </span>
             <div>
               <strong>
                 {pickLocale(locale, line.productTitle.en, line.productTitle.zh)}
@@ -268,7 +266,8 @@ export function CompleteView({
         ))}
       </ul>
       <p className="shop-complete-total">
-        {t.cart.total} {formatMoney(order.totals.total)}
+        <span>{t.cart.total}</span>
+        <b>{formatMoney(order.totals.total)}</b>
       </p>
       <div className="pdp-actions">
         <Link className="lp-pill" prefetch="intent" to="/collections/all">

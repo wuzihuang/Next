@@ -184,7 +184,7 @@ export async function handleTurn(
   const dayKey = resolved.dayKey;
   const ctx: Ctx = { db, userId, dayKey, tz, cache: new Map(),
     ...(resolved.explicitRange ? { from: resolved.from, to: resolved.to } : {}) };
-  const save = (frame: Envelope, trace: unknown[], latency: number) => persist(db, turnId, text, frame, trace, latency, conversationId, resolved, leaseId, sessionId);
+  const save = (frame: Envelope, trace: unknown[], latency: number) => completeTurn(db, turnId, text, frame, trace, latency, conversationId, resolved, leaseId, sessionId);
   // 11 · 07 · language is an app-side preference: the app sends it with the turn, and the
   // profile row stands in for a client that does not. Every word on screen follows it.
   const locale = normalizeLocale(body.locale ?? prof?.locale);
@@ -243,11 +243,13 @@ export async function handleTurn(
   }
   if (claim.data?.status !== "claimed") return json({error:"TURN_UNAVAILABLE"},503);
 
+  try {
   // ADR 0018 · a resume carries the phone's result for the call this turn is waiting on.
   // It paid its admission when it started; it does not pay again.
   let suspended: SuspendedState | null = null;
   const stateResult = await db.rpc("load_ai_turn_state", { p_turn: turnId });
-  const storedState = stateResult.error ? null : (stateResult.data as SuspendedState | null);
+  if (stateResult.error) throw new Error("TURN_STATE_UNAVAILABLE");
+  const storedState = stateResult.data as SuspendedState | null;
   if (storedState && typeof storedState === "object" && !Array.isArray(storedState) && (storedState as SuspendedState).version === 1) {
     suspended = storedState as SuspendedState;
   }
@@ -699,10 +701,18 @@ export async function handleTurn(
     send("screen.render", { envelope: canonical });
     send("done", {});
     } finally {
-      if (suspended) db.rpc("clear_ai_turn_state", { p_turn: turnId }).then(() => {}, () => {});
+      // Ending this request may leave another phone tool pending. Only durable
+      // terminal completion retires the snapshot; release never owns that decision.
       await db.rpc("release_ai_turn", {p_turn:turnId,p_lease:leaseId});
     }
   }, fallback);
+  } catch (error) {
+    // Pre-stream work owns the lease too: a failed state read or prefetch must not
+    // strand it or turn an unavailable suspension into a newly admitted operation.
+    await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId });
+    return json({ error: error instanceof Error && error.message === "TURN_STATE_UNAVAILABLE"
+      ? "TURN_STATE_UNAVAILABLE" : "TURN_UNAVAILABLE" }, 503);
+  }
 }
 
 if (import.meta.main) Deno.serve((req) => handleTurn(req));
@@ -783,7 +793,10 @@ async function loadBanned(db: ReturnType<typeof userClient>): Promise<RegExp[]> 
   return list;
 }
 
-async function persist(
+// The terminal completion seam owns both publication and suspension retirement.
+// record_claimed_ai_turn fences expired leases; once its receipt exists, new claims
+// replay the final frame, so cleanup cannot erase a later legitimate suspension.
+async function completeTurn(
   db: ReturnType<typeof userClient>, turnId: string,
   text: string, envelope: Envelope, trace: unknown[], latency: number, conversationId: string | null,
   queryContext: TurnContext, leaseId: string, sessionId: string | null,
@@ -794,6 +807,14 @@ async function persist(
     p_latency: latency, p_model: MODEL_VERSION, p_conversation: conversationId,
   });
   if (error || !receipt?.frame_id) throw new Error("TURN_PERSIST_FAILED");
+  try {
+    const cleared = await db.rpc("clear_ai_turn_state", { p_turn: turnId });
+    if (cleared.error) throw new Error("TURN_STATE_CLEANUP_FAILED");
+  } catch {
+    // The terminal receipt already makes retries replay. An expiring snapshot is
+    // harmless here; cleanup failure must not discard a durably completed answer.
+    console.error("turn state cleanup failed");
+  }
   if (sessionId) db.rpc("attach_turn_session", { p_turn: turnId, p_session: sessionId }).then(() => {}, () => {});
   const {data: frame, error: readError} = await db.from("screen_frames").select("widget_tree").eq("id",receipt.frame_id).single();
   const canonical = Envelope.safeParse(frame?.widget_tree);

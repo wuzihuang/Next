@@ -1,5 +1,4 @@
 import Foundation
-import CryptoKit
 import os
 
 /// F2 §01 · work out the window first, then decide how many pages to pull.
@@ -541,19 +540,22 @@ final class OriginDataSync {
             return 0
         }
 
+        let publication: BandEvidencePublication
+        do { publication = try Self.evidencePublication(userId: userId) }
+        catch {
+            BandLog.shared.record("open band publication", error: error)
+            lastOutcome = "failed"
+            return 0
+        }
+        func evidenceDomain(_ name: String, _ samples: [[String: Any]], _ status: BandDomainReadStatus,
+                            version: String, window: (Date, Date)? = nil) -> BandEvidencePublication.Domain {
+            BandEvidencePublication.Domain(name: name, deviceKey: deviceKey, day: Self.dayString(day.start),
+                timezone: tz, start: window?.0 ?? day.start, end: window?.1 ?? readEnd,
+                observedAt: now, mappingVersion: version, status: status, samples: samples)
+        }
         do {
-            _ = try persistEvidence(samples: rows, args: [
-                "p_device_key": deviceKey, "p_domain": "origin", "p_day": Self.dayString(day.start),
-                "p_timezone": tz, "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
-                "p_status": "partial", "p_mapping_version": "veepoo-rmssd-v1",
-                "p_observed_at": iso.string(from: now),
-            ], userId: userId)
-            _ = try persistEvidence(samples: rrRows, args: [
-                "p_device_key": deviceKey, "p_domain": "rr", "p_day": Self.dayString(day.start),
-                "p_timezone": tz, "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
-                "p_status": "partial", "p_mapping_version": "veepoo-rmssd-v2",
-                "p_observed_at": iso.string(from: now),
-            ], userId: userId)
+            try publication.stage(evidenceDomain("origin", rows, .partial, version: "veepoo-rmssd-v1"))
+            try publication.stage(evidenceDomain("rr", rrRows, .partial, version: "veepoo-rmssd-v2"))
         } catch {
             auxiliaryUploaded = false
             BandLog.shared.record("persist RR evidence", error: error)
@@ -625,13 +627,11 @@ final class OriginDataSync {
                     }
                 }
                 row["raw"] = raw
-                let local = try LocalDataStore.shared()
-                let payload = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
-                let id = "sleep-" + SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
-                try local.enqueue(operation: LocalOperation(id: id, account: userId, kind: "band-sleep", payload: payload))
-                try await Self.uploadSleep(row, userId: userId)
-                try local.acknowledge(account: userId, id: id)
+                try await publication.publishSleep(row)
                 sleepStatus = .complete
+            } catch is CancellationError {
+                lastOutcome = "failed"
+                return 0
             } catch {
                 auxiliaryUploaded = false
                 sleepStatus = .failed
@@ -656,43 +656,8 @@ final class OriginDataSync {
             ("rr", rrRows, hrvStatus),
             ("sleep", [], sleepStatus),
         ]
-        var changedCount = 0
-        for (domain, samples, readStatus) in domains {
-            guard ConsentStore.shared.granted, await db.currentUserId == userId else {
-                lastOutcome = "failed"; return changedCount
-            }
-            var status = readStatus
-            do {
-                let args: [String: Any] = [
-                    "p_device_key": deviceKey, "p_domain": domain,
-                    "p_day": Self.dayString(day.start), "p_timezone": tz,
-                    "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
-                    "p_samples": samples, "p_status": readStatus.rawValue,
-                    // RR adjacency changed in v2; the origin mapping is unchanged.
-                    "p_mapping_version": domain == "origin" ? "veepoo-rmssd-v1" : "veepoo-rmssd-v2",
-                    "p_observed_at": iso.string(from: now),
-                ]
-                let pending = try persistEvidence(samples: samples, args: args, userId: userId)
-                let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
-                guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return changedCount }
-                let data = try JSONSerialization.data(withJSONObject: response)
-                let ack = try JSONDecoder().decode(BandIngestionAcknowledgment.self, from: data)
-                changedCount += ack.inserted + ack.completed
-                if ack.confirms(offered: samples.count) {
-                    let local = try LocalDataStore.shared()
-                    try local.acknowledge(account: userId, ids: pending)
-                }
-                if !ack.confirms(offered: samples.count) { status = .partial }
-                else if samples.isEmpty && readStatus == .complete && domain != "sleep" { status = .notCollected }
-            } catch {
-                status = .failed
-                BandLog.shared.record("ingest \(domain)", error: error)
-            }
-            let confirmed = status == .complete || status == .notCollected || status == .unsupported
-            if !confirmed { auxiliaryUploaded = false }
-            domainStates.append(BandDomainSyncState(domain: domain, status: status, attemptedAt: now,
-                acknowledgedStart: confirmed ? day.start : nil, acknowledgedEnd: confirmed ? readEnd : nil,
-                repairStart: confirmed ? nil : day.start, repairEnd: confirmed ? nil : readEnd))
+        var publications = domains.map { name, samples, status in
+            evidenceDomain(name, samples, status, version: name == "origin" ? "veepoo-rmssd-v1" : "veepoo-rmssd-v2")
         }
         let oxygenWindow = Self.nightWindow(day: day, night: night, store: store)
         var oxygenRead = oxygenStatus
@@ -706,46 +671,14 @@ final class OriginDataSync {
                 ["ts": iso.string(from: $0.ts), "spo2": $0.percent]
             }
             if oxygenSamples.isEmpty && oxygenRead == .complete { oxygenRead = .notCollected }
-
         } else {
             oxygenStart = day.start
             oxygenEnd = readEnd
             oxygenSamples = []
             if oxygenRead == .complete { oxygenRead = .notCollected }
         }
-        if ConsentStore.shared.granted, await db.currentUserId == userId {
-            var status = oxygenRead
-            do {
-                let args: [String: Any] = [
-                    "p_device_key": deviceKey, "p_domain": "oxygen",
-                    "p_day": Self.dayString(day.start), "p_timezone": tz,
-                    "p_start": iso.string(from: oxygenStart), "p_end": iso.string(from: oxygenEnd),
-                    "p_samples": oxygenSamples, "p_status": oxygenRead.rawValue,
-                    "p_mapping_version": "veepoo-spo2-v1",
-                    "p_observed_at": iso.string(from: now),
-                ]
-                let pending = try persistEvidence(samples: oxygenSamples, args: args, userId: userId)
-                let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
-                guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return changedCount }
-                let data = try JSONSerialization.data(withJSONObject: response)
-                let ack = try JSONDecoder().decode(BandIngestionAcknowledgment.self, from: data)
-                changedCount += ack.inserted + ack.completed
-                if ack.confirms(offered: oxygenSamples.count) {
-                    let local = try LocalDataStore.shared()
-                    try local.acknowledge(account: userId, ids: pending)
-                }
-                if !ack.confirms(offered: oxygenSamples.count) { status = .partial }
-                else if oxygenSamples.isEmpty && oxygenRead == .complete { status = .notCollected }
-            } catch {
-                status = .failed
-                BandLog.shared.record("ingest oxygen", error: error)
-            }
-            let confirmed = status == .complete || status == .notCollected || status == .unsupported
-            if !confirmed { auxiliaryUploaded = false }
-            domainStates.append(BandDomainSyncState(domain: "oxygen", status: status, attemptedAt: now,
-                acknowledgedStart: confirmed ? oxygenStart : nil, acknowledgedEnd: confirmed ? oxygenEnd : nil,
-                repairStart: confirmed ? nil : oxygenStart, repairEnd: confirmed ? nil : oxygenEnd))
-        }
+        publications.append(evidenceDomain("oxygen", oxygenSamples, oxygenRead, version: "veepoo-spo2-v1",
+                                           window: (oxygenStart, oxygenEnd)))
         if store.today.day == day {
             store.mealResponseZerosToday = opticalDroppedZeros > 0 && opticalTicks.isEmpty
         }
@@ -753,42 +686,26 @@ final class OriginDataSync {
             MealResponseIndex.Point(ts: $0, optical: opticalTicks[$0]!)
         }
         store.mealResponsePoints = Self.mergeOptical(store.mealResponsePoints, with: incomingOptical)
-        var opticalRead = opticalStatus
         let opticalSamples = opticalTicks.sorted { $0.key < $1.key }
             .map { ["ts": iso.string(from: $0.key), "optical": $0.value] }
-        if opticalSamples.isEmpty && opticalRead == .complete { opticalRead = .notCollected }
-        if ConsentStore.shared.granted, await db.currentUserId == userId {
-            var status = opticalRead
+        publications.append(evidenceDomain("response", opticalSamples, opticalStatus, version: "veepoo-optical-v1"))
+
+        var changedCount = 0
+        for domain in publications {
             do {
-                let args: [String: Any] = [
-                    "p_device_key": deviceKey, "p_domain": "response",
-                    "p_day": Self.dayString(day.start), "p_timezone": tz,
-                    "p_start": iso.string(from: day.start), "p_end": iso.string(from: readEnd),
-                    "p_samples": opticalSamples, "p_status": opticalRead.rawValue,
-                    "p_mapping_version": "veepoo-optical-v1",
-                    "p_observed_at": iso.string(from: now),
-                ]
-                let pending = try persistEvidence(samples: opticalSamples, args: args, userId: userId)
-                let response = try await db.rpc("ingest_band_domain", args: args, expectedOwner: userId)
-                guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return changedCount }
-                let data = try JSONSerialization.data(withJSONObject: response)
-                let ack = try JSONDecoder().decode(BandIngestionAcknowledgment.self, from: data)
-                changedCount += ack.inserted + ack.completed
-                if ack.confirms(offered: opticalSamples.count) {
-                    let local = try LocalDataStore.shared()
-                    try local.acknowledge(account: userId, ids: pending)
-                }
-                if !ack.confirms(offered: opticalSamples.count) { status = .partial }
-                else if opticalSamples.isEmpty && opticalRead == .complete { status = .notCollected }
+                let result = try await publication.publish(domain)
+                changedCount += result.changedCount
+                if !result.confirmed { auxiliaryUploaded = false }
+                domainStates.append(result.state)
+            } catch is CancellationError {
+                lastOutcome = "failed"
+                return changedCount
             } catch {
-                status = .failed
-                BandLog.shared.record("ingest response", error: error)
+                auxiliaryUploaded = false
+                BandLog.shared.record("ingest \(domain.name)", error: error)
+                domainStates.append(BandDomainSyncState(domain: domain.name, status: .failed, attemptedAt: now,
+                    acknowledgedStart: nil, acknowledgedEnd: nil, repairStart: domain.start, repairEnd: domain.end))
             }
-            let confirmed = status == .complete || status == .notCollected || status == .unsupported
-            if !confirmed { auxiliaryUploaded = false }
-            domainStates.append(BandDomainSyncState(domain: "response", status: status, attemptedAt: now,
-                acknowledgedStart: confirmed ? day.start : nil, acknowledgedEnd: confirmed ? readEnd : nil,
-                repairStart: confirmed ? nil : day.start, repairEnd: confirmed ? nil : readEnd))
         }
         guard ConsentStore.shared.granted, await db.currentUserId == userId else { lastOutcome = "failed"; return changedCount }
         do { try BandDomainSyncState.save(domainStates, userId: userId, deviceKey: deviceKey, day: Self.dayString(day.start)) }
@@ -915,39 +832,17 @@ final class OriginDataSync {
         return nil
     }
 
-    private static func uploadSleep(_ row: [String: Any], userId: String) async throws {
-        let db = SupabaseClient.shared
-        guard ConsentStore.shared.granted, await db.currentUserId == userId,
-              row["user_id"] as? String == userId else { throw BandError.rejected("ACCOUNT CHANGED") }
-        let accepted = try await db.upsert("sleep_nights", row: row, onConflict: "user_id,user_day", expectedOwner: userId)
-        guard let saved = accepted.first, saved["user_id"] as? String == userId,
-              saved["user_day"] as? String == row["user_day"] as? String,
-              saved["total_minutes"] as? Int == row["total_minutes"] as? Int else {
-            throw BandError.rejected("SLEEP UPLOAD NOT CONFIRMED")
-        }
-    }
-
-    /// Keep each unacknowledged observation once, independently of SDK retention.
-    /// A stable payload-derived identifier also covers a response lost after server commit.
-    private func persistEvidence(samples: [[String: Any]], args: [String: Any], userId: String) throws -> [String] {
-        let local = try LocalDataStore.shared()
-        let iso = ISO8601DateFormatter()
-        let operations = try samples.map { sample in
-            var single = args
-            single["p_samples"] = [sample]
-            single["p_status"] = "partial"
-            // Keep the measurement range and observation clock in the durable payload.
-            // A retry reuses both; a later device read is a distinct revision.
-            if let raw = sample["ts"] as? String, let ts = iso.date(from: raw) {
-                single["p_start"] = raw
-                single["p_end"] = iso.string(from: ts.addingTimeInterval(60))
-            }
-            let data = try JSONSerialization.data(withJSONObject: single, options: [.sortedKeys])
-            let id = "band-" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            return LocalOperation(id: id, account: userId, kind: "band-domain", payload: data)
-        }
-        try local.enqueue(operations: operations)
-        return operations.map(\.id)
+    private static func evidencePublication(userId: String) throws -> BandEvidencePublication {
+        BandEvidencePublication(account: userId, local: try LocalDataStore.shared(), authorized: {
+            ConsentStore.shared.granted && SupabaseClient.currentUserIdSnapshot() == userId
+        }, transport: .init(ingest: { args, owner in
+            let response = try await SupabaseClient.shared.rpc("ingest_band_domain", args: args, expectedOwner: owner)
+            return try JSONDecoder().decode(BandIngestionAcknowledgment.self,
+                from: JSONSerialization.data(withJSONObject: response))
+        }, sleep: { row, owner in
+            try await SupabaseClient.shared.upsert("sleep_nights", row: row,
+                onConflict: "user_id,user_day", expectedOwner: owner)
+        }))
     }
 
     private static var evidenceDrains: [String: Task<Void, Never>] = [:]
@@ -964,75 +859,19 @@ final class OriginDataSync {
         evidenceDrains[userId] = nil
     }
 
-    private static func mayDrainEvidence(_ userId: String) -> Bool {
-        !Task.isCancelled && ConsentStore.shared.granted
-            && SupabaseClient.currentUserIdSnapshot() == userId
-    }
-
     private static func drainEvidence(userId: String) async {
         do {
-            let local = try LocalDataStore.shared()
-            // Snapshot once: a producer cannot keep this pass alive indefinitely.
-            let sleeps = try local.operations(account: userId, kind: "band-sleep")
-            let observations = try local.operations(account: userId, kind: "band-domain")
-            Self.log.notice("evidence drain start: \(sleeps.count) sleep, \(observations.count) observations")
-            for batch in EvidenceDrainPolicy.batches(sleeps, limit: 30) {
-                var acknowledged = 0
-                for operation in batch {
-                    guard mayDrainEvidence(userId) else { return }
-                    guard let row = try JSONSerialization.jsonObject(with: operation.payload) as? [String: Any] else { continue }
-                    try await uploadSleep(row, userId: userId)
-                    guard mayDrainEvidence(userId) else { return }
-                    try local.acknowledge(account: userId, id: operation.id)
-                    acknowledged += 1
-                }
-                guard EvidenceDrainPolicy.shouldContinue(acknowledged: acknowledged) else { break }
-            }
-            for batch in EvidenceDrainPolicy.batches(observations, limit: 200) {
-                guard mayDrainEvidence(userId) else { return }
-                let acknowledged = try await drainDomainBatch(batch, userId: userId)
-                Self.log.notice("evidence drain batch: \(acknowledged)/\(batch.count) acknowledged")
-                guard EvidenceDrainPolicy.shouldContinue(acknowledged: acknowledged) else { break }
-            }
+            let publication = try evidencePublication(userId: userId)
+            let acknowledged = try await publication.replay()
+            Self.log.notice("evidence drain finished: \(acknowledged) acknowledged")
+        } catch is CancellationError {
+            return
         } catch {
             if case SupabaseClient.Failure.http(let status, _) = error {
                 Self.log.error("evidence drain stopped: HTTP \(status)")
             } else { Self.log.error("evidence drain stopped: \(String(describing: type(of: error)), privacy: .public)") }
             BandLog.shared.record("retry band observations", error: error)
         }
-    }
-
-    private static func drainDomainBatch(_ pending: [LocalOperation], userId: String) async throws -> Int {
-        let decoded = try pending.compactMap { operation -> (LocalOperation, [String: Any])? in
-            guard let args = try JSONSerialization.jsonObject(with: operation.payload) as? [String: Any],
-                  let samples = args["p_samples"] as? [[String: Any]], !samples.isEmpty else { return nil }
-            return (operation, args)
-        }
-        let groups = Dictionary(grouping: decoded) { item in
-            ["p_device_key", "p_domain", "p_day", "p_timezone", "p_mapping_version", "p_observed_at"].map {
-                item.1[$0] as? String ?? ""
-            }.joined(separator: "|")
-        }
-        var acknowledged = 0
-        for key in groups.keys.sorted() {
-            guard mayDrainEvidence(userId), let group = groups[key], var args = group.first?.1 else { return acknowledged }
-            let samples = group.flatMap { $0.1["p_samples"] as? [[String: Any]] ?? [] }
-            args["p_samples"] = samples
-            args["p_start"] = group.compactMap { $0.1["p_start"] as? String }.min()
-            args["p_end"] = group.compactMap { $0.1["p_end"] as? String }.max()
-            let response = try await SupabaseClient.shared.rpc("ingest_band_domain", args: args, expectedOwner: userId)
-            let ack = try JSONDecoder().decode(BandIngestionAcknowledgment.self,
-                from: JSONSerialization.data(withJSONObject: response))
-            guard mayDrainEvidence(userId) else { return acknowledged }
-            let ids = EvidenceDrainPolicy.confirmedIDs(group.map { $0.0.id }, offeredSamples: samples.count,
-                                                      acknowledgment: ack)
-            try LocalDataStore.shared().acknowledge(account: userId, ids: ids)
-            if ids.isEmpty {
-                Self.log.error("evidence drain unconfirmed: \(samples.count) offered, \(ack.inserted) inserted, \(ack.completed) completed, \(ack.unchanged) unchanged, \(ack.rejected) rejected")
-            }
-            acknowledged += ids.count
-        }
-        return acknowledged
     }
 
     /// A first sync on this phone pulls what the band still holds — `watchDataDayNumber`

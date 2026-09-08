@@ -18,6 +18,7 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var dockMode: Dock.Mode = .idle
     @State private var asrStream: ASRStreamingSession?
+    @State private var voiceOperationID: UUID?
     /// 06 · the plus menu stands over the dock; the dock stays and the plus becomes ×.
     @State private var plusOpen = false
     /// How far the finger has pulled the sheet down. It follows 1:1 and springs back under 120 pt.
@@ -563,8 +564,7 @@ struct HomeView: View {
             // opening any page in the first seconds silently turned the whole app into a mock.
             let store = data
             let sync = Task { @MainActor in
-                await OriginDataSync.refreshNow(into: store, minimumInterval: SyncCadence.interval,
-                    fullHistory: false, reuseRecentLiveReceipt: true)
+                await OriginDataSync.refreshNow(into: store, request: .foreground)
             }
             let load = Task { @MainActor in
                 await Repository.shared.bootstrapHome(into: store)
@@ -651,18 +651,13 @@ struct HomeView: View {
             // The shared pull started alongside cloud hydration and still retains all history.
             _ = await sync.value
 
-            // A tick is five minutes wide, so that is the fastest the day can change; the
-            // device page can stretch the cadence up to an hour. Under the view's own task,
-            // so leaving the screen ends it.
-            // ⚠️ Not a poll of the server: it asks the band, and a pull that finds no new tick
-            // stops there — no upload, no settle, no reload. The half-minute check is what
-            // lets a cadence changed on the device page apply without a relaunch.
+            // The view owns only this timer. The shared refresh applies the current cadence
+            // and sensor eligibility, and an accepted pull survives this view disappearing.
+            // Checking every half minute picks up cadence changes without a relaunch.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 guard !Task.isCancelled else { break }
-                // 14 · a running session holds the band's sensor; the day pull waits for it.
-                guard OriginDataSync.isDue, liveSession.session == nil else { continue }
-                await OriginDataSync.refreshNow(into: store)
+                await OriginDataSync.refreshNow(into: store, request: .foreground)
             }
         }
     }
@@ -1013,6 +1008,8 @@ struct HomeView: View {
     /// the recorder will not start, the dock stays idle rather than animating over nothing —
     /// which is what it did before there was a recorder at all.
     private func beginListening() {
+        let operationID = UUID()
+        voiceOperationID = operationID
         Task {
             withAnimation { dockNote = nil }
             // 05 edge 1 · MIC DENIED. iOS asks once; after that the dock says so and typing
@@ -1024,10 +1021,16 @@ struct HomeView: View {
             // The recorder refused to open — no audio device (a simulator), or CoreAudio said
             // no. The dock stays idle, and it says so: a key that answers a press with nothing
             // at all is the same bug as a wave over a dead microphone.
-            let stream = reachability.isOnline ? await ai.beginStreamingTranscription() : nil
+            let stream = reachability.isOnline ? await ai.beginStreamingTranscription(operationID: operationID) : nil
+            guard voiceOperationID == operationID else { stream?.cancel(); return }
             guard await SpeechCapture.shared.start(onPCMChunk: { pcm in stream?.append(pcm) }) else {
                 stream?.cancel()
                 note(DockNote(line: L("MIC UNAVAILABLE"), text: L("The microphone would not open.\nTyping still works.")), clearAfter: 4)
+                return
+            }
+            guard voiceOperationID == operationID else {
+                stream?.cancel()
+                if let clip = await SpeechCapture.shared.stop() { try? FileManager.default.removeItem(at: clip) }
                 return
             }
             asrStream = stream
@@ -1260,6 +1263,7 @@ struct HomeView: View {
     /// 05M · B·04 / 05 rule 05 · slide-up cancel: the mic stops, nothing is transcribed or sent,
     /// the dock writes nothing. Reversible by design.
     private func cancelListening() {
+        voiceOperationID = nil
         // 05M · B·04 → idle · the chamber goes back into the capsule the same way a send does.
         withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) { dockMode = .idle }
         let stream = asrStream
@@ -1274,6 +1278,8 @@ struct HomeView: View {
     }
 
     private func endListening() {
+        guard let operationID = voiceOperationID else { return }
+        voiceOperationID = nil
         // 05M · B·05 · RELEASE 0.22S · EASE-OUT-BACK · the chamber collapses into the capsule.
         withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) { dockMode = .idle }
         let stream = asrStream
@@ -1310,10 +1316,10 @@ struct HomeView: View {
             }
             let requestID = beginPanelRequest()
             withAnimation { widget = .thinking }
-            switch await ai.transcribe(clip, stream: stream) {
+            switch await ai.transcribe(clip, stream: stream, operationID: operationID) {
             case .text(let said):
                 guard panelRequestID == requestID else { return }
-                handleSend(said)
+                handleSend(said, operationID: operationID)
             case .silence:
                 guard panelRequestID == requestID else { return }
                 // 05 edge 3 · NO SPEECH. Recorded, transcribed to nothing: it stays in the dock
@@ -1331,7 +1337,9 @@ struct HomeView: View {
         }
     }
 
-    private func handleSend(_ text: String) {
+    private func handleSend(_ text: String) { handleSend(text, operationID: UUID()) }
+
+    private func handleSend(_ text: String, operationID: UUID) {
         // 补屏 edge 2 · withdrawn or never granted: the server would answer 403 consent_withdrawn;
         // this side does not ask. The panel is already NOT COLLECTING, and the way back is the
         // consent screen, not a turn.
@@ -1356,7 +1364,7 @@ struct HomeView: View {
             withAnimation(.spring(response: 0.26, dampingFraction: 0.74)) { attachment = nil }
             photoItem = nil
             Task {
-                let frame = await ai.turn(text, day: day, store: data, imageDataURL: sent.dataURL)
+                let frame = await ai.turn(text, day: day, store: data, imageDataURL: sent.dataURL, turnID: operationID)
                 await Analytics.shared.track("MSG_SEND", ["TYPE": "PHOTO", "CHARS": text.count, "HAS_PHOTO": true])
                 guard panelRequestID == requestID else { return }
                 withAnimation { widget = frame ?? PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
@@ -1369,7 +1377,7 @@ struct HomeView: View {
         Task {
             // ADR 0011 · every dock sentence is one turn. The model picks meal.estimate
             // when the plate is a log; the client does not classify food or medicine.
-            let frame = await ai.turn(text, day: day, store: data)
+            let frame = await ai.turn(text, day: day, store: data, turnID: operationID)
             guard panelRequestID == requestID else { return }
             withAnimation { widget = frame ?? .thinking(text) }
         }

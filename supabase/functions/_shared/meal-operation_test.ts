@@ -102,3 +102,16 @@ Deno.test("legacy canonical reconciliation requires every stored field to match"
     { ...deps, canonicalMeal: () => Promise.resolve(null) });
   assertEquals(absent.status, 409);
 });
+
+Deno.test("manual meal retry compares recorded instants across database timestamp formats", async () => {
+  const fields = { user_day: "2026-09-04", slot: "LUNCH", name: "Rice", kcal: 500,
+    protein_g: 0, carb_g: 0, fat_g: 0, confidence: "HIGH", model_version: "manual-entry-v1",
+    logged_at: "2026-09-04T12:30:00Z" };
+  for (const [savedAt, expected] of [["2026-09-04T12:30:00+00:00", 200],
+    ["2026-09-04T08:30:00-04:00", 200], ["2026-09-04T12:31:00+00:00", 409]] as const) {
+    const response = await handleMealWrite(request({ ...fields, draft_id: op, id: meal }), "create", {
+      ...dependencies(), canonicalMeal: () => Promise.resolve({ id: meal, ...fields, logged_at: savedAt }),
+    });
+    assertEquals(response.status, expected);
+  }
+});

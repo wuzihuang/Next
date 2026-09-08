@@ -7,7 +7,8 @@ struct RootView: View {
     @ObservedObject private var phoneTools = PhoneToolRunner.shared
 
     var body: some View {
-        ZStack {
+        let confirmation = phoneTools.confirmation
+        return ZStack {
             switch session.stage {
             case .gateSignIn:     SignInFlow()
             case .gateConnect:    ConnectFlow()
@@ -28,7 +29,7 @@ struct RootView: View {
         // pretended to, but nothing clips at any size that is honoured.
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .fullScreenCover(item: $router.takeover) { t in
-            TakeoverHost(takeover: t)
+            TakeoverHost(takeover: t, generation: router.takeoverGeneration, phoneExecution: phoneTools.measurementExecution)
         }
         .sheet(item: $router.sheet) { s in
             SheetHost(route: s)
@@ -36,12 +37,14 @@ struct RootView: View {
         // ADR 0018 · a phone tool with a side effect asks here, wherever the turn started.
         // ⚠️ The legacy `.alert(item:) { Alert(...) }` form re-wrapped the navigation bar and
         // UIKit aborted at launch ("nest wrapped navigation controllers"); this form does not.
-        .alert(phoneTools.confirmation?.title ?? "",
-               isPresented: Binding(get: { phoneTools.confirmation != nil },
-                                    set: { if !$0 { phoneTools.confirmation?.resolve(false) } }),
-               presenting: phoneTools.confirmation) { c in
-            Button(L("CONFIRM ACTION")) { c.resolve(true) }
-            Button(L("CANCEL"), role: .cancel) { c.resolve(false) }
+        .alert(confirmation?.title ?? "",
+               isPresented: Binding(get: { confirmation != nil },
+                                    set: { if !$0, let confirmation {
+                                        phoneTools.resolveConfirmation(id: confirmation.id, approved: false)
+                                    } }),
+               presenting: confirmation) { c in
+            Button(L("CONFIRM ACTION")) { phoneTools.resolveConfirmation(id: c.id, approved: true) }
+            Button(L("CANCEL"), role: .cancel) { phoneTools.resolveConfirmation(id: c.id, approved: false) }
         } message: { c in
             Text(c.detail)
         }
@@ -230,6 +233,8 @@ struct RootView: View {
 /// D · ON TOP. A takeover is the panel grown to full screen, never a page.
 struct TakeoverHost: View {
     let takeover: Takeover
+    let generation: UInt
+    let phoneExecution: PhoneToolExecution.Execution?
     @EnvironmentObject private var router: Router
 
     var body: some View {
@@ -237,7 +242,9 @@ struct TakeoverHost: View {
         case .wordmark:
             WordmarkAnimation(onFinish: { router.takeover = nil })
         case .measure(let kind):
-            MeasureTakeover(kind: kind) { router.takeover = nil }
+            MeasureTakeover(kind: kind, phoneExecution: phoneExecution) {
+                if router.takeoverGeneration == generation { router.takeover = nil }
+            }
         case .consent:
             ConsentScreen(onContinue: { router.takeover = nil }, onBack: { router.takeover = nil })
         case .notificationPrimer:

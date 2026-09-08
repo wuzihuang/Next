@@ -10,6 +10,7 @@ final class MealQueue: ObservableObject {
     struct Rejected: Identifiable { let id: String; let name: String; let reason: String }
     @Published private(set) var rejected: [Rejected] = []
     private var flushing = false
+    private var flushRequested = false
     private var reachability: AnyCancellable?
     private var retry: Task<Void, Never>?
     private var retryDelay: UInt64 = 2
@@ -18,80 +19,86 @@ final class MealQueue: ObservableObject {
             if online { Task { await self?.flush() } }
         }
     }
-    func enqueueCreate(mealID: UUID, payload: [String: Any], ownerUserId: String) throws {
-        guard let draft = payload["draft_id"] as? String, UUID(uuidString: draft) != nil else {
-            throw LocalDataStore.Failure.conflictingOperation
+    private func publication(owner: String) throws -> MealPublication {
+        let session = SupabaseClient.currentRequestSessionSnapshot()
+        return MealPublication(account: owner, local: try LocalDataStore.shared(), isCurrent: {
+            session.owner == owner && SupabaseClient.currentRequestSessionSnapshot() == session
+        }, consent: { ConsentStore.shared.granted }, send: { endpoint, body, owner in
+            do { return try await SupabaseClient.shared.callFunction(endpoint, payload: body, expectedOwner: owner) }
+            catch SupabaseClient.Failure.http(let status, let body) { throw MealPublication.Failure.http(status, body) }
+        }, persistProjection: {
+            try self.applyPending(into: DataStore.shared, ownerUserId: owner)
+            guard HomeSnapshot.save(from: DataStore.shared) else {
+                throw LocalDataStore.Failure.database(L("Could not save synchronized meals locally"))
+            }
+        })
+    }
+
+    func createManual(text: String, kcal: Double, day: UserDay, into data: DataStore) throws {
+        guard kcal.isFinite, kcal >= 1, kcal <= 100000,
+              let owner = SupabaseClient.currentUserIdSnapshot() else { throw MealPublication.Failure.invalidMeal }
+        try ensureCanAdd(day: day, into: data)
+        let at = day.pinningClock(Date())
+        _ = try publication(owner: owner).createManual(day: day.key,
+            slot: MealEntry.Slot.guess(at: at, day: day).rawValue, name: text, kcal: Int(kcal), at: at)
+        try didSubmit(owner: owner, into: data)
+    }
+
+    func confirmDraft(_ output: [String: Any], mealID: UUID, day: UserDay,
+                      slot: MealEntry.Slot, owner: String, into data: DataStore) throws -> MealPublication.Submitted {
+        try ensureCanAdd(day: day, into: data)
+        let result = try publication(owner: owner).confirmDraft(id: mealID, day: day.key,
+            slot: slot.rawValue, output: output, at: day.pinningClock(Date()))
+        try didSubmit(owner: owner, into: data)
+        return result
+    }
+
+    private func ensureCanAdd(day: UserDay, into data: DataStore) throws {
+        guard ConsentStore.shared.granted else { throw MealPublication.Failure.collectionPaused }
+        if day == data.today.day, case .fasted = data.today.fuelState {
+            throw LocalDataStore.Failure.database(L("This day is marked as fasted."))
         }
-        let body = payload.merging(["id": mealID.uuidString.lowercased()]) { _, new in new }
-        try enqueue(id: draft, owner: ownerUserId, kind: "create", mealID: mealID, body: body)
     }
-    func enqueueDelete(mealID: UUID, ownerUserId: String) throws {
-        let id = UUID().uuidString.lowercased()
-        try enqueue(id: id, owner: ownerUserId, kind: "delete", mealID: mealID,
-                    body: ["operation_id": id, "kind": "delete", "meal_id": mealID.uuidString.lowercased()])
-    }
-    func enqueueAmend(mealID: UUID, replacement: [String: Any], ownerUserId: String) throws {
-        guard ConsentStore.shared.granted else { throw LocalDataStore.Failure.database(L("Data collection is paused.")) }
-        let id = UUID().uuidString.lowercased()
-        let replacement = replacement.merging(["id": UUID().uuidString.lowercased()]) { old, _ in old }
-        try enqueue(id: id, owner: ownerUserId, kind: "amend", mealID: mealID,
-                    body: ["operation_id": id, "kind": "amend", "meal_id": mealID.uuidString.lowercased(), "replacement": replacement])
-    }
-    private func enqueue(id: String, owner: String, kind: String, mealID: UUID, body: [String: Any]) throws {
-        let envelope: [String: Any] = ["kind": kind, "meal_id": mealID.uuidString.lowercased(), "body": body]
-        let bytes = try JSONSerialization.data(withJSONObject: envelope, options: .sortedKeys)
-        try LocalDataStore.shared().enqueue(operation: LocalOperation(id: id, account: owner, kind: "meal", payload: bytes),
-                                            documentKey: "meal.\(mealID.uuidString.lowercased())", document: bytes)
-        pendingCount = try LocalDataStore.shared().operations(account: owner, kind: "meal").count
+
+    private func didSubmit(owner: String, into data: DataStore) throws {
+        try applyPending(into: data, ownerUserId: owner)
+        refreshStatus(owner: owner)
+        NotificationReach.evaluate(store: data)
         Task { await flush() }
     }
-    func pendingMealDocuments(ownerUserId: String) throws -> [[String: Any]] {
-        try LocalDataStore.shared().operations(account: ownerUserId, kind: "meal").map {
-            guard let object = try JSONSerialization.jsonObject(with: $0.payload) as? [String: Any] else {
-                throw LocalDataStore.Failure.database("Invalid queued meal")
-            }
-            return object
-        }
+
+    func enqueueDelete(mealID: UUID, ownerUserId: String) throws {
+        try publication(owner: ownerUserId).delete(id: mealID)
+        try didSubmit(owner: ownerUserId, into: DataStore.shared)
+    }
+
+    func enqueueAmend(mealID: UUID, replacement: [String: Any], source: MealEntry.Source, revisions: Int, ownerUserId: String) throws {
+        _ = try publication(owner: ownerUserId).amend(id: mealID, replacement: replacement, source: source.rawValue, revisions: revisions)
+        try didSubmit(owner: ownerUserId, into: DataStore.shared)
     }
     func overlayPending(into data: DataStore, ownerUserId: String) {
-        guard SupabaseClient.currentUserIdSnapshot() == ownerUserId else { return }
-        do {
-            refreshStatus(owner: ownerUserId)
-            let pending = try pendingMealDocuments(ownerUserId: ownerUserId)
-            pendingCount = pending.count
-            guard !pending.isEmpty else { return }
-            var entries: [MealEntry] = []
-            var removed = Set<UUID>()
-            let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"
-            for envelope in pending {
-                guard let kind = envelope["kind"] as? String, let body = envelope["body"] as? [String: Any],
-                      let original = envelope["meal_id"] as? String, let originalID = UUID(uuidString: original) else { continue }
-                if let previous = envelope["canonical_previous_id"] as? String, let oldID = UUID(uuidString: previous) {
-                    removed.insert(oldID)
-                    entries = entries.filter { $0.id != oldID }
-                }
-                if kind == "amend" || kind == "delete" {
-                    removed.insert(originalID)
-                    entries = entries.filter { $0.id != originalID }
-                }
-                if kind == "delete" { continue }
-                let fields = kind == "amend" ? body["replacement"] as? [String: Any] : body
-                guard let fields, let id = fields["id"] as? String, let uuid = UUID(uuidString: id),
-                      let date = fields["user_day"] as? String, let midnight = formatter.date(from: date),
-                      let noon = Calendar.current.date(byAdding: .hour, value: 12, to: midnight),
-                      let slot = (fields["slot"] as? String).flatMap(MealEntry.Slot.init(rawValue:)) else { continue }
-                let day = UserDay.containing(noon)
-                let eatenAt = (fields["logged_at"] as? String).flatMap(Repository.timestamp) ?? noon
-                entries = entries.filter { $0.id != uuid } + [MealEntry(id: uuid, day: day, at: eatenAt,
-                    slot: slot, status: kind == "estimate" || envelope["rejection"] != nil ? .open : .confirmed, text: fields["name"] as? String ?? "",
-                    kcal: (fields["kcal"] as? NSNumber)?.doubleValue ?? 0,
-                    protein: (fields["protein_g"] as? NSNumber)?.intValue ?? 0,
-                    carb: (fields["carb_g"] as? NSNumber)?.intValue ?? 0,
-                    fat: (fields["fat_g"] as? NSNumber)?.intValue ?? 0)]
-            }
-            data.overlayPendingMeals(entries, removedIDs: removed)
-            pendingCount = pending.count
-        } catch { lastError = error.localizedDescription }
+        do { try applyPending(into: data, ownerUserId: ownerUserId) }
+        catch { lastError = error.localizedDescription }
+    }
+
+    private func applyPending(into data: DataStore, ownerUserId: String) throws {
+        guard SupabaseClient.currentUserIdSnapshot() == ownerUserId else { throw CancellationError() }
+        refreshStatus(owner: ownerUserId)
+        let projection = try publication(owner: ownerUserId).projection()
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
+        let entries = projection.meals.compactMap { row -> MealEntry? in
+            guard let date = formatter.date(from: row.day),
+                  let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: date),
+                  let slot = MealEntry.Slot(rawValue: row.slot) else { return nil }
+            let previous = data.meals.first { $0.id == row.id } ?? data.recentMeals.first { $0.id == row.id }
+            return MealEntry(id: row.id, day: UserDay.containing(noon), at: row.at,
+                slot: slot, status: row.confirmed ? .confirmed : .open, text: row.name,
+                kcal: row.kcal, protein: row.protein, carb: row.carb, fat: row.fat,
+                revisions: row.revisions ?? previous?.revisions ?? 0,
+                source: row.source.flatMap { MealEntry.Source(rawValue: $0.uppercased()) } ?? previous?.source ?? .voice)
+        }
+        guard !entries.isEmpty || !projection.removedIDs.isEmpty else { return }
+        data.overlayPendingMeals(entries, removedIDs: projection.removedIDs)
     }
 
     func refreshStatus(owner: String) {
@@ -140,98 +147,28 @@ final class MealQueue: ObservableObject {
         } catch { lastError = error.localizedDescription }
     }
     func flush() async {
-        guard !flushing, Reachability.shared.isOnline, !DebugEdge.on("offline"),
+        if flushing { flushRequested = true; return }
+        guard Reachability.shared.isOnline, !DebugEdge.on("offline"),
               let owner = await SupabaseClient.shared.currentUserId else { return }
         flushing = true
-        defer { flushing = false; refreshStatus(owner: owner) }
-        do {
-            let store = try LocalDataStore.shared()
-            var collectionPaused = !ConsentStore.shared.granted
-            lastError = nil
-            for queued in try store.operations(account: owner, kind: "meal") {
-                guard SupabaseClient.currentUserIdSnapshot() == owner, !Task.isCancelled else { return }
-                let rows = try store.operations(account: owner, kind: "meal")
-                guard let operation = rows.first(where: { $0.id == queued.id }) else { continue }
-                let fields = try MealOutboxPolicy.fields(operation)
-                let probe = fields["rejection"] != nil && fields["kind"] as? String == "create"
-                    && fields["canonical_probe_attempted"] as? Bool != true
-                let runnable = try MealOutboxPolicy.runnable(rows)
-                guard probe || runnable.contains(where: { $0.id == operation.id }) else { continue }
-                let current = operation
-                do {
-                    let envelope = try MealOutboxPolicy.fields(current)
-                    let kind = envelope["kind"] as? String
-                    // Withdrawal pauses collection, but an explicit deletion remains allowed.
-                    guard kind == "delete" || (!collectionPaused && ConsentStore.shared.granted) else {
-                        lastError = L("Data collection is paused. Pending meals stay on this device."); continue
-                    }
-                    if kind == "estimate" {
-                        let message = L("Send this meal again to review and confirm its estimate.")
-                        let payload = try MealOutboxPolicy.replacingRejection(current, message: message)
-                        try store.replaceOperation(current, payload: payload, documentKey: "meal.\(current.id)")
-                        lastError = message
-                        continue
-                    }
-                    guard let body = envelope["body"] as? [String: Any], let kind = envelope["kind"] as? String else {
-                        throw LocalDataStore.Failure.database("Invalid queued meal")
-                    }
-                    let request = probe ? body.merging(["reconcile_only": true]) { _, new in new } : body
-                    let response = try await SupabaseClient.shared.callFunction(kind == "create" ? "meal-commit" : "meal-operation", payload: request, expectedOwner: owner)
-                    guard SupabaseClient.currentUserIdSnapshot() == owner, !Task.isCancelled else { return }
-                    let acknowledgement = response[kind == "create" ? "client_op_id" : "operation_id"] as? String
-                    let acceptedID = (response["id"] as? String)?.lowercased()
-                    let requestedID = (body["id"] as? String)?.lowercased()
-                    let canonicalMatch = kind == "create" && acceptedID.flatMap(UUID.init(uuidString:)) != nil
-                        && (response["requested_meal_id"] as? String)?.lowercased() == requestedID
-                        && (response["meal_id"] as? String)?.lowercased() == acceptedID
-                    guard acknowledgement?.lowercased() == (kind == "create" ? (body["draft_id"] as? String)?.lowercased() : operation.id.lowercased()),
-                          kind != "create" || acceptedID == requestedID || canonicalMatch else {
-                        throw LocalDataStore.Failure.database("Meal acknowledgment did not match the pending operation")
-                    }
-                    if kind == "create", let requestedID, let acceptedID, canonicalMatch || probe {
-                        let changes = try store.operations(account: owner, kind: "meal").map { row in
-                            let mapped = try MealOutboxPolicy.remappingMeal(row, from: requestedID, to: acceptedID)
-                            let remapped = LocalOperation(id: row.id, account: row.account, kind: row.kind, payload: mapped)
-                            let payload = row.id == current.id ? try MealOutboxPolicy.replacingRejection(remapped, message: nil) : mapped
-                            let fields = try MealOutboxPolicy.fields(remapped)
-                            return (expected: row, payload: payload, documentKey: "meal.\(fields["meal_id"] as? String ?? row.id)")
-                        }
-                        try store.replaceOperations(changes)
-                        if requestedID != acceptedID, let old = UUID(uuidString: requestedID) {
-                            DataStore.shared.overlayPendingMeals([], removedIDs: [old])
-                        }
-                    }
-                    // Persist the visible accepted values before dropping their durable outbox.
-                    // This also updates estimates recovered in the background after a restart.
-                    overlayPending(into: DataStore.shared, ownerUserId: owner)
-                    guard HomeSnapshot.save(from: DataStore.shared) else {
-                        throw LocalDataStore.Failure.database("Could not save synchronized meals locally")
-                    }
-                    try store.acknowledge(account: owner, id: operation.id)
-                } catch SupabaseClient.Failure.http(let code, _) where code == 403 {
-                    collectionPaused = true
-                    lastError = L("Data collection is paused. Pending meals stay on this device.")
-                    continue
-                } catch SupabaseClient.Failure.http(let code, let responseBody) where (400..<500).contains(code) && code != 401 && code != 403 && code != 408 && code != 429 {
-                    let rejected = try MealOutboxPolicy.replacingRejection(current,
-                        message: L("This change could not sync. Retry it or remove the pending change."))
-                    let rejectedOperation = LocalOperation(id: current.id, account: current.account, kind: current.kind, payload: rejected)
-                    let fields = try MealOutboxPolicy.fields(rejectedOperation)
-                    // A transport/service failure never consumes the one canonical-match probe.
-                    let errorData = responseBody.data(using: .utf8)
-                    let serverError = errorData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["error"] as? String
-                    let definitiveMismatch = code == 409 && ["NO_CANONICAL_MATCH", "OPERATION_CONFLICT"].contains(serverError ?? "")
-                    let result = probe && definitiveMismatch ? fields.merging(["canonical_probe_attempted": true]) { _, new in new } : fields
-                    let payload = try JSONSerialization.data(withJSONObject: result, options: .sortedKeys)
-                    try store.replaceOperation(current, payload: payload, documentKey: "meal.\(current.id)")
-                    // The next independent meal still gets its opportunity to synchronize.
-                    continue
-                }
+        defer {
+            flushing = false; refreshStatus(owner: owner)
+            if flushRequested {
+                flushRequested = false
+                Task { await flush() }
             }
+        }
+        do {
+            lastError = nil
+            let result = try await publication(owner: owner).replay()
+            lastError = result.message.map { L($0) }
             retryDelay = 2
+        } catch is CancellationError {
+            return
         } catch {
             lastError = error.localizedDescription
-            if case SupabaseClient.Failure.http(let code, _) = error, code == 401 || code == 403 { return }
+            if case MealPublication.Failure.collectionPaused = error { return }
+            if case MealPublication.Failure.http(let code, _) = error, code == 401 || code == 403 { return }
             let delay = retryDelay; retryDelay = min(60, retryDelay * 2)
             retry?.cancel()
             retry = Task { [weak self] in

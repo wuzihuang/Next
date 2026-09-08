@@ -17,7 +17,10 @@ select is(nb.recompute_range('0b0b0b0b-0000-0000-0000-000000000030',current_sett
 select is((select dirty_from from nb.calculation_work where user_id='0b0b0b0b-0000-0000-0000-000000000030'),current_setting('nb.today')::date-3,'and advances the resume point by one day');
 -- Without a deadline the whole chain settles in one call, as before.
 select set_config('nb.calculation_deadline','',true);
-select ok(nb.recompute_range('0b0b0b0b-0000-0000-0000-000000000030',current_setting('nb.today')::date,current_setting('nb.today')::date,'test')>=4
+-- Read the dirty frontier in the next statement: a same-statement scalar
+-- subquery can run as an InitPlan before the volatile recompute call.
+select set_config('nb.budget_remaining',nb.recompute_range('0b0b0b0b-0000-0000-0000-000000000030',current_setting('nb.today')::date,current_setting('nb.today')::date,'test')::text,true);
+select ok(current_setting('nb.budget_remaining')::integer>=4
   and (select dirty_from is null from nb.calculation_work where user_id='0b0b0b0b-0000-0000-0000-000000000030'),'no deadline settles the rest and clears dirty_from');
 select * from finish();
 rollback;

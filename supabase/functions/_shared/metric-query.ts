@@ -697,7 +697,7 @@ const queryCache = new WeakMap<
   Ctx,
   Map<string, ReturnType<typeof fetchMetrics>>
 >();
-export function queryMetrics(ctx: Ctx, request: MetricRequest) {
+export function queryMetrics<C extends Ctx>(ctx: C, request: MetricRequest) {
   let cache = queryCache.get(ctx);
   if (!cache) {
     cache = new Map();

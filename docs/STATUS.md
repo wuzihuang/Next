@@ -1518,10 +1518,14 @@ turned the carbon white (so the head declares `light dark`, every ground is also
 
 ## Running it
 
+Current build and verification commands are maintained in the root [README](../README.md).
+The deployment commands below record the original setup; DEBUG clients now use the
+backend workflow and no longer accept a direct model key (ADR 0011).
+
 ```sh
 # app
 open app/NextBody.xcodeproj          # iPhone 16e is 390 × 844, the boards' own geometry
-cp app/Local.xcconfig.example app/Local.xcconfig   # then paste the DEBUG model key
+cp app/Local.xcconfig.example app/Local.xcconfig   # optional local Edge Functions URL
 
 # database
 node scratch/apply.mjs               # or: supabase db push, once the CLI is logged in

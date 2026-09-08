@@ -158,7 +158,7 @@ export function bucketTicks(
   }));
 }
 
-export async function readData(ctx: Ctx, request: DataReadRequest) {
+export async function readData<C extends Ctx>(ctx: C, request: DataReadRequest) {
   const metric = request.metric as DataMetric;
   const def = definitions[metric];
   // A name the registry does not have comes back as the list of names it does have.

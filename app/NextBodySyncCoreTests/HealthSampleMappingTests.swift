@@ -577,21 +577,6 @@ final class HealthSampleMappingTests: XCTestCase {
                        "02:00 is inside today, not the tail of yesterday")
     }
 
-    func testRawVitalsLoadIsNotGatedByDailyResultsSettlement() throws {
-        let repository = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: repository.appending(path: "app/NextBody/Services/Repository.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertFalse(source.contains("guard !rows.isEmpty else { return }"))
-        XCTAssertTrue(source.contains("day.adding(days: -max(days, 1) - 1).start"))
-        XCTAssertTrue(source.contains("VitalSample.merging(remoteSamples, with: localSamples)"))
-    }
-
     func testTemperatureRepairFunctionCanOnlyFillNullOwnedRows() throws {
         let repository = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -59,7 +59,9 @@ export async function handleMealWrite(req: Request, mode: "create" | "operation"
       // Legacy clients did not send a row id. Reuse an existing row, or choose a stable id.
       const canonical = await deps.canonicalMeal?.(req, draft_id);
       if (canonical) {
-        if (canonical.deleted_at != null || !Object.entries(fields).every(([key, value]) => canonical[key] === value)
+        if (canonical.deleted_at != null || !Object.entries(fields).every(([key, value]) => key === "logged_at"
+          ? typeof canonical[key] === "string" && Date.parse(canonical[key] as string) === Date.parse(value as string)
+          : canonical[key] === value)
           || typeof canonical.id !== "string") return json({ error: "OPERATION_CONFLICT" }, 409);
         mealId = canonical.id;
         if (id && id !== mealId) requestedMealId = id;

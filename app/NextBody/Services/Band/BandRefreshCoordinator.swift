@@ -1,7 +1,7 @@
 import Foundation
 
 /// Requests describe different work, not the screen that happened to ask for it.
-enum BandRefreshRequest: Sendable {
+enum BandRefreshRequest: Equatable, Sendable {
     case automatic, foreground, fullHistory, latest, phoneTool
 
     fileprivate func minimumInterval(cadence: TimeInterval) -> TimeInterval {
@@ -66,11 +66,13 @@ final class BandRefreshCoordinator {
         let prepare: @MainActor (_ reuseRecentLiveReceipt: Bool) async -> Bool
         let day: @MainActor (_ daysAgo: Int) async -> BandRefreshResult
         let history: @MainActor () async -> BandRefreshResult
+        var finish: @MainActor () -> Void = {}
     }
 
     private final class Flight {
         let scope: Scope
         var wantsHistory: Bool
+        var startedReading = false
         var task: Task<BandRefreshResult, Never>!
         init(scope: Scope, history: Bool) { self.scope = scope; wantsHistory = history }
     }
@@ -79,21 +81,30 @@ final class BandRefreshCoordinator {
     private let now: @MainActor () -> Date
     private var current: Flight?
     private var lastAttempt: (scope: Scope, at: Date)?
+    private var consentRequest: (scope: Scope, request: BandRefreshRequest)?
 
     init(state: @escaping @MainActor () -> State, now: @escaping @MainActor () -> Date = { Date() }) {
         self.state = state
         self.now = now
     }
 
-    func isDue(cadence: TimeInterval) -> Bool {
-        guard let lastAttempt, lastAttempt.scope == state().scope else { return true }
-        return now().timeIntervalSince(lastAttempt.at) >= cadence
+    /// Consuming also discards a declined or stale request. It cannot follow a new account.
+    func refreshAfterConsent(cadence: TimeInterval, work: Work) async -> BandRefreshResult? {
+        guard let pending = consentRequest else { return nil }
+        consentRequest = nil
+        if let rejected = state().rejection(expected: pending.scope) { return .init(status: rejected) }
+        return await refresh(pending.request, cadence: cadence, work: work)
     }
 
     func refresh(_ request: BandRefreshRequest, cadence: TimeInterval, work: Work) async -> BandRefreshResult {
         guard !Task.isCancelled else { return .init(status: .cancelled) }
         let initial = state()
-        if let rejected = initial.rejection() { return .init(status: rejected) }
+        if let rejected = initial.rejection() {
+            if rejected == .consentRequired, request == .fullHistory, let scope = initial.scope {
+                consentRequest = (scope, request)
+            }
+            return .init(status: rejected)
+        }
         guard let scope = initial.scope else { return .init(status: .signedOut) }
         // ADR 0018: a phone tool cannot wait for a disconnected band to come back.
         if request == .phoneTool && !initial.connected { return .init(status: .disconnected) }
@@ -110,6 +121,7 @@ final class BandRefreshCoordinator {
             if let rejected = state().rejection(expected: scope) { return .init(status: rejected) }
             guard !Task.isCancelled else { return .init(status: .cancelled) }
         }
+        if request == .phoneTool && !state().connected { return .init(status: .disconnected) }
         let interval = request.minimumInterval(cadence: cadence)
         if interval > 0, let lastAttempt, lastAttempt.scope == scope,
            now().timeIntervalSince(lastAttempt.at) < interval {
@@ -120,7 +132,8 @@ final class BandRefreshCoordinator {
         current = flight
         flight.task = Task { @MainActor in
             let result = await perform(flight, reuseReceipt: request == .foreground, work: work)
-            if result.status == .success || result.status == .partial || result.status == .failed {
+            if flight.startedReading,
+               result.status == .success || result.status == .partial || result.status == .failed {
                 lastAttempt = (scope, now())
             }
             if current === flight { current = nil }
@@ -139,11 +152,13 @@ final class BandRefreshCoordinator {
     }
 
     private func perform(_ flight: Flight, reuseReceipt: Bool, work: Work) async -> BandRefreshResult {
+        defer { work.finish() }
         let scope = flight.scope
         if let rejected = state().rejection(expected: scope) { return .init(status: rejected) }
         let ready = await work.prepare(reuseReceipt)
         if let rejected = state().rejection(expected: scope) { return .init(status: rejected) }
         guard ready else { return .init(status: state().connected ? .failed : .disconnected) }
+        flight.startedReading = true
         var results: [BandRefreshResult] = []
         for offset in [1, 0] {
             if let rejected = state().rejection(expected: scope) {

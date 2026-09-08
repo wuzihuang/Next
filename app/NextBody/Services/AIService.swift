@@ -134,12 +134,14 @@ final class AIService: ObservableObject {
         #endif
         mealDraft = nil
         activeTurnID = turnID
+        let phoneScope = PhoneToolRunner.shared.beginTurn(turnID)
         thinking = true
         thoughts = []
         reading = nil
         lastError = nil
         lastErrorCode = nil
         defer {
+            PhoneToolRunner.shared.finishTurn(turnID)
             if activeTurnID == turnID {
                 thinking = false
                 reading = nil
@@ -153,11 +155,12 @@ final class AIService: ObservableObject {
             lastError = L("Please sign in and allow access to your data.")
             return nil
         }
+        guard phoneScope.session.owner == requestOwner else { return nil }
         AISession.shared.settleIfDue()
         var freshness = await prepareFreshness(day: day, owner: requestOwner)
         freshness["device"] = PhoneToolRunner.shared.deviceState(store: store)
         guard activeTurnID == turnID, !Task.isCancelled, ConsentStore.shared.granted,
-              SupabaseClient.currentUserIdSnapshot() == requestOwner else { return nil }
+              SupabaseClient.currentRequestSessionSnapshot() == phoneScope.session else { return nil }
 
         var payload: [String: Any] = [
             "text": text, "dayKey": dayKey, "locale": AppLanguage.locale,
@@ -189,9 +192,9 @@ final class AIService: ObservableObject {
                     return surface == "chat" ? nil : offlineFrame(text)
                 }
                 reading = request.name
-                let result = await PhoneToolRunner.shared.run(request, store: store)
+                let result = await PhoneToolRunner.shared.run(request, scope: phoneScope, store: store)
                 guard activeTurnID == turnID, ConsentStore.shared.granted,
-                      SupabaseClient.currentUserIdSnapshot() == requestOwner else { return nil }
+                      SupabaseClient.currentRequestSessionSnapshot() == phoneScope.session else { return nil }
                 toolResult = result.payload(callID: request.callID)
                 thoughts = []
             case .failed(let widget):
@@ -375,37 +378,13 @@ final class AIService: ObservableObject {
     @discardableResult
     func logMealDraft(_ output: [String: Any], slot: MealEntry.Slot, day: UserDay, owner: String? = nil,
                       mealID: UUID = UUID(), into store: DataStore) throws -> LoggedMeal {
-        guard ConsentStore.shared.granted, let owner = owner ?? SupabaseClient.currentUserIdSnapshot() else {
+        guard let owner = owner ?? SupabaseClient.currentUserIdSnapshot() else {
             throw LocalDataStore.Failure.database(L("Please sign in and allow access to your data."))
         }
-        if day == store.today.day, case .fasted = store.today.fuelState {
-            throw LocalDataStore.Failure.database(L("This day is marked as fasted."))
-        }
-        var output = output
-        if let macros = output["macros"] as? [String: Any] {
-            output["protein_g"] = output["protein_g"] ?? macros["p"]
-            output["carb_g"] = output["carb_g"] ?? macros["c"]
-            output["fat_g"] = output["fat_g"] ?? macros["f"]
-        }
-        let entry = MealEntry(id: mealID, day: day, at: Date(), slot: slot,
-                              status: .confirmed, text: output["name"] as? String ?? "",
-                              kcal: 0, protein: 0, carb: 0, fat: 0,
-                              source: output["source"] as? String == "photo" ? .photo : .typed)
-        let envelope: [String: Any] = ["kind": "estimate", "meal_id": entry.id.uuidString.lowercased(),
-            "body": ["user_day": Self.dayFormatter.string(from: day.start), "slot": slot.rawValue, "name": entry.text]]
-        let operation = LocalOperation(id: entry.id.uuidString.lowercased(), account: owner, kind: "meal",
-                                      payload: try JSONSerialization.data(withJSONObject: envelope))
-        let promoted = try MealOutboxPolicy.promotedEstimate(operation, output: output)
-        guard let fields = try JSONSerialization.jsonObject(with: promoted) as? [String: Any],
-              let body = fields["body"] as? [String: Any], let kcal = numberOf(body["kcal"]) else {
-            throw LocalDataStore.Failure.database(L("Could not complete that request. Please try again."))
-        }
-        try MealQueue.shared.enqueueCreate(mealID: entry.id, payload: body, ownerUserId: owner)
-        store.logMeal(entry)
-        store.updateMeal(entry.id, kcal: kcal, text: entry.text)
-        store.applyMacros(entry.id, protein: Int(numberOf(body["protein_g"]) ?? 0),
-                          carb: Int(numberOf(body["carb_g"]) ?? 0), fat: Int(numberOf(body["fat_g"]) ?? 0))
-        return LoggedMeal(id: entry.id, name: entry.text, kcal: kcal)
+        let submitted = try MealQueue.shared.confirmDraft(output, mealID: mealID, day: day,
+            slot: slot, owner: owner, into: store)
+        return LoggedMeal(id: submitted.id, name: submitted.fields["name"] as? String ?? "",
+                          kcal: numberOf(submitted.fields["kcal"]) ?? 0)
     }
 
     /// 05 · speech in, one sentence out. The clip goes to `asr` and is deleted the moment the

@@ -735,61 +735,11 @@ final class DataStore: ObservableObject {
 
     // MARK: mutations the UI performs
 
-    func logMeal(_ entry: MealEntry) {
-        meals.append(entry)
-        recomputeFuel()
-        NotificationReach.evaluate(store: self)
-    }
-
-    /// Hand-typed from the calories plate. Macros stay 0 until a later model read.
+    /// Manual entries share the durable publication and visible projection used by
+    /// accepted AI drafts and later amendments.
     func addManualMeal(text: String, kcal: Double, day: UserDay) {
-        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard kcal.isFinite, kcal > 0, !name.isEmpty else { return }
-        let now = Date()
-        let entry = MealEntry(id: UUID(), day: day, at: now,
-                              slot: .guess(at: now, day: day), status: .confirmed,
-                              text: name, kcal: kcal, protein: 0, carb: 0, fat: 0,
-                              source: .typed)
-        logMeal(entry)
-        Task { await persistManualMeal(entry) }
-    }
-
-    private func persistManualMeal(_ entry: MealEntry) async {
-        guard !Band.allowsSeed,
-              let owner = SupabaseClient.currentUserIdSnapshot(),
-              ConsentStore.shared.granted else { return }
-        let stamp = ISO8601DateFormatter()
-        stamp.formatOptions = [.withInternetDateTime]
-        do {
-            _ = try await SupabaseClient.shared.insert("meals", row: [
-                "id": entry.id.uuidString.lowercased(),
-                "user_id": owner,
-                "user_day": entry.day.key,
-                "slot": entry.slot.rawValue,
-                "logged_at": stamp.string(from: entry.at),
-                "text_input": entry.text,
-                "kcal": Int(entry.kcal),
-                "protein_g": 0, "carb_g": 0, "fat_g": 0,
-                "confidence": "HIGH",
-                "model_version": "manual-entry-v1",
-                "client_op_id": UUID().uuidString.lowercased(),
-            ])
-            // Insert only dirties the day. Settle before reload so kcal_in can catch
-            // up; load still recomputes EATEN from the plates if the header lags.
-            _ = try? await SupabaseClient.shared.rpc("settle_now", args: ["p_days": 1], expectedOwner: owner)
-            await Repository.shared.loadToday(into: self)
-        } catch {
-            AIService.shared.lastError = error.localizedDescription
-        }
-    }
-
-    func updateMeal(_ id: UUID, kcal: Double, text: String) {
-        guard let i = meals.firstIndex(where: { $0.id == id }) else { return }
-        meals[i].kcal = kcal
-        meals[i].status = .confirmed
-        meals[i].text = text
-        meals[i].revisions += 1
-        recomputeFuel()
+        do { try MealQueue.shared.createManual(text: text, kcal: kcal, day: day, into: self) }
+        catch { AIService.shared.lastError = error.localizedDescription }
     }
 
     /// A correction appends a replacement and soft-deletes the old cloud record.
@@ -797,7 +747,7 @@ final class DataStore: ObservableObject {
                    at: Date, slot: MealEntry.Slot) {
         let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let source = meals.first(where: { $0.id == id }) ?? recentMeals.first(where: { $0.id == id })
-        guard let entry = source, canEdit(entry), kcal.isFinite, kcal > 0, !name.isEmpty,
+        guard let entry = source, canEdit(entry), kcal.isFinite, kcal >= 1, kcal <= 100000, !name.isEmpty,
               protein >= 0, carb >= 0, fat >= 0,
               let owner = SupabaseClient.currentUserIdSnapshot() else { return }
         let eatenAt = entry.day.pinningClock(at)
@@ -811,16 +761,8 @@ final class DataStore: ObservableObject {
             "logged_at": stamp.string(from: eatenAt),
             "confidence": "HIGH", "model_version": "manual-amendment-v1",
         ]
-        do { try MealQueue.shared.enqueueAmend(mealID: id, replacement: replacement, ownerUserId: owner) }
+        do { try MealQueue.shared.enqueueAmend(mealID: id, replacement: replacement, source: entry.source, revisions: entry.revisions + 1, ownerUserId: owner) }
         catch { AIService.shared.lastError = error.localizedDescription; return }
-        let next = MealEntry(
-            id: replacementID, day: entry.day, at: eatenAt, slot: slot, status: .confirmed,
-            text: name, kcal: kcal, protein: protein, carb: carb, fat: fat,
-            revisions: entry.revisions + 1, source: entry.source)
-        meals = meals.filter { $0.id != id && $0.id != replacementID }
-        if next.day == UserDay.containing(Date()) { meals.append(next) }
-        recentMeals = recentMeals.filter { $0.id != id && $0.id != replacementID } + [next]
-        recomputeFuel()
     }
 
     func overlayPendingMeals(_ entries: [MealEntry], removedIDs: Set<UUID>) {
@@ -841,21 +783,11 @@ final class DataStore: ObservableObject {
         recomputeFuel()
     }
 
-    func applyMacros(_ id: UUID, protein: Int, carb: Int, fat: Int) {
-        guard let i = meals.firstIndex(where: { $0.id == id }) else { return }
-        meals[i].protein = protein
-        meals[i].carb = carb
-        meals[i].fat = fat
-        recomputeFuel()
-    }
-
     /// F0 right column: 09 needs an edit/delete entry point. Range-limited to 7 user days (F2 §08).
     func deleteMeal(_ id: UUID) {
         guard let owner = SupabaseClient.currentUserIdSnapshot() else { return }
         do { try MealQueue.shared.enqueueDelete(mealID: id, ownerUserId: owner) }
         catch { AIService.shared.lastError = error.localizedDescription; return }
-        meals.removeAll { $0.id == id }
-        recomputeFuel()
     }
 
     func canEdit(_ entry: MealEntry) -> Bool {

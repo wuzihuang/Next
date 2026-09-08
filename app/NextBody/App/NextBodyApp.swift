@@ -66,7 +66,7 @@ struct NextBodyApp: App {
                     BandLiveLifecycle.shared.setExclusiveOperation(takeover != nil)
                     // The consent screen owns the exclusive gate until it closes. Resume
                     // only after releasing it, so a grant cannot be swallowed by readiness.
-                    if previous == .consent, takeover == nil, ConsentStore.shared.granted {
+                    if previous == .consent, takeover == nil {
                         requestForegroundRefresh(reason: "consent")
                     }
                     if takeover == nil { router.flushQueuedLink() }
@@ -99,11 +99,13 @@ struct NextBodyApp: App {
         Task {
             guard await session.ensureSession() else { return }
             BandLiveLifecycle.shared.refreshEligibility()
-            guard !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
-            let coldLaunch = reason == "launch"
-            await OriginDataSync.refreshNow(into: data,
-                minimumInterval: coldLaunch ? 0 : SyncCadence.interval,
-                fullHistory: coldLaunch, reuseRecentLiveReceipt: !coldLaunch)
+            let owner = SupabaseClient.currentUserIdSnapshot()
+            if reason == "consent", await OriginDataSync.refreshAfterConsent(into: data) != nil {
+                // A manual request resumes here, after the takeover gate was released.
+            } else {
+                await OriginDataSync.refreshNow(into: data, request: reason == "launch" ? .fullHistory : .foreground)
+            }
+            guard owner == SupabaseClient.currentUserIdSnapshot() else { return }
             await NotificationReach.refresh(today: data.today, history: data.history,
                                             store: data, page: router.notifyPage, appIsActive: true)
         }

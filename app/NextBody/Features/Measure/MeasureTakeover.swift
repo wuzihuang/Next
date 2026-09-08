@@ -9,6 +9,7 @@ import UIKit
 /// then the whole thing folds back into the panel as one widget.
 struct MeasureTakeover: View {
     let kind: MeasureKind
+    let phoneExecution: PhoneToolExecution.Execution?
     let done: () -> Void
 
     /// F1 rule 05 · the takeover's only exit is the close mark, and the measurement has to be
@@ -540,7 +541,13 @@ struct MeasureTakeover: View {
     }
     #endif
 
+    private func checkPhoneExecution() throws {
+        try Task.checkCancellation()
+        try phoneExecution?.check()
+    }
+
     private func open() {
+        guard phoneExecution?.isAuthorized != false else { return }
         remaining = total
         bandClock = false
         reading = nil
@@ -585,13 +592,13 @@ struct MeasureTakeover: View {
             // and the band gets the same settling second the inserted stress test gets.
             // Close admission synchronously: router observation may not have fired yet.
             // Let an already admitted native read finish before replacing SDK callbacks.
-            guard !Task.isCancelled else { nudge.cancel(); return }
+            guard !Task.isCancelled, phoneExecution?.isAuthorized != false else { nudge.cancel(); return }
             BandLiveLifecycle.shared.setExclusiveOperation(true)
             await BandReadiness.shared.awaitNativeIdle()
-            guard !Task.isCancelled else { nudge.cancel(); return }
+            guard !Task.isCancelled, phoneExecution?.isAuthorized != false else { nudge.cancel(); return }
             await LiveReadout.shared.standDown {
                 try? await Task.sleep(for: .seconds(LiveReadout.Cadence.settle))
-                guard !Task.isCancelled else { nudge.cancel(); return }
+                guard !Task.isCancelled, phoneExecution?.isAuthorized != false else { nudge.cancel(); return }
                 await measure(nudge: nudge)
             }
         }
@@ -605,7 +612,9 @@ struct MeasureTakeover: View {
                 // while the link is still coming back. Sending the first command into that gap
                 // threw notConnected and the screen opened on 「Lost the band」 — a measurement
                 // that never failed, reported as a failure. 03 restores the link first; so does this.
+                try checkPhoneExecution()
                 if Band.live.state != .connected { await Band.live.reconnectIfBound() }
+                try checkPhoneExecution()
 
                 if isBodyScan {
                     // F2 §05 · the band's BIA multiplies by the weight we push down, so the
@@ -616,8 +625,10 @@ struct MeasureTakeover: View {
                         birthYear: Calendar.current.component(.year, from: data.profile.birthdate),
                         sexIsMale: data.profile.sexIsMale,
                         targetStep: 8000))
+                    try checkPhoneExecution()
                     let stream = Band.live.measureBodyComposition()
                     for try await step in stream {
+                        try checkPhoneExecution()
                         switch step {
                         case .waitingForContact: apply(step)
                         default: nudge.cancel(); apply(step)
@@ -649,8 +660,9 @@ struct MeasureTakeover: View {
     /// it reports 0…100 as it goes, and a countdown that kept ticking after the band had
     /// stopped would be the screen lying about a measurement that had already ended.
     private func measureBalanceCheck(nudge: Task<Void, Never>) async throws {
+        try checkPhoneExecution()
         for try await step in Band.live.measurePulseStudy() {
-            try Task.checkCancellation()
+            try checkPhoneExecution()
             switch step {
             case .waitingForContact:
                 apply(.waitingForContact)
@@ -894,12 +906,14 @@ struct MeasureTakeover: View {
     /// own, and goes back to "put your finger on". ⚠️ The measurement is stopped explicitly
     /// (the stream ends) so the band's slot is released before reconnecting.
     private func dropped() async {
+        guard phoneExecution?.isAuthorized != false else { return }
         withAnimation { phase = .dropped }
         await Band.live.reconnectIfBound()
         if Band.live.state == .connected { open() }
     }
 
     private func apply(_ step: MeasurementProgress) {
+        guard phoneExecution?.isAuthorized != false else { return }
         switch step {
         case .waitingForContact:
             if phase == .opening { withAnimation { phase = .waiting } }

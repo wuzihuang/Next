@@ -1,4 +1,30 @@
-# Hydrogen template: Skeleton
+# NextBody storefronts
+
+The repository has two storefront runtimes. `shopify-theme/` is the Liquid theme
+used by `nextbody.ai`; `shopify-web/` is the Hydrogen storefront and local preview.
+They retain separate UI and storage: the theme uses localStorage, while Hydrogen
+uses a session cookie. Both checkout flows create test orders only and do not
+process payments or share the iOS app's health account.
+
+Cart rules live in `app/lib/cartPricing.js`. Hydrogen imports this source directly;
+Liquid loads the generated `../shopify-theme/assets/cart-pricing.js` before
+`shop.js`. Product content and storefront deployment remain separate. A Hydrogen
+build does not update or deploy the Liquid theme.
+
+After changing cart rules, run these commands from `shopify-web/`:
+
+```bash
+npm run build:shop-core
+npm run test:shop
+```
+
+The generator uses the existing TypeScript dependency and performs no deployment.
+Commit both the source and generated asset. `npm run check:shop-core` detects
+source/asset drift and runs before storefront tests and the Hydrogen build. The
+same cart fixtures exercise the Hydrogen cookie adapter and the Liquid browser
+script, including order totals, discounts, shipping, and legacy variant IDs.
+
+## Hydrogen development
 
 Hydrogen is Shopify’s stack for headless commerce. Hydrogen is designed to dovetail with [React Router](https://reactrouter.com/), the modern multi-strategy router for React. This template contains a **minimal setup** of components, queries and tooling to get started with Hydrogen.
 

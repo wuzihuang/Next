@@ -213,6 +213,17 @@ enum HomeSnapshot {
         return filteredSleep(result)
     }
 
+    /// The same observation overlay is used at launch and when reopening a cached detail.
+    /// Cache freshness describes derived metrics; it must never erase newer device facts.
+    static func restoringObservations(_ metrics: DailyMetrics, samples: [VitalSample],
+                                      sleep: SleepSummary?) -> DailyMetrics {
+        var result = metrics
+        result.vitalsCurve = VitalSample.merging(metrics.vitalsCurve, with: samples)
+        result.sleep = mergedSleep(sleepForDay(metrics.sleep, day: metrics.day),
+                                   with: sleepForDay(sleep, day: metrics.day))
+        return result
+    }
+
     @MainActor
     private static func restoreBandObservations(into store: DataStore, userId: String, now: Date) {
         do {
@@ -227,11 +238,7 @@ enum HomeSnapshot {
                     continue
                 }
                 func restore(_ metrics: DailyMetrics) -> DailyMetrics {
-                    var result = metrics
-                    result.vitalsCurve = VitalSample.merging(metrics.vitalsCurve, with: archived.samples)
-                    result.sleep = mergedSleep(sleepForDay(metrics.sleep, day: archived.day),
-                                               with: sleepForDay(archived.sleep, day: archived.day))
-                    return result
+                    restoringObservations(metrics, samples: archived.samples, sleep: archived.sleep)
                 }
                 if archived.day == current {
                     store.today = restore(store.today)
@@ -329,10 +336,16 @@ enum HomeSnapshot {
 
     static func loadDetail(day: UserDay, userId: String) -> DailyMetrics? {
         do {
-            guard let data = try LocalDataStore.shared().readDocument(account: userId, key: "day:" + day.key) else { return nil }
+            let database = try LocalDataStore.shared()
+            guard let data = try database.readDocument(account: userId, key: "day:" + day.key) else { return nil }
             let cached = try JSONDecoder().decode(CachedDay.self, from: data)
             guard cached.metrics.day == day, cached.detail.dayKey == day.key else { return nil }
-            return cached.detail.restore(cached.metrics)
+            let restored = cached.detail.restore(cached.metrics)
+            guard let observations = try? database.readObservationDocument(account: userId, key: "band-day:" + day.key),
+                  let archived = try? JSONDecoder().decode(BandDay.self, from: observations), archived.day == day else {
+                return restored
+            }
+            return restoringObservations(restored, samples: archived.samples, sleep: archived.sleep)
         } catch { NSLog("Detail cache read failed: %@", String(describing: error)); return nil }
     }
 

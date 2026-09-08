@@ -17,7 +17,7 @@ Deno.serve((req) =>
     },
     canonicalMeal: async (request, operationId) => {
       const { data, error } = await userClient(request).from("meals")
-        .select("id,user_day,slot,text_input,kcal,protein_g,carb_g,fat_g,confidence,model_version,deleted_at")
+        .select("id,user_day,slot,text_input,kcal,protein_g,carb_g,fat_g,confidence,model_version,logged_at,deleted_at")
         .eq("client_op_id", operationId).maybeSingle();
       if (error) throw new Error("Canonical meal lookup failed");
       if (!data) return null;

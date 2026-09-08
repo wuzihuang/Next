@@ -91,7 +91,9 @@ final class LiveSessionStore: ObservableObject {
 
     /// The tap. The session is on from here — the screen grows now, and the band is asked
     /// underneath it. `weightKg` is the latest weigh-in the day knows, for the burn.
-    func begin(_ mode: SportModeOption, profile: Profile, weightKg: Double?) {
+    func begin(_ mode: SportModeOption, profile: Profile, weightKg: Double?,
+               authorized: @escaping @MainActor () -> Bool = { true }) {
+        guard authorized() else { return }
         guard session == nil, cleanupTask == nil else { return }
         guard Self.debugFakeWrist || (ConsentStore.shared.granted
             && SupabaseClient.currentUserIdSnapshot() != nil && BoundBand.identifier != nil) else {
@@ -131,7 +133,7 @@ final class LiveSessionStore: ObservableObject {
         openTask = Task { [weak self] in
             await BandReadiness.shared.awaitNativeIdle()
             guard let self else { return }
-            guard self.accepts(owner) else {
+            guard (self.accepts(owner) && authorized()) else {
                 if self.lifetime == owner, !Task.isCancelled {
                     self.opening = false
                     self.refusal = L("Connect your band before starting a session.")
@@ -139,9 +141,9 @@ final class LiveSessionStore: ObservableObject {
                 return
             }
             let outcome = await LiveReadout.shared.standDown {
-                guard self.accepts(owner) else { return Open.refused(CancellationError()) }
+                guard (self.accepts(owner) && authorized()) else { return Open.refused(CancellationError()) }
                 if Band.live.state != .connected { await Band.live.reconnectForSport() }
-                guard self.accepts(owner) else { return Open.refused(CancellationError()) }
+                guard (self.accepts(owner) && authorized()) else { return Open.refused(CancellationError()) }
                 guard Band.live.state == .connected else { return Open.refused(BandError.notConnected) }
                 // Every mode starts with this person's current inputs, after readiness
                 // and before opening. Never send an invented default weight.
@@ -153,12 +155,12 @@ final class LiveSessionStore: ObservableObject {
                             birthYear: Calendar.current.component(.year, from: profile.birthdate),
                             sexIsMale: profile.sexIsMale, targetStep: 8000))
                     } catch { return Open.refused(error) }
-                    guard self.accepts(owner) else { return Open.refused(CancellationError()) }
+                    guard (self.accepts(owner) && authorized()) else { return Open.refused(CancellationError()) }
                 }
-                return await Self.open(mode, isCurrent: { self.accepts(owner) },
+                return await Self.open(mode, isCurrent: { (self.accepts(owner) && authorized()) },
                     disposition: { self.startDisposition = $0 })
             }
-            guard self.accepts(owner) else {
+            guard (self.accepts(owner) && authorized()) else {
                 if self.lifetime == owner, !Task.isCancelled {
                     self.opening = false
                     self.refusal = L("Connect your band before starting a session.")
@@ -181,6 +183,13 @@ final class LiveSessionStore: ObservableObject {
                 self.refusal = error.localizedDescription
             }
         }
+    }
+
+    /// Phone actions retain their execution eligibility until the deferred BLE start settles.
+    func awaitOpening(authorized: @MainActor () -> Bool) async {
+        let openingOwner = lifetime
+        await openTask?.value
+        if !authorized(), lifetime == openingOwner { end() }
     }
 
     private func accepts(_ owner: SportSessionLifetime) -> Bool {
@@ -258,7 +267,8 @@ final class LiveSessionStore: ObservableObject {
 
     /// Close the mode on the band. Returns the widget the panel takes when the screen folds;
     /// the session itself stays up until `end()` so the fold has numbers to fold.
-    func stop() async -> PanelWidget? {
+    func stop(authorized: @escaping @MainActor () -> Bool = { true }) async -> PanelWidget? {
+        guard authorized() else { return nil }
         guard let session, !stopping else { return nil }
         let stoppingOwner = lifetime
         stopping = true
@@ -272,11 +282,12 @@ final class LiveSessionStore: ObservableObject {
         opening = false
         heartEvidence.interrupted()
         await BandReadiness.shared.awaitNativeIdle()
+        guard authorized() else { return nil }
         var closed = true
         do {
             if !Self.debugFakeWrist, startDisposition.needsCleanup {
                 let result: Result<Void, Error> = await LiveReadout.shared.standDown {
-                    guard stoppingOwner?.account == SupabaseClient.currentUserIdSnapshot(),
+                    guard authorized(), stoppingOwner?.account == SupabaseClient.currentUserIdSnapshot(),
                           stoppingOwner?.binding == BoundBand.identifier else {
                         return .failure(CancellationError())
                     }

@@ -816,7 +816,7 @@ function gaps(): Source[] {
         // What the verdict rests on: how many times she actually stood on the scale.
         const weighs = await ctx.db.from("weigh_ins").select("measured_at")
           .eq("user_id", ctx.userId)
-          .gte("measured_at", zoned(from, 4, ctx.tz).toISOString())
+          .gte("measured_at", dayBounds(from, ctx.tz).start.toISOString())
           .lt("measured_at", dayBounds(ctx.dayKey, ctx.tz).end.toISOString());
         if (weighs.error) throw new Error("SOURCE_QUERY_FAILED");
         const STEPS: Record<string, number> = { PENDING: 1, MEDIUM: 2, HIGH: 3 };
@@ -945,28 +945,40 @@ function gaps(): Source[] {
   ];
 }
 
+type MetricReading = Extract<Awaited<ReturnType<typeof queryMetrics>>, { ok: true }>['data'][number];
+
+// ADR 0006: chart projections use the same formal read as data.read. Neither table
+// columns, user-day bounds, missing-day statistics nor evidence are chart policy.
+async function readMetricWindow(ctx: Ctx, metric: Metric, span: number) {
+  const days = window(ctx, span);
+  const result = await queryMetrics(ctx, {
+    metrics: [metric], from: days[0], to: days.at(-1)!, timezone: ctx.tz,
+  });
+  if (!result.ok) throw new Error(result.error);
+  return { reading: result.data[0], days };
+}
+
+function observedPoints(reading: MetricReading) {
+  return reading.points.filter((point): point is typeof point & { value: number } => point.value !== null);
+}
+
 /// A daily metric over 7 or 30 days, as a curve (line) or a column (days). One source id
 /// serves both: the chart decides the kind it wants, see `fetchAs`.
-function dailySeries(id: string, label: string, unit: string, pick: (r: DayRow) => number | null, spans: number[]): Source[] {
+function dailySeries(id: Metric, label: string, unit: string, spans: number[]): Source[] {
   return spans.map((n) => ({
     id: `${id}.${n}d`, kind: "curve",
     says: `最近 ${n} 天每天的 ${label}${unit ? `（${unit}）` : ""}`,
     async fetch(ctx) {
-      const days = window(ctx, n);
-      const rows = await dayRows(ctx, days[0], ctx.dayKey);
-      if (!rows) return null;
-      const by = new Map(rows.map((r) => [r.user_day, pick(r)]));
-      const present = days.filter((d) => by.get(d) != null);
+      const { reading, days } = await readMetricWindow(ctx, id, n);
+      const present = observedPoints(reading);
       if (present.length < 2) return null;
-      const series: Point[] = present.map((d) => [n <= 7 ? weekday(d) : mmdd(d), Number(by.get(d))]);
-      const vals = series.map((p) => p[1]);
-      const s = stats(vals);
-      const half = Math.floor(vals.length / 2);
-      const prev = mean(vals.slice(0, half)), curr = mean(vals.slice(half));
+      const series: Point[] = present.map((p) => [days.length <= 7 ? weekday(p.dayKey) : mmdd(p.dayKey), p.value]);
+      const s = reading.stats;
       return {
         data: { kind: "curve", series },
-        agg: { ...s, today: by.get(ctx.dayKey) ?? null, days: present.length, windowDays: n, thisHalfVsPrevHalf: prev != null && curr != null ? r1(curr - prev) : null, latestVsMean: s.latest != null && s.mean != null ? r1(s.latest - s.mean) : null },
-        hero: `${s.latest}${unit === "%" ? "%" : ""}`, unit, window: `${n} DAYS`,
+        agg: { ...s, mean0: s.mean == null ? null : Math.round(s.mean), today: s.latest, days: present.length, windowDays: days.length, thisHalfVsPrevHalf: s.secondHalfVsFirstHalf },
+        evidence: reading.evidence,
+        hero: s.latest == null ? "——" : `${s.latest}${unit === "%" ? "%" : ""}`, unit, window: `${days.length} DAYS`,
       };
     },
   }));
@@ -1062,6 +1074,9 @@ export async function fetchAs(id: string, kind: Kind, ctx: Ctx): Promise<SourceR
       const result = await src.fetch(ctx);
       acceptSnapshot(ctx,before,await readSnapshot(ctx,from,to));
       if (!result) return null;
+      // A projection keeps the formal reading's identity and quality. Its chart id
+      // describes a shape, not a second independently measured health metric.
+      if (typeof result.evidence?.id === "string") return result;
       const digest = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify([key,result])));
       const revision = Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");
       return {...result,evidence:{...result.evidence,id:revision,metric:id,dayKey:ctx.dayKey,from,to,timezone:ctx.tz,unit:result.unit??null,observedAt:new Date().toISOString()}};

@@ -5,6 +5,7 @@ import SwiftUI
 struct DeviceView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
+    @ObservedObject private var syncActivity = BandSyncActivity.shared
 
     @State private var sheet: SheetRoute?
     @State private var identity: BandIdentity?
@@ -29,9 +30,7 @@ struct DeviceView: View {
     /// Device SYNC is in flight — the capsule holds a spinner until battery, identity,
     /// and today's origin pull have all come back.
     @State private var syncing = false
-    @State private var connectingForSync = false
     @State private var syncMessage: String?
-    @State private var syncAfterConsent: (account: String, binding: String)?
     /// What Automatic measurement actually read — not a guess from capability bits.
     /// Kept outside DEBUG because Training can still open the sheet in Release.
     @State private var autoRead: AutoMonitoringRead?
@@ -45,6 +44,8 @@ struct DeviceView: View {
     #endif
 
     private var connected: Bool { data.band.connected }
+    private var syncInProgress: Bool { syncing || syncActivity.phase != "idle" }
+    private var connectingForSync: Bool { syncActivity.phase == "connecting" }
 
     var body: some View {
         DetailScroll(glow: NB.lime1, title: L("DEVICE"), trailing: {
@@ -205,21 +206,6 @@ struct DeviceView: View {
                 } catch {
                     autoRead = .failed(error)
                 }
-            }
-        }
-        .onChange(of: router.takeover) { old, current in
-            guard old == .consent, current == nil, let pending = syncAfterConsent else { return }
-            syncAfterConsent = nil
-            guard ConsentStore.shared.granted,
-                  SupabaseClient.currentUserIdSnapshot() == pending.account,
-                  BoundBand.identifier == pending.binding else { return }
-            Task { @MainActor in
-                // The app releases the takeover's native-operation gate on this same change.
-                await Task.yield()
-                guard router.takeover == nil, ConsentStore.shared.granted,
-                      SupabaseClient.currentUserIdSnapshot() == pending.account,
-                      BoundBand.identifier == pending.binding else { return }
-                await pullBandNow()
             }
         }
         .sheet(item: $sheet) { r in
@@ -387,12 +373,12 @@ struct DeviceView: View {
             Task { await pullBandNow() }
         } label: {
             HStack(spacing: 6) {
-                if syncing {
+                if syncInProgress {
                     ProgressView()
                         .controlSize(.small)
                         .tint(NB.lime1)
                 }
-                Text(syncing ? L(connectingForSync ? "CONNECTING" : "SYNCING…") : L("SYNC"))
+                Text(syncInProgress ? L(connectingForSync ? "CONNECTING" : "SYNCING…") : L("SYNC"))
                     .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
                     .foregroundStyle(NB.lime1)
             }
@@ -408,53 +394,35 @@ struct DeviceView: View {
         .disabled(BoundBand.identifier == nil || syncing)
         .accessibilityLabel(L("Sync now"))
         .accessibilityHint(L("Connect this HOOP if needed, then pull the latest readings."))
-        .accessibilityValue(syncing ? L(connectingForSync ? "CONNECTING" : "SYNCING…") : "")
+        .accessibilityValue(syncInProgress ? L(connectingForSync ? "CONNECTING" : "SYNCING…") : "")
     }
 
-    /// Battery, identity, then today's origin pages — cadence throttle does not apply,
-    /// because the button exists to ask again now.
+    /// The shared refresh owns readiness, admission, history and the actual completion.
     private func pullBandNow() async {
-        guard BoundBand.identifier != nil, !syncing else { return }
+        guard !syncing else { return }
         syncMessage = nil
-        guard let account = SupabaseClient.currentUserIdSnapshot(),
-              let binding = BoundBand.identifier else {
-            syncMessage = L("Sign in to sync this HOOP.")
-            return
-        }
-        guard ConsentStore.shared.granted else {
-            syncAfterConsent = (account, binding)
-            router.takeover = .consent
-            return
-        }
-        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else {
-            syncMessage = L("Finish the current measurement or device operation, then sync again.")
-            return
-        }
         syncing = true
-        connectingForSync = Band.live.state != .connected
-        defer { syncing = false; connectingForSync = false }
-        await Analytics.shared.track("DEV_SYNC_TAP", ["CONNECTED": connected])
-        let ready = await BandReadiness.shared.ensureReady(into: data, reason: "device-sync")
-        guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == account,
-              BoundBand.identifier == binding, !Task.isCancelled else { return }
-        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else {
+        defer { syncing = false }
+        Task { await Analytics.shared.track("DEV_SYNC_TAP", ["CONNECTED": connected]) }
+        let result = await OriginDataSync.refreshNow(into: data, request: .fullHistory)
+        guard !Task.isCancelled else { return }
+        switch result.status {
+        case .success:
+            identity = BandReadiness.shared.snapshot?.identity
+        case .consentRequired:
+            router.takeover = .consent
+        case .signedOut:
+            syncMessage = L("Sign in to sync this HOOP.")
+        case .busy:
             syncMessage = L("Finish the current measurement or device operation, then sync again.")
-            return
-        }
-        guard ready else {
+        case .disconnected, .unbound:
             syncMessage = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
-            return
-        }
-        connectingForSync = false
-        if let snapshot = BandReadiness.shared.snapshot,
-           snapshot.account == account, snapshot.binding == binding {
-            identity = snapshot.identity
-        }
-        await OriginDataSync.refreshNow(into: data, minimumInterval: 0, fullHistory: true)
-        guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == account,
-              BoundBand.identifier == binding, !Task.isCancelled else { return }
-        if Band.live.state != .connected {
-            syncMessage = L("The connection was lost during sync. Tap Sync to reconnect and try again.")
+        case .partial:
+            syncMessage = L("Some readings could not sync. Tap Sync to try again.")
+        case .failed:
+            syncMessage = L("Sync did not complete. Tap Sync to try again.")
+        case .cancelled, .throttled:
+            break
         }
     }
 

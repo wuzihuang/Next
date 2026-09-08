@@ -5,7 +5,7 @@
 // turn reads as a model problem rather than a calendar problem.
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { userDayKey } from "./db.ts";
-import { dayBounds, dayOf } from "./sources.ts";
+import { dayBounds, dayOf } from "./calendar.ts";
 
 const SH = "Asia/Shanghai";
 

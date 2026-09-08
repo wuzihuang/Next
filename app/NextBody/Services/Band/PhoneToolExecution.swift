@@ -5,6 +5,12 @@ import Foundation
 /// same account/session, turn and band before it can issue a subsequent action.
 @MainActor
 final class PhoneToolExecution {
+    fileprivate final class Cancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+        func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+        var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    }
     struct Scope: Equatable {
         let session: RequestSession
         let turnID: UUID
@@ -29,6 +35,9 @@ final class PhoneToolExecution {
         case consentRequired = "CONSENT_REQUIRED"
         case sessionChanged = "SESSION_CHANGED"
         case bindingChanged = "BAND_DISCONNECTED"
+        case alarmSlotsFull = "ALARM_SLOTS_FULL"
+        case alarmNotFound = "ALARM_NOT_FOUND"
+        case alreadyExecuted = "CALL_ALREADY_EXECUTED"
     }
 
     @MainActor
@@ -39,11 +48,14 @@ final class PhoneToolExecution {
         fileprivate var failure: Failure?
         fileprivate var finished = false
         private let current: () -> Environment
+        private let cancellation: Cancellation
 
-        fileprivate init(scope: Scope, callID: String, current: @escaping () -> Environment) {
+        fileprivate init(scope: Scope, callID: String, cancellation: Cancellation,
+                         current: @escaping () -> Environment) {
             self.scope = scope
             self.callID = callID
             self.current = current
+            self.cancellation = cancellation
         }
 
         /// Check immediately before each side effect. A read followed by a write must use
@@ -52,7 +64,7 @@ final class PhoneToolExecution {
             if let failure { throw failure }
             let now = current()
             let reason: Failure?
-            if Task.isCancelled || finished { reason = .cancelled }
+            if Task.isCancelled || cancellation.isCancelled || finished { reason = .cancelled }
             else if !now.foreground { reason = .background }
             else if !now.consent { reason = .consentRequired }
             else if scope.session.owner == nil || now.scope.session != scope.session { reason = .sessionChanged }
@@ -70,6 +82,25 @@ final class PhoneToolExecution {
             try check()
             return result
         }
+
+        func setAlarm(_ draft: BandAlarm,
+                      read: @MainActor () async throws -> [BandAlarm],
+                      write: @MainActor (BandAlarm) async throws -> [BandAlarm]) async throws -> (id: Int, alarms: [BandAlarm]) {
+            let alarms = try await perform(read)
+            guard let id = BandAlarmMath.nextID(in: alarms) else { throw Failure.alarmSlotsFull }
+            var next = draft
+            next.id = id
+            let after = try await perform { try await write(BandAlarmMath.prepared(next)) }
+            return (id, after)
+        }
+
+        func deleteAlarm(_ id: Int,
+                         read: @MainActor () async throws -> [BandAlarm],
+                         delete: @MainActor (BandAlarm) async throws -> [BandAlarm]) async throws -> [BandAlarm] {
+            let alarms = try await perform(read)
+            guard let alarm = alarms.first(where: { $0.id == id }) else { throw Failure.alarmNotFound }
+            return try await perform { try await delete(alarm) }
+        }
     }
 
     private struct Pending {
@@ -85,11 +116,11 @@ final class PhoneToolExecution {
     private var pending: Pending?
     private var prompt: Prompt?
     private var displayed: (id: UUID, name: String)?
+    private var admittedScope: Scope?
+    private var admittedCalls: Set<String> = []
 
     init(current: @escaping () -> Environment,
-         sleep: @escaping @MainActor (TimeInterval) async throws -> Void = {
-             try await Task.sleep(for: .seconds($0))
-         },
+         sleep: @escaping @MainActor (TimeInterval) async throws -> Void,
          changed: @escaping @MainActor (Prompt?, String?) -> Void) {
         self.current = current
         self.sleep = sleep
@@ -99,10 +130,14 @@ final class PhoneToolExecution {
     func run<Value>(scope: Scope, callID: String, name: String,
                     confirmation: (title: String, detail: String)?,
                     action: @MainActor (Execution) async throws -> Value) async throws -> Value {
-        let execution = Execution(scope: scope, callID: callID, current: current)
+        let cancellation = Cancellation()
+        let execution = Execution(scope: scope, callID: callID, cancellation: cancellation, current: current)
+        try execution.check()
+        if admittedScope != scope { admittedScope = scope; admittedCalls = [] }
+        guard admittedCalls.insert(callID).inserted else { throw Failure.alreadyExecuted }
         // A new call replaces the visible confirmation; the displaced waiter is completed
         // before installing its successor, and its timer can only resolve its own UUID.
-        if let old = pending { invalidate(old.execution, reason: .cancelled) }
+        invalidateAll(.cancelled)
         executions[execution.id] = execution
         displayed = (execution.id, name)
         emit()
@@ -121,6 +156,7 @@ final class PhoneToolExecution {
             }
             return try await execution.perform { try await action(execution) }
         } onCancel: {
+            cancellation.cancel()
             Task { @MainActor in self.invalidate(execution, reason: .cancelled) }
         }
     }
@@ -139,9 +175,9 @@ final class PhoneToolExecution {
     /// authority even if a notification has not yet reached the main actor.
     func refreshEligibility() {
         for execution in Array(executions.values) {
-            if let reason = Result { try execution.check() }.failure as? Failure {
-                invalidate(execution, reason: reason)
-            }
+            do { try execution.check() }
+            catch let reason as Failure { invalidate(execution, reason: reason) }
+            catch { invalidate(execution, reason: .cancelled) }
         }
     }
 

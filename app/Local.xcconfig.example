@@ -1,5 +1,5 @@
-// Copy to Local.xcconfig and fill in. Git-ignored.
-NB_DEBUG_MODEL_KEY =
+// Optional local overrides. Copy to Local.xcconfig (git-ignored).
+// Model credentials belong on the backend; the app always uses Edge Functions.
 
 // Optional. Point a DEBUG build at a locally served copy of the Edge Functions.
 // ⚠️ The $() is not a typo: xcconfig treats // as a comment, so the slashes have to be

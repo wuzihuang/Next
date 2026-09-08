@@ -19,6 +19,7 @@ final class Repository {
     private var homeFastDone = false
     private var readGeneration: UInt = 0
     private var sleepScoreGeneration: UInt = 0
+    private var summaryReadGeneration: UInt = 0
     private(set) var sessionGeneration: UInt = 0
     private var summaryRevisions: [String: [String: String]] = [:]
 
@@ -45,6 +46,7 @@ final class Repository {
         readGeneration &+= 1
         sessionGeneration &+= 1
         sleepScoreGeneration &+= 1
+        summaryReadGeneration &+= 1
         homeFastTask = nil
         homeFastDone = false
     }
@@ -617,108 +619,81 @@ final class Repository {
     }
 
     func loadHistorySummaries(days: Int, endingAt day: UserDay, into store: DataStore) async {
+        summaryReadGeneration &+= 1
+        let summaryGeneration = summaryReadGeneration
         let account = SupabaseClient.currentUserIdSnapshot()
         let generation = readGeneration
         do {
             guard let account else { return }
-            let from = day.adding(days: -min(days, 182)).key
-            let status = try await calculationStatusIfAvailable(from: from, to: day.key)
-            let known = summaryRevisions[account] ?? [:]
-            var range = [URLQueryItem(name: "user_day", value: "gte.\(from)")]
-            if let status {
-                let changed = status.compactMap { row -> String? in
-                    guard let key = row["user_day"] as? String else { return nil }
-                    let hasCachedRow = store.today.day.key == key || store.history.contains { $0.day.key == key }
-                    return HomeLaunchPolicy.shouldRefreshSummary(revision: row["result_revision"] as? String,
-                        cachedRevision: known[key], hasCachedRow: hasCachedRow) ? key : nil
-                }
-                guard let changedFilter = HomeLaunchPolicy.postgrestIn(changed) else { return }
-                range = [.init(name: "user_day", value: changedFilter)]
-            }
-            let selection = try await selectDailyResultsCompat(query: [
-                .init(name: "select", value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version,result_revision,worn,wear_run,wear_miss"),
-                .init(name: "user_day", value: "lte.\(day.key)"),
-                .init(name: "order", value: "user_day.asc"),
-            ] + range)
-            let rows = selection.rows
-            let fuel = try await selectByResultId("day_fuel",
-                columns: "result_id,kcal_in,kcal_out,protein_in_g,carb_in_g,fat_in_g,weight_kg,intake_state,slot_states",
-                ids: rows.compactMap { $0["id"] as? String })
-            if status != nil && selection.versioned {
-                guard let latestStatus = try await calculationStatusIfAvailable(from: from, to: day.key),
-                    rows.allSatisfy({ row in latestStatus.contains {
-                        ($0["user_day"] as? String) == (row["user_day"] as? String)
-                            && ($0["result_revision"] as? String) == (row["result_revision"] as? String)
-                    } }) else { return }
-            }
-            guard HomeLaunchPolicy.acceptsRead(account: account,
-                currentAccount: SupabaseClient.currentUserIdSnapshot(), generation: generation,
-                currentGeneration: readGeneration), !Task.isCancelled else { return }
-            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
-            let summaries: [DailyMetrics] = rows.compactMap { row in
-                guard let key = row["user_day"] as? String, let date = f.date(from: key) else { return nil }
-                let d = UserDay(date: Calendar.current.date(bySettingHour: UserDay.boundaryHour,
-                    minute: 0, second: 0, of: date) ?? date)
-                let asOf = (row["computed_at"] as? String).flatMap(Self.timestamp)
-                // Preserve an already loaded detail only when its result is the same or newer.
-                if let existing = store.metrics(for: d), let at = existing.asOf,
-                   let asOf, at >= asOf {
-                    var retained = existing
-                    retained.sleep = Self.sleepOnWakeDay(existing.sleep, day: d)
-                    return retained
-                }
-                var m = DailyMetrics(day: d)
-                m.trainingLoad = number(row["training_load"])
-                m.bodyBattery = number(row["reserve_score"]).map(Int.init)
-                m.balance = number(row["fuel_balance_kcal"])
-                m.asOf = asOf; m.calcVersion = row["algo_version"] as? String ?? "?"
-                m.serverDirection = (row["daily_direction"] as? String).flatMap {
-                    switch $0 {
-                    case "DEFICIT": .deficit
-                    case "LEVEL": .level
-                    case "SURPLUS": .surplus
-                    case "GREY_NO_BURN": .greyNoBurn
-                    default: .greyNothing
+            let reader = snapshotReader(account: account, generation: generation, summaryGeneration: summaryGeneration)
+            guard let snapshot = try await reader.summaries(days: days, endingAt: day,
+                known: summaryRevisions[account] ?? [:],
+                cachedDays: Set(store.history.map { $0.day.key } + [store.today.day.key]),
+                didPublish: { [self] revisions in summaryRevisions[account] = revisions }) else { return }
+            snapshot.publish { snapshot in
+                let rows = snapshot.rows, fuel = snapshot.fuel
+                let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
+                let summaries: [DailyMetrics] = rows.compactMap { row in
+                    guard let key = row["user_day"] as? String, let date = f.date(from: key) else { return nil }
+                    let d = UserDay(date: Calendar.current.date(bySettingHour: UserDay.boundaryHour,
+                        minute: 0, second: 0, of: date) ?? date)
+                    let asOf = (row["computed_at"] as? String).flatMap(Self.timestamp)
+                    // Preserve an already loaded detail only when its result is the same or newer.
+                    if let existing = store.metrics(for: d), let at = existing.asOf,
+                       let asOf, at >= asOf {
+                        var retained = existing
+                        retained.sleep = Self.sleepOnWakeDay(existing.sleep, day: d)
+                        return retained
                     }
-                }
-                m.serverCall = (row["the_call"] as? String).flatMap {
-                    $0 == "NO_CHANGE" ? .noChange : TheCall(rawValue: $0)
-                }
-                m.confidence = Confidence(rawValue: row["the_call_confidence"] as? String ?? "") ?? .pending
-                m.fatEmaDelta7d = number(row["fat_delta_7d"])
-                m.leanEmaDelta7d = number(row["lean_delta_7d"])
-                m.scans7d = Int(number(row["scans_7d"]) ?? 0)
-                applyWear(row, to: &m)
-                if let energy = fuel.first(where: { ($0["result_id"] as? String) == (row["id"] as? String) }) {
-                    m.eIn = number(energy["kcal_in"]); m.eOutNow = number(energy["kcal_out"])
-                    m.proteinIn = number(energy["protein_in_g"]).map(Int.init)
-                    m.carbIn = number(energy["carb_in_g"]).map(Int.init)
-                    m.fatIn = number(energy["fat_in_g"]).map(Int.init)
-                    m.weightKg = number(energy["weight_kg"])
-                    switch energy["intake_state"] as? String {
-                    case "FASTED": m.fuelState = .fasted
-                    case "CONFIRMED": m.fuelState = .confirmed
-                    case "PARTIAL": m.fuelState = .partial(slots: (energy["slot_states"] as? [String: String])?.values.filter { $0 == "CONFIRMED" }.count ?? 0)
-                    default: m.fuelState = .unlogged
+                    var m = DailyMetrics(day: d)
+                    m.trainingLoad = number(row["training_load"])
+                    m.bodyBattery = number(row["reserve_score"]).map(Int.init)
+                    m.balance = number(row["fuel_balance_kcal"])
+                    m.asOf = asOf; m.calcVersion = row["algo_version"] as? String ?? "?"
+                    m.serverDirection = (row["daily_direction"] as? String).flatMap {
+                        switch $0 {
+                        case "DEFICIT": .deficit
+                        case "LEVEL": .level
+                        case "SURPLUS": .surplus
+                        case "GREY_NO_BURN": .greyNoBurn
+                        default: .greyNothing
+                        }
                     }
+                    m.serverCall = (row["the_call"] as? String).flatMap {
+                        $0 == "NO_CHANGE" ? .noChange : TheCall(rawValue: $0)
+                    }
+                    m.confidence = Confidence(rawValue: row["the_call_confidence"] as? String ?? "") ?? .pending
+                    m.fatEmaDelta7d = number(row["fat_delta_7d"])
+                    m.leanEmaDelta7d = number(row["lean_delta_7d"])
+                    m.scans7d = Int(number(row["scans_7d"]) ?? 0)
+                    applyWear(row, to: &m)
+                    if let energy = fuel.first(where: { ($0["result_id"] as? String) == (row["id"] as? String) }) {
+                        m.eIn = number(energy["kcal_in"]); m.eOutNow = number(energy["kcal_out"])
+                        m.proteinIn = number(energy["protein_in_g"]).map(Int.init)
+                        m.carbIn = number(energy["carb_in_g"]).map(Int.init)
+                        m.fatIn = number(energy["fat_in_g"]).map(Int.init)
+                        m.weightKg = number(energy["weight_kg"])
+                        switch energy["intake_state"] as? String {
+                        case "FASTED": m.fuelState = .fasted
+                        case "CONFIRMED": m.fuelState = .confirmed
+                        case "PARTIAL": m.fuelState = .partial(slots: (energy["slot_states"] as? [String: String])?.values.filter { $0 == "CONFIRMED" }.count ?? 0)
+                        default: m.fuelState = .unlogged
+                        }
+                    }
+                    m.sleepScore = store.sleepScores[d.key]
+                    // Summary revisions invalidate computed details, not device observations.
+                    if let existing = store.metrics(for: d) {
+                        m.sleep = Self.sleepOnWakeDay(existing.sleep, day: d)
+                        m.vitalsCurve = existing.vitalsCurve
+                        m.fatKg = existing.fatKg
+                        m.leanKg = existing.leanKg
+                    }
+                    return m
                 }
-                m.sleepScore = store.sleepScores[d.key]
-                // Summary revisions invalidate computed details, not device observations.
-                if let existing = store.metrics(for: d) {
-                    m.sleep = Self.sleepOnWakeDay(existing.sleep, day: d)
-                    m.vitalsCurve = existing.vitalsCurve
-                    m.fatKg = existing.fatKg
-                    m.leanKg = existing.leanKg
-                }
-                return m
+                store.history = (store.history.filter { old in !summaries.contains { $0.day == old.day } }
+                    + summaries).sorted { $0.day < $1.day }
+                HomeSnapshot.save(from: store)
             }
-            summaryRevisions[account] = known.merging(Dictionary(uniqueKeysWithValues: rows.compactMap { row in
-                guard let key = row["user_day"] as? String, let revision = row["result_revision"] as? String else { return nil }
-                return (key, revision)
-            }), uniquingKeysWith: { _, new in new })
-            store.history = (store.history.filter { old in !summaries.contains { $0.day == old.day } }
-                + summaries).sorted { $0.day < $1.day }
-            HomeSnapshot.save(from: store)
         } catch {
             // Keep valid cached history when an independent background read fails.
             NSLog("History summary refresh failed: %@", String(describing: error))
@@ -729,7 +704,8 @@ final class Repository {
         guard let account = SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId else { return }
         if var cached = HomeSnapshot.loadDetail(day: day, userId: account),
            store.metrics(for: day)?.asOf == nil || (store.metrics(for: day)?.asOf ?? .distantPast) < (cached.asOf ?? .distantPast) {
-            cached.sleep = Self.sleepOnWakeDay(cached.sleep, day: day)
+            let local = store.metrics(for: day)
+            cached = HomeSnapshot.restoringObservations(cached, samples: local?.vitalsCurve ?? [], sleep: local?.sleep)
             cached.sleepScore = store.sleepScores[day.key]
             if day == UserDay.containing(Date()) { store.today = cached }
             store.history = (store.history.filter { $0.day != day } + [cached]).sorted { $0.day < $1.day }
@@ -802,28 +778,7 @@ final class Repository {
             ])
             let vitalRows = try await vitalRowsAsync
             let oxygenRows = try? await oxygenRowsAsync
-            let vitals: [VitalSample] = vitalRows.compactMap { row in
-                guard let t = row["ts"] as? String, let at = Self.timestamp(t) else { return nil }
-                let hr = number(row["heart"]).map { Int($0) }
-                let stress = number(row["stress"]).map { Int($0) }
-                let temp = number(row["temp"])
-                let steps = number(row["step"]).map { Int($0) }
-                let met = number(row["met"])
-                let hrvEvidence = (row["domain_sources"] as? [String: Any])?["hrv"] as? [String: Any]
-                let hrvValid = hrvEvidence?["hrv_valid"] as? Bool
-                let hrvObservedAt = (hrvEvidence?["observed_at"] as? String).flatMap(Self.timestamp)
-                let hrv = hrvValid == false ? nil : number(row["hrv"])
-                guard hr != nil || stress != nil || temp != nil || steps != nil || met != nil || hrv != nil || hrvValid == false
-                else { return nil }
-                return VitalSample(ts: at, hr: hr, stress: stress,
-                                   temp: temp,
-                                   steps: steps,
-                                   met: met,
-                                   vendorCalories: number(row["cal"]),
-                                   dis: number(row["dis"]),
-                                   hrv: hrv, hrvValid: hrvValid,
-                                   hrvObservedAt: hrvObservedAt)
-            }
+            let vitals = HealthSnapshotRead.decodeVitals(vitalRows)
             let oxygen: [OvernightOxygenPoint] = (oxygenRows ?? []).compactMap { row in
                 guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
                       let percent = number(row["spo2"]).map({ Int($0) }),
@@ -883,682 +838,455 @@ final class Repository {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = .current
-        let from = f.string(from: day.adding(days: -days).start)
-        let to = f.string(from: day.start)
-
         do {
-            let dailyRead = try await selectDailyResultsCompat(query: [
-                .init(name: "select",
-                      value: "id,user_day,training_load,reserve_score,fuel_balance_kcal,daily_direction,the_call,the_call_confidence,fat_delta_7d,lean_delta_7d,scans_7d,computed_at,algo_version,result_revision,worn,wear_run,wear_miss"),
-                .init(name: "user_day", value: "gte.\(from)"),
-                .init(name: "user_day", value: "lte.\(to)"),
-                .init(name: "order", value: "user_day.asc"),
-            ])
-            let rows = dailyRead.rows
-            #if DEBUG
-            NSLog("Repository.load: %d daily_results rows", rows.count)
-            #endif
+            guard let account else { return }
+            let reader = snapshotReader(account: account, generation: generation)
+            guard let snapshot = try await reader.detail(days: days, endingAt: day) else { return }
+            let published = snapshot.publish { snapshot in
+                let rows = snapshot.rows, fuel = snapshot.fuel, reserve = snapshot.reserve
+                let training = snapshot.training, weighIns = snapshot.weighIns, weekRows = snapshot.meals
+                let sampleRows = snapshot.reserveSamples, nightRows = snapshot.nights, oxygenRows = snapshot.oxygen
+                let responseRows = snapshot.response, liveRows = snapshot.live
+                let liveStressRows = snapshot.liveStress, liveHeartRows = snapshot.liveHeart
+                func formalValue(_ metric: String, _ key: String) -> Double? { snapshot.value(metric, day: key) }
+                let fuelBy = Dictionary(uniqueKeysWithValues:
+                    fuel.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
+                let reserveBy = Dictionary(uniqueKeysWithValues:
+                    reserve.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
+                let trainingBy = Dictionary(uniqueKeysWithValues:
+                    training.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
 
-            // Raw samples are available before settle_now has produced daily_results. They
-            // must still load: otherwise a successful 12:45 band upload leaves an 08:00 curve
-            // on screen merely because the derived row is late. These independent requests
-            // run together so that correctness does not add serial round trips.
-            // Child tables are keyed to the rows just returned — an unfiltered select used
-            // to download every day's fuel/training curve before Home could paint.
-            async let formalRead = metricReadIfAvailable(from: from, to: to)
-            let resultIds = rows.compactMap { $0["id"] as? String }
-            let stamp = ISO8601DateFormatter()
-            async let fuelRows = selectByResultId(
-                "day_fuel",
-                columns: "result_id,intake_state,kcal_in,kcal_out,protein_in_g,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,carb_in_g,fat_in_g,weight_kg,energy_distribution",
-                ids: resultIds)
-            async let reserveRows = selectByResultId(
-                "reserve_daily",
-                columns: "result_id,wake_value,current_value,min_value,drain_drivers,night_inputs",
-                ids: resultIds)
-            async let trainingRows = selectByResultId(
-                "daily_training",
-                columns: "result_id,zone_minutes,peak_hr,curve,segments",
-                ids: resultIds)
-            // 补屏 B · active_minutes / distance_m arrive with migration 20260902040000. Asked
-            // for separately so a project without them still loads the day — naming an
-            // unknown column is a 400 for the whole select, and that 400 took the home
-            // screen offline.
-            async let trainingExtras = selectTrainingExtras(ids: resultIds)
-            async let trainingEvidenceRows = try? selectByResultId(
-                "daily_training", columns: "result_id,recorded_steps,evidence", ids: resultIds)
-            async let weighInRows = db.select("weigh_ins", query: [
-                .init(name: "select", value: "id,measured_at,weight_kg,source"),
-                .init(name: "order", value: "measured_at.desc"),
-                .init(name: "limit", value: "60"),
-            ])
-            // 12 · WEEK needs the week's meals, not just today's. Today's used to be a ninth
-            // request for a strict subset of these same rows; it is now filtered out of them.
-            async let weekMealRows = db.select("meals", query: [
-                .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g"),
-                .init(name: "deleted_at", value: "is.null"),
-                // Dev seeds carry model_version = seed; they must not populate 09 or the dock.
-                .init(name: "model_version", value: "neq.seed"),
-                .init(name: "user_day", value: "gte.\(f.string(from: day.adding(days: -max(days, 6)).start))"),
-                .init(name: "user_day", value: "lte.\(f.string(from: day.start))"),
-                .init(name: "order", value: "logged_at.asc"),
-            ])
-            // 13 · the curve is 288 five-minute ticks of the shown day, not a shape we draw
-            // from the day's endpoints. Bounded by the 04:00 cut like everything else.
-            async let sampleRowsAsync = db.select("reserve_samples", query: [
-                .init(name: "select", value: "ts,value"),
-                .init(name: "ts", value: "gte.\(stamp.string(from: day.start))"),
-                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
-                .init(name: "order", value: "ts.asc"),
-            ])
-            // 13 · heart and stress are not a footnote to the battery — two of the four
-            // attribution rows are made of them, so the detail page gets the day's own ticks
-            // in the same 04:00 → 04:00 window as the reserve curve.
-            // 04B · the second page draws the same ticks: skin temperature and the five
-            // minutes' steps, kcal and metres ride along on the columns the sync already writes.
-            // Rolling traces need the preceding user day too; every sample is partitioned
-            // back into its own 04:00 window after the response arrives.
-            async let vitalRowsAsync = selectSamplePages("raw_samples", query: [
-                .init(name: "select", value: "ts,heart,stress,temp,step,met,cal,dis,hrv,domain_sources"),
-                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -max(days, 1) - 1).start))"),
-                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
-                .init(name: "order", value: "ts.asc"),
-            ])
-            // 04 · the HR / STRESS row is the last tick, not an average and not a guess.
-            async let liveRowsAsync = db.select("raw_samples", query: [
-                .init(name: "select", value: "ts,heart,stress"),
-                // A tick in the future is a tick the band cannot have reported.
-                .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
-                .init(name: "order", value: "ts.desc"),
-                .init(name: "limit", value: "1"),
-            ])
-            // The newest row is often a sleep PPG tick with heart and no stress. The
-            // STRESS card's "now" is the last positive reading, not that newest null.
-            async let liveStressRowsAsync = db.select("raw_samples", query: [
-                .init(name: "select", value: "ts,stress"),
-                .init(name: "stress", value: "gt.0"),
-                .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
-                .init(name: "order", value: "ts.desc"),
-                .init(name: "limit", value: "1"),
-            ])
-            // The inverse: a step / MET tick with no PPG. HEART's "now" is the last
-            // positive heart, not the newest null — same 24h join as stress.
-            async let liveHeartRowsAsync = db.select("raw_samples", query: [
-                .init(name: "select", value: "ts,heart"),
-                .init(name: "heart", value: "gt.0"),
-                .init(name: "ts", value: "lte.\(stamp.string(from: Date()))"),
-                .init(name: "order", value: "ts.desc"),
-                .init(name: "limit", value: "1"),
-            ])
-            // 04B · SLEEP card. Prefetched with the rest so Home does not wait a serial hop.
-            async let nightRowsAsync = db.select("sleep_nights", query: [
-                .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line,sleep_start,wake_at,raw"),
-                .init(name: "user_day", value: "gte.\(from)"),
-                .init(name: "user_day", value: "lte.\(to)"),
-            ])
-            async let oxygenRowsAsync = db.select("oxygen_samples", query: [
-                .init(name: "select", value: "ts,spo2"),
-                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -max(days, 1) - 1).start))"),
-                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
-                .init(name: "order", value: "ts.asc"),
-            ])
-            async let responseRowsAsync = db.select("response_samples", query: [
-                .init(name: "select", value: "ts,optical"),
-                .init(name: "ts", value: "gte.\(stamp.string(from: day.adding(days: -30).start))"),
-                .init(name: "ts", value: "lt.\(stamp.string(from: day.adding(days: 1).start))"),
-                .init(name: "order", value: "ts.asc"),
-            ])
+                var history: [DailyMetrics] = []
+                for row in rows {
+                    guard let dayString = row["user_day"] as? String,
+                          let date = f.date(from: String(dayString.prefix(10))) else { continue }
+                    let userDay = UserDay(date: Calendar.current.date(
+                        bySettingHour: UserDay.boundaryHour, minute: 0, second: 0, of: date) ?? date)
+                    var m = DailyMetrics(day: userDay)
+                    let id = row["id"] as? String ?? ""
 
-            let fuel = try await fuelRows
-            let reserve = try await reserveRows
-            var training = try await trainingRows
-            if let extras = await trainingExtras {
-                let by = Dictionary(uniqueKeysWithValues: extras.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
-                training = training.map { row in
-                    guard let id = row["result_id"] as? String, let e = by[id] else { return row }
-                    var r = row; r["active_minutes"] = e["active_minutes"]; r["distance_m"] = e["distance_m"]; return r
-                }
-            }
-            if let evidenceRows = await trainingEvidenceRows {
-                let by = Dictionary(uniqueKeysWithValues: evidenceRows.compactMap { row in
-                    (row["result_id"] as? String).map { ($0, row) }
-                })
-                training = training.map { row in
-                    guard let id = row["result_id"] as? String, let evidence = by[id] else { return row }
-                    var merged = row
-                    merged["recorded_steps"] = evidence["recorded_steps"]
-                    merged["evidence"] = evidence["evidence"]
-                    return merged
-                }
-            }
-            let weighIns = try await weighInRows
-            let weekRows = try await weekMealRows
-            let sampleRows = try await sampleRowsAsync
-            let vitalRows = try await vitalRowsAsync
-            let nightRows = try? await nightRowsAsync
-            let oxygenRows = try? await oxygenRowsAsync
-            let responseRows = try? await responseRowsAsync
-            let liveRows = try await liveRowsAsync
-            let liveStressRows = try? await liveStressRowsAsync
-            let liveHeartRows = try? await liveHeartRowsAsync
-            let formal = try await formalRead
-            let formalMetrics: [[String: Any]]?
-            if let formal {
-                guard formal["ok"] as? Bool == true,
-                      let metrics = formal["data"] as? [[String: Any]] else {
-                    throw SupabaseClient.Failure.http(503, "Metric read unavailable")
-                }
-                formalMetrics = metrics
-            } else {
-                formalMetrics = nil
-            }
-            if dailyRead.versioned {
-                for metric in formalMetrics ?? [] where metric["metric"] as? String != "sleepMinutes" {
-                    for point in metric["points"] as? [[String: Any]] ?? [] {
-                        if let row = rows.first(where: { $0["user_day"] as? String == point["dayKey"] as? String }),
-                           row["result_revision"] as? String != point["resultRevision"] as? String {
-                            throw SupabaseClient.Failure.http(409, "Metric revision changed during read")
+                    m.trainingLoad = number(row["training_load"])
+                    m.serverDirection = (row["daily_direction"] as? String).flatMap {
+                        switch $0 {
+                        case "DEFICIT": DailyDirection.deficit
+                        case "LEVEL": DailyDirection.level
+                        case "SURPLUS": DailyDirection.surplus
+                        case "GREY_NO_BURN": DailyDirection.greyNoBurn
+                        default: DailyDirection.greyNothing
                         }
                     }
-                }
-                if let status = try await calculationStatusIfAvailable(from: from, to: to) {
-                    guard rows.allSatisfy({ row in
-                        status.contains { ($0["user_day"] as? String) == (row["user_day"] as? String)
-                            && ($0["result_revision"] as? String) == (row["result_revision"] as? String) }
-                    }) else { throw SupabaseClient.Failure.http(409, "Calculation changed during read") }
-                }
-            }
-            guard isCurrent(), !Task.isCancelled else { return }
-            func formalValue(_ metric: String, _ key: String) -> Double? {
-                let points = formalMetrics?.first { $0["metric"] as? String == metric }?["points"] as? [[String: Any]]
-                return number(points?.first { $0["dayKey"] as? String == key }?["value"])
-            }
-
-            let fuelBy = Dictionary(uniqueKeysWithValues:
-                fuel.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
-            let reserveBy = Dictionary(uniqueKeysWithValues:
-                reserve.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
-            let trainingBy = Dictionary(uniqueKeysWithValues:
-                training.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
-
-            var history: [DailyMetrics] = []
-            for row in rows {
-                guard let dayString = row["user_day"] as? String,
-                      let date = f.date(from: String(dayString.prefix(10))) else { continue }
-                let userDay = UserDay(date: Calendar.current.date(
-                    bySettingHour: UserDay.boundaryHour, minute: 0, second: 0, of: date) ?? date)
-                var m = DailyMetrics(day: userDay)
-                let id = row["id"] as? String ?? ""
-
-                m.trainingLoad = number(row["training_load"])
-                m.serverDirection = (row["daily_direction"] as? String).flatMap {
-                    switch $0 {
-                    case "DEFICIT": DailyDirection.deficit
-                    case "LEVEL": DailyDirection.level
-                    case "SURPLUS": DailyDirection.surplus
-                    case "GREY_NO_BURN": DailyDirection.greyNoBurn
-                    default: DailyDirection.greyNothing
+                    m.balance = snapshot.value("deltaKcal", day: userDay.key, legacy: row["fuel_balance_kcal"])
+                    m.calcVersion = row["algo_version"] as? String ?? "?"
+                    m.confidence = Confidence(rawValue: row["the_call_confidence"] as? String ?? "") ?? .pending
+                    // F3 · computed in Postgres like everything else; the local derivation is
+                    // the offline fallback, never a second opinion.
+                    // ⚠️ The column stores NO_CHANGE while the token on screen is "MEASURED,
+                    // NO CHANGE" — mapping by rawValue alone silently drops that one verdict.
+                    m.serverCall = (row["the_call"] as? String).flatMap { raw in
+                        raw == "NO_CHANGE" ? TheCall.noChange : TheCall(rawValue: raw)
                     }
-                }
-                m.balance = formalMetrics == nil ? number(row["fuel_balance_kcal"]) : formalValue("deltaKcal", userDay.key)
-                m.calcVersion = row["algo_version"] as? String ?? "?"
-                m.confidence = Confidence(rawValue: row["the_call_confidence"] as? String ?? "") ?? .pending
-                // F3 · computed in Postgres like everything else; the local derivation is
-                // the offline fallback, never a second opinion.
-                // ⚠️ The column stores NO_CHANGE while the token on screen is "MEASURED,
-                // NO CHANGE" — mapping by rawValue alone silently drops that one verdict.
-                m.serverCall = (row["the_call"] as? String).flatMap { raw in
-                    raw == "NO_CHANGE" ? TheCall.noChange : TheCall(rawValue: raw)
-                }
-                // 12 · the working behind the verdict, so any day can show it and not only
-                // the one the composition fetch happens to have filled in.
-                m.fatEmaDelta7d = number(row["fat_delta_7d"])
-                m.leanEmaDelta7d = number(row["lean_delta_7d"])
-                m.scans7d = Int(number(row["scans_7d"]) ?? 0)
-                applyWear(row, to: &m)
-                if let iso = row["computed_at"] as? String {
-                    m.asOf = Self.timestamp(iso)
-                }
-                // A valid daytime-only score lives on daily_results even before a night can
-                // freeze BB_WAKE. reserve_daily normally carries the same current value, but
-                // its absence must not turn a measured reserve_score back into unknown.
-                m.bodyBattery = number(row["reserve_score"]).map { Int($0) }
+                    // 12 · the working behind the verdict, so any day can show it and not only
+                    // the one the composition fetch happens to have filled in.
+                    m.fatEmaDelta7d = number(row["fat_delta_7d"])
+                    m.leanEmaDelta7d = number(row["lean_delta_7d"])
+                    m.scans7d = Int(number(row["scans_7d"]) ?? 0)
+                    applyWear(row, to: &m)
+                    if let iso = row["computed_at"] as? String {
+                        m.asOf = Self.timestamp(iso)
+                    }
+                    // A valid daytime-only score lives on daily_results even before a night can
+                    // freeze BB_WAKE. reserve_daily normally carries the same current value, but
+                    // its absence must not turn a measured reserve_score back into unknown.
+                    m.bodyBattery = number(row["reserve_score"]).map { Int($0) }
 
-                if let r = reserveBy[id] {
-                    m.bbWake = number(r["wake_value"]).map { Int($0) }
-                    m.bodyBattery = number(r["current_value"]).map { Int($0) } ?? m.bodyBattery
-                    if let d = r["drain_drivers"] as? [String: Any], !d.isEmpty {
-                        m.reserveDrivers = ReserveDrivers(
-                            lastNight: number(d["last_night"]) ?? 0,
-                            awake: number(d["awake"]) ?? 0,
-                            movement: number(d["movement"]) ?? 0,
-                            stress: number(d["stress"]) ?? 0,
-                            anchor: Int(number(d["anchor"]) ?? 0),
-                            assumedAnchor: d["assumed_anchor"] as? Bool ?? false,
-                            dayCharge: number(d["day_charge"]),
-                            nightCharge: number(d["night_charge"]),
-                            wakeAt: (d["wake_at"] as? String).flatMap(Self.timestamp),
-                            observedAt: (d["observed_at"] as? String).flatMap(Self.timestamp),
-                            confidence: (d["confidence"] as? String).flatMap {
-                                BodyBatteryConfidence(rawValue: $0.uppercased())
-                            },
-                            algoVersion: d["algo_version"] as? String)
-                        if let c = d["coverage"] as? [String: Any] {
-                            m.reserveDrivers?.coverage = BodyBatteryCoverage(
-                                nightHRV: number(c["night_hrv"]), nightRHR: number(c["night_rhr"]),
-                                nightExpectedMinutes: number(c["night_expected_minutes"]).map(Int.init),
-                                nightHRVMinutes: number(c["night_hrv_minutes"]).map(Int.init),
-                                nightRHRMinutes: number(c["night_rhr_minutes"]).map(Int.init),
-                                nightHRVLongestGap: number(c["night_hrv_longest_gap"]).map(Int.init),
-                                nightRHRLongestGap: number(c["night_rhr_longest_gap"]).map(Int.init),
-                                hrvNights: number(c["hrv_nights"]).map(Int.init),
-                                rhrNights: number(c["rhr_nights"]).map(Int.init),
-                                dayHeart: number(c["day_heart"]), dayHRV: number(c["day_hrv"]),
-                                dayStress: number(c["day_stress"]),
-                                dayExpectedTicks: number(c["day_expected_ticks"]).map(Int.init),
-                                dayObservedTicks: number(c["day_observed_ticks"]).map(Int.init))
+                    if let r = reserveBy[id] {
+                        m.bbWake = number(r["wake_value"]).map { Int($0) }
+                        m.bodyBattery = number(r["current_value"]).map { Int($0) } ?? m.bodyBattery
+                        if let d = r["drain_drivers"] as? [String: Any], !d.isEmpty {
+                            m.reserveDrivers = ReserveDrivers(
+                                lastNight: number(d["last_night"]) ?? 0,
+                                awake: number(d["awake"]) ?? 0,
+                                movement: number(d["movement"]) ?? 0,
+                                stress: number(d["stress"]) ?? 0,
+                                anchor: Int(number(d["anchor"]) ?? 0),
+                                assumedAnchor: d["assumed_anchor"] as? Bool ?? false,
+                                dayCharge: number(d["day_charge"]),
+                                nightCharge: number(d["night_charge"]),
+                                wakeAt: (d["wake_at"] as? String).flatMap(Self.timestamp),
+                                observedAt: (d["observed_at"] as? String).flatMap(Self.timestamp),
+                                confidence: (d["confidence"] as? String).flatMap {
+                                    BodyBatteryConfidence(rawValue: $0.uppercased())
+                                },
+                                algoVersion: d["algo_version"] as? String)
+                            if let c = d["coverage"] as? [String: Any] {
+                                m.reserveDrivers?.coverage = BodyBatteryCoverage(
+                                    nightHRV: number(c["night_hrv"]), nightRHR: number(c["night_rhr"]),
+                                    nightExpectedMinutes: number(c["night_expected_minutes"]).map(Int.init),
+                                    nightHRVMinutes: number(c["night_hrv_minutes"]).map(Int.init),
+                                    nightRHRMinutes: number(c["night_rhr_minutes"]).map(Int.init),
+                                    nightHRVLongestGap: number(c["night_hrv_longest_gap"]).map(Int.init),
+                                    nightRHRLongestGap: number(c["night_rhr_longest_gap"]).map(Int.init),
+                                    hrvNights: number(c["hrv_nights"]).map(Int.init),
+                                    rhrNights: number(c["rhr_nights"]).map(Int.init),
+                                    dayHeart: number(c["day_heart"]), dayHRV: number(c["day_hrv"]),
+                                    dayStress: number(c["day_stress"]),
+                                    dayExpectedTicks: number(c["day_expected_ticks"]).map(Int.init),
+                                    dayObservedTicks: number(c["day_observed_ticks"]).map(Int.init))
+                            }
+                        }
+                        if let n = r["night_inputs"] as? [String: Any], !n.isEmpty {
+                            m.nightInputs = NightInputs(
+                                hrv: number(n["hrv"]), hrvBase: number(n["hrv_base"]),
+                                rhr: number(n["rhr"]), rhrBase: number(n["rhr_base"]),
+                                rhrNights: Int(number(n["rhr_nights"]) ?? 0),
+                                hrvNights: Int(number(n["hrv_nights"]) ?? 0),
+                                multiplier: number(n["multiplier"]))
+                        }
+                        if let wake = m.bbWake {
+                            let band = BodyBattery.band(for: wake)
+                            m.targetLoad = band.target
+                            m.optimalZone = band.optimal
                         }
                     }
-                    if let n = r["night_inputs"] as? [String: Any], !n.isEmpty {
-                        m.nightInputs = NightInputs(
-                            hrv: number(n["hrv"]), hrvBase: number(n["hrv_base"]),
-                            rhr: number(n["rhr"]), rhrBase: number(n["rhr_base"]),
-                            rhrNights: Int(number(n["rhr_nights"]) ?? 0),
-                            hrvNights: Int(number(n["hrv_nights"]) ?? 0),
-                            multiplier: number(n["multiplier"]))
+                    if let t = trainingBy[id] {
+                        m.recordedSteps = number(t["recorded_steps"]).map(Int.init)
+                        if let e = t["evidence"] as? [String: Any],
+                           let elapsed = number(e["elapsed_minutes"]),
+                           let recorded = number(e["recorded_minutes"]),
+                           let heart = number(e["hr_minutes"]),
+                           let movement = number(e["movement_minutes"]) {
+                            m.trainingEvidence = TrainingEvidence(
+                                elapsedMinutes: Int(elapsed), recordedMinutes: Int(recorded),
+                                heartRateMinutes: Int(heart), movementMinutes: Int(movement),
+                                restingHeartRate: number(e["hr_rest"]),
+                                restingBaselineNights: Int(number(e["hr_rest_nights"]) ?? 0),
+                                baselineEstimated: e["baseline_estimated"] as? Bool ?? true)
+                        }
+                        m.zoneMinutes = (t["zone_minutes"] as? [Any])?.compactMap { number($0).map(Int.init) }
+                        m.peakHR = number(t["peak_hr"]).map { Int($0) }
+                        m.activeMinutes = number(t["active_minutes"]).map { Int($0) }
+                        m.distanceM = number(t["distance_m"]).map { Int($0) }
+                        m.segments = ((t["segments"] as? [Any]) ?? []).compactMap { any in
+                            guard let r = any as? [String: Any],
+                                  let at = (r["at"] as? String).flatMap(Self.timestamp) else { return nil }
+                            return TrainingSegment(
+                                at: at, name: r["name"] as? String ?? "",
+                                minutes: number(r["minutes"]).map { Int($0) },
+                                avgHR: number(r["avg_hr"]).map { Int($0) },
+                                steps: number(r["steps"]).map { Int($0) },
+                                delta: number(r["delta"]) ?? 0,
+                                allDay: r["all_day"] as? Bool ?? false)
+                        }
+                        // The cumulative curve arrives as [[epoch, load]] — one array per tick.
+                        m.loadCurve = ((t["curve"] as? [Any]) ?? []).compactMap { any in
+                            guard let pair = any as? [Any], pair.count == 2,
+                                  let epoch = number(pair[0]), let load = number(pair[1]) else { return nil }
+                            return LoadPoint(ts: Date(timeIntervalSince1970: epoch), load: load)
+                        }
                     }
-                    if let wake = m.bbWake {
-                        let band = BodyBattery.band(for: wake)
-                        m.targetLoad = band.target
-                        m.optimalZone = band.optimal
+                    if let fu = fuelBy[id] {
+                        let energy = snapshot.energy(day: userDay.key, legacy: fu)
+                        m.eIn = energy.intake; m.eOutNow = energy.burn
+                        m.proteinIn = energy.protein.map(Int.init)
+                        m.carbIn = number(fu["carb_in_g"]).map { Int($0) }
+                        m.fatIn = number(fu["fat_in_g"]).map { Int($0) }
+                        m.weightKg = number(fu["weight_kg"]) ?? m.weightKg
+                        m.bmr = energy.resting; m.eActive = energy.active
+                        m.energyDistribution = (fu["energy_distribution"] as? [[String: Any]])?.compactMap {
+                            guard let epoch = number($0["epoch"]),
+                                  let origin = number($0["origin_weight"]),
+                                  let strength = number($0["strength_weight"]),
+                                  epoch.isFinite, origin.isFinite, strength.isFinite,
+                                  origin >= 0, strength >= 0 else { return nil }
+                            return FuelEnergyPoint(epoch: epoch, originWeight: origin, strengthWeight: strength)
+                        }
+                        m.balance = energy.balance
+                        // 10 · the header is an estimate of where the day lands. Baseline for
+                        // the whole day, today's movement carried forward at the rate it has
+                        // actually run at, and the session that is still owed.
+                        let elapsed = Double(userDay.elapsedMinutes(at: m.asOf ?? Date())) / (userDay.end.timeIntervalSince(userDay.start) / 60)
+                        let full = number(fu["bmr_full_kcal"])
+                        m.bmrFull = full
+                        let forecast = m.eActive.map { elapsed > 0.05 ? $0 / elapsed : $0 }
+                        m.activeForecast = forecast
+                        m.eTrainPlan = nil
+                        // The estimate itself is assembled in merge(), once every row it is
+                        // made of is known.
+                        m.targetIn = number(fu["target_in"])
+                        // The macro targets are the server's split, not a second one computed
+                        // here — two answers to "what is my protein target" is one too many.
+                        if let p = number(fu["protein_g"]) { m.protein = MacroSlot(target: Int(p), eaten: 0) }
+                        if let c = number(fu["carb_g"])    { m.carb    = MacroSlot(target: Int(c), eaten: 0) }
+                        if let f = number(fu["fat_g"])     { m.fat     = MacroSlot(target: Int(f), eaten: 0) }
+                        switch fu["intake_state"] as? String {
+                        case "FASTED": m.fuelState = .fasted
+                        case "CONFIRMED": m.fuelState = .confirmed
+                        case "PARTIAL":
+                            let slots = (fu["slot_states"] as? [String: Any])?
+                                .filter { ($0.value as? String) == "CONFIRMED" }.count ?? 0
+                            m.fuelState = .partial(slots: slots)
+                        default: m.fuelState = .unlogged
+                        }
                     }
+                    // A versioned battery result carries the exact inputs used by its
+                    // recovery multiplier. Generic metric summaries can have a different
+                    // baseline eligibility rule and must not rewrite that explanation.
+                    if m.nightInputs != nil, m.reserveDrivers?.algoVersion == nil, snapshot.hasFormalMetrics {
+                        m.nightInputs?.hrv = formalValue("nightHRV", userDay.key)
+                        m.nightInputs?.hrvBase = formalValue("hrvBaseline", userDay.key)
+                        m.nightInputs?.rhr = formalValue("nightRHR", userDay.key)
+                    }
+                    history.append(m)
                 }
-                if let t = trainingBy[id] {
-                    m.recordedSteps = number(t["recorded_steps"]).map(Int.init)
-                    if let e = t["evidence"] as? [String: Any],
-                       let elapsed = number(e["elapsed_minutes"]),
-                       let recorded = number(e["recorded_minutes"]),
-                       let heart = number(e["hr_minutes"]),
-                       let movement = number(e["movement_minutes"]) {
-                        m.trainingEvidence = TrainingEvidence(
-                            elapsedMinutes: Int(elapsed), recordedMinutes: Int(recorded),
-                            heartRateMinutes: Int(heart), movementMinutes: Int(movement),
-                            restingHeartRate: number(e["hr_rest"]),
-                            restingBaselineNights: Int(number(e["hr_rest_nights"]) ?? 0),
-                            baselineEstimated: e["baseline_estimated"] as? Bool ?? true)
-                    }
-                    m.zoneMinutes = (t["zone_minutes"] as? [Any])?.compactMap { number($0).map(Int.init) }
-                    m.peakHR = number(t["peak_hr"]).map { Int($0) }
-                    m.activeMinutes = number(t["active_minutes"]).map { Int($0) }
-                    m.distanceM = number(t["distance_m"]).map { Int($0) }
-                    m.segments = ((t["segments"] as? [Any]) ?? []).compactMap { any in
-                        guard let r = any as? [String: Any],
-                              let at = (r["at"] as? String).flatMap(Self.timestamp) else { return nil }
-                        return TrainingSegment(
-                            at: at, name: r["name"] as? String ?? "",
-                            minutes: number(r["minutes"]).map { Int($0) },
-                            avgHR: number(r["avg_hr"]).map { Int($0) },
-                            steps: number(r["steps"]).map { Int($0) },
-                            delta: number(r["delta"]) ?? 0,
-                            allDay: r["all_day"] as? Bool ?? false)
-                    }
-                    // The cumulative curve arrives as [[epoch, load]] — one array per tick.
-                    m.loadCurve = ((t["curve"] as? [Any]) ?? []).compactMap { any in
-                        guard let pair = any as? [Any], pair.count == 2,
-                              let epoch = number(pair[0]), let load = number(pair[1]) else { return nil }
-                        return LoadPoint(ts: Date(timeIntervalSince1970: epoch), load: load)
-                    }
-                }
-                if let fu = fuelBy[id] {
-                    m.eIn = formalMetrics == nil ? number(fu["kcal_in"]) : formalValue("intakeKcal", userDay.key)
-                    m.eOutNow = formalMetrics == nil ? number(fu["kcal_out"]) : formalValue("burnKcal", userDay.key)
-                    m.proteinIn = (formalMetrics == nil ? number(fu["protein_in_g"]) : formalValue("proteinG", userDay.key)).map { Int($0) }
-                    m.carbIn = number(fu["carb_in_g"]).map { Int($0) }
-                    m.fatIn = number(fu["fat_in_g"]).map { Int($0) }
-                    m.weightKg = number(fu["weight_kg"]) ?? m.weightKg
-                    m.bmr = number(fu["bmr_kcal"])
-                    m.eActive = number(fu["active_kcal"])
-                    m.energyDistribution = (fu["energy_distribution"] as? [[String: Any]])?.compactMap {
-                        guard let epoch = number($0["epoch"]),
-                              let origin = number($0["origin_weight"]),
-                              let strength = number($0["strength_weight"]),
-                              epoch.isFinite, origin.isFinite, strength.isFinite,
-                              origin >= 0, strength >= 0 else { return nil }
-                        return FuelEnergyPoint(epoch: epoch, originWeight: origin, strengthWeight: strength)
-                    }
-                    if formalMetrics == nil {
-                        // Legacy deployments can publish OUT using an older formula
-                        // than their explicit resting and active components.
-                        m.eOutNow = ActiveEnergyMath.totals(bmr: m.bmr, eActive: m.eActive,
-                                                            eTrain: nil, eOutNow: m.eOutNow).out
-                    } else if m.eOutNow == nil ||
-                                m.bmr.flatMap({ rest in m.eActive.map { rest + $0 } }) != m.eOutNow {
-                        // Formal values, including unknown, are authoritative. Stale
-                        // detail components must not recreate OUT in activity charts.
-                        m.bmr = nil
-                        m.eActive = nil
-                    }
-                    m.balance = m.eIn.flatMap { intake in m.eOutNow.map { intake - $0 } }
-                    // 10 · the header is an estimate of where the day lands. Baseline for
-                    // the whole day, today's movement carried forward at the rate it has
-                    // actually run at, and the session that is still owed.
-                    let elapsed = Double(userDay.elapsedMinutes(at: m.asOf ?? Date())) / (userDay.end.timeIntervalSince(userDay.start) / 60)
-                    let full = number(fu["bmr_full_kcal"])
-                    m.bmrFull = full
-                    let forecast = m.eActive.map { elapsed > 0.05 ? $0 / elapsed : $0 }
-                    m.activeForecast = forecast
-                    m.eTrainPlan = nil
-                    // The estimate itself is assembled in merge(), once every row it is
-                    // made of is known.
-                    m.targetIn = number(fu["target_in"])
-                    // The macro targets are the server's split, not a second one computed
-                    // here — two answers to "what is my protein target" is one too many.
-                    if let p = number(fu["protein_g"]) { m.protein = MacroSlot(target: Int(p), eaten: 0) }
-                    if let c = number(fu["carb_g"])    { m.carb    = MacroSlot(target: Int(c), eaten: 0) }
-                    if let f = number(fu["fat_g"])     { m.fat     = MacroSlot(target: Int(f), eaten: 0) }
-                    switch fu["intake_state"] as? String {
-                    case "FASTED": m.fuelState = .fasted
-                    case "CONFIRMED": m.fuelState = .confirmed
-                    case "PARTIAL":
-                        let slots = (fu["slot_states"] as? [String: Any])?
-                            .filter { ($0.value as? String) == "CONFIRMED" }.count ?? 0
-                        m.fuelState = .partial(slots: slots)
-                    default: m.fuelState = .unlogged
+
+                // A just-synced day can have raw_samples before it has a daily_results row.
+                // Preserve any local metrics for the two chart days and add only the missing
+                // shells; the raw response below will fill their curves.
+                for requiredDay in (0...max(days, 1)).map({ day.adding(days: -$0) }) where
+                    !history.contains(where: { $0.day == requiredDay }) {
+                    if let existing = store.history.first(where: { $0.day == requiredDay }) {
+                        history.append(existing)
+                    } else if store.today.day == requiredDay {
+                        history.append(store.today)
+                    } else {
+                        history.append(DailyMetrics(day: requiredDay))
                     }
                 }
-                // A versioned battery result carries the exact inputs used by its
-                // recovery multiplier. Generic metric summaries can have a different
-                // baseline eligibility rule and must not rewrite that explanation.
-                if m.nightInputs != nil, m.reserveDrivers?.algoVersion == nil, formalMetrics != nil {
-                    m.nightInputs?.hrv = formalValue("nightHRV", userDay.key)
-                    m.nightInputs?.hrvBase = formalValue("hrvBaseline", userDay.key)
-                    m.nightInputs?.rhr = formalValue("nightRHR", userDay.key)
-                }
-                history.append(m)
-            }
+                history.sort { $0.day < $1.day }
 
-            // A just-synced day can have raw_samples before it has a daily_results row.
-            // Preserve any local metrics for the two chart days and add only the missing
-            // shells; the raw response below will fill their curves.
-            for requiredDay in (0...max(days, 1)).map({ day.adding(days: -$0) }) where
-                !history.contains(where: { $0.day == requiredDay }) {
-                if let existing = store.history.first(where: { $0.day == requiredDay }) {
-                    history.append(existing)
-                } else if store.today.day == requiredDay {
-                    history.append(store.today)
-                } else {
-                    history.append(DailyMetrics(day: requiredDay))
+                // The meal list belongs to the same row of truth as the fuel state: if the
+                // server says UNLOGGED, an old locally-seeded meal must not survive on screen.
+                // 12 · WEEK needs the week's meals, not just today's. Fetched once for the
+                // window; `store.meals` stays today's so 09 keeps reading exactly what it did.
+                let loadedMeals: [MealEntry] = weekRows.compactMap { row in
+                    guard let slot = MealEntry.Slot(rawValue: row["slot"] as? String ?? ""),
+                          let iso = row["logged_at"] as? String,
+                          let at = Self.timestamp(iso),
+                          let dayString = row["user_day"] as? String,
+                          let date = f.date(from: String(dayString.prefix(10))) else { return nil }
+                    let d = UserDay(date: Calendar.current.date(
+                        bySettingHour: UserDay.boundaryHour, minute: 0, second: 0, of: date) ?? date)
+                    return MealEntry(
+                        id: UUID(uuidString: row["id"] as? String ?? "") ?? UUID(),
+                        day: d, at: at, slot: slot, status: .confirmed,
+                        text: row["text_input"] as? String ?? "",
+                        kcal: number(row["kcal"]) ?? 0,
+                        protein: Int(number(row["protein_g"]) ?? 0),
+                        carb: Int(number(row["carb_g"]) ?? 0),
+                        fat: Int(number(row["fat_g"]) ?? 0),
+                        source: .typed)
                 }
-            }
-            history.sort { $0.day < $1.day }
 
-            // The meal list belongs to the same row of truth as the fuel state: if the
-            // server says UNLOGGED, an old locally-seeded meal must not survive on screen.
-            // 12 · WEEK needs the week's meals, not just today's. Fetched once for the
-            // window; `store.meals` stays today's so 09 keeps reading exactly what it did.
-            let loadedMeals: [MealEntry] = weekRows.compactMap { row in
-                guard let slot = MealEntry.Slot(rawValue: row["slot"] as? String ?? ""),
-                      let iso = row["logged_at"] as? String,
-                      let at = Self.timestamp(iso),
-                      let dayString = row["user_day"] as? String,
-                      let date = f.date(from: String(dayString.prefix(10))) else { return nil }
-                let d = UserDay(date: Calendar.current.date(
-                    bySettingHour: UserDay.boundaryHour, minute: 0, second: 0, of: date) ?? date)
-                return MealEntry(
-                    id: UUID(uuidString: row["id"] as? String ?? "") ?? UUID(),
-                    day: d, at: at, slot: slot, status: .confirmed,
-                    text: row["text_input"] as? String ?? "",
-                    kcal: number(row["kcal"]) ?? 0,
-                    protein: Int(number(row["protein_g"]) ?? 0),
-                    carb: Int(number(row["carb_g"]) ?? 0),
-                    fat: Int(number(row["fat_g"]) ?? 0),
-                    source: .typed)
-            }
-
-            // Today's list is the shown day's rows out of the week just fetched — the same
-            // columns, the same filter, one fewer request. `store.meals` stays today's so 09
-            // keeps reading exactly what it did.
-            if day != UserDay.containing(Date()) {
-                let loadedDays = Set(loadedMeals.map(\.day))
-                store.recentMeals = store.recentMeals.filter { !loadedDays.contains($0.day) } + loadedMeals
-            }
-            if day == UserDay.containing(Date()) {
-                store.recentMeals = loadedMeals
-                store.meals = loadedMeals.filter { $0.day == day }
-            }
-
-            let curve: [ReserveSample] = sampleRows.compactMap { row in
-                guard let t = row["ts"] as? String,
-                      let at = Self.timestamp(t),
-                      let v = number(row["value"]) else { return nil }
-                return ReserveSample(ts: at, value: Int(v))
-            }
-            if !history.isEmpty { history[history.count - 1].reserveCurve = curve }
-
-            // Missing readings stay absent. Keep explicit HRV retractions even without
-            // another reading so a stored invalid value cannot reappear during merging.
-            let vitals: [VitalSample] = vitalRows.compactMap { row in
-                guard let t = row["ts"] as? String, let at = Self.timestamp(t) else { return nil }
-                let hr = number(row["heart"]).map { Int($0) }
-                let stress = number(row["stress"]).map { Int($0) }
-                let temp = number(row["temp"])
-                let steps = number(row["step"]).map { Int($0) }
-                let met = number(row["met"])
-                // ⚠️ hrv counts as a reading of its own here. It arrives on its own ten-minute
-                // cadence and a tick carrying only HRV is still a tick — dropping it would
-                // punch a hole in the very curve it is there to draw.
-                let hrvEvidence = (row["domain_sources"] as? [String: Any])?["hrv"] as? [String: Any]
-                let hrvValid = hrvEvidence?["hrv_valid"] as? Bool
-                let hrvObservedAt = (hrvEvidence?["observed_at"] as? String).flatMap(Self.timestamp)
-                let hrv = hrvValid == false ? nil : number(row["hrv"])
-                guard hr != nil || stress != nil || temp != nil || steps != nil || met != nil || hrv != nil || hrvValid == false
-                else { return nil }
-                return VitalSample(ts: at, hr: hr, stress: stress,
-                                   temp: temp,
-                                   steps: steps,
-                                   met: met,
-                                   vendorCalories: number(row["cal"]),
-                                   dis: number(row["dis"]),
-                                   hrv: hrv, hrvValid: hrvValid,
-                                   hrvObservedAt: hrvObservedAt)
-            }
-            for index in history.indices {
-                let remoteSamples = vitals.filter {
-                    $0.ts >= history[index].day.start && $0.ts < history[index].day.end
+                // Today's list is the shown day's rows out of the week just fetched — the same
+                // columns, the same filter, one fewer request. `store.meals` stays today's so 09
+                // keeps reading exactly what it did.
+                if day != UserDay.containing(Date()) {
+                    let loadedDays = Set(loadedMeals.map(\.day))
+                    store.recentMeals = store.recentMeals.filter { !loadedDays.contains($0.day) } + loadedMeals
                 }
-                let localSamples = store.history.first(where: {
-                    $0.day == history[index].day
-                })?.vitalsCurve ?? (store.today.day == history[index].day
-                    ? store.today.vitalsCurve
-                    : [])
-                history[index].vitalsCurve = VitalSample.merging(remoteSamples, with: localSamples)
-            }
+                if day == UserDay.containing(Date()) {
+                    store.recentMeals = loadedMeals
+                    store.meals = loadedMeals.filter { $0.day == day }
+                }
 
-            // Raw device sleep is independent of settled sleepMinutes. A pending formal
-            // calculation must not hide a night already received from the band.
-            for index in history.indices {
-                let key = history[index].day.key
-                let local = Self.sleepOnWakeDay(store.metrics(for: history[index].day)?.sleep, day: history[index].day)
-                guard let night = nightRows?.first(where: {
-                    guard $0["user_day"] as? String == key else { return false }
-                    guard let wake = ($0["wake_at"] as? String).flatMap(Self.timestamp) else { return true }
-                    return Calendar.current.isDate(wake, inSameDayAs: history[index].day.start)
-                }),
-                      let total = number(night["total_minutes"]), total.isFinite, total > 0 else {
-                    history[index].sleep = local
-                    continue
+                let curve: [ReserveSample] = sampleRows.compactMap { row in
+                    guard let t = row["ts"] as? String,
+                          let at = Self.timestamp(t),
+                          let v = number(row["value"]) else { return nil }
+                    return ReserveSample(ts: at, value: Int(v))
                 }
-                let line = ((night["sleep_line"] as? String) ?? "").split(separator: ",").compactMap { pair -> SleepStageRun? in
-                    let parts = pair.split(separator: ":")
-                    guard parts.count == 2, let stage = Int(parts[0]), let minutes = Int(parts[1]), minutes > 0 else { return nil }
-                    return SleepStageRun(stage: stage, minutes: minutes)
-                }
-                let start = (night["sleep_start"] as? String).flatMap(Self.timestamp)
-                let wake = (night["wake_at"] as? String).flatMap(Self.timestamp)
-                // Cloud publication can lag the completed SDK night. A shorter remote
-                // window must not truncate observations already confirmed on this device.
-                if let local, let localStart = local.sleepStart, let localWake = local.wakeAt,
-                   let start, let wake, localStart <= start, localWake >= wake,
-                   (localStart < start || localWake > wake) {
-                    history[index].sleep = local
-                    continue
-                }
-                let sameWindow = start != nil && wake != nil && local?.sleepStart == start && local?.wakeAt == wake
-                let oxygen = Self.overnightOxygen(rows: oxygenRows, start: start, wake: wake)
-                let respiration = Self.sleepRespiration(raw: night["raw"], start: start, wake: wake)
-                let hrv = Self.sleepHRV(raw: night["raw"], start: start, wake: wake)
-                let remoteHRVInvalidations = Self.sleepHRVInvalidations(raw: night["raw"], start: start, wake: wake)
-                let rawIntervals = ((night["raw"] as? [String: Any])?["intervals"] as? [[String: Any]] ?? []).compactMap { row -> SleepInterval? in
-                    guard let intervalStart = (row["start"] as? String).flatMap(Self.timestamp),
-                          let intervalEnd = (row["end"] as? String).flatMap(Self.timestamp),
-                          intervalEnd > intervalStart,
-                          let start, let wake, intervalStart >= start, intervalEnd <= wake else { return nil }
-                    return SleepInterval(start: intervalStart, end: intervalEnd)
-                }.sorted { $0.start < $1.start }
+                if !history.isEmpty { history[history.count - 1].reserveCurve = curve }
 
-                // Absence predates segmented sleep: retain nil so old records use their
-                // measured start/wake window. Explicit empty or malformed intervals stay
-                // empty; converting them to nil would invent continuous sleep evidence.
-                let hasIntervals = (night["raw"] as? [String: Any])?["intervals"] != nil
-                let intervals: [SleepInterval]? = hasIntervals ? rawIntervals : sameWindow ? local?.intervals : nil
-                let rawLine = ((night["raw"] as? [String: Any])?["line"] as? [[String: Any]] ?? []).compactMap { row -> SleepStageRun? in
-                    guard let stage = number(row["stage"]), let minutes = number(row["minutes"]),
-                          stage.isFinite, minutes.isFinite, minutes > 0 else { return nil }
-                    let offset = number(row["offset_minutes"]).flatMap { $0.isFinite && $0 >= 0 ? Int($0) : nil }
-                    return SleepStageRun(stage: Int(stage), minutes: Int(minutes), offsetMinutes: offset)
+                for index in history.indices {
+                    let historical = store.history.first(where: { $0.day == history[index].day })?.vitalsCurve ?? []
+                    let localSamples = historical + (store.today.day == history[index].day ? store.today.vitalsCurve : [])
+                    history[index].vitalsCurve = snapshot.vitals(for: history[index].day, local: localSamples)
                 }
-                func inSleep(_ at: Date) -> Bool {
-                    guard let start, let wake, at >= start, at < wake else { return false }
-                    guard let intervals else { return true }
-                    return intervals.contains { at >= $0.start && at < $0.end }
-                }
-                let displayLine = !rawLine.isEmpty ? rawLine : sameWindow &&
-                    (line.isEmpty || local?.line.contains(where: { $0.offsetMinutes != nil }) == true)
-                    ? local?.line ?? [] : line
-                // A corrected reading at the same timestamp is one observation. Local
-                // observations win while their cloud publication is still catching up.
-                let combinedOxygen = Dictionary((oxygen + (sameWindow ? local?.spo2 ?? [] : []))
-                    .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
-                    .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
-                let combinedRespiration = Dictionary((respiration + (sameWindow ? local?.respiration ?? [] : []))
-                    .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
-                    .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
-                let hrvInvalidations = remoteHRVInvalidations
-                    .merging(local?.hrvInvalidatedMinutes ?? [:], uniquingKeysWith: max)
-                    .filter { inSleep($0.key) }
-                let localHRV = (local?.hrv ?? []).filter { inSleep($0.ts) }
-                let hasLocalHRV = !localHRV.isEmpty || (sameWindow && local?.hrv != nil)
-                let combinedHRV: [SleepHRVPoint]? = hrv == nil && !hasLocalHRV
-                    && hrvInvalidations.isEmpty ? nil : SleepHRVPoint.merging(hrv ?? [],
-                        with: localHRV, invalidatedMinutes: hrvInvalidations)
-                        .filter { inSleep($0.ts) }
-                history[index].sleep = SleepSummary(
-                    totalMinutes: Int(total),
-                    deepMinutes: number(night["deep_minutes"]).map { Int($0) } ?? 0,
-                    lightMinutes: number(night["light_minutes"]).map { Int($0) } ?? 0,
-                    wakeCount: number(night["wake_count"]).map { Int($0) } ?? 0,
-                    line: displayLine, sleepStart: start, wakeAt: wake,
-                    spo2: combinedOxygen,
-                    respiration: combinedRespiration,
-                    hrv: combinedHRV,
-                    hrvInvalidatedMinutes: hrvInvalidations.isEmpty ? nil : hrvInvalidations,
-                    intervals: intervals)
-            }
 
-            if let live = liveRows.first,
-               let at = (live["ts"] as? String).flatMap(Self.timestamp) {
-                // ⚠️ The sync writes the tick it just pulled off the band into `store.vitals`
-                // before the row has finished its trip through settle_now. The server's answer
-                // is the same tick or an older one, never a newer one, so it only overwrites
-                // when it is at least as recent — otherwise the panel jumps backwards to the
-                // previous tick a second after showing the current one.
-                if store.vitals.at == nil || at >= store.vitals.at! {
-                    let lastStress = liveStressRows?.first.flatMap { row -> (Int, Date)? in
-                        guard let ts = (row["ts"] as? String).flatMap(Self.timestamp),
-                              let value = number(row["stress"]).map({ Int($0) }) else { return nil }
-                        return (value, ts)
+                // Raw device sleep is independent of settled sleepMinutes. A pending formal
+                // calculation must not hide a night already received from the band.
+                for index in history.indices {
+                    let key = history[index].day.key
+                    let local = Self.sleepOnWakeDay(store.metrics(for: history[index].day)?.sleep, day: history[index].day)
+                    guard let night = nightRows?.first(where: {
+                        guard $0["user_day"] as? String == key else { return false }
+                        guard let wake = ($0["wake_at"] as? String).flatMap(Self.timestamp) else { return true }
+                        return Calendar.current.isDate(wake, inSameDayAs: history[index].day.start)
+                    }),
+                          let total = number(night["total_minutes"]), total.isFinite, total > 0 else {
+                        history[index].sleep = local
+                        continue
                     }
-                    let lastHeart = liveHeartRows?.first.flatMap { row -> (Int, Date)? in
-                        guard let ts = (row["ts"] as? String).flatMap(Self.timestamp),
-                              let value = number(row["heart"]).map({ Int($0) }) else { return nil }
-                        return (value, ts)
+                    let line = ((night["sleep_line"] as? String) ?? "").split(separator: ",").compactMap { pair -> SleepStageRun? in
+                        let parts = pair.split(separator: ":")
+                        guard parts.count == 2, let stage = Int(parts[0]), let minutes = Int(parts[1]), minutes > 0 else { return nil }
+                        return SleepStageRun(stage: stage, minutes: minutes)
                     }
-                    store.vitals = LiveVitals(
-                        hr: VitalsTimelinePolicy.currentHeart(
-                            latest: number(live["heart"]).map { Int($0) },
-                            previous: lastHeart,
-                            at: at),
-                        stress: VitalsTimelinePolicy.currentStress(
-                            latest: number(live["stress"]).map { Int($0) },
-                            previous: lastStress,
-                            at: at),
-                        at: at)
-                }
-            }
+                    let start = (night["sleep_start"] as? String).flatMap(Self.timestamp)
+                    let wake = (night["wake_at"] as? String).flatMap(Self.timestamp)
+                    // Cloud publication can lag the completed SDK night. A shorter remote
+                    // window must not truncate observations already confirmed on this device.
+                    if let local, let localStart = local.sleepStart, let localWake = local.wakeAt,
+                       let start, let wake, localStart <= start, localWake >= wake,
+                       (localStart < start || localWake > wake) {
+                        history[index].sleep = local
+                        continue
+                    }
+                    let sameWindow = start != nil && wake != nil && local?.sleepStart == start && local?.wakeAt == wake
+                    let oxygen = Self.overnightOxygen(rows: oxygenRows, start: start, wake: wake)
+                    let respiration = Self.sleepRespiration(raw: night["raw"], start: start, wake: wake)
+                    let hrv = Self.sleepHRV(raw: night["raw"], start: start, wake: wake)
+                    let remoteHRVInvalidations = Self.sleepHRVInvalidations(raw: night["raw"], start: start, wake: wake)
+                    let rawIntervals = ((night["raw"] as? [String: Any])?["intervals"] as? [[String: Any]] ?? []).compactMap { row -> SleepInterval? in
+                        guard let intervalStart = (row["start"] as? String).flatMap(Self.timestamp),
+                              let intervalEnd = (row["end"] as? String).flatMap(Self.timestamp),
+                              intervalEnd > intervalStart,
+                              let start, let wake, intervalStart >= start, intervalEnd <= wake else { return nil }
+                        return SleepInterval(start: intervalStart, end: intervalEnd)
+                    }.sorted { $0.start < $1.start }
 
-            // ⚠️ Merge, never replace. A one-day refresh after a band sync calls this with
-            // days: 1, and assigning the result would drop the other eighty-three — which
-            // is exactly what the week bars and the heat map are made of.
-            var merged = store.history.filter { existing in
-                !history.contains { $0.day == existing.day }
-            }
-            merged.append(contentsOf: history)
-            merged.sort { $0.day < $1.day }
-            for index in merged.indices {
-                merged[index].sleepScore = store.sleepScores[merged[index].day.key]
-            }
-            store.history = merged
-            if let responseRows {
-                let loaded = Self.opticalResponse(rows: responseRows)
-                if !loaded.isEmpty || store.mealResponsePoints.isEmpty {
-                    store.mealResponsePoints = loaded
+                    // Absence predates segmented sleep: retain nil so old records use their
+                    // measured start/wake window. Explicit empty or malformed intervals stay
+                    // empty; converting them to nil would invent continuous sleep evidence.
+                    let hasIntervals = (night["raw"] as? [String: Any])?["intervals"] != nil
+                    let intervals: [SleepInterval]? = hasIntervals ? rawIntervals : sameWindow ? local?.intervals : nil
+                    let rawLine = ((night["raw"] as? [String: Any])?["line"] as? [[String: Any]] ?? []).compactMap { row -> SleepStageRun? in
+                        guard let stage = number(row["stage"]), let minutes = number(row["minutes"]),
+                              stage.isFinite, minutes.isFinite, minutes > 0 else { return nil }
+                        let offset = number(row["offset_minutes"]).flatMap { $0.isFinite && $0 >= 0 ? Int($0) : nil }
+                        return SleepStageRun(stage: Int(stage), minutes: Int(minutes), offsetMinutes: offset)
+                    }
+                    func inSleep(_ at: Date) -> Bool {
+                        guard let start, let wake, at >= start, at < wake else { return false }
+                        guard let intervals else { return true }
+                        return intervals.contains { at >= $0.start && at < $0.end }
+                    }
+                    let displayLine = !rawLine.isEmpty ? rawLine : sameWindow &&
+                        (line.isEmpty || local?.line.contains(where: { $0.offsetMinutes != nil }) == true)
+                        ? local?.line ?? [] : line
+                    // A corrected reading at the same timestamp is one observation. Local
+                    // observations win while their cloud publication is still catching up.
+                    let combinedOxygen = Dictionary((oxygen + (sameWindow ? local?.spo2 ?? [] : []))
+                        .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
+                        .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
+                    let combinedRespiration = Dictionary((respiration + (sameWindow ? local?.respiration ?? [] : []))
+                        .map { ($0.ts, $0) }, uniquingKeysWith: { _, local in local })
+                        .values.filter { inSleep($0.ts) }.sorted { $0.ts < $1.ts }
+                    let hrvInvalidations = remoteHRVInvalidations
+                        .merging(local?.hrvInvalidatedMinutes ?? [:], uniquingKeysWith: max)
+                        .filter { inSleep($0.key) }
+                    let localHRV = (local?.hrv ?? []).filter { inSleep($0.ts) }
+                    let hasLocalHRV = !localHRV.isEmpty || (sameWindow && local?.hrv != nil)
+                    let combinedHRV: [SleepHRVPoint]? = hrv == nil && !hasLocalHRV
+                        && hrvInvalidations.isEmpty ? nil : SleepHRVPoint.merging(hrv ?? [],
+                            with: localHRV, invalidatedMinutes: hrvInvalidations)
+                            .filter { inSleep($0.ts) }
+                    history[index].sleep = SleepSummary(
+                        totalMinutes: Int(total),
+                        deepMinutes: number(night["deep_minutes"]).map { Int($0) } ?? 0,
+                        lightMinutes: number(night["light_minutes"]).map { Int($0) } ?? 0,
+                        wakeCount: number(night["wake_count"]).map { Int($0) } ?? 0,
+                        line: displayLine, sleepStart: start, wakeAt: wake,
+                        spo2: combinedOxygen,
+                        respiration: combinedRespiration,
+                        hrv: combinedHRV,
+                        hrvInvalidatedMinutes: hrvInvalidations.isEmpty ? nil : hrvInvalidations,
+                        intervals: intervals)
                 }
-            }
-            if let last = history.first(where: { $0.day == UserDay.containing(Date()) }) {
-                // 04 · a slot is open until it has a conclusion — logged or SKIPPED.
-                let settled = Set(store.meals.filter { $0.status != .open }.map(\.slot))
-                store.today = merge(last, into: store.today,
-                                    openSlots: MealEntry.Slot.allCases.count - settled.count)
-                store.today.sleepScore = store.sleepScores[store.today.day.key]
-            }
 
-            // Plates on screen are the EATEN number. Macros already followed that
-            // rule; the header used to keep a stale UNLOGGED/0 from day_fuel.
-            if day == UserDay.containing(Date()) {
-                store.refreshIntakeFromMeals()
-            }
-            // WEIGHT_KG · the most recent weigh-in is what the identity card shows.
-            if let latest = weighIns.first, let kg = number(latest["weight_kg"]) {
-                store.today.weightKg = kg
-            }
-            store.weighIns = weighIns.compactMap { row in
-                guard let iso = row["measured_at"] as? String,
-                      let kg = number(row["weight_kg"]) else { return nil }
-                return WeighIn(id: UUID(uuidString: row["id"] as? String ?? "") ?? UUID(),
-                               date: Self.timestamp(iso) ?? Date(),
-                               weightKg: kg, bodyFatPercent: nil,
-                               source: .measured,
-                               origin: (row["source"] as? String) == "health" ? .health : .manual)
-            }
-            store.isOffline = false
-            if let account {
+                if let live = liveRows.first,
+                   let at = (live["ts"] as? String).flatMap(Self.timestamp) {
+                    // ⚠️ The sync writes the tick it just pulled off the band into `store.vitals`
+                    // before the row has finished its trip through settle_now. The server's answer
+                    // is the same tick or an older one, never a newer one, so it only overwrites
+                    // when it is at least as recent — otherwise the panel jumps backwards to the
+                    // previous tick a second after showing the current one.
+                    if store.vitals.at == nil || at >= store.vitals.at! {
+                        let lastStress = liveStressRows?.first.flatMap { row -> (Int, Date)? in
+                            guard let ts = (row["ts"] as? String).flatMap(Self.timestamp),
+                                  let value = number(row["stress"]).map({ Int($0) }) else { return nil }
+                            return (value, ts)
+                        }
+                        let lastHeart = liveHeartRows?.first.flatMap { row -> (Int, Date)? in
+                            guard let ts = (row["ts"] as? String).flatMap(Self.timestamp),
+                                  let value = number(row["heart"]).map({ Int($0) }) else { return nil }
+                            return (value, ts)
+                        }
+                        store.vitals = LiveVitals(
+                            hr: VitalsTimelinePolicy.currentHeart(
+                                latest: number(live["heart"]).map { Int($0) },
+                                previous: lastHeart,
+                                at: at),
+                            stress: VitalsTimelinePolicy.currentStress(
+                                latest: number(live["stress"]).map { Int($0) },
+                                previous: lastStress,
+                                at: at),
+                            at: at)
+                    }
+                }
+
+                // ⚠️ Merge, never replace. A one-day refresh after a band sync calls this with
+                // days: 1, and assigning the result would drop the other eighty-three — which
+                // is exactly what the week bars and the heat map are made of.
+                var merged = store.history.filter { existing in
+                    !history.contains { $0.day == existing.day }
+                }
+                merged.append(contentsOf: history)
+                merged.sort { $0.day < $1.day }
+                for index in merged.indices {
+                    merged[index].sleepScore = store.sleepScores[merged[index].day.key]
+                }
+                store.history = merged
+                if let responseRows {
+                    let loaded = Self.opticalResponse(rows: responseRows)
+                    if !loaded.isEmpty || store.mealResponsePoints.isEmpty {
+                        store.mealResponsePoints = loaded
+                    }
+                }
+                if let last = history.first(where: { $0.day == UserDay.containing(Date()) }) {
+                    // 04 · a slot is open until it has a conclusion — logged or SKIPPED.
+                    let settled = Set(store.meals.filter { $0.status != .open }.map(\.slot))
+                    store.today = merge(last, into: store.today,
+                                        openSlots: MealEntry.Slot.allCases.count - settled.count)
+                    store.today.sleepScore = store.sleepScores[store.today.day.key]
+                }
+
+                // Plates on screen are the EATEN number. Macros already followed that
+                // rule; the header used to keep a stale UNLOGGED/0 from day_fuel.
+                if day == UserDay.containing(Date()) {
+                    store.refreshIntakeFromMeals()
+                }
+                // WEIGHT_KG · the most recent weigh-in is what the identity card shows.
+                if let latest = weighIns.first, let kg = number(latest["weight_kg"]) {
+                    store.today.weightKg = kg
+                }
+                store.weighIns = weighIns.compactMap { row in
+                    guard let iso = row["measured_at"] as? String,
+                          let kg = number(row["weight_kg"]) else { return nil }
+                    return WeighIn(id: UUID(uuidString: row["id"] as? String ?? "") ?? UUID(),
+                                   date: Self.timestamp(iso) ?? Date(),
+                                   weightKg: kg, bodyFatPercent: nil,
+                                   source: .measured,
+                                   origin: (row["source"] as? String) == "health" ? .health : .manual)
+                }
+                store.isOffline = false
                 MealQueue.shared.overlayPending(into: store, ownerUserId: account)
                 if let detail = store.metrics(for: day) { HomeSnapshot.saveDetail(detail, userId: account) }
+                HomeSnapshot.save(from: store)
             }
-            HomeSnapshot.save(from: store)
-            await WeighInQueue.shared.flush()
+            if published { await WeighInQueue.shared.flush() }
         } catch {
             #if DEBUG
             NSLog("Repository.load failed: %@", "\(error)")
             #endif
             // Offline shows the last row that was successfully stored, with AS OF HH:MM
             // on the card header. The client never computes a substitute.
-            if case SupabaseClient.Failure.http(409, _) = error {
+            if error as? HealthSnapshotRead.Failure == .revisionChanged {
                 // A concurrent settlement is not a loss of connectivity. Keep the prior
                 // coherent snapshot; the next refresh will observe the new revision.
                 return
             }
-            if isCurrent() { store.isOffline = true }
+            if isCurrent(), !(error is CancellationError) { store.isOffline = true }
         }
     }
 
@@ -1777,19 +1505,34 @@ final class Repository {
     /// PostgREST hands back fractional seconds and no zone suffix on some columns;
     /// the plain ISO parser rejects both, so try the strict form first and fall back.
     static func timestamp(_ raw: String) -> Date? {
-        let strict = ISO8601DateFormatter()
-        strict.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = strict.date(from: raw) { return d }
-        if let d = ISO8601DateFormatter().date(from: raw) { return d }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        for pattern in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ", "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
-                        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
-            f.dateFormat = pattern
-            if let d = f.date(from: raw) { return d }
-        }
-        return nil
+        HealthSnapshotRead.timestamp(raw)
+    }
+
+    private func snapshotReader(account: String, generation: UInt, summaryGeneration: UInt? = nil) -> HealthSnapshotRead {
+        HealthSnapshotRead(transport: .init(
+            select: { [db] table, query in
+                HealthSnapshotRead.Rows(try await db.select(table, query: query))
+            },
+            status: { [db] from, to in
+                guard let rows = try await db.rpc("calculation_status",
+                    args: ["p_from": from, "p_to": to], expectedOwner: account) as? [[String: Any]] else {
+                    throw HealthSnapshotRead.Failure.unavailable
+                }
+                return HealthSnapshotRead.Rows(rows)
+            },
+            metrics: { [db] from, to in
+                HealthSnapshotRead.Object(try await db.callFunction("metric-read", payload: [
+                    "metrics": ["intakeKcal", "burnKcal", "deltaKcal", "proteinG", "nightHRV", "hrvBaseline", "nightRHR", "sleepMinutes"],
+                    "from": from, "to": to, "timezone": TimeZone.current.identifier,
+                ], expectedOwner: account))
+            },
+            missingCapability: { Self.isMissingReadCapability($0, capability: $1) }
+        ), accepts: { [self] in
+            HomeLaunchPolicy.acceptsRead(account: account,
+                currentAccount: SupabaseClient.currentUserIdSnapshot(), generation: generation,
+                currentGeneration: readGeneration)
+                && (summaryGeneration == nil || summaryGeneration == summaryReadGeneration)
+        })
     }
 
     /// Additive server releases may lag an app update. Only a positively identified
@@ -1819,29 +1562,6 @@ final class Repository {
         }
     }
 
-    private func selectDailyResultsCompat(query: [URLQueryItem]) async throws
-        -> (rows: [[String: Any]], versioned: Bool) {
-        do {
-            return (try await db.select("daily_results", query: query), true)
-        } catch {
-            if Self.isMissingReadCapability(error, capability: "worn") {
-                let withoutWear = query.map { item in
-                    item.name == "select" ? URLQueryItem(name: item.name, value:
-                        item.value?.split(separator: ",").filter {
-                            $0 != "worn" && $0 != "wear_run" && $0 != "wear_miss"
-                        }.joined(separator: ",")) : item
-                }
-                return try await selectDailyResultsCompat(query: withoutWear)
-            }
-            guard Self.isMissingReadCapability(error, capability: "result_revision") else { throw error }
-            let legacy = query.map { item in
-                item.name == "select" ? URLQueryItem(name: item.name, value:
-                    item.value?.split(separator: ",").filter { $0 != "result_revision" }.joined(separator: ",")) : item
-            }
-            return (try await db.select("daily_results", query: legacy), false)
-        }
-    }
-
     private func applyWear(_ row: [String: Any], to metrics: inout DailyMetrics) {
         if let worn = row["worn"] as? Bool {
             metrics.worn = worn
@@ -1850,18 +1570,6 @@ final class Repository {
         }
         if let n = number(row["wear_run"]) { metrics.wearRun = Int(n) }
         if let n = number(row["wear_miss"]) { metrics.wearMiss = Int(n) }
-    }
-
-    private func metricReadIfAvailable(from: String, to: String) async throws -> [String: Any]? {
-        do {
-            return try await db.callFunction("metric-read", payload: [
-                "metrics": ["intakeKcal", "burnKcal", "deltaKcal", "proteinG", "nightHRV", "hrvBaseline", "nightRHR", "sleepMinutes"],
-                "from": from, "to": to, "timezone": TimeZone.current.identifier,
-            ])
-        } catch {
-            guard Self.isMissingReadCapability(error, capability: "metric-read") else { throw error }
-            return nil
-        }
     }
 
     private func calculationStatusIfAvailable(from: String, to: String) async throws -> [[String: Any]]? {
@@ -1882,43 +1590,6 @@ final class Repository {
         if let s = any as? String { return Double(s) }
         if let n = any as? NSNumber { return n.doubleValue }
         return nil
-    }
-
-    private func selectByResultId(_ table: String, columns: String,
-                                  ids: [String]) async throws -> [[String: Any]] {
-        var rows: [[String: Any]] = []
-        for chunk in Self.resultIdChunks(ids) {
-            guard let filter = HomeLaunchPolicy.postgrestIn(chunk) else { continue }
-            rows += try await db.select(table, query: [
-                .init(name: "select", value: columns),
-                .init(name: "result_id", value: filter),
-            ])
-        }
-        return rows
-    }
-
-    private func selectTrainingExtras(ids: [String]) async -> [[String: Any]]? {
-        let chunks = Self.resultIdChunks(ids)
-        guard !chunks.isEmpty else { return [] }
-        var rows: [[String: Any]] = []
-        for chunk in chunks {
-            guard let filter = HomeLaunchPolicy.postgrestIn(chunk) else { continue }
-            guard let part = try? await db.select("daily_training", query: [
-                .init(name: "select", value: "result_id,active_minutes,distance_m"),
-                .init(name: "result_id", value: filter),
-            ]) else { return nil }
-            rows += part
-        }
-        return rows
-    }
-
-    private static func resultIdChunks(_ ids: [String]) -> [[String]] {
-        let clean = ids.filter { !$0.isEmpty }
-        guard !clean.isEmpty else { return [] }
-        let size = 80
-        return stride(from: 0, to: clean.count, by: size).map {
-            Array(clean[$0..<min($0 + size, clean.count)])
-        }
     }
 
     /// 10E · every persisted `body_composition` row is a point. Source is not filtered:

@@ -449,7 +449,7 @@ struct BodyBatteryDetailView: View {
         }
         isRefreshing = true
         defer { isRefreshing = false }
-        await OriginDataSync.refreshNow(into: data, minimumInterval: 0)
+        await OriginDataSync.refreshNow(into: data, request: .latest)
         if Band.live.state != .connected {
             refreshMessage = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
         }

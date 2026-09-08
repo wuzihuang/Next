@@ -40,6 +40,7 @@ actor SupabaseClient {
     private static let snapshotLock = NSLock()
     private static var snapshotUserId: String?
     private static var snapshotUserEmail: String?
+    private static var snapshotSession = RequestSession(owner: nil, generation: UUID())
 
     private var sessionGeneration = UUID()
     private var requestSession: RequestSession { RequestSession(owner: userId, generation: sessionGeneration) }
@@ -65,13 +66,19 @@ actor SupabaseClient {
         userId = token.flatMap(HomeLaunchPolicy.jwtSubject)
         refreshTask?.cancel()
         refreshTask = nil
-        Self.storeSnapshot(userId: userId, userEmail: userEmail)
+        Self.storeSnapshot(userId: userId, userEmail: userEmail, generation: sessionGeneration)
     }
 
     nonisolated static func currentUserIdSnapshot() -> String? {
         snapshotLock.lock()
         defer { snapshotLock.unlock() }
         return snapshotUserId
+    }
+
+    nonisolated static func currentRequestSessionSnapshot() -> RequestSession {
+        snapshotLock.lock()
+        defer { snapshotLock.unlock() }
+        return snapshotSession
     }
 
     var isSignedIn: Bool { accessToken != nil }
@@ -168,7 +175,7 @@ actor SupabaseClient {
             userEmail = HomeLaunchPolicy.jwtEmail(stored) ?? SessionKeychain.userEmail
             SessionKeychain.userId = sub
             SessionKeychain.userEmail = userEmail
-            Self.storeSnapshot(userId: userId, userEmail: userEmail)
+            Self.storeSnapshot(userId: userId, userEmail: userEmail, generation: sessionGeneration)
             return true
         }
         guard let stored = SessionKeychain.refreshToken else { return false }
@@ -264,7 +271,7 @@ actor SupabaseClient {
             SessionKeychain.accessToken = nil
             SessionKeychain.userId = nil
             SessionKeychain.userEmail = nil
-            Self.storeSnapshot(userId: nil, userEmail: nil)
+            Self.storeSnapshot(userId: nil, userEmail: nil, generation: sessionGeneration)
         }
         return false
     }
@@ -290,7 +297,7 @@ actor SupabaseClient {
         SessionKeychain.accessToken = nil
         SessionKeychain.userId = nil
         SessionKeychain.userEmail = nil
-        Self.storeSnapshot(userId: nil, userEmail: nil)
+        Self.storeSnapshot(userId: nil, userEmail: nil, generation: sessionGeneration)
         if let token = departingToken {
             var r = URLRequest(url: SupabaseConfig.url.appendingPathComponent("auth/v1/logout"))
             r.httpMethod = "POST"
@@ -322,18 +329,24 @@ actor SupabaseClient {
         SessionKeychain.accessToken = accessToken
         SessionKeychain.userId = userId
         SessionKeychain.userEmail = userEmail
-        Self.storeSnapshot(userId: userId, userEmail: userEmail)
+        Self.storeSnapshot(userId: userId, userEmail: userEmail, generation: sessionGeneration)
     }
 
     nonisolated static let accountDidChange = Notification.Name("NextBody.accountDidChange")
 
-    private nonisolated static func storeSnapshot(userId: String?, userEmail: String?) {
+    nonisolated static let requestSessionDidChange = Notification.Name("NextBody.requestSessionDidChange")
+
+    private nonisolated static func storeSnapshot(userId: String?, userEmail: String?, generation: UUID) {
         snapshotLock.lock()
         let changed = snapshotUserId != userId
+        let nextSession = RequestSession(owner: userId, generation: generation)
+        let sessionChanged = snapshotSession != nextSession
+        snapshotSession = nextSession
         snapshotUserId = userId
         snapshotUserEmail = userEmail
         snapshotLock.unlock()
         if changed { NotificationCenter.default.post(name: accountDidChange, object: nil) }
+        if sessionChanged { NotificationCenter.default.post(name: requestSessionDidChange, object: nil) }
     }
 
     /// GoTrue stamps `last_sign_in_at` with this very grant, so on a first registration it

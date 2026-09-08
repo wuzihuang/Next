@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import Combine
 
 /// ADR 0018 · phone tools. The model calls them inside a turn; the server suspends the turn
 /// and hands the call here; this runs it on the band or in the app and answers with
@@ -40,24 +41,76 @@ final class PhoneToolRunner: ObservableObject {
         }
     }
 
-    /// What the screen asks before a tool with a side effect runs. RootView presents it.
-    struct Confirmation: Identifiable {
-        let id = UUID()
-        let title: String
-        let detail: String
-        let resolve: (Bool) -> Void
-    }
-    @Published var confirmation: Confirmation?
-    /// The tool that is running right now, for the thinking stream's foot.
+    typealias Confirmation = PhoneToolExecution.Prompt
+    @Published private(set) var confirmation: Confirmation?
     @Published private(set) var running: String?
-
-    static let confirmSeconds: TimeInterval = 60
     static let flowSeconds: TimeInterval = 5 * 60
 
+    private var activeTurn = UUID()
+    private var observations: Set<AnyCancellable> = []
+    private lazy var execution = PhoneToolExecution(current: { [unowned self] in
+        .init(scope: currentScope, consent: ConsentStore.shared.granted,
+              foreground: UIApplication.shared.applicationState == .active)
+    }, sleep: { try await Task.sleep(for: .seconds($0)) }, changed: { [weak self] confirmation, running in
+        self?.confirmation = confirmation
+        self?.running = running
+    })
+
+    private init() {
+        NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.invalidateTurn(.background) }
+            }.store(in: &observations)
+        NotificationCenter.default.publisher(for: SupabaseClient.requestSessionDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.execution.refreshEligibility() }
+            .store(in: &observations)
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.execution.refreshEligibility() }
+            .store(in: &observations)
+        ConsentStore.shared.$choice.sink { [weak self] choice in
+            if choice != .granted { self?.invalidateTurn(.consentRequired) }
+        }.store(in: &observations)
+    }
+
+    private var currentScope: PhoneToolExecution.Scope {
+        .init(session: SupabaseClient.currentRequestSessionSnapshot(), turnID: activeTurn,
+              binding: BoundBand.identifier)
+    }
+
+    private func invalidateTurn(_ reason: PhoneToolExecution.Failure) {
+        activeTurn = UUID()
+        execution.invalidateAll(reason)
+    }
+
+    func beginTurn(_ id: UUID) -> PhoneToolExecution.Scope {
+        activeTurn = id
+        execution.refreshEligibility()
+        return currentScope
+    }
+
+    func finishTurn(_ id: UUID) {
+        guard activeTurn == id else { return }
+        activeTurn = UUID()
+        execution.refreshEligibility()
+    }
+
+    func resolveConfirmation(id: UUID, approved: Bool) {
+        execution.resolve(id: id, approved: approved)
+    }
+
+    private var measurementOwner: (generation: UInt, execution: PhoneToolExecution.Execution)?
+    var measurementExecution: PhoneToolExecution.Execution? {
+        guard let owner = measurementOwner, router?.takeoverGeneration == owner.generation else { return nil }
+        return owner.execution
+    }
     weak var router: Router?
     /// Alarms as last read from the band, so a turn can cite them without a BLE round trip.
     private(set) var cachedAlarms: [BandAlarm] = []
     private(set) var alarmsReadAt: Date?
+    private var alarmsOwner: (session: RequestSession, binding: String?)?
+    private var findOwner: UUID?
 
     /// The band as the phone sees it now, sent with every turn as read evidence.
     func deviceState(store: DataStore) -> [String: Any] {
@@ -70,51 +123,32 @@ final class PhoneToolRunner: ObservableObject {
             "last_sync_at": band.connected ? iso.string(from: band.lastSync) : NSNull(),
             "app_foreground": UIApplication.shared.applicationState == .active,
         ]
-        if alarmsReadAt != nil {
+        if alarmsReadAt != nil, alarmsOwner?.session == SupabaseClient.currentRequestSessionSnapshot(),
+           alarmsOwner?.binding == BoundBand.identifier {
             out["alarms"] = Array(cachedAlarms.prefix(10)).map(Self.alarmJSON)
         }
         return out
     }
 
-    func run(_ request: Request, store: DataStore) async -> Result {
-        running = request.name
-        defer { running = nil }
-        guard UIApplication.shared.applicationState != .background else { return .fail("APP_BACKGROUND") }
-        if request.confirm {
-            guard await confirm(request) else { return .fail("CANCELLED", L("Not confirmed.")) }
-        }
-        switch request.name {
-        case "device.find":          return await findBand()
-        case "device.sync":          return await syncBand(store: store)
-        case "device.alarm.set":     return await setAlarm(request.args)
-        case "device.alarm.delete":  return await deleteAlarm(request.args)
-        case "sport.start":          return await startSport(request.args, store: store)
-        case "sport.stop":           return await stopSport()
-        case "meal.log":             return logMeal(request.args, store: store)
-        case "balance_check.start":  return await runFlow(.measure(.ecg))
-        case "body_scan.start":      return await runFlow(.measure(.bodyComposition))
-        case "app.open":             return openPage(request.args)
-        default:                     return .fail("UNKNOWN_TOOL")
-        }
-    }
-
-    // MARK: confirmation
-
-    private func confirm(_ request: Request) async -> Bool {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            var settled = false
-            let resolve: (Bool) -> Void = { [weak self] yes in
-                guard !settled else { return }
-                settled = true
-                self?.confirmation = nil
-                continuation.resume(returning: yes)
+    func run(_ request: Request, scope: PhoneToolExecution.Scope, store: DataStore) async -> Result {
+        do {
+            return try await execution.run(scope: scope, callID: request.callID, name: request.name,
+                confirmation: request.confirm ? (Self.confirmTitle(request), Self.confirmDetail(request)) : nil) { permit in
+                switch request.name {
+                case "device.find":          return await findBand(permit)
+                case "device.sync":          return await syncBand(store: store, permit: permit)
+                case "device.alarm.set":     return await setAlarm(request.args, permit: permit)
+                case "device.alarm.delete":  return await deleteAlarm(request.args, permit: permit)
+                case "sport.start":          return await startSport(request.args, store: store, permit: permit)
+                case "sport.stop":           return await stopSport(permit)
+                case "meal.log":             return try logMeal(request.args, store: store, permit: permit)
+                case "balance_check.start":  return await runFlow(.measure(.ecg), permit: permit)
+                case "body_scan.start":      return await runFlow(.measure(.bodyComposition), permit: permit)
+                case "app.open":             return try openPage(request.args, permit: permit)
+                default:                     return .fail("UNKNOWN_TOOL")
+                }
             }
-            confirmation = Confirmation(title: Self.confirmTitle(request), detail: Self.confirmDetail(request), resolve: resolve)
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(Self.confirmSeconds))
-                resolve(false)
-            }
-        }
+        } catch { return .fail(Self.code(error), error.localizedDescription) }
     }
 
     private static func confirmTitle(_ r: Request) -> String {
@@ -160,51 +194,72 @@ final class PhoneToolRunner: ObservableObject {
         return nil
     }
 
-    private func findBand() async -> Result {
+    private func findBand(_ permit: PhoneToolExecution.Execution) async -> Result {
         if let blocked = bandReady() { return blocked }
+        findOwner = permit.id
+        let result: Result
         do {
-            try await Band.live.startFindHoop()
-            try? await Task.sleep(for: .seconds(4))
+            try await permit.perform { try await Band.live.startFindHoop() }
+            try await Task.sleep(for: .seconds(4))
+            try permit.check()
+            result = .succeed(["vibrated": true])
+        } catch { result = .fail(Self.code(error), error.localizedDescription) }
+        // Stopping the find we already issued is cleanup. It must never stop a successor
+        // request or send a command to the band/account that replaced this one.
+        if findOwner == permit.id,
+           SupabaseClient.currentRequestSessionSnapshot() == permit.scope.session,
+           BoundBand.identifier == permit.scope.binding {
             await Band.live.stopFindHoop()
-            return .succeed(["vibrated": true])
-        } catch {
-            return .fail(Self.code(error), error.localizedDescription)
         }
+        if findOwner == permit.id { findOwner = nil }
+        return result
     }
 
-    private func syncBand(store: DataStore) async -> Result {
-        if let blocked = bandReady() { return blocked }
-        await Band.live.prepareFreshSync()
-        let points = await OriginDataSync().sync(day: store.today.day, into: store)
-        let iso = ISO8601DateFormatter()
-        return .succeed(["points": points, "synced_at": iso.string(from: Date())])
+    private func syncBand(store: DataStore, permit: PhoneToolExecution.Execution) async -> Result {
+        do {
+            let result = try await permit.perform {
+                await OriginDataSync.refreshNow(into: store, request: .phoneTool)
+            }
+            guard result.status == .success, let at = result.syncedAt else {
+                let code: String
+                switch result.status {
+                case .unbound, .disconnected: code = "BAND_DISCONNECTED"
+                case .consentRequired: code = "CONSENT_REQUIRED"
+                case .signedOut: code = "SESSION_CHANGED"
+                case .cancelled: code = "CANCELLED"
+                case .busy, .throttled: code = "BUSY"
+                case .partial: code = "SYNC_PARTIAL"
+                default: code = "BAND_ERROR"
+                }
+                return .fail(code)
+            }
+            return .succeed(["points": result.points, "synced_at": ISO8601DateFormatter().string(from: at)])
+        } catch { return .fail(Self.code(error), error.localizedDescription) }
     }
 
-    private func setAlarm(_ args: [String: Any]) async -> Result {
+    private func setAlarm(_ args: [String: Any], permit: PhoneToolExecution.Execution) async -> Result {
         if let blocked = bandReady() { return blocked }
         guard let time = args["time"] as? String, let (hour, minute) = Self.parseTime(time) else { return .fail("BAND_ERROR", L("Invalid time.")) }
         do {
-            let alarms = try await Band.live.readAlarms()
-            guard let id = BandAlarmMath.nextID(in: alarms) else { return .fail("ALARM_SLOTS_FULL") }
             let days = (args["days"] as? [Int]) ?? []
-            let draft = BandAlarm(id: id, hour: hour, minute: minute, on: true,
+            let draft = BandAlarm(id: 0, hour: hour, minute: minute, on: true,
                                   repeatMask: Self.repeatMask(days: days), date: BandAlarm.onceDatePlaceholder,
                                   scene: BandAlarm.silentScene, text: String((args["label"] as? String ?? "").prefix(20)))
-            let after = try await Band.live.writeAlarm(BandAlarmMath.prepared(draft))
-            remember(after)
-            return .succeed(["alarm_id": String(id), "alarms": after.map(Self.alarmJSON)])
+            let result = try await permit.setAlarm(draft, read: { try await Band.live.readAlarms() },
+                                                   write: { try await Band.live.writeAlarm($0) })
+            remember(result.alarms)
+            return .succeed(["alarm_id": String(result.id), "alarms": result.alarms.map(Self.alarmJSON)])
         } catch {
             return .fail(Self.code(error), error.localizedDescription)
         }
     }
 
-    private func deleteAlarm(_ args: [String: Any]) async -> Result {
+    private func deleteAlarm(_ args: [String: Any], permit: PhoneToolExecution.Execution) async -> Result {
         if let blocked = bandReady() { return blocked }
         guard let raw = args["alarm_id"] as? String, let id = Int(raw) else { return .fail("ALARM_NOT_FOUND") }
         do {
-            let alarms = try await Band.live.readAlarms()
-            guard let alarm = alarms.first(where: { $0.id == id }) else { remember(alarms); return .fail("ALARM_NOT_FOUND") }
-            let after = try await Band.live.deleteAlarm(alarm)
+            let after = try await permit.deleteAlarm(id, read: { try await Band.live.readAlarms() },
+                                                    delete: { try await Band.live.deleteAlarm($0) })
             remember(after)
             return .succeed(["alarms": after.map(Self.alarmJSON)])
         } catch {
@@ -215,6 +270,7 @@ final class PhoneToolRunner: ObservableObject {
     func remember(_ alarms: [BandAlarm]) {
         cachedAlarms = alarms
         alarmsReadAt = Date()
+        alarmsOwner = (SupabaseClient.currentRequestSessionSnapshot(), BoundBand.identifier)
     }
 
     private static func alarmJSON(_ a: BandAlarm) -> [String: Any] {
@@ -248,6 +304,8 @@ final class PhoneToolRunner: ObservableObject {
     }
 
     private static func code(_ error: Error) -> String {
+        if let execution = error as? PhoneToolExecution.Failure { return execution.rawValue }
+        if error is CancellationError { return "CANCELLED" }
         if let band = error as? BandError {
             switch band {
             case .notConnected: return "BAND_DISCONNECTED"
@@ -273,28 +331,35 @@ final class PhoneToolRunner: ObservableObject {
         return SportModeCatalog.modes.first { $0.name == name } ?? SportModeCatalog.modes[0]
     }
 
-    private func startSport(_ args: [String: Any], store: DataStore) async -> Result {
+    private func startSport(_ args: [String: Any], store: DataStore, permit: PhoneToolExecution.Execution) async -> Result {
         if let blocked = bandReady() { return blocked }
         let live = LiveSessionStore.shared
         guard live.session == nil else { return .fail("SESSION_ACTIVE") }
         let mode = Self.sportMode(for: args["sport"] as? String)
-        live.begin(mode, profile: store.profile, weightKg: store.today.weightKg ?? store.weighIns.first?.weightKg)
-        try? await Task.sleep(for: .milliseconds(600))
+        do {
+            try permit.check()
+            live.begin(mode, profile: store.profile, weightKg: store.today.weightKg ?? store.weighIns.first?.weightKg,
+                       authorized: { permit.isAuthorized })
+            try await permit.perform { await live.awaitOpening(authorized: { permit.isAuthorized }) }
+        } catch { return .fail(Self.code(error), error.localizedDescription) }
         if let refusal = live.refusal { return .fail("BAND_ERROR", refusal) }
         guard live.session != nil else { return .fail("BAND_ERROR", live.errorLine) }
         return .succeed(["mode": mode.name])
     }
 
-    private func stopSport() async -> Result {
+    private func stopSport(_ permit: PhoneToolExecution.Execution) async -> Result {
         let live = LiveSessionStore.shared
         guard live.session != nil else { return .fail("NO_SESSION") }
-        let widget = await live.stop()
-        return .succeed(["summary": widget?.sentence ?? ""])
+        do {
+            let widget = try await permit.perform { await live.stop(authorized: { permit.isAuthorized }) }
+            return .succeed(["summary": widget?.sentence ?? ""])
+        } catch { return .fail(Self.code(error), error.localizedDescription) }
     }
 
     // MARK: meal
 
-    private func logMeal(_ args: [String: Any], store: DataStore) -> Result {
+    private func logMeal(_ args: [String: Any], store: DataStore, permit: PhoneToolExecution.Execution) throws -> Result {
+        try permit.check()
         guard let draft = args["draft"] as? [String: Any] else { return .fail("ESTIMATE_REQUIRED") }
         let slotRaw = args["slot"] as? String
         let slot = slotRaw.flatMap(MealEntry.Slot.init(rawValue:)) ?? MealEntry.Slot.guess(at: Date(), day: store.today.day)
@@ -309,25 +374,37 @@ final class PhoneToolRunner: ObservableObject {
 
     // MARK: flows and pages
 
-    private func runFlow(_ takeover: Takeover) async -> Result {
+    private func runFlow(_ takeover: Takeover, permit: PhoneToolExecution.Execution) async -> Result {
+        do { try permit.check() } catch { return .fail(Self.code(error)) }
         guard let router else { return .fail("APP_BACKGROUND") }
         if case .measure = takeover, let blocked = bandReady() { return blocked }
         let before = router.measuredWidget?.id
+        guard router.takeover == nil else { return .fail("BUSY") }
+        defer { if measurementOwner?.execution === permit { measurementOwner = nil } }
         router.takeover = takeover
+        let generation = router.takeoverGeneration
+        measurementOwner = (generation, permit)
         let deadline = Date().addingTimeInterval(Self.flowSeconds)
         // Give the takeover a beat to mount before watching for it to fold.
         try? await Task.sleep(for: .milliseconds(500))
-        while router.takeover != nil, Date() < deadline {
+        while router.takeoverGeneration == generation, router.takeover == takeover, Date() < deadline {
+            guard permit.isAuthorized else {
+                if router.takeoverGeneration == generation { router.takeover = nil }
+                return .fail("CANCELLED")
+            }
             try? await Task.sleep(for: .milliseconds(400))
         }
-        if router.takeover != nil { router.takeover = nil; return .fail("TIMEOUT") }
+        do { try permit.check() } catch { return .fail(Self.code(error)) }
+        if router.takeoverGeneration == generation { router.takeover = nil; return .fail("TIMEOUT") }
+        guard router.takeover == nil, router.takeoverGeneration == generation &+ 1 else { return .fail("ABANDONED") }
         let completed = router.measuredWidget?.id != before && router.measuredWidget != nil
         return completed
             ? .succeed(["completed": true, "summary": router.measuredWidget?.sentence ?? ""])
             : .fail("ABANDONED", L("The check was closed before it finished."))
     }
 
-    private func openPage(_ args: [String: Any]) -> Result {
+    private func openPage(_ args: [String: Any], permit: PhoneToolExecution.Execution) throws -> Result {
+        try permit.check()
         guard let router else { return .fail("APP_BACKGROUND") }
         let page = args["page"] as? String ?? ""
         switch page {

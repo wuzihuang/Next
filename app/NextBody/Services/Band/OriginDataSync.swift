@@ -1,16 +1,8 @@
 import Foundation
 import os
 
-/// F2 §01 · work out the window first, then decide how many pages to pull.
-///
-/// W = [local 04:00, min(now, next 04:00))
-///   · now ≥ 04:00 and the whole window is inside today  → page 0 only
-///   · now < 04:00 (the day still running is yesterday's) → pages 0 and 1
-///   · closing a day → always straddles two: page 1 for after 04:00, page 0 for before it
-///
-/// ⚠️ Pulling one page too few does not error. It just makes the number smaller, silently.
-/// Opening the app in the small hours and the first close of each morning are the only two
-/// moments this bites, which is exactly why it is easy to ship broken.
+/// The shared refresh reads the current user day and the previous day. User days start
+/// at local midnight (ADR 0020); sleep still belongs to its recorded wake day.
 @MainActor
 final class OriginDataSync {
     private let band: BandService
@@ -22,89 +14,76 @@ final class OriginDataSync {
 
     // MARK: asking again
 
-    private static var inFlight: Task<Void, Never>?
-    private static var fullHistoryRequested = false
-    private static var lastAttempt: Date?
-    private static var lastAttemptUserId: String?
+    private static let refreshCoordinator = BandRefreshCoordinator(state: { refreshState() })
 
-    /// The one entry point for "pull today again": the app coming back to the foreground, the
-    /// device page opening, a tap on Device's SYNC, the home screen's own five-minute tick.
-    /// Two of those firing together used to mean two full pulls of the same day fighting for
-    /// the same serial queue; here the second one waits for the first and then finds nothing
-    /// to do. A tap passes `minimumInterval: 0` so cadence does not swallow it.
-    ///
-    /// 补屏 rule 01 · pairing is not permission. Without consent the band is never read.
-    static func refreshNow(into store: DataStore, minimumInterval: TimeInterval = SyncCadence.throttle,
-                           fullHistory: Bool = false, reuseRecentLiveReceipt: Bool = false) async {
+    private static func refreshState() -> BandRefreshCoordinator.State {
+        .init(account: SupabaseClient.currentUserIdSnapshot(), binding: BoundBand.identifier,
+              consent: ConsentStore.shared.granted, exclusive: BandLiveLifecycle.shared.hasExclusiveOperation,
+              connected: Band.live.state == .connected)
+    }
+
+    /// Every caller enters the same account-scoped refresh. Readiness and history upgrades
+    /// belong to that shared work; a screen never has to prepare the band or infer success.
+    @discardableResult
+    static func refreshNow(into store: DataStore, request: BandRefreshRequest = .automatic) async -> BandRefreshResult {
 #if DEBUG
-        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_EVIDENCE"] == "1" { return }
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_EVIDENCE"] == "1" {
+            return .init(status: .throttled)
+        }
 #endif
-        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation, ConsentStore.shared.granted,
-              let userId = await SupabaseClient.shared.currentUserId,
-              let binding = BoundBand.identifier else { return }
-        guard await BandReadiness.shared.ensureReady(into: store, reason: "sync", reuseRecentLiveReceipt: reuseRecentLiveReceipt),
-              SupabaseClient.currentUserIdSnapshot() == userId, BoundBand.identifier == binding else { return }
-        if let running = inFlight {
-            if fullHistory { fullHistoryRequested = true }
-            await running.value
-            return
-        }
-        if lastAttemptUserId != userId {
-            lastAttempt = nil
-            lastAttemptUserId = userId
-        }
-        if let last = lastAttempt, Date().timeIntervalSince(last) < minimumInterval { return }
-        fullHistoryRequested = fullHistory
-        // The short readiness flight has finished; coalesce the separate historical/cloud lane.
-        let task = Task { @MainActor in
-            defer { BandSyncActivity.shared.phase = "idle" }
-            BandPresence.shared.start(store: store)
-            BandSyncActivity.shared.phase = "connecting"
-            store.band.connected = Band.live.state == .connected
-            guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation, store.band.connected, ConsentStore.shared.granted,
-                  await SupabaseClient.shared.currentUserId == userId, BoundBand.identifier == binding else { return }
-            BandSyncActivity.shared.phase = "syncing"
-            do {
-                await BandPresence.shared.refresh(store: store, prepared: BandReadiness.shared.snapshot)
-                guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
-                      BoundBand.identifier == binding, LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
-                _ = try? await BandReadiness.read(account: userId, binding: binding) {
-                    await Band.live.prepareFreshSync()
+        return await refreshCoordinator.refresh(request, cadence: SyncCadence.interval,
+            work: refreshWork(into: store, request: request))
+    }
+
+    private static func refreshWork(into store: DataStore, request: BandRefreshRequest) -> BandRefreshCoordinator.Work {
+        let scope = refreshState().scope
+        let sync = OriginDataSync()
+        var today = UserDay.containing(Date())
+        return .init(
+            prepare: { reuseReceipt in
+                guard let scope else { return false }
+                BandSyncActivity.shared.phase = "connecting"
+                if request != .phoneTool {
+                    guard await BandReadiness.shared.ensureReady(into: store, reason: "sync",
+                        reuseRecentLiveReceipt: reuseReceipt) else { return false }
                 }
-                guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
-                      BoundBand.identifier == binding, LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
-                let sync = OriginDataSync()
-                let today = UserDay.containing(Date())
-                _ = await sync.sync(day: today.adding(days: -1), into: store, settle: false)
-                guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
-                      BoundBand.identifier == binding, LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
-                _ = await sync.sync(day: today, into: store)
-                guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
-                      BoundBand.identifier == binding, LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
-                if fullHistoryRequested { await sync.backfillIfNeeded(into: store, force: true) }
-                lastAttempt = Date()
-            }
-        }
-        inFlight = task
-        await task.value
-        inFlight = nil
+                guard refreshState().rejection(expected: scope) == nil,
+                      Band.live.state == .connected else { return false }
+                BandPresence.shared.start(store: store)
+                store.band.connected = true
+                await BandPresence.shared.refresh(store: store, prepared: BandReadiness.shared.snapshot)
+                guard refreshState().rejection(expected: scope) == nil else { return false }
+                do {
+                    try await BandReadiness.read(account: scope.account, binding: scope.binding) {
+                        await Band.live.prepareFreshSync()
+                    }
+                } catch { return false }
+                today = UserDay.containing(Date())
+                BandSyncActivity.shared.phase = "syncing"
+                return true
+            }, day: { daysAgo in
+                guard let scope else { return .init(status: .cancelled) }
+                let day = today.adding(days: -daysAgo)
+                let points = await sync.sync(day: day, scope: scope, into: store, settle: daysAgo == 0)
+                return .init(status: BandRefreshResult.Status(rawValue: sync.lastOutcome) ?? .failed, points: points)
+            }, history: {
+                guard let scope else { return .init(status: .cancelled) }
+                return await sync.backfillIfNeeded(scope: scope, into: store, force: true)
+            }, finish: {
+                BandSyncActivity.shared.phase = "idle"
+            })
     }
 
-    static func waitForCurrentPull() async {
-        if let task = inFlight { await task.value }
+    static func waitForCurrentPull() async { await refreshCoordinator.waitForCurrentPull() }
+
+    /// The app calls this only after releasing the consent takeover's exclusive gate.
+    static func refreshAfterConsent(into store: DataStore) async -> BandRefreshResult? {
+        await refreshCoordinator.refreshAfterConsent(cadence: SyncCadence.interval,
+            work: refreshWork(into: store, request: .fullHistory))
     }
 
-    /// Whether a full cadence has passed since the band was last asked. The home screen's
-    /// loop checks this every half minute instead of sleeping for the whole cadence, so a
-    /// cadence shortened on the device page takes effect within thirty seconds, not after
-    /// the old hour has run out.
-    static var isDue: Bool {
-        guard let last = lastAttempt else { return true }
-        return Date().timeIntervalSince(last) >= SyncCadence.interval
-    }
-
-    /// What the last `sync` on this instance recorded: "success", "partial" or "failed".
-    private(set) var lastOutcome = "none"
+    /// Internal per-day outcome. Only the shared refresh combines days into a caller result.
+    private var lastOutcome = "none"
 
     /// Which SDK pages a given user day needs. The only place dayOffset is ever decided.
     static func pages(for day: UserDay, now: Date = Date(), calendar: Calendar = .current) -> [Int] {
@@ -140,7 +119,9 @@ final class OriginDataSync {
     /// `settle` · ask the server for the day's row straight after, and reload it. Off during
     /// a backfill, which settles its whole window once at the end.
     @discardableResult
-    func sync(day: UserDay, into store: DataStore, settle: Bool = true) async -> Int {
+    private func sync(day: UserDay, scope: BandRefreshCoordinator.Scope,
+                      into store: DataStore, settle: Bool = true) async -> Int {
+        lastOutcome = "failed"
         let now = Date()
         let iso = ISO8601DateFormatter()
         let originReadISO = ISO8601DateFormatter()
@@ -161,12 +142,11 @@ final class OriginDataSync {
         // once were, the rows went up without one. Every upload was refused with a
         // not-null violation, swallowed into BandLog, and the run was still filed as
         // "success": the table stayed empty for as long as the band had been read at all.
-        guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation, ConsentStore.shared.granted, let userId = await db.currentUserId else {
-            Self.log.error("sync: no session, nothing can be uploaded")
-            lastOutcome = "failed"
-            return 0
-        }
+        guard Self.refreshState().rejection(expected: scope) == nil else { return 0 }
+        let userId = scope.account
+        let deviceKey = scope.binding
         await Self.flushPendingEvidence(userId: userId)
+        guard Self.refreshState().rejection(expected: scope) == nil else { return 0 }
         var calendar = Calendar.current
         calendar.timeZone = .current
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: day.start)!
@@ -192,7 +172,6 @@ final class OriginDataSync {
         var opticalTicks: [Date: Double] = [:]
         var opticalDroppedZeros = 0
         var rrRows: [[String: Any]] = []
-        guard let deviceKey = BoundBand.identifier else { lastOutcome = "failed"; return 0 }
         var domainStates: [BandDomainSyncState] = []
         var pagesReturned = 0
         let wanted = Self.pages(for: day, now: now, calendar: calendar)
@@ -496,7 +475,7 @@ final class OriginDataSync {
         localSamples = VitalSample.merging(localSamples, with:
             Self.auxiliarySamples(temperatureTicks: temperatureTicks, hrvTicks: hrvTicks,
                                   observedAt: now) + nightAuxiliary + invalidHrvSamples)
-        guard ConsentStore.shared.granted, await db.currentUserId == userId,
+        guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
               BoundBand.identifier == deviceKey, !Task.isCancelled else { lastOutcome = "failed"; return 0 }
         Self.clearWrongDaySleep(for: day, store: store)
         invalidHrvMinutes.subtract(hrvMinuteTicks.keys)
@@ -582,7 +561,8 @@ final class OriginDataSync {
         // unfinished sleep and belongs to the next user day. The oldest requested device day
         // is always the calendar date represented by `day.start`.
         if let sleep = measuredSleep, night != nil {
-            guard ConsentStore.shared.granted, await db.currentUserId == userId else { lastOutcome = "failed"; return 0 }
+            guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
+                  BoundBand.identifier == deviceKey else { lastOutcome = "failed"; return 0 }
             do {
                 // 04B rule 04 · the sleepLine rides along as compact "stage:minutes" runs, so
                 // the SLEEP strip draws the band's own staging instead of re-deriving it.
@@ -707,20 +687,22 @@ final class OriginDataSync {
                     acknowledgedStart: nil, acknowledgedEnd: nil, repairStart: domain.start, repairEnd: domain.end))
             }
         }
-        guard ConsentStore.shared.granted, await db.currentUserId == userId else { lastOutcome = "failed"; return changedCount }
+        guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() == userId,
+              BoundBand.identifier == deviceKey else { lastOutcome = "failed"; return changedCount }
         do { try BandDomainSyncState.save(domainStates, userId: userId, deviceKey: deviceKey, day: Self.dayString(day.start)) }
         catch { BandLog.shared.record("save domain acknowledgments", error: error) }
         let outcome = pagesReturned == wanted.count && auxiliaryUploaded ? "success" : "partial"
         await record(run, outcome: outcome, requested: wanted.count, returned: pagesReturned)
-        if outcome == "success", await db.currentUserId == userId {
+        if outcome == "success", Self.refreshState().rejection(expected: scope) == nil {
             store.lastSync = now
             if let newest { Self.setWatermark(newest, for: day, userId: userId) }
             await Repository.shared.markDeviceSynced(at: now)
         }
-        if settle, await db.currentUserId == userId {
+        if settle, Self.refreshState().rejection(expected: scope) == nil {
             await Repository.shared.settleNow(days: day == UserDay.containing(now) ? 1 : 2)
+            guard Self.refreshState().rejection(expected: scope) == nil else { return changedCount }
             await Repository.shared.load(days: 1, endingAt: day, into: store)
-            guard await db.currentUserId == userId else { return changedCount }
+            guard Self.refreshState().rejection(expected: scope) == nil else { return changedCount }
             await Repository.shared.loadSleepScores(days: 30, endingAt: store.today.day, into: store)
         }
         #if DEBUG
@@ -879,9 +861,11 @@ final class OriginDataSync {
     /// from the first evening rather than from the second week. Once per bound band, lowest
     /// priority; the server ignores what it already has, so a re-run costs a transfer and
     /// changes nothing.
-    func backfillIfNeeded(into store: DataStore, force: Bool = false) async {
-        guard let bound = BoundBand.identifier,
-              let userId = await db.currentUserId else { return }
+    private func backfillIfNeeded(scope: BandRefreshCoordinator.Scope,
+                                  into store: DataStore, force: Bool = false) async -> BandRefreshResult {
+        guard Self.refreshState().rejection(expected: scope) == nil else { return .init(status: .cancelled) }
+        let bound = scope.binding
+        let userId = scope.account
         // ⚠️ "v2": the first version of this mark was set whether or not a single day had
         // come off the band, and on the phone that found the readBasicData bug it was set
         // after seven failed reads. A new key is the only way that phone asks again.
@@ -891,9 +875,9 @@ final class OriginDataSync {
         // ⚠️ "v5": origin disValue is km; those days stored 0 m. fill_dis repairs them.
         // v9 also replays cached history into the exact-minute sleep HRV archive.
         let key = "nb.band.backfilled.v9.\(userId).\(bound).\(Self.dayString(Date()))"
-        guard force || !UserDefaults.standard.bool(forKey: key) else { return }
+        guard force || !UserDefaults.standard.bool(forKey: key) else { return .init(status: .success) }
         // Each native transfer reserves the sensor; upload/settlement leave live data running.
-        let everyDayAnswered = await { () async -> Bool in
+        let result = await { () async -> BandRefreshResult in
             let identity = try? await BandReadiness.read(account: userId, binding: bound) {
                 try await band.readIdentity()
             }
@@ -908,27 +892,38 @@ final class OriginDataSync {
                 }
             } catch {
                 BandLog.shared.record("cachedHistoryDayOffsets", error: error)
-                return false
+                return .init(status: .failed)
             }
             let offsets = BandSyncPolicy.historyDayOffsets(retained: held, cachedOffsets: cachedOffsets)
             let days = offsets.max() ?? 0
-            var everyDayAnswered = true
+            var results: [BandRefreshResult] = []
             if days > 0 {
                 for back in offsets {
-                    guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { return false }
-                    await sync(day: today.adding(days: -back), into: store, settle: false)
-                    if lastOutcome != "success" { everyDayAnswered = false }
+                    if let rejected = Self.refreshState().rejection(expected: scope) {
+                        return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
+                    }
+                    let points = await sync(day: today.adding(days: -back), scope: scope, into: store, settle: false)
+                    results.append(.init(status: BandRefreshResult.Status(rawValue: lastOutcome) ?? .failed, points: points))
+                }
+                if let rejected = Self.refreshState().rejection(expected: scope) {
+                    return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
                 }
                 await Repository.shared.settleNow(days: days)
+                if let rejected = Self.refreshState().rejection(expected: scope) {
+                    return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
+                }
                 await Repository.shared.load(days: days, endingAt: today, into: store)
-                guard SupabaseClient.currentUserIdSnapshot() == userId else { return false }
+                if let rejected = Self.refreshState().rejection(expected: scope) {
+                    return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
+                }
                 await Repository.shared.loadSleepScores(days: 30, endingAt: today, into: store)
             }
-            return everyDayAnswered
+            return results.isEmpty ? .init(status: .success) : .combining(results, at: Date())
         }()
         // Only a backfill in which every day answered is over. A day the band did not
         // answer is asked again on the next launch — the mark is not a record of trying.
-        if everyDayAnswered { UserDefaults.standard.set(true, forKey: key) }
+        if result.status == .success { UserDefaults.standard.set(true, forKey: key) }
+        return result
     }
 
     private static func mergeOptical(_ stored: [MealResponseIndex.Point],
@@ -1002,22 +997,28 @@ final class OriginDataSync {
                                   forKey: watermarkKey(day, userId: userId))
     }
 
-    private struct SyncRun { let id: String?; let startedAt: Date }
+    private struct SyncRun {
+        let id: String?
+        let startedAt: Date
+        let account: String
+        let deviceId: String?
+    }
 
     private func beginRun(userId: String, requested: Int) async -> SyncRun {
         let startedAt = Date()
+        let deviceId = Repository.shared.deviceId
         var row: [String: Any] = [
             "user_id": userId,
             "started_at": ISO8601DateFormatter().string(from: startedAt),
             "days_requested": requested,
         ]
-        if let deviceId = Repository.shared.deviceId { row["device_id"] = deviceId }
+        if let deviceId { row["device_id"] = deviceId }
         do {
-            let id = try await db.insert("sync_runs", rows: [row]).first?["id"] as? String
-            return SyncRun(id: id, startedAt: startedAt)
+            let id = try await db.insert("sync_runs", rows: [row], expectedOwner: userId).first?["id"] as? String
+            return SyncRun(id: id, startedAt: startedAt, account: userId, deviceId: deviceId)
         } catch {
             BandLog.shared.record("begin sync_runs", error: error)
-            return SyncRun(id: nil, startedAt: startedAt)
+            return SyncRun(id: nil, startedAt: startedAt, account: userId, deviceId: deviceId)
         }
     }
 
@@ -1031,7 +1032,8 @@ final class OriginDataSync {
     private func record(_ run: SyncRun, outcome: String, requested: Int, returned: Int,
                         error: String? = nil) async {
         lastOutcome = outcome
-        guard let userId = await db.currentUserId else { return }
+        let userId = run.account
+        guard SupabaseClient.currentUserIdSnapshot() == userId else { return }
         var completion: [String: Any] = [
             "finished_at": ISO8601DateFormatter().string(from: Date()),
             "outcome": outcome,
@@ -1045,8 +1047,8 @@ final class OriginDataSync {
             } else {
                 completion["user_id"] = userId
                 completion["started_at"] = ISO8601DateFormatter().string(from: run.startedAt)
-                if let deviceId = Repository.shared.deviceId { completion["device_id"] = deviceId }
-                _ = try await db.insert("sync_runs", rows: [completion])
+                if let deviceId = run.deviceId { completion["device_id"] = deviceId }
+                _ = try await db.insert("sync_runs", rows: [completion], expectedOwner: userId)
             }
         } catch { BandLog.shared.record("finish sync_runs", error: error) }
     }
@@ -1072,10 +1074,6 @@ enum SyncCadence {
     }
 
     static var interval: TimeInterval { TimeInterval(minutes * 60) }
-
-    /// Two triggers inside one cadence — the app coming forward and the device page opening,
-    /// say — are the same question asked twice; the second waits this long.
-    static var throttle: TimeInterval { min(120, interval / 2) }
 
     static func label(_ minutes: Int) -> String {
         minutes < 60 ? L("EVERY %d MIN", minutes) : L("EVERY HOUR")

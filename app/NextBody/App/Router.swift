@@ -140,7 +140,8 @@ final class Router: ObservableObject {
         return drawn ? image : nil
     }
     @Published var entry: EntryPoint = .home
-    @Published var takeover: Takeover?
+    private(set) var takeoverGeneration: UInt = 0
+    @Published var takeover: Takeover? { didSet { takeoverGeneration &+= 1 } }
     @Published var sheet: SheetRoute?
     /// 09 edge 5 · ADD TO THAT DAY: back-logging goes through the dock, prefilled with the
     /// day, and the meal lands on that day rather than today.

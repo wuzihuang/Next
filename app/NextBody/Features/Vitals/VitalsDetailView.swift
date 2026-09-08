@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 04 · 8 大指标二级页 · the second level behind every card on home page two.
+/// 04 · vitals 二级页 · the second level behind each vitals card on home page two.
+/// Body Battery is its own page (`BodyBatteryDetailView`), not this board.
 ///
 /// One view for eight pages, because the board is one anatomy drawn eight times: the hero,
 /// the chart on its fixed ruler, the distribution, the two tiles. What changes between them

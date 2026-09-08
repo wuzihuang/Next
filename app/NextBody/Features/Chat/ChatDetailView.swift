@@ -115,6 +115,7 @@ struct ChatDetailView: View {
                 if ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_HISTORY"] == "1" {
                     showHistorySheet = true
                 }
+                #if targetEnvironment(simulator)
                 if ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_PHOTO"] == "1" {
                     attachedImage = Self.debugPlateImage()
                     if inputText.isEmpty {
@@ -123,6 +124,7 @@ struct ChatDetailView: View {
                     }
                     isInputFocused = true
                 }
+                #endif
                 #endif
             }
     }

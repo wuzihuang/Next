@@ -354,8 +354,8 @@ struct PanelWidgetView: View {
             if layer != .chart {
             // Slot 6 · sentence — the brightest text on the screen
             Text(L(widget.sentence))
-                .font(NBFont.dot(500, 18))
-                .lineSpacing(7)
+                .font(NBFont.dot(500, 14))
+                .lineSpacing(6)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white)
                 .frame(width: Slot.sentence.width, alignment: .center)
@@ -518,7 +518,7 @@ struct PanelWidgetView: View {
                 .offset(x: Slot.safeX, y: 248 + CGFloat(i) * 44)
             }
             Text(L(widget.sentence))
-                .font(NBFont.dot(500, 16)).lineSpacing(5)
+                .font(NBFont.dot(500, 13)).lineSpacing(4)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(NB.white)
                 .frame(width: Slot.sentence.width, alignment: .center)
@@ -738,8 +738,8 @@ struct PanelWidgetView: View {
 
         // the sentence · the brightest text on the screen
         Text(L(widget.sentence))
-            .font(NBFont.dot(500, 19))
-            .lineSpacing(7)
+            .font(NBFont.dot(500, 15))
+            .lineSpacing(6)
             .multilineTextAlignment(.center)
             .foregroundStyle(NB.white)
             .frame(width: 294, height: 52, alignment: .center)
@@ -808,7 +808,7 @@ struct PanelWidgetView: View {
             .frame(width: 358, alignment: .center)
             .offset(y: 118)
         Text(L(widget.sentence))
-            .font(NBFont.dot(500, 22)).lineSpacing(9)
+            .font(NBFont.dot(500, 17)).lineSpacing(7)
             .multilineTextAlignment(.center)
             .foregroundStyle(NB.white)
             .frame(width: 286, alignment: .center)

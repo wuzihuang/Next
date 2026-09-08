@@ -88,7 +88,7 @@ struct RootView: View {
                     case .profile:                ProfileView()
                     // ADR 0010 · 第二个二级页。返回回「我的」，不回首页。
                     case .measurements:           MeasurementsView()
-                    // 04 · one of page two's eight instruments, opened from its own card.
+                    // 04 · one of page two's vitals boards, opened from its own card.
                     case .vitals(let metric):     VitalsDetailView(metric: metric)
                     case .device:                 DeviceView()
                     case .battery:                BatteryTrendView()

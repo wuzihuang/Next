@@ -247,8 +247,8 @@ struct TodayWidgetFace: View {
                               railHeight: CGFloat = 36) -> some View {
         HStack {
             Text("NEXTBODY")
-                .font(Island.brand(13))
-                .tracking(-0.01 * 13)
+                .font(Island.brand(11))
+                .tracking(0.02 * 11)
                 .foregroundStyle(Island.white)
             Spacer(minLength: 8)
             WidgetBandPip(progress: readout.bandProgress,

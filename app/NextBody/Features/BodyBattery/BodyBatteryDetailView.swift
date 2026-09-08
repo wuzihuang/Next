@@ -77,7 +77,7 @@ struct BodyBatteryDetailView: View {
                 await Repository.shared.hydrate(detail, endingAt: today, into: data)
             }
             await Analytics.shared.track("BB_DETAIL_OPEN", [
-                "ENTRY": router.entry == .profile ? "profile" : "panel",
+                "ENTRY": router.entry == .profile ? "profile" : (router.homePage == 1 ? "page2" : "panel"),
                 "RANGE": range.rawValue,
             ])
             if range != .day { return }
@@ -725,29 +725,36 @@ struct BatteryCurve: View {
     var samples: [ReserveSample] = []
     var day: UserDay? = nil
     var dim = false
+    var compact = false
 
     var body: some View {
         Canvas { ctx, size in
             guard let last = samples.max(by: { $0.ts < $1.ts }) else { return }
             let window = day ?? UserDay.containing(last.ts)
+            let pad = compact ? 3.0 : 8.0
+            let inset = compact ? 2.0 : 4.0
             func point(_ sample: ReserveSample) -> CGPoint {
-                CGPoint(x: 4 + BodyBatteryCurveMath.fraction(sample.ts, in: window) * max(0, size.width - 8),
-                        y: size.height - 8 - Double(min(100, max(0, sample.value))) / 100 * max(0, size.height - 16))
+                CGPoint(x: inset + BodyBatteryCurveMath.fraction(sample.ts, in: window) * max(0, size.width - inset * 2),
+                        y: size.height - pad - Double(min(100, max(0, sample.value))) / 100 * max(0, size.height - pad * 2))
             }
-            for value in [30.0, 70.0] {
-                let y = size.height - 8 - value / 100 * max(0, size.height - 16)
-                ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)),
-                         with: .color(NB.white.opacity(0.06)))
+            if !compact {
+                for value in [30.0, 70.0] {
+                    let y = size.height - pad - value / 100 * max(0, size.height - pad * 2)
+                    ctx.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)),
+                             with: .color(NB.white.opacity(0.06)))
+                }
             }
+            let lineWidth: CGFloat = compact ? 1.5 : 2.2
             for segment in BodyBatteryCurveMath.segments(samples) {
                 var line = Path()
                 line.move(to: point(segment.start))
                 line.addLine(to: point(segment.end))
                 ctx.stroke(line, with: .color(segment.charging ? NB.lime1 : NB.white.opacity(0.42)),
-                           style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                           style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
             }
             let tail = point(last)
-            ctx.fill(Path(ellipseIn: CGRect(x: tail.x - 4.5, y: tail.y - 4.5, width: 9, height: 9)),
+            let r: CGFloat = compact ? 2.5 : 4.5
+            ctx.fill(Path(ellipseIn: CGRect(x: tail.x - r, y: tail.y - r, width: r * 2, height: r * 2)),
                      with: .color(NB.lime1))
         }
         .opacity(dim ? 0.45 : 1)
@@ -761,9 +768,14 @@ private struct BodyBatteryTimeAxis: View {
 
     private var ticks: [Date] {
         let calendar = Calendar.current
-        return [4, 10, 16, 22].compactMap {
+        // ⚠️ The end label is pinned to the right edge, so an hour mark that lands close to
+        // it collides with it — 22:00 and 00:00 printed as one word once the user day moved
+        // to midnight and the axis face grew wider. An hour inside the last tenth of the day
+        // is dropped rather than drawn on top of the edge.
+        let hours = [4, 10, 16, 22].compactMap {
             calendar.date(bySettingHour: $0, minute: 0, second: 0, of: day.start)
-        } + [day.end]
+        }.filter { BodyBatteryCurveMath.fraction($0, in: day) < 0.9 }
+        return hours + [day.end]
     }
 
     var body: some View {

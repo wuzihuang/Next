@@ -11,9 +11,9 @@ enum Destination: Hashable {
     /// 09 edge 5 · a closed day, reached from THIS WEEK's day labels.
     case fuelDay(UserDay)
     case bodyBattery
-    /// 04 · one of page two's instruments, opened from its own card. One case, not
-    /// eight: the board draws them against a single anatomy. `.hrv` is a deep-link alias
-    /// for sleep.
+    /// 04 · one of page two's vitals boards, opened from its own card. One case, not
+    /// seven: the board draws them against a single anatomy. `.hrv` is a deep-link alias
+    /// for sleep. Body Battery is `.bodyBattery`, not a vitals metric.
     case vitals(VitalsMetric)
     case composition(date: Date?)
     case profile

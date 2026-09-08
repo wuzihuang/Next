@@ -1,8 +1,8 @@
 import XCTest
 
 /// 04 · 8 大指标二级页 · every card on home page two is a hot zone, and each one opens its
-/// own second level. Night HRV is no longer a card; it lives on the sleep page. RESPONSE
-/// occupies the retired HRV slot.
+/// own second level. Night HRV is no longer a card; it lives on the sleep page. Body Battery
+/// occupies the retired RESPONSE slot and opens the reserve page, not a vitals board.
 final class VitalsSecondLevelTests: XCTestCase {
 
     /// The eight cards, in the order page two lays them out, each with the sensor line its own
@@ -10,14 +10,14 @@ final class VitalsSecondLevelTests: XCTestCase {
     /// metric and it sits on the page rather than on the card that opened it. `title` is the
     /// nav word — the metric's own name, never a `VITALS ·` prefix.
     private static let cards: [(card: String, title: String, sensor: String, period: String)] = [
-        ("SLEEP",    "SLEEP",          "OVERNIGHT STAGING",           "LAST NIGHT"),
-        ("HEART",    "HEART",          "OPTICAL PPG SENSOR",          "TODAY"),
-        ("RESPONSE", "RESPONSE",       "RESPONSE · LAST 24H",         "TODAY"),
-        ("STRESS",   "STRESS",         "PHYSIOLOGICAL STRAIN",        "TODAY"),
-        ("TEMP",     "TEMP",           "SKIN BASELINE OFFSET",        "TODAY"),
-        ("STEPS",    "STEPS",          "DAILY CADENCE ACCUMULATED",   "TODAY"),
-        ("DISTANCE", "DISTANCE",       "SPATIAL DISPLACEMENT",        "TODAY"),
-        ("ACTIVE",   "ACTIVE ENERGY",  "DAILY METABOLIC BURN",        "TODAY"),
+        ("SLEEP",        "SLEEP",         "OVERNIGHT STAGING",    "LAST NIGHT"),
+        ("HEART",        "HEART",         "OPTICAL PPG SENSOR",   "TODAY"),
+        ("BODY BATTERY", "BODY BATTERY",  "OF 100",               "TODAY'S TARGET"),
+        ("STRESS",       "STRESS",        "PHYSIOLOGICAL STRAIN", "TODAY"),
+        ("TEMP",         "TEMP",          "SKIN BASELINE OFFSET", "TODAY"),
+        ("STEPS",        "STEPS",         "DAILY CADENCE ACCUMULATED", "TODAY"),
+        ("DISTANCE",     "DISTANCE",      "SPATIAL DISPLACEMENT", "TODAY"),
+        ("ACTIVE",       "ACTIVE ENERGY", "DAILY METABOLIC BURN",  "TODAY"),
     ]
 
     override func setUpWithError() throws {
@@ -65,9 +65,11 @@ final class VitalsSecondLevelTests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
+        app.launchEnvironment["NB_DEBUG_LANG"] = "en"
         // Evening, past the wake+6h window — the same clock the other home tests use, so
         // the morning widget is not sitting over the strip.
         app.launchEnvironment["NB_DEBUG_NOW"] = shiftedISO(-12 * 3600)
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         XCTAssertTrue(fuelCard(app).waitForExistence(timeout: 40), "home never appeared")
         // ⚠️ Existence is not readiness: the strip fades in with the dock (FirstRun), and a

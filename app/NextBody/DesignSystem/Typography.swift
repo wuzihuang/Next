@@ -33,7 +33,13 @@ enum NBFont {
         // than the ruling — 「允许到 xLarge；再大冻结」 — and quietly stopped the largest
         // standard size from being honoured at all.
         let latin = "\(family.rawValue)-\(style(weight, family: family))"
-        if AppLanguage.shared.usesCJKFont && family != .dot {
+        // 2026-09-07 · the whole screen is pixel type, in every language. Chinese already
+        // read as Fusion Pixel and Latin did not, so one board could hold a dot-matrix
+        // number, a pixel Chinese caption and an Inter Tight English sentence — the
+        // "these charts stopped feeling pixel" report. Fusion Pixel is now the primary
+        // face for UI and brand copy whatever the language; Doto keeps the dot-matrix
+        // grid it was picked for and never falls back to it.
+        if family != .dot {
             return cascaded(primary: cjkPixel, fallback: latin, size: size)
         }
         return cascaded(primary: latin, fallback: cjkPixel, size: size)

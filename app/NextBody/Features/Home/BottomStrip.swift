@@ -53,8 +53,12 @@ struct TrainingCard: View {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 Text(MetricNames.training)
                     .font(NBFont.ui(500, 11)).tracking(0.14 * 11)
+                    .lineLimit(1).fixedSize()
                     .foregroundStyle(NB.text3Prod)
-                Spacer(minLength: 0)
+                // ⚠️ minLength 0 let a long status ("0.6 BELOW RANGE") run straight into
+                // the word TRAINING — a Spacer that can vanish is not a gap. 8pt is the
+                // floor; the status shrinks into its minimumScaleFactor before it closes.
+                Spacer(minLength: 8)
                 Text(statusText)
                     .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
                     .lineLimit(1)

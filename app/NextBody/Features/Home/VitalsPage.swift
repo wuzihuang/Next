@@ -1,9 +1,31 @@
 import SwiftUI
 
+/// One of the eight page-two hot zones. Seven open a vitals board;
+/// Body Battery opens the same reserve page Profile and the morning widget use.
+enum PageTwoCard: Hashable {
+    case vitals(VitalsMetric)
+    case bodyBattery
+
+    var cardKey: String {
+        switch self {
+        case .vitals(let metric): return metric.cardKey
+        case .bodyBattery: return "BODY_BATTERY"
+        }
+    }
+
+    var destination: Destination {
+        switch self {
+        case .vitals(let metric): return .vitals(metric)
+        case .bodyBattery: return .bodyBattery
+        }
+    }
+}
+
 /// 04C · PAGE TWO · 往右一滑是仪表，不是判断. Eight of the strip's own 174-wide cards:
-/// SLEEP · HEART / RESPONSE · STRESS / TEMP · STEPS / DISTANCE · ACTIVE. Night HRV
-/// lives on the sleep page. RESPONSE is the wrist optical meal-response index, never
-/// a blood test. No dock, no buttons, no adjectives — and not one read of the band.
+/// SLEEP · HEART / BODY BATTERY · STRESS / TEMP · STEPS / DISTANCE · ACTIVE. Night HRV
+/// lives on the sleep page. Body Battery is the reserve score. RESPONSE is no longer
+/// a page-two card; `vitals.response` still deep-links to that board. No dock, no
+/// buttons, no adjectives — and not one read of the band.
 struct VitalsPage: View {
     let m: DailyMetrics
     /// Rolling 24h stress on the STRESS card uses nights behind today so the bars and
@@ -13,8 +35,6 @@ struct VitalsPage: View {
     /// ADR 0008 · passed in rather than read off `m`, because a later loadHome replaces
     /// `store.today` wholesale and the copy carried on that struct goes with it.
     var sleepScore: SleepScore? = nil
-    var mealResponsePoints: [MealResponseIndex.Point] = []
-    var mealResponseZerosToday = false
     var width: CGFloat = NB.Layout.contentWidth
     /// The height the root frames the page to (panel top → over the dots' lane). The cards
     /// grow into it: row gaps stay a constant 10 and the card height takes the rest, the way
@@ -23,7 +43,7 @@ struct VitalsPage: View {
     /// 04 · every card is a hot zone now, each opening its own second level. The comment
     /// that used to sit here said a press state promises a page — the eight pages exist, so
     /// all eight cards press.
-    let onOpen: (VitalsMetric) -> Void
+    let onOpen: (PageTwoCard) -> Void
 
     /// 04B rule 01 · the card is a fixed 174 wide; its height is whatever the phone leaves
     /// after the foot (12 + 12) and three row gaps of 10.
@@ -44,20 +64,20 @@ struct VitalsPage: View {
             // short one still fits — no space-between band, no overflow.
             VStack(spacing: NB.Layout.cardGap) {
                 HStack(spacing: NB.Layout.cardGap) {
-                    zone(.sleep) { sleepCard }
-                    zone(.heart) { heartCard }
+                    zone(.vitals(.sleep)) { sleepCard }
+                    zone(.vitals(.heart)) { heartCard }
                 }
                 HStack(spacing: NB.Layout.cardGap) {
-                    zone(.response) { responseCard }
-                    zone(.stress) { stressCard }
+                    zone(.bodyBattery) { bodyBatteryCard }
+                    zone(.vitals(.stress)) { stressCard }
                 }
                 HStack(spacing: NB.Layout.cardGap) {
-                    zone(.temp) { tempCard }
-                    zone(.steps) { stepsCard }
+                    zone(.vitals(.temp)) { tempCard }
+                    zone(.vitals(.steps)) { stepsCard }
                 }
                 HStack(spacing: NB.Layout.cardGap) {
-                    zone(.distance) { distanceCard }
-                    zone(.active) { ActiveEnergyCard(m: m, height: cardHeight) }
+                    zone(.vitals(.distance)) { distanceCard }
+                    zone(.vitals(.active)) { ActiveEnergyCard(m: m, height: cardHeight) }
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -78,10 +98,11 @@ struct VitalsPage: View {
 
     /// ADR-0001 · a card presses like the strip's do: `HotZoneTap` retires the tap the moment
     /// the finger passes the slop, so the page drag underneath always wins a swipe.
-    private func zone<Card: View>(_ metric: VitalsMetric,
+    private func zone<Card: View>(_ slot: PageTwoCard,
                                   @ViewBuilder card: () -> Card) -> some View {
-        Button { onOpen(metric) } label: { card() }
+        Button { onOpen(slot) } label: { card() }
             .buttonStyle(HotZoneTap())
+            .accessibilityIdentifier(slot.cardKey)
     }
 
     // MARK: cards
@@ -143,45 +164,43 @@ struct VitalsPage: View {
         }
     }
 
-    private var mealIndex: MealResponseIndex.Result {
-        MealResponsePresentation.index(
-            today: m,
-            history: history,
-            points: mealResponsePoints,
-            zerosToday: mealResponseZerosToday)
+    private var bodyBatteryCard: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            bodyBatteryInstrument(now: context.date)
+        }
     }
 
-    private var responseCard: some View {
-        let index = mealIndex
-        let hero = index.latestPoint.map(MealResponseIndex.pointValue)
-        var status: (String, String)?
-        switch index.empty {
-        case .needs5Days: status = (L("NEEDS 5 DAYS"), L("OWN MEDIAN NOT READY"))
-        case .switchOff:  status = (L("SWITCH OFF"), L("AUTO MEASURE IS OFF"))
-        case .allZeros:   status = (L("ALL ZEROS"), L("NOT A READING"))
-        case .empty:      status = (L("NO TICKS TODAY"), L("OWN MEDIAN READY"))
-        case nil:         status = nil
-        }
+    private func bodyBatteryInstrument(now: Date) -> some View {
         #if DEBUG
-        if DebugEdge.on("needs5days") {
-            status = (L("NEEDS 5 DAYS"), L("OWN MEDIAN NOT READY"))
-        } else if DebugEdge.on("noticks") {
-            status = (L("NO TICKS TODAY"), L("OWN MEDIAN READY"))
-        } else if DebugEdge.on("switchoff") {
-            status = (L("SWITCH OFF"), L("AUTO MEASURE IS OFF"))
-        } else if DebugEdge.on("allzeros") {
-            status = (L("ALL ZEROS"), L("NOT A READING"))
-        }
+        let forceEmpty = DebugEdge.on("empty")
+        #else
+        let forceEmpty = false
         #endif
+        let freshness = m.bodyBatteryFreshness(at: now)
+        let value = forceEmpty ? nil : m.bodyBatteryForDisplay(at: now)
+        let stale = freshness != .fresh
+        let empty = forceEmpty || (value == nil && m.bodyBatteryObservedAt == nil)
+        let status: (String, String)? = empty
+            ? (L("NO TICKS YET"), L("FIRST SYNC DRAWS IT"))
+            : nil
+        let foot: String
+        if empty {
+            foot = L("NO RECENT BATTERY READING")
+        } else if stale, let at = m.bodyBatteryObservedAt {
+            foot = L("SYNCED %@", Fmt.clock(at))
+        } else if let charge = m.reserveDrivers?.nightCharge {
+            foot = L("%@ · %@", L(BodyBattery.chargeWord(Int(charge.rounded()))), Fmt.signed(charge))
+        } else {
+            foot = L("FROM WRIST DATA")
+        }
         return InstrumentCard(
-            label: L("RESPONSE"), tag: "NOW", tint: NB.compareAmber,
+            label: MetricNames.bodyBattery, tag: L("NOW"), tint: NB.lime1,
             height: cardHeight,
-            value: hero, unit: nil,
-            foot: index.ownMedianReady ? L("FOOD RESPONSE POINT")
-                : L("%d / 5 BASELINE DAYS", index.baselineDays),
-            status: status,
-            spokenHint: L("Wrist food response point")) {
-            ResponseSpark(points: index.trendPoints, day: day, tint: NB.compareAmber)
+            value: value.map(String.init), unit: nil,
+            foot: foot,
+            dim: stale ? 0.45 : 1,
+            status: status) {
+            BatteryCurve(samples: m.reserveCurve, day: m.day, dim: stale, compact: true)
         }
     }
 
@@ -206,7 +225,7 @@ struct VitalsPage: View {
         }
     }
 
-    /// Shared by the card and by analytics, the way `mealIndex` is.
+    /// Shared by the card and by analytics.
     private var skinTempNight: SkinTempNightRange.Result {
         SkinTempPresentation.nightRange(today: m, history: history)
     }
@@ -277,8 +296,9 @@ struct VitalsPage: View {
         return line
     }
 
-    /// 04C · PAGE2_CARD_STATE{CARD,STATE} plus PAGE2_RESPONSE_STATE. RESPONSE uses its
-    /// own empty vocabulary (FRESH / NEEDS5 / OFF / ZERO / EMPTY), never STALE/GONE.
+    /// 04C · PAGE2_CARD_STATE{CARD,STATE}. RESPONSE stays in the map so a
+    /// `vitals.response` deep link can still join against the same key; the page-two
+    /// slot that used to carry it is BODY_BATTERY.
     static func cardStates(m: DailyMetrics, vitals: LiveVitals, history: [DailyMetrics] = [],
                            mealResponsePoints: [MealResponseIndex.Point] = [],
                            mealResponseZerosToday: Bool = false) -> [String: String] {
@@ -301,9 +321,17 @@ struct VitalsPage: View {
         let response = MealResponsePresentation.index(
             today: m, history: history, points: mealResponsePoints,
             zerosToday: mealResponseZerosToday)
+        let battery: String = {
+            switch m.bodyBatteryFreshness() {
+            case .gone:  return m.bodyBatteryObservedAt == nil ? "EMPTY" : "GONE"
+            case .stale: return "STALE"
+            case .fresh: return m.bodyBattery != nil ? "FRESH" : "EMPTY"
+            }
+        }()
         return [
             "SLEEP": m.sleep == nil ? "EMPTY" : "FRESH",
             "HEART": nowCard(vitals.hr != nil || rolling.contains { $0.hr != nil }),
+            "BODY_BATTERY": battery,
             "RESPONSE": response.analyticsState,
             "STRESS": nowCard(vitals.stress != nil || rolling.contains { $0.stress != nil }),
             // Which of the night-range states the card is actually in, not just whether a
@@ -491,65 +519,6 @@ struct PageDots: View {
 }
 
 // MARK: charts · 148 × 28 in the board, whatever the card's inner width is on device.
-
-/// Measured food-response points. Missing intervals stay dashed.
-struct ResponseSpark: View {
-    let points: [MealResponseIndex.Point]
-    let day: UserDay
-    let tint: Color
-
-    var body: some View {
-        Canvas { ctx, size in
-            let visible = points.filter {
-                let t = $0.ts.timeIntervalSince(day.start) / 86_400
-                return t >= 0 && t <= 1
-            }
-            let values = visible.map(\.optical)
-            guard let loRaw = values.min(), let hiRaw = values.max() else { return }
-            let padding = max(1, (hiRaw - loRaw) * 0.12)
-            let lo = loRaw - padding
-            let hi = hiRaw + padding
-            let span = max(1, hi - lo)
-            func position(_ point: MealResponseIndex.Point) -> CGPoint {
-                let t = point.ts.timeIntervalSince(day.start) / 86_400
-                let y = size.height - 2 - CGFloat((point.optical - lo) / span) * (size.height - 4)
-                return CGPoint(x: size.width * t, y: y)
-            }
-            var runs: [[MealResponseIndex.Point]] = []
-            var run: [MealResponseIndex.Point] = []
-            for point in visible {
-                if let previous = run.last, point.ts.timeIntervalSince(previous.ts) > 10 * 60 {
-                    runs.append(run)
-                    run = []
-                }
-                run.append(point)
-            }
-            if !run.isEmpty { runs.append(run) }
-            for (index, samples) in runs.enumerated() {
-                var line = Path()
-                line.move(to: position(samples[0]))
-                for point in samples.dropFirst() { line.addLine(to: position(point)) }
-                if samples.count == 1 {
-                    let p = position(samples[0])
-                    line.addLine(to: CGPoint(x: p.x + 0.5, y: p.y))
-                }
-                ctx.stroke(line, with: .color(tint),
-                           style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                if index + 1 < runs.count {
-                    var gap = Path()
-                    gap.move(to: position(samples[samples.count - 1]))
-                    gap.addLine(to: position(runs[index + 1][0]))
-                    ctx.stroke(gap, with: .color(tint.opacity(0.25)),
-                               style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
-                }
-            }
-            for point in visible {
-                let p = position(point)
-                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3)), with: .color(tint))
-            }
-        }
-    }
-}
 
 /// A day of one tick series, midnight → midnight across the width, y on a fixed scale — the ruler
 /// never changes with the day (04B rule 04). A gap in the ticks is a dashed gap in the line,

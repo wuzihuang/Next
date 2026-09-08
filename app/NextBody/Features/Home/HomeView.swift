@@ -178,12 +178,10 @@ struct HomeView: View {
     private var instrumentsPage: some View {
         VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
                    sleepScore: data.sleepScores[data.today.day.key],
-                   mealResponsePoints: data.mealResponsePoints,
-                   mealResponseZerosToday: data.mealResponseZerosToday,
                    width: columnWidth, height: pageTwoHeight,
-                   onOpen: { metric in
-                       Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": metric.cardKey]) }
-                       router.open(.vitals(metric), from: .home)
+                   onOpen: { card in
+                       Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": card.cardKey]) }
+                       router.open(card.destination, from: .home)
                    })
             .frame(width: columnWidth, height: pageTwoHeight, alignment: .top)
             .offset(x: screen.width + NB.Layout.gutter + pageShift, y: panelTop)
@@ -1230,10 +1228,9 @@ struct HomeView: View {
             mealResponseZerosToday: data.mealResponseZerosToday)
         let gap = VitalsMath.offWrist(m.vitalsCurve)
         Task {
-            for card in ["SLEEP", "HEART", "RESPONSE", "STRESS", "TEMP", "STEPS", "DISTANCE", "ACTIVE"] {
+            for card in ["SLEEP", "HEART", "BODY_BATTERY", "STRESS", "TEMP", "STEPS", "DISTANCE", "ACTIVE"] {
                 await Analytics.shared.track("PAGE2_CARD_STATE", ["CARD": card, "STATE": states[card] ?? "EMPTY"])
             }
-            await Analytics.shared.track("PAGE2_RESPONSE_STATE", ["STATE": states["RESPONSE"] ?? "EMPTY"])
             if lastSync == nil {
                 await Analytics.shared.track("PAGE2_NOT_SYNCED", ["PLATFORM": "ios"])
             }

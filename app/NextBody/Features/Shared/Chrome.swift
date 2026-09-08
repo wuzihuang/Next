@@ -660,10 +660,14 @@ struct DetailScroll<Trailing: View, Content: View>: View {
 
     private func mix(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }
 
-    /// Inter Tight Bold at the large size, so the morph starts on the same width the
-    /// placeholder holds open in the large row.
+    /// The large title's own face at the large size, so the morph starts on the same width
+    /// the placeholder holds open in the large row. It measures what NBFont.brand actually
+    /// draws — Fusion Pixel since 2026-09-07 — not the Inter Tight it used to draw; a
+    /// measurement taken in the wrong face reserves the wrong width and the title lands
+    /// off its placeholder.
     private static func measure(_ s: String, size: CGFloat, tracking: CGFloat) -> CGFloat {
-        let font = UIFont(name: "InterTight-Bold", size: size)
+        let font = UIFont(name: NBFont.cjkPixel, size: size)
+            ?? UIFont(name: "InterTight-Bold", size: size)
             ?? .systemFont(ofSize: size, weight: .bold)
         return ceil((s as NSString).size(withAttributes: [.font: font, .kern: tracking]).width)
     }

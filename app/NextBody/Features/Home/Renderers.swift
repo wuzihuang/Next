@@ -236,7 +236,7 @@ struct ArcRenderer: View {
                 .shadow(color: accent.opacity(0.35), radius: 8)
             if showLabel {
                 Text(label)
-                    .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
+                    .font(NBFont.dot(700, 44))
                     .foregroundStyle(NB.white.opacity(0.45))
             }
         }
@@ -266,7 +266,7 @@ struct GaugeRenderer: View {
                 .rotationEffect(.degrees(225))
             if showLabel {
                 Text(Fmt.kg(value, decimals: 0))
-                    .font(NBFont.brand(700, 44)).tracking(-0.045 * 44)
+                    .font(NBFont.dot(700, 44))
                     .foregroundStyle(NB.white.opacity(0.45))
             }
         }

@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// 04 · page-two instruments plus a deep-link alias. Page two shows eight cards; `.hrv`
-/// is kept so `vitals.hrv` still parses, and the router sends it to the sleep page.
+/// 04 · page-two instruments plus a deep-link alias. Page two shows seven vitals cards
+/// plus Body Battery; `.hrv` is kept so `vitals.hrv` still parses, and the router sends
+/// it to the sleep page. `.response` still opens the meal-response board via deep link.
 ///
 /// ⚠️ The tint is the home card's tint, not the board's swatch. The overview board draws
 /// several of the eight in cyan; 04B gives each card its own colour and F0 rule 01 has one

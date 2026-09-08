@@ -20,10 +20,14 @@ enum Island {
         let style = weight >= 700 ? "Bold" : weight >= 600 ? "SemiBold" : "Medium"
         return .custom("Doto-\(style)", size: size)
     }
-    /// Inter Tight — the brand face, for the readout numbers.
+    /// 2026-09-07 · the island and the home-screen faces read as pixel type too. The app
+    /// moved every surface onto a pixel face, and an Inter Tight readout beside a Doto
+    /// clock was the same mismatch reported on the cards. Doto Bold is already in this
+    /// bundle, so the brand slot is the dot-matrix face at a brand size — the helper keeps
+    /// its name because the call sites mean "the readout face", not "Inter Tight".
     static func brand(_ size: CGFloat) -> Font {
         registerFonts()
-        return .custom("InterTight-Bold", size: size)
+        return .custom("Doto-Bold", size: size)
     }
 
     /// WidgetKit does not always honour `UIAppFonts`. Register from the extension bundle.

@@ -24,6 +24,34 @@ final class BodyBatteryEntryTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["TODAY'S TARGET"].exists)
     }
 
+    func testPageTwoCardOpensBodyBattery() {
+        let app = launchPageTwo()
+        let card = app.buttons["BODY_BATTERY"]
+        XCTAssertTrue(card.waitForExistence(timeout: 30),
+                      "page two should show the Body Battery card")
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline, !(card.exists && card.isHittable) {
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        XCTAssertTrue(card.isHittable, "Body Battery on page two cannot be pressed")
+        var last = card.frame
+        for _ in 0..<12 {
+            Thread.sleep(forTimeInterval: 0.25)
+            if card.frame == last { break }
+            last = card.frame
+        }
+        card.tap()
+
+        XCTAssertTrue(app.staticTexts["OF 100"].waitForExistence(timeout: 30),
+                      "page two Body Battery should open the reserve page")
+        XCTAssertEqual(app.buttons["Back"].value as? String, "BODY BATTERY")
+        XCTAssertTrue(app.buttons["range.DAY"].exists)
+
+        app.buttons["Back"].tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 8),
+                      "back from Body Battery should land on home page two")
+    }
+
     func testBackFromProfileEntryReturnsToMe() {
         let app = launch(route: "profile")
         XCTAssertTrue(app.buttons["BODY_BATTERY"].waitForExistence(timeout: 30),
@@ -42,6 +70,27 @@ final class BodyBatteryEntryTests: XCTestCase {
                       "从「我的」进身体电量，返回应该回「我的」")
         XCTAssertTrue(app.buttons["BODY_BATTERY"].exists)
         XCTAssertTrue(app.staticTexts["MEASUREMENTS"].exists)
+    }
+
+    private func launchPageTwo() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
+        app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
+        app.launchEnvironment["NB_DEBUG_LANG"] = "en"
+        app.launchEnvironment["NB_DEBUG_HOME_PAGE"] = "1"
+        app.launchEnvironment["NB_DEBUG_NOW"] = shiftedISO(-12 * 3600)
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let notNow = app.buttons["Not now"]
+        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
+        Thread.sleep(forTimeInterval: 2)
+        return app
+    }
+
+    private func shiftedISO(_ seconds: TimeInterval) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
+        return f.string(from: Date().addingTimeInterval(seconds))
     }
 
     private func launch(route: String) -> XCUIApplication {

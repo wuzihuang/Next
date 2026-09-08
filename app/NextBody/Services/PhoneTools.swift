@@ -380,22 +380,23 @@ final class PhoneToolRunner: ObservableObject {
         if case .measure = takeover, let blocked = bandReady() { return blocked }
         let before = router.measuredWidget?.id
         guard router.takeover == nil else { return .fail("BUSY") }
-        defer { if measurementOwner?.execution === permit { measurementOwner = nil } }
         router.takeover = takeover
         let generation = router.takeoverGeneration
         measurementOwner = (generation, permit)
+        defer {
+            BandMeasurementLifetime.shared.cancel(id: permit.id)
+            if router.takeoverGeneration == generation { router.takeover = nil }
+            if measurementOwner?.execution === permit { measurementOwner = nil }
+        }
         let deadline = Date().addingTimeInterval(Self.flowSeconds)
         // Give the takeover a beat to mount before watching for it to fold.
         try? await Task.sleep(for: .milliseconds(500))
         while router.takeoverGeneration == generation, router.takeover == takeover, Date() < deadline {
-            guard permit.isAuthorized else {
-                if router.takeoverGeneration == generation { router.takeover = nil }
-                return .fail("CANCELLED")
-            }
+            guard permit.isAuthorized else { return .fail("CANCELLED") }
             try? await Task.sleep(for: .milliseconds(400))
         }
         do { try permit.check() } catch { return .fail(Self.code(error)) }
-        if router.takeoverGeneration == generation { router.takeover = nil; return .fail("TIMEOUT") }
+        if router.takeoverGeneration == generation { return .fail("TIMEOUT") }
         guard router.takeover == nil, router.takeoverGeneration == generation &+ 1 else { return .fail("ABANDONED") }
         let completed = router.measuredWidget?.id != before && router.measuredWidget != nil
         return completed

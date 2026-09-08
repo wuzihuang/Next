@@ -589,16 +589,7 @@ actor SupabaseClient {
     /// it, so this is convenience, never authority.
     var currentUserId: String? { userId }
 
-    enum Failure: Error, LocalizedError {
-        case http(Int, String)
-        case transport(Error)
-        var errorDescription: String? {
-            switch self {
-            case .http(let code, let body): return "HTTP \(code): \(body)"
-            case .transport(let e): return e.localizedDescription
-            }
-        }
-    }
+    typealias Failure = SupabaseFailure
 
     private func validateOwner(_ owner: String?) throws {
         if let owner, owner != userId { throw CancellationError() }

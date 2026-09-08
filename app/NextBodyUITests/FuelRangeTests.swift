@@ -56,12 +56,33 @@ final class FuelRangeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["PER DAY"].exists)
     }
 
-    private func launchFuel(range: String? = nil) -> XCUIApplication {
+    func testManualMealRemainsVisibleInSeedMode() {
+        let app = launchFuel(manualPlate: true)
+        let plate = app.otherElements["fuel.plate"]
+        XCTAssertTrue(plate.waitForExistence(timeout: 30))
+        // SwiftUI propagates the plate identifier to its accessible sibling fields.
+        let fields = app.textFields.matching(identifier: "fuel.plate")
+        let name = fields.element(boundBy: 0)
+        let calories = fields.element(boundBy: 1)
+        XCTAssertTrue(name.waitForExistence(timeout: 6))
+        name.tap()
+        name.typeText("Architecture test lunch\n")
+        calories.tap()
+        calories.typeText("525")
+        let save = app.buttons["Save"]
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        XCTAssertTrue(app.staticTexts["Architecture test lunch"].waitForExistence(timeout: 6),
+                      "The simulator's memory-only meal must survive closing the plate without a signed-in account")
+    }
+
+    private func launchFuel(range: String? = nil, manualPlate: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
         app.launchEnvironment["NB_DEBUG_LANG"] = "en"
         app.launchEnvironment["NB_DEBUG_ROUTE"] = "fuel"
+        if manualPlate { app.launchEnvironment["NB_DEBUG_FUEL_PLATE"] = "1" }
         if let range {
             app.launchEnvironment["NB_DEBUG_FUEL_RANGE"] = range
         }

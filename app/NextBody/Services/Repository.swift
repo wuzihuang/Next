@@ -848,7 +848,6 @@ final class Repository {
                 let sampleRows = snapshot.reserveSamples, nightRows = snapshot.nights, oxygenRows = snapshot.oxygen
                 let responseRows = snapshot.response, liveRows = snapshot.live
                 let liveStressRows = snapshot.liveStress, liveHeartRows = snapshot.liveHeart
-                func formalValue(_ metric: String, _ key: String) -> Double? { snapshot.value(metric, day: key) }
                 let fuelBy = Dictionary(uniqueKeysWithValues:
                     fuel.compactMap { r in (r["result_id"] as? String).map { ($0, r) } })
                 let reserveBy = Dictionary(uniqueKeysWithValues:
@@ -1032,9 +1031,9 @@ final class Repository {
                     // recovery multiplier. Generic metric summaries can have a different
                     // baseline eligibility rule and must not rewrite that explanation.
                     if m.nightInputs != nil, m.reserveDrivers?.algoVersion == nil, snapshot.hasFormalMetrics {
-                        m.nightInputs?.hrv = formalValue("nightHRV", userDay.key)
-                        m.nightInputs?.hrvBase = formalValue("hrvBaseline", userDay.key)
-                        m.nightInputs?.rhr = formalValue("nightRHR", userDay.key)
+                        m.nightInputs?.hrv = snapshot.value("nightHRV", day: userDay.key)
+                        m.nightInputs?.hrvBase = snapshot.value("hrvBaseline", day: userDay.key)
+                        m.nightInputs?.rhr = snapshot.value("nightRHR", day: userDay.key)
                     }
                     history.append(m)
                 }

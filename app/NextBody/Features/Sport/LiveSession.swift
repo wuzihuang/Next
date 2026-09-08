@@ -269,39 +269,48 @@ final class LiveSessionStore: ObservableObject {
     /// the session itself stays up until `end()` so the fold has numbers to fold.
     func stop(authorized: @escaping @MainActor () -> Bool = { true }) async -> PanelWidget? {
         guard authorized() else { return nil }
-        guard let session, !stopping else { return nil }
-        let stoppingOwner = lifetime
+        guard let session, let stoppingOwner = lifetime, !stopping else { return nil }
         stopping = true
         errorLine = nil
-        defer { stopping = false }
+        defer { if lifetime == stoppingOwner || lifetime == nil { stopping = false } }
         let openingTask = openTask
         let readingTask = wristTask
-        await SportSessionTaskFence.cancelAndWait(openingTask, readingTask)
-        openTask = nil
-        wristTask = nil
-        opening = false
-        heartEvidence.interrupted()
-        await BandReadiness.shared.awaitNativeIdle()
-        guard authorized() else { return nil }
+        guard await SportSessionTaskFence.prepareStop(owner: stoppingOwner,
+            current: { self.lifetime }, authorized: authorized,
+            opening: openingTask, reading: readingTask, quiesce: {
+                self.openTask = nil
+                self.wristTask = nil
+                self.opening = false
+                self.heartEvidence.interrupted()
+                await BandReadiness.shared.awaitNativeIdle()
+            }, retire: { await self.retireStoppedSession(stoppingOwner) }) else { return nil }
         var closed = true
         do {
             if !Self.debugFakeWrist, startDisposition.needsCleanup {
                 let result: Result<Void, Error> = await LiveReadout.shared.standDown {
-                    guard authorized(), stoppingOwner?.account == SupabaseClient.currentUserIdSnapshot(),
-                          stoppingOwner?.binding == BoundBand.identifier else {
+                    guard authorized(), self.lifetime == stoppingOwner,
+                          stoppingOwner.account == SupabaseClient.currentUserIdSnapshot(),
+                          stoppingOwner.binding == BoundBand.identifier else {
                         return .failure(CancellationError())
                     }
                     do { try await Band.live.stopSportMode(session.mode.rawValue); return .success(()) }
                     catch { return .failure(error) }
                 }
                 try result.get()
+                if lifetime == stoppingOwner { startDisposition = .notIssued }
             }
         } catch {
             // A refused stop is said, not hidden: the band may still be timing. The session
             // ends on the phone either way — a screen that cannot be left is worse.
+            guard lifetime == stoppingOwner else { return nil }
             closed = false
             errorLine = error.localizedDescription
             BandLog.shared.record("session.stop", error: error)
+        }
+        guard lifetime == stoppingOwner else { return nil }
+        guard authorized() else {
+            await retireStoppedSession(stoppingOwner)
+            return nil
         }
         let sec = Int(Date().timeIntervalSince(session.startedAt))
         let average = averageHR ?? 0
@@ -314,6 +323,12 @@ final class LiveSessionStore: ObservableObject {
             "ENERGY_SEC": Int(metrics.estimatedSeconds.rounded()), "CLOSED": didClose,
         ]) }
         return summaryWidget(session, seconds: sec, closed: closed)
+    }
+
+    private func retireStoppedSession(_ owner: SportSessionLifetime) async {
+        guard lifetime == owner else { return }
+        end()
+        await cleanupTask?.value
     }
 
     /// The screen has folded back into the panel. Nothing of the session survives here.
@@ -337,7 +352,7 @@ final class LiveSessionStore: ObservableObject {
             await LiveReadout.shared.standDown {
                 // end can also dismiss a refused/in-flight start without going through stop.
                 // Finish any command already submitted before allowing another session.
-                if openingTask != nil, self?.startDisposition.needsCleanup == true,
+                if self?.lifetime == nil, self?.startDisposition.needsCleanup == true,
                    !Self.debugFakeWrist, let endingMode,
                    endingOwner?.account == SupabaseClient.currentUserIdSnapshot(),
                    endingOwner?.binding == BoundBand.identifier {
@@ -350,6 +365,7 @@ final class LiveSessionStore: ObservableObject {
             if !Self.debugFakeWrist { await Repository.shared.flushPendingEvidence() }
         }
         session = nil
+        stopping = false
         opening = false
         wrist = .off
         hr = nil; hrAt = nil

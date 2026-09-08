@@ -332,11 +332,20 @@ final class HealthSnapshotRead {
         guard accepts(), !Task.isCancelled else { throw CancellationError() }
     }
 
+    /// A 409 is an optimistic-read conflict: retain the coherent screen and refresh
+    /// later. Authentication and connectivity failures retain their original meaning.
+    private static func readFailure(_ error: Error) -> Error {
+        if case SupabaseFailure.http(409, _) = error { return Failure.revisionChanged }
+        return error
+    }
+
     private func select(_ table: String, query: [URLQueryItem]) async throws -> Rows {
-        try checkCurrent()
-        let rows = try await transport.select(table, query)
-        try checkCurrent()
-        return rows
+        do {
+            try checkCurrent()
+            let rows = try await transport.select(table, query)
+            try checkCurrent()
+            return rows
+        } catch { throw Self.readFailure(error) }
     }
 
     private func selectSamplePages(_ table: String, query: [URLQueryItem]) async throws -> Rows {
@@ -379,7 +388,7 @@ final class HealthSnapshotRead {
             try checkCurrent()
             return reply
         } catch {
-            guard transport.missingCapability(error, "metric-read") else { throw error }
+            guard transport.missingCapability(error, "metric-read") else { throw Self.readFailure(error) }
             return nil
         }
     }
@@ -391,7 +400,7 @@ final class HealthSnapshotRead {
             try checkCurrent()
             return reply.values
         } catch {
-            guard transport.missingCapability(error, "calculation_status") else { throw error }
+            guard transport.missingCapability(error, "calculation_status") else { throw Self.readFailure(error) }
             return nil
         }
     }

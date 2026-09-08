@@ -738,6 +738,20 @@ final class DataStore: ObservableObject {
     /// Manual entries share the durable publication and visible projection used by
     /// accepted AI drafts and later amendments.
     func addManualMeal(text: String, kcal: Double, day: UserDay) {
+        // The simulator's seed account is a memory-only demonstration, including
+        // when real credentials were supplied for a separate debugging workflow.
+        if Band.allowsSeed {
+            let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard kcal.isFinite, kcal >= 1, kcal <= 100000,
+                  !name.isEmpty, name.count <= 8000 else { return }
+            let at = day.pinningClock(Date())
+            let entry = MealEntry(id: UUID(), day: day, at: at,
+                slot: .guess(at: at, day: day), status: .confirmed, text: name,
+                kcal: Double(Int(kcal)), protein: 0, carb: 0, fat: 0, source: .typed)
+            overlayPendingMeals([entry], removedIDs: [])
+            NotificationReach.evaluate(store: self)
+            return
+        }
         do { try MealQueue.shared.createManual(text: text, kcal: kcal, day: day, into: self) }
         catch { AIService.shared.lastError = error.localizedDescription }
     }

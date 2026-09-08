@@ -15,7 +15,7 @@ final class HealthSnapshotReadTests: XCTestCase {
         var calls: [(String, [URLQueryItem])] = []
         var selectOverride: (@MainActor (String, [URLQueryItem]) async throws -> [[String: Any]]?)?
         var statusOverride: (@MainActor () async throws -> [[String: Any]])?
-        var metricError: Failure?
+        var metricError: Error?
 
         func row(revision: String = "r1") -> [String: Any] {
             ["id": "result-1", "user_day": day.key, "result_revision": revision,
@@ -190,7 +190,7 @@ final class HealthSnapshotReadTests: XCTestCase {
     func testMissingLegacyColumnsCanBeRemovedInEitherOrderWithoutMaskingFailures() async throws {
         for revisionFirst in [true, false] {
             let f = Fixture(); f.daily = [f.row()]
-            f.metricError = .missing("metric-read")
+            f.metricError = Fixture.Failure.missing("metric-read")
             f.tables["day_fuel"] = [["result_id": "result-1", "kcal_in": "500", "kcal_out": 1800,
                                       "bmr_kcal": 1000, "active_kcal": 200]]
             f.selectOverride = { table, query in
@@ -218,6 +218,35 @@ final class HealthSnapshotReadTests: XCTestCase {
         do { _ = try await failed.reader().detail(days: 0, endingAt: failed.day); XCTFail("Failure is not a legacy capability") }
         catch { XCTAssertTrue(error is Fixture.Failure) }
         XCTAssertEqual(failed.calls.count, 1)
+    }
+
+    @MainActor
+    func testSupabaseHTTPConflictRetainsThePriorSnapshotAcrossRequiredReadPaths() async throws {
+        for source in ["metrics", "status", "daily_results"] {
+            let f = Fixture(); f.daily = [f.row()]; f.status = f.daily
+            let conflict = SupabaseFailure.http(409, #"{"ok":false,"code":"SNAPSHOT_CHANGED"}"#)
+            if source == "metrics" { f.metricError = conflict }
+            if source == "status" { f.statusOverride = { throw conflict } }
+            if source == "daily_results" {
+                f.selectOverride = { table, _ in
+                    if table == "daily_results" { throw conflict }
+                    return nil
+                }
+            }
+            do {
+                let result = try await f.reader().detail(days: 0, endingAt: f.day)
+                result?.publish { _ in XCTFail("A conflicted read cannot replace the prior screen") }
+                XCTFail("Expected a typed revision conflict from \(source)")
+            } catch { XCTAssertEqual(error as? HealthSnapshotRead.Failure, .revisionChanged) }
+        }
+        // A real HTTP failure must not be relabelled as a harmless revision conflict.
+        let unavailable = Fixture()
+        unavailable.metricError = SupabaseFailure.http(503, "database unavailable")
+        do { _ = try await unavailable.reader().detail(days: 0, endingAt: unavailable.day); XCTFail("Expected HTTP failure") }
+        catch {
+            guard case let SupabaseFailure.http(status, body) = error else { return XCTFail("HTTP error lost its type") }
+            XCTAssertEqual(status, 503); XCTAssertEqual(body, "database unavailable")
+        }
     }
 
     @MainActor

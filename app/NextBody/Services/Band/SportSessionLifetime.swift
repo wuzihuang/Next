@@ -21,6 +21,23 @@ enum SportSessionTaskFence {
         await opening?.value
         await reading?.value
     }
+
+    /// Once stop has cancelled collection it must either retain its original lifetime
+    /// and proceed, or fully retire that lifetime. Losing permission cannot leave a
+    /// half-stopped session, and an old waiter cannot retire a replacement session.
+    static func prepareStop(owner: SportSessionLifetime,
+                            current: @MainActor () -> SportSessionLifetime?,
+                            authorized: @MainActor () -> Bool,
+                            opening: Task<Void, Never>?, reading: Task<Void, Never>?,
+                            quiesce: @MainActor () async -> Void,
+                            retire: @MainActor () async -> Void) async -> Bool {
+        await cancelAndWait(opening, reading)
+        guard current() == owner else { return false }
+        await quiesce()
+        guard current() == owner else { return false }
+        guard authorized() else { await retire(); return false }
+        return true
+    }
 }
 
 /// Retry the bound device without turning a missing wrist into a tight scan loop.

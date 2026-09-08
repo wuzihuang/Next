@@ -16,6 +16,8 @@ struct MeasureTakeover: View {
     /// stopped before it goes. Cancelling this task terminates the stream, and each
     /// implementation stops the test in its `onTermination`.
     @State private var run: Task<Void, Never>?
+    @State private var localMeasurementID = UUID()
+    private var measurementID: UUID { phoneExecution?.id ?? localMeasurementID }
 
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
@@ -136,6 +138,7 @@ struct MeasureTakeover: View {
         // words puts the inset back for itself (`Chrome.gateTopInset` plus the real one).
         .ignoresSafeArea()
         .onAppear { open() }
+        .onDisappear { cancelMeasurement() }
         .onReceive(secondHand) { _ in tick() }
         .onChange(of: remaining) { beatAt = Date() }
         .statusBarHidden(false)
@@ -487,9 +490,14 @@ struct MeasureTakeover: View {
     /// never held onto, so it was never cancelled — on a real HOOP the test kept running after
     /// the screen was gone, and F3 §06's queue allows one native command in flight, so the next
     /// one came back DEVICE_BUSY against a measurement nobody was watching.
-    private func leave() {
+    private func cancelMeasurement() {
+        BandMeasurementLifetime.shared.cancel(id: measurementID)
         run?.cancel()
         run = nil
+    }
+
+    private func leave() {
+        cancelMeasurement()
         done()
     }
 
@@ -566,7 +574,7 @@ struct MeasureTakeover: View {
         }
         #endif
 
-        run = Task {
+        run = BandMeasurementLifetime.shared.start(id: measurementID) {
             try? await Task.sleep(for: .milliseconds(460))
             phase = .waiting
 
@@ -590,11 +598,8 @@ struct MeasureTakeover: View {
             // and 「Index finger on the side key」 stood there for the whole minute on a band that
             // was perfectly willing to measure. So the readout is stood down and awaited first,
             // and the band gets the same settling second the inserted stress test gets.
-            // Close admission synchronously: router observation may not have fired yet.
-            // Let an already admitted native read finish before replacing SDK callbacks.
-            guard !Task.isCancelled, phoneExecution?.isAuthorized != false else { nudge.cancel(); return }
-            BandLiveLifecycle.shared.setExclusiveOperation(true)
-            await BandReadiness.shared.awaitNativeIdle()
+            // BandMeasurementLifetime already holds admission and the native lease;
+            // any preceding stream and its queued SDK stop have drained.
             guard !Task.isCancelled, phoneExecution?.isAuthorized != false else { nudge.cancel(); return }
             await LiveReadout.shared.standDown {
                 try? await Task.sleep(for: .seconds(LiveReadout.Cadence.settle))

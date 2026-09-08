@@ -614,7 +614,7 @@ function AiListenDots() {
 function AiOrbIcon() {
   return (
     <svg width="54" height="54" viewBox="0 0 54 54" aria-hidden="true">
-      {[
+      {([
         [27, 27, 1.05, '#E8E8EA', 0.9],
         [24.8, 29, 1.04, '#E8E8EA', 0.89],
         [30.1, 25.3, 1.04, '#E8E8EA', 0.88],
@@ -655,7 +655,7 @@ function AiOrbIcon() {
         [40.4, 26.8, 0.64, '#E8E8EA', 0.33],
         [36.5, 32.7, 0.61, '#E8E8EA', 0.28],
         [18.2, 27.3, 0.58, '#E8E8EA', 0.25],
-      ].map(([cx, cy, r, fill, opacity]) => (
+      ] satisfies [cx: number, cy: number, r: number, fill: string, opacity: number][]).map(([cx, cy, r, fill, opacity]) => (
         <circle cx={cx} cy={cy} r={r} fill={fill} key={`${cx}-${cy}-${r}`} style={{opacity}} />
       ))}
     </svg>

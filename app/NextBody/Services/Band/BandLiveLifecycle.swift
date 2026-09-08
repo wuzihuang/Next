@@ -62,7 +62,7 @@ final class BandLiveLifecycle {
 
     var hasExclusiveOperation: Bool {
         exclusive || LiveSessionStore.shared.session != nil || LiveSessionStore.shared.opening
-            || LiveSessionStore.shared.cleaningUp
+            || LiveSessionStore.shared.cleaningUp || BandMeasurementLifetime.shared.isBusy
     }
 
     func refreshEligibility() {
@@ -75,4 +75,11 @@ final class BandLiveLifecycle {
             await LiveReadout.shared.run()
         }
     }
+}
+
+extension BandMeasurementLifetime {
+    static let shared = BandMeasurementLifetime(
+        acquire: { await BandReadiness.shared.beginMeasurement() },
+        release: { await BandReadiness.shared.endMeasurement() },
+        changed: { BandLiveLifecycle.shared.refreshEligibility() })
 }

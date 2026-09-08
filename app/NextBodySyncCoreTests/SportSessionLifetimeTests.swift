@@ -2,6 +2,61 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class SportSessionLifetimeTests: XCTestCase {
+    @MainActor func testLostStopPermissionRetiresSessionAfterReaderCancellationAndAwaitsCleanup() async {
+        let owner = SportSessionLifetime(account: "a", binding: "b")
+        var current: SportSessionLifetime? = owner
+        var authorized = true
+        var collected = false
+        var cleanup: CheckedContinuation<Void, Never>?
+        var events: [String] = []
+        let reading = Task { @MainActor in
+            while !Task.isCancelled { collected = true; await Task.yield() }
+            events.append("reader ended")
+        }
+        while !collected { await Task.yield() }
+        let stop = Task { @MainActor in
+            await SportSessionTaskFence.prepareStop(owner: owner, current: { current },
+                authorized: { authorized }, opening: nil, reading: reading, quiesce: {
+                    authorized = false
+                    events.append("native idle")
+                }, retire: {
+                    current = nil
+                    events.append("session ended")
+                    await withCheckedContinuation { cleanup = $0 }
+                    events.append("cleanup drained")
+                })
+        }
+        while cleanup == nil { await Task.yield() }
+        XCTAssertNil(current)
+        XCTAssertEqual(events, ["reader ended", "native idle", "session ended"])
+        cleanup?.resume()
+        let mayStop = await stop.value
+        XCTAssertFalse(mayStop)
+        XCTAssertEqual(events.last, "cleanup drained")
+    }
+
+    @MainActor func testOldStopCannotQuiesceOrRetireAReplacementLifetime() async {
+        let old = SportSessionLifetime(account: "a", binding: "b")
+        let next = SportSessionLifetime(account: "a", binding: "b")
+        var current: SportSessionLifetime? = old
+        var callback: CheckedContinuation<Void, Never>?
+        var changed: [String] = []
+        let opening = Task { @MainActor in await withCheckedContinuation { callback = $0 } }
+        while callback == nil { await Task.yield() }
+        let stop = Task { @MainActor in
+            await SportSessionTaskFence.prepareStop(owner: old, current: { current },
+                authorized: { false }, opening: opening, reading: nil,
+                quiesce: { changed.append("quiesce") }, retire: { current = nil; changed.append("retire") })
+        }
+        while !opening.isCancelled { await Task.yield() }
+        current = next
+        callback?.resume()
+        let mayStop = await stop.value
+        XCTAssertFalse(mayStop)
+        XCTAssertEqual(current, next)
+        XCTAssertTrue(changed.isEmpty)
+    }
+
     @MainActor func testFinalCloseWaitsForCancelledNativeOpenAndReaderCleanup() async {
         var order: [String] = []
         var callback: CheckedContinuation<Void, Never>?

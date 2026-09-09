@@ -2240,5 +2240,7 @@
   "BED BY 23:00": "23:00 前上床",
   "WALK 30 MIN": "走 30 分钟",
   "PROTEIN AT DINNER": "晚餐补蛋白",
-  "CONFIRM ACTION": "确认"
+  "CONFIRM ACTION": "确认",
+  "%d / %d NIGHTS": "%d / %d 夜",
+  "BASELINE %d / %d NIGHTS · SCORED FROM THE THIRD NIGHT": "基线 %d / %d 夜 · 从第 3 夜开始计分"
 }

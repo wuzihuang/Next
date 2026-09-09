@@ -586,7 +586,9 @@ struct VitalsDetailView: View {
                 SleepBedtimeBox(baseline: baseline, tonight: bedtime)
             } else {
                 VitalsChartEmpty(line: score?.inputs["bed_offset"] == nil ? L("NO BEDTIME RECORDED") : L("NO BASELINE YET"),
-                                 sub: L("REGULARITY NEEDS ENOUGH PREVIOUS RECORDED BEDTIMES"))
+                                 sub: L("BASELINE %d / %d NIGHTS · SCORED FROM THE THIRD NIGHT",
+                                        Int(score?.inputs["baseline_bed_nights"] ?? 0),
+                                        SleepScoreMath.regularityBaselineNights))
             }
         }
     }

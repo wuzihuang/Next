@@ -7,6 +7,11 @@ import Foundation
 /// 01:00 — drags a mean far enough to be read as a bad week, and the rest of this codebase
 /// already medians for the same reason (night HRV is a median of fifteen-minute medians).
 public enum SleepScoreMath {
+    /// Prior canonical nights the server needs before it publishes a bedtime median and
+    /// scores the regularity group (sleep-v1.3, `20260909100000_regularity_from_third_night`).
+    /// The UI counts up to this so the group never just says "not yet".
+    public static let regularityBaselineNights = 3
+
     /// Keep the familiar minimum range, extending the ruler to include actual peaks.
     public static func hrvUpperBound(_ values: [Double]) -> Double {
         let peak = values.filter { $0.isFinite && $0 > 0 }.max() ?? 0

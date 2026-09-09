@@ -157,3 +157,28 @@ begin
     raise exception 'REM_ABSENT_SCORED_AS_ZERO: with line %, without line %', a, b;
   end if;
 end $$;
+
+-- 10 / 11 · sleep-v1.3: the bedtime median exists from the third prior canonical night.
+-- Two prior nights leave regularity null and bed_median unpublished; three score it, and a
+-- night 25 minutes off that three-night median still lands inside the ±30 full-marks band.
+do $$
+declare u uuid := t_user('third-night'); p record; i int;
+begin
+  for i in 1..2 loop
+    perform t_night(u, ('2026-09-05'::date - i), 430, 85, 1, '1:150,0:85,2:95,1:100', '23:30');
+  end loop;
+  perform t_night(u, '2026-09-05', 440, 88, 1, '1:150,0:88,2:98,1:104', '23:55');
+  perform t_run('10 两个历史夜 · 规律仍空', u, '2026-09-05');
+  select * into p from nb.night_score_parts(u, '2026-09-05');
+  if p.regularity_score is not null or p.inputs ? 'bed_median' or (p.inputs->>'baseline_bed_nights')::int <> 2 then
+    raise exception 'REGULARITY_SCORED_BEFORE_THIRD_NIGHT: %', p.inputs;
+  end if;
+
+  perform t_night(u, '2026-09-02', 430, 85, 1, '1:150,0:85,2:95,1:100', '23:30');
+  perform t_run('11 三个历史夜 · 规律出分', u, '2026-09-05');
+  select * into p from nb.night_score_parts(u, '2026-09-05');
+  if p.regularity_score is distinct from 100 or (p.inputs->>'bed_median')::int <> 330
+     or (p.inputs->>'baseline_bed_nights')::int <> 3 then
+    raise exception 'REGULARITY_NOT_SCORED_ON_THIRD_NIGHT: reg %, inputs %', p.regularity_score, p.inputs;
+  end if;
+end $$;

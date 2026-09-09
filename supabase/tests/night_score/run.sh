@@ -39,6 +39,7 @@ fi
 run "$here/04_backfill_setup.sql"
 if [[ "${NIGHT_SCORE_TEST_LEGACY:-0}" != 1 ]]; then
   run "$root/supabase/migrations/20260906130405_sleep_score_evidence_v12.sql"
+  run "$root/supabase/migrations/20260909100000_regularity_from_third_night.sql"
 fi
 run "$here/01_scoring.sql"
 docker exec "$name" psql -U postgres -d nb -c "

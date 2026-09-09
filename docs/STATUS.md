@@ -1964,6 +1964,18 @@ times out; it did not prevent these reads or syncs. The concurrent FuelWindowMat
 were made module-internal to match UserDay and unblock the device build.
 
 
+### 2026-09-09 · sleep-v1.3 · regularity scores from the third night
+
+Production `nb.night_score_parts` now publishes `bed_median` and scores the regularity group
+once three canonical prior nights exist in the trailing 28 (was fourteen; the HRV / RHR
+14→28 personal-weight ramp is unchanged). Applied through the Management API as
+`20260909100000_regularity_from_third_night` (text-patch on the live body, version literal
+bumped, all 19 `night_score` rows resettled) and recorded in `schema_migrations`. The
+`supabase/tests/night_score/run.sh` harness runs the new file and gained cases 10 / 11
+(two prior nights → null, three → scored). App side, the regularity note counts
+`baseline_bed_nights` up to `SleepScoreMath.regularityBaselineNights` instead of printing
+NO BASELINE YET.
+
 ### 2026-09-06 · sleep-v1.2 production deployment
 
 Production `gkgzwcxivnffsecshvfs` has migration

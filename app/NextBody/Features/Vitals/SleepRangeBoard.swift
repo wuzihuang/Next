@@ -260,7 +260,10 @@ struct SleepScoreBreakdown: View {
     private func note(_ group: SleepScoreGroup, value: Int?) -> String {
         if value == nil {
             guard group == .regularity else { return L("NOT SCORED") }
-            return score.inputs["bed_offset"] == nil ? L("NO BEDTIME RECORDED") : L("NO BASELINE YET")
+            if score.inputs["bed_offset"] == nil { return L("NO BEDTIME RECORDED") }
+            // The baseline is this person's own median bedtime; it exists from the third
+            // prior night, so the note counts up to it instead of saying "not yet".
+            return L("%d / %d NIGHTS", Int(score.inputs["baseline_bed_nights"] ?? 0), SleepScoreMath.regularityBaselineNights)
         }
         return score.effectiveWeight(of: group).map { L("WEIGHT %.1f%%", $0) } ?? Fmt.dash
     }

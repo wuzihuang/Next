@@ -143,7 +143,7 @@ begin
  assert (select count(*) from public.sleep_nights where user_id=u)=2,'Retain both original source rows';
  assert (select count(*) from public.night_score where user_id=u)=1,'Backfill must remove duplicate derived score';
  assert (select count(*) from public.night_hrv where user_id=u)=2,'Shared Body Battery HRV rows must remain untouched';
- assert (select score_version from public.night_score where user_id=u)='sleep-v1.2';
+ assert (select score_version from public.night_score where user_id=u)='sleep-v1.3';
  assert (select min(rmssd_ms) from public.night_hrv where user_id=u)=99;
  assert (select rmssd_ms from nb.sleep_score_hrv_parts(u,'2026-09-06'))=30;
  -- Re-uploading/recalculating the erroneous date cannot revive a second score.

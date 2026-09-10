@@ -39,11 +39,12 @@ struct DeviceView: View {
     #if DEBUG
     /// The sport-mode probe sheet. Release builds carry neither the button nor the code.
     @State private var sportProbe = false
-    @State private var healthLightProbe = false
     @State private var capabilitySweep = false
     #endif
 
     private var connected: Bool { data.band.connected }
+    /// The state chosen on the sheet, mirrored here so the row follows the sheet's writes.
+    @AppStorage(BandHealthLightPreference.key) private var healthLightRaw: Int = -1
     private var syncInProgress: Bool { syncing || syncActivity.phase != "idle" }
     private var connectingForSync: Bool { syncActivity.phase == "connecting" }
 
@@ -75,6 +76,9 @@ struct DeviceView: View {
                 GroupLabel12(L("FIRMWARE"))
                 RowCard { firmwareSection }
 
+                GroupLabel12(L("SIDE LIGHT"))
+                RowCard { healthLightRow }
+
                 #if DEBUG
                 debugHeader
                 debugCard
@@ -101,6 +105,11 @@ struct DeviceView: View {
         } onBack: {
             router.back()
         }
+        .onReceive(router.$deviceSheetRequest) { request in
+            guard let request else { return }
+            sheet = request
+            router.deviceSheetRequest = nil
+        }
         #if DEBUG
         .onAppear {
             if let s = ProcessInfo.processInfo.environment["NB_DEBUG_DEVICE_SHEET"] {
@@ -108,6 +117,7 @@ struct DeviceView: View {
                 case "findHoop": sheet = .findHoop
                 case "bandAlarms": sheet = .bandAlarms
                 case "bandAutoMonitor": sheet = .bandAutoMonitor
+                case "healthLight": sheet = .healthLight
                 default: break
                 }
             }
@@ -159,6 +169,7 @@ struct DeviceView: View {
             await checkForUpdate()
             if let list = try? await Band.live.readAlarms() {
                 alarmCount = list.count
+                PhoneToolRunner.shared.remember(list)
             }
             #if DEBUG
             if let s = ProcessInfo.processInfo.environment["NB_DEBUG_DEVICE_SHEET"] {
@@ -166,6 +177,7 @@ struct DeviceView: View {
                 case "findHoop": sheet = .findHoop
                 case "bandAlarms": sheet = .bandAlarms
                 case "bandAutoMonitor": sheet = .bandAutoMonitor
+                case "healthLight": sheet = .healthLight
                 default: break
                 }
             }
@@ -174,6 +186,7 @@ struct DeviceView: View {
             do {
                 autoRead = try await Band.live.readAutoMonitoring()
                 rememberOpticalSwitch(autoRead)
+                if let autoRead { PhoneToolRunner.shared.remember(read: autoRead) }
             } catch {
                 autoRead = .failed(error)
             }
@@ -218,11 +231,12 @@ struct DeviceView: View {
                 case .findBand:        WhyWontItConnectSheet()
                 case .findHoop:        FindHoopSheet()
                 case .bandAlarms:      AlarmsSheet { alarmCount = $0 }
+                case .healthLight:     HealthLightSheet()
                 default:               WhyWontItConnectSheet()
                 }
             }
             .presentationDetents([
-                [.bandAutoMonitor, .findHoop, .bandAlarms].contains(r)
+                [.bandAutoMonitor, .findHoop, .bandAlarms, .healthLight].contains(r)
                     ? .fraction(0.78) : .fraction(0.62)
             ])
             .presentationDragIndicator(.visible)
@@ -230,13 +244,6 @@ struct DeviceView: View {
             .presentationCornerRadius(NB.R.panel)
         }
         #if DEBUG
-        .sheet(isPresented: $healthLightProbe) {
-            HealthLightDebugSheet()
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationBackground(NB.carbon2)
-                .presentationCornerRadius(NB.R.panel)
-        }
         .sheet(isPresented: $sportProbe) {
             SportProbeSheet()
                 .presentationDetents([.large])
@@ -689,6 +696,17 @@ struct DeviceView: View {
         return clock
     }
 
+    /// 12S · the light on the side of the band. The value is the phone's saved choice;
+    /// "band default" means nothing has been chosen and nothing is sent.
+    private var healthLightRow: some View {
+        NavRow(title: L("Health light"),
+               detail: L("THE LIGHT ON THE SIDE · WRITTEN BACK ON EVERY CONNECT"),
+               value: BandHealthLightState(rawValue: healthLightRaw).map { L($0.title) } ?? L("BAND DEFAULT"),
+               valueTint: NB.lime1,
+               enabled: connected,
+               last: true) { sheet = .healthLight }
+    }
+
     #if DEBUG
     private var debugHeader: some View {
         HStack(spacing: 8) {
@@ -727,10 +745,6 @@ struct DeviceView: View {
                    detail: L("TAP A TYPE · THE BAND OPENS IT, THEN CLOSES IT"),
                    value: identity?.sportMode ?? "—",
                    valueTint: NB.ember1) { sportProbe = true }
-            NavRow(title: L("Health light"),
-                   detail: L("TEST THE FOUR LIGHT STATES"),
-                   value: "",
-                   valueTint: NB.ember1) { healthLightProbe = true }
             NavRow(title: L("Capability sweep"),
                    detail: L("READ WHAT THIS FIRMWARE ANSWERS"),
                    value: "",

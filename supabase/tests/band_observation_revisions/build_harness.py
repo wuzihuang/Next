@@ -30,7 +30,7 @@ create table public.consents(user_id uuid references auth.users(id),consent_vers
  text_sha256 text,locale text,decided_at timestamptz default now());
 create table public.raw_samples(user_id uuid references auth.users(id),ts timestamptz,sampled_tz text not null,
  src text default 'band',heart smallint,step integer,cal integer,dis integer,met numeric(4,2),
- temp numeric(4,2),hrv numeric(6,2),stress smallint,sleep_states smallint,primary key(user_id,ts,src));
+ temp numeric(4,2),hrv numeric(5,1),stress smallint,sleep_states smallint,primary key(user_id,ts,src));
 alter table public.raw_samples enable row level security;
 create policy own_read on public.raw_samples for select to authenticated using(user_id=auth.uid());
 create policy own_insert on public.raw_samples for insert to authenticated with check(user_id=auth.uid());
@@ -66,4 +66,9 @@ for migration, name in [
     sql += function(migration, name)
     sql += f'grant execute on function {name}(jsonb) to authenticated;\n'
 sql += (root / '20260906130703_band_observation_revisions.sql').read_text()
+# Include the production clock functions and ingestor patch, but not unrelated
+# daily-result replay/backfill that requires the complete product schema.
+midnight = (root / '20260907020000_user_day_starts_at_midnight.sql').read_text()
+sql += midnight[:midnight.index('-- ---------------------------------------------------------------- replay the old seam out')]
+sql += (root / '20260909153000_band_delta_receipts.sql').read_text()
 Path(sys.argv[1]).write_text(sql)

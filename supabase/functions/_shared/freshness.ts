@@ -11,6 +11,10 @@ export const deviceState = z.object({
     id: z.string().max(40), time: z.string().max(5), days: z.array(z.number().int().min(0).max(6)).max(7),
     enabled: z.boolean(), label: z.string().max(20).optional(),
   }).strict()).max(10).optional(),
+  /// Phone-held settings `find` answers from without a round trip: notification switches,
+  /// haptics, sync cadence, cached band auto-monitoring slots, the panel's current frame,
+  /// saved chat sessions. Loose on purpose: an older phone sends none of it.
+  settings: z.record(z.any()).optional(),
 }).strict();
 export type DeviceState = z.infer<typeof deviceState>;
 

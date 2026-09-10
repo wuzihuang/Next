@@ -5,7 +5,7 @@
   "version": "2026.4.6",
   "type": "module",
   "scripts": {
-    "build": "npm run check:shop-core && shopify hydrogen build --codegen",
+    "build": "npm run check:shop-core && npm run check:theme-pages && shopify hydrogen build --codegen",
     "dev": "shopify hydrogen dev --codegen",
     "preview": "shopify hydrogen preview --build",
     "lint": "eslint --no-error-on-unmatched-pattern .",
@@ -13,7 +13,11 @@
     "typecheck": "react-router typegen && tsc --noEmit",
     "codegen": "shopify hydrogen codegen && react-router typegen",
     "build:shop-core": "node scripts/build-cart-pricing.mjs",
-    "check:shop-core": "node scripts/build-cart-pricing.mjs --check"
+    "check:shop-core": "node scripts/build-cart-pricing.mjs --check",
+    "build:theme-pages": "node --experimental-strip-types scripts/build-theme-pages.mjs",
+    "check:theme-pages": "node --experimental-strip-types scripts/build-theme-pages.mjs --check",
+    "build:theme-landing": "node scripts/build-theme-landing.mjs",
+    "check:theme-landing": "node scripts/build-theme-landing.mjs --check"
   },
   "prettier": "@shopify/prettier-config",
   "dependencies": {

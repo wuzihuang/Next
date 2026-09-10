@@ -9,7 +9,7 @@ enum PanelType: String, Codable, CaseIterable, Hashable {
     case battery, metric, text, line, band, bars, days, sparks, ring, gauge, split
     case cells, hypnogram, zones, wave, table, workout, events, heat, o2night
     case food, meal, fuel, balance, recomp, delta, dual
-    /// ADR 0018 · the plan face's own frame: title, summary, three to five tasks.
+    /// ADR 0018 · numbered suggestions; `plan` remains the wire identifier.
     case plan
     /// 2026-09-06 gap audit · six shapes the database had data for and the screen did not.
     case score, poincare, matrix, call, curve, response
@@ -197,10 +197,14 @@ struct PanelWidget: Identifiable, Hashable {
     /// reads that slot while the title is THINKING.
     static func thinking(_ question: String = "") -> PanelWidget {
         PanelWidget(type: .text, title: "THINKING", tag: nil,
-                    sentence: String(question.prefix(38)),
+                    sentence: String(question.prefix(Self.thinkingEcho)),
                     footer: nil, action: nil, data: .none)
     }
     static var thinking: PanelWidget { thinking("") }
+    /// The echo's ceiling: three lines of the panel's 11 pt dot face, which is where
+    /// `ThinkingStage` stops drawing. Latin runs ~38 characters a line, CJK about half that,
+    /// so this cuts nothing a wrap would have shown.
+    static let thinkingEcho = 120
 }
 
 enum PanelTag: String, Hashable, CaseIterable {

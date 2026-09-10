@@ -5,6 +5,18 @@ insert into auth.users(id) values('dddddddd-1111-1111-1111-111111111111');
 -- crossed midnight but this user's 04:00 boundary has not.
 insert into public.profiles(user_id,timezone) values('dddddddd-1111-1111-1111-111111111111','America/Los_Angeles')
 on conflict(user_id) do update set timezone=excluded.timezone;
+-- ⚠️ The three knobs are per-user since 20260906160000, and the column defaults are the
+-- raised development ones (1000 a day against a 5000 cap). This suite is about the
+-- mechanism — the daily grant, the cap it rolls up to, the spend ceiling that refuses
+-- while count remains — so it pins its own numbers instead of asserting whatever the
+-- current defaults happen to be. Ten a day, twenty in the bank, two yuan.
+insert into nb.ai_quotas(user_id,remaining,settled_day,spent_fen,spent_day,daily_grant,grant_cap,spend_cap_fen)
+values('dddddddd-1111-1111-1111-111111111111',10,
+       nb.user_day('dddddddd-1111-1111-1111-111111111111'),0,
+       nb.user_day('dddddddd-1111-1111-1111-111111111111'),10,20,200)
+on conflict(user_id) do update set remaining=excluded.remaining,settled_day=excluded.settled_day,
+ spent_fen=excluded.spent_fen,spent_day=excluded.spent_day,daily_grant=excluded.daily_grant,
+ grant_cap=excluded.grant_cap,spend_cap_fen=excluded.spend_cap_fen;
 set local role service_role;
 select is((select count(*)::int from generate_series(1,10) g where (public.consume_ai_quota_trusted('dddddddd-1111-1111-1111-111111111111','turn',gen_random_uuid())->>'allowed')::boolean),10,'new day admits ten logical operations');
 select is((public.consume_ai_quota_trusted('dddddddd-1111-1111-1111-111111111111','turn',gen_random_uuid())->>'allowed')::boolean,false,'eleventh operation is refused');

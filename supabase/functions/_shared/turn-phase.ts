@@ -1,9 +1,9 @@
 // ADR 0018 · three steps: read → act → render.
 //
-// read   · read tools, phone tools and workflow.ready. Calling a phone tool moves the
-//          turn to act; calling ready moves it to render.
-// act    · phone tools, workflow.ready and one workflow.reread. Reads are closed: what the
-//          model wanted to know it should have asked before it touched the band.
+// read   · evidence, phone tools and direct text/food/metric output. Phone actions move to
+//          act; health.prepare resumes in read. Ready opens measurement-chart rendering.
+// act    · phone tools, direct text/food/metric output, ready and one reread. Health reads
+//          are closed.
 // render · one screen.render / plan.render, or one workflow.reread back to read.
 //
 // Every step re-sends the whole context, so the budget is eight model steps and four of
@@ -15,6 +15,13 @@ export const READ_STEP_BUDGET = 4;
 export const MAX_RESUMES = 3;
 export const WORKFLOW_READY = "workflow.ready";
 export const WORKFLOW_REREAD = "workflow.reread";
+export const WORKFLOW_COACH = "workflow.coach";
+export const HEALTH_PREPARE = "health.prepare";
+// ⚠️ metric is direct because its number need not come from a health read: the band's
+// battery arrives in availability.device and the ledger already vouches for every digit.
+// Without it the prompt said "band battery → metric" while the phase offered only text,
+// and the model spent two render steps finding that out before falling back to text.
+const DIRECT_OUTPUTS = new Set(["screen.render.text", "screen.render.food", "screen.render.metric"]);
 
 export function isRenderTool(name: string): boolean {
   return name.startsWith("screen.render") || name === "plan.render";
@@ -30,6 +37,10 @@ export type TurnWorkflow = {
   renderClaimed: boolean;
   controlClaimed: boolean;
   phoneClaimed: boolean;
+  readClaimed: boolean;
+  coachClaimed: boolean;
+  coachAllowed: boolean;
+  coachHandoff: boolean;
   readTools: string[];
   phoneTools: string[];
   renderTools: string[];
@@ -43,9 +54,10 @@ function refreshActiveTools(state: TurnWorkflow): void {
     const rereadFits = !state.rereadUsed && state.readTools.length > 0 &&
       MAX_TURN_STEPS - state.completedSteps >= 3;
     if (state.phase === "read") {
-      names = [...state.readTools, ...state.phoneTools, WORKFLOW_READY];
+      names = [...state.readTools, ...state.phoneTools, ...state.renderTools.filter(n => DIRECT_OUTPUTS.has(n)), WORKFLOW_READY];
+      if (state.coachAllowed && !state.coachHandoff && MAX_TURN_STEPS - state.completedSteps >= 2) names.push(WORKFLOW_COACH);
     } else if (state.phase === "act") {
-      names = [...state.phoneTools, WORKFLOW_READY];
+      names = [...state.phoneTools, ...state.renderTools.filter(n => DIRECT_OUTPUTS.has(n)), WORKFLOW_READY];
       if (rereadFits) names.push(WORKFLOW_REREAD);
     } else if (state.phase === "render") {
       names = [...state.renderTools];
@@ -60,6 +72,7 @@ export function createTurnWorkflow(
   renderTools: string[],
   phoneTools: string[] = [],
   start: TurnPhase = readTools.length > 0 ? "read" : "render",
+  coachAllowed = false,
 ): TurnWorkflow {
   const state: TurnWorkflow = {
     phase: start,
@@ -69,6 +82,10 @@ export function createTurnWorkflow(
     renderClaimed: false,
     controlClaimed: false,
     phoneClaimed: false,
+    readClaimed: false,
+    coachClaimed: false,
+    coachAllowed,
+    coachHandoff: false,
     readTools: [...readTools],
     phoneTools: [...phoneTools],
     renderTools: [...renderTools],
@@ -81,10 +98,11 @@ export function createTurnWorkflow(
 /// A suspended turn stores the workflow as plain JSON and rebuilds it here.
 export function restoreTurnWorkflow(raw: unknown): TurnWorkflow {
   const r = raw as Partial<TurnWorkflow>;
-  const state = createTurnWorkflow(r.readTools ?? [], r.renderTools ?? [], r.phoneTools ?? [], r.phase === "done" ? "render" : (r.phase ?? "read"));
+  const state = createTurnWorkflow(r.readTools ?? [], r.renderTools ?? [], r.phoneTools ?? [], r.phase === "done" ? "render" : (r.phase ?? "read"), r.coachAllowed ?? false);
   state.completedSteps = r.completedSteps ?? 0;
   state.readSteps = r.readSteps ?? 0;
   state.rereadUsed = r.rereadUsed ?? false;
+  state.coachHandoff = r.coachHandoff ?? false;
   refreshActiveTools(state);
   return state;
 }
@@ -94,6 +112,7 @@ export function serializeTurnWorkflow(state: TurnWorkflow): Record<string, unkno
     phase: state.phase, completedSteps: state.completedSteps, readSteps: state.readSteps,
     rereadUsed: state.rereadUsed, readTools: state.readTools, phoneTools: state.phoneTools,
     renderTools: state.renderTools,
+    coachAllowed: state.coachAllowed, coachHandoff: state.coachHandoff,
   };
 }
 
@@ -115,6 +134,21 @@ export function gateTurnTool(
   const render = state.renderTools.includes(toolName);
   const control = toolName === WORKFLOW_READY || toolName === WORKFLOW_REREAD;
   const phone = state.phoneTools.includes(toolName);
+  const read = state.readTools.includes(toolName);
+  const coach = toolName === WORKFLOW_COACH;
+  // A handoff changes the system prompt and output contract at the step boundary.
+  // It must own the whole step, whichever concurrent tool claimed it first.
+  if (state.coachClaimed || (coach && (state.readClaimed || state.phoneClaimed || state.renderClaimed || state.controlClaimed))) {
+    return { allow: false, error: "STEP_ALREADY_COMMITTED" };
+  }
+  if (coach) state.coachClaimed = true;
+  // Direct answers are legal in read/act, but never race pending evidence or effects.
+  if ((render && (state.readClaimed || state.phoneClaimed)) ||
+    (read && (state.renderClaimed || state.phoneClaimed)) ||
+    (phone && (state.renderClaimed || state.readClaimed || state.controlClaimed)) ||
+    (control && state.phoneClaimed)) {
+    return { allow: false, error: "STEP_ALREADY_COMMITTED" };
+  }
   if (render || control) {
     if (state.renderClaimed || state.controlClaimed) {
       return { allow: false, error: "STEP_ALREADY_COMMITTED" };
@@ -126,6 +160,7 @@ export function gateTurnTool(
     if (state.phoneClaimed) return { allow: false, error: "ONE_PHONE_TOOL_PER_STEP" };
     state.phoneClaimed = true;
   }
+  if (read) state.readClaimed = true;
   return { allow: true };
 }
 
@@ -148,14 +183,18 @@ export function finishTurnStep(
       item.toolName === name && resultFlag(item.result, flag)
     );
   const phoneCalled = state.phoneTools.some((name) =>
-    state.activeTools.includes(name) && toolResults.some((item) => item.toolName === name));
+    state.activeTools.includes(name) && toolResults.some((item) => item.toolName === name && resultFlag(item.result, "suspended")));
   state.completedSteps += 1;
-  if (state.phase === "read") {
+  if (state.renderTools.some((name) => succeeded(name, "rendered"))) {
+    state.phase = "done";
+  } else if (succeeded(WORKFLOW_COACH, "ok")) {
+    state.coachHandoff = true;
+  } else if (state.phase === "read") {
     state.readSteps += 1;
     if (succeeded(WORKFLOW_READY, "ok")) {
       state.phase = "render";
     } else if (phoneCalled) {
-      state.phase = "act";
+      if (!toolResults.some(item => item.toolName === HEALTH_PREPARE && resultFlag(item.result, "suspended"))) state.phase = "act";
     } else if (state.rereadUsed || state.readSteps >= READ_STEP_BUDGET) {
       state.phase = "render";
     }
@@ -178,5 +217,7 @@ export function finishTurnStep(
   state.renderClaimed = false;
   state.controlClaimed = false;
   state.phoneClaimed = false;
+  state.readClaimed = false;
+  state.coachClaimed = false;
   refreshActiveTools(state);
 }

@@ -47,8 +47,8 @@ let package = Package(
         .target(
             name: "NextBodyPlanCore",
             path: "NextBody/Features/Plan",
-            exclude: ["PlanChevron.swift", "PlanLip.swift", "PlanPage.swift", "PlanChecks.swift"],
-            sources: ["PlanFaceMath.swift"]
+            exclude: ["PlanChevron.swift", "PlanLip.swift", "PlanPage.swift", "PlanChecks.swift", "PlanStore.swift"],
+            sources: ["PlanFaceMath.swift", "DailyPlan.swift", "AdviceRequestLifetime.swift", "AdviceDayPolicy.swift"]
         ),
         .testTarget(
             name: "NextBodyPlanTests",
@@ -71,6 +71,8 @@ let package = Package(
                 "OriginObservationPolicy.swift",
                 "BandDomainSyncState.swift",
                 "BandEvidencePublication.swift",
+                "BandDeltaTransport.swift",
+                "BandHistoryReadCache.swift",
                 "BandRefreshCoordinator.swift",
                 "BandMeasurementLifetime.swift",
                 "PhoneToolExecution.swift",
@@ -111,6 +113,7 @@ let package = Package(
                 "WearRun.swift",
                 "UserDay.swift",
                 "SleepWakeClamp.swift",
+                "SleepWindowCorrection.swift",
                 "RollingPills.swift",
                 "DetailWindow.swift",
                 "FuelWindowMath.swift",

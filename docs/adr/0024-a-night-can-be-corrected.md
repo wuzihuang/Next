@@ -1,0 +1,32 @@
+# 一夜的起止可以由本人纠正；纠正是覆盖，不是改手环的记录
+
+2026-09-10 用户裁决（issue #28）。手环判断「什么时候睡着」经常是错的——在床上看书的一小时被算成睡眠，起夜被算成一夜的结束。本人知道真相，所以睡眠二级页和 Dock 语音都可以改**这一夜的 start / end**，V1 只有这两个字段：不做分期拖拽，不做手工「醒来次数」，也不能凭空造一夜。
+
+## 覆盖，而不是编辑
+
+纠正写进 `public.sleep_nights` 自己的 `corrected_start` / `corrected_end` / `corrected_at`，由一个 BEFORE 触发器（`nb.publish_sleep_correction`）把它们**发布**成这一行的 `sleep_start` / `wake_at`，同时把手环当时填的那个窗收进 `raw.recorded_start` / `raw.recorded_end`。这样做的理由只有一个：读这一行的人太多了——手机自己 select 这张表，睡眠分读它，`nb.canonical_sleep_nights` 读它，身体电量的夜间段读它。把覆盖放在行里，一条缝，三个面就不可能各说各的。
+
+下一次同步不会赢。手环带来新的窗，触发器把新窗收进 receipt，发布的仍是本人给的那个，直到本人自己清除。清除时窗和总量都从 receipt 里原样还回去。
+
+## 窗动，分期不动
+
+手环把每一段分期记在真实的钟点上。所以纠正只**裁剪**，从不平移：`nb.sleep_evidence_minutes` 把 offset 线锚在 `raw.recorded_start` 上，再按发布的窗过滤；手机端 `SleepWindowCorrection.clip` 用同一条规则裁 `line`，画出来的分期图和服务端算分数用的是同一批分钟。
+
+由此得到本 issue 最重要的一条边界：**把窗往外拉不会多出睡眠**。没有记录的分钟仍然是没有记录的分钟，所以纠正不可能被用来刷分。窗里一分钟手环记录的睡眠都没有，`correct_sleep_window` 直接拒绝（`WINDOW_HAS_NO_SLEEP`），不发布一个空的夜。
+
+⚠️ 只有总量、没有分期线的夜不能纠正（`NO_STAGE_LINE`）。那种夜没有逐分钟的证据可以在新窗里重数，硬算只会把深睡按 0 记，等于悄悄改了这个人的分数。
+
+## 重算
+
+行里的 `total_minutes` / `deep_minutes` / `light_minutes` / `wake_count` 由 AFTER 触发器按新窗重数（`nb.corrected_night_totals`），所以卡上的时长和分数不会互相拆台。`nb.night_score_parts` 也按新窗取时长、结构与 REM，规律组读的是新的入睡时刻。行一变，`nb.on_calculation_fact` 把这个用户从**前一天**标脏，`nb.recompute_range` 顺序重放，夜间充电跟着走。
+
+## 两个入口，一条规则
+
+`public.correct_sleep_window(day, 'HH:MM', 'HH:MM')` 是唯一的写入点：睡眠页的保存按钮走它，AI 的 `write{entity:"sleep_night"}` 经手机确认后也走它。时间是本人的墙钟，end 属于这一夜归档的那天（ADR 0020 的日界不动），start 取它之前 24 小时内最近的那个钟点——跨午夜因此是自然的。改起止是副作用，所以 AI 路径固定要确认；用户没提，AI 不许自己去改。
+
+## 边界
+
+- 只能纠正 30 天以内、这个账号已经存在的夜。重放是按天顺序的，更老的一次纠正会把它之后的每一天都重算一遍。
+- end 必须和 start 不同；end 仍要落在这一夜归档的那天，否则 `WAKE_LEAVES_THE_DAY`。
+- 没戴、没有睡眠行：不给入口，保持 ——。
+- 页面上永远同时写着两个窗：纠正过的夜标「已纠正」，手环原来的那个印在下面。纠正过的窗不是一次测量，不许读成测量。

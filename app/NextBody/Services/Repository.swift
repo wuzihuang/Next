@@ -797,10 +797,14 @@ final class Repository {
         func apply(_ metrics: inout DailyMetrics, day: UserDay) {
             let remote = vitals.filter { $0.ts >= day.start && $0.ts < day.end }
             metrics.vitalsCurve = VitalSample.merging(metrics.vitalsCurve, with: remote)
-            guard let start = metrics.sleep?.sleepStart, let wake = metrics.sleep?.wakeAt,
+            guard var sleep = metrics.sleep, let start = sleep.sleepStart, let wake = sleep.wakeAt,
                   wake > start else { return }
-            let nightOxygen = oxygen.filter { $0.ts >= start && $0.ts < wake }
-            guard !nightOxygen.isEmpty, var sleep = metrics.sleep else { return }
+            // The recorded segments, not the outer window: a reading taken in the gap
+            // between two sleep intervals is an awake reading, and the band path already
+            // refuses to file it. Filing it here would put a number on the heart page
+            // that the sleep page, the glance and the server all leave out.
+            let nightOxygen = oxygen.filter { sleep.containsSleepTimestamp($0.ts) }
+            guard !nightOxygen.isEmpty else { return }
             sleep.spo2 = Dictionary((sleep.spo2 + nightOxygen).map { ($0.ts, $0) },
                                     uniquingKeysWith: { local, _ in local })
                 .values.sorted { $0.ts < $1.ts }
@@ -1012,6 +1016,10 @@ final class Repository {
                         // The estimate itself is assembled in merge(), once every row it is
                         // made of is known.
                         m.targetIn = number(fu["target_in"])
+                        // Published beside the budget so 09 can account for it: the burn
+                        // it was built on, and the measured days behind that burn.
+                        m.targetBasis = number(fu["target_basis_kcal"])
+                        m.targetBasisDays = number(fu["target_basis_days"]).map { Int($0) }
                         // The macro targets are the server's split, not a second one computed
                         // here — two answers to "what is my protein target" is one too many.
                         if let p = number(fu["protein_g"]) { m.protein = MacroSlot(target: Int(p), eaten: 0) }
@@ -1123,9 +1131,13 @@ final class Repository {
                     }
                     let start = (night["sleep_start"] as? String).flatMap(Self.timestamp)
                     let wake = (night["wake_at"] as? String).flatMap(Self.timestamp)
+                    // #28 · a corrected night is narrower than the band's on purpose. The
+                    // person wearing it said so, so the lag rule below does not apply.
+                    let correctedAt = (night["corrected_at"] as? String).flatMap(Self.timestamp)
+                    let corrected = (night["corrected_start"] as? String) != nil
                     // Cloud publication can lag the completed SDK night. A shorter remote
                     // window must not truncate observations already confirmed on this device.
-                    if let local, let localStart = local.sleepStart, let localWake = local.wakeAt,
+                    if !corrected, let local, let localStart = local.sleepStart, let localWake = local.wakeAt,
                        let start, let wake, localStart <= start, localWake >= wake,
                        (localStart < start || localWake > wake) {
                         history[index].sleep = local
@@ -1160,9 +1172,20 @@ final class Repository {
                         guard let intervals else { return true }
                         return intervals.contains { at >= $0.start && at < $0.end }
                     }
-                    let displayLine = !rawLine.isEmpty ? rawLine : sameWindow &&
+                    var displayLine = !rawLine.isEmpty ? rawLine : sameWindow &&
                         (line.isEmpty || local?.line.contains(where: { $0.offsetMinutes != nil }) == true)
                         ? local?.line ?? [] : line
+                    // #28 · the runs are the band's, anchored where the band began. A corrected
+                    // window clips them to itself so the hypnogram, the totals and the score
+                    // are all counting the same minutes.
+                    let bandStart = ((night["raw"] as? [String: Any])?["recorded_start"] as? String).flatMap(Self.timestamp)
+                    let bandEnd = ((night["raw"] as? [String: Any])?["recorded_end"] as? String).flatMap(Self.timestamp)
+                    if corrected, let bandStart, let start, let wake {
+                        displayLine = SleepWindowCorrection
+                            .clip(displayLine.map { ($0.stage, $0.minutes, $0.offsetMinutes) },
+                                  bandStart: bandStart, start: start, end: wake)
+                            .map { SleepStageRun(stage: $0.stage, minutes: $0.minutes, offsetMinutes: $0.offsetMinutes) }
+                    }
                     // A corrected reading at the same timestamp is one observation. Local
                     // observations win while their cloud publication is still catching up.
                     let combinedOxygen = Dictionary((oxygen + (sameWindow ? local?.spo2 ?? [] : []))
@@ -1190,7 +1213,10 @@ final class Repository {
                         respiration: combinedRespiration,
                         hrv: combinedHRV,
                         hrvInvalidatedMinutes: hrvInvalidations.isEmpty ? nil : hrvInvalidations,
-                        intervals: intervals)
+                        intervals: intervals,
+                        correctedAt: corrected ? (correctedAt ?? Date()) : nil,
+                        bandStart: corrected ? bandStart : nil,
+                        bandEnd: corrected ? bandEnd : nil)
                 }
 
                 if let live = liveRows.first,
@@ -1303,6 +1329,8 @@ final class Repository {
         m.fatEmaDelta7d = server.fatEmaDelta7d ?? local.fatEmaDelta7d
         m.leanEmaDelta7d = server.leanEmaDelta7d ?? local.leanEmaDelta7d
         m.targetIn = server.targetIn ?? local.targetIn
+        m.targetBasis = server.targetBasis ?? local.targetBasis
+        m.targetBasisDays = server.targetBasisDays ?? local.targetBasisDays
         m.bmr = server.bmr
         m.bmrFull = server.bmrFull
         m.eActive = server.eActive

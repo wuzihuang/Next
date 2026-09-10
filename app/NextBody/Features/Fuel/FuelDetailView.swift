@@ -101,6 +101,11 @@ struct FuelDetailView: View {
                     .font(NBFont.ui(400, 12)).padding(12).background(NB.carbon4)
             }
         }
+        .onReceive(router.$windowRequest) { request in
+            guard let request else { return }
+            rangeRaw = request.rawValue
+            router.windowRequest = nil
+        }
         .task(id: day) {
             if let owner = SupabaseClient.currentUserIdSnapshot() { mealQueue.refreshStatus(owner: owner) }
             #if DEBUG
@@ -270,6 +275,23 @@ struct FuelDetailView: View {
                     Text(L("BUDGET %@", Fmt.kcal(budget)))
                         .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
                         .foregroundStyle(NB.white.opacity(0.34))
+                    // A budget nobody can account for is a number, not a plan. The basis
+                    // is the fortnight's measured burn once there is a fortnight to
+                    // measure, and the basal estimate until then — which is why the
+                    // figure moves on the day the band has earned its third full day.
+                    // ⚠️ Three is nb.burn_baseline's own gate: below it the basis is
+                    // still the estimate, and saying so is the point of this line.
+                    if let basis = m.targetBasis {
+                        let days = m.targetBasisDays ?? 0
+                        Text(days >= 3
+                             ? L("BASIS %@ · %d MEASURED DAYS · GOAL %@",
+                                 Fmt.kcal(basis), days, Fmt.signedKcal(budget - basis))
+                             : L("BASIS %@ · ESTIMATED, %d MEASURED SO FAR · GOAL %@",
+                                 Fmt.kcal(basis), days, Fmt.signedKcal(budget - basis)))
+                            .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
+                            .foregroundStyle(NB.white.opacity(0.34))
+                            .lineLimit(1).minimumScaleFactor(0.75)
+                    }
                 }
                 Text(L("Solid already happened. Dashed is the usual rhythm."))
                     .font(NBFont.ui(400, 11)).tracking(0.02 * 11)

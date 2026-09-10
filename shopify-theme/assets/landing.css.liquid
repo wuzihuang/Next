@@ -1559,67 +1559,162 @@
 }
 
 .lp-faces {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+  margin: 0 -6px;
+  position: relative;
 }
 
-.lp-faces-row {
+/* One rail. The faces move sideways, never up and down. */
+.lp-faces-rail {
+  -webkit-overflow-scrolling: touch;
   display: flex;
-  gap: 18px;
+  gap: 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 6px 6px 16px;
+  scroll-padding-inline: 6px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.lp-faces-rail::-webkit-scrollbar {
+  display: none;
 }
 
 .lp-face {
-  background: #0b0b0d;
-  border: 2px solid #ffffff29;
   display: flex;
-  flex: 1;
+  flex: 0 0 236px;
   flex-direction: column;
-  height: 400px;
+  gap: 12px;
   min-width: 0;
-  padding: 18px;
+  scroll-snap-align: start;
+}
+
+/* The band screen itself: one plate, one shape, nine readings. */
+.lp-face-screen {
+  aspect-ratio: 5 / 8;
+  background: #0b0b0d;
+  border: 2px solid #ffffff24;
+  border-radius: 24px;
+  box-shadow: inset 0 0 0 2px #00000099;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  padding: 18px 16px 16px;
 }
 
 .lp-face-k {
+  align-items: center;
   color: #ffffff99;
+  display: flex;
   font-family: var(--lp-doto);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.22em;
+  gap: 8px;
+  justify-content: space-between;
+  letter-spacing: 0.2em;
 }
 
-.lp-face-cap {
-  color: #ffffffcc;
+.lp-face-badge {
+  color: #070709;
+  flex-shrink: 0;
   font-family: var(--lp-doto);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  margin-top: auto;
-  padding-top: 14px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  padding: 3px 6px;
 }
 
-.lp-face-meta {
-  color: #ffffff66;
+.lp-face-hero {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+}
+
+.lp-face-hero strong {
   font-family: var(--lp-doto);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  padding-top: 8px;
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 42px;
+}
+
+.lp-face-hero span {
+  color: #ffffff8c;
+  font-family: var(--lp-doto);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+
+.lp-face-art {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.lp-face-art svg {
+  display: block;
+  width: 100%;
 }
 
 .lp-face-facts {
   border-top: 2px solid #ffffff14;
   display: flex;
-  margin-top: auto;
-  padding-top: 12px;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.lp-face-fact {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lp-face-fact span {
+  color: #ffffff52;
+  font-family: var(--lp-doto);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+
+.lp-face-fact b {
+  color: #ffffffd9;
+  font-family: var(--lp-doto);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.lp-face-cap {
+  color: #ffffffcc;
+  font-family: var(--lp-doto);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+  min-height: 32px;
+}
+
+.lp-face-meta {
+  color: #ffffff5c;
+  font-family: var(--lp-doto);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  margin-top: -6px;
 }
 
 .lp-faces-note {
   color: #ffffff66;
   display: flex;
+  flex-wrap: wrap;
   font-family: var(--lp-doto);
   font-size: 11px;
   font-weight: 600;
+  gap: 10px 24px;
   justify-content: space-between;
   letter-spacing: 0.16em;
 }
@@ -2444,8 +2539,7 @@
   }
 
   .lp-gallery-row,
-  .lp-phones,
-  .lp-faces-row {
+  .lp-phones {
     display: flex;
     flex-direction: row;
     -webkit-overflow-scrolling: touch;
@@ -2456,8 +2550,7 @@
   }
 
   .lp-gallery-row::-webkit-scrollbar,
-  .lp-phones::-webkit-scrollbar,
-  .lp-faces-row::-webkit-scrollbar {
+  .lp-phones::-webkit-scrollbar {
     display: none;
   }
 
@@ -2489,8 +2582,7 @@
   }
 
   .lp-face {
-    flex: 0 0 78%;
-    scroll-snap-align: start;
+    flex: 0 0 228px;
   }
 
   .lp-radar {
@@ -3028,16 +3120,18 @@
     line-height: 30px;
   }
 
-  .lp-faces-row {
+  .lp-faces {
+    margin: 0 -20px;
+  }
+
+  .lp-faces-rail {
     gap: 12px;
-    margin: 0;
-    padding: 0 20px;
+    padding: 6px 20px 16px;
     scroll-padding-inline: 20px;
   }
 
   .lp-face {
-    flex: 0 0 300px;
-    height: 340px;
+    flex: 0 0 214px;
   }
 
   .lp-scan-bg {

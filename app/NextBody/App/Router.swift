@@ -95,6 +95,8 @@ enum SheetRoute: Hashable, Identifiable {
     case findHoop
     /// 12Y · new-alarm table (SWITCH).
     case bandAlarms
+    /// 12S · the light on the side. A choice here is written to the band on every connect.
+    case healthLight
     // dock
     case plusMenu
     var id: String { String(describing: self) }
@@ -153,6 +155,12 @@ final class Router: ObservableObject {
     /// router (not on `HomeView` `@State`) so a NavigationStack push/pop cannot wipe it —
     /// pager page the user left. Page two's cards must return to those cards, not bounce
     @Published var homePage = 0
+    /// docs/plans/2026-09-09-ai-tool-surface.md · `do app.open {window}`: the detail page
+    /// that is showing switches its DAY / WEEK / MONTH pills and clears the request.
+    @Published var windowRequest: RollingPills?
+    /// The device page owns its own sheets (alarms, auto-measure, cadence…); a voice
+    /// `app.open {sheet}` asks it to lift one once it is on screen.
+    @Published var deviceSheetRequest: SheetRoute?
     /// ADR 0018 · bumped when something asks for the plan face; Home observes it.
     @Published private(set) var planRequest = 0
     func requestPlan() {

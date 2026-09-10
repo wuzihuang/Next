@@ -68,6 +68,11 @@ struct AIPanel: View {
         .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
             .stroke(widget?.composition != nil ? NB.lime1.opacity(0.18)
                     : NB.white.opacity(ceremony ? 0 : 0.08), lineWidth: 1))
+        .overlay(alignment: .bottomTrailing) {
+            if let widget, !ceremony {
+                WebSourcesButton(sources: widget.webSources).padding(6)
+            }
+        }
     }
 
     @ViewBuilder private func ceremonyPlate(_ firstRun: FirstRun) -> some View {
@@ -427,10 +432,17 @@ struct ThinkingStage: View {
             VStack(spacing: 0) {
                 header(elapsed: t)
                 if !question.isEmpty {
+                    // A spoken question is not a caption: one line cut "how many calories
+                    // were in the noodles I had at lunch" down to "HOW MANY CALORIES WERE…",
+                    // and the echo exists so she can see she was heard right. Three lines,
+                    // wrapping, tail-truncated past that — the disk gives up the height.
                     Text("\"\(question.uppercased())\"")
                         .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
                         .foregroundStyle(NB.white.opacity(0.42))
-                        .lineLimit(1).truncationMode(.tail)
+                        .lineLimit(3).truncationMode(.tail)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 22)
                         .padding(.top, 26)
                 }
@@ -549,7 +561,15 @@ struct ThinkingStage: View {
     /// The tool she is on, in the board's words rather than the wire's.
     private var readingLine: String {
         switch reading {
-        case .none:                       return L("PULLING YOUR WEEK IN")
+        case .none:                       return L("THINKING...")
+        case "web.search":               return L("SEARCHING THE WEB")
+        case "meal.estimate":            return L("CHECKING FOOD NUTRITION")
+        case "meal.log":                 return L("SAVING YOUR MEAL")
+        case "health.prepare":           return L("PREPARING HEALTH DATA")
+        case "workflow.ready":           return L("PREPARING YOUR ANSWER")
+        // ADR 0022 · the advice face waiting on a run that kept going on the server.
+        case "plan.generate":            return L("GENERATING TODAY'S SUGGESTIONS")
+        case "data.catalog", "data.read", "metric.compare", "workflow.reread": return L("READING HEALTH DATA")
         case .some(let t) where t.hasPrefix("screen.render"): return L("DRAWING IT")
         case .some(let t) where t.hasPrefix("series"):        return L("PULLING YOUR WEEK IN")
         case .some(let t) where t.hasPrefix("day"):           return L("READING TODAY")
@@ -557,7 +577,7 @@ struct ThinkingStage: View {
         case .some(let t) where t.hasPrefix("profile"):       return L("READING YOUR PROFILE")
         case .some(let t) where t.hasPrefix("device"):        return L("ASKING THE BAND")
         case .some(let t) where t.hasPrefix("measurement"):   return L("READING YOUR SCANS")
-        case .some:                                           return L("PULLING YOUR WEEK IN")
+        case .some:                                           return L("PREPARING YOUR ANSWER")
         }
     }
 

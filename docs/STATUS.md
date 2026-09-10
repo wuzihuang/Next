@@ -71,7 +71,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 12 + 12S | Device, and its two sheets | built, walked on device |
 | 13 | Body Battery detail · Paper 13A/13B A CURVE + DAY/WEEK/MONTH (1 / 7 / 30 user days); hero stays 0–100; lime not violet | built |
 | 04B | Home · page two, the eight instruments | built · swipe reworked (direction lock, no mis-taps), edge states F1–F5, sleepLine strip, PAGE2_* events |
-| 04D | Home · plan, the third face | built · Paper 04E 14 BRIEF: lime title+sentence, five title/subtitle slabs, regenerate; no hero score; local assembly until an explicit turn; empty night stays empty |
+| 04D | Home · advice, the third face | built · ADR 0022: one day's set per user day, made once in the background by the first phone of the day (band gets 20 s, then generate), read on every opening; yesterday's shown stale while today's is made; `turn` runs `surface=plan` detached from the connection at 110 s with lease renewal; 3 automatic attempts then REFRESH only; client + turn + `20260909120000` migration need coordinated release |
 | 04C | Page two RESPONSE (retired HRV slot) | built · dial hero + DAY/WEEK/MONTH rolling windows; day is 15-min occupancy envelope, week daily bars, month heat; week/month hero is daily-mean average vs own daytime median (ADR 0012) |
 | 04K | HEART second level | built · Lead layout (ADR 0013): zone dial + DAY/WEEK/MONTH; HRV and overnight SpO2 share the heart clock; week/month hero is the median of daily medians |
 | Q-0 | System widget · TODAY medium | built · one WidgetKit face on the Live Activity extension (battery / load / eaten rings); App Group glance; LOG left off — widgets cannot hold-to-talk |
@@ -1964,6 +1964,22 @@ times out; it did not prevent these reads or syncs. The concurrent FuelWindowMat
 were made module-internal to match UserDay and unblock the device build.
 
 
+### 2026-09-09 · ADR 0022 · the day's set is generated once, in the background
+
+Production `gkgzwcxivnffsecshvfs` runs `turn` v61 with JWT verification; migration
+`20260909120000_advice_turn_renews_its_lease` is applied (`20260909153000_band_delta_receipts`
+belongs to another session and was held back). `surface=plan` now runs detached from the
+phone's connection with a 110 s budget and lease renewal; panel and Chat keep 55 s. The face
+reads the day's set from `daily_plans`, shows yesterday's marked stale while today's is made,
+and attaches to a running generation after a relaunch instead of starting another.
+
+Validation: 268 Deno tests, 743 SwiftPM tests (9 new `AdviceDayPolicyTests`), 11 simulator
+UI tests (`AdvicePageTests` rewritten to the new rules, `PlanEntryTests`), and a manual
+simulator walk of thinking, stale-while-generating and kill-and-relaunch. Deployed from a
+scratch tree holding the live function plus only `turn/index.ts`, so the working tree's
+unreleased `_shared/sources.ts` change stayed out. The iOS build has not been installed on
+a phone.
+
 ### 2026-09-09 · sleep-v1.3 · regularity scores from the third night
 
 Production `nb.night_score_parts` now publishes `bed_median` and scores the regularity group
@@ -2034,3 +2050,47 @@ match each daily score; no evidence is missing or claims more than elapsed cover
 Fuel component/balance mismatches are zero, and all 12 sleep scores remain sleep-v1.2.
 An overlapping scheduled replay reached its timeout before the performance fix took
 effect for that execution; bounded transactions safely finished the remaining dates.
+
+### 2026-09-08 · AI workflow, advice, web search, ASR, and storefront release
+
+Production `gkgzwcxivnffsecshvfs` runs `turn` v59 and `asr` v26 with JWT
+verification. Migrations `20260908155945_advice_allows_no_actionable_signals` and
+`20260908160000_fuel_budget_keeps_its_deficit` are applied. The advice surface may
+return zero to five grounded suggestions, external-fact turns use web search without
+prefetching personal health history, and ASR keeps language detection automatic while
+protecting longer utterances from premature quiet settlement.
+
+Production validation passed 262 Deno tests, 12 focused ASR tests, 733 Swift tests,
+the signed iOS Release build, 12 website tests, type checking, the Hydrogen production
+build, and 12 remote pgTAP assertions. Live authenticated checks returned 200 for both
+advice and external-fact turns; the latter invoked `web.search` and persisted six source
+URLs. Anonymous `turn` and `asr` requests return 401. The Oxygen deployment completed,
+and Shopify live theme 189724786966 serves the new English and Chinese landing pages at
+`nextbody.ai` with HTTP 200. The signed `com.nextbody.hoop` Release is preserved under
+`/tmp/next-final-release-current`; direct installation could not run because every paired
+iPhone was offline in CoreDevice at release time.
+
+### 2026-09-09 · band sync reuse and incremental upload · local validation
+
+Completed native history reads are reused throughout one admitted refresh, scoped to
+the account, binding and connection; failures remain retryable. Recent successful dates
+are not read twice in that refresh. Older dates receive one successful audit per calendar
+day, with missing or failed dates retried on subsequent refreshes. Origin pages preserve
+the native snapshot's start/completion times and absolute calendar date, so cache reuse
+cannot finalize an unfinished five-minute slot or overstate coverage across midnight.
+
+The additive `20260909153000_band_delta_receipts.sql` migration introduces
+`ingest_band_delta`. Unchanged samples use server-verified content receipts only when
+their representation saves bytes; new or revised content keeps its full payload. The
+server validates references under the existing ingestion lock, and a stale reference
+requests the original durable samples without partially applying the batch. Original
+observation clocks, source ownership and offline replay are preserved. Older servers
+continue receiving full samples through the existing RPC until the migration is deployed.
+The SDK history command is unchanged; this does not establish device packet-level delta
+support. Sleep and small scalar payloads retain their existing upload behavior.
+
+Validation: 775 Swift tests passed, generic iPhone and simulator Debug builds passed,
+and the PostgreSQL 16 ingestion/revision/delta harness passed including concurrent
+correction and receipt validation. A complete Supabase PostgreSQL 17 migration rebuild
+and all three SQL suites also passed. This change has not been deployed or installed;
+end-to-end synchronization time on a physical band has not yet been measured.

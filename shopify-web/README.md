@@ -24,6 +24,28 @@ source/asset drift and runs before storefront tests and the Hydrogen build. The
 same cart fixtures exercise the Hydrogen cookie adapter and the Liquid browser
 script, including order totals, discounts, shipping, and legacy variant IDs.
 
+Page copy has the same arrangement. `app/lib/policies.ts` and
+`app/lib/sitePages.ts` are the source for both storefronts; the Liquid theme
+carries a generated copy inside `shop.js`:
+
+```bash
+npm run build:theme-pages
+```
+
+`npm run check:theme-pages` detects drift and runs before the Hydrogen build.
+
+The Liquid landing page is a static snapshot of the Hydrogen one. Regenerate it
+with the dev server running — it rewrites the Hydrogen routes into the theme's
+query-string routes and `/landing` assets into `asset_url` tags, and it also
+rewrites `app/styles/landing.css` into `landing.css.liquid`:
+
+```bash
+npm run build:theme-landing
+```
+
+`npm run check:theme-landing` compares without writing. Both need `npm run dev`
+in another shell, so neither runs inside the build.
+
 ## Hydrogen development
 
 Hydrogen is Shopify’s stack for headless commerce. Hydrogen is designed to dovetail with [React Router](https://reactrouter.com/), the modern multi-strategy router for React. This template contains a **minimal setup** of components, queries and tooling to get started with Hydrogen.

@@ -504,54 +504,211 @@ struct SleepDurationBar: View {
 
 // MARK: - regularity
 
-/// The exact baseline returned with the score and its full-marks tolerance.
-/// The axis extends to include the night, including daytime or cross-evening sleep.
-struct SleepBedtimeBox: View {
-    let baseline: Double
-    let tonight: Double
-    var height: CGFloat = 72
+/// One night on the schedule: when the person fell asleep and when they woke, as minutes
+/// past 18:00 local — `bed_offset`'s own ruler, which keeps a 23:40 and a 01:20 bedtime
+/// 100 minutes apart. `wake` is on the same ruler and is always later than `bed`.
+struct SleepScheduleNight: Identifiable {
+    let day: UserDay
+    let bed: Double?
+    let wake: Double?
+    var id: String { day.key }
+    var isRecorded: Bool { bed != nil && wake != nil }
 
-    private var deviation: Double { SleepScoreMath.bedtimeDeviation(bedtime: tonight, baseline: baseline) }
-    private var lower: Double { min(-60, deviation - 30) }
-    private var upper: Double { max(60, deviation + 30) }
+    /// The band's own window when the night was synced to this phone, else the settled
+    /// score's bedtime plus its recorded minutes. A night with neither draws as a gap.
+    init(day: UserDay, score: SleepScore?, summary: SleepSummary?) {
+        self.day = day
+        if let start = summary?.sleepStart, let end = summary?.wakeAt, end > start {
+            let bed = Self.eveningOffset(start)
+            self.bed = bed
+            self.wake = bed + end.timeIntervalSince(start) / 60
+        } else if let bed = score?.inputs["bed_offset"], let minutes = score?.inputs["duration_min"], minutes > 0 {
+            self.bed = bed
+            self.wake = bed + minutes
+        } else {
+            bed = nil
+            wake = nil
+        }
+    }
+
+    static func eveningOffset(_ date: Date, calendar: Calendar = .current) -> Double {
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        let minutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        return Double(((minutes - 1080) % 1440 + 1440) % 1440)
+    }
+}
+
+/// The regularity group's chart: a week of nights side by side, each a column from the
+/// minute the person fell asleep down to the minute they woke, on one shared clock that
+/// runs evening-to-morning top-to-bottom. Regularity is a *shape* — seven columns whose
+/// tops line up are a regular week, a top that wanders is the irregular one — and a shape
+/// is read in one look where a deviation number has to be decoded.
+///
+/// This person's usual bedtime is the band behind the columns (median ± the 30 minutes the
+/// score gives full marks for), so a column top inside the band is a night that scored.
+/// The rail carries the clock; nothing is printed over the columns.
+struct SleepScheduleBars: View {
+    let nights: [SleepScheduleNight]
+    /// Median bedtime on the evening ruler — the line the score calls "usually". nil while
+    /// the baseline is still being learned; the band is then simply not drawn.
+    let baseline: Double?
+    var tint: Color = NB.violet1
+    var height: CGFloat = 176
+
+    static let tolerance = 30.0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Canvas { ctx, size in
-                let mid = size.height / 2
-                func x(_ offset: Double) -> CGFloat {
-                    size.width * (offset - lower) / (upper - lower)
+        VStack(alignment: .leading, spacing: 6) {
+            VitalsChartProbe(
+                series: .bins(probeBins),
+                tint: tint,
+                height: height,
+                trailingInset: VitalsScaleRail.gutter,
+                accessibilityTitle: L("SLEEP BY NIGHT"),
+                accessibilityName: "vitals.probe.schedule"
+            ) { _ in
+                HStack(spacing: VitalsScaleRail.gap) {
+                    GeometryReader { geo in
+                        let count = max(nights.count, 1)
+                        let spacing: CGFloat = nights.count > 10 ? 2 : 6
+                        let width = max(2, (geo.size.width - spacing * CGFloat(count - 1)) / CGFloat(count))
+                        let radius = min(width / 2, 6)
+                        ZStack(alignment: .topLeading) {
+                            habitBand(size: geo.size)
+                            HStack(alignment: .top, spacing: spacing) {
+                                ForEach(Array(nights.enumerated()), id: \.element.id) { index, night in
+                                    column(night, last: index == nights.count - 1,
+                                           width: width, radius: radius, fieldHeight: geo.size.height)
+                                }
+                            }
+                        }
+                    }
+                    VitalsScaleRail(labels: railLabels, tint: tint)
                 }
-                ctx.fill(Path(roundedRect: CGRect(x: 0, y: mid - 5, width: size.width, height: 10),
-                              cornerRadius: 5), with: .color(NB.barTrack))
-                ctx.fill(Path(roundedRect: CGRect(x: x(-30), y: mid - 11,
-                                                  width: x(30) - x(-30), height: 22), cornerRadius: 6),
-                         with: .color(NB.violet1.opacity(0.38)))
-                var median = Path()
-                median.move(to: CGPoint(x: x(0), y: mid - 13))
-                median.addLine(to: CGPoint(x: x(0), y: mid + 13))
-                ctx.stroke(median, with: .color(NB.violet1), lineWidth: 2)
-                ctx.fill(Path(ellipseIn: CGRect(x: x(deviation) - 5, y: mid - 5, width: 10, height: 10)),
-                         with: .color(NB.violet1))
             }
-            .frame(height: height)
-            HStack {
-                Text(SleepScoreMath.bedClock(offset: baseline + lower))
-                Spacer()
-                Text(SleepScoreMath.bedClock(offset: baseline + (lower + upper) / 2))
-                Spacer()
-                Text(SleepScoreMath.bedClock(offset: baseline + upper))
-            }
-            .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
-            VitalsChartLegend(
-                items: [
-                    .init(text: L("WITHIN 30 MIN OF BASELINE"), tint: NB.violet1, isArea: true),
-                    .init(text: L("LAST NIGHT"), tint: NB.violet1),
-                ], trailing: nil)
+            axis
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L("BEDTIME"))
-        .accessibilityValue(L("%@ · USUALLY %@", SleepScoreMath.bedClock(offset: tonight),
-                              SleepScoreMath.bedClock(offset: baseline)))
+    }
+
+    // MARK: the clock
+
+    /// Evening at the top, morning at the bottom. The default 20:00–10:00 window covers a
+    /// normal week; a shift worker's 04:00 bedtime or an 11:30 lie-in stretches it out to
+    /// the next whole hour, so the night itself is never clipped.
+    private var domain: (low: Double, high: Double) {
+        var low = 120.0    // 20:00
+        var high = 960.0   // 10:00
+        for night in nights {
+            if let bed = night.bed { low = min(low, bed - 30) }
+            if let wake = night.wake { high = max(high, wake + 30) }
+        }
+        if let baseline {
+            low = min(low, baseline - Self.tolerance - 15)
+            high = max(high, baseline + Self.tolerance + 15)
+        }
+        low = (low / 60).rounded(.down) * 60
+        high = (high / 60).rounded(.up) * 60
+        return (low, max(high, low + 60))
+    }
+
+    private func y(_ offset: Double, in fieldHeight: CGFloat) -> CGFloat {
+        let (low, high) = domain
+        let fraction = (min(max(offset, low), high) - low) / (high - low)
+        return fieldHeight * CGFloat(fraction)
+    }
+
+    private var railLabels: [String] {
+        let (low, high) = domain
+        return [low, (low + high) / 2, high].map { SleepScoreMath.bedClock(offset: $0) }
+    }
+
+    // MARK: the marks
+
+    @ViewBuilder
+    private func habitBand(size: CGSize) -> some View {
+        if let baseline {
+            let top = y(baseline - Self.tolerance, in: size.height)
+            let bottom = y(baseline + Self.tolerance, in: size.height)
+            Rectangle().fill(tint.opacity(0.16))
+                .frame(width: size.width, height: max(1, bottom - top))
+                .offset(y: top)
+            Rectangle().fill(tint.opacity(0.7))
+                .frame(width: size.width, height: 1)
+                .offset(y: y(baseline, in: size.height))
+        }
+    }
+
+    @ViewBuilder
+    private func column(_ night: SleepScheduleNight, last: Bool,
+                        width: CGFloat, radius: CGFloat, fieldHeight: CGFloat) -> some View {
+        ZStack(alignment: .top) {
+            // A night not on record is a dotted slot at full height, so the reader can see
+            // *which* night is missing instead of counting columns.
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .stroke(style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                .foregroundStyle(NB.hairline)
+                .opacity(night.isRecorded ? 0 : 1)
+            if let bed = night.bed, let wake = night.wake {
+                let top = y(bed, in: fieldHeight)
+                let bottom = y(wake, in: fieldHeight)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(last ? tint : tint.opacity(0.55))
+                    .frame(height: max(radius * 2, bottom - top))
+                    .offset(y: top)
+            }
+        }
+        .frame(width: width, height: fieldHeight)
+    }
+
+    /// One weekday under each column, in the column's own width, so a label sits under
+    /// the night it names rather than spread across the field.
+    private var axis: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(nights.enumerated()), id: \.element.id) { index, night in
+                Text(nights.count > 10 ? dayNumber(night) : Fmt.weekday(night.day.date))
+                    .font(NBFont.ui(index == nights.count - 1 ? 500 : 400, 9))
+                    .foregroundStyle(index == nights.count - 1 ? tint : NB.white.opacity(0.45))
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                    .frame(maxWidth: .infinity)
+                    // A month is thirty slots; only every fifth date is printed.
+                    .opacity(nights.count > 10 && index % 5 != nights.count % 5 - 1 && index != nights.count - 1 ? 0 : 1)
+            }
+        }
+        .padding(.trailing, VitalsScaleRail.gutter)
+        .accessibilityHidden(true)
+    }
+
+    private func dayNumber(_ night: SleepScheduleNight) -> String {
+        String(Calendar.current.component(.day, from: night.day.date))
+    }
+
+    static func legend(baseline: Double?, tint: Color = NB.violet1) -> VitalsChartLegend {
+        VitalsChartLegend(
+            items: (baseline == nil ? [] : [.init(text: L("USUAL BEDTIME ±30 MIN"), tint: tint, isArea: true)])
+                + [.init(text: L("ASLEEP → AWAKE"), tint: tint)],
+            trailing: L("DOTTED · NOT RECORDED"),
+            trailingTint: NB.white.opacity(0.45))
+    }
+
+    private var probeBins: [VitalsProbeMath.Bin] {
+        let ranges = VitalsProbeMath.equalSlots(count: nights.count)
+        let (low, high) = domain
+        return zip(nights, ranges).map { night, range in
+            let day = Calendar.current.component(.day, from: night.day.date)
+            let clock = "\(Fmt.weekday(night.day.date)) \(day)"
+            if let bed = night.bed, let wake = night.wake {
+                return .init(
+                    start: range.start,
+                    end: range.end,
+                    yFraction: (bed - low) / (high - low),
+                    text: VitalsProbeCopy.ranges(
+                        clock,
+                        spans: [(SleepScoreMath.bedClock(offset: bed), SleepScoreMath.bedClock(offset: wake))],
+                        unit: Fmt.duration(Int((wake - bed).rounded())))
+                )
+            }
+            return .init(start: range.start, end: range.end, yFraction: nil,
+                         text: VitalsProbeCopy.gap(clock), vacant: true)
+        }
     }
 }

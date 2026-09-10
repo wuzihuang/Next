@@ -516,6 +516,9 @@ final class DataStore: ObservableObject {
                 "rhr": 52 + rnd() * 10,
                 "bed_offset": 300 + rnd() * 90,
             ]
+            // The habit is learned from the third prior night; the schedule chart's band
+            // needs it to draw.
+            if back < 27 { inputs["bed_median"] = 342 }
             // Nights the band filed no stage line have no REM to report, which is what the
             // renormalised proportions bar is there to survive.
             if back % 5 != 0 { inputs["rem_pct"] = 18 + rnd() * 9 }
@@ -534,7 +537,9 @@ final class DataStore: ObservableObject {
     /// ⚠️ Simulator only, behind `Band.allowsSeed`, like every other number in this file.
     static func seedNight(day: UserDay, hours: Double, mean: Double,
                           rnd: () -> Double) -> (summary: SleepSummary, ticks: [VitalSample]) {
-        let start = day.start.addingTimeInterval(-4 * 3600)   // 00:00 local
+        // 23:30 local: the user day starts at midnight, so the night straddles its start
+        // the way a real one does.
+        let start = day.start.addingTimeInterval(-30 * 60)
         let minutes = Int(hours * 60)
         let wake = start.addingTimeInterval(Double(minutes) * 60)
         var ticks: [VitalSample] = []
@@ -1201,6 +1206,7 @@ final class SessionStore: ObservableObject {
         BalanceCheckQueue.shared.purge()
         PlanCheckQueue.shared.purge()
         PlanStore.shared.reset()
+        PlanStore.purge(owner: SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId)
         ConsentStore.shared.purge()
         Task { await Analytics.shared.purge() }
 

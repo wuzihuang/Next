@@ -18,9 +18,7 @@ final class PlanEntryTests: XCTestCase {
                       "swipe up from the lip did not open the plan face")
         XCTAssertTrue(app.staticTexts["plan.eyebrow"].exists
                         || app.otherElements["plan.eyebrow"].exists
-                        || app.staticTexts["NO NIGHT YET"].exists
-                        || app.staticTexts["TODAY'S CONTENTS"].exists
-                        || app.staticTexts["TODAY · FIVE TASKS"].exists,
+                        || app.descendants(matching: .any)["plan.thinking"].exists,
                       "plan page is missing its title")
     }
 
@@ -127,9 +125,6 @@ final class PlanEntryTests: XCTestCase {
     private func planOpened(_ app: XCUIApplication) -> Bool {
         app.descendants(matching: .any)["plan.page"].waitForExistence(timeout: 3)
             || app.buttons["plan.regenerate"].waitForExistence(timeout: 1)
-            || app.staticTexts["NO NIGHT YET"].waitForExistence(timeout: 1)
-            || app.staticTexts["TODAY'S CONTENTS"].waitForExistence(timeout: 1)
-            || app.staticTexts["TODAY · FIVE TASKS"].waitForExistence(timeout: 1)
     }
 
     private func sleepMarker(_ app: XCUIApplication) -> XCUIElement {

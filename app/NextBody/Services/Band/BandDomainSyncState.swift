@@ -11,13 +11,23 @@ struct BandIngestionAcknowledgment: Decodable, Sendable {
     let unchanged: Int
     let rejected: Int
     let affectedDays: [String]
+    /// Only server-verified, equal stored content can be reused on the next read.
+    let receipts: [String: String]?
+    let needsSamples: [String]?
+    init(inserted: Int, completed: Int, unchanged: Int, rejected: Int, affectedDays: [String],
+         receipts: [String: String]? = nil, needsSamples: [String]? = nil) {
+        self.inserted = inserted; self.completed = completed; self.unchanged = unchanged
+        self.rejected = rejected; self.affectedDays = affectedDays
+        self.receipts = receipts; self.needsSamples = needsSamples
+    }
     enum CodingKeys: String, CodingKey {
-        case inserted, completed, unchanged, rejected
+        case inserted, completed, unchanged, rejected, receipts
         case affectedDays = "affected_days"
+        case needsSamples = "needs_samples"
     }
     var hasChanges: Bool { inserted + completed > 0 }
     func confirms(offered: Int) -> Bool {
-        inserted >= 0 && completed >= 0 && unchanged >= 0 && rejected == 0
+        (needsSamples ?? []).isEmpty && inserted >= 0 && completed >= 0 && unchanged >= 0 && rejected == 0
             && inserted + completed + unchanged == offered
     }
 }
@@ -48,8 +58,8 @@ struct BandDomainSyncState: Codable, Sendable {
         UserDefaults.standard.set(try JSONEncoder().encode(merged), forKey: key(userId, deviceKey, day))
     }
     static func purge(userId: String) {
-        let prefix = "nb.sync.domains.v1.\(userId)."
-        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+        let prefixes = ["nb.sync.domains.v1.\(userId).", "nb.sync.day-outcome.v1.\(userId)."]
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where prefixes.contains(where: key.hasPrefix) {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }

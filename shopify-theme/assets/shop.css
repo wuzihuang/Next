@@ -359,6 +359,25 @@
   margin: 32px 0 16px;
 }
 
+/* Long-form pages: policies, FAQ, About. Give the paragraphs air. */
+.shop-prose section {
+  margin-bottom: 28px;
+}
+
+.shop-prose section p {
+  margin: 0 0 14px;
+}
+
+.shop-prose section p:last-child {
+  margin-bottom: 0;
+}
+
+.shop-prose > .shop-lede {
+  color: rgb(255 255 255 / 82%);
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+
 .shop-cart-grid,
 .shop-checkout-grid {
   display: grid;

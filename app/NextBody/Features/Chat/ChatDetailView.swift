@@ -10,7 +10,6 @@ struct ChatDetailView: View {
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var dataStore: DataStore
     @StateObject private var chatStore = ChatStore.shared
-    @ObservedObject private var ai = ChatStore.shared.ai
 
     @State private var inputText: String = ""
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -156,7 +155,7 @@ struct ChatDetailView: View {
                     }
 
                     if chatStore.isSendingCurrentSession {
-                        ThinkingStatusView(thoughts: ai.thoughts)
+                        ThinkingStatusView(thoughts: chatStore.thoughts)
                             .id(ChatScrollTarget.thinking)
                     }
 
@@ -187,7 +186,7 @@ struct ChatDetailView: View {
                 guard focused else { return }
                 Task { await jumpToLatest(proxy, animated: true) }
             }
-            .onChange(of: ai.thoughts.last?.id) { _, _ in
+            .onChange(of: chatStore.thoughts.last?.id) { _, _ in
                 guard chatStore.isSendingCurrentSession else { return }
                 withAnimation { proxy.scrollTo(ChatScrollTarget.thinking, anchor: .bottom) }
             }
@@ -412,7 +411,7 @@ private struct ChatAnswerView: View {
     let onTap: (Destination) -> Void
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 8) {
             if let widget = message.widget, widget.type != .text {
                 GeometryReader { geometry in
                     PanelWidgetView(widget: widget, onTap: onTap)
@@ -447,6 +446,9 @@ private struct ChatAnswerView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
                 .background(Color(hex: 0x111116), in: RoundedRectangle(cornerRadius: 14))
+            }
+            if let widget = message.widget {
+                WebSourcesButton(sources: widget.webSources)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -545,9 +547,9 @@ private struct ChatBottomDockView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 Button {
-                    onQuickPrompt(L("Evaluate next week's deload training schedule"))
+                    onQuickPrompt(L("Suggest useful adjustments from my latest data"))
                 } label: {
-                    Text(L("[CMD: ADJUST PLAN]"))
+                    Text(L("[CMD: GET ADVICE]"))
                         .font(NBFont.dot(600, 11))
                         .tracking(0.03 * 11)
                         .foregroundStyle(NB.lime1)

@@ -53,6 +53,11 @@ final class BandEvidencePublication {
     private let authorized: @MainActor () -> Bool
     private let transport: Transport
 
+    private struct ContentReceipt: Codable {
+        let content: String
+        let token: String
+    }
+
     init(account: String, local: LocalDataStore, authorized: @escaping @MainActor () -> Bool,
          transport: Transport) {
         self.account = account
@@ -151,14 +156,79 @@ final class BandEvidencePublication {
 
     private func submitDomain(_ args: [String: Any], ids: [String]) async throws -> BandIngestionAcknowledgment {
         try requireAuthorization()
-        let ack = try await transport.ingest(args, account)
+        let samples = args["p_samples"] as? [[String: Any]] ?? []
+        let key = try receiptKey(args)
+        let cached = try receipts(key: key)
+        var values: [[String: Any]] = []
+        var references: [[String: Any]] = []
+        for sample in samples {
+            if let ts = sample["ts"] as? String, let receipt = cached[ts],
+               receipt.content == (try contentFingerprint(sample)) {
+                var reference: [String: Any] = ["ts": ts, "receipt": receipt.token]
+                if let readAt = sample["origin_read_at"] { reference["origin_read_at"] = readAt }
+                // A scalar temperature/HRV value can be smaller than its receipt. Account
+                // for the extra p_receipts array as well; compaction must save wire bytes.
+                let referenceBytes = try JSONSerialization.data(withJSONObject: reference).count
+                let sampleBytes = try JSONSerialization.data(withJSONObject: sample).count
+                if referenceBytes + 24 < sampleBytes { references.append(reference) }
+                else { values.append(sample) }
+            } else { values.append(sample) }
+        }
+        var offer = args
+        offer["p_samples"] = values
+        if !references.isEmpty { offer["p_receipts"] = references }
+        var ack = try await transport.ingest(offer, account)
         try requireAuthorization()
-        let offered = (args["p_samples"] as? [[String: Any]])?.count ?? 0
+        // A token can expire or another phone can revise the same measurement. A miss
+        // changes nothing on the server; replay the durable full observation once.
+        if !references.isEmpty && !(ack.needsSamples ?? []).isEmpty {
+            ack = try await transport.ingest(args, account)
+            try requireAuthorization()
+            references = []
+        }
+        let offered = samples.count
         // Empty offers still publish read status, but have no durable sample to retire.
         if offered > 0 && ack.confirms(offered: offered) {
-            try local.acknowledge(account: account, ids: ids)
+            // An aggregate "unchanged" can mean a stale revision was ignored. Only
+            // explicit server receipts prove that our values match current stored facts.
+            var confirmed = try receipts(key: key)
+            let verifiedTokens = Dictionary(references.compactMap { reference -> (String, String)? in
+                guard let ts = reference["ts"] as? String, let token = reference["receipt"] as? String else { return nil }
+                return (ts, token)
+            }, uniquingKeysWith: { _, last in last })
+            for sample in samples {
+                guard let ts = sample["ts"] as? String else { continue }
+                // A successful delta response verified all references under its write lock.
+                // Their existing tokens need not be sent back over the network again.
+                let token = ack.receipts?[ts] ?? (ack.receipts == nil ? nil : verifiedTokens[ts])
+                if let token, !token.isEmpty, token.utf8.count <= 256 {
+                    confirmed[ts] = ContentReceipt(content: try contentFingerprint(sample), token: token)
+                } else {
+                    confirmed.removeValue(forKey: ts)
+                }
+            }
+            let data = try JSONEncoder().encode(confirmed)
+            try local.acknowledge(account: account, ids: ids, documents: [key: data])
         }
         return ack
+    }
+
+    private func receiptKey(_ args: [String: Any]) throws -> String {
+        let scope = ["p_device_key", "p_domain", "p_day", "p_timezone", "p_mapping_version"].map {
+            args[$0] as? String ?? ""
+        }
+        return identifier("band.receipts.v1.", try JSONEncoder().encode(scope))
+    }
+
+    private func receipts(key: String) throws -> [String: ContentReceipt] {
+        guard let data = try local.readDocument(account: account, key: key) else { return [:] }
+        return (try? JSONDecoder().decode([String: ContentReceipt].self, from: data)) ?? [:]
+    }
+
+    private func contentFingerprint(_ sample: [String: Any]) throws -> String {
+        var content = sample
+        content.removeValue(forKey: "origin_read_at")
+        return identifier("", try JSONSerialization.data(withJSONObject: content, options: [.sortedKeys]))
     }
 
     private func submitSleep(_ row: [String: Any], id: String) async throws {
@@ -189,14 +259,37 @@ final class BandEvidencePublication {
         }
         var acknowledged = 0
         for key in groups.keys.sorted() {
-            guard let group = groups[key], var args = group.first?.1 else { continue }
-            let samples = group.flatMap { $0.1["p_samples"] as? [[String: Any]] ?? [] }
-            args["p_samples"] = samples
-            args["p_start"] = group.compactMap { $0.1["p_start"] as? String }.min()
-            args["p_end"] = group.compactMap { $0.1["p_end"] as? String }.max()
-            let ids = group.map { $0.0.id }
-            let ack = try await submitDomain(args, ids: ids)
-            if ack.confirms(offered: samples.count) { acknowledged += ids.count }
+            guard let group = groups[key] else { continue }
+            // p_observed_at has second precision. Distinct durable revisions captured
+            // within that second must remain ordered, not collide in one delta batch.
+            var pages: [[(LocalOperation, [String: Any])]] = []
+            var page: [(LocalOperation, [String: Any])] = []
+            var seen: Set<String> = []
+            let iso = ISO8601DateFormatter()
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            for entry in group {
+                let times = Set((entry.1["p_samples"] as? [[String: Any]] ?? []).compactMap { sample -> String? in
+                    guard let raw = sample["ts"] as? String else { return nil }
+                    return (iso.date(from: raw) ?? fractional.date(from: raw))
+                        .map { String($0.timeIntervalSince1970) } ?? raw
+                })
+                if !seen.isDisjoint(with: times) { pages.append(page); page = []; seen = [] }
+                page.append(entry)
+                seen.formUnion(times)
+            }
+            if !page.isEmpty { pages.append(page) }
+            for page in pages {
+                guard var args = page.first?.1 else { continue }
+                let samples = page.flatMap { $0.1["p_samples"] as? [[String: Any]] ?? [] }
+                args["p_samples"] = samples
+                args["p_start"] = page.compactMap { $0.1["p_start"] as? String }.min()
+                args["p_end"] = page.compactMap { $0.1["p_end"] as? String }.max()
+                let ids = page.map { $0.0.id }
+                let ack = try await submitDomain(args, ids: ids)
+                if ack.confirms(offered: samples.count) { acknowledged += ids.count }
+                else { return acknowledged }
+            }
         }
         return acknowledged
     }

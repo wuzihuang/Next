@@ -10,7 +10,7 @@ export const PANEL_TYPES = [
   "battery", "metric", "text", "line", "band", "bars", "days", "sparks", "ring", "gauge",
   "split", "cells", "hypnogram", "zones", "wave", "table", "workout", "events", "heat",
   "o2night", "food", "meal", "fuel", "balance", "recomp", "delta", "dual",
-  // ADR 0018 · the plan face's own frame: title, summary, three to five tasks.
+  // ADR 0018 · numbered suggestions; legacy plan is the wire identifier.
   "plan",
   // 2026-09-06 gap audit · six shapes the database had data for and the screen had no
   // frame for. Each one answers a question the existing types cannot: a score with the
@@ -68,6 +68,8 @@ export const Envelope = z.object({
   locale: z.enum(["zh-CN", "en-US"]).default("zh-CN"),
   // F0 rule 06 · every widget declares the page it lands on. No target, no screen.
   target: z.enum(TARGETS),
+  // Server-owned routing metadata, never an argument on a model render tool.
+  handoff: z.literal("chat").optional(),
 });
 
 export type Envelope = z.infer<typeof Envelope>;

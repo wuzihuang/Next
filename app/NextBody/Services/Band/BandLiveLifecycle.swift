@@ -2,8 +2,10 @@ import Combine
 import SwiftUI
 import os
 
-/// Process-owned live collection. CoreBluetooth background events may wake this work;
-/// this does not claim unlimited background execution or restart after force quit.
+/// Process-owned live collection. The heart stream runs only while a screen asks for it
+/// (`BandLivePolicy`, ADR 0023); leaving the app ends it, so the band is not left
+/// measuring — LED lit, battery draining — for nobody. Background day pulls are a
+/// different lane and do not go through here.
 @MainActor
 final class BandLiveLifecycle {
     static let shared = BandLiveLifecycle()
@@ -30,6 +32,7 @@ final class BandLiveLifecycle {
                 BandReadiness.shared.invalidateSnapshot()
                 self?.refreshEligibility()
             } }.store(in: &observers)
+        BandHealthLightKeeper.shared.start()
         refreshEligibility()
     }
 

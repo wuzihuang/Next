@@ -77,6 +77,7 @@ struct Dock: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!armed)
+                .accessibilityIdentifier("dock-send")
                 .transition(.scale.combined(with: .opacity))
             } else {
                 DockCircleButton(filled: menuOpen, action: onPlus, onLongPress: onPlusLongPress) {

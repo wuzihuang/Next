@@ -84,7 +84,9 @@ export async function handleMealWrite(req: Request, mode: "create" | "operation"
       if (error.code === "23505") return json({ error: "OPERATION_CONFLICT" }, 409);
       if (error.code === "P0002") return json({ error: "MEAL_NOT_FOUND" }, 404);
       if (error.code === "42501" || error.code === "28000") return json({ error: "NOT_AUTHORIZED" }, 403);
-      if (error.code?.startsWith("22") || error.code === "23514") return json({ error: "E_SCHEMA" }, 422);
+      // The reason rides along: DAY_ALREADY_FASTED / MEAL_EDIT_WINDOW_CLOSED are 22023 too, and the
+      // phone shows the person why a change was refused.
+      if (error.code?.startsWith("22") || error.code === "23514") return json({ error: "E_SCHEMA", reason: String(error.message ?? "").slice(0, 80) }, 422);
       return json({ error: "MEAL_WRITE_UNAVAILABLE" }, 503);
     }
     const receipt = data as Record<string, unknown> | null;

@@ -120,6 +120,37 @@ enum BandSyncPolicy {
         return Array(Set(retainedOffsets + cachedOffsets.filter { (1...6).contains($0) })).sorted()
     }
 
+    /// SDK offsets follow the current calendar day; refresh offsets follow its captured
+    /// day. Recent failures override older receipts, while recent successes are reused.
+    static func historyOffsetsToSync(available: [Int], elapsedDays: Int = 0,
+                                      recentDays: [Int: BandRefreshResult.Status],
+                                      needsSync: (Int) -> Bool) -> [Int] {
+        available.map { $0 - elapsedDays }.filter { offset in
+            guard offset > 0 else { return false }
+            if let status = recentDays[offset] { return status != .success }
+            return needsSync(offset)
+        }
+    }
+
+    /// Daily historical verification is per account/device/day through its persisted
+    /// domain receipts. Missing domains and failed uploads remain repair work even after
+    /// other dates passed their daily audit. Oxygen owns its recorded overnight window.
+    static func needsHistorySync(states: [BandDomainSyncState], outcome: BandRefreshResult.Status?,
+                                 start: Date, end: Date, now: Date, calendar: Calendar = .current) -> Bool {
+        guard outcome == .success, start < end, end <= now else { return true }
+        let expected = ["origin", "hrv", "temperature", "rr", "sleep", "oxygen", "response"]
+        return expected.contains { domain in
+            guard let state = states.first(where: { $0.domain == domain }),
+                  state.status == .complete || state.status == .notCollected || state.status == .unsupported,
+                  state.repairStart == nil, state.repairEnd == nil,
+                  state.attemptedAt <= now, calendar.isDate(state.attemptedAt, inSameDayAs: now),
+                  let acknowledgedStart = state.acknowledgedStart,
+                  let acknowledgedEnd = state.acknowledgedEnd,
+                  acknowledgedStart < acknowledgedEnd else { return true }
+            return domain != "oxygen" && (acknowledgedStart > start || acknowledgedEnd < end)
+        }
+    }
+
     static func header(activity: String, connected: Bool, live: String) -> String {
         if activity == "connecting" { return "CONNECTING" }
         if activity == "syncing" { return "SYNCING…" }

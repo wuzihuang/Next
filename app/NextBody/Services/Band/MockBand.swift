@@ -17,6 +17,8 @@ final class MockBand: BandService, @unchecked Sendable {
     private let queue = HoopQueue()
 
     private var pushedWeightKg: Double = 75.6
+    private var healthLight: BandHealthLightState = .slowFlash
+    private var disconnectReminder = true
     private var autoMonitoringSlots: [AutoMonitorSlot] = [
         .init(kind: .heartRate, on: true, supportsRange: true,
               startHour: 0, endHour: 24, intervalMinutes: 30, intervalStepMinutes: 1),
@@ -263,7 +265,7 @@ final class MockBand: BandService, @unchecked Sendable {
             try Task.checkCancellation()
             try? await Task.sleep(for: .seconds(1))
             done = min(100, done + 6)
-            await MainActor.run { progress(done) }
+            await progress(done)
         }
         return 24 + Int.random(in: 0...22)
     }
@@ -337,6 +339,40 @@ final class MockBand: BandService, @unchecked Sendable {
         try? await Task.sleep(for: .milliseconds(180))
         // F3 · the switch renders the value that came back, never the value we sent.
         return setting
+    }
+
+    func readHealthLight() async throws -> BandHealthLightState {
+        try await requireConnection()
+        return try await queue.run("mock.readHealthLight", priority: .p1) {
+            try? await Task.sleep(for: .milliseconds(160))
+            return self.healthLight
+        }
+    }
+
+    func writeHealthLight(_ state: BandHealthLightState) async throws -> BandHealthLightState {
+        try await requireConnection()
+        return try await queue.run("mock.writeHealthLight", priority: .p0) {
+            try? await Task.sleep(for: .milliseconds(180))
+            self.healthLight = state
+            return state
+        }
+    }
+
+    func readDisconnectReminder() async throws -> Bool? {
+        try await requireConnection()
+        return try await queue.run("mock.readDisconnectReminder", priority: .p1) {
+            try? await Task.sleep(for: .milliseconds(120))
+            return self.disconnectReminder
+        }
+    }
+
+    func writeDisconnectReminder(_ on: Bool) async throws -> Bool {
+        try await requireConnection()
+        return try await queue.run("mock.writeDisconnectReminder", priority: .p0) {
+            try? await Task.sleep(for: .milliseconds(160))
+            self.disconnectReminder = on
+            return on
+        }
     }
 
     func readAutoMonitoring() async throws -> AutoMonitoringRead {
@@ -461,7 +497,7 @@ final class MockBand: BandService, @unchecked Sendable {
             try Task.checkCancellation()
             try? await Task.sleep(for: .milliseconds(700))
             done = min(100, done + 5)
-            await MainActor.run { progress(done) }
+            await progress(done)
         }
         let support: UInt = (1 << 0) | (1 << 1) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 9)
         let values: [(name: String, value: Double)] = [
@@ -527,7 +563,7 @@ final class MockBand: BandService, @unchecked Sendable {
             try Task.checkCancellation()
             try? await Task.sleep(for: .milliseconds(600))
             done = min(100, done + 5)
-            await MainActor.run { progress(done) }
+            await progress(done)
         }
         return [("heart rate", 71), ("blood oxygen", 97), ("stress", 28), ("blood sugar", 5.4),
                 ("body temperature", 36.4), ("systolic", 118), ("diastolic", 76), ("HRV", 46)]

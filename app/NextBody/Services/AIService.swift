@@ -12,8 +12,23 @@ final class AIService: ObservableObject {
 
     @Published var lastError: String?
     @Published private(set) var lastErrorCode: String?
+    /// ADR 0022 · with TURN_IN_PROGRESS the server names how long its lease has left.
+    @Published private(set) var lastRetryAfter: Int?
     @Published var thinking = false
     private var activeTurnID: UUID?
+    private var coachHandoffReceived = false
+
+    func thoughts(for turnID: UUID) -> [Thought] {
+        activeTurnID == turnID ? thoughts : []
+    }
+
+    private func receiveCoachHandoff(surface: String, onHandoff: (() -> Void)?) {
+        guard surface == "panel", !coachHandoffReceived else { return }
+        coachHandoffReceived = true
+        thoughts = []
+        reading = nil
+        onHandoff?()
+    }
 
     /// The tool she is reading right now, while she reads it. 07 · 16 · the panel says what
     /// it is doing instead of showing a spinner over an empty box.
@@ -67,21 +82,32 @@ final class AIService: ObservableObject {
 
     /// Only acknowledgment and server calculation readiness can promote a pending record.
     /// Local live estimates are never submitted as authoritative health facts.
-    private func prepareFreshness(day: UserDay, owner: String) async -> [String: Any] {
+    private func pendingOperationCount(owner: String) -> Int? {
         let kinds = ["meal", "weigh-in", "body-composition", "band-domain", "band-sleep", "plan-check"]
-        @MainActor func pendingCount() -> Int? {
-            do {
-                let local = try LocalDataStore.shared()
-                return try kinds.reduce(0) { $0 + (try local.operations(account: owner, kind: $1)).count }
-            } catch { return nil }
-        }
+        do {
+            let local = try LocalDataStore.shared()
+            return try kinds.reduce(0) { $0 + (try local.operations(account: owner, kind: $1)).count }
+        } catch { return nil }
+    }
+
+    /// A normal turn sends local availability without uploading or waiting on settlement.
+    /// Health reads can explicitly request preparation; the daily plan still prepares first.
+    private func freshnessSnapshot(owner: String) -> [String: Any] {
+        let pending = pendingOperationCount(owner: owner)
+        return ["status": !Reachability.shared.isOnline ? "offline"
+                    : pending == nil ? "failed" : pending! > 0 ? "pending" : "not_requested",
+                "pending_operations": pending.map { $0 as Any } ?? NSNull()]
+    }
+
+    func prepareFreshness(day: UserDay, owner: String,
+                          isAuthorized: @escaping @MainActor () -> Bool = { true }) async -> [String: Any] {
         var calculationPending: Bool?
         let status: AIFreshnessStatus
         if !Reachability.shared.isOnline { status = .offline }
         else {
             status = await AIFreshnessPolicy.prepare {
                 @MainActor func eligible() -> Bool {
-                    !Task.isCancelled && ConsentStore.shared.granted
+                    !Task.isCancelled && isAuthorized() && ConsentStore.shared.granted
                         && SupabaseClient.currentUserIdSnapshot() == owner
                 }
                 guard eligible() else { return .cancelled }
@@ -99,7 +125,7 @@ final class AIService: ObservableObject {
                     guard eligible() else { return .cancelled }
                     guard let rows, !rows.isEmpty else { return .failed }
                     calculationPending = rows.contains { ($0["pending"] as? Bool) != false }
-                    guard let pending = pendingCount() else { return .failed }
+                    guard let pending = self.pendingOperationCount(owner: owner) else { return .failed }
                     return pending == 0 && calculationPending == false ? .ready : .pending
                 } catch { return Task.isCancelled ? .cancelled : .failed }
             }
@@ -108,7 +134,7 @@ final class AIService: ObservableObject {
         let iso = ISO8601DateFormatter()
         return [
             "status": status.rawValue,
-            "pending_operations": pendingCount().map { $0 as Any } ?? NSNull(),
+            "pending_operations": pendingOperationCount(owner: owner).map { $0 as Any } ?? NSNull(),
             "calculation_pending": calculationPending.map { $0 as Any } ?? NSNull(),
             "checked_at": iso.string(from: Date()),
             "domains": domains.prefix(5).map { state -> [String: Any] in
@@ -126,20 +152,25 @@ final class AIService: ObservableObject {
     /// back with the result until the server answers with a frame.
     func turn(_ text: String, day: UserDay, store: DataStore,
               imageDataURL: String? = nil, surface: String = "panel",
-              history: [[String: String]] = [], conversationID: UUID? = nil, turnID: UUID = UUID()) async -> PanelWidget? {
+              history: [[String: String]] = [], conversationID: UUID? = nil, turnID: UUID = UUID(),
+              prepareData: Bool = true, onCoachHandoff: (() -> Void)? = nil) async -> PanelWidget? {
         #if DEBUG
         let latencyStarted = Date()
         os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
             .notice("NB latency · turn start")
         #endif
-        mealDraft = nil
+        // The draft outlives the turn that made it: "确认，记下来" is a new turn, and the panel
+        // is THINKING by the time the phone runs panel.confirm. A draft expires with its frame.
+        if let draft = mealDraft, Date().timeIntervalSince(draft.at) > Self.draftLifetime { mealDraft = nil }
         activeTurnID = turnID
+        coachHandoffReceived = false
         let phoneScope = PhoneToolRunner.shared.beginTurn(turnID)
         thinking = true
         thoughts = []
         reading = nil
         lastError = nil
         lastErrorCode = nil
+        lastRetryAfter = nil
         defer {
             PhoneToolRunner.shared.finishTurn(turnID)
             if activeTurnID == turnID {
@@ -149,6 +180,25 @@ final class AIService: ObservableObject {
             }
         }
 
+        #if DEBUG && targetEnvironment(simulator)
+        if Band.allowsSeed, surface == "panel",
+           let fixture = ProcessInfo.processInfo.environment["NB_DEBUG_COACH_HANDOFF"],
+           ["1", "failure"].contains(fixture) {
+            receiveCoachHandoff(surface: surface, onHandoff: onCoachHandoff)
+            // The event and the persisted frame both identify the handoff on a replay.
+            receiveCoachHandoff(surface: surface, onHandoff: onCoachHandoff)
+            thoughts = [Thought(text: "Continuing your conversation", at: Date())]
+            try? await Task.sleep(for: .milliseconds(1_200))
+            if fixture == "failure" {
+                lastError = "I couldn't complete this reply. Please try again."
+                return nil
+            }
+            return widget(from: ["type": "text", "title": "AI COACH", "sentence": "",
+                                 "data": ["headline": "AI COACH", "sub": "Tell me what happened. I'm listening."],
+                                 "locale": "en-US", "target": "profile", "handoff": "chat"])
+        }
+        #endif
+
         let dayKey = Self.dayFormatter.string(from: day.start)
         guard ConsentStore.shared.granted, let requestOwner = await SupabaseClient.shared.currentUserId else {
             guard activeTurnID == turnID else { return nil }
@@ -157,7 +207,10 @@ final class AIService: ObservableObject {
         }
         guard phoneScope.session.owner == requestOwner else { return nil }
         AISession.shared.settleIfDue()
-        var freshness = await prepareFreshness(day: day, owner: requestOwner)
+        // ADR 0022 · a replay of the day's set asks for the stored result, not for fresh data.
+        var freshness = surface == "plan" && prepareData
+            ? await prepareFreshness(day: day, owner: requestOwner)
+            : freshnessSnapshot(owner: requestOwner)
         freshness["device"] = PhoneToolRunner.shared.deviceState(store: store)
         guard activeTurnID == turnID, !Task.isCancelled, ConsentStore.shared.granted,
               SupabaseClient.currentRequestSessionSnapshot() == phoneScope.session else { return nil }
@@ -176,7 +229,8 @@ final class AIService: ObservableObject {
         for hop in 0...Self.maxResumes {
             var attempt = payload
             if let toolResult { attempt["tool_result"] = toolResult }
-            let outcome = await stream(attempt, owner: requestOwner, turnID: turnID, day: day, surface: surface, text: text)
+            let outcome = await stream(attempt, owner: requestOwner, turnID: turnID, day: day,
+                                       surface: surface, text: text, onCoachHandoff: onCoachHandoff)
             guard activeTurnID == turnID else { return nil }
             switch outcome {
             case .frame(let widget):
@@ -189,10 +243,17 @@ final class AIService: ObservableObject {
                 guard hop < Self.maxResumes else {
                     lastErrorCode = "RESUME_BUDGET"
                     lastError = L("Could not complete that request. Please try again.")
-                    return surface == "chat" ? nil : offlineFrame(text)
+                    return surface == "chat" || coachHandoffReceived ? nil : offlineFrame(text)
                 }
                 reading = request.name
-                let result = await PhoneToolRunner.shared.run(request, scope: phoneScope, store: store)
+                // #27 · the advice turn is the one turn the user never asked for: it runs
+                // itself when the day opens and after a sync. The server no longer offers it
+                // phone tools; this is the second lock, because an effect on the band that
+                // nobody requested must not survive one hole on one side.
+                let result = surface == "plan"
+                    ? PhoneToolRunner.Result.fail("UNSUPPORTED",
+                        L("Suggestions cannot change the band or the app. Say what to do; the user decides."))
+                    : await PhoneToolRunner.shared.run(request, scope: phoneScope, store: store)
                 guard activeTurnID == turnID, ConsentStore.shared.granted,
                       SupabaseClient.currentRequestSessionSnapshot() == phoneScope.session else { return nil }
                 toolResult = result.payload(callID: request.callID)
@@ -201,7 +262,7 @@ final class AIService: ObservableObject {
                 return widget
             }
         }
-        return surface == "chat" ? nil : offlineFrame(text)
+        return surface == "chat" || coachHandoffReceived ? nil : offlineFrame(text)
     }
 
     static let maxResumes = 3
@@ -213,13 +274,17 @@ final class AIService: ObservableObject {
     }
 
     private func stream(_ payload: [String: Any], owner requestOwner: String, turnID: UUID,
-                        day: UserDay, surface: String, text: String) async -> Outcome {
+                        day: UserDay, surface: String, text: String,
+                        onCoachHandoff: (() -> Void)?) async -> Outcome {
         #if DEBUG
         let latencyStarted = Date()
         var loggedFirstEvent = false
         var loggedFirstThought = false
         var loggedFirstTool = false
         #endif
+        func handOffToCoach() {
+            receiveCoachHandoff(surface: surface, onHandoff: onCoachHandoff)
+        }
         do {
             // ⚠️ `turn` streams. It had been called as though it returned one JSON object,
             // so the parse threw on the very first `event:` line and every server turn —
@@ -258,6 +323,8 @@ final class AIService: ObservableObject {
                 #endif
 
                 switch String(parts[0]) {
+                case "coach.handoff":
+                    handOffToCoach()
                 case "tool":
                     // 07 · 16 · she names what she is reading while she reads it.
                     if let name = obj["name"] as? String { reading = name }
@@ -271,6 +338,7 @@ final class AIService: ObservableObject {
                     request = PhoneToolRunner.Request(obj)
                 case "screen.render":
                     frame = obj["envelope"] as? [String: Any]
+                    if frame?["handoff"] as? String == "chat" { handOffToCoach() }
                     #if DEBUG
                     os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
                         .notice("NB latency · turn render ms=\(elapsedMs, privacy: .public)")
@@ -279,8 +347,12 @@ final class AIService: ObservableObject {
                     responseFailed = true
                     // A degraded frame is still a frame — S4's absence law, not a failure.
                     if let fb = obj["fallback_frame"] as? [String: Any], frame == nil { frame = fb }
+                    if frame?["handoff"] as? String == "chat" { handOffToCoach() }
                     lastErrorCode = obj["code"] as? String
-                    lastError = (obj["fallback_frame"] as? [String: Any])?["sentence"] as? String
+                    let fallback = obj["fallback_frame"] as? [String: Any]
+                    let coachError = (fallback?["data"] as? [String: Any])?["sub"] as? String
+                    lastError = ((surface == "chat" || coachHandoffReceived) ? coachError : nil)
+                        ?? fallback?["sentence"] as? String
                         ?? obj["reason"] as? String
                         ?? L("Could not complete that request. Please try again.")
                 default:
@@ -290,7 +362,7 @@ final class AIService: ObservableObject {
             guard activeTurnID == turnID else { return .failed(nil) }
             reading = nil
             if let request, frame == nil, !responseFailed { return .suspended(request) }
-            if responseFailed && (surface == "chat" || lastErrorCode == "RATE_LIMITED") { return .failed(nil) }
+            if responseFailed && (surface == "chat" || coachHandoffReceived || lastErrorCode == "RATE_LIMITED") { return .failed(nil) }
             if let frame {
                 // ⚠️ A frame this build cannot decode — a type the server learned after the
                 // app shipped, or a malformed envelope — used to come back as nil, and Home
@@ -318,6 +390,7 @@ final class AIService: ObservableObject {
             if case SupabaseClient.Failure.http(let status, let body) = error {
                 let fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
                 lastErrorCode = fields?["error"] as? String
+                lastRetryAfter = fields?["retry_after"] as? Int
                 // ADR 0018 · the server still holds a suspended turn for this key: run its tool.
                 if status == 409, lastErrorCode == "TURN_SUSPENDED",
                    let raw = fields?["tool_request"] as? [String: Any], let request = PhoneToolRunner.Request(raw) {
@@ -340,7 +413,7 @@ final class AIService: ObservableObject {
                 lastError = error.localizedDescription
             }
         }
-        return .failed(surface == "chat" ? nil : offlineFrame(text))
+        return .failed(surface == "chat" || coachHandoffReceived ? nil : offlineFrame(text))
     }
 
     private struct MealDraft {
@@ -349,8 +422,22 @@ final class AIService: ObservableObject {
         let day: UserDay
         let owner: String
         let output: [String: Any]
+        var at = Date()
     }
     private var mealDraft: MealDraft?
+    /// 07 · a frame lives 20 minutes; so does the draft it carries.
+    static let draftLifetime: TimeInterval = 20 * 60
+    /// The frame whose food draft is still waiting for CONFIRM, if any — for a voice confirm.
+    var pendingMealDraftFrameID: UUID? {
+        guard let draft = mealDraft, Date().timeIntervalSince(draft.at) <= Self.draftLifetime,
+              draft.owner == SupabaseClient.currentUserIdSnapshot() else { return nil }
+        return draft.frameID
+    }
+    var pendingMealDraftLabel: String? {
+        guard pendingMealDraftFrameID != nil, let output = mealDraft?.output else { return nil }
+        let kcal = (output["kcal"] as? Double) ?? (output["kcal"] as? Int).map(Double.init) ?? 0
+        return "\(output["name"] as? String ?? "") · \(Fmt.kcal(kcal)) KCAL"
+    }
 
     func canConfirmMeal(frameID: UUID) -> Bool {
         mealDraft?.frameID == frameID
@@ -759,4 +846,3 @@ final class AIService: ObservableObject {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f
     }()
 }
-

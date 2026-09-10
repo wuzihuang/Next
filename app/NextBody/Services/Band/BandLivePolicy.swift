@@ -1,6 +1,12 @@
 import Foundation
 
-/// Foreground demand controls the panel; background collection belongs to the app.
+/// The heart stream follows the screen. The home panel asks for it while someone is
+/// looking; a page that is not looking lets it go; leaving the app ends it.
+/// ⚠️ It used to run whenever the app was *not* active. Nothing consumed those samples —
+/// no store, no widget, no Live Activity — but the band was measuring the whole time the
+/// app was away: the optical LED lit, the battery paying for a number nobody read
+/// (ADR 0023). `.inactive` (a call, Control Center) keeps an open stream rather than
+/// churning it; `.background` never holds one.
 enum BandLivePolicy {
     enum Phase { case active, inactive, background }
     struct Owner: Equatable, Sendable {
@@ -10,7 +16,7 @@ enum BandLivePolicy {
     static func shouldRun(phase: Phase, foregroundWanted: Bool, hasOwner: Bool,
                           consent: Bool, connected: Bool, exclusive: Bool) -> Bool {
         hasOwner && consent && connected && !exclusive
-            && (phase != .active || foregroundWanted)
+            && foregroundWanted && phase != .background
     }
 }
 

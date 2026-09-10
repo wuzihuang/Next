@@ -126,9 +126,31 @@ select ok(not has_function_privilege('authenticated','nb.hr_rest_details(uuid,da
  'clients cannot inspect another account baseline directly');
 select ok(not has_function_privilege('anon','nb.training_evidence(uuid,date)','EXECUTE'),
  'anonymous clients cannot read training evidence directly');
-select ok(position('tl-2.2' in pg_get_functiondef('nb.settle_day(uuid,date)'::regprocedure))>0,
+-- ⚠️ These two used to grep `nb.settle_day` and `public.calculation_status` for the literal
+-- `tl-2.2`. 20260908150000 moved the whole judgement into `nb.calculation_result_is_current`,
+-- which compares a stored `algo_version` against `nb.calculation_version()`; neither of those
+-- two bodies carries a version string any more, so the greps were asserting about a mechanism
+-- that no longer exists. What they were for is asserted directly instead.
+select ok(position('tl-2.2' in nb.calculation_version())>0,
  'published training has a distinct algorithm revision');
-select ok(position('tl-2.2' in pg_get_functiondef('public.calculation_status(date,date)'::regprocedure))>0,
+create or replace function pg_temp.settled_is_current(p_user uuid, p_day date) returns boolean
+language sql as $$
+ select nb.calculation_result_is_current(d, null::date, d.profile_revision,
+   (select b.ends_at from nb.calculation_profile(p_user,p_day) p
+     cross join lateral nb.user_day_bounds(p_day,p.timezone) b),
+   nb.calculation_clock())
+ from public.daily_results d where d.user_id=p_user and d.user_day=p_day;
+$$;
+-- ⚠️ A row settled by calling `nb.settle_day` directly carries a null `profile_revision`
+-- (only `nb.recompute_range` sets `nb.profile_revision`), and a null never equals anything,
+-- so such a row is never "current" whatever its version says. What the settle does own is
+-- the stamp itself.
+select is((select d.algo_version from public.daily_results d
+  where d.user_id='96170800-0000-4000-8000-000000000003' and d.user_day='2026-09-04'),
+ nb.calculation_version(), 'a settled day is stamped with the revision that settled it');
+update public.daily_results set algo_version=replace(algo_version,'tl-2.2','tl-2.1')
+ where user_id='96170800-0000-4000-8000-000000000003' and user_day='2026-09-04';
+select ok(not pg_temp.settled_is_current('96170800-0000-4000-8000-000000000003','2026-09-04'),
  'old completed-day training remains pending until recomputed');
 select * from finish();
 rollback;

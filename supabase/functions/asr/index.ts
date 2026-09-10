@@ -24,6 +24,15 @@ import { type TokenUsage, usageFromProvider } from "../_shared/cost.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_SECONDS = 60;
+/// The floor under that net: the quiet a stream must hold before it settles on the
+/// words it already has, when the provider's own rhythm has been steady.
+const QUIET_MS = 1_600;
+/// And how long the whole flush may take before the file path takes the take instead.
+/// The provider's own end lands 0.8–3.5 s after the commit when it lands at all, and
+/// the client gives the socket 8 s before it uploads the clip anyway: 5 s keeps every
+/// stream that was going to finish and starts the upload while that patience still
+/// has room, instead of burning it on a provider that has already stopped.
+const CEILING_MS = 5_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AsrTranscript =
@@ -68,7 +77,10 @@ async function providerTranscribe(
       body: JSON.stringify({
         model: asrFlashModel(),
         input: { messages: [{ role: "user", content: [{ audio: dataUri }] }] },
-        parameters: { asr_options: { language: "zh" } },
+        // No `language`: one dock hears «我今天吃了两个鸡蛋» and "how many calories
+        // was that", and naming a language is a claim about the clip we cannot make
+        // before hearing it. `enable_lid` asks the model to name it instead.
+        parameters: { asr_options: { enable_lid: true } },
       }),
       // The whole clip travels as base64 inside the JSON body, so the budget has
       // to cover the upload as well as the recognition. 11 s cut a 10 s clip off
@@ -308,41 +320,68 @@ function streamTranscription(
     // ⚠️ 2026-09-06 · the provider accepts the audio and then answers the commit
     // with nothing at all — the client sat out its whole 8 s patience and
     // re-uploaded the same clip as a file, thirteen seconds to transcribe four.
-    // The increments already on the wire are the transcript. But they are still
-    // GROWING when the commit lands: settling on a fixed deadline handed back
-    // half a sentence («我还吃了一块酱牛肉» came back cut in two). So the stream
-    // settles on the words going quiet, never on a stopwatch — a gap with no new
-    // increment means the provider has caught up with the audio.
+    // Whole sentences already on the wire are the transcript, so a stream that
+    // hears nothing more still answers with them. 2026-09-08 · but a gap is not
+    // proof it has caught up with the audio: it pauses mid-sentence for seconds
+    // and then finishes the line, so only what it has closed counts as said.
     settleWhenQuiet();
-    ceiling = setTimeout(() => settle("CEILING"), 6_500);
+    // ⚠️ 2026-09-08 · reaching this while increments are still arriving means the
+    // provider is mid-sentence, and settling would hand back half of one. The clip
+    // is still on the phone: failing sends it up the file path, which answers with
+    // the whole sentence. Slow and right beats fast and wrong — and this is under
+    // the client's own 8 s patience, so it costs one upload, not a lost take.
+    ceiling = setTimeout(() => fail("CEILING_STILL_STREAMING"), CEILING_MS);
   };
-  // 600 ms is a bit over twice the 280 ms the increments were actually spaced by,
-  // so a settle can only fire once the provider has stopped producing words —
-  // and once it has declared a sentence complete, only a second sentence could
-  // still be coming, which starts near instantly or not at all.
+  // ⚠️ 2026-09-08 · 600 ms was read off the 280 ms spacing of a short Chinese
+  // phrase, and every longer sentence paid for it: the provider pauses in the
+  // middle of one — 5.0 s measured mid-stream — and then finishes it, so the old
+  // grace cut «I ran five kilometres this morning and my average heart rate was
+  // one hundred and» off at "and", and «我今天中午吃了一碗牛肉面» at «牛». Its own
+  // `completed`/`session.finished` is the end of the sentence; this timer is only
+  // the net under a provider that answers the commit with nothing at all, so it
+  // has to outlast the silences that provider has already shown us in this very
+  // stream — a fixed number cannot, because the rhythm is different every time.
+  // The 250 ms shortcut after a finished sentence is gone with it: a sentence
+  // ending is not the take ending.
   const settleWhenQuiet = () => {
     if (closed || !finishSent) return;
     clearTimeout(grace);
-    grace = setTimeout(() => settle("QUIET"), segments.length > 0 ? 250 : 600);
+    grace = setTimeout(
+      () => settle("QUIET"),
+      Math.max(QUIET_MS, widestGap + QUIET_MS / 2),
+    );
   };
   const settle = (reason: string) => {
     if (closed || finalEvent) return;
     // Sentence by sentence: a second `completed` used to overwrite the first,
     // which loses the front half of anything said in two breaths.
-    const text = `${segments.join("")}${lastPartial}`.trim();
+    const text = segments.join("").trim();
+    // ⚠️ 2026-09-08 · a growing increment is the middle of a sentence, and the
+    // provider is the only one who knows where the end is: it goes quiet for
+    // seconds and then finishes the line. Settling on those words shipped «…was
+    // one hundred and» as though she had stopped talking there, and the model
+    // answered the half. Only whole sentences — the ones the provider has closed
+    // with `completed` — leave on a timer. Anything else hands the take back to
+    // the file path, which still holds the clip and returns the sentence whole.
+    const partialPending = lastPartial.trim().length > 0;
     console.log(
       "ASR_STREAM_SETTLED",
       JSON.stringify({
         reason, ms: since(), sinceLastWord: since() - lastPartialAt, widestGap,
         partials: partialCount, segments: segments.length, chars: text.length,
+        partialPending,
       }),
     );
-    if (text && !isFiller(text)) {
-      finalEvent = { type: "done", text };
-      close();
-    } else {
-      fail("PROVIDER_SILENT");
+    if (partialPending || !text) {
+      fail(partialPending ? "MID_SENTENCE" : "PROVIDER_SILENT");
+      return;
     }
+    if (isFiller(text)) {
+      fail("PROVIDER_SILENT");
+      return;
+    }
+    finalEvent = { type: "done", text };
+    close();
   };
   const timeout = setTimeout(() => fail("STREAM_TIMEOUT"), 70_000);
 
@@ -356,7 +395,7 @@ function streamTranscription(
         "OpenAI-Beta": "realtime=v1",
       },
     });
-    upstream.on("open", () => upstream?.send(sessionUpdate("zh")));
+    upstream.on("open", () => upstream?.send(sessionUpdate()));
     upstream.on("message", (raw) => {
       const event = parseProviderEvent(raw.toString());
       switch (event.kind) {

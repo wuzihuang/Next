@@ -23,4 +23,5 @@ run_sql() {
 run_sql "$band_dir/harness.sql"
 run_sql "$here/../band_ingestion.sql"
 run_sql "$here/../band_observation_revisions.sql"
+run_sql "$here/../band_delta_receipts.sql"
 python3 "$here/concurrency.py" "$band_container"

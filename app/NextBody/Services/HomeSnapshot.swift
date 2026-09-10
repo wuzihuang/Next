@@ -174,6 +174,26 @@ enum HomeSnapshot {
     private static func mergedSleep(_ stored: SleepSummary?, with fresh: SleepSummary?) -> SleepSummary? {
         guard let fresh else { return stored }
         guard let stored else { return fresh }
+        // #28 · a corrected night's window is the person's answer. A band read of the same
+        // night is new evidence inside that window, never a reason to widen it back out;
+        // only the server, or the person clearing the correction, can move it again.
+        if stored.isCorrected && !fresh.isCorrected {
+            var carried = fresh
+            if let anchor = fresh.sleepStart, let start = stored.sleepStart, let end = stored.wakeAt {
+                carried.line = SleepWindowCorrection
+                    .clip(fresh.line.map { ($0.stage, $0.minutes, $0.offsetMinutes) },
+                          bandStart: anchor, start: start, end: end)
+                    .map { SleepStageRun(stage: $0.stage, minutes: $0.minutes, offsetMinutes: $0.offsetMinutes) }
+            }
+            carried.sleepStart = stored.sleepStart
+            carried.wakeAt = stored.wakeAt
+            carried.correctedAt = stored.correctedAt
+            carried.bandStart = fresh.sleepStart ?? stored.bandStart
+            carried.bandEnd = fresh.wakeAt ?? stored.bandEnd
+            carried.totalMinutes = carried.line.isEmpty ? stored.totalMinutes
+                : carried.line.filter { $0.stage != 4 }.reduce(0) { $0 + $1.minutes }
+            return mergedSleep(stored, with: carried)
+        }
         let sameWindow = stored.sleepStart == fresh.sleepStart && stored.wakeAt == fresh.wakeAt
         let containedPartial: Bool
         if let oldStart = stored.sleepStart, let oldEnd = stored.wakeAt,

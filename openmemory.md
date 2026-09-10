@@ -685,6 +685,11 @@ model credentials and tool execution server-side.
   to the recorded night — never restored onto `raw_samples.spo2`.
 
 ## Patterns
+- NextBody `xcodebuild` warning cleanup (Swift concurrency): MockBand progress
+  loops must `await progress(done)` rather than `MainActor.run { progress(done) }`
+  (captured `var` in a Sendable closure). DEBUG panel pin helpers that touch
+  `WidgetCatalogue` statics need `@MainActor` on the nested function. Verified
+  clean with README's simulator `xcodebuild` (zero `warning:` lines).
 - Female health stays off the product surface. G70 answers the female read with
   `state=None` and `function.female=0`; it is a calendar write (SDK business lock),
   not a sensor, and F1 already spent both second-level pages. Sweep it in DEBUG only.

@@ -72,6 +72,11 @@ struct BodyBatteryDetailView: View {
         } onBack: {
             leave()
         }
+        .onReceive(router.$windowRequest) { request in
+            guard let request else { return }
+            rangeRaw = request.rawValue
+            router.windowRequest = nil
+        }
         .task {
             #if DEBUG
             if let override = DetailWindow.debugRange(for: .bodyBattery) {
@@ -137,8 +142,6 @@ struct BodyBatteryDetailView: View {
             if hasNight {
                 inputsCard
                 targetCard
-            } else {
-                daytimeAnchorCard
             }
             vitalsCard
             confidenceCard
@@ -171,9 +174,6 @@ struct BodyBatteryDetailView: View {
             }
             BatteryCurve(samples: m.reserveCurve, day: m.day, dim: isDim).frame(height: 120)
             BodyBatteryTimeAxis(day: m.day)
-            Text(observationLabel)
-                .font(NBFont.dot(500, 10))
-                .foregroundStyle(isDim ? NB.text3Prod : NB.text2)
         }
         .padding(20)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
@@ -197,7 +197,7 @@ struct BodyBatteryDetailView: View {
             }
             Hairline()
             HStack {
-                Text(L("THESE FOUR ADD UP TO %@", Fmt.signed(d.sum)))
+                Text(L("SUM %@", Fmt.signed(d.sum)))
                     .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
                     .foregroundStyle(NB.text3Prod)
                 Spacer(minLength: 0)
@@ -206,7 +206,7 @@ struct BodyBatteryDetailView: View {
                     .foregroundStyle(NB.text2)
             }
             if d.assumedAnchor {
-                Text(L("The starting battery was estimated because earlier readings were missing. Later readings still carry that uncertainty."))
+                Text(L("Starting battery estimated — earlier readings were missing."))
                     .font(NBFont.brand(400, 13))
                     .lineSpacing(6)
                     .foregroundStyle(NB.white.opacity(0.62))
@@ -260,7 +260,7 @@ struct BodyBatteryDetailView: View {
                         .foregroundStyle(NB.white.opacity(0.42))
                 }
             }
-            Text(L("Set once this morning. It does not move as the battery drops through the day."))
+            Text(L("Set once this morning. It does not move during the day."))
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(8)
                 .foregroundStyle(NB.white.opacity(0.70))
@@ -281,15 +281,6 @@ struct BodyBatteryDetailView: View {
         .background(Color(hex: 0x0F0F13), in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
             .stroke(NB.lime1.opacity(0.22), lineWidth: 1))
-    }
-
-    private var daytimeAnchorCard: some View {
-        CardBlock(title: L("DAYTIME ESTIMATE"), trailing: L("NO NIGHT REQUIRED")) {
-            Text(L("Recent heart rate, HRV, stress and movement inform this estimate. A recorded night also establishes the morning reading and training target."))
-                .font(NBFont.brand(400, 14))
-                .lineSpacing(8)
-                .foregroundStyle(NB.white.opacity(0.70))
-        }
     }
 
     /// Heart and stress sit under the curve. They are measurements, not a second
@@ -343,12 +334,12 @@ struct BodyBatteryDetailView: View {
     private func vitalsLine(ticks: Int, gone: Bool, stale: Bool) -> String {
         if ticks == 0 {
             return data.band.connected
-                ? L("Nothing has come off the band for this day yet.")
+                ? L("No ticks for this day yet.")
                 : L("Connect the band to see the ticks it has been recording.")
         }
-        if gone { return L("Nothing for over six hours. These are not old numbers, they are no numbers.") }
-        if stale { return L("%d ticks today. Nothing new for a while — it may be off your wrist.", ticks) }
-        return L("%d recorded readings today. Gaps are left open.", ticks)
+        if gone { return L("Nothing for over six hours.") }
+        if stale { return L("%d ticks · nothing new for a while.", ticks) }
+        return L("%d ticks today. Gaps stay open.", ticks)
     }
 
     private var confidenceCard: some View {
@@ -366,9 +357,6 @@ struct BodyBatteryDetailView: View {
             }
             .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
             .foregroundStyle(NB.text3Prod)
-            Text(L("Baselines use nights with enough valid readings and no long recording gaps."))
-                .font(NBFont.brand(400, 13))
-                .foregroundStyle(NB.text3Prod)
             if let coverage = m.reserveDrivers?.coverage {
                 Hairline()
                 coverageRow("NIGHT HRV COVERAGE", coverage.nightHRV)
@@ -376,9 +364,6 @@ struct BodyBatteryDetailView: View {
                 coverageRow("DAY HEART COVERAGE", coverage.dayHeart)
                 coverageRow("DAY HRV COVERAGE", coverage.dayHRV)
                 coverageRow("DAY STRESS COVERAGE", coverage.dayStress)
-                Text(L("Missing HRV or stress readings reduce confidence; they do not mean no stress."))
-                    .font(NBFont.brand(400, 13))
-                    .foregroundStyle(NB.text3Prod)
             }
         }
     }
@@ -468,7 +453,7 @@ struct BodyBatteryDetailView: View {
             Text(L("NO RECENT BATTERY READING"))
                 .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
                 .foregroundStyle(NB.ember1)
-            Text(L("Sync recent wrist readings to estimate your battery. A recorded night also establishes your morning reading."))
+            Text(L("Sync recent wrist readings to estimate your battery."))
                 .font(NBFont.brand(400, 16))
                 .lineSpacing(8)
                 .foregroundStyle(NB.text1)
@@ -499,7 +484,7 @@ struct BodyBatteryDetailView: View {
         let night = BodyBatteryWindowMath.typicalNightCharge(days)
         return VStack(alignment: .leading, spacing: 14) {
             heroNumber(avg.map { Int($0.rounded()) }, caption: "OF 100",
-                       foot: L("7-day average of morning peaks. Empty days stay out."))
+                       foot: L("7-day average of morning peaks."))
             CardBlock(title: L("SEVEN DAYS"),
                       trailing: L("7D AVG %@", Fmt.int(avg.map { Int($0.rounded()) })),
                       trailingIsDot: true) {
@@ -515,7 +500,7 @@ struct BodyBatteryDetailView: View {
                         if i < days.count - 1 { Spacer(minLength: 0) }
                     }
                 }
-                Text(L("Rolling 7 days. Lime is today. The average is the hero, not a sum."))
+                Text(L("Rolling 7 days · lime is today."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -592,7 +577,7 @@ struct BodyBatteryDetailView: View {
                 weekStat(L("NIGHT CHARGE"),
                          night.map { L("%@ / DAY", Fmt.signed($0)) } ?? Fmt.dash,
                          NB.macroValue)
-                Text(L("Five groups cover all 30 days: two days, then four weeks. Each bar averages the available morning readings."))
+                Text(L("Two days, then four weeks."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }

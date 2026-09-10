@@ -316,7 +316,7 @@ extension VitalsReadout {
             statLeft: .init(label: L("NIGHT HRV"), value: hrv.map { String(Int($0.rounded())) },
                             unit: "MS",
                             foot: hrvBase.map { L("BASE %d MS", Int($0.rounded())) } ?? L("NO BASELINE YET"),
-                            tint: NB.blue1),
+                            tint: VitalsMetric.hrv.tint),
             statRight: .init(label: L("NIGHT SPO2"), value: spo2.map { String($0.mean) },
                              unit: "%",
                              foot: spo2.map { _ in L("%d READINGS", spo2Percents.count) }
@@ -493,7 +493,7 @@ extension VitalsReadout {
                             unit: "MS",
                             foot: ticks.isEmpty ? L("NO TICKS YET")
                                 : L("LOW %d · HIGH %d", Int(ticks.min()!.rounded()), Int(ticks.max()!.rounded())),
-                            tint: NB.blue1),
+                            tint: VitalsMetric.hrv.tint),
             statRight: .init(label: L("VS BASELINE"),
                              value: (value != nil && (base ?? 0) > 0)
                                  ? String(format: "%.2f", value! / base!) : nil,

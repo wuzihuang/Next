@@ -8,10 +8,12 @@ import {
   MAX_TURN_STEPS,
   WORKFLOW_READY,
   WORKFLOW_REREAD,
+  WORKFLOW_COACH,
 } from "./turn-phase.ts";
 
 const reads = ["data.read", "data.catalog"];
-const renders = ["screen.render.line", "screen.render.metric"];
+// Two gated charts: metric is a direct output now, so it cannot stand in for one.
+const renders = ["screen.render.line", "screen.render.ring"];
 const ready = { toolName: WORKFLOW_READY, result: { ok: true } };
 const reread = { toolName: WORKFLOW_REREAD, result: { ok: true } };
 const read = { toolName: "data.read", result: { rows: [1] } };
@@ -30,6 +32,46 @@ Deno.test("model chooses data tools and declares readiness after one step", () =
   assertEquals(state.activeTools === activeReference, true);
   assertEquals(state.activeTools, [...renders, WORKFLOW_REREAD]);
   assertEquals(gateTurnTool(state, reads[0]).allow, false);
+});
+
+Deno.test("coach handoff is panel opt-in, leaves evidence budgets intact and survives suspension", () => {
+  const state = createTurnWorkflow(reads, renders, phones, "read", true);
+  assertEquals(state.activeTools.includes(WORKFLOW_COACH), true);
+  assertEquals(gateTurnTool(state, WORKFLOW_COACH).allow, true);
+  finishTurnStep(state, [{ toolName: WORKFLOW_COACH, result: { ok: true } }]);
+  assertEquals(state.coachHandoff, true);
+  assertEquals(state.phase, "read");
+  assertEquals(state.completedSteps, 1);
+  assertEquals(state.readSteps, 0);
+  assertEquals(state.activeTools.includes(WORKFLOW_COACH), false);
+  const restored = restoreTurnWorkflow(serializeTurnWorkflow(state));
+  assertEquals(restored.coachHandoff, true);
+  assertEquals(restored.activeTools, state.activeTools);
+  for (const other of [createTurnWorkflow(reads, renders, phones), createTurnWorkflow(reads, ["plan.render"], phones, "render")]) {
+    assertEquals(gateTurnTool(other, WORKFLOW_COACH).allow, false);
+    finishTurnStep(other, [{ toolName: WORKFLOW_COACH, result: { ok: true } }]);
+    assertEquals(other.coachHandoff, false);
+  }
+});
+
+Deno.test("coach handoff and every other step operation are mutually exclusive in either call order", () => {
+  for (const other of ["data.read", "device.find", "screen.render.text", WORKFLOW_READY, WORKFLOW_COACH]) {
+    for (const order of [[WORKFLOW_COACH, other], [other, WORKFLOW_COACH]]) {
+      const state = createTurnWorkflow(reads, [...renders, "screen.render.text"], phones, "read", true);
+      assertEquals(gateTurnTool(state, order[0]).allow, true);
+      assertEquals(gateTurnTool(state, order[1]), { allow: false, error: "STEP_ALREADY_COMMITTED" });
+    }
+  }
+});
+
+Deno.test("failed coach handoff stays in panel and handoff is hidden without an answer step left", () => {
+  const state = createTurnWorkflow(reads, renders, phones, "read", true);
+  gateTurnTool(state, WORKFLOW_COACH);
+  finishTurnStep(state, [{ toolName: WORKFLOW_COACH, result: { ok: false } }]);
+  assertEquals(state.coachHandoff, false);
+  assertEquals(gateTurnTool(state, WORKFLOW_COACH).allow, true);
+  const last = restoreTurnWorkflow({ ...serializeTurnWorkflow(state), completedSteps: MAX_TURN_STEPS - 1 });
+  assertEquals(last.activeTools.includes(WORKFLOW_COACH), false);
 });
 
 Deno.test("read budget counts model steps, not parallel tool invocations", () => {
@@ -167,4 +209,28 @@ Deno.test("the plan surface starts in render with plan.render and may reread onc
   finishTurnStep(state, [{ toolName: WORKFLOW_REREAD, result: { ok: true } }]);
   assertEquals(state.phase, "read");
   assertEquals(gateTurnTool(state, "data.read").allow, true);
+});
+
+Deno.test("direct text and food outputs skip readiness but cannot race reads or phone actions", () => {
+  for (const phase of ["read", "act"] as const) {
+    const state = createTurnWorkflow(reads, [...renders, "screen.render.text", "screen.render.food"], phones, phase);
+    assertEquals(gateTurnTool(state, "screen.render.text").allow, true);
+    assertEquals(gateTurnTool(state, "device.find").allow, false);
+    assertEquals(gateTurnTool(state, "data.read").allow, false);
+    finishTurnStep(state, [{ toolName: "screen.render.text", result: { rendered: true } }]);
+    assertEquals(state.phase, "done");
+  }
+  for (const first of ["data.read", "device.find"]) {
+    const state = createTurnWorkflow(reads, [...renders, "screen.render.food"], phones);
+    assertEquals(gateTurnTool(state, first).allow, true);
+    assertEquals(gateTurnTool(state, "screen.render.food").allow, false);
+  }
+});
+
+Deno.test("health preparation resumes in read and a refused phone call does not enter act", () => {
+  const state = createTurnWorkflow(reads, renders, [...phones, "health.prepare"]);
+  finishTurnStep(state, [{ toolName: "health.prepare", result: { suspended: true } }]);
+  assertEquals(restoreTurnWorkflow(serializeTurnWorkflow(state)).phase, "read");
+  finishTurnStep(state, [{ toolName: "device.find", result: { ok: false, error: "STEP_ALREADY_COMMITTED" } }]);
+  assertEquals(state.phase, "read");
 });

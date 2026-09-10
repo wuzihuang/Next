@@ -85,6 +85,11 @@ struct TrainingDetailView: View {
         } onBack: {
             router.backToRoot()
         }
+        .onReceive(router.$windowRequest) { request in
+            guard let request else { return }
+            rangeRaw = request.rawValue
+            router.windowRequest = nil
+        }
         .task {
             #if DEBUG
             if let override = DetailWindow.debugRange(for: .training) {
@@ -146,10 +151,10 @@ struct TrainingDetailView: View {
                 moveStat(L("LAST SYNC"), lastSyncClock, NB.macroValue)
             }
             Text(m.nightInputs == nil
-                 ? L("Night baseline details are unavailable. A suggested range, when shown, remains a rule estimate.")
+                 ? L("No night baseline yet. The range is a rule estimate.")
                  : baselineBuilding
-                 ? L("Fewer than five baseline nights are available for HRV or resting heart rate. The suggested range is an early rule estimate.")
-                 : L("Night history can adjust recovery inputs. The suggested range is still a rule estimate, not a validated personal training dose."))
+                 ? L("Fewer than five baseline nights. The range is an early estimate.")
+                 : L("The range is a rule estimate, not a personal training dose."))
                 .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
                 .fixedSize(horizontal: false, vertical: true)
             Hairline()
@@ -159,22 +164,15 @@ struct TrainingDetailView: View {
                     moveStat(L("RECORDED"), coverageLine(evidence.recordedMinutes, elapsed: evidence.elapsedMinutes), NB.lime1)
                     moveStat(L("ELAPSED"), Fmt.duration(evidence.elapsedMinutes), NB.macroValue)
                 }
-                Text(L("MOVEMENT OBSERVATIONS %@", Fmt.duration(evidence.movementMinutes)))
+                Text(L("Coverage is valid recorded minutes against elapsed time, not time worn."))
                     .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
-                Text(L("Coverage compares valid recorded minutes with elapsed time, not time worn. Brief intervals and strength work may be underrepresented."))
-                    .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
-                Text(L("RESTING HR %@ · %d BASELINE NIGHTS · %@",
-                       evidence.restingHeartRate.map { L("%d BPM", Int($0.rounded())) } ?? Fmt.dash,
-                       evidence.restingBaselineNights,
-                       evidence.baselineEstimated ? L("ESTIMATED BASELINE") : L("NIGHT BASELINE")))
-                    .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text(L("Recording coverage is unavailable. Sync to retrieve the calculation evidence."))
+                Text(L("Recording coverage is unavailable. Sync to retrieve it."))
                     .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
             }
-            Text(L("This range is guidance, not an exercise quota. Equal score increases do not represent equal exercise time."))
+            Text(L("Guidance, not an exercise quota."))
                 .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("training.evidence")
@@ -202,7 +200,7 @@ struct TrainingDetailView: View {
                     .font(NBFont.ui(400, 10)).foregroundStyle(NB.text3Prod)
             }
             if gapMinutes > 0 {
-                Text(L("Shaded intervals indicate missing data; activity in those intervals may be absent from the score."))
+                Text(L("Shaded intervals are missing data."))
                     .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
             }
         }
@@ -215,7 +213,7 @@ struct TrainingDetailView: View {
             .init(label: L("STEPS"), value: Fmt.kcal(m.steps.map(Double.init))),
             .init(label: L("KCAL EST"), value: Fmt.kcal(m.eActive)),
             .init(label: L("ELEVATED HR PERIOD"), value: elevatedHRLine),
-        ], note: L("The largest elevated-heart-rate period is shown without inferring a sport. Its score share is allocated from raw contribution, not the score increase at that time."))
+        ], note: L("The largest elevated-heart-rate period. No sport is inferred."))
     }
 
     private var easyMinutes: Int? { m.zoneMinutes.map { $0.prefix(3).reduce(0, +) } }
@@ -242,7 +240,7 @@ struct TrainingDetailView: View {
                             tint: tints[i], value: m.zoneMinutes == nil ? Fmt.dash : L("%dm", mins[i]))
                 }
             }
-            Text(L("Zones use estimated maximum and resting heart rate. Amber marks Z4–5; missing heart rate is not counted as zone time."))
+            Text(L("Estimated maximum and resting heart rate. Amber is Z4–5."))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .lineSpacing(5)
                 .foregroundStyle(NB.text3Prod)
@@ -274,7 +272,7 @@ struct TrainingDetailView: View {
                 moveStat(L("RESTING"), Fmt.kcal(restingKcal), NB.macroValue)
                 moveStat(L("TOTAL EST"), Fmt.kcal(m.eOutNow), NB.macroValue)
             }
-            Text(L("Calories are an estimate from MET and body weight, not a measurement."))
+            Text(L("Calories are an estimate, not a measurement."))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .foregroundStyle(NB.text3Prod)
         }
@@ -308,7 +306,7 @@ struct TrainingDetailView: View {
                         if i < days.count - 1 { Spacer(minLength: 0) }
                     }
                 }
-                Text(L("Rolling 7 days. Amber is the heaviest one. The average is the hero, not a sum."))
+                Text(L("Rolling 7 days · amber is the heaviest."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -352,7 +350,7 @@ struct TrainingDetailView: View {
                 moveStat(L("ACTIVE BURN"), L("%@ / DAY", Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))), NB.lime1)
                 moveStat(L("TOTAL EST"), L("%@ / DAY", Fmt.kcal(TrainingWindowMath.typicalTotalKcal(days))), NB.macroValue)
             }
-            Text(L("Per-day numbers, never a weekly sum. Calories are an estimate."))
+            Text(L("Per-day, never a weekly sum."))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .foregroundStyle(NB.text3Prod)
         }
@@ -406,7 +404,7 @@ struct TrainingDetailView: View {
                 monthBandRow(L("STEADY"), counts.steady, 30, NB.lime1)
                 monthBandRow(L("HEAVY"), counts.heavy + counts.over, 30, NB.ember1)
                 monthBandRow(L("NO TARGET"), counts.unknown, 30, NB.text3Prod)
-                Text(L("Each finished day uses its own suggested range. Gray cells have recorded load but no target; today is excluded from these counts."))
+                Text(L("Each finished day uses its own range. Today is excluded."))
                     .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
                 Hairline()
                 HStack {
@@ -428,7 +426,7 @@ struct TrainingDetailView: View {
                         if i < rolls.count - 1 { Spacer(minLength: 0) }
                     }
                 }
-                Text(L("Five groups cover 30 days: 2 days, then four groups of 7. Each bar averages recorded finished days."))
+                Text(L("2 days, then four groups of 7."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -467,7 +465,7 @@ struct TrainingDetailView: View {
                 moveStat(L("ACTIVE BURN"), L("%@ / DAY", Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))), NB.lime1)
                 moveStat(L("TOTAL EST"), L("%@ / DAY", Fmt.kcal(TrainingWindowMath.typicalTotalKcal(days))), NB.macroValue)
             }
-            Text(L("Each bar is the group's typical recorded day. Calories are estimates."))
+            Text(L("Each bar is that group's typical day."))
                 .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                 .foregroundStyle(NB.text3Prod)
         }
@@ -528,21 +526,21 @@ struct TrainingDetailView: View {
         if isStale {
             EdgeNote(sub: L("AS OF %@", lastSyncClock), line: L("LAST SYNC %@", staleAgo),
                      text: data.lastSync == nil
-                        ? L("No sync time is available. The displayed records may be incomplete.")
-                        : L("Last synced at %@. More recent activity may not be included.", lastSyncClock))
+                        ? L("No sync time yet. Records may be incomplete.")
+                        : L("Synced %@. Later activity may be missing.", lastSyncClock))
         }
         if isOver {
             EdgeNote(line: headerStatus,
-                     text: L("The score is already above the suggested range or at its display limit. There is no remaining exercise quota to fill."))
+                     text: L("Already above the suggested range. Nothing left to fill."))
         }
         if autoHROff {
             EdgeNote(line: L("AUTO HR IS OFF"),
-                     text: L("Steps still contribute to daily load. Enable continuous heart rate to capture exercise intensity."),
+                     text: L("Steps still count. Turn on continuous heart rate for intensity."),
                      action: { router.open(.deviceAutoMonitor, from: .home) })
         }
         if gapMinutes >= 60, let gap = longestGap {
             EdgeNote(line: L("DATA MISSING %@–%@", Fmt.clock(gap.start), Fmt.clock(gap.end)),
-                     text: L("Missing samples do not prove the band was off your wrist. Activity in this interval may not be included."))
+                     text: L("Activity in this interval may not be included."))
         }
     }
 

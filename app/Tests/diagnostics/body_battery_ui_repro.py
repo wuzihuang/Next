@@ -73,7 +73,7 @@ checks = {
         and "%d MORNINGS · %d MISSING" in detail
     ),
     "30-day caption includes its partial fifth group": (
-        "Five groups cover all 30 days: two days, then four weeks." in detail
+        'L("Two days, then four weeks.")' in detail
         and "Four rolling weeks" not in detail
     ),
     "axis has clock-based positions and no fixed NOW slot": (

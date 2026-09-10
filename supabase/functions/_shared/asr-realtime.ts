@@ -4,14 +4,18 @@ export function realtimeURL(): string {
   return `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=${asrRealtimeModel()}`;
 }
 
-export function sessionUpdate(language: string): string {
+/// `language` names the one language the provider is allowed to hear. Leave it out and the
+/// model identifies the language itself, which is the only way one dock serves someone who
+/// says «我今天吃了两个鸡蛋» and «how many calories was that» in the same minute — pinned to
+/// "zh", English came back as Chinese syllables or as nothing at all.
+export function sessionUpdate(language?: string): string {
   return JSON.stringify({
     event_id: crypto.randomUUID(),
     type: "session.update",
     session: {
       input_audio_format: "pcm",
       sample_rate: 16_000,
-      input_audio_transcription: { language },
+      input_audio_transcription: language ? { language } : {},
       turn_detection: null,
     },
   });

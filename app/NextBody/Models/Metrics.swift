@@ -309,6 +309,13 @@ struct SleepSummary: Codable, Hashable {
     var hrvInvalidatedMinutes: [Date: Date]? = nil
     /// Actual recorded sessions; the gaps between them are not sleep measurements.
     var intervals: [SleepInterval]? = nil
+    /// #28 · when the person wearing it said the band was wrong about this night. The window
+    /// above is then theirs, and `bandStart` / `bandEnd` keep the one the band filed, so the
+    /// page can name both without pretending the published window is still a measurement.
+    var correctedAt: Date? = nil
+    var bandStart: Date? = nil
+    var bandEnd: Date? = nil
+    var isCorrected: Bool { correctedAt != nil }
 
     func containsSleepTimestamp(_ timestamp: Date) -> Bool {
         guard let sleepStart, let wakeAt, wakeAt > sleepStart,
@@ -428,6 +435,13 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var eIn: Double?                   // nil = UNLOGGED
     var balance: Double?               // E_IN − E_OUT_NOW
     var targetIn: Double?              // TARGET_IN
+    /// Where TARGET_IN came from. `targetBasis` is the burn it was built on, before the
+    /// goal offset and the macro split; `targetBasisDays` is how many measured days
+    /// stand behind that burn. Zero days is the basal multiplier, not a fortnight of
+    /// band data — 09 says which, because a budget that moves without saying why is a
+    /// number nobody can plan against.
+    var targetBasis: Double?
+    var targetBasisDays: Int?
     var protein: MacroSlot?
     var carb: MacroSlot?
     var fat: MacroSlot?
@@ -484,7 +498,7 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
         case day, trainingLoad, targetLoad, zoneMinutes, activeMinutes, distanceM, bbWake, bodyBattery
         case trainingEvidence, recordedSteps
         case bmr, eActive, eTrain, eTrainPlan, eOutNow, activeForecast, eOutFull, energyDistribution
-        case eIn, balance, targetIn, nextMeal, protein, carb, fat
+        case eIn, balance, targetIn, targetBasis, targetBasisDays, nextMeal, protein, carb, fat
         case weightKg, fatKg, leanKg, fatSource
         case fatEmaDelta7d, leanEmaDelta7d, confidence, scans7d, logged7d
         case fuelState, bandCoverage, calcVersion, asOf, serverDirection

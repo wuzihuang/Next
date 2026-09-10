@@ -59,6 +59,17 @@ actor SupabaseClient {
         c.waitsForConnectivity = false
         return URLSession(configuration: c)
     }()
+    /// A turn's SSE stream is silent while the server runs a tool, and the server now
+    /// writes a comment line every 15 s to say it is still alive. This session's timeout
+    /// is the gap between two bytes, so three missed heartbeats means the connection is
+    /// dead, not that the model is slow. The 30 s read session above hung up on every
+    /// web-backed meal estimate.
+    private let streamSession: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.timeoutIntervalForRequest = 45
+        c.waitsForConnectivity = false
+        return URLSession(configuration: c)
+    }()
 
     func setAccessToken(_ token: String?) {
         sessionGeneration = UUID()
@@ -544,6 +555,24 @@ actor SupabaseClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
+    /// A DELETE filtered on one column. RLS keeps it to the caller's own rows; the owner
+    /// check keeps a late reply from a previous account out.
+    func deleteWhere(_ table: String, column: String, equals value: String, expectedOwner: String? = nil) async throws {
+        try validateOwner(expectedOwner)
+        var r = URLRequest(url: SupabaseConfig.url
+            .appendingPathComponent("rest/v1/\(table)")
+            .appending(queryItems: [URLQueryItem(name: column, value: "eq.\(value)")]))
+        r.httpMethod = "DELETE"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                   forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await authenticatedData(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+
     /// An exact row count, from the Content-Range header rather than by pulling the rows.
     /// ⚠️ 11's delete confirmation counts out what is about to be lost, and counting what
     /// happens to be in memory counts the page size instead — 60 weigh-ins for an account
@@ -667,7 +696,7 @@ actor SupabaseClient {
         let base = try request(name, method: "POST", body: data, isFunction: true, expectedOwner: expectedOwner)
         let identified = SessionBoundTransport.identifying(base, requestID: requestID)
         let (bytes, response) = try await SessionBoundTransport.perform(identified, session: pinned,
-            current: { await self.requestSession }, send: { [session] in try await session.bytes(for: $0) },
+            current: { await self.requestSession }, send: { [streamSession] in try await streamSession.bytes(for: $0) },
             refresh: { await self.refreshedToken(for: pinned) })
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {

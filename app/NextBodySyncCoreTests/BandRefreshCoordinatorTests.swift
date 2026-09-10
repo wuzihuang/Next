@@ -25,6 +25,11 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         var dayGate: (offset: Int, gate: Gate)?
         var dayStatus: [Int: BandRefreshResult.Status] = [:]
         var historyStatus: BandRefreshResult.Status = .success
+        var historyHasWork = true
+        var historyRecoveredDays: Set<Int> = []
+        var historyReceivedDays: [Int: BandRefreshResult] = [:]
+        var checksHistory = false
+        var finishGate: Gate?
         var afterDay: ((Int) -> Void)?
         lazy var coordinator = BandRefreshCoordinator(state: { [self] in
             .init(account: account, binding: binding, consent: consent, exclusive: exclusive, connected: connected)
@@ -42,9 +47,13 @@ final class BandRefreshCoordinatorTests: XCTestCase {
                 if let dayGate, dayGate.offset == offset { await dayGate.gate.wait() }
                 afterDay?(offset)
                 return .init(status: dayStatus[offset] ?? .success, points: offset == 1 ? 2 : 3)
-            }, history: { [self] in
+            }, history: { [self] days in
+                historyReceivedDays = days
                 events.append("history")
-                return .init(status: historyStatus, points: 7)
+                return .init(result: historyHasWork ? .init(status: historyStatus, points: 7) : nil,
+                             recoveredDays: historyRecoveredDays)
+            }, checkHistory: { self.checksHistory }, finish: { [self] in
+                if let finishGate { await finishGate.wait() }
             })
         }
         func refresh(_ request: BandRefreshRequest) async -> BandRefreshResult {
@@ -227,4 +236,44 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         result = await f.coordinator.refreshAfterConsent(cadence: 300, work: f.work)
         XCTAssertNil(result, "declining must discard the old manual request")
     }
+
+    @MainActor func testRoutineRefreshCanCheckForMissingHistoryAndPassesRecentDayResults() async {
+        let f = Fixture(); f.checksHistory = true
+        let result = await f.refresh(.latest)
+        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(f.events.last, "history")
+        XCTAssertEqual(f.historyReceivedDays[1]?.status, .success)
+        XCTAssertEqual(f.historyReceivedDays[0]?.status, .success)
+    }
+
+    @MainActor func testRecoveredYesterdayDoesNotLeaveAFalsePartialResult() async {
+        let f = Fixture(); f.dayStatus[1] = .failed; f.historyRecoveredDays = [1]
+        let result = await f.refresh(.fullHistory)
+        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(result.points, 12, "already published points remain counted when a retry repairs its day")
+        XCTAssertEqual(f.historyReceivedDays[1]?.status, .failed)
+    }
+
+    @MainActor func testFinishingRefreshIsAwaitedBeforeAnotherAccountStarts() async {
+        let f = Fixture(); let gate = Gate(); f.finishGate = gate
+        let first = Task { @MainActor in await f.refresh(.latest) }
+        await entered(gate)
+        f.account = "bob"; f.finishGate = nil
+        let second = Task { @MainActor in await f.refresh(.latest) }
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:1", "day:alice:0"])
+        gate.release()
+        let results = await (first.value, second.value)
+        XCTAssertEqual(results.0.status, .cancelled)
+        XCTAssertEqual(results.1.status, .success)
+    }
+
+
+    @MainActor func testNoHistoryWorkDoesNotTurnFailedRecentReadsIntoPartialSuccess() async {
+        let f = Fixture(); f.historyHasWork = false; f.dayStatus = [0: .failed, 1: .failed]
+        let result = await f.refresh(.fullHistory)
+        XCTAssertEqual(result.status, .failed)
+        XCTAssertEqual(result.points, 5)
+    }
+
 }

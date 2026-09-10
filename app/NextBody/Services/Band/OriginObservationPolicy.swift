@@ -6,8 +6,18 @@ import Foundation
 enum OriginObservationPolicy {
     static let slotDuration: TimeInterval = 5 * 60
 
-    static func accepts(slot: Date, dayStart: Date, dayEnd: Date, readStartedAt: Date) -> Bool {
-        slot >= dayStart && slot < dayEnd
-            && slot.addingTimeInterval(slotDuration) <= min(dayEnd, readStartedAt)
+    static func accepts(slot: Date, dayStart: Date, dayEnd: Date, readStartedAt: Date,
+                        snapshotStartedAt: Date? = nil) -> Bool {
+        guard let cutoff = coverageEnd(dayStart: dayStart, dayEnd: dayEnd,
+            readStartedAt: readStartedAt, snapshotStartedAt: snapshotStartedAt ?? readStartedAt) else { return false }
+        return slot >= dayStart && slot < dayEnd && slot.addingTimeInterval(slotDuration) <= cutoff
     }
+
+    /// A later database query cannot certify coverage after the native snapshot began.
+    static func coverageEnd(dayStart: Date, dayEnd: Date, readStartedAt: Date,
+                            snapshotStartedAt: Date) -> Date? {
+        let end = min(dayEnd, min(readStartedAt, snapshotStartedAt))
+        return end > dayStart ? end : nil
+    }
+
 }

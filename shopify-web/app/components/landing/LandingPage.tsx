@@ -479,19 +479,37 @@ export function LandingPage({locale}: {locale: LandingLocale}) {
               </Link>
               <a href="#science">{t.footer.science}</a>
             </nav>
+            <nav className="lp-foot-col" aria-label={t.footer.support}>
+              <b>{t.footer.support}</b>
+              <Link prefetch="intent" to="/pages/faq">
+                {t.footer.faq}
+              </Link>
+              <Link prefetch="intent" to="/pages/about">
+                {t.footer.about}
+              </Link>
+              <Link prefetch="intent" to="/pages/contact">
+                {t.footer.contact}
+              </Link>
+              <Link prefetch="intent" to="/blogs">
+                {t.footer.journal}
+              </Link>
+            </nav>
             <nav className="lp-foot-col" aria-label={t.footer.legal}>
               <b>{t.footer.legal}</b>
               <Link prefetch="intent" to="/policies/privacy-policy">
                 {t.footer.privacy}
+              </Link>
+              <Link prefetch="intent" to="/policies/user-agreement">
+                {t.footer.agreement}
+              </Link>
+              <Link prefetch="intent" to="/policies/terms-of-service">
+                {t.footer.terms}
               </Link>
               <Link prefetch="intent" to="/policies/refund-policy">
                 {t.footer.refund}
               </Link>
               <Link prefetch="intent" to="/policies/shipping-policy">
                 {t.footer.shipping}
-              </Link>
-              <Link prefetch="intent" to="/policies/terms-of-service">
-                {t.footer.terms}
               </Link>
             </nav>
           </div>

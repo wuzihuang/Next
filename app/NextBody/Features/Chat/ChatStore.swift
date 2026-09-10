@@ -10,9 +10,26 @@ final class ChatStore: ObservableObject {
     /// A separate service keeps panel/voice progress out of the chat stream.
     let ai = AIService()
     @Published private(set) var sendingScope: ChatTurnScope?
-    var isSending: Bool { sendingScope != nil }
+    private struct PanelHandoff {
+        let scope: ChatTurnScope
+        let service: AIService
+        let progress: AnyCancellable
+    }
+    @Published private var panelHandoffs: [UUID: PanelHandoff] = [:]
+    private var chatProgress: AnyCancellable?
+    var isSending: Bool { sendingScope != nil || !panelHandoffs.isEmpty }
     var isSendingCurrentSession: Bool {
         sendingScope?.isVisible(accountID: currentAccountID, sessionID: currentSessionID) == true
+            || currentPanelHandoff != nil
+    }
+    private var currentPanelHandoff: PanelHandoff? {
+        panelHandoffs.values.first {
+            $0.scope.isVisible(accountID: currentAccountID, sessionID: currentSessionID)
+        }
+    }
+    var thoughts: [AIService.Thought] {
+        if let handoff = currentPanelHandoff { return handoff.service.thoughts(for: handoff.scope.turnID) }
+        return ai.thoughts
     }
     @Published private(set) var persistenceError: String?
     private var accountID: String?
@@ -27,13 +44,17 @@ final class ChatStore: ObservableObject {
         SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId ?? "signed-out"
     }
 
-    init() { prepareForCurrentAccount() }
+    init() {
+        prepareForCurrentAccount()
+        chatProgress = ai.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
 
     func prepareForCurrentAccount() {
         let account = currentAccountID
         if accountID != account {
             accountID = account
             sendingScope = nil
+            panelHandoffs = [:]
             sessions = []
             currentSessionID = ""
             archiveStore = nil
@@ -114,9 +135,20 @@ final class ChatStore: ObservableObject {
         persist()
     }
 
+    /// One saved chat gone, the rest kept. The current selection moves to the next one.
+    func deleteSession(_ id: String) -> Bool {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return false }
+        sessions.remove(at: index)
+        if let uuid = UUID(uuidString: id) { panelHandoffs[uuid] = nil }
+        if currentSessionID == id { currentSessionID = sessions.first?.id ?? "" }
+        if sessions.isEmpty { startNewSession() } else { persist() }
+        return true
+    }
+
     func clearAll() {
         do {
             try archiveStore?.clear()
+            panelHandoffs = [:]
             sessions = []
             currentSessionID = ""
             storageReady = archiveStore != nil
@@ -124,6 +156,44 @@ final class ChatStore: ObservableObject {
         } catch {
             reportPersistenceError(error)
         }
+    }
+
+    /// The panel's running request becomes this conversation's first turn. The original
+    /// text and attachment are recorded once; opening the page never submits them again.
+    func beginPanelHandoff(text: String, dataURL: String?, conversationID: UUID,
+                           turnID: UUID, service: AIService) -> ChatTurnScope {
+        prepareForCurrentAccount()
+        let sessionID = conversationID.uuidString
+        let scope = ChatTurnScope(accountID: currentAccountID, sessionID: sessionID, turnID: turnID)
+        if !sessions.contains(where: { $0.id == sessionID }) {
+            sessions.insert(ChatSession(id: sessionID, title: String(text.prefix(18)), subtitle: text,
+                                        updatedAt: Date(), tags: ["AI COACH"], photosCount: 0, messages: []), at: 0)
+        }
+        if let index = sessions.firstIndex(where: { $0.id == sessionID }),
+           !sessions[index].messages.contains(where: { $0.id == turnID }) {
+            sessions[index].messages.append(ChatMessage(id: turnID, sender: .user, text: text, dataURL: dataURL))
+            if dataURL != nil { sessions[index].photosCount += 1 }
+        }
+        currentSessionID = sessionID
+        let progress = service.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        panelHandoffs[turnID] = PanelHandoff(scope: scope, service: service, progress: progress)
+        persist()
+        return scope
+    }
+
+    func finishPanelHandoff(_ scope: ChatTurnScope, widget: PanelWidget?, error: String?) {
+        guard panelHandoffs[scope.turnID]?.scope == scope else { return }
+        panelHandoffs[scope.turnID] = nil
+        guard scope.accountID == currentAccountID, scope.accountID == accountID,
+              let index = sessions.firstIndex(where: { $0.id == scope.sessionID }),
+              let answerID = UUID(uuidString: scope.sessionID),
+              !sessions[index].messages.contains(where: { $0.id == answerID }) else { return }
+        sessions[index].messages.append(ChatMessage(
+            id: answerID, sender: .assistant,
+            text: widget?.sentence ?? error ?? L("Unable to answer right now. Please try again."), widget: widget
+        ))
+        sessions[index].updatedAt = Date()
+        persist()
     }
 
     func send(text: String, image: UIImage? = nil, dataURL: String? = nil, dataStore: DataStore) async {

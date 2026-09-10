@@ -8,7 +8,12 @@ final class OriginDataSync {
     private let band: BandService
     private let db = SupabaseClient.shared
     private static let log = Logger(subsystem: "com.nextbody.hoop", category: "sync")
-    private struct DatedPoint { let calendarDay: Date; let readAt: Date; let point: OriginPoint }
+    private struct DatedPoint {
+        let calendarDay: Date
+        let readStartedAt: Date
+        let readAt: Date
+        let point: OriginPoint
+    }
 
     init(band: BandService = Band.live) { self.band = band }
 
@@ -31,8 +36,11 @@ final class OriginDataSync {
             return .init(status: .throttled)
         }
 #endif
-        return await refreshCoordinator.refresh(request, cadence: SyncCadence.interval,
+        let result = await refreshCoordinator.refresh(request, cadence: SyncCadence.interval,
             work: refreshWork(into: store, request: request))
+        // ADR 0018 · the next turn cites the band's alarms without a BLE round trip.
+        await PhoneToolRunner.shared.primeAlarms()
+        return result
     }
 
     private static func refreshWork(into store: DataStore, request: BandRefreshRequest) -> BandRefreshCoordinator.Work {
@@ -66,10 +74,11 @@ final class OriginDataSync {
                 let day = today.adding(days: -daysAgo)
                 let points = await sync.sync(day: day, scope: scope, into: store, settle: daysAgo == 0)
                 return .init(status: BandRefreshResult.Status(rawValue: sync.lastOutcome) ?? .failed, points: points)
-            }, history: {
-                guard let scope else { return .init(status: .cancelled) }
-                return await sync.backfillIfNeeded(scope: scope, into: store, force: true)
-            }, finish: {
+            }, history: { recentDays in
+                guard let scope else { return .init(result: .init(status: .cancelled)) }
+                return await sync.backfillIfNeeded(scope: scope, today: today, recentDays: recentDays, into: store)
+            }, checkHistory: { true }, finish: {
+                await Band.live.finishFreshSync()
                 BandSyncActivity.shared.phase = "idle"
             })
     }
@@ -145,12 +154,23 @@ final class OriginDataSync {
         guard Self.refreshState().rejection(expected: scope) == nil else { return 0 }
         let userId = scope.account
         let deviceKey = scope.binding
+        let outcomeKey = Self.historyOutcomeKey(scope: scope, day: day)
+        // Archive/local failures are not all represented by publication domain receipts.
+        // A crash or early exit must leave this date as repair work on the next refresh.
+        UserDefaults.standard.set("failed", forKey: outcomeKey)
+        defer {
+            if Self.refreshState().rejection(expected: scope) == nil {
+                UserDefaults.standard.set(lastOutcome, forKey: outcomeKey)
+            }
+        }
         await Self.flushPendingEvidence(userId: userId)
         guard Self.refreshState().rejection(expected: scope) == nil else { return 0 }
         var calendar = Calendar.current
         calendar.timeZone = .current
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: day.start)!
         let readEnd = min(dayEnd, now)
+        var originReadEnd = readEnd
+        var originSnapshotCoversDay = true
         var points: [DatedPoint] = []
         /// Every measured HRV tick of this user day, by instant. Both a column on the rows
         /// this sync inserts and the payload that fills the rows earlier syncs already stored.
@@ -181,10 +201,16 @@ final class OriginDataSync {
             guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else { lastOutcome = "failed"; return 0 }
             let calendarDay = calendar.startOfDay(for:
                 calendar.date(byAdding: .day, value: -offset, to: now) ?? now)
-            let page: [OriginPoint]
+            let page: OriginDataPage
             do {
-                page = try await BandReadiness.read(account: userId, binding: deviceKey) { try await band.readOriginData(dayOffset: offset) }
+                page = try await BandReadiness.read(account: userId, binding: deviceKey) {
+                    try await band.readOriginPage(calendarDay: calendarDay)
+                }
                 pagesReturned += 1
+                if let end = OriginObservationPolicy.coverageEnd(dayStart: day.start, dayEnd: dayEnd,
+                    readStartedAt: now, snapshotStartedAt: page.readStartedAt) {
+                    originReadEnd = min(originReadEnd, end)
+                } else { originSnapshotCoversDay = false }
             } catch {
                 #if DEBUG
                 NightDiagnostics.shared.record("sync.origin_read_failed", fields: [
@@ -192,11 +218,11 @@ final class OriginDataSync {
                 ])
                 #endif
                 BandLog.shared.record("readOriginData(\(offset))", error: error)
-                page = []
+                page = OriginDataPage(points: [], readStartedAt: now, readCompletedAt: now)
             }
-            // This is the SDK database observation time, preserved through offline retries.
-            // It orders revisions; it is not a device-reported measurement timestamp.
-            let originReadAt = Date()
+            // Preserve the actual native snapshot clock through cache reuse and retries.
+            // A later SDK database query does not make an older measurement revision new.
+            let originReadAt = page.readCompletedAt
             let health: BandHealthData
             do {
                 health = try await BandReadiness.read(account: userId, binding: deviceKey) { try await band.readHealthData(dayOffset: offset) }
@@ -278,8 +304,9 @@ final class OriginDataSync {
                       ts >= day.start, ts < dayEnd, ts <= now else { continue }
                 opticalTicks[ts] = sample.optical
             }
-            points.append(contentsOf: page.map { point in
-                DatedPoint(calendarDay: calendarDay, readAt: originReadAt, point: OriginPoint(
+            points.append(contentsOf: page.points.map { point in
+                DatedPoint(calendarDay: calendarDay, readStartedAt: page.readStartedAt,
+                           readAt: originReadAt, point: OriginPoint(
                     time: point.time, heart: point.heart, step: point.step, cal: point.cal,
                     distance: point.distance, met: VitalSample.validatedMET(point.met),
                     temperature: temperatures[Self.clock(point.time)],
@@ -389,7 +416,7 @@ final class OriginDataSync {
             // Page 0 includes future placeholders and the aggregate still accumulating.
             // Deferred slots are considered again on the next full page read.
             guard OriginObservationPolicy.accepts(slot: ts, dayStart: day.start,
-                dayEnd: dayEnd, readStartedAt: now) else { return nil }
+                dayEnd: dayEnd, readStartedAt: now, snapshotStartedAt: dated.readStartedAt) else { return nil }
             if let temperature = point.temperature {
                 temperatureTicks[ts] = temperature
             }
@@ -533,7 +560,8 @@ final class OriginDataSync {
                 observedAt: now, mappingVersion: version, status: status, samples: samples)
         }
         do {
-            try publication.stage(evidenceDomain("origin", rows, .partial, version: "veepoo-rmssd-v1"))
+            try publication.stage(evidenceDomain("origin", rows, .partial, version: "veepoo-rmssd-v1",
+                window: (day.start, originReadEnd)))
             try publication.stage(evidenceDomain("rr", rrRows, .partial, version: "veepoo-rmssd-v2"))
         } catch {
             auxiliaryUploaded = false
@@ -621,7 +649,8 @@ final class OriginDataSync {
 
         // Every domain is acknowledged independently. Read failures keep a repair range and
         // cannot inherit another domain's success. Full-day overlap is bounded by SDK pages.
-        let originStatus: BandDomainReadStatus = pagesReturned == wanted.count ? .complete : .partial
+        let originStatus: BandDomainReadStatus = pagesReturned == wanted.count && originSnapshotCoversDay
+            ? .complete : .partial
         let domains: [(String, [[String: Any]], BandDomainReadStatus)] = [
             ("origin", rows, originStatus),
             ("hrv", hrvTicks.sorted { $0.key < $1.key }.map {
@@ -637,7 +666,8 @@ final class OriginDataSync {
             ("sleep", [], sleepStatus),
         ]
         var publications = domains.map { name, samples, status in
-            evidenceDomain(name, samples, status, version: name == "origin" ? "veepoo-rmssd-v1" : "veepoo-rmssd-v2")
+            evidenceDomain(name, samples, status, version: name == "origin" ? "veepoo-rmssd-v1" : "veepoo-rmssd-v2",
+                           window: name == "origin" ? (day.start, originReadEnd) : nil)
         }
         let oxygenWindow = Self.nightWindow(day: day, night: night, store: store)
         var oxygenRead = oxygenStatus
@@ -814,13 +844,17 @@ final class OriginDataSync {
         return nil
     }
 
+    private static let domainTransport = BandDeltaTransport { name, args, owner in
+        let response = try await SupabaseClient.shared.rpc(name, args: args, expectedOwner: owner)
+        return try JSONDecoder().decode(BandIngestionAcknowledgment.self,
+            from: JSONSerialization.data(withJSONObject: response))
+    }
+
     private static func evidencePublication(userId: String) throws -> BandEvidencePublication {
         BandEvidencePublication(account: userId, local: try LocalDataStore.shared(), authorized: {
             ConsentStore.shared.granted && SupabaseClient.currentUserIdSnapshot() == userId
         }, transport: .init(ingest: { args, owner in
-            let response = try await SupabaseClient.shared.rpc("ingest_band_domain", args: args, expectedOwner: owner)
-            return try JSONDecoder().decode(BandIngestionAcknowledgment.self,
-                from: JSONSerialization.data(withJSONObject: response))
+            try await domainTransport.ingest(args, owner: owner)
         }, sleep: { row, owner in
             try await SupabaseClient.shared.upsert("sleep_nights", row: row,
                 onConflict: "user_id,user_day", expectedOwner: owner)
@@ -856,74 +890,71 @@ final class OriginDataSync {
         }
     }
 
-    /// A first sync on this phone pulls what the band still holds — `watchDataDayNumber`
-    /// days, seven on a HOOP — so the week bars, the heat map and HR_REST stand on a history
-    /// from the first evening rather than from the second week. Once per bound band, lowest
-    /// priority; the server ignores what it already has, so a re-run costs a transfer and
-    /// changes nothing.
-    private func backfillIfNeeded(scope: BandRefreshCoordinator.Scope,
-                                  into store: DataStore, force: Bool = false) async -> BandRefreshResult {
-        guard Self.refreshState().rejection(expected: scope) == nil else { return .init(status: .cancelled) }
+    private static func historyOutcomeKey(scope: BandRefreshCoordinator.Scope, day: UserDay) -> String {
+        "nb.sync.day-outcome.v1.\(scope.account).\(scope.binding).\(dayString(day.start))"
+    }
+
+    /// Check retained and locally cached history once per successful user day. Every
+    /// refresh repairs missing/failed dates; dates already completed earlier in this same
+    /// refresh are reused. There is no "attempted the whole week" success flag.
+    private func backfillIfNeeded(scope: BandRefreshCoordinator.Scope, today: UserDay,
+                                  recentDays: [Int: BandRefreshResult],
+                                  into store: DataStore) async -> BandRefreshCoordinator.HistoryResult {
+        guard Self.refreshState().rejection(expected: scope) == nil else {
+            return .init(result: .init(status: .cancelled))
+        }
         let bound = scope.binding
         let userId = scope.account
-        // ⚠️ "v2": the first version of this mark was set whether or not a single day had
-        // come off the band, and on the phone that found the readBasicData bug it was set
-        // after seven failed reads. A new key is the only way that phone asks again.
-        // ⚠️ "v4" (2026-09-03): raw_samples.hrv arrived after those days were stored, so every
-        // tick the backfill had already written carries a null no later sync would ever fill —
-        // fill_hrv only reaches the days a sync actually asks for. One more pass writes them.
-        // ⚠️ "v5": origin disValue is km; those days stored 0 m. fill_dis repairs them.
-        // v9 also replays cached history into the exact-minute sleep HRV archive.
-        let key = "nb.band.backfilled.v9.\(userId).\(bound).\(Self.dayString(Date()))"
-        guard force || !UserDefaults.standard.bool(forKey: key) else { return .init(status: .success) }
-        // Each native transfer reserves the sensor; upload/settlement leave live data running.
-        let result = await { () async -> BandRefreshResult in
-            let identity = try? await BandReadiness.read(account: userId, binding: bound) {
-                try await band.readIdentity()
+        let identity = try? await BandReadiness.read(account: userId, binding: bound) {
+            try await band.readIdentity()
+        }
+        let cachedOffsets: [Int]
+        do {
+            cachedOffsets = try await BandReadiness.read(account: userId, binding: bound) {
+                try await band.cachedHistoryDayOffsets(limit: 6)
             }
-            // saveDays of 0 is the band not having said; asking for the SDK's usual seven costs
-            // nothing, because a page the band does not hold answers empty.
-            let held = (identity?.watchDataDayNumber).flatMap { $0 > 0 ? $0 : nil } ?? 7
-            let today = UserDay.containing(Date())
-            let cachedOffsets: [Int]
-            do {
-                cachedOffsets = try await BandReadiness.read(account: userId, binding: bound) {
-                    try await band.cachedHistoryDayOffsets(limit: 6)
-                }
-            } catch {
-                BandLog.shared.record("cachedHistoryDayOffsets", error: error)
-                return .init(status: .failed)
-            }
-            let offsets = BandSyncPolicy.historyDayOffsets(retained: held, cachedOffsets: cachedOffsets)
-            let days = offsets.max() ?? 0
-            var results: [BandRefreshResult] = []
-            if days > 0 {
-                for back in offsets {
-                    if let rejected = Self.refreshState().rejection(expected: scope) {
-                        return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
-                    }
-                    let points = await sync(day: today.adding(days: -back), scope: scope, into: store, settle: false)
-                    results.append(.init(status: BandRefreshResult.Status(rawValue: lastOutcome) ?? .failed, points: points))
-                }
-                if let rejected = Self.refreshState().rejection(expected: scope) {
-                    return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
-                }
-                await Repository.shared.settleNow(days: days)
-                if let rejected = Self.refreshState().rejection(expected: scope) {
-                    return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
-                }
-                await Repository.shared.load(days: days, endingAt: today, into: store)
-                if let rejected = Self.refreshState().rejection(expected: scope) {
-                    return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
-                }
-                await Repository.shared.loadSleepScores(days: 30, endingAt: today, into: store)
-            }
-            return results.isEmpty ? .init(status: .success) : .combining(results, at: Date())
-        }()
-        // Only a backfill in which every day answered is over. A day the band did not
-        // answer is asked again on the next launch — the mark is not a record of trying.
-        if result.status == .success { UserDefaults.standard.set(true, forKey: key) }
-        return result
+        } catch {
+            BandLog.shared.record("cachedHistoryDayOffsets", error: error)
+            return .init(result: .init(status: .failed))
+        }
+        let now = Date()
+        // SDK offsets are relative to its current calendar date. Translate them to the
+        // refresh's captured day so a slow pull crossing midnight keeps its original dates.
+        let calendar = Calendar.current
+        let elapsedDays = calendar.dateComponents([.day], from: today.start,
+                                                   to: calendar.startOfDay(for: now)).day ?? 0
+        let candidates = BandSyncPolicy.historyDayOffsets(retained: identity?.watchDataDayNumber,
+                                                           cachedOffsets: cachedOffsets)
+        let offsets = BandSyncPolicy.historyOffsetsToSync(available: candidates, elapsedDays: elapsedDays,
+                                                           recentDays: recentDays.mapValues(\.status)) { offset in
+            let day = today.adding(days: -offset)
+            return BandSyncPolicy.needsHistorySync(
+                states: BandDomainSyncState.load(userId: userId, deviceKey: bound, day: Self.dayString(day.start)),
+                outcome: UserDefaults.standard.string(forKey: Self.historyOutcomeKey(scope: scope, day: day))
+                    .flatMap(BandRefreshResult.Status.init(rawValue:)),
+                start: day.start, end: day.end, now: now)
+        }
+        guard let days = offsets.max() else { return .init(result: nil) }
+        var results: [BandRefreshResult] = []
+        var recoveredDays: Set<Int> = []
+        func cancelled(_ status: BandRefreshResult.Status) -> BandRefreshCoordinator.HistoryResult {
+            .init(result: .init(status: status, points: results.reduce(0) { $0 + $1.points }),
+                  recoveredDays: recoveredDays)
+        }
+        for offset in offsets {
+            if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
+            let points = await sync(day: today.adding(days: -offset), scope: scope, into: store, settle: false)
+            let status = BandRefreshResult.Status(rawValue: lastOutcome) ?? .failed
+            results.append(.init(status: status, points: points))
+            if status == .success, recentDays[offset] != nil { recoveredDays.insert(offset) }
+        }
+        if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
+        await Repository.shared.settleNow(days: days + max(0, elapsedDays))
+        if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
+        await Repository.shared.load(days: days, endingAt: today, into: store)
+        if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
+        await Repository.shared.loadSleepScores(days: 30, endingAt: today, into: store)
+        return .init(result: .combining(results, at: Date()), recoveredDays: recoveredDays)
     }
 
     private static func mergeOptical(_ stored: [MealResponseIndex.Point],

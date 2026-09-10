@@ -43,7 +43,7 @@ const BLOCKED_TABLES = new Set([
 // SDK turns that into a dead turn — the panel falls back over a spelling. The name is
 // checked in readData(), which answers with the list of real ones.
 export const dataReadSchema = z.object({
-  metric: z.coerce.string().describe("A metric id from data.catalog"),
+  metric: z.coerce.string().describe("A metric id from find metric"),
   from: z.coerce.string().optional(),
   to: z.coerce.string().optional(),
   bucketMinutes: z.coerce.number().int().min(5).max(120).optional(),

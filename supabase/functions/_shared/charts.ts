@@ -14,7 +14,7 @@ import { tool, type Tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import { CHART_SKILLS, toolDescription, type ChartSkill } from "./skills.ts";
 import { TARGETS, type Envelope } from "./contract.ts";
-import { fetchAs, sourceList, type ChartData, type Ctx, type Kind, type SourceResult } from "./sources.ts";
+import { fetchAs, sourceList, SOURCE_IDS, type ChartData, type Ctx, type Kind, type SourceResult } from "./sources.ts";
 import type { NumberLedger } from "./ledger.ts";
 
 const FAMILY_KIND: Record<ChartSkill["family"], Kind> = {
@@ -42,7 +42,9 @@ function wordsFor(locale: string) {
     // every model step: the render step's schema payload measured 44k characters, and each
     // step was costing 15 s. The rules live in the system prompt (S3, S5, S11); the slot
     // descriptions here only name the cap.
-    claims: z.array(z.object({id:z.string(),metric:z.string(),unit:z.string().nullable(),from:z.string().nullable(),to:z.string(),value:z.coerce.number().finite()})).max(32).optional().describe("Measured claims: cite this turn's evidence id, metric, unit, range, value."),
+    // ⚠️ Loose on purpose (2026-09-09): `"to": null` in a claim threw AI_InvalidToolArgumentsError
+    // and killed a turn whose phone write had already succeeded. Shape is checked in execute().
+    claims: z.any().optional().describe("Measured claims: [{id, metric, unit, from, to, value}] citing this turn's evidence id, metric, unit, range, value."),
     // ⚠️ Optional in the schema, required in execute(). Seen on production: the model left
     // `title` out of screen.render.food and the SDK threw AI_InvalidToolArgumentsError,
     // which kills the whole turn — the panel fell to the battery frame over a missing word.
@@ -122,7 +124,8 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
         } else {
           data = literalData(skill, args);
         }
-        if (args.claims?.some((claim: import("./ledger.ts").MeasurementClaim)=>!ledger.hasClaim(claim))) {
+        const claims = normalizeClaims(args.claims);
+        if (claims.some((claim)=>!ledger.hasClaim(claim))) {
           return {rendered:false,error:"INVALID_EVIDENCE",say:"A measured claim does not match the cited current metric, unit, interval, revision or value. Read the correct evidence and retry."};
         }
 
@@ -142,6 +145,22 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
     });
   }
   return tools;
+}
+
+/// A claim list the model wrote as an array, as JSON text, or with nulls where strings go.
+/// Anything that is not a claim-shaped object is dropped rather than thrown.
+function normalizeClaims(raw: unknown): import("./ledger.ts").MeasurementClaim[] {
+  let value: unknown = raw;
+  if (typeof value === "string") { try { value = JSON.parse(value); } catch { return []; } }
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 32).flatMap((c) => {
+    if (!c || typeof c !== "object") return [];
+    const o = c as Record<string, unknown>;
+    const n = Number(o.value);
+    if (!Number.isFinite(n) || typeof o.id !== "string" || typeof o.metric !== "string") return [];
+    return [{ id: o.id, metric: o.metric, unit: o.unit == null ? null : String(o.unit),
+      from: o.from == null ? null : String(o.from), to: o.to == null ? String(o.from ?? "") : String(o.to), value: n }];
+  });
 }
 
 /// Charts that carry no series: the model writes the value it read.
@@ -189,7 +208,8 @@ function literalSchema(skill: ChartSkill, words: ReturnType<typeof wordsFor>) {
 function literalData(skill: ChartSkill, a: any): Record<string, unknown> {
   switch (skill.type) {
     case "metric":
-      return { hero: [a.value, a.unit].filter(Boolean).join(" "), value: a.value, unit: a.unit, label: a.label, ref: a.ref };
+      // "32 %" reads as two tokens; a percent sign sits on its number.
+      return { hero: [a.value, a.unit].filter(Boolean).join(String(a.unit).trim() === "%" ? "" : " "), value: a.value, unit: a.unit, label: a.label, ref: a.ref };
     // A text panel with no headline draws an empty highlight; the title is the honest
     // stand-in, which is what the tool-call repair already did before it could parse.
     case "text":
@@ -256,3 +276,48 @@ function numbersIn(s: string | undefined): number[] {
 }
 
 export type { SourceResult };
+
+
+/// The three literal charts keep their own tools (they are direct outputs in read/act and
+/// carry their own fields); every source-backed chart is one tool, `screen.render`, that
+/// takes `type` and `source`. 33 tools re-sent on every render step measured 32k characters
+/// of schema; this is under 8k, and the chart rules already live in S11.
+export const RENDER_TOOL = "screen.render";
+export const LITERAL_TYPES = new Set(["text", "food", "metric"]);
+
+export function buildRenderTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: Envelope) => void,
+                                 locale = "en-US"): Record<string, Tool> {
+  const perChart = buildChartTools(ctx, ledger, onRender, locale);
+  const en = locale.startsWith("en");
+  const tools: Record<string, Tool> = {};
+  for (const t of LITERAL_TYPES) tools[`screen.render.${t}`] = perChart[`screen.render.${t}`];
+  const series = CHART_SKILLS.filter((s) => s.sources.length > 0);
+  const typeLines = series.map((s) => `${s.type}: ${s.sources.join(", ")}`).join("\n");
+  const usedSources = [...new Set(series.flatMap((s) => s.sources))].filter((id) => SOURCE_IDS.includes(id));
+  tools[RENDER_TOOL] = tool({
+    description: (en
+      ? `Draw one series chart from a server-filled source. type is one of ${series.map((s) => s.type).join(" / ")} (rules in S11); source must be one of the type's sources below. The server reads the rows and returns NO_DATA when there are none — then pick another source or type, or use screen.render.text with ——.\nTYPE → SOURCES\n`
+      : `画一张由服务端填数据的序列图。type 取 ${series.map((s) => s.type).join(" / ")} 之一（规则见 S11）；source 必须是该 type 下列出的数据源之一。服务端读行，没有数据时返回 NO_DATA——那就换 source 或换图，或用 screen.render.text 写 ——。\nTYPE → SOURCES\n`)
+      + typeLines + "\n" + (en ? "SOURCES\n" : "数据源\n") + sourceList(usedSources),
+    parameters: z.object({
+      ...wordsFor(locale),
+      type: z.string().describe(en ? "chart type" : "图的类型"),
+      source: z.string().optional().describe(en ? "data source id for that type" : "该类型允许的数据源 id"),
+    }),
+    // deno-lint-ignore no-explicit-any
+    execute: async (args: any, opts: any): Promise<Rendered> => {
+      const raw = String(args?.type ?? "").trim().toLowerCase().replace(/^screen\.render\./, "");
+      const skill = CHART_SKILLS.find((s) => s.type.toLowerCase() === raw);
+      if (!skill) {
+        return { rendered: false, error: "NO_DATA", say: `"${args?.type}" is not a chart type. Use one of: ${series.map((s) => s.type).join(", ")} (or screen.render.text / food / metric).` };
+      }
+      const target = perChart[`screen.render.${skill.type}`];
+      if (!target?.execute) return { rendered: false, error: "NO_DATA", say: "That chart is unavailable." };
+      if (skill.sources.length && !args?.source) {
+        return { rendered: false, error: "NO_DATA", say: `${skill.type} needs a source: one of ${skill.sources.join(", ")}.` };
+      }
+      return await target.execute(args, opts) as Rendered;
+    },
+  });
+  return tools;
+}

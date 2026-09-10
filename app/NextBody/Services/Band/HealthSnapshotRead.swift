@@ -143,6 +143,10 @@ final class HealthSnapshotRead {
         // unknown column is a 400 for the whole select, and that 400 took the home
         // screen offline.
         async let trainingExtras = selectTrainingExtras(ids: resultIds)
+        // TARGET_IN's provenance arrives with migration 20260908160000, and is asked for
+        // apart from the fuel row for the same reason active_minutes is: naming a column
+        // the project does not have yet is a 400 for the whole select.
+        async let fuelBasisRows = selectFuelBasis(ids: resultIds)
         async let trainingEvidenceRows = try? selectByResultId(
             "daily_training", columns: "result_id,recorded_steps,evidence", ids: resultIds)
         async let weighInRows = select("weigh_ins", query: [
@@ -210,7 +214,7 @@ final class HealthSnapshotRead {
         ])
         // 04B · SLEEP card. Prefetched with the rest so Home does not wait a serial hop.
         async let nightRowsAsync = select("sleep_nights", query: [
-            .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line,sleep_start,wake_at,raw"),
+            .init(name: "select", value: "user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_line,sleep_start,wake_at,raw,corrected_start,corrected_end,corrected_at"),
             .init(name: "user_day", value: "gte.\(from)"),
             .init(name: "user_day", value: "lte.\(to)"),
         ])
@@ -227,7 +231,19 @@ final class HealthSnapshotRead {
             .init(name: "order", value: "ts.asc"),
         ])
 
-        let fuel = try await fuelRows.values
+        var fuel = try await fuelRows.values
+        if let basisRows = await fuelBasisRows?.values {
+            let by = Dictionary(uniqueKeysWithValues: basisRows.compactMap { row in
+                (row["result_id"] as? String).map { ($0, row) }
+            })
+            fuel = fuel.map { row in
+                guard let id = row["result_id"] as? String, let basis = by[id] else { return row }
+                var merged = row
+                merged["target_basis_kcal"] = basis["target_basis_kcal"]
+                merged["target_basis_days"] = basis["target_basis_days"]
+                return merged
+            }
+        }
         let reserve = try await reserveRows.values
         var training = try await trainingRows.values
         if let extras = await trainingExtras?.values {
@@ -439,6 +455,11 @@ final class HealthSnapshotRead {
 
     private func selectTrainingExtras(ids: [String]) async -> Rows? {
         try? await selectByResultId("daily_training", columns: "result_id,active_minutes,distance_m", ids: ids)
+    }
+
+    private func selectFuelBasis(ids: [String]) async -> Rows? {
+        try? await selectByResultId(
+            "day_fuel", columns: "result_id,target_basis_kcal,target_basis_days", ids: ids)
     }
 
     static func decodeVitals(_ rows: [Row]) -> [VitalSample] {

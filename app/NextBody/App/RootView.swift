@@ -35,19 +35,33 @@ struct RootView: View {
             SheetHost(route: s)
         }
         // ADR 0018 · a phone tool with a side effect asks here, wherever the turn started.
-        // ⚠️ The legacy `.alert(item:) { Alert(...) }` form re-wrapped the navigation bar and
-        // UIKit aborted at launch ("nest wrapped navigation controllers"); this form does not.
-        .alert(confirmation?.title ?? "",
-               isPresented: Binding(get: { confirmation != nil },
-                                    set: { if !$0, let confirmation {
-                                        phoneTools.resolveConfirmation(id: confirmation.id, approved: false)
-                                    } }),
-               presenting: confirmation) { c in
-            Button(L("CONFIRM ACTION")) { phoneTools.resolveConfirmation(id: c.id, approved: true) }
-            Button(L("CANCEL"), role: .cancel) { phoneTools.resolveConfirmation(id: c.id, approved: false) }
-        } message: { c in
-            Text(c.detail)
+        // ⚠️ Drawn by the app, not a system alert. `.alert(_:isPresented:presenting:)` showed on
+        // the simulator and never on an iPhone (26.3): the prompt was published, the app was in
+        // front, nothing covered it, and every confirm timed out at 60 s unseen (2026-09-09).
+        // An overlay in our own ZStack cannot be swallowed by UIKit presentation state.
+        .overlay {
+            if let c = confirmation {
+                PhoneToolConfirmOverlay(prompt: c,
+                    confirm: { phoneTools.resolveConfirmation(id: c.id, approved: true) },
+                    cancel: { phoneTools.resolveConfirmation(id: c.id, approved: false) })
+                .transition(.opacity)
+                .onAppear {
+                    #if DEBUG
+                    Logger(subsystem: "com.nextbody.hoop", category: "phone-tool")
+                        .notice("NB phone · overlay shown \(c.title, privacy: .public)")
+                    // `NB_DEBUG_AUTOCONFIRM=1` · a harness cannot tap the phone; approve after a
+                    // beat so the real band write can be exercised end to end.
+                    if ProcessInfo.processInfo.environment["NB_DEBUG_AUTOCONFIRM"] == "1" {
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(2))
+                            phoneTools.resolveConfirmation(id: c.id, approved: true)
+                        }
+                    }
+                    #endif
+                }
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: confirmation?.id)
         .onAppear { phoneTools.router = router }
     }
 
@@ -296,6 +310,61 @@ enum SheetChrome {
         case .export:                       return 440
         case .goal, .notifications, .units: return 480
         default:                            return maxHeight
+        }
+    }
+}
+
+
+/// The phone-tool confirm: one question, what it will do, CANCEL / CONFIRM. Sixty seconds
+/// without a tap is CANCELLED (PhoneToolExecution keeps the timer).
+struct PhoneToolConfirmOverlay: View {
+    let prompt: PhoneToolExecution.Prompt
+    let confirm: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.62).ignoresSafeArea()
+                .onTapGesture { }
+            VStack(alignment: .leading, spacing: 14) {
+                Text(prompt.title)
+                    .font(NBFont.ui(600, 20))
+                    .foregroundStyle(NB.text1)
+                if !prompt.detail.isEmpty {
+                    Text(prompt.detail)
+                        .font(NBFont.ui(400, 16))
+                        .foregroundStyle(NB.white.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 12) {
+                    Button(action: cancel) {
+                        Text(L("CANCEL"))
+                            .font(NBFont.ui(600, 17))
+                            .foregroundStyle(NB.lime1)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(NB.carbon4, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("phonetool.cancel")
+                    Button(action: confirm) {
+                        Text(L("CONFIRM ACTION"))
+                            .font(NBFont.ui(600, 17))
+                            .foregroundStyle(NB.lime1)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(NB.carbon4, in: Capsule())
+                            .overlay(Capsule().stroke(NB.lime1.opacity(0.6), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("phonetool.confirm")
+                }
+                .padding(.top, 6)
+            }
+            .padding(22)
+            .frame(width: min(NB.Layout.screenWidth - 40, 360))
+            .background(NB.carbon2, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(NB.hairline, lineWidth: 1))
         }
     }
 }

@@ -50,7 +50,11 @@ enum VitalsMetric: String, Hashable, CaseIterable {
         switch self {
         case .heart:    NB.lime1
         case .sleep:    NB.violet1
-        case .hrv:      NB.blue1
+        // 偏红 · RMSSD is the pulse's own variability, so it wears a heart colour rather
+        // than the blue it shared with REM and the skin-temp lows. ⚠️ The pale rose, not
+        // `alert2`: a full alert red on a field of dots reads as a warning about the night
+        // rather than as the instrument's own colour.
+        case .hrv:      NB.alert1
         case .response: NB.compareAmber
         case .stress:   NB.ember1
         case .temp:     NB.cyan1

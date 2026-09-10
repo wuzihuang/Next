@@ -33,11 +33,11 @@ struct HeartBoard: View {
         CardBlock(title: L("ON THE SAME CLOCK"), trailing: L("COMPANIONS SHARE THIS CLOCK")) {
             companionHRV
             companionOxygen
-            VitalsAxis(labels: window.labels, highlightsLast: window.endsNow, tint: NB.blue1)
+            VitalsAxis(labels: window.labels, highlightsLast: window.endsNow, tint: VitalsMetric.hrv.tint)
                 .padding(.trailing, VitalsScaleRail.gutter)
             VitalsChartLegend(
                 items: [
-                    .init(text: L("WINDOW RMSSD · SPARSER THAN HEART"), tint: NB.blue1),
+                    .init(text: L("WINDOW RMSSD · SPARSER THAN HEART"), tint: VitalsMetric.hrv.tint),
                     .init(text: L("NIGHT WINDOW ONLY · DAY IS EMPTY"), tint: NB.optimal2)
                 ],
                 trailing: nil)
@@ -66,13 +66,13 @@ struct HeartBoard: View {
     private var companionHRV: some View {
         if ticks.contains(where: { $0.hrv != nil }) {
             VitalsTrace(samples: ticks, value: { $0.hrv },
-                        window: window, low: 0, high: 90, tint: NB.blue1,
+                        window: window, low: 0, high: 90, tint: VitalsMetric.hrv.tint,
                         height: 112,
                         slotMinutes: slotMinutes,
                         unit: "MS")
             companionNote(L("HRV · RMSSD"),
                           trailing: ticks.compactMap(\.hrv).max().map { L("NIGHT HIGH %d", Int($0.rounded())) },
-                          tint: NB.blue1)
+                          tint: VitalsMetric.hrv.tint)
         } else {
             VitalsChartEmpty(line: L("NO RMSSD IN THIS WINDOW"),
                              sub: L("THE BAND MEASURES IT EVERY TEN MINUTES"))
@@ -82,12 +82,13 @@ struct HeartBoard: View {
     @ViewBuilder
     private var companionOxygen: some View {
         if !oxygen.isEmpty {
-            VitalsTrace(samples: [], value: { _ in nil },
-                        window: window, low: 85, high: 100, tint: NB.optimal2,
-                        height: 112,
-                        measuredPoints: oxygen.map { (ts: $0.ts, value: Double($0.percent)) },
-                        slotMinutes: slotMinutes,
-                        unit: "%")
+            // The same line the sleep page draws: overnight oxygen is one reading every few
+            // minutes, and an occupancy capsule per slot reads as a fence, not a night.
+            VitalsLineTrace(points: oxygen.map { (ts: $0.ts, value: Double($0.percent)) },
+                            window: window, low: 85, high: 100, tint: NB.optimal2,
+                            marksMaximum: false,
+                            height: 112,
+                            unit: "%")
             companionNote(L("OVERNIGHT SPO2"),
                           trailing: oxygen.map(\.percent).min().map { L("MIN %d", $0) },
                           tint: NB.optimal2)

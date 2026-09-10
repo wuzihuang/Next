@@ -16,6 +16,7 @@ protocol BandService: AnyObject {
     func reconnectIfBound() async
     func reconnectForSport() async
     func prepareFreshSync() async
+    func finishFreshSync() async
     /// ⚠️ The SDK only offers disconnect(). "Forget this HOOP" is the app clearing its own
     /// device id — "factory reset" is not something we can do, and the two must never blur.
     func disconnect() async
@@ -25,6 +26,10 @@ protocol BandService: AnyObject {
     func readBattery() async throws -> BandBattery
     func readHealthLight() async throws -> BandHealthLightState
     func writeHealthLight(_ state: BandHealthLightState) async throws -> BandHealthLightState
+    /// 断链提醒 · the firmware's own signal when the phone link drops. nil from the read
+    /// means this HOOP has no such switch, and the row is not drawn.
+    func readDisconnectReminder() async throws -> Bool?
+    func writeDisconnectReminder(_ on: Bool) async throws -> Bool
 
     /// F2 §05 · the band's BIA numbers are computed from the weight we push down.
     /// Every startBodyCompositionTest must be preceded by this, or the sample is discarded.
@@ -33,6 +38,9 @@ protocol BandService: AnyObject {
     /// F2 §01 · dayOffset is a paging parameter and nothing else.
     /// It never becomes a primary key and never reaches a sentence the user reads.
     func readOriginData(dayOffset: Int) async throws -> [OriginPoint]
+    /// Return native snapshot timing with the exact requested calendar page. Re-querying
+    /// its SDK cache does not turn an unfinished slot into a later, finalized observation.
+    func readOriginPage(calendarDay: Date) async throws -> OriginDataPage
     /// Existing SDK database dates, independent of the band's shorter live retention.
     /// This probe performs no Bluetooth transfer; offsets refer to user days to recover.
     func cachedHistoryDayOffsets(limit: Int) async throws -> [Int]
@@ -146,16 +154,29 @@ protocol BandService: AnyObject {
 }
 
 extension BandService {
+    func readOriginPage(calendarDay: Date) async throws -> OriginDataPage {
+        let startedAt = Date()
+        let calendar = Calendar.current
+        let offset = calendar.dateComponents([.day], from: calendar.startOfDay(for: calendarDay),
+                                              to: calendar.startOfDay(for: startedAt)).day ?? 0
+        let points = try await readOriginData(dayOffset: offset)
+        return OriginDataPage(points: points, readStartedAt: startedAt, readCompletedAt: Date())
+    }
     func cachedHistoryDayOffsets(limit: Int) async throws -> [Int] { [] }
     func readHealthLight() async throws -> BandHealthLightState { throw BandError.unsupported("Health light") }
     func writeHealthLight(_ state: BandHealthLightState) async throws -> BandHealthLightState {
         throw BandError.unsupported("Health light")
+    }
+    func readDisconnectReminder() async throws -> Bool? { nil }
+    func writeDisconnectReminder(_ on: Bool) async throws -> Bool {
+        throw BandError.unsupported("Disconnect reminder")
     }
     func reconnectForSport() async {
         guard !Task.isCancelled else { return }
         await reconnectIfBound()
     }
     func prepareFreshSync() async {}
+    func finishFreshSync() async {}
     /// 14 · one answer from the band about its sport state: 0 not started, 1 running,
     /// 2 paused; nil if it says nothing within three seconds.
     func sportRunState() async -> Int? {
@@ -420,6 +441,12 @@ struct PersonalInfo {
     let birthYear: Int
     let sexIsMale: Bool
     let targetStep: Int
+}
+
+struct OriginDataPage {
+    let points: [OriginPoint]
+    let readStartedAt: Date
+    let readCompletedAt: Date
 }
 
 /// One five-minute point, exactly as OriginData gives it.

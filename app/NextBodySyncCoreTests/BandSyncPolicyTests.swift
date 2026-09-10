@@ -50,4 +50,84 @@ final class BandSyncPolicyTests: XCTestCase {
         XCTAssertNil(BandSyncPolicy.legacyPeripheralIdentifier(bound: "AA:BB", rememberedAddress: "AA:BB", rememberedPeripheral: "not-a-uuid"))
         XCTAssertNil(BandSyncPolicy.legacyPeripheralIdentifier(bound: "AA:BB", rememberedAddress: "AA:BB", rememberedPeripheral: nil))
     }
+
+    private let domains = ["origin", "hrv", "temperature", "rr", "sleep", "oxygen", "response"]
+    private let auditNow = Date(timeIntervalSince1970: 1_789_000_000)
+
+    private func confirmedHistory(at: Date? = nil, end: Date? = nil) -> [BandDomainSyncState] {
+        let today = Calendar.current.startOfDay(for: auditNow)
+        let dayStart = Calendar.current.date(byAdding: .day, value: -3, to: today)!
+        let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart)!
+        return domains.map { domain in
+            .init(domain: domain, status: .complete, attemptedAt: at ?? auditNow,
+                  acknowledgedStart: dayStart, acknowledgedEnd: end ?? dayEnd,
+                  repairStart: nil, repairEnd: nil)
+        }
+    }
+
+    private func needsAudit(_ states: [BandDomainSyncState], outcome: BandRefreshResult.Status? = .success) -> Bool {
+        let today = Calendar.current.startOfDay(for: auditNow)
+        let dayStart = Calendar.current.date(byAdding: .day, value: -3, to: today)!
+        let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart)!
+        return BandSyncPolicy.needsHistorySync(states: states, outcome: outcome, start: dayStart, end: dayEnd, now: auditNow)
+    }
+
+    func testHistoryAuditSkipsOnlyConfirmedFullDaysCheckedToday() {
+        XCTAssertFalse(needsAudit(confirmedHistory()))
+        XCTAssertTrue(needsAudit([]), "first connection must recover available history")
+        XCTAssertTrue(needsAudit(Array(confirmedHistory().dropLast())), "a missing domain is not a full-day success")
+        XCTAssertTrue(needsAudit(confirmedHistory(at: auditNow.addingTimeInterval(-86_400))))
+        XCTAssertTrue(needsAudit(confirmedHistory(at: auditNow.addingTimeInterval(60))), "future receipts are not current evidence")
+        XCTAssertTrue(needsAudit(confirmedHistory(end: auditNow.addingTimeInterval(-4 * 86_400))),
+                      "an earlier open-day read does not acknowledge a closed day")
+    }
+
+    func testFailedDomainRetainsRepairEvenWhenOtherDomainsAreCurrent() {
+        var states = confirmedHistory()
+        let prior = states.removeLast()
+        states.append(.init(domain: prior.domain, status: .failed, attemptedAt: auditNow,
+                            acknowledgedStart: prior.acknowledgedStart, acknowledgedEnd: prior.acknowledgedEnd,
+                            repairStart: prior.acknowledgedStart, repairEnd: prior.acknowledgedEnd))
+        XCTAssertTrue(needsAudit(states))
+    }
+
+    func testSleepOxygenCoverageKeepsItsRecordedNightWindow() {
+        var states = confirmedHistory()
+        let oxygen = states.remove(at: 5)
+        states.append(.init(domain: oxygen.domain, status: .notCollected, attemptedAt: auditNow,
+                            acknowledgedStart: oxygen.acknowledgedStart?.addingTimeInterval(-3600),
+                            acknowledgedEnd: oxygen.acknowledgedStart?.addingTimeInterval(7 * 3600),
+                            repairStart: nil, repairEnd: nil))
+        XCTAssertFalse(needsAudit(states), "overnight oxygen acknowledges its night, not an artificial full-day range")
+    }
+
+
+    func testHistorySelectionReusesSuccessfulYesterdayAndRetriesOnlyUnfinishedDates() {
+        var checked: [Int] = []
+        let offsets = BandSyncPolicy.historyOffsetsToSync(available: [1, 2, 3, 4, 5, 6],
+            recentDays: [0: .success, 1: .success]) { offset in
+                checked.append(offset)
+                return [3, 6].contains(offset)
+            }
+        XCTAssertEqual(offsets, [3, 6])
+        XCTAssertEqual(checked, [2, 3, 4, 5, 6], "yesterday already completed in this refresh")
+        let retry = BandSyncPolicy.historyOffsetsToSync(available: [1, 2, 3],
+            recentDays: [0: .success, 1: .partial]) { _ in false }
+        XCTAssertEqual(retry, [1], "an earlier receipt cannot suppress this refresh's failed yesterday")
+    }
+
+    func testHistoryOffsetSelectionKeepsCapturedDatesAcrossMidnight() {
+        let offsets = BandSyncPolicy.historyOffsetsToSync(available: [1, 2, 3, 4, 5, 6],
+            elapsedDays: 1, recentDays: [0: .success, 1: .success]) { _ in true }
+        XCTAssertEqual(offsets, [2, 3, 4, 5], "SDK retention moved by one day while the refresh kept its dates")
+    }
+
+
+    func testWholeDayFailureCannotInheritSuccessfulDomainReceipts() {
+        XCTAssertTrue(needsAudit(confirmedHistory(), outcome: .partial),
+                      "respiration/archive or local persistence may fail outside the published domain receipts")
+        XCTAssertTrue(needsAudit(confirmedHistory(), outcome: .failed))
+        XCTAssertTrue(needsAudit(confirmedHistory(), outcome: nil), "missing overall outcome must be repaired")
+    }
+
 }

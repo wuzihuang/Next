@@ -49,7 +49,7 @@ final class TrainingRangeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["THIRTY DAYS"].waitForExistence(timeout: 6))
         XCTAssertTrue(app.staticTexts["A typical finished day. Not a 30-day sum."].exists)
         reveal(app.staticTexts["FIVE GROUPS"], in: app)
-        XCTAssertTrue(app.staticTexts["Five groups cover 30 days: 2 days, then four groups of 7. Each bar averages recorded finished days."].exists)
+        XCTAssertTrue(app.staticTexts["2 days, then four groups of 7."].exists)
         XCTAssertFalse(app.staticTexts["Four rolling weeks, each one an average of finished days. Empty days stay empty."].exists)
     }
 
@@ -83,8 +83,8 @@ final class TrainingRangeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["静息心率基线夜数"].exists)
         reveal(app.staticTexts["有效心率"], in: app)
         XCTAssertTrue(app.staticTexts["有记录时长"].exists)
-        XCTAssertTrue(app.staticTexts["HRV 或静息心率的历史基线不足五夜，建议范围仍是初步规则估算。"].exists)
-        XCTAssertTrue(app.staticTexts["覆盖率按有效记录时长与已过去时长计算，不代表佩戴时长。短时间间歇和力量训练可能未被充分计入。"].exists)
+        XCTAssertTrue(app.staticTexts["基线不足五夜，建议范围仍是初步估算。"].exists)
+        XCTAssertTrue(app.staticTexts["覆盖率按有效记录时长与已过去时长计算，不是佩戴时长。"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Training Chinese calculation evidence"
         screenshot.lifetime = .keepAlways

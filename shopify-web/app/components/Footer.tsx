@@ -58,6 +58,9 @@ export function Footer({locale}: {locale: ShopLocale}) {
           <Link prefetch="intent" to="/policies/terms-of-service">
             {t.footer.terms}
           </Link>
+          <Link prefetch="intent" to="/policies/user-agreement">
+            {t.footer.agreement}
+          </Link>
         </nav>
       </div>
     </footer>

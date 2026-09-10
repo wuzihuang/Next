@@ -40,11 +40,19 @@ final class BandEvidencePublicationTests: XCTestCase {
                 }))
         }
         func domain(_ samples: [[String: Any]], name: String = "origin", status: BandDomainReadStatus = .complete,
-                    observedAt: String = "2026-09-08T12:00:00Z") -> BandEvidencePublication.Domain {
+                    observedAt: String = "2026-09-08T12:00:00Z", deviceKey: String = "band",
+                    mappingVersion: String = "veepoo-rmssd-v1") -> BandEvidencePublication.Domain {
             let iso = ISO8601DateFormatter()
-            return .init(name: name, deviceKey: "band", day: "2026-09-08", timezone: "UTC",
+            return .init(name: name, deviceKey: deviceKey, day: "2026-09-08", timezone: "UTC",
                 start: iso.date(from: "2026-09-08T00:00:00Z")!, end: iso.date(from: "2026-09-08T12:00:00Z")!,
-                observedAt: iso.date(from: observedAt)!, mappingVersion: "veepoo-rmssd-v1", status: status, samples: samples)
+                observedAt: iso.date(from: observedAt)!, mappingVersion: mappingVersion, status: status, samples: samples)
+        }
+        func completeSample(_ ts: String, heart: Int = 61, readAt: String? = nil) -> [String: Any] {
+            var sample: [String: Any] = ["ts": ts, "heart": heart, "step": 5, "cal": 1,
+                "dis": 4, "met": 1.2, "stress": 20, "sleep_states": 0,
+                "user_id": owner, "src": "band", "sampled_tz": "UTC"]
+            if let readAt { sample["origin_read_at"] = readAt }
+            return sample
         }
         func samples(_ count: Int) -> [[String: Any]] {
             let iso = ISO8601DateFormatter()
@@ -260,5 +268,167 @@ final class BandEvidencePublicationTests: XCTestCase {
         XCTAssertEqual(f.order, ["sleep"])
         XCTAssertEqual(try f.pending(kind: "band-sleep").count, 1)
         XCTAssertEqual(try f.pending().count, 1)
+    }
+
+    @MainActor func testConfirmedContentUsesReceiptsAfterReopenAndPreservesNewObservationClock() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let ts = "2026-09-08T10:00:00Z"
+        f.ingest = { args in
+            let samples = args["p_samples"] as? [[String: Any]] ?? []
+            let references = args["p_receipts"] as? [[String: Any]] ?? []
+            return .init(inserted: 0, completed: 0, unchanged: samples.count + references.count,
+                         rejected: 0, affectedDays: [], receipts: [ts: "server-confirmed-content"])
+        }
+        _ = try await f.publisher().publish(f.domain([f.completeSample(ts, readAt: "2026-09-08T12:00:01.123Z")]))
+        try f.reopen()
+        let next = f.domain([f.completeSample(ts, readAt: "2026-09-08T12:05:01.456Z")],
+                            observedAt: "2026-09-08T12:05:00Z")
+        let result = try await f.publisher().publish(next)
+        let sent = try XCTUnwrap(f.sent.last)
+        XCTAssertTrue(try XCTUnwrap(sent["p_samples"] as? [[String: Any]]).isEmpty)
+        let reference = try XCTUnwrap((sent["p_receipts"] as? [[String: Any]])?.first)
+        XCTAssertEqual(reference["receipt"] as? String, "server-confirmed-content")
+        XCTAssertEqual(reference["origin_read_at"] as? String, "2026-09-08T12:05:01.456Z")
+        XCTAssertEqual(sent["p_observed_at"] as? String, "2026-09-08T12:05:00Z")
+        XCTAssertTrue(result.confirmed, "a verified unchanged read is complete, not not_collected")
+        XCTAssertTrue(try f.pending().isEmpty)
+    }
+
+    @MainActor func testNewAndRevisedValuesUploadWhileUnchangedValuesUseReceipts() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let a = "2026-09-08T10:00:00Z", b = "2026-09-08T10:05:00Z", c = "2026-09-08T10:10:00Z"
+        f.ingest = { args in
+            let samples = args["p_samples"] as? [[String: Any]] ?? []
+            let refs = args["p_receipts"] as? [[String: Any]] ?? []
+            return .init(inserted: 0, completed: 0, unchanged: samples.count + refs.count,
+                         rejected: 0, affectedDays: [], receipts: [a: "a", b: "b", c: "c"])
+        }
+        _ = try await f.publisher().publish(f.domain([f.completeSample(a), f.completeSample(b, heart: 62)]))
+        _ = try await f.publisher().publish(f.domain([f.completeSample(a), f.completeSample(b, heart: 65),
+            f.completeSample(c, heart: 63)], observedAt: "2026-09-08T12:05:00Z"))
+        XCTAssertEqual((f.sent.last?["p_samples"] as? [[String: Any]])?.compactMap { $0["ts"] as? String }, [b, c])
+        XCTAssertEqual((f.sent.last?["p_receipts"] as? [[String: Any]])?.compactMap { $0["ts"] as? String }, [a])
+    }
+
+    @MainActor func testServerInvalidatedReceiptResendsOriginalValuesWithoutLosingRevisionTime() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let ts = "2026-09-08T10:00:00Z"
+        f.ingest = { _ in .init(inserted: 1, completed: 0, unchanged: 0, rejected: 0,
+                                affectedDays: [], receipts: [ts: "old-token"]) }
+        _ = try await f.publisher().publish(f.domain([f.completeSample(ts)]))
+        f.ingest = { args in
+            if !(args["p_receipts"] as? [[String: Any]] ?? []).isEmpty {
+                return .init(inserted: 0, completed: 0, unchanged: 0, rejected: 0,
+                             affectedDays: [], needsSamples: [ts])
+            }
+            return .init(inserted: 0, completed: 1, unchanged: 0, rejected: 0,
+                         affectedDays: ["2026-09-08"], receipts: [ts: "fresh-token"])
+        }
+        let result = try await f.publisher().publish(f.domain([f.completeSample(ts)],
+            observedAt: "2026-09-08T12:05:00Z"))
+        XCTAssertEqual(f.sent.count, 3)
+        XCTAssertEqual((f.sent.last?["p_samples"] as? [[String: Any]])?.first?["heart"] as? Int, 61)
+        XCTAssertEqual(f.sent.last?["p_observed_at"] as? String, "2026-09-08T12:05:00Z")
+        XCTAssertTrue(result.confirmed)
+        XCTAssertTrue(try f.pending().isEmpty)
+    }
+
+    @MainActor func testFailedReceiptUploadRemainsDurableAndReplayUsesOriginalObservation() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let ts = "2026-09-08T10:00:00Z"
+        f.ingest = { _ in .init(inserted: 1, completed: 0, unchanged: 0, rejected: 0,
+                                affectedDays: [], receipts: [ts: "token"]) }
+        _ = try await f.publisher().publish(f.domain([f.completeSample(ts)]))
+        f.ingest = { _ in throw Fixture.Failure.lostReply }
+        do {
+            _ = try await f.publisher().publish(f.domain([f.completeSample(ts)], observedAt: "2026-09-08T12:05:00Z"))
+            XCTFail("Expected failed confirmation")
+        } catch Fixture.Failure.lostReply { }
+        try f.reopen()
+        XCTAssertEqual(try f.pending().count, 1)
+        f.ingest = { args in
+            XCTAssertEqual(args["p_observed_at"] as? String, "2026-09-08T12:05:00Z")
+            return .init(inserted: 0, completed: 0, unchanged: 1, rejected: 0,
+                         affectedDays: [], receipts: [ts: "token"])
+        }
+        let replayed = try await f.publisher().replay()
+        XCTAssertEqual(replayed, 1)
+        XCTAssertTrue(try f.pending().isEmpty)
+    }
+
+    @MainActor func testAggregateAcknowledgmentWithoutExplicitReceiptsNeverEnablesDeduplication() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let domain = f.domain(f.samples(1))
+        _ = try await f.publisher().publish(domain)
+        _ = try await f.publisher().publish(domain)
+        XCTAssertEqual((f.sent.last?["p_samples"] as? [[String: Any]])?.count, 1,
+                       "unchanged can mean a stale revision was ignored; it is not proof of equal stored content")
+    }
+
+    @MainActor func testSmallMeasurementsAreNotReplacedWithLargerReceipts() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let ts = "2026-09-08T10:00:00Z"
+        f.ingest = { _ in .init(inserted: 0, completed: 0, unchanged: 1, rejected: 0,
+                                affectedDays: [], receipts: [ts: String(repeating: "a", count: 64)]) }
+        let domain = f.domain([["ts": ts, "temp": 36.5]], name: "temperature")
+        _ = try await f.publisher().publish(domain)
+        _ = try await f.publisher().publish(domain)
+        XCTAssertEqual((f.sent.last?["p_samples"] as? [[String: Any]])?.count, 1)
+        XCTAssertNil(f.sent.last?["p_receipts"], "a scalar is cheaper to send than a content receipt")
+    }
+
+    @MainActor func testReceiptScopeSeparatesAccountsDevicesAndMappingVersions() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let ts = "2026-09-08T10:00:00Z"
+        f.ingest = { _ in .init(inserted: 0, completed: 0, unchanged: 1, rejected: 0,
+                                affectedDays: [], receipts: [ts: "token"]) }
+        _ = try await f.publisher().publish(f.domain([f.completeSample(ts)]))
+        _ = try await f.publisher().publish(f.domain([f.completeSample(ts)], deviceKey: "other"))
+        XCTAssertNil(f.sent.last?["p_receipts"])
+        _ = try await f.publisher().publish(f.domain([f.completeSample(ts)], mappingVersion: "veepoo-rmssd-v2"))
+        XCTAssertNil(f.sent.last?["p_receipts"])
+        f.owner = "bob"
+        _ = try await f.publisher("bob").publish(f.domain([f.completeSample(ts)]))
+        XCTAssertNil(f.sent.last?["p_receipts"])
+        f.owner = "alice"
+        try f.local.purge(account: "alice")
+        _ = try await f.publisher().publish(f.domain([f.completeSample(ts)]))
+        XCTAssertNil(f.sent.last?["p_receipts"], "account purge also removes its confirmation cache")
+    }
+
+    @MainActor func testVerifiedReferencesStayReusableWithoutReturningTokensAndReduceRequestBytes() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let ts = "2026-09-08T10:00:00Z"
+        f.ingest = { args in
+            let references = args["p_receipts"] as? [[String: Any]] ?? []
+            return .init(inserted: 0, completed: 0, unchanged: 1, rejected: 0, affectedDays: [],
+                         receipts: references.isEmpty ? [ts: String(repeating: "a", count: 64)] : [:])
+        }
+        for minute in ["00", "05", "10"] {
+            _ = try await f.publisher().publish(f.domain([f.completeSample(ts, readAt: "2026-09-08T12:\(minute):01.123Z")],
+                observedAt: "2026-09-08T12:\(minute):00Z"))
+        }
+        let firstBytes = try JSONSerialization.data(withJSONObject: f.sent[0]).count
+        for request in f.sent.dropFirst() {
+            XCTAssertTrue(try XCTUnwrap(request["p_samples"] as? [[String: Any]]).isEmpty)
+            XCTAssertEqual((request["p_receipts"] as? [[String: Any]])?.count, 1)
+            XCTAssertLessThan(try JSONSerialization.data(withJSONObject: request).count, firstBytes)
+        }
+    }
+
+    @MainActor func testSameSecondRevisionsReplayInSeparateTimestampUniqueBatches() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let ts = "2026-09-08T10:00:00Z"
+        try f.publisher().stage(f.domain([f.completeSample(ts, heart: 61, readAt: "2026-09-08T12:00:00.100Z")]))
+        try f.publisher().stage(f.domain([f.completeSample(ts, heart: 65, readAt: "2026-09-08T12:00:00.900Z")]))
+        f.ingest = { args in
+            let samples = try XCTUnwrap(args["p_samples"] as? [[String: Any]])
+            XCTAssertEqual(samples.count, 1, "delta RPC rejects two versions of one instant in the same batch")
+            return .init(inserted: 0, completed: samples.count, unchanged: 0, rejected: 0, affectedDays: [])
+        }
+        let count = try await f.publisher().replay()
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(f.sent.compactMap { ($0["p_samples"] as? [[String: Any]])?.first?["heart"] as? Int }, [61, 65])
+        XCTAssertTrue(try f.pending().isEmpty)
     }
 }

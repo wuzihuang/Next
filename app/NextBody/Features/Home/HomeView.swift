@@ -10,6 +10,7 @@ struct HomeView: View {
     @EnvironmentObject private var session: SessionStore
 
     @StateObject private var ai = AIService.shared
+    @StateObject private var adviceAI = AIService()
     @StateObject private var keyboard = KeyboardHeight()
     @StateObject private var firstRun = FirstRun()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -71,6 +72,7 @@ struct HomeView: View {
     /// instead of to a value the same drag is changing.
     @State private var pageXAtTouch: CGFloat = 0
     #if DEBUG
+    @State private var debugDockApplied = false
     /// `SIMCTL_CHILD_NB_DEBUG_HOME_DRAG=0.45` freezes a mid-swipe frame — page one 45 % out,
     /// page two 45 % in, dots mid-handover — so the handover can be screenshotted.
     private let debugDragFraction = Double(ProcessInfo.processInfo.environment["NB_DEBUG_HOME_DRAG"] ?? "")
@@ -95,7 +97,6 @@ struct HomeView: View {
     @State private var planSettledOpen = false
     /// ADR 0018 · the plan is a server row; this is its store and the thinking clock.
     @ObservedObject private var planStore = PlanStore.shared
-    @State private var planThinkingStartedAt = Date()
 
     // MARK: geometry · the page is laid out against the device, not against the board's
     // 390 × 844. Header under the status bar, dock over the home indicator, the strip above
@@ -136,7 +137,7 @@ struct HomeView: View {
     /// over it, the readout runs and the HR / STRESS row is the wrist measuring now instead
     /// of the last stored tick. Everything that covers that face ends it: a widget landing
     /// on the panel, the plus menu, a takeover, a detail page, the keyboard, the listening
-    /// chamber. App-level lifecycle policy separately retains streaming in background.
+    /// chamber. Leaving the app ends it too (`BandLivePolicy`, ADR 0023).
     /// ⚠️ Every one of those is a reason to stop measuring, not a style choice — a live
     /// readout nobody is looking at is a band flat by lunchtime. And without consent the
     /// band is not read at all (补屏 rule 01): pairing is not permission.
@@ -216,7 +217,6 @@ struct HomeView: View {
                 if homeDrag == nil {
                     homeDrag = .plan
                     planYAtTouch = planY
-                    Task { await planStore.load(dayKey: data.today.day.key) }
                     Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "PLAN"]) }
                 }
                 guard homeDrag == .plan else { return }
@@ -234,17 +234,18 @@ struct HomeView: View {
     @ViewBuilder
     private var planPageLayer: some View {
         if abs(planY) > 0.5 {
-            PlanPage(plan: planStore.plan, checked: planStore.checked,
+            PlanPage(plan: planStore.plan,
                      flatten: planFlatten, reduceMotion: planMotionReduced,
                      closeEnabled: true,
-                     loading: planStore.loading,
                      generating: planStore.generating,
+                     stale: planStore.planIsStale,
+                     exhausted: planStore.exhausted,
+                     generatedAt: planStore.generatedAt,
                      errorLine: planStore.errorLine,
-                     thinkingReading: ai.reading ?? PhoneToolRunner.shared.running,
-                     thoughts: ai.thoughts,
-                     thinkingStartedAt: planThinkingStartedAt,
-                     onTick: { planStore.tick($0, dayKey: data.today.day.key) },
-                     onRegenerate: { generatePlan() },
+                     thinkingReading: adviceAI.reading,
+                     thoughts: adviceAI.thoughts,
+                     thinkingStartedAt: planStore.startedAt,
+                     onRegenerate: { refreshPlan() },
                      onCloseDragChanged: { dy in
                          dragPlan(to: -screen.height + dy, dy: dy)
                      },
@@ -372,7 +373,11 @@ struct HomeView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { fireWidgetShot() }
+            if phase == .active {
+                fireWidgetShot()
+                // ADR 0022 · the first foreground of the day makes the day's set.
+                ensurePlan()
+            }
             guard phase != .active else { return }
             cancelInterruptedDrag()
             readoutHold?.cancel()
@@ -382,10 +387,16 @@ struct HomeView: View {
         .onReceive(NotificationCenter.default.publisher(for: WidgetBridge.photoDidArrive)) { _ in
             fireWidgetShot()
         }
-        .onAppear { fireWidgetShot() }
+        .onAppear { fireWidgetShot(); lendPanelToPhoneTools() }
         .onChange(of: router.planRequest) { _, _ in
-            // ADR 0018 · a plan frame or app.open("plan") lands on the face.
-            if abs(planY) < 1 { openPlan(fromIdle: false) }
+            // ADR 0018 · a plan frame or app.open("plan") lands on the face. A frame from
+            // Chat already replaced the day's set on the server: read it back.
+            if !planSettledOpen { openPlan(fromIdle: false) }
+            else { ensurePlan(reload: true) }
+        }
+        .onChange(of: data.today.day.key) { _, _ in
+            planStore.prepare(dayKey: data.today.day.key)
+            ensurePlan()
         }
         .onChange(of: router.pendingHomePanel) { _, panel in
             guard panel == "body_battery" else { return }
@@ -494,7 +505,8 @@ struct HomeView: View {
                     openCamera(sendFood: true)
                 }
             }
-            if let dock = ProcessInfo.processInfo.environment["NB_DEBUG_DOCK"] {
+            if !debugDockApplied, let dock = ProcessInfo.processInfo.environment["NB_DEBUG_DOCK"] {
+                debugDockApplied = true
                 switch dock {
                 case "keyboard":
                     dockMode = .keyboard
@@ -607,6 +619,16 @@ struct HomeView: View {
                     handleSend(q)
                 }
             }
+            // `NB_DEBUG_TURN2=结束运动` · a second question in the same app session, for the
+            // phone tools that only make sense after the first (stop a session, undo a write).
+            // `NB_DEBUG_TURN2_AFTER` overrides the 75 s gap.
+            if let q2 = ProcessInfo.processInfo.environment["NB_DEBUG_TURN2"], !q2.isEmpty {
+                let gap = Double(ProcessInfo.processInfo.environment["NB_DEBUG_TURN2_AFTER"] ?? "") ?? 75
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(gap))
+                    handleSend(q2)
+                }
+            }
             // `NB_DEBUG_PANEL=thinking` pins the singularity so it can be read against
             // board 07 · 16 · 02; it is on screen for seconds in real use, which is long
             // enough to see and too short to check. `=<type>` pins one catalogue sample of
@@ -628,7 +650,7 @@ struct HomeView: View {
                 }
             }
             if let want = ProcessInfo.processInfo.environment["NB_DEBUG_PANEL"], !want.isEmpty {
-                func pinned() -> PanelWidget? {
+                @MainActor func pinned() -> PanelWidget? {
                     if want == "thinking" { return .thinking("Why am I so tired today?") }
                     if want == "balance-result" { return WidgetCatalogue.balanceResult }
                     return PanelType(rawValue: want).map { WidgetCatalogue.sample($0) }
@@ -650,6 +672,9 @@ struct HomeView: View {
 
             // The shared pull started alongside cloud hydration and still retains all history.
             _ = await sync.value
+            // ADR 0022 · launch is a foreground too: the day's set is made once the band had
+            // its chance, whether or not the face is ever opened.
+            ensurePlan()
 
             // The view owns only this timer. The shared refresh applies the current cadence
             // and sensor eligibility, and an accepted pull survives this view disappearing.
@@ -860,7 +885,6 @@ struct HomeView: View {
                         if planY != 0 || lip {
                             homeDrag = .plan
                             planYAtTouch = planY
-                            Task { await planStore.load(dayKey: data.today.day.key) }
                             Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "PLAN"]) }
                         } else {
                             homeDrag = .dead
@@ -908,21 +932,50 @@ struct HomeView: View {
             }
     }
 
-    /// ADR 0018 · one turn on the plan surface. The face shows the thinking stream while it
-    /// runs; the row lands on the server, so a face closed mid-way finds it on the next pull.
-    private func generatePlan() {
+    /// ADR 0022 · the face reads the day's set; the first foreground of the day makes it.
+    /// Nothing here starts a second generation: the store attaches to whatever is running.
+    private func ensurePlan(reload: Bool = false) {
+        guard ConsentStore.shared.granted else { return }
+        planStore.ensureToday(day: data.today.day, store: data, ai: adviceAI, reload: reload)
+    }
+
+    /// docs/plans/2026-09-09-ai-tool-surface.md · what a voice turn may do to the panel:
+    /// confirm the food draft it is showing, clear it, refresh the advice, or say what is up.
+    private func lendPanelToPhoneTools() {
+        PhoneToolRunner.shared.panelHandler = .init(
+            confirmDraft: {
+                // The panel is THINKING for the confirming turn; the draft is what counts.
+                guard let frameID = ai.pendingMealDraftFrameID, ai.canConfirmMeal(frameID: frameID) else { return .fail("NO_DRAFT") }
+                let day = backlogDay ?? UserDay.containing(Date())
+                guard let next = ai.confirmMeal(frameID: frameID, slot: slotFor(day: day), into: data) else {
+                    return .fail(ai.lastError?.contains("fasted") == true ? "FASTED_DAY" : "WRITE_FAILED", ai.lastError)
+                }
+                lastSent = nil
+                withAnimation { widget = next }
+                return .succeed(["record": ["title": next.title, "sentence": next.sentence]])
+            },
+            dismiss: {
+                guard widget != nil else { return false }
+                dismissWidget()
+                return true
+            },
+            refreshPlan: {
+                guard ConsentStore.shared.granted else { return false }
+                planStore.refresh(day: data.today.day, store: data, ai: adviceAI)
+                return true
+            },
+            screen: {
+                var out: [String: Any] = ["food_draft": ai.pendingMealDraftFrameID != nil]
+                if let label = ai.pendingMealDraftLabel { out["draft"] = label }
+                if let frame = widget { out["type"] = frame.type.rawValue; out["title"] = frame.title; out["sentence"] = frame.sentence }
+                return out
+            })
+    }
+
+    /// REFRESH: the only way to regenerate within the day.
+    private func refreshPlan() {
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
-        if !reachability.isOnline || DebugEdge.on("offline") {
-            note(DockNote(line: L("NO CONNECTION"), text: L("It stays here. Send it when you're back.")))
-            return
-        }
-        guard !planStore.generating else { return }
-        planThinkingStartedAt = Date()
-        let day = data.today.day
-        Task {
-            await planStore.generate(day: day, store: data, ai: ai)
-            await Analytics.shared.track("PLAN_GENERATE", ["HAS_PLAN": planStore.plan != nil])
-        }
+        planStore.refresh(day: data.today.day, store: data, ai: adviceAI)
     }
 
     private func dragPage(to x: CGFloat) {
@@ -970,12 +1023,10 @@ struct HomeView: View {
     }
 
     private func openPlan(fromIdle: Bool) {
+        guard !planSettledOpen else { return }
         planSettledOpen = true
-        // The day's first open writes the plan; later opens read the row.
-        Task {
-            await planStore.load(dayKey: data.today.day.key)
-            if planStore.plan == nil, !planStore.generating, planSettledOpen { generatePlan() }
-        }
+        guard ConsentStore.shared.granted else { router.takeover = .consent; return }
+        ensurePlan()
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             planY = -screen.height
             planDragDy = 0
@@ -1355,31 +1406,53 @@ struct HomeView: View {
         backlogDay = nil
         lastSent = (text, day)
         let requestID = beginPanelRequest()
+        // Reserve the conversation before sending so the server saves a handed-off
+        // answer under the same history that Coach will use for follow-up questions.
+        let conversationID = UUID()
         withAnimation { widget = .thinking(text) }
 
         // 05 · C05 → C07 · photo and caption leave as one object and come back as one answer
         // with the source chip. The plate is logged to today's fuel on the way.
+        let sentImage: String?
         if let a = attachment, a.progress >= 1, !a.failed {
-            let sent = a
+            sentImage = a.dataURL
             withAnimation(.spring(response: 0.26, dampingFraction: 0.74)) { attachment = nil }
             photoItem = nil
-            Task {
-                let frame = await ai.turn(text, day: day, store: data, imageDataURL: sent.dataURL, turnID: operationID)
-                await Analytics.shared.track("MSG_SEND", ["TYPE": "PHOTO", "CHARS": text.count, "HAS_PHOTO": true])
-                guard panelRequestID == requestID else { return }
-                withAnimation { widget = frame ?? PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
-                                                              sentence: L("Could not read that plate. Your words are kept; send it again."),
-                                                              footer: String(text.prefix(42)), action: nil, data: .none) }
-            }
-            return
-        }
+        } else { sentImage = nil }
 
         Task {
             // ADR 0011 · every dock sentence is one turn. The model picks meal.estimate
             // when the plate is a log; the client does not classify food or medicine.
-            let frame = await ai.turn(text, day: day, store: data, turnID: operationID)
+            var handoffScope: ChatTurnScope?
+            let frame = await ai.turn(text, day: day, store: data, imageDataURL: sentImage,
+                                      conversationID: conversationID, turnID: operationID) {
+                guard panelRequestID == requestID else { return }
+                handoffScope = ChatStore.shared.beginPanelHandoff(
+                    text: text, dataURL: sentImage, conversationID: conversationID,
+                    turnID: operationID, service: ai
+                )
+                lastSent = nil
+                withAnimation { widget = nil }
+                if router.path.isEmpty, router.takeover == nil {
+                    dockMode = .idle
+                    router.open(.chat(sessionID: conversationID.uuidString), from: .home)
+                }
+            }
+            if let handoffScope {
+                ChatStore.shared.finishPanelHandoff(handoffScope, widget: frame, error: ai.lastError)
+            }
+            if sentImage != nil {
+                await Analytics.shared.track("MSG_SEND", ["TYPE": "PHOTO", "CHARS": text.count, "HAS_PHOTO": true])
+            }
+            guard handoffScope == nil else { return }
             guard panelRequestID == requestID else { return }
-            withAnimation { widget = frame ?? .thinking(text) }
+            withAnimation {
+                if sentImage != nil {
+                    widget = frame ?? PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
+                                                  sentence: L("Could not read that plate. Your words are kept; send it again."),
+                                                  footer: String(text.prefix(42)), action: nil, data: .none)
+                } else { widget = frame ?? .thinking(text) }
+            }
         }
     }
 

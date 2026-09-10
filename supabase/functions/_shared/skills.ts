@@ -35,16 +35,16 @@ export interface ChartSkill {
 export const CHART_SKILLS: ChartSkill[] = [
   {
     type: "metric", family: "number", shape: "ANY SCALAR",
-    use: "用户问的是此刻的一个数（心率现在多少、体重多少、今天吃了多少）。",
-    avoid: "这个数有满值或目标时用 ring；问的是「怎么变」时用 line。",
+    use: "用户问的是此刻的一个数（心率现在多少、体重多少、今天吃了多少、手环还剩多少电）。",
+    avoid: "这个数有满值或目标时用 ring；问的是「怎么变」时用 line；身体电量用 battery。",
     sources: [],
-    copy: "value 只写数字与单位，来自本轮读到的值；label 写指标名；ref 写参照（+4 VS RHR 52）。",
+    copy: "value 只写数字与单位，来自本轮读到的值；label 写指标名；ref 写参照（+4 VS RHR 52）。手环电量：value 取 availability.device.battery_percent，unit 写 %，label 写手环电量，ref 写充电中 / 未充电；只陈述，不写偏低 / 该充了。",
     target: "profile",
   },
   {
     type: "text", family: "number", shape: "BIG WORD · NO DATA",
     use: "没有任何一张图配得上这个问题：一句判断、一个方向、或者数据是空的（写 ——）。",
-    avoid: "手里有一串数据就别用 text，把它画出来。",
+    avoid: "手里有一串数据就别用 text，把它画出来；答案是一个数（含手环电量）时用 metric。headline 是判断词，不写指标名。",
     sources: [],
     copy: "headline 是屏内唯一高光（≤ 12 字，柠檬绿大字）；eyebrow 写依据，sub 写补充；sentence 写在 facts 行。",
     target: "profile",
@@ -314,8 +314,8 @@ export function chartChoicePrompt(en = true): string {
   return en
     ? [
       "S11 CHART CHOICE",
-      "Each chart on screen is a screen.render.<type> tool. Read the numbers first, then pick a chart that matches the question's shape:",
-      "· one number now → metric; a number against a target → ring; 0–100 with zones → gauge; BODY BATTERY now → battery",
+      "Series charts are drawn with screen.render {type, source}; text, food and metric have their own tools (screen.render.text / food / metric). Read the numbers first, then pick a chart that matches the question's shape:",
+      "· one number now → metric (the band's own battery % from availability.device too); a number against a target → ring; 0–100 with zones → gauge; BODY BATTERY now → battery",
       "· change inside a day or across tens of days → line; day-by-day for a week → days; amounts by hour → bars",
       "· daily high and low → band; week × hour pattern → heat; signed changes → delta; two trends → dual",
       "· training: zone minutes → zones; today's load makeup → workout / table; what happened today → events",
@@ -325,12 +325,12 @@ export function chartChoicePrompt(en = true): string {
       "· last night's score with its sub-scores → score; which way the body went → call; today's load accumulating → curve",
       "· a balance check just finished → poincare; the raw beat intervals → wave; a read came back NO_DATA → matrix; after a meal → response",
       "Series charts only pick a source; the server fills the points. If a tool returns NO_DATA, switch chart or write —— as text. Do not invent points.",
-      "Use text only when no chart fits. One render per turn.",
+      "Use text only when no chart fits; its headline is a verdict word, never a metric name with the number left to the caption. One render per turn.",
     ].join("\n")
     : [
       "S11 CHART CHOICE",
-      "屏上的每一种图都是一个 screen.render.<type> 工具。先用读工具拿到数字，再按问题的形状选图：",
-      "· 此刻一个数 → metric；一个数对满值/目标 → ring；0–100 带分区 → gauge；身体电量此刻 → battery",
+      "序列图用 screen.render {type, source} 画；text、food、metric 各有自己的工具（screen.render.text / food / metric）。先用读工具拿到数字，再按问题的形状选图：",
+      "· 此刻一个数 → metric（手环自己的电量也是，取 availability.device）；一个数对满值/目标 → ring；0–100 带分区 → gauge；身体电量此刻 → battery",
       "· 一天之内或几十天里怎么变 → line；一周逐天比较 → days；一天里分时段的量 → bars",
       "· 每天高低两条边 → band；一周×时段的规律 → heat；有正有负的逐次变化 → delta；两条趋势对照 → dual",
       "· 训练：区间分钟 → zones；今天负荷的构成 → workout / table；今天发生了什么 → events",
@@ -340,6 +340,6 @@ export function chartChoicePrompt(en = true): string {
       "· 昨夜总分与四个子分 → score；增肌还是减脂的判定 → call；今天负荷怎么攒起来的 → curve",
       "· 刚做完平衡测试 → poincare；逐拍间期本身 → wave；读回 NO_DATA / 问为什么没数据 → matrix；一餐之后的反应 → response",
       "序列类的图只选数据源，点由服务端填；工具返回 NO_DATA 就换一种图或用 text 写 ——，不许自己造点。",
-      "没有任何图配得上时才用 text。一轮只渲染一次。",
+      "没有任何图配得上时才用 text；它的 headline 是判断词，不许写指标名而把数字丢到小字里。一轮只渲染一次。",
     ].join("\n");
 }

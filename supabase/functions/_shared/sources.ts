@@ -587,21 +587,40 @@ export const SOURCES: Source[] = [
     id: "o2.night", kind: "curve", says: "上一夜睡眠窗口内的自动血氧曲线（均值与最低，不是呼吸暂停分级）",
     async fetch(ctx) {
       const { data: night, error: nightError } = await ctx.db.from("sleep_nights")
-        .select("sleep_start,wake_at")
+        .select("sleep_start,wake_at,raw")
         .eq("user_id", ctx.userId).eq("user_day", ctx.dayKey).maybeSingle();
       if (nightError) throw new Error("SOURCE_QUERY_FAILED");
       const lo = (night?.sleep_start as string | undefined)
         ?? zoned(addDays(ctx.dayKey, -1), 18, ctx.tz).toISOString();
       const hi = (night?.wake_at as string | undefined)
         ?? zoned(ctx.dayKey, 12, ctx.tz).toISOString();
+      // ⚠️ The band files this every minute on a long night — 660 readings on 2026-09-06.
+      // A 400-row cut is not a smaller chart, it is a shorter night: the mean and the low
+      // then describe the first seven hours and the curve stops before the person woke.
       const { data, error } = await ctx.db.from("oxygen_samples").select("ts, spo2")
-        .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi).order("ts").limit(400);
+        .eq("user_id", ctx.userId).gte("ts", lo).lt("ts", hi).order("ts").limit(1000);
       if (error) throw new Error("SOURCE_QUERY_FAILED");
       if (!data || data.length < 6) return null;
-      const rows = data as { ts: string; spo2: number }[];
-      const series: Point[] = rows.map((r) => [hhmm(r.ts, ctx.tz), r.spo2]);
+      // Recorded segments only, as everywhere else: a reading between two sleep intervals
+      // is an awake reading and belongs to no night.
+      const segments = ((night?.raw as { intervals?: { start: string; end: string }[] } | null)
+        ?.intervals ?? [])
+        .map((run) => [Date.parse(run.start), Date.parse(run.end)] as const)
+        .filter(([from, to]) => Number.isFinite(from) && Number.isFinite(to) && to > from);
+      const rows = (data as { ts: string; spo2: number }[]).filter((r) => {
+        if (!segments.length) return true;
+        const at = Date.parse(r.ts);
+        return segments.some(([from, to]) => at >= from && at < to);
+      });
+      if (rows.length < 6) return null;
       const vals = rows.map((r) => r.spo2);
       const st = stats(vals);
+      // The whole night decides the numbers; the curve is thinned only so a payload of
+      // several hundred one-minute points does not travel to draw one line.
+      const step = Math.ceil(rows.length / 180);
+      const series: Point[] = rows
+        .filter((_, i) => i % step === 0 || i === rows.length - 1)
+        .map((r) => [hhmm(r.ts, ctx.tz), r.spo2]);
       return {
         data: { kind: "curve", series },
         agg: { ...st },

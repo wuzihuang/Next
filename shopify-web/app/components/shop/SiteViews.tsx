@@ -22,7 +22,10 @@ export function PolicyView({
         ← {t.pages.back}
       </Link>
       <h1>{pickLocale(locale, policy.title.en, policy.title.zh)}</h1>
-      <p className="shop-hint">{policy.updated}</p>
+      <p className="shop-lede">{pickLocale(locale, policy.lede.en, policy.lede.zh)}</p>
+      <p className="shop-hint">
+        {pickLocale(locale, 'Updated', '更新于')} {policy.updated}
+      </p>
       {policy.sections.map((section) => (
         <section key={section.heading.en}>
           <h2>{pickLocale(locale, section.heading.en, section.heading.zh)}</h2>

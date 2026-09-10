@@ -22,6 +22,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
 
     private(set) var state: BandConnectionState = .idle {
         didSet {
+            if state != oldValue { historyReads.invalidate() }
             NightDiagnostics.shared.record("band.connection", fields: ["state": String(describing: state)])
             hub.send(.state(state))
         }
@@ -76,6 +77,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
         // Keep app-owned timing/receipt logs; enable verbose vendor protocol logs explicitly.
         central.isLogEnable = ProcessInfo.processInfo.environment["NB_BLE_VERBOSE"] == "1"
         central.peripheralManage = VPPeripheralManage.shareVPPeripheralManager()
+        // The band reports its own light changes. Nothing acts on them — this is the trace
+        // that tells whether the firmware flips the side light by itself (a measurement,
+        // a lost link) or only when asked (ADR 0023).
+        central.peripheralManage?.veepooSDKListenHealthLightStatus { type in
+            Self.log.notice("health light changed by the band → \(type.rawValue, privacy: .public)")
+            NightDiagnostics.shared.record("band.health_light_changed", fields: ["state": String(type.rawValue)])
+        }
         central.vpBleConnectStateChangeBlock = { [weak self] deviceState in
             guard let self else { return }
             Self.log.notice("connect state \(deviceState.rawValue)")
@@ -522,8 +530,11 @@ final class VeepooBand: BandService, @unchecked Sendable {
     }
 
     func prepareFreshSync() async {
-        allDataReadAt = nil
-        auxiliaryDataReadAt = nil
+        historyReads.beginRefresh(scope: historyReadScope)
+    }
+
+    func finishFreshSync() async {
+        historyReads.endRefresh()
     }
 
     func disconnect() async {
@@ -538,6 +549,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
 
     func readIdentity() async throws -> BandIdentity {
         guard let model = central.peripheralModel else { throw BandError.notConnected }
+        // The light bytes this firmware reports, logged where the device page always looks.
+        // 2026-09-10 · a HOOP answered "no health light"; this is how that is told apart
+        // from a model that simply had not been parsed yet.
+        Self.log.notice("identity · light=\(model.healthLightType, privacy: .public) lostRemind=\(model.lostRemindState, privacy: .public) days=\(model.saveDays, privacy: .public)")
         return BandIdentity(
             name: model.deviceName ?? "HOOP",
             model: model.deviceVersion ?? "—",
@@ -615,6 +630,12 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     done(.failure(BandError.notConnected)); return
                 }
                 guard let model = self.central.peripheralModel, model.healthLightType != 0 else {
+                    // ⚠️ Which of the two it was matters: a missing model is a timing
+                    // problem the app can fix, a zero byte is the firmware saying it has
+                    // no addressable light and no setting will ever reach it.
+                    let reported = self.central.peripheralModel.map { String($0.healthLightType) } ?? "no-model"
+                    Self.log.notice("health light refused · healthLightType=\(reported, privacy: .public)")
+                    NightDiagnostics.shared.record("band.health_light_unsupported", fields: ["healthLightType": reported])
                     done(.failure(BandError.unsupported("Health light"))); return
                 }
                 let reply: (Bool, VPHealthLightStatusType) -> Void = { success, state in
@@ -625,6 +646,40 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     peripheral.veepooSDKSetHealthLightStatus(native, callBack: reply)
                 } else {
                     peripheral.veepooSDKReadHealthLightStatus { reply(true, $0) }
+                }
+            }
+        }
+    }
+
+    /// 断链提醒 · the firmware's own "the phone is gone" signal. nil means this HOOP has no
+    /// such switch; the sheet draws nothing for it.
+    func readDisconnectReminder() async throws -> Bool? {
+        let binding = BoundBand.identifier
+        return try await queue.run("readDisconnectReminder", priority: .p1) {
+            try Task.checkCancellation()
+            guard self.state == .connected, binding == BoundBand.identifier,
+                  let peripheral = self.peripheral else { throw BandError.notConnected }
+            return try await self.readBaseSwitch(.disconnectRemind, peripheral: peripheral)
+        }
+    }
+
+    func writeDisconnectReminder(_ on: Bool) async throws -> Bool {
+        let binding = BoundBand.identifier
+        return try await queue.run("writeDisconnectReminder", priority: .p0) {
+            try Task.checkCancellation()
+            guard self.state == .connected, binding == BoundBand.identifier,
+                  let peripheral = self.peripheral else { throw BandError.notConnected }
+            return try await self.sdk("writeDisconnectReminder") { done in
+                peripheral.veepooSDKSettingBaseFunctionType(
+                    .disconnectRemind,
+                    settingState: on ? .settingFunctionOpen : .settingFunctionClose
+                ) { state in
+                    switch state {
+                    case .functionCompleteOpen: done(.success(true))
+                    case .functionCompleteClose: done(.success(false))
+                    case .functionCompleteUnknown: done(.failure(BandError.unsupported("Disconnect reminder")))
+                    default: done(.failure(BandError.rejected("DISCONNECT REMINDER REFUSED")))
+                    }
                 }
             }
         }
@@ -704,14 +759,14 @@ final class VeepooBand: BandService, @unchecked Sendable {
 
     // MARK: reading a day
 
-    /// When the band's whole store was last read into the SDK database. A sync and the
-    /// backfill behind it ask for seven days in a row; one read serves them all.
-    private var allDataReadAt: Date?
-
-    /// Dedicated HRV/temperature reads also populate every retained day. Cache the command,
-    /// but not the database query, so a two-page 04:00 window does not ask the band for the
-    /// same history twice.
-    private var auxiliaryDataReadAt: Date?
+    /// Dedicated native commands each populate every retained date. One successful
+    /// transfer serves the whole refresh, including slower uploads and sleep's extra pages.
+    private let historyReads = BandHistoryReadCache()
+    private var historyReadScope: BandHistoryReadCache.Scope {
+        let session = SupabaseClient.currentRequestSessionSnapshot()
+        return .init(account: session.owner, binding: BoundBand.identifier,
+                     device: central.peripheralModel?.deviceAddress, sessionGeneration: session.generation)
+    }
     #if DEBUG
     @MainActor private static var diagnosticHRVMinutes: [String: [String]] = [:]
     #endif
@@ -720,15 +775,19 @@ final class VeepooBand: BandService, @unchecked Sendable {
     /// into its own database, day by day, and reports progress. One command, and until its
     /// `.complete` nothing else may be sent (doc §四: 「数据没有读取完成的时候不要重复调用」),
     /// which the serial queue already guarantees.
-    private func readAllDataIfStale() async throws {
-        if let at = allDataReadAt, Date().timeIntervalSince(at) < 60 {
-            NightDiagnostics.shared.record("sdk.read_all_reused", fields: ["completedAt": at.ISO8601Format()])
-            return
+    @discardableResult
+    private func readAllDataIfStale() async throws -> BandHistoryReadCache.Receipt {
+        let scope = historyReadScope
+        if let receipt = historyReads.receipt(for: .all, scope: scope), receipt.status == .complete {
+            NightDiagnostics.shared.record("sdk.read_all_reused")
+            return receipt
         }
-        guard let peripheral else { throw BandError.notConnected }
+        guard state == .connected, let peripheral else { throw BandError.notConnected }
+        let generation = historyReads.generation(scope: scope)
         await recordDiagnosticCachedSettings()
         // Seven days at the band's pace can take a few minutes; the read of a single fresh
         // day is seconds. The timeout is the ceiling, not the expectation.
+        let startedAt = Date()
         try await sdk("readAllData", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
             var lastProgressKey = ""
             let readID = UUID().uuidString
@@ -752,7 +811,11 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 }
             }
         }
-        allDataReadAt = Date()
+        let completedAt = Date()
+        guard historyReadScope == scope, historyReads.generation(scope: scope) == generation,
+              state == .connected, startedAt <= completedAt else { throw CancellationError() }
+        historyReads.record(.complete, for: .all, generation: generation, startedAt: startedAt, at: completedAt)
+        return .init(status: .complete, startedAt: startedAt, completedAt: completedAt)
     }
 
     /// Snapshot existing connection metadata only; never add a native command to history sync.
@@ -783,12 +846,18 @@ final class VeepooBand: BandService, @unchecked Sendable {
     /// ⚠️ dayOffset is the SDK's paging parameter and nothing else. Which offsets to ask for
     /// is decided by the user-day window in `OriginDataSync`, never here.
     func readOriginData(dayOffset: Int) async throws -> [OriginPoint] {
+        let day = Calendar.current.date(byAdding: .day, value: -dayOffset, to: Date()) ?? Date()
+        return try await readOriginPage(calendarDay: day).points
+    }
+
+    func readOriginPage(calendarDay: Date) async throws -> OriginDataPage {
         guard peripheral != nil, let address = central.peripheralModel?.deviceAddress else {
             throw BandError.notConnected
         }
-        return try await queue.run("readOriginData(\(dayOffset))", priority: .p2) {
-            try await self.readAllDataIfStale()
-            let date = Self.dayString(daysAgo: dayOffset)
+        let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"
+        let date = formatter.string(from: calendarDay)
+        return try await queue.run("readOriginData(\(date))", priority: .p2) {
+            let snapshot = try await self.readAllDataIfStale()
             // The table is keyed by the device address the SDK connected with — on iOS the
             // CoreBluetooth identifier, exactly as the vendor demo passes it.
             let day = await MainActor.run {
@@ -800,14 +869,15 @@ final class VeepooBand: BandService, @unchecked Sendable {
             if let first = points.first {
                 let heartN = points.filter { $0.heart != nil }.count
                 let stressN = points.filter { $0.stress != nil }.count
-                Self.log.notice("readOriginData(\(dayOffset)) \(date, privacy: .public) · \(points.count) points · heart \(heartN) · stress \(stressN) · first \(first.time, privacy: .public)")
+                Self.log.notice("readOriginData \(date, privacy: .public) · \(points.count) points · heart \(heartN) · stress \(stressN) · first \(first.time, privacy: .public)")
                 if let keys = day.values.first?.keys {
                     Self.log.notice("origin keys · \(Array(keys).sorted().joined(separator: ","), privacy: .public)")
                 }
             } else {
-                Self.log.notice("readOriginData(\(dayOffset)) \(date, privacy: .public) · 0 points")
+                Self.log.notice("readOriginData \(date, privacy: .public) · 0 points")
             }
-            return points
+            return OriginDataPage(points: points, readStartedAt: snapshot.startedAt,
+                                  readCompletedAt: snapshot.completedAt)
         }
     }
 
@@ -838,15 +908,6 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     || !optical.isEmpty || !accurateSleep.isEmpty || !plainSleep.isEmpty {
                     if offset > 0 { offsets.insert(offset) }
                 }
-                // 00:00–03:59 belongs to the previous user day. Preserve that recovery
-                // target even when the SDK's only stored page is today's calendar date.
-                let clocks = Array(origin.keys)
-                    + temperatures.compactMap { HealthSampleMapping.temperature(from: $0)?.time }
-                    + (hrv + oxygen + optical).compactMap { $0["time"] as? String ?? $0["Time"] as? String }
-                let hasEarlyReading = clocks.contains { clock in
-                    Int(clock.prefix(2)).map { (0..<4).contains($0) } ?? false
-                }
-                if hasEarlyReading && offset < lastOffset { offsets.insert(offset + 1) }
             }
             return offsets.sorted()
         }
@@ -859,65 +920,65 @@ final class VeepooBand: BandService, @unchecked Sendable {
               let address = model.deviceAddress else { throw BandError.notConnected }
         return try await queue.run("readHealthData(\(dayOffset))", priority: .p2) {
             try await self.readAllDataIfStale()
-            let auxiliaryIsStale = self.auxiliaryDataReadAt.map {
-                Date().timeIntervalSince($0) >= 60
-            } ?? true
-            var hrvStatus: BandDomainReadStatus = model.hrvType == 0 ? .unsupported : .complete
-            var temperatureStatus: BandDomainReadStatus = model.temperatureType == 0 ? .unsupported : .complete
-            var oxygenStatus: BandDomainReadStatus = model.oxygenType == 0 ? .unsupported : .complete
+            let scope = self.historyReadScope
+            let generation = self.historyReads.generation(scope: scope)
+            let cachedHRV = self.historyReads.status(for: .hrv, scope: scope)
+            let cachedTemperature = self.historyReads.status(for: .temperature, scope: scope)
+            let cachedOxygen = self.historyReads.status(for: .oxygen, scope: scope)
+            var hrvStatus: BandDomainReadStatus = cachedHRV ?? (model.hrvType == 0 ? .unsupported : .complete)
+            var temperatureStatus: BandDomainReadStatus = cachedTemperature ?? (model.temperatureType == 0 ? .unsupported : .complete)
+            var oxygenStatus: BandDomainReadStatus = cachedOxygen ?? (model.oxygenType == 0 ? .unsupported : .complete)
             let opticalStatus: BandDomainReadStatus = model.bloodGlucoseType == 0 ? .unsupported : .complete
-            if auxiliaryIsStale {
-                if model.hrvType != 0 {
-                    do { try await self.sdk("readHRV", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
-                        peripheral.veepooSdkStartReadDeviceHrvData { state, _, _, _ in
-                            switch state {
-                            case .complete: done(.success(()))
-                            case .invalid: done(.failure(BandError.unsupported("HRV history")))
-                            default: break
-                            }
+            if model.hrvType != 0 && cachedHRV == nil {
+                do { try await self.sdk("readHRV", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
+                    peripheral.veepooSdkStartReadDeviceHrvData { state, _, _, _ in
+                        switch state {
+                        case .complete: done(.success(()))
+                        case .invalid: done(.failure(BandError.unsupported("HRV history")))
+                        default: break
                         }
                     }
-                    } catch {
-                        if let error = error as? BandError, case .unsupported = error { hrvStatus = .unsupported }
-                        else { hrvStatus = .failed }
-                        BandLog.shared.record("readHRV", error: error)
-                    }
                 }
-                if [2, 4].contains(model.temperatureType) {
-                    do { try await self.sdk("readTemperature", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
-                        peripheral.veepooSdkStartReadDeviceTemperatureData { state, _, _, _ in
-                            switch state {
-                            case .complete: done(.success(()))
-                            case .invalid: done(.failure(BandError.unsupported("temperature history")))
-                            default: break
-                            }
+                } catch {
+                    if let error = error as? BandError, case .unsupported = error { hrvStatus = .unsupported }
+                    else { hrvStatus = .failed }
+                    BandLog.shared.record("readHRV", error: error)
+                }
+                self.historyReads.record(hrvStatus, for: .hrv, generation: generation)
+            }
+            if [2, 4].contains(model.temperatureType) && cachedTemperature == nil {
+                do { try await self.sdk("readTemperature", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
+                    peripheral.veepooSdkStartReadDeviceTemperatureData { state, _, _, _ in
+                        switch state {
+                        case .complete: done(.success(()))
+                        case .invalid: done(.failure(BandError.unsupported("temperature history")))
+                        default: break
                         }
                     }
-                    } catch {
-                        if let error = error as? BandError, case .unsupported = error { temperatureStatus = .unsupported }
-                        else { temperatureStatus = .failed }
-                        BandLog.shared.record("readTemperature", error: error)
-                    }
                 }
-                if model.oxygenType != 0 {
-                    do { try await self.sdk("readOxygen", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
-                        peripheral.veepooSdkStartReadDeviceOxygenData { state, _, _, _ in
-                            switch state {
-                            case .complete: done(.success(()))
-                            case .invalid: done(.failure(BandError.unsupported("oxygen history")))
-                            default: break
-                            }
+                } catch {
+                    if let error = error as? BandError, case .unsupported = error { temperatureStatus = .unsupported }
+                    else { temperatureStatus = .failed }
+                    BandLog.shared.record("readTemperature", error: error)
+                }
+                self.historyReads.record(temperatureStatus, for: .temperature, generation: generation)
+            }
+            if model.oxygenType != 0 && cachedOxygen == nil {
+                do { try await self.sdk("readOxygen", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
+                    peripheral.veepooSdkStartReadDeviceOxygenData { state, _, _, _ in
+                        switch state {
+                        case .complete: done(.success(()))
+                        case .invalid: done(.failure(BandError.unsupported("oxygen history")))
+                        default: break
                         }
                     }
-                    } catch {
-                        if let error = error as? BandError, case .unsupported = error { oxygenStatus = .unsupported }
-                        else { oxygenStatus = .failed }
-                        BandLog.shared.record("readOxygen", error: error)
-                    }
                 }
-                if hrvStatus != .failed && temperatureStatus != .failed && oxygenStatus != .failed {
-                    self.auxiliaryDataReadAt = Date()
+                } catch {
+                    if let error = error as? BandError, case .unsupported = error { oxygenStatus = .unsupported }
+                    else { oxygenStatus = .failed }
+                    BandLog.shared.record("readOxygen", error: error)
                 }
+                self.historyReads.record(oxygenStatus, for: .oxygen, generation: generation)
             }
             let date = Self.dayString(daysAgo: dayOffset)
             let resolvedHrvStatus = hrvStatus
@@ -2495,7 +2556,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
     ) async throws -> Bool? {
         try await sdk("readAutoMonitoringSwitch.\(type.rawValue)", seconds: 8) { done in
             peripheral.veepooSDKSettingBaseFunctionType(type, settingState: .readFunctionState) { state in
-                NightDiagnostics.shared.record("sdk.setting_read_callback", fields: ["kind": Self.fallbackSwitchTypes.first { $0.type == type }?.kind.rawValue ?? "unknown", "state": String(state.rawValue), "source": "base_switch_callback"])
+                // Switches outside the auto-monitoring table (the disconnect reminder) are
+                // logged by their SDK ordinal rather than as "unknown".
+                let kind = Self.fallbackSwitchTypes.first { $0.type == type }?.kind.rawValue ?? "switch.\(type.rawValue)"
+                NightDiagnostics.shared.record("sdk.setting_read_callback", fields: ["kind": kind, "state": String(state.rawValue), "source": "base_switch_callback"])
                 switch state {
                 case .functionCompleteOpen: done(.success(true))
                 case .functionCompleteClose: done(.success(false))

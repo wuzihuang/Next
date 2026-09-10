@@ -69,6 +69,11 @@ struct CompositionDetailView: View {
         } onBack: {
             router.back()
         }
+        .onReceive(router.$windowRequest) { request in
+            guard let request else { return }
+            rangeRaw = request.rawValue
+            router.windowRequest = nil
+        }
         .task {
             #if DEBUG
             if let override = DetailWindow.debugRange(for: .composition) {

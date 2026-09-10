@@ -1,8 +1,9 @@
 import XCTest
 
-/// Uses the existing phone/account and only reads lamp status; the user observes physical writes.
-final class HealthLightDebugTests: XCTestCase {
-    func testDeviceDebugEntryExposesFourStates() {
+/// 12S · walks the Device page to the release health-light row. Only reads the lamp
+/// status; the user observes the physical writes.
+final class HealthLightSheetTests: XCTestCase {
+    func testDeviceLightRowExposesFourStates() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launch()
@@ -25,7 +26,7 @@ final class HealthLightDebugTests: XCTestCase {
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)
         XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 60), .completed)
         let capture = XCTAttachment(screenshot: app.screenshot())
-        capture.name = "Health light debug states"
+        capture.name = "Health light states"
         capture.lifetime = .keepAlways
         add(capture)
     }

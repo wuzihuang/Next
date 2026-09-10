@@ -31,3 +31,42 @@ final class BandHealthLightTests: XCTestCase {
         }
     }
 }
+
+final class BandHealthLightPreferenceTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private let suite = "nb.tests.healthLight"
+
+    override func setUp() {
+        super.setUp()
+        defaults = UserDefaults(suiteName: suite)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suite)
+        super.tearDown()
+    }
+
+    func testNothingChosenMeansNothingSent() {
+        XCTAssertNil(BandHealthLightPreference.stored(in: defaults))
+    }
+
+    func testEveryStateRoundTrips() {
+        for state in BandHealthLightState.allCases {
+            BandHealthLightPreference.store(state, in: defaults)
+            XCTAssertEqual(BandHealthLightPreference.stored(in: defaults), state)
+        }
+    }
+
+    func testClearingReturnsToFirmwareDefault() {
+        BandHealthLightPreference.store(.off, in: defaults)
+        BandHealthLightPreference.store(nil, in: defaults)
+        XCTAssertNil(BandHealthLightPreference.stored(in: defaults))
+        XCTAssertNil(defaults.object(forKey: BandHealthLightPreference.key))
+    }
+
+    func testUnknownStoredValueIsNotAState() {
+        defaults.set(7, forKey: BandHealthLightPreference.key)
+        XCTAssertNil(BandHealthLightPreference.stored(in: defaults))
+    }
+}

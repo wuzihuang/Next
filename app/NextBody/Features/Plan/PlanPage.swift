@@ -1,30 +1,27 @@
-import CoreHaptics
 import SwiftUI
 import UIKit
 
-/// Paper 04E · 14 BRIEF. Lime strip, then the tasks the server wrote.
-///
-/// ADR 0018 · the plan is a server row: one title, one summary, three to five tasks the
-/// model chose. While the first one of the day is being written, the thinking stream runs
-/// here; a tick is the user's own claim and never calls the model.
+/// Numbered suggestions grounded in the latest available data, without task completion.
+/// ADR 0022 · the face reads the day's set. While today's is still being made it shows
+/// yesterday's marked stale, or the thinking stream when there is nothing earlier.
 struct PlanPage: View {
     let plan: DailyPlan?
-    var checked: Set<String> = []
     var flatten: CGFloat
     var reduceMotion: Bool
     var closeEnabled = true
-    var loading = false
     var generating = false
+    /// The set on screen is from an earlier day.
+    var stale = false
+    /// Every automatic attempt today failed; only REFRESH is left.
+    var exhausted = false
+    var generatedAt: Date?
     var errorLine: String?
     var thinkingReading: String?
     var thoughts: [AIService.Thought] = []
     var thinkingStartedAt: Date = Date()
-    var onTick: (String) -> Void = { _ in }
     var onRegenerate: () -> Void = {}
     var onCloseDragChanged: (CGFloat) -> Void
     var onCloseDragEnded: (CGFloat, CGFloat) -> Void
-
-    @State private var completing: Set<String> = []
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -32,12 +29,21 @@ struct PlanPage: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
                     chrome
-                    if generating {
+                    if generating, let plan {
+                        making
+                        summary(plan)
+                        if !plan.tasks.isEmpty { suggestions(plan) }
+                    } else if generating {
                         thinking
+                        hint
                     } else if let plan {
                         summary(plan)
                         if let errorLine { failed(errorLine) }
-                        tasks(plan)
+                        if !plan.tasks.isEmpty { suggestions(plan) }
+                        if !plan.sources.isEmpty {
+                            WebSourcesButton(sources: plan.sources.map { WebReference(title: $0.title, url: $0.url) })
+                                .padding(.top, 16)
+                        }
                     } else {
                         empty
                     }
@@ -50,9 +56,7 @@ struct PlanPage: View {
                     .frame(width: 0, height: 0)
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 28) {
-                regenerate
-            }
+            .safeAreaInset(edge: .bottom, spacing: 28) { regenerate }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("plan.page")
@@ -62,27 +66,62 @@ struct PlanPage: View {
         VStack(spacing: 7) {
             PlanChevron(up: false, playing: !reduceMotion && flatten < 0.02, flatten: flatten,
                         armed: false, reduceMotion: reduceMotion)
-            Text(plan.map { L("TODAY · %d TASKS", $0.tasks.count) } ?? L("TODAY"))
+            Text(chromeLabel)
                 .font(NBFont.dot(600, 9))
                 .tracking(em: 0.24, size: 9)
                 .foregroundStyle(NB.lime1.opacity(0.60))
         }
-        // Home ignores the vertical safe area, so this page has to clear
-        // the Dynamic Island itself — 8pt of air under the cutout.
         .padding(.top, ScreenMetrics.safeArea.top + 8)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
         .accessibilityLabel(L("Swipe down for home"))
     }
 
-    /// The same stream the home panel prints while a turn runs.
+    private var chromeLabel: String {
+        guard !generating, let plan else { return L("SUGGESTIONS") }
+        return stale ? L("YESTERDAY · %d SUGGESTIONS", plan.tasks.count) : L("TODAY · %d SUGGESTIONS", plan.tasks.count)
+    }
+
+    /// Live, the model's own lines arrive; after coming back to a run that kept going on the
+    /// server there is nothing to replay, so the reading line names the wait itself.
     private var thinking: some View {
-        ThinkingStage(question: L("TODAY'S PLAN"), reading: thinkingReading,
+        ThinkingStage(question: L("PERSONAL SUGGESTIONS"), reading: thinkingReading ?? "plan.generate",
                       thoughts: thoughts, startedAt: thinkingStartedAt)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 360)
             .padding(.horizontal, 16)
             .accessibilityIdentifier("plan.thinking")
+    }
+
+    /// The wait is the server's, not the screen's: leaving does not lose it.
+    private var hint: some View {
+        Text(L("You can close this and come back in a few minutes."))
+            .font(NBFont.ui(400, 13))
+            .foregroundStyle(NB.text3Prod)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .accessibilityIdentifier("plan.hint")
+    }
+
+    /// Yesterday's set stays readable while today's is made behind it.
+    private var making: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L("GENERATING TODAY'S SUGGESTIONS"))
+                .font(NBFont.dot(600, 10))
+                .tracking(em: 0.16, size: 10)
+                .foregroundStyle(NB.lime1)
+            Text(L("You can close this and come back in a few minutes."))
+                .font(NBFont.ui(400, 13))
+                .foregroundStyle(NB.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+        .accessibilityIdentifier("plan.making")
     }
 
     private func summary(_ plan: DailyPlan) -> some View {
@@ -97,10 +136,16 @@ struct PlanPage: View {
                 .font(NBFont.ui(400, 14))
                 .foregroundStyle(NB.panelInk)
                 .fixedSize(horizontal: false, vertical: true)
-            if !plan.readFrom.isEmpty {
-                Text(L("AI READ %@ → %@", monthDay(plan.readFrom), monthDay(plan.readTo)))
+                .accessibilityIdentifier(plan.tasks.isEmpty ? "plan.empty" : "plan.summary")
+            if stale {
+                Text(L("YESTERDAY'S SUGGESTIONS"))
                     .font(NBFont.dot(500, 10))
-                    .tracking(em: 0.16, size: 10)
+                    .foregroundStyle(NB.panelInk.opacity(0.7))
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("plan.stale")
+            } else if let generatedAt, errorLine == nil {
+                Text(L("UPDATED %@", generatedAt.formatted(date: .omitted, time: .shortened)))
+                    .font(NBFont.dot(500, 10))
                     .foregroundStyle(NB.panelInk.opacity(0.7))
                     .padding(.top, 4)
             }
@@ -112,28 +157,31 @@ struct PlanPage: View {
         .background(NB.lime1)
     }
 
-    /// A regenerate that did not land keeps the plan on screen and says so under it.
     private func failed(_ line: String) -> some View {
         Text(line)
-            .font(NBFont.dot(500, 11))
-            .tracking(em: 0.12, size: 11)
+            .font(NBFont.ui(500, 13))
             .foregroundStyle(NB.alert2)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.top, 10)
             .accessibilityIdentifier("plan.error")
     }
 
+    /// Nothing to show and nothing running: today's could not be made, or there is no
+    /// connection to read it. Never a resting state on its own.
     private var empty: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(loading ? L("READING…") : L("NO PLAN YET"))
+            Text(exhausted ? L("COULD NOT GENERATE TODAY") : L("SUGGESTIONS NOT READY"))
                 .font(NBFont.brand(700, 22))
                 .tracking(em: -0.03, size: 22)
                 .foregroundStyle(NB.panelInk)
-            Text(errorLine ?? (loading ? L("Looking for today's plan.") : L("Pull one from the last three days.")))
+                .accessibilityIdentifier("plan.eyebrow")
+            Text(errorLine ?? L("Today's suggestions are made when the app opens. Refresh to make them now."))
                 .font(NBFont.ui(400, 14))
                 .foregroundStyle(NB.panelInk)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(errorLine == nil ? "plan.empty" : "plan.error")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 16)
@@ -142,124 +190,55 @@ struct PlanPage: View {
         .background(NB.lime1)
     }
 
-    /// Open rows first, done rows sink to the bottom. A row that is still
-    /// settling (strike drawing, ink greying) holds its place so the eye sees
-    /// the tick land before the row moves; it sinks once `completing` clears.
-    private func orderedTasks(_ plan: DailyPlan) -> [DailyPlan.Task] {
-        let open = plan.tasks.filter { !settled($0.id) }
-        let sunk = plan.tasks.filter { settled($0.id) }
-        return open + sunk
-    }
-
-    private func settled(_ id: String) -> Bool {
-        checked.contains(id) && !completing.contains(id)
-    }
-
-    private func tasks(_ plan: DailyPlan) -> some View {
-        let ordered = orderedTasks(plan)
-        return VStack(spacing: 8) {
-            ForEach(ordered) { task in
-                taskSlab(task)
+    private func suggestions(_ plan: DailyPlan) -> some View {
+        VStack(spacing: 8) {
+            ForEach(Array(plan.tasks.enumerated()), id: \.element.id) { index, suggestion in
+                suggestionSlab(suggestion, number: index + 1)
             }
         }
         .padding(.top, 10)
         .padding(.horizontal, 16)
-        .animation(reduceMotion ? .easeOut(duration: 0.08) : .spring(duration: 0.42, bounce: 0.12),
-                   value: ordered.map(\.id))
     }
 
-    private func taskSlab(_ task: DailyPlan.Task) -> some View {
-        let on = completing.contains(task.id) || checked.contains(task.id)
-        return Button {
-            complete(task.id)
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                checkmark(on: on)
-                    .padding(.top, 1)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(task.title)
-                        .font(NBFont.brand(600, 16))
-                        .tracking(em: -0.02, size: 16)
-                        .foregroundStyle(on ? NB.text3Prod : NB.text1)
-                        .multilineTextAlignment(.leading)
+    private func suggestionSlab(_ suggestion: DailyPlan.Task, number: Int) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number).")
+                .font(NBFont.brand(600, 20))
+                .foregroundStyle(NB.lime1)
+                .frame(width: 24, alignment: .leading)
+                .accessibilityIdentifier("plan.number.\(number)")
+            VStack(alignment: .leading, spacing: 6) {
+                Text(suggestion.title)
+                    .font(NBFont.brand(600, 16))
+                    .tracking(em: -0.02, size: 16)
+                    .foregroundStyle(NB.text1)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(suggestion.sub)
+                    .font(NBFont.ui(400, 14))
+                    .foregroundStyle(NB.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let basis = suggestion.basis {
+                    Text(basis)
+                        .font(NBFont.ui(400, 12))
+                        .foregroundStyle(NB.text3Prod)
                         .fixedSize(horizontal: false, vertical: true)
-                        .overlay(alignment: .leading) { strike(on: on) }
-                    Text(task.sub)
-                        .font(NBFont.ui(400, 13))
-                        .foregroundStyle(on ? NB.text3Prod.opacity(0.6) : NB.text2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let basis = task.basis {
-                        Text(basis)
-                            .font(NBFont.dot(500, 10))
-                            .tracking(em: 0.12, size: 10)
-                            .foregroundStyle(NB.text3Prod)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 2)
-                    }
+                        .padding(.top, 2)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 14)
-            .background(NB.carbon4.opacity(on ? 0.6 : 1))
-            .contentShape(Rectangle())
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.26), value: on)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(HotZoneTap())
-        .disabled(on)
-        .accessibilityLabel(on ? L("%@, done", task.title) : task.title)
-        .accessibilityAddTraits(on ? [.isSelected] : [])
-        .accessibilityIdentifier("plan.check.\(task.id)")
-    }
-
-    /// The strike draws left to right over the title as the ink greys. It is a
-    /// grow, not a fade: a line appearing all at once reads as a render glitch.
-    private func strike(on: Bool) -> some View {
-        Capsule()
-            .fill(NB.text3Prod)
-            .frame(height: 1.5)
-            .scaleEffect(x: on ? 1 : 0, y: 1, anchor: .leading)
-            .opacity(on ? 1 : 0)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.28).delay(0.06), value: on)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-
-    /// Tap → two needles → tick fills, strike draws, ink greys → row sinks.
-    /// The hold before `completing` clears is the strike's own duration, so the
-    /// row only moves once the line has reached the end of the title.
-    private func complete(_ id: String) {
-        guard !checked.contains(id), !completing.contains(id) else { return }
-        completing.insert(id)
-        PlanCompleteCue.play()
-        onTick(id)
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 40 : 520))
-            completing.remove(id)
-        }
-    }
-
-    private func checkmark(on: Bool) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(on ? NB.lime1 : .clear)
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .stroke(NB.lime1, lineWidth: 1.5)
-            Image(systemName: "checkmark")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(NB.carbon)
-                .opacity(on ? 1 : 0)
-                .scaleEffect(on ? 1 : 0.55)
-        }
-        .frame(width: 20, height: 20)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: on)
+        .multilineTextAlignment(.leading)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NB.carbon4)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("plan.suggestion.\(number)")
     }
 
     private var regenerate: some View {
         Button(action: onRegenerate) {
-            Text(generating ? L("GENERATING…") : (plan == nil ? L("GENERATE") : L("REGENERATE")))
+            Text(generating ? L("UPDATING SUGGESTIONS…") : L("REFRESH SUGGESTIONS"))
                 .font(NBFont.dot(700, 13))
                 .tracking(em: 0.16, size: 13)
                 .foregroundStyle(NB.text3Prod.opacity(generating ? 0.70 : 1))
@@ -268,66 +247,10 @@ struct PlanPage: View {
                 .padding(.bottom, 10)
         }
         .buttonStyle(HotZoneTap())
-        .disabled(generating || loading)
+        .disabled(generating)
         .accessibilityIdentifier("plan.regenerate")
         .frame(maxWidth: .infinity)
         .background(NB.carbon)
-    }
-
-    private static let dayIn: DateFormatter = {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f
-    }()
-    private static let dayOut: DateFormatter = {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "MM-dd"; return f
-    }()
-    private func monthDay(_ key: String) -> String {
-        Self.dayIn.date(from: key).map { Self.dayOut.string(from: $0) } ?? key
-    }
-}
-
-/// Two short needles, 150ms apart. UIKit's second rigid tap merges into one;
-/// Core Haptics transients stay two. No continuous event, no success-notification tail.
-@MainActor
-private enum PlanCompleteCue {
-    private static var engine: CHHapticEngine?
-    private static let fallback = UIImpactFeedbackGenerator(style: .rigid)
-
-    static func play() {
-        guard Haptics.on else { return }
-        fallback.prepare()
-        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else {
-            fallback.impactOccurred(intensity: 1)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                guard Haptics.on else { return }
-                fallback.impactOccurred(intensity: 1)
-            }
-            return
-        }
-        do {
-            if engine == nil {
-                let next = try CHHapticEngine()
-                next.playsHapticsOnly = true
-                next.isAutoShutdownEnabled = true
-                engine = next
-            }
-            try engine?.start()
-            let first = CHHapticEvent(eventType: .hapticTransient, parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0),
-            ], relativeTime: 0)
-            let second = CHHapticEvent(eventType: .hapticTransient, parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0),
-            ], relativeTime: 0.15)
-            let player = try engine?.makePlayer(with: CHHapticPattern(events: [first, second], parameters: []))
-            try player?.start(atTime: CHHapticTimeImmediate)
-        } catch {
-            fallback.impactOccurred(intensity: 1)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                guard Haptics.on else { return }
-                fallback.impactOccurred(intensity: 1)
-            }
-        }
     }
 }
 

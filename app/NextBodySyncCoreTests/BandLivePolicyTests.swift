@@ -2,11 +2,24 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class BandLivePolicyTests: XCTestCase {
-    func testBackgroundKeepsCollectionWithoutForegroundDemand() {
-        XCTAssertTrue(BandLivePolicy.shouldRun(phase: .background, foregroundWanted: false,
-            hasOwner: true, consent: true, connected: true, exclusive: false))
-        XCTAssertFalse(BandLivePolicy.shouldRun(phase: .active, foregroundWanted: false,
-            hasOwner: true, consent: true, connected: true, exclusive: false))
+    private func run(_ phase: BandLivePolicy.Phase, wanted: Bool) -> Bool {
+        BandLivePolicy.shouldRun(phase: phase, foregroundWanted: wanted,
+            hasOwner: true, consent: true, connected: true, exclusive: false)
+    }
+
+    /// ADR 0023 · leaving the app ends the stream, whatever the panel was asking for.
+    func testBackgroundNeverCollects() {
+        XCTAssertFalse(run(.background, wanted: true))
+        XCTAssertFalse(run(.background, wanted: false))
+    }
+
+    /// The panel's demand is the only thing that opens a stream; a brief `.inactive`
+    /// (a call, Control Center) keeps one open rather than churning it.
+    func testForegroundDemandOpensAndInactiveRetains() {
+        XCTAssertTrue(run(.active, wanted: true))
+        XCTAssertTrue(run(.inactive, wanted: true))
+        XCTAssertFalse(run(.active, wanted: false))
+        XCTAssertFalse(run(.inactive, wanted: false))
     }
 
     func testEverySafetyGateStopsCollection() {
@@ -19,12 +32,13 @@ final class BandLivePolicyTests: XCTestCase {
         }
     }
 
-    @MainActor func testActiveInactiveBackgroundActiveUsesOneStream() async {
+    /// active → inactive is one stream; background ends it; active again opens a new one.
+    @MainActor func testInactiveKeepsOneStreamAndBackgroundEndsIt() async {
         let tasks = BandLiveTaskOwner()
         let binding = BandLivePolicy.Owner(account: "a", binding: "wrist")
         var starts = 0
         var stops = 0
-        for phase in [BandLivePolicy.Phase.active, .inactive, .background, .active] {
+        func drive(_ phase: BandLivePolicy.Phase) async {
             let allowed = BandLivePolicy.shouldRun(phase: phase, foregroundWanted: true,
                 hasOwner: true, consent: true, connected: true, exclusive: false)
             tasks.update(owner: allowed ? binding : nil) {
@@ -32,54 +46,20 @@ final class BandLivePolicyTests: XCTestCase {
                 do { try await Task.sleep(for: .seconds(60)) } catch {}
                 stops += 1
             }
-            for _ in 0..<10 { await Task.yield() }
-        }
-        XCTAssertEqual(starts, 1)
-        XCTAssertEqual(stops, 0)
-        tasks.update(owner: nil) {}
-        for _ in 0..<100 { await Task.yield() }
-        XCTAssertEqual(stops, 1)
-    }
-
-    @MainActor func testRebindingCancelsOldStreamBeforeNewOneStarts() async {
-        let tasks = BandLiveTaskOwner()
-        var events: [String] = []
-        for wrist in ["old", "new"] {
-            tasks.update(owner: .init(account: "a", binding: wrist)) {
-                events.append("start-" + wrist)
-                do { try await Task.sleep(for: .seconds(60)) } catch {}
-                events.append("stop-" + wrist)
-            }
             for _ in 0..<100 { await Task.yield() }
         }
-        XCTAssertEqual(events, ["start-old", "stop-old", "start-new"])
+        await drive(.active)
+        await drive(.inactive)
+        XCTAssertEqual(starts, 1)
+        XCTAssertEqual(stops, 0)
+        await drive(.background)
+        XCTAssertEqual(starts, 1)
+        XCTAssertEqual(stops, 1)
+        await drive(.active)
+        XCTAssertEqual(starts, 2)
+        XCTAssertEqual(stops, 1)
         tasks.update(owner: nil) {}
         for _ in 0..<100 { await Task.yield() }
-    }
-
-    @MainActor func testSameOwnerRetainedAndReplacementWaitsForStop() async {
-        let owner = BandLiveTaskOwner()
-        var events: [String] = []
-        let a = BandLivePolicy.Owner(account: "a", binding: "wrist")
-        let b = BandLivePolicy.Owner(account: "b", binding: "wrist")
-        owner.update(owner: a) {
-            events.append("a-start")
-            do { try await Task.sleep(for: .seconds(60)) } catch {}
-            await Task.yield()
-            events.append("a-end")
-        }
-        for _ in 0..<10 { await Task.yield() }
-        owner.update(owner: a) { XCTFail("same owner must reuse task") }
-        owner.update(owner: nil) {}
-        owner.update(owner: b) {
-            events.append("b-start")
-            do { try await Task.sleep(for: .seconds(60)) } catch {}
-            events.append("b-end")
-        }
-        for _ in 0..<100 { await Task.yield() }
-        XCTAssertEqual(events, ["a-start", "a-end", "b-start"])
-        owner.update(owner: nil) {}
-        for _ in 0..<100 { await Task.yield() }
-        XCTAssertEqual(events.last, "b-end")
+        XCTAssertEqual(stops, 2)
     }
 }

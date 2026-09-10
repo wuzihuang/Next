@@ -19,6 +19,10 @@ struct ChatMessage: Identifiable, Hashable {
         self.sender = sender
         self.text = text
         self.image = image
+        if image == nil, let dataURL, let comma = dataURL.firstIndex(of: ","),
+           let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) {
+            self.image = UIImage(data: data)
+        }
         self.dataURL = dataURL
         self.at = at
         self.widget = widget
@@ -37,10 +41,6 @@ struct ChatMessage: Identifiable, Hashable {
         self.init(id: archive.id, sender: MessageSender(rawValue: archive.sender) ?? .assistant,
                   text: archive.text, dataURL: archive.imageDataURL, at: archive.at,
                   widget: envelope.flatMap { AIService.shared.widget(from: $0) })
-        if let url = archive.imageDataURL, let comma = url.firstIndex(of: ","),
-           let data = Data(base64Encoded: String(url[url.index(after: comma)...])) {
-            image = UIImage(data: data)
-        }
     }
 
     var archive: ChatArchiveMessage {

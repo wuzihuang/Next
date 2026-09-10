@@ -66,24 +66,94 @@ Deno.test("a sport or a slot said in either language lands on the enum", () => {
 });
 
 Deno.test("an argument that cannot be rescued comes back as a sentence, not a throw", () => {
-  const bad = normalizePhoneArgs("device.alarm.set", { time: "sometime" });
+  const bad = normalizePhoneArgs("write", { entity: "alarm", op: "create", fields: { time: "sometime" } });
   assertEquals(bad.ok, false);
   assert(!bad.ok && bad.say.includes("HH:MM"), JSON.stringify(bad));
-  const page = normalizePhoneArgs("app.open", { page: "settings" });
+  const page = normalizePhoneArgs("do", { action: "app.open", page: "nowhere" });
   assertEquals(page.ok, false);
   assert(!page.ok && page.say.includes("fuel"), JSON.stringify(page));
+  const entity = normalizePhoneArgs("write", { entity: "unicorn", op: "create" });
+  assert(!entity.ok && entity.say.includes("meal"), JSON.stringify(entity));
+  const target = normalizePhoneArgs("write", { entity: "meal", op: "delete" });
+  assert(!target.ok && target.say.includes("match"), JSON.stringify(target));
 });
 
 Deno.test("clean arguments reach the phone in the shape the band needs", () => {
-  const alarm = normalizePhoneArgs("device.alarm.set", { time: "7:5", days: "工作日", label: "x".repeat(40) });
+  const alarm = normalizePhoneArgs("write", { entity: "alarm", op: "create", fields: { time: "7:5", days: "工作日", label: "x".repeat(40) } });
   assert(alarm.ok);
-  assertEquals(alarm.args.time, "07:05");
-  assertEquals(alarm.args.days, [1, 2, 3, 4, 5]);
-  assertEquals(String(alarm.args.label).length, 20);
-  const open = normalizePhoneArgs("app.open", { page: "FUEL" });
+  const fields = alarm.args.fields as Record<string, unknown>;
+  assertEquals(fields.time, "07:05");
+  assertEquals(fields.days, [1, 2, 3, 4, 5]);
+  assertEquals(String(fields.label).length, 20);
+  assertEquals(alarm.confirm, true);
+  const open = normalizePhoneArgs("do", { action: "app.open", page: "FUEL" });
   assert(open.ok);
   assertEquals(open.args.page, "fuel");
-  const meal = normalizePhoneArgs("meal.log", { slot: "午饭" });
+  assertEquals(open.confirm, false);
+  const meal = normalizePhoneArgs("write", { entity: "meal", op: "create", fields: "{}" });
   assert(meal.ok);
-  assertEquals(meal.args.slot, "LUNCH");
+  assertEquals(meal.args.fields, {});
+});
+
+// docs/plans/2026-09-09-ai-tool-surface.md · "删除我今天吃的猪脚饭" is one call with a match.
+Deno.test("a meal delete by match carries the resolved keys and asks for a confirm", () => {
+  const del = normalizePhoneArgs("write", { entity: "meal", op: "delete", match: { day: "today", query: "猪脚饭" } }, "2026-09-09");
+  assert(del.ok);
+  assertEquals(del.args.match, { day: "2026-09-09", query: "猪脚饭" });
+  assertEquals(del.confirm, true);
+  const move = normalizePhoneArgs("write", { entity: "meal", op: "update", match: { day: "yesterday", slot: "午餐" }, fields: { slot: "晚餐" } }, "2026-09-09");
+  assert(move.ok);
+  assertEquals(move.args.match, { day: "2026-09-08", slot: "LUNCH" });
+  assertEquals((move.args.fields as Record<string, unknown>).slot, "DINNER");
+  const fasted = normalizePhoneArgs("write", { entity: "day", op: "update", fields: { fasted: "true" } }, "2026-09-09");
+  assert(fasted.ok && fasted.confirm);
+  assertEquals(fasted.args.fields, { fasted: true, day: "2026-09-09" });
+});
+
+Deno.test("settings, memory and navigation normalize without a confirm", () => {
+  const notif = normalizePhoneArgs("write", { entity: "notification", op: "update", fields: { kind: "吃饭", on: "off" } });
+  assert(notif.ok && !notif.confirm);
+  assertEquals(notif.args.fields, { kind: "meals", on: false });
+  const memory = normalizePhoneArgs("write", { entity: "memory", op: "create", fields: { text: "膝盖有旧伤" } });
+  assert(memory.ok && !memory.confirm);
+  const goal = normalizePhoneArgs("write", { entity: "profile", op: "update", fields: { goal: "增肌" } });
+  assert(goal.ok && !goal.confirm);
+  assertEquals((goal.args.fields as Record<string, unknown>).goal, "BULK");
+  const height = normalizePhoneArgs("write", { entity: "profile", op: "update", fields: { height_cm: "178" } });
+  assert(height.ok && height.confirm);
+  const week = normalizePhoneArgs("do", { action: "app.open", window: "本周" });
+  assert(week.ok);
+  assertEquals(week.args.window, "WEEK");
+  const sheet = normalizePhoneArgs("do", { action: "app.open", page: "alarms" });
+  assert(sheet.ok);
+  assertEquals(sheet.args.sheet, "bandAlarms");
+  const sport = normalizePhoneArgs("do", { action: "sport.start", mode: "骑车" });
+  assert(sport.ok && sport.confirm);
+  assertEquals(sport.args.mode, "Outdoor cycle");
+  const undo = normalizePhoneArgs("do", { action: "undo" });
+  assert(undo.ok && !undo.confirm);
+});
+
+// #28 · "把昨晚睡觉时间改成 23:30 到 7:00" is one write, and it is always confirmed:
+// the night's score and the charge it fed move with the window.
+Deno.test("a corrected night is one confirmed write of two clock times", () => {
+  const zh = normalizePhoneArgs("write", {
+    entity: "sleep_night", op: "update", fields: { day: "昨天", start: "23:30", end: "7:00" },
+  }, "2026-09-10");
+  assert(zh.ok && zh.confirm);
+  assertEquals(zh.args.fields, { day: "2026-09-09", start: "23:30", end: "07:00" });
+
+  const clear = normalizePhoneArgs("write", {
+    entity: "sleep_night", op: "update", fields: { day: "2026-09-08", clear: "true" },
+  }, "2026-09-10");
+  assert(clear.ok && clear.confirm);
+  assertEquals(clear.args.fields, { day: "2026-09-08", clear: true });
+
+  // A night is named by the day it was woken on, and half a window is not a correction.
+  const noDay = normalizePhoneArgs("write", { entity: "sleep_night", op: "update", fields: { start: "23:30", end: "07:00" } }, "2026-09-10");
+  assert(!noDay.ok);
+  const half = normalizePhoneArgs("write", { entity: "sleep_night", op: "update", fields: { day: "today", start: "23:30" } }, "2026-09-10");
+  assert(!half.ok);
+  const same = normalizePhoneArgs("write", { entity: "sleep_night", op: "update", fields: { day: "today", start: "07:00", end: "7" } }, "2026-09-10");
+  assert(!same.ok);
 });

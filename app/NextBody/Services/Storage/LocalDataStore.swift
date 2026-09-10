@@ -168,6 +168,18 @@ public final class LocalDataStore: @unchecked Sendable {
             for id in ids { try acknowledge(account: account, id: id) }
         }
     }
+    /// Cache confirmations and retire their durable operations in the same commit.
+    /// Evicting a confirmation is safe: the next publication sends its full values again.
+    public func acknowledge(account: String, ids: [String], documents: [String: Data]) throws {
+        guard !account.isEmpty else { throw Failure.invalidOwner }
+        try transaction {
+            for (key, data) in documents {
+                try writeDocument(account: account, key: key, data: data,
+                                  expiresAt: Date().addingTimeInterval(45 * 86400))
+            }
+            for id in ids { try acknowledge(account: account, id: id) }
+        }
+    }
     private func transaction(_ body: () throws -> Void) throws {
         lock.lock(); defer { lock.unlock() }
         try execute("BEGIN IMMEDIATE")

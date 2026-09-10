@@ -30,6 +30,7 @@ export type ShopCopy = {
     refund: string;
     shipping: string;
     terms: string;
+    agreement: string;
     disclaimer: string;
     copy: string;
   };
@@ -174,6 +175,7 @@ const en: ShopCopy = {
     refund: 'Refund Policy',
     shipping: 'Shipping Policy',
     terms: 'Terms of Service',
+    agreement: 'User Agreement',
     disclaimer: '18+. Not a medical device. No ECG.',
     copy: '© 2026 NextBody',
   },
@@ -329,6 +331,7 @@ const zh: ShopCopy = {
     refund: '退款政策',
     shipping: '配送政策',
     terms: '服务条款',
+    agreement: '用户协议',
     disclaimer: '18 岁以上。非医疗器械，不做心电图。',
     copy: '© 2026 NextBody',
   },

@@ -241,11 +241,15 @@ public final class MealPublication {
             } catch Failure.http(let code, let responseBody) where (400..<500).contains(code)
                 && code != 401 && code != 408 && code != 429 {
                 try requireCurrent()
-                let rejected = try MealOutboxPolicy.replacingRejection(operation, message: Self.rejectedMessage)
+                let errorData = responseBody.data(using: .utf8)
+                let serverBody = errorData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let serverError = serverBody?["error"] as? String
+                // The server's own word for the refusal (DAY_ALREADY_FASTED, MEAL_EDIT_WINDOW_CLOSED,
+                // MEAL_NOT_FOUND…) rides in the message so the Fuel page and a voice turn can say why.
+                let reason = [serverBody?["reason"] as? String, serverError].compactMap { $0 }.first { !$0.isEmpty && $0 != "E_SCHEMA" }
+                let rejected = try MealOutboxPolicy.replacingRejection(operation, message: reason.map { Self.rejectedMessage + " [" + $0 + "]" } ?? Self.rejectedMessage)
                 let rejectedOperation = LocalOperation(id: operation.id, account: operation.account, kind: operation.kind, payload: rejected)
                 let fields = try MealOutboxPolicy.fields(rejectedOperation)
-                let errorData = responseBody.data(using: .utf8)
-                let serverError = errorData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["error"] as? String
                 let definitiveMismatch = code == 409 && ["NO_CANONICAL_MATCH", "OPERATION_CONFLICT"].contains(serverError ?? "")
                 let next = probe && definitiveMismatch ? fields.merging(["canonical_probe_attempted": true]) { _, new in new } : fields
                 let payload = try JSONSerialization.data(withJSONObject: next, options: .sortedKeys)

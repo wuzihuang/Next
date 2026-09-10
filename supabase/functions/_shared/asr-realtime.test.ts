@@ -7,6 +7,12 @@ Deno.test("builds a manual 16 kHz PCM session", () => {
   assertEquals(event.session.input_audio_format, "pcm");
   assertEquals(event.session.sample_rate, 16_000);
   assertEquals(event.session.turn_detection, null);
+  assertEquals(event.session.input_audio_transcription, { language: "zh" });
+});
+
+Deno.test("names no language, so the provider identifies the one she spoke", () => {
+  const event = JSON.parse(sessionUpdate());
+  assertEquals(event.session.input_audio_transcription, {});
 });
 
 Deno.test("encodes PCM bytes and emits commit before finish", () => {

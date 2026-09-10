@@ -61,12 +61,20 @@ final class BandRefreshCoordinator {
         }
     }
 
+    struct HistoryResult {
+        /// Nil means no historical work was needed; it is not an extra successful day.
+        let result: BandRefreshResult?
+        /// A retry repaired a recent day whose original result would otherwise remain partial.
+        var recoveredDays: Set<Int> = []
+    }
+
     /// Production uses the band and existing publication module; tests control their waits.
     struct Work {
         let prepare: @MainActor (_ reuseRecentLiveReceipt: Bool) async -> Bool
         let day: @MainActor (_ daysAgo: Int) async -> BandRefreshResult
-        let history: @MainActor () async -> BandRefreshResult
-        var finish: @MainActor () -> Void = {}
+        let history: @MainActor (_ recentDays: [Int: BandRefreshResult]) async -> HistoryResult
+        var checkHistory: @MainActor () -> Bool = { false }
+        var finish: @MainActor () async -> Void = {}
     }
 
     private final class Flight {
@@ -132,6 +140,9 @@ final class BandRefreshCoordinator {
         current = flight
         flight.task = Task { @MainActor in
             let result = await perform(flight, reuseReceipt: request == .foreground, work: work)
+            // Await the BLE-cache lifetime cleanup before releasing this shared flight.
+            // A different account or new refresh cannot have its cache ended by old work.
+            await work.finish()
             if flight.startedReading,
                result.status == .success || result.status == .partial || result.status == .failed {
                 lastAttempt = (scope, now())
@@ -152,24 +163,31 @@ final class BandRefreshCoordinator {
     }
 
     private func perform(_ flight: Flight, reuseReceipt: Bool, work: Work) async -> BandRefreshResult {
-        defer { work.finish() }
         let scope = flight.scope
         if let rejected = state().rejection(expected: scope) { return .init(status: rejected) }
         let ready = await work.prepare(reuseReceipt)
         if let rejected = state().rejection(expected: scope) { return .init(status: rejected) }
         guard ready else { return .init(status: state().connected ? .failed : .disconnected) }
         flight.startedReading = true
-        var results: [BandRefreshResult] = []
+        var recentDays: [Int: BandRefreshResult] = [:]
         for offset in [1, 0] {
             if let rejected = state().rejection(expected: scope) {
-                return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
+                return .init(status: rejected, points: recentDays.values.reduce(0) { $0 + $1.points })
             }
-            results.append(await work.day(offset))
+            recentDays[offset] = await work.day(offset)
         }
         if let rejected = state().rejection(expected: scope) {
-            return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
+            return .init(status: rejected, points: recentDays.values.reduce(0) { $0 + $1.points })
         }
-        if flight.wantsHistory { results.append(await work.history()) }
+        var history: BandRefreshResult?
+        if flight.wantsHistory || work.checkHistory() {
+            let checked = await work.history(recentDays)
+            history = checked.result
+            for offset in checked.recoveredDays where recentDays[offset] != nil {
+                recentDays[offset] = .init(status: .success, points: recentDays[offset]?.points ?? 0)
+            }
+        }
+        let results = Array(recentDays.values) + (history.map { [$0] } ?? [])
         if let rejected = state().rejection(expected: scope) {
             return .init(status: rejected, points: results.reduce(0) { $0 + $1.points })
         }

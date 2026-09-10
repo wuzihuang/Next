@@ -1,9 +1,11 @@
 import Foundation
 import os
 
-/// App-owned heart stream. Foreground demand follows the panel; background collection
-/// retains the existing stream while consent, account, binding and sensor ownership allow.
-/// Stress remains available in the foreground and never inserts a new background test.
+/// App-owned heart stream. It follows the screen (`BandLivePolicy`, ADR 0023): the home
+/// panel asks for it while someone is looking, and leaving the app ends it — the band is
+/// never left measuring for a number nobody reads. `background` below means "not `.active`",
+/// so its guards only ever fire during an `.inactive` scene (a call, Control Center), which
+/// keeps the open stream rather than churning it and inserts no new stress test.
 @MainActor
 final class LiveReadout: ObservableObject {
     static let shared = LiveReadout()

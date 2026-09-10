@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Paper 04D · root chrome: chasing chevron, the two page dots, PLAN under them.
+/// Paper 04D · root chrome: chasing chevron, the two page dots, SUGGESTIONS under them.
 /// The lane stays put through a horizontal page turn — only the dots crossfade.
-/// No extra lime dots beside PLAN. iOS still paints the Home Indicator.
+/// No extra lime dots beside SUGGESTIONS. iOS still paints the Home Indicator.
 struct PlanLip: View {
     var pageFade: Double
     var playing: Bool
@@ -16,7 +16,7 @@ struct PlanLip: View {
                         armed: armed, reduceMotion: reduceMotion)
                 .equatable()
             pageDots
-            Text("PLAN")
+            Text(L("SUGGESTIONS"))
                 .font(NBFont.dot(600, 10))
                 .tracking(0.22 * 10)
                 .foregroundStyle(NB.lime1)
@@ -27,8 +27,8 @@ struct PlanLip: View {
         .frame(height: 48)
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("plan.lip")
-        .accessibilityLabel(L("Plan"))
-        .accessibilityHint(L("Swipe up for today's plan"))
+        .accessibilityLabel(L("Suggestions"))
+        .accessibilityHint(L("Swipe up for personal suggestions"))
     }
 
     /// Same two 4pt dots the root used to draw — white, current page bright.

@@ -37,3 +37,23 @@ enum BandHealthLightError: LocalizedError, Equatable {
         }
     }
 }
+
+/// The state chosen on the Device page, kept on the phone and written to the band again
+/// on every connect (`BandHealthLightKeeper`). `nil` is "never chosen": the firmware's own
+/// default stands and the app sends nothing.
+enum BandHealthLightPreference {
+    static let key = "nb.band.healthLight"
+
+    static func stored(in defaults: UserDefaults = .standard) -> BandHealthLightState? {
+        guard defaults.object(forKey: key) != nil else { return nil }
+        return BandHealthLightState(rawValue: defaults.integer(forKey: key))
+    }
+
+    static func store(_ state: BandHealthLightState?, in defaults: UserDefaults = .standard) {
+        if let state {
+            defaults.set(state.rawValue, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}

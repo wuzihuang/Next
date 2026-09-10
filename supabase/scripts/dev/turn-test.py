@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drive /turn with the user's own session and print what came back, question by question.
 usage: turn-test.py <base-url> <question>...   (base like http://localhost:8000/functions/v1)"""
-import json, sys, subprocess, time, os
+import json, sys, subprocess, time, os, uuid
 SCR = os.environ.get("NB_DEV_DIR", os.path.dirname(os.path.abspath(__file__)))
 URL = "https://gkgzwcxivnffsecshvfs.supabase.co"
 keys = json.load(open(f"{SCR}/apikeys.json"))
@@ -23,12 +23,21 @@ if time.time() > sess.get("expires_at", 0) - 300:
     refresh()
 
 base = sys.argv[1]
+
+def body(q):
+    """NB_LOCALE picks the screen language; NB_FRESHNESS is the phone's freshness JSON, e.g.
+    '{"device":{"connected":true,"battery_percent":32,"charging":false}}' — the band state a
+    real phone sends with every turn, without which a battery question has nothing to cite."""
+    b = {"text": q}
+    if os.environ.get("NB_LOCALE"): b["locale"] = os.environ["NB_LOCALE"]
+    if os.environ.get("NB_FRESHNESS"): b["freshness"] = json.loads(os.environ["NB_FRESHNESS"])
+    return b
 for q in sys.argv[2:]:
     t0 = time.time()
     p = subprocess.Popen(["curl", "-s", "-N", "--max-time", "120", "-X", "POST", f"{base}/turn",
                           "-H", f"apikey: {ANON}", "-H", f"Authorization: Bearer {sess['access_token']}",
-                          "-H", "Content-Type: application/json", "-H", f"Idempotency-Key: {os.urandom(8).hex()}",
-                          "-d", json.dumps({"text": q} if not os.environ.get("NB_LOCALE") else {"text": q, "locale": os.environ["NB_LOCALE"]})],
+                          "-H", "Content-Type: application/json", "-H", f"Idempotency-Key: {uuid.uuid4()}",
+                          "-d", json.dumps(body(q))],
                          stdout=subprocess.PIPE, text=True, bufsize=1)
     ev = None; tools = []; thoughts = []; env = None; errs = []
     raw = []; first = {}

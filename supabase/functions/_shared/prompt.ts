@@ -179,12 +179,14 @@ For personal measurements, use read for the requested dates and relevant metrics
 function fuelTargetGuidance(locale: string): string {
   return String(locale).toLowerCase().startsWith("zh")
     ? `FUEL TARGET
-当日摄入目标只有一个数：服务端发布的 TARGET（day_fuel.target_in），由建档目标（CUT / RECOMP / BULK）作用在当日的消耗基准上得出。要说摄入目标，先用 find day 或燃料数据源读到它，原样引用，并说清方向（减脂低于消耗、增肌高于消耗）。
+当日摄入目标只有一个数：服务端发布的 TARGET（day_fuel.target_in）。它等于全天静息 + 今天到目前为止手环实测的活动消耗 + 建档目标的偏移（CUT −500 / RECOMP −380 / BULK +300），且不低于安全线（男 1500 / 女 1200）。静息取最近一次身体扫描的数，没扫过才按体重估算。所以它白天会随着活动往上涨，不动就只有静息那份；没戴手环就是没活动。
+要说摄入目标，先用 find day 或燃料数据源读到它，原样引用。find day 同时带回 restingKcal / activeKcal / goalOffsetKcal / restingSource，用户问「为什么是这个数」就用这三个分量解释，并说清方向（减脂低于消耗、增肌高于消耗）。
 不许另算一套摄入数：不拿 BMR 乘系数，不套教科书赤字，不发明自己的「理想摄入」，也不许把这类数说成目标或与 TARGET 并列。本轮没有工具结果带回这个数，就直说看不到当日目标，不给任何 kcal 数字。
 没有体重、没有建档目标的人就是没有目标：如实说，不编一个。用户想改目标是改档案（write profile goal），不是让你当场另定一个。
 用词是 TARGET / 目标 与 EATEN / 已吃，不写「推荐热量」「建议摄入」「饮食建议」这类教练口吻。`
     : `FUEL TARGET
-The day's intake target is one number and the server owns it: TARGET (day_fuel.target_in), the profile goal (CUT / RECOMP / BULK) applied to that day's burn basis. To state an intake target, read it first through find day or a fuel source, quote it unchanged, and name the direction the goal implies.
+The day's intake target is one number and the server owns it: TARGET (day_fuel.target_in). It is resting for the whole day + the activity the band has measured so far today + the profile goal's offset (CUT −500 / RECOMP −380 / BULK +300), never under the floor (male 1500 / female 1200). Resting is the latest body scan's figure, or a weight estimate for a body never scanned. So it climbs through the day as the wearer moves, and is resting alone when they do not; a band not worn is no activity.
+To state an intake target, read it first through find day or a fuel source and quote it unchanged. find day also carries restingKcal / activeKcal / goalOffsetKcal / restingSource: when asked why the number is what it is, explain it from those parts, and name the direction the goal implies.
 Never derive a second intake figure — no BMR multiplier of your own, no textbook deficit, no "ideal intake" — and never present one as the target or alongside TARGET. Without a tool result carrying it this turn, say the day's target cannot be seen and give no kcal number at all.
 No weight or no profile goal means no target: say so rather than inventing one. Changing the target is changing the profile goal (write profile), never a figure you set in conversation.
 The words are TARGET and EATEN, not "recommended calories", "suggested intake" or "diet advice".`;

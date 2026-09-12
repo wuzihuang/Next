@@ -1883,16 +1883,14 @@ repaired arguments must pass the actual tool schema. JWT verification remains en
 Deployment used the exact v30 source recovered from its source maps plus the chat hotfix,
 because the main working tree's newer turn depends on database RPCs not yet deployed
 (`claim_ai_turn`, `consume_request_budget`, conversation context, and calculation status).
-No migrations were applied. Production-compatible source is kept in the
-`codex/chat-production-hotfix` worktree at
-`/Users/zihuangwu/.codex/worktrees/next-chat-production-hotfix`; do not redeploy the entire main working tree until
-its database migrations are verified. The parameter repair is also integrated into main.
+No migrations were applied. Production-compatible source for that deploy lived in a
+`codex/chat-production-hotfix` worktree; that branch has been retired into main.
+The parameter repair is also integrated into main.
 
 Validation: 6 text-repair tests (including the real AI SDK stream/tool execution), 6 handler
 regressions, and production type-check passed. Live chat checks passed for `2+2`, sleep/HRV
 queries, and a contextual follow-up; no SSE errors. v31 post-deploy logs showed no errors.
-The repeatable handler runner is `supabase/scripts/dev/chat-regression/run.py` in the hotfix
-worktree.
+The repeatable handler runner is `supabase/scripts/dev/chat-regression/run.py`.
 
 
 ## 2026-09-05 · unified AI workflow (production + connected iPhone)

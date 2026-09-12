@@ -435,13 +435,18 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var eIn: Double?                   // nil = UNLOGGED
     var balance: Double?               // E_IN − E_OUT_NOW
     var targetIn: Double?              // TARGET_IN
-    /// Where TARGET_IN came from. `targetBasis` is the burn it was built on, before the
-    /// goal offset and the macro split; `targetBasisDays` is how many measured days
-    /// stand behind that burn. Zero days is the basal multiplier, not a fortnight of
-    /// band data — 09 says which, because a budget that moves without saying why is a
-    /// number nobody can plan against.
+    /// Where TARGET_IN came from (#29): `targetBasis` is resting for the whole day plus
+    /// the activity measured so far, before the goal offset, the floor and the macro
+    /// split. `restingSource` says whether that resting figure is the body scan's
+    /// (`BODY_SCAN`, taken at `restingMeasuredAt`) or Mifflin (`MIFFLIN`), and
+    /// `goalOffset` is the profile goal's −500 / −380 / +300. 09 prints all of it,
+    /// because a budget that moves without saying why is a number nobody can plan
+    /// against. `targetBasisDays` is retired with fuel-2.0 and stays nil.
     var targetBasis: Double?
     var targetBasisDays: Int?
+    var restingSource: String?
+    var restingMeasuredAt: Date?
+    var goalOffset: Double?
     var protein: MacroSlot?
     var carb: MacroSlot?
     var fat: MacroSlot?
@@ -498,7 +503,8 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
         case day, trainingLoad, targetLoad, zoneMinutes, activeMinutes, distanceM, bbWake, bodyBattery
         case trainingEvidence, recordedSteps
         case bmr, eActive, eTrain, eTrainPlan, eOutNow, activeForecast, eOutFull, energyDistribution
-        case eIn, balance, targetIn, targetBasis, targetBasisDays, nextMeal, protein, carb, fat
+        case eIn, balance, targetIn, targetBasis, targetBasisDays, restingSource, restingMeasuredAt, goalOffset
+        case nextMeal, protein, carb, fat
         case weightKg, fatKg, leanKg, fatSource
         case fatEmaDelta7d, leanEmaDelta7d, confidence, scans7d, logged7d
         case fuelState, bandCoverage, calcVersion, asOf, serverDirection
@@ -540,6 +546,11 @@ enum Fmt {
     private static let clockFormatter: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
     }()
+    private static let monthDayFormatter: DateFormatter = {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "MM-dd"; return f
+    }()
+    /// 09 · the day a body scan was taken, beside the resting figure it supplied.
+    static func monthDay(_ d: Date) -> String { monthDayFormatter.string(from: d) }
     static func signedKcal(_ v: Double?) -> String {
         guard let v else { return dash }
         return (v < 0 ? "−" : "+") + kcal(abs(v))

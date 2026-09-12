@@ -53,6 +53,71 @@ struct SleepWindowCard: View {
     }
 }
 
+/// The two wheels themselves. A night is corrected through one control wherever the
+/// correction started — the sleep page's own sheet, or the confirm the AI puts up when it
+/// has guessed the night by ear — so the same drag means the same thing in both.
+///
+/// ⚠️ One wheel per row, full width. A `.wheel` DatePicker refuses to be narrower than its
+/// three columns (hour · minute · AM/PM) and simply overflows the container it is given:
+/// side by side, the two of them ran off both edges of the sheet. The alarm sheet has been
+/// giving a single wheel the whole width since F1 for the same reason.
+struct SleepWindowWheels: View {
+    @Binding var start: Date
+    @Binding var end: Date
+    /// A dialog has less room than a sheet, and the wheel is legible well below its
+    /// natural 216pt — fewer rows above and below the one that is selected.
+    var wheelHeight: CGFloat = 150
+
+    var body: some View {
+        VStack(spacing: 10) {
+            wheel(L("FELL ASLEEP"), $start)
+            wheel(L("WOKE"), $end)
+        }
+    }
+
+    private func wheel(_ label: String, _ value: Binding<Date>) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(NBFont.ui(400, 11)).tracking(0.06 * 11)
+                .foregroundStyle(NB.white.opacity(0.38))
+            DatePicker("", selection: value, displayedComponents: .hourAndMinute)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .colorScheme(.dark)
+                .frame(maxWidth: .infinity)
+                .frame(height: wheelHeight)
+                // A shortened wheel is cut, not shrunk, so the first row above and below
+                // the selection ends up sliced through the middle of its digits. Fading
+                // the two edges is what the wheel does on its own at full height.
+                .mask(LinearGradient(stops: [.init(color: .clear, location: 0),
+                                             .init(color: .black, location: 0.22),
+                                             .init(color: .black, location: 0.78),
+                                             .init(color: .clear, location: 1)],
+                                     startPoint: .top, endPoint: .bottom))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous).stroke(NB.hairline, lineWidth: 1))
+    }
+
+    /// `HH:MM` on the wearer's own clock — the only shape `correct_sleep_window` accepts.
+    static func hhmm(_ at: Date) -> String {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: at)
+        return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+    }
+
+    /// A wheel has to stand on some date; only its hour and minute are ever read back.
+    static func date(_ hhmm: String?, fallback: Date = Date()) -> Date {
+        let parts = (hhmm ?? "").split(separator: ":")
+        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]),
+              (0...23).contains(h), (0...59).contains(m),
+              let at = Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: fallback)
+        else { return fallback }
+        return at
+    }
+}
+
 /// Two wheels and an explicit save. A drag is not a correction: nothing is written until
 /// SAVE, which is the same rule the AI path gets from its confirmation.
 struct SleepWindowSheet: View {
@@ -73,10 +138,7 @@ struct SleepWindowSheet: View {
                     .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                     .foregroundStyle(NB.white.opacity(0.38))
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    wheel(L("FELL ASLEEP"), $start)
-                    wheel(L("WOKE"), $end)
-                }
+                SleepWindowWheels(start: $start, end: $end)
                 if let failure {
                     Text(failure)
                         .font(NBFont.ui(400, 12.5)).tracking(0.02 * 12.5)
@@ -92,8 +154,8 @@ struct SleepWindowSheet: View {
             }
         } footer: {
             LimePillButton(title: saving ? L("Saving…") : L("Save"), enabled: !saving) {
-                run { try await SleepCorrection.save(day: day, start: Self.hhmm(start),
-                                                     end: Self.hhmm(end), into: data) }
+                run { try await SleepCorrection.save(day: day, start: SleepWindowWheels.hhmm(start),
+                                                     end: SleepWindowWheels.hhmm(end), into: data) }
             }
         }
         .background(NB.carbon2)
@@ -101,22 +163,6 @@ struct SleepWindowSheet: View {
             start = night?.sleepStart ?? day.start
             end = night?.wakeAt ?? day.start
         }
-    }
-
-    private func wheel(_ label: String, _ value: Binding<Date>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(NBFont.ui(400, 11)).tracking(0.06 * 11)
-                .foregroundStyle(NB.white.opacity(0.38))
-            DatePicker("", selection: value, displayedComponents: .hourAndMinute)
-                .datePickerStyle(.wheel)
-                .labelsHidden()
-                .colorScheme(.dark)
-                .frame(maxWidth: .infinity)
-        }
-        .padding(10)
-        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous).stroke(NB.hairline, lineWidth: 1))
     }
 
     private func run(_ work: @escaping () async throws -> Void) {
@@ -133,10 +179,5 @@ struct SleepWindowSheet: View {
                 saving = false
             }
         }
-    }
-
-    static func hhmm(_ at: Date) -> String {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: at)
-        return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
     }
 }

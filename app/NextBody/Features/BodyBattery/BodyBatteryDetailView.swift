@@ -138,11 +138,8 @@ struct BodyBatteryDetailView: View {
             footer
         } else {
             heroCard
-            if drivers != nil && hasScore { whyCard }
-            if hasNight {
-                inputsCard
-                targetCard
-            }
+            if drivers != nil && hasScore { ledgerCard }
+            if hasNight { inputsCard }
             vitalsCard
             confidenceCard
             footer
@@ -182,105 +179,149 @@ struct BodyBatteryDetailView: View {
             .stroke(NB.hairline, lineWidth: 1))
     }
 
-    /// Four rows that must add up to the number at the top, within ±0.5.
-    /// All rows share the user-day window; the whole-night total is shown separately.
-    @ViewBuilder private var whyCard: some View {
-        let d = drivers ?? ReserveDrivers(lastNight: 0, awake: 0, movement: 0, stress: 0, anchor: 0)
-        let scale = max(1, max(abs(d.dayCharge ?? d.lastNight), max(abs(d.awake), max(abs(d.movement), abs(d.stress)))))
-        CardBlock(title: L("WHY %@", Fmt.int(m.bodyBattery)), trailing: L("FROM %d AT 04:00", d.anchor)) {
-            VStack(spacing: 11) {
-                ContribRow(label: L("Recovery since 04:00"),
-                           value: d.dayCharge ?? d.lastNight, maxAbs: scale, tint: NB.lime1)
-                ContribRow(label: L("Just being awake"), value: d.awake, maxAbs: scale, tint: NB.white.opacity(0.35))
-                ContribRow(label: L("Moving around"), value: d.movement, maxAbs: scale, tint: NB.white.opacity(0.35))
-                ContribRow(label: L("Stress"), value: d.stress, maxAbs: scale, tint: NB.white.opacity(0.35))
-            }
-            Hairline()
-            HStack {
-                Text(L("SUM %@", Fmt.signed(d.sum)))
-                    .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                    .foregroundStyle(NB.text3Prod)
-                Spacer(minLength: 0)
-                Text("\(d.anchor)  →  \(Fmt.int(m.bodyBattery))")
-                    .font(NBFont.dot(700, 11)).tracking(0.08 * 11)
-                    .foregroundStyle(NB.text2)
-            }
-            if d.assumedAnchor {
-                Text(L("Starting battery estimated — earlier readings were missing."))
+    /// 13 · WHY <n> as a ledger. Where the day started, four signed rows with the reason
+    /// each one has its sign, the balance after each, and the number at the top as the last
+    /// balance. Sleep is the only row that charges; the other three only ever drain, and the
+    /// caption under each says what the model charged for. No training target here — the
+    /// target is a training-page fact, and it read as a fifth term of the sum.
+    @ViewBuilder private var ledgerCard: some View {
+        if let d = drivers, let now = m.bodyBattery {
+            let rows = BodyBatteryLedgerMath.rows(anchor: d.anchor, recovery: d.chargeForDay,
+                                                  awake: d.awake, movement: d.movement,
+                                                  stress: d.stress, current: now)
+            let scale = max(1, rows.map { abs($0.delta) }.max() ?? 1)
+            let startClock = Fmt.clock(m.day.start)
+            let nowClock = m.bodyBatteryObservedAt.map(Fmt.clock)
+            CardBlock(title: L("WHY %@", Fmt.int(now)),
+                      trailing: nowClock.map { L("%@ → %@", startClock, $0) } ?? startClock) {
+                LedgerEdge(label: L("START %@", startClock), value: d.anchor,
+                           note: d.assumedAnchor ? L("ESTIMATED") : nil, tint: NB.white.opacity(0.55))
+                Hairline()
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+                    Text(L("CHANGE"))
+                        .frame(width: LedgerRow.barWidth + 10 + LedgerRow.deltaWidth, alignment: .trailing)
+                    Text(L("AFTER"))
+                        .frame(width: LedgerRow.balanceWidth, alignment: .trailing)
+                }
+                .font(NBFont.dot(500, 9)).tracking(0.16 * 9)
+                .foregroundStyle(NB.white.opacity(0.30))
+                VStack(spacing: 12) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        LedgerRow(name: ledgerName(row.term), reason: ledgerReason(row.term, d),
+                                  delta: row.delta, balance: row.balance, scale: scale)
+                    }
+                }
+                Hairline()
+                LedgerEdge(label: nowClock.map { L("NOW %@", $0) } ?? L("NOW"), value: now,
+                           note: nil, tint: NB.lime1)
+                Text(L("Only sleep charges it. Being awake drains it on its own; moving and stress cost more on top."))
                     .font(NBFont.brand(400, 13))
                     .lineSpacing(6)
                     .foregroundStyle(NB.white.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+                if d.assumedAnchor {
+                    Text(L("Starting battery estimated — earlier readings were missing."))
+                        .font(NBFont.brand(400, 13))
+                        .lineSpacing(6)
+                        .foregroundStyle(NB.white.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .id("bb-why")
         }
-        .id("bb-why")
+    }
+
+    private func ledgerName(_ term: BodyBatteryLedgerRow.Term) -> String {
+        switch term {
+        case .recovery: L("Recovery")
+        case .awake:    L("Just being awake")
+        case .movement: L("Moving around")
+        case .stress:   L("Stress")
+        }
+    }
+
+    /// Why the row has its sign, in the day's own numbers where the page has them.
+    private func ledgerReason(_ term: BodyBatteryLedgerRow.Term, _ d: ReserveDrivers) -> String {
+        switch term {
+        case .recovery:
+            if let multiplier = m.nightInputs?.multiplier {
+                return L("Charged while asleep · multiplier %.2f", multiplier)
+            }
+            return L("Charged while asleep")
+        case .awake:
+            if let minutes = BodyBatteryLedgerMath.awakeMinutes(
+                wakeAt: m.bodyBatteryWakeAt, dayStart: m.day.start, observedAt: m.bodyBatteryObservedAt) {
+                return L("Base drain for %@ awake · faster after a short night", Fmt.duration(minutes))
+            }
+            return L("Base drain while awake · faster after a short night")
+        case .movement:
+            if let steps = m.recordedSteps {
+                return L("Heart-rate zones, effort and steps · %d steps", steps)
+            }
+            return L("Heart-rate zones, effort and steps")
+        case .stress:
+            if let minutes = BodyBatteryLedgerMath.stressedMinutes(m.vitalsCurve) {
+                return minutes > 0
+                    ? L("Stress above 40 for %@ · HRV under baseline", Fmt.duration(minutes))
+                    : L("Stress stayed under 40 · HRV under baseline")
+            }
+            return L("Stress above 40 and HRV under baseline")
+        }
     }
 
     /// HRV and resting heart rate are allowed on screen because we measure them and they have
-    /// a unit. Sleep duration and stages are not, here or anywhere.
+    /// a unit. Sleep duration and stages are not, here or anywhere. Each is printed against
+    /// its own 14-night baseline, and the multiplier they produce closes the card — it is the
+    /// number the Recovery row above was charged through.
     private var inputsCard: some View {
         let n = m.nightInputs ?? NightInputs()
+        let pace = n.multiplier.map(BodyBatteryLedgerMath.pace)
         return CardBlock(title: L("LAST NIGHT'S INPUTS"), trailing: L("%d OF 3", n.present)) {
             VStack(spacing: 12) {
                 InputRow(name: "HRV", value: Fmt.kg(n.hrv, decimals: 0), unit: n.hrv == nil ? nil : "MS",
-                         base: n.hrvBase.map { L("BASE %d", Int($0)) })
+                         base: baselineNote(n.hrv, n.hrvBase))
                 Hairline()
                 InputRow(name: "Resting heart rate", value: Fmt.kg(n.rhr, decimals: 0),
                          unit: n.rhr == nil ? nil : "BPM",
-                         base: n.rhrBase.map { L("BASE %d", Int($0)) })
+                         base: baselineNote(n.rhr, n.rhrBase))
                 Hairline()
-                InputRow(name: "Charge multiplier",
-                         value: n.multiplier.map { String(format: "%.2f", $0) } ?? Fmt.dash,
-                         unit: nil, base: nil)
+                HStack(spacing: 8) {
+                    Text(L("Charge multiplier"))
+                        .font(NBFont.brand(400, 13))
+                        .foregroundStyle(NB.text2)
+                    Spacer(minLength: 0)
+                    Text(n.multiplier.map { String(format: "%.2f", $0) } ?? Fmt.dash)
+                        .font(NBFont.dot(700, 14)).tracking(0.04 * 14)
+                        .foregroundStyle(NB.text1)
+                    if let pace {
+                        Text(paceWord(pace))
+                            .font(NBFont.dot(600, 9)).tracking(0.14 * 9)
+                            .foregroundStyle(pace == .usual ? NB.white.opacity(0.42) : NB.lime1)
+                    }
+                }
             }
+            Text(L("Last night's HRV and resting heart rate, against your 14-night baselines, set how fast sleep charged the battery."))
+                .font(NBFont.brand(400, 13))
+                .lineSpacing(6)
+                .foregroundStyle(NB.white.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private var targetCard: some View {
-        let band = BodyBattery.band(for: m.bbWake ?? 0)
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L("TODAY'S TARGET"))
-                    .font(NBFont.dot(700, 11)).tracking(0.22 * 11)
-                    .foregroundStyle(NB.white)
-                Spacer(minLength: 0)
-                Text(wakeTime.map { L("SET AT %@", $0) } ?? L("SET AT WAKE"))
-                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(NB.white.opacity(0.42))
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(String(format: "%.1f", band.target))
-                    .font(NBFont.dot(800, 38))
-                    .foregroundStyle(NB.lime1)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(L("RANGE %.1f – %.1f", band.optimal.lowerBound, band.optimal.upperBound))
-                        .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
-                        .foregroundStyle(NB.white.opacity(0.42))
-                    Text(L("BAND %d – %d", band.range.lowerBound, band.range.upperBound))
-                        .font(NBFont.dot(600, 10.5)).tracking(0.16 * 10.5)
-                        .foregroundStyle(NB.white.opacity(0.42))
-                }
-            }
-            Text(L("Set once this morning. It does not move during the day."))
-                .font(NBFont.brand(400, 14))
-                .lineSpacing(8)
-                .foregroundStyle(NB.white.opacity(0.70))
-            Button { router.path = [.training] } label: {
-                HStack(spacing: 8) {
-                    Text(L("OPEN TRAINING"))
-                        .font(NBFont.dot(600, 10.5)).tracking(0.18 * 10.5)
-                        .foregroundStyle(NB.white.opacity(0.55))
-                    Text(L("→"))
-                        .font(NBFont.dot(700, 11))
-                        .foregroundStyle(NB.lime1)
-                }
-            }
-            .buttonStyle(.plain)
+    /// "BASE 61 · −7": the baseline and how far last night sat from it.
+    private func baselineNote(_ value: Double?, _ base: Double?) -> String? {
+        guard let base else { return nil }
+        guard let value else { return L("BASE %d", Int(base)) }
+        return L("BASE %d · %@", Int(base), Fmt.signed(value - base))
+    }
+
+    private func paceWord(_ pace: BodyBatteryLedgerMath.Pace) -> String {
+        switch pace {
+        case .slower: L("SLOWER THAN USUAL")
+        case .usual:  L("USUAL PACE")
+        case .faster: L("FASTER THAN USUAL")
         }
-        .padding(20)
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .background(Color(hex: 0x0F0F13), in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
-            .stroke(NB.lime1.opacity(0.22), lineWidth: 1))
     }
 
     /// Heart and stress sit under the curve. They are measurements, not a second
@@ -342,8 +383,14 @@ struct BodyBatteryDetailView: View {
         return L("%d ticks today. Gaps stay open.", ticks)
     }
 
+    /// Evidence quality, in the two places evidence comes from. NIGHT is what the
+    /// multiplier and the morning reading stood on; DAY is what the three drain rows stood
+    /// on. Baseline nights sit with the night they qualify.
     private var confidenceCard: some View {
-        CardBlock(title: L("CONFIDENCE"), trailing: L(m.bodyBatteryConfidence.rawValue), trailingIsDot: true) {
+        let coverage = m.reserveDrivers?.coverage
+        let hrvNights = coverage?.hrvNights ?? m.nightInputs?.hrvNights ?? 0
+        let rhrNights = coverage?.rhrNights ?? m.nightInputs?.rhrNights ?? 0
+        return CardBlock(title: L("CONFIDENCE"), trailing: L(m.bodyBatteryConfidence.rawValue), trailingIsDot: true) {
             HStack(spacing: 6) {
                 ForEach(0..<3, id: \.self) { i in
                     Capsule()
@@ -351,32 +398,47 @@ struct BodyBatteryDetailView: View {
                         .frame(height: 5)
                 }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L("HRV BASELINE %d / 14 NIGHTS", m.reserveDrivers?.coverage?.hrvNights ?? m.nightInputs?.hrvNights ?? 0))
-                Text(L("RESTING BASELINE %d / 14 NIGHTS", m.reserveDrivers?.coverage?.rhrNights ?? m.nightInputs?.rhrNights ?? 0))
+            VStack(alignment: .leading, spacing: 8) {
+                groupLabel(L("NIGHT"))
+                coverageRow(L("HRV COVERAGE"), pct(coverage?.nightHRV))
+                coverageRow(L("HEART COVERAGE"), pct(coverage?.nightRHR))
+                coverageRow(L("HRV BASELINE"), L("%d / 14 NIGHTS", hrvNights))
+                coverageRow(L("RESTING BASELINE"), L("%d / 14 NIGHTS", rhrNights))
             }
-            .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-            .foregroundStyle(NB.text3Prod)
-            if let coverage = m.reserveDrivers?.coverage {
-                Hairline()
-                coverageRow("NIGHT HRV COVERAGE", coverage.nightHRV)
-                coverageRow("NIGHT HEART COVERAGE", coverage.nightRHR)
-                coverageRow("DAY HEART COVERAGE", coverage.dayHeart)
-                coverageRow("DAY HRV COVERAGE", coverage.dayHRV)
-                coverageRow("DAY STRESS COVERAGE", coverage.dayStress)
+            Hairline()
+            VStack(alignment: .leading, spacing: 8) {
+                groupLabel(L("DAY"))
+                coverageRow(L("HEART COVERAGE"), pct(coverage?.dayHeart))
+                coverageRow(L("HRV COVERAGE"), pct(coverage?.dayHRV))
+                coverageRow(L("STRESS COVERAGE"), pct(coverage?.dayStress))
             }
+            Text(L("Missing HRV or stress readings reduce confidence; they do not mean no stress."))
+                .font(NBFont.brand(400, 13))
+                .lineSpacing(6)
+                .foregroundStyle(NB.white.opacity(0.62))
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func coverageRow(_ title: String, _ fraction: Double?) -> some View {
+    private func groupLabel(_ text: String) -> some View {
+        Text(text)
+            .font(NBFont.dot(600, 9)).tracking(0.18 * 9)
+            .foregroundStyle(NB.lime1.opacity(0.75))
+    }
+
+    private func pct(_ fraction: Double?) -> String {
+        fraction.map { "\(Int((min(1, max(0, $0)) * 100).rounded()))%" } ?? Fmt.dash
+    }
+
+    private func coverageRow(_ title: String, _ value: String) -> some View {
         HStack {
-            Text(L(title))
+            Text(title)
                 .font(NBFont.ui(500, 10))
                 .foregroundStyle(NB.text3Prod)
             Spacer(minLength: 0)
-            Text(fraction.map { "\(Int((min(1, max(0, $0)) * 100).rounded()))%" } ?? Fmt.dash)
+            Text(value)
                 .font(NBFont.dot(600, 12))
-                .foregroundStyle(NB.text2)
+                .foregroundStyle(value == Fmt.dash ? NB.text3Prod : NB.text2)
         }
     }
 
@@ -654,28 +716,75 @@ private struct NeedRow: View {
     }
 }
 
-private struct ContribRow: View {
+/// One ledger line: the term, why it has its sign, a bar that leaves the centre to the
+/// right for a charge and to the left for a drain, the signed change, and the balance after.
+private struct LedgerRow: View {
+    static let barWidth: CGFloat = 76
+    static let deltaWidth: CGFloat = 34
+    static let balanceWidth: CGFloat = 30
+
+    let name: String
+    let reason: String
+    let delta: Int
+    let balance: Int
+    let scale: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 10) {
+                Text(name)
+                    .font(NBFont.brand(400, 13))
+                    .foregroundStyle(NB.text1)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                ZStack(alignment: .center) {
+                    Rectangle().fill(NB.white.opacity(0.14)).frame(width: 1, height: 10)
+                    let half = Self.barWidth / 2
+                    let length = half * CGFloat(abs(delta)) / CGFloat(max(1, scale))
+                    Capsule()
+                        .fill(delta > 0 ? NB.lime1 : NB.white.opacity(0.38))
+                        .frame(width: max(delta == 0 ? 0 : 3, length), height: 6)
+                        .offset(x: delta > 0 ? length / 2 : -length / 2)
+                }
+                .frame(width: Self.barWidth, height: 14)
+                Text(delta > 0 ? "+\(delta)" : "\(delta)")
+                    .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
+                    .foregroundStyle(delta > 0 ? NB.lime1 : (delta == 0 ? NB.text3Prod : NB.white.opacity(0.62)))
+                    .frame(width: Self.deltaWidth, alignment: .trailing)
+                Text("\(balance)")
+                    .font(NBFont.dot(600, 12)).tracking(0.04 * 12)
+                    .foregroundStyle(NB.text3Prod)
+                    .frame(width: Self.balanceWidth, alignment: .trailing)
+            }
+            Text(reason)
+                .font(NBFont.ui(400, 11))
+                .foregroundStyle(NB.text3Prod)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// The two edges of the ledger: where the day started and where it stands now.
+private struct LedgerEdge: View {
     let label: String
-    let value: Double
-    let maxAbs: Double
+    let value: Int
+    let note: String?
     let tint: Color
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Text(label)
-                .font(NBFont.brand(400, 13))
-                .foregroundStyle(NB.text2)
-                .frame(width: 118, alignment: .leading)
-            GeometryReader { geo in
-                Capsule().fill(tint)
-                    .frame(width: geo.size.width * CGFloat(abs(value) / maxAbs), height: 6)
-                    .offset(y: 4)
+                .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                .foregroundStyle(NB.white.opacity(0.55))
+            if let note {
+                Text(note)
+                    .font(NBFont.dot(500, 9)).tracking(0.14 * 9)
+                    .foregroundStyle(NB.ember1)
             }
-            .frame(height: 14)
-            Text(value > 0 ? "+\(Int(value))" : "\(Int(value))")
-                .font(NBFont.dot(700, 12)).tracking(0.04 * 12)
-                .foregroundStyle(value > 0 ? NB.lime1 : NB.text2)
-                .frame(width: 38, alignment: .trailing)
+            Spacer(minLength: 0)
+            Text("\(value)")
+                .font(NBFont.dot(700, 16)).tracking(0.02 * 16)
+                .foregroundStyle(tint)
         }
     }
 }

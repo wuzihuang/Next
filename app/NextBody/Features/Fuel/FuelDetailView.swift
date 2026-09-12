@@ -275,22 +275,25 @@ struct FuelDetailView: View {
                     Text(L("BUDGET %@", Fmt.kcal(budget)))
                         .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
                         .foregroundStyle(NB.white.opacity(0.34))
-                    // A budget nobody can account for is a number, not a plan. The basis
-                    // is the fortnight's measured burn once there is a fortnight to
-                    // measure, and the basal estimate until then — which is why the
-                    // figure moves on the day the band has earned its third full day.
-                    // ⚠️ Three is nb.burn_baseline's own gate: below it the basis is
-                    // still the estimate, and saying so is the point of this line.
-                    if let basis = m.targetBasis {
-                        let days = m.targetBasisDays ?? 0
-                        Text(days >= 3
-                             ? L("BASIS %@ · %d MEASURED DAYS · GOAL %@",
-                                 Fmt.kcal(basis), days, Fmt.signedKcal(budget - basis))
-                             : L("BASIS %@ · ESTIMATED, %d MEASURED SO FAR · GOAL %@",
-                                 Fmt.kcal(basis), days, Fmt.signedKcal(budget - basis)))
+                    // A budget nobody can account for is a number, not a plan. #29: the
+                    // budget is resting for the whole day, plus the activity the band has
+                    // measured so far, plus the goal — so it climbs as the wearer moves,
+                    // and this line is the whole of the arithmetic. RESTING is the body
+                    // scan's figure when there is one (with the scan's date), else the
+                    // weight estimate. ⚠️ Every number here is the server's; nothing is
+                    // recomputed on the phone.
+                    if let resting = m.bmrFull, let offset = m.goalOffset {
+                        let active = m.eActive ?? 0
+                        let restingLabel = m.restingSource == "BODY_SCAN"
+                            ? L("BODY SCAN %@", m.restingMeasuredAt.map(Fmt.monthDay) ?? Fmt.dash)
+                            : L("ESTIMATED FROM WEIGHT")
+                        let floored = budget - (resting + active + offset) > 40
+                        Text(L("RESTING %@ · %@ · ACTIVE +%@ · GOAL %@%@",
+                               Fmt.kcal(resting), restingLabel, Fmt.kcal(active),
+                               Fmt.signedKcal(offset), floored ? L(" · FLOOR") : ""))
                             .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
                             .foregroundStyle(NB.white.opacity(0.34))
-                            .lineLimit(1).minimumScaleFactor(0.75)
+                            .lineLimit(1).minimumScaleFactor(0.7)
                     }
                 }
                 Text(L("Solid already happened. Dashed is the usual rhythm."))

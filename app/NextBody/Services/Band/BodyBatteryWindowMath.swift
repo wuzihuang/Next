@@ -116,3 +116,62 @@ enum BodyBatteryReadoutPolicy {
         return .reading(value, dim: age >= staleAfter)
     }
 }
+
+/// 13 · WHY <n> as a ledger. One signed row per term and the balance after it; the last
+/// balance is the hero number. Terms carry their own sign: recovery is the only one that
+/// ever charges, the other three only ever drain.
+struct BodyBatteryLedgerRow: Equatable, Sendable {
+    enum Term: Equatable, Sendable { case recovery, awake, movement, stress }
+    var term: Term
+    var delta: Int
+    var balance: Int
+}
+
+enum BodyBatteryLedgerMath {
+    /// The server closes its four terms to `current − anchor` within ±0.5 before it publishes.
+    /// The page prints integers, so the rounding residual (at most ±2) lands on the largest
+    /// term instead of leaving the column one short of the number at the top.
+    static func rows(anchor: Int, recovery: Double, awake: Double, movement: Double,
+                     stress: Double, current: Int) -> [BodyBatteryLedgerRow] {
+        let terms: [(BodyBatteryLedgerRow.Term, Double)] = [
+            (.recovery, recovery), (.awake, awake), (.movement, movement), (.stress, stress),
+        ]
+        var deltas = terms.map { Int($0.1.rounded()) }
+        let residual = (current - anchor) - deltas.reduce(0, +)
+        if residual != 0,
+           let widest = terms.indices.max(by: { abs(terms[$0].1) < abs(terms[$1].1) }) {
+            deltas[widest] += residual
+        }
+        var balance = anchor
+        return zip(terms, deltas).map { term, delta in
+            balance += delta
+            return BodyBatteryLedgerRow(term: term.0, delta: delta, balance: balance)
+        }
+    }
+
+    /// Minutes awake inside this user day up to the last observation, on the five-minute
+    /// grid the ticks live on. nil without a recorded wake: a day that started from an
+    /// assumed anchor has no moment the wearer is known to have woken.
+    static func awakeMinutes(wakeAt: Date?, dayStart: Date, observedAt: Date?) -> Int? {
+        guard let wakeAt, let observedAt else { return nil }
+        let minutes = observedAt.timeIntervalSince(max(wakeAt, dayStart)) / 60
+        guard minutes >= 5 else { return nil }
+        return Int((minutes / 5).rounded()) * 5
+    }
+
+    /// Five-minute ticks the drain model charged for stress: the index sat above 40.
+    /// nil when no tick carried a stress index at all — missing is not calm.
+    static func stressedMinutes(_ samples: [VitalSample], above threshold: Int = 40) -> Int? {
+        let scored = samples.compactMap(\.stress)
+        guard !scored.isEmpty else { return nil }
+        return scored.filter { $0 > threshold }.count * 5
+    }
+
+    /// One of three words for the night's charge multiplier, around a ±3 % band of 1.00.
+    enum Pace: Equatable, Sendable { case slower, usual, faster }
+    static func pace(of multiplier: Double) -> Pace {
+        if multiplier < 0.97 { return .slower }
+        if multiplier > 1.03 { return .faster }
+        return .usual
+    }
+}

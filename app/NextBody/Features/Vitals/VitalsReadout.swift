@@ -20,11 +20,13 @@ struct VitalsReadout {
     var bands: [VitalsSplit.Band]
     var statLeft: VitalsStatPair.Model
     var statRight: VitalsStatPair.Model
-    /// Sleep carries a second pair (min SpO2 · wakes). Other pages leave this empty.
-    var extraLeft: VitalsStatPair.Model? = nil
+    /// Sleep's wake-events tile, paired with its deep episodes. Other pages leave it empty.
     var extraRight: VitalsStatPair.Model? = nil
     var respirationLeft: VitalsStatPair.Model? = nil
     var respirationRight: VitalsStatPair.Model? = nil
+    /// The lowest heart rate the band recorded inside the night window. Sleep closes its
+    /// recovery section on four numbers, and this is the fourth.
+    var heartLow: VitalsStatPair.Model? = nil
     /// The physiological band drawn behind the trace, in the chart's own units — the resting
     /// pulse, the stable temperature window. It is a reference, never a target.
     var referenceBand: ClosedRange<Double>?
@@ -226,14 +228,6 @@ extension VitalsReadout {
         }.sorted { $0.ts < $1.ts }
     }
 
-    static func hasHRVOutsideSleep(night: SleepSummary?, samples: [VitalSample]) -> Bool {
-        guard let night, let start = night.sleepStart, let wake = night.wakeAt, wake > start else { return false }
-        return samples.contains {
-            guard let value = $0.hrv, value.isFinite, value > 0 else { return false }
-            return !night.containsSleepTimestamp($0.ts)
-        }
-    }
-
     private static func sleep(m: DailyMetrics) -> VitalsReadout {
         guard let night = m.sleep, night.totalMinutes > 0 else {
             var out = empty(unit: L("ASLEEP"),
@@ -244,10 +238,13 @@ extension VitalsReadout {
                                             foot: L("WEAR IT TONIGHT"), tint: nil),
                             statRight: .init(label: L("NIGHT SPO2"), value: nil, unit: "%",
                                              foot: L("WEAR IT TONIGHT"), tint: nil))
-            out.extraLeft = .init(label: L("SPO2 MIN"), value: nil, unit: "%",
-                                  foot: L("WEAR IT TONIGHT"), tint: nil)
             out.extraRight = .init(label: L("WAKE EVENTS"), value: nil, unit: nil,
                                    foot: L("WEAR IT TONIGHT"), tint: nil)
+            out.respirationLeft = .init(label: L("MEAN RESPIRATION"), value: nil,
+                                        unit: L("BREATHS / MIN"),
+                                        foot: L("WEAR IT TONIGHT"), tint: nil)
+            out.heartLow = .init(label: L("SLEEP LOW HR"), value: nil, unit: "BPM",
+                                 foot: L("WEAR IT TONIGHT"), tint: nil)
             return out
         }
 
@@ -319,14 +316,9 @@ extension VitalsReadout {
                             tint: VitalsMetric.hrv.tint),
             statRight: .init(label: L("NIGHT SPO2"), value: spo2.map { String($0.mean) },
                              unit: "%",
-                             foot: spo2.map { _ in L("%d READINGS", spo2Percents.count) }
+                             foot: spo2.map { L("MIN %d%% · %d READINGS", $0.min, spo2Percents.count) }
                                  ?? L("NO OVERNIGHT OXYGEN"),
                              tint: NB.cyan1))
-        out.extraLeft = .init(label: L("SPO2 MIN"), value: spo2.map { String($0.min) },
-                              unit: "%",
-                              foot: spo2 == nil ? L("NO OVERNIGHT OXYGEN")
-                                  : L("IN THE NIGHT WINDOW"),
-                              tint: NB.cyan1)
         out.extraRight = .init(label: L("WAKE EVENTS"), value: String(night.wakeCount),
                                unit: night.wakeCount == 1 ? L("WAKE") : L("WAKES"),
                                foot: night.awakeMinutes > 0 ? L("%@ AWAKE", Fmt.duration(night.awakeMinutes))
@@ -346,6 +338,18 @@ extension VitalsReadout {
                                          respiration.max().map { String(format: "%.1f–%.1f", low, $0) }
                                      }, unit: L("BREATHS / MIN"),
                                      foot: L("IN THE NIGHT WINDOW"), tint: NB.violet2)
+
+        // The night's floor, not a resting estimate: the lowest tick the band actually filed
+        // inside the recorded window. `m.vitalsCurve` is already clipped to that window on
+        // this page, and the stage check keeps a gap between two sleep intervals out of it.
+        let sleepHeart = m.vitalsCurve.filter { night.containsSleepTimestamp($0.ts) }
+            .compactMap(\.hr).filter { $0 > 0 }
+        out.heartLow = .init(label: L("SLEEP LOW HR"),
+                             value: sleepHeart.min().map(String.init),
+                             unit: "BPM",
+                             foot: sleepHeart.isEmpty ? L("NO NIGHT HEART RATE")
+                                                      : L("%d READINGS", sleepHeart.count),
+                             tint: VitalsMetric.heart.tint)
         return out
     }
 

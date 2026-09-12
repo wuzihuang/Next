@@ -59,11 +59,26 @@ private final class PhoneFixture {
         return Task { @MainActor in
             do {
                 let result = try await execution.run(scope: pinned, callID: callID, name: callID,
-                    confirmation: confirm ? ("Set alarm?", "09:30") : nil) { permit in
+                    confirmation: confirm ? ("Set alarm?", "09:30", nil) : nil) { permit in
                     try await permit.setAlarm(draft, read: { await self.band.read() },
                                               write: { await self.band.write($0) })
                 }
                 return "OK:\(result.id)"
+            } catch let error as PhoneToolExecution.Failure { return error.rawValue }
+            catch { return "UNEXPECTED" }
+        }
+    }
+
+    /// #28's confirm: a prompt whose own fields the tap may correct before approving.
+    func correctNight(start: String = "23:30", end: String = "07:00") -> Task<String, Never> {
+        Task { @MainActor in
+            do {
+                return try await execution.run(scope: scope, callID: "night", name: "write",
+                    confirmation: ("Correct this night's sleep times?", "2026-09-09",
+                                   .sleepWindow(start: start, end: end))) { permit in
+                    try permit.check()
+                    return "\(permit.edited["start"] ?? "-") → \(permit.edited["end"] ?? "-")"
+                }
             } catch let error as PhoneToolExecution.Failure { return error.rawValue }
             catch { return "UNEXPECTED" }
         }
@@ -102,6 +117,32 @@ final class PhoneToolExecutionTests: XCTestCase {
         XCTAssertEqual(secondResult, "OK:1")
         XCTAssertEqual(f.band.written.count, 1)
         XCTAssertNil(f.prompt)
+        f.clock.finish()
+    }
+
+    /// The wheels are the answer, not a decoration: what they read when the thumb lands is
+    /// what the tool writes, and the model's proposal is only where they started.
+    @MainActor func testEditedConfirmationHandsTheToolWhatTheScreenSaid() async {
+        let f = PhoneFixture()
+        let task = f.correctNight()
+        await until { f.prompt != nil }
+        XCTAssertEqual(f.prompt?.edit, .sleepWindow(start: "23:30", end: "07:00"))
+        f.execution.resolve(id: f.prompt!.id, approved: true, edited: ["start": "00:10", "end": "07:20"])
+        let result = await task.value
+        XCTAssertEqual(result, "00:10 → 07:20")
+        f.clock.finish()
+    }
+
+    /// An approval that is no longer eligible writes nothing, so it must not leave times
+    /// behind either — the next call on that execution would be reading a dead confirm.
+    @MainActor func testEditsFromAnIneligibleApprovalAreDropped() async {
+        let f = PhoneFixture()
+        let task = f.correctNight()
+        await until { f.prompt != nil }
+        f.foreground = false
+        f.execution.resolve(id: f.prompt!.id, approved: true, edited: ["start": "00:10", "end": "07:20"])
+        let result = await task.value
+        XCTAssertEqual(result, "APP_BACKGROUND")
         f.clock.finish()
     }
 

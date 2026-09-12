@@ -354,6 +354,11 @@ final class DataStore: ObservableObject {
         m.eIn = 1240
         m.balance = -620
         m.targetIn = 1900
+        // #29 · the parts 09 prints under the budget: resting (a scan's), activity so far, goal.
+        m.bmrFull = 1960
+        m.restingSource = "BODY_SCAN"
+        m.restingMeasuredAt = m.day.start
+        m.goalOffset = -380
         m.protein = MacroSlot(target: 145, eaten: 84)
         m.carb = MacroSlot(target: 195, eaten: 132)
         m.fat = MacroSlot(target: 60, eaten: 42)

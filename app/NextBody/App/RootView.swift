@@ -5,9 +5,12 @@ struct RootView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var router: Router
     @ObservedObject private var phoneTools = PhoneToolRunner.shared
+    /// 走查用：`NB_DEBUG_CONFIRM` 摆出的那个确认框。真实确认框要一整轮 AI 对话才会出现，
+    /// 而没有会话的模拟器永远走不到那一步。Release 里恒为 nil。
+    @State private var debugConfirm: PhoneToolExecution.Prompt?
 
     var body: some View {
-        let confirmation = phoneTools.confirmation
+        let confirmation = phoneTools.confirmation ?? debugConfirm
         return ZStack {
             switch session.stage {
             case .gateSignIn:     SignInFlow()
@@ -42,8 +45,17 @@ struct RootView: View {
         .overlay {
             if let c = confirmation {
                 PhoneToolConfirmOverlay(prompt: c,
-                    confirm: { phoneTools.resolveConfirmation(id: c.id, approved: true) },
-                    cancel: { phoneTools.resolveConfirmation(id: c.id, approved: false) })
+                    confirm: { edited in
+                        phoneTools.resolveConfirmation(id: c.id, approved: true, edited: edited)
+                        debugConfirm = nil
+                    },
+                    cancel: {
+                        phoneTools.resolveConfirmation(id: c.id, approved: false)
+                        debugConfirm = nil
+                    })
+                // One prompt, one set of wheels: a successor confirm must not inherit the
+                // times its predecessor was left sitting on.
+                .id(c.id)
                 .transition(.opacity)
                 .onAppear {
                     #if DEBUG
@@ -54,7 +66,8 @@ struct RootView: View {
                     if ProcessInfo.processInfo.environment["NB_DEBUG_AUTOCONFIRM"] == "1" {
                         Task { @MainActor in
                             try? await Task.sleep(for: .seconds(2))
-                            phoneTools.resolveConfirmation(id: c.id, approved: true)
+                            phoneTools.resolveConfirmation(id: c.id, approved: true,
+                                                           edited: PhoneToolConfirmOverlay.proposed(c))
                         }
                     }
                     #endif
@@ -164,6 +177,18 @@ struct RootView: View {
                let kind = MeasureKind(rawValue: m) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                     if router.takeover == nil { router.takeover = .measure(kind) }
+                }
+            }
+            // `SIMCTL_CHILD_NB_DEBUG_CONFIRM=sleep_night` puts up the phone-tool confirm on
+            // its own. The real one arrives mid-turn, three server round trips into a
+            // conversation, so a build without a session — every simulator build — has no
+            // way to reach the one dialog whose whole job is to be read before it is tapped.
+            if ProcessInfo.processInfo.environment["NB_DEBUG_CONFIRM"] == "sleep_night" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                    debugConfirm = .init(id: UUID(), title: L("Correct this night's sleep times?"),
+                                         detail: L("The night filed under %@. Fix the times if this is not it.",
+                                                   UserDay.containing(Date()).key),
+                                         edit: .sleepWindow(start: "23:30", end: "07:00"))
                 }
             }
             // `SIMCTL_CHILD_NB_DEBUG_SHEET=export` lifts one of profile's sheets on top of
@@ -317,16 +342,53 @@ enum SheetChrome {
 
 /// The phone-tool confirm: one question, what it will do, CANCEL / CONFIRM. Sixty seconds
 /// without a tap is CANCELLED (PhoneToolExecution keeps the timer).
+///
+/// A confirm that carries an `edit` is answerable as well as approvable. #28's night is the
+/// case that asked for it: the model hears「昨晚十一点半睡的，早上七点多醒」and files a guess,
+/// and the only person who knows the real end of that night is holding the phone. The
+/// wheels start on the guess, and CONFIRM writes whatever they read — so the tap is still
+/// the only thing that writes, and it writes what is on the screen.
 struct PhoneToolConfirmOverlay: View {
     let prompt: PhoneToolExecution.Prompt
-    let confirm: () -> Void
+    let confirm: ([String: String]) -> Void
     let cancel: () -> Void
+
+    @State private var start: Date
+    @State private var end: Date
+
+    init(prompt: PhoneToolExecution.Prompt, confirm: @escaping ([String: String]) -> Void,
+         cancel: @escaping () -> Void) {
+        self.prompt = prompt
+        self.confirm = confirm
+        self.cancel = cancel
+        let proposed = Self.proposed(prompt)
+        _start = State(initialValue: SleepWindowWheels.date(proposed["start"]))
+        _end = State(initialValue: SleepWindowWheels.date(proposed["end"]))
+    }
+
+    /// What the prompt proposed, as the fields the tool will read. Also what an untouched
+    /// confirm sends back, so approving without a drag writes exactly what was asked for.
+    static func proposed(_ prompt: PhoneToolExecution.Prompt) -> [String: String] {
+        switch prompt.edit {
+        case .sleepWindow(let start, let end): return ["start": start, "end": end]
+        case nil:                              return [:]
+        }
+    }
+
+    private var edited: [String: String] {
+        switch prompt.edit {
+        case .sleepWindow:
+            return ["start": SleepWindowWheels.hhmm(start), "end": SleepWindowWheels.hhmm(end)]
+        case nil:
+            return [:]
+        }
+    }
 
     var body: some View {
         ZStack {
             Color.black.opacity(0.62).ignoresSafeArea()
                 .onTapGesture { }
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 16) {
                 Text(prompt.title)
                     .font(NBFont.ui(600, 20))
                     .foregroundStyle(NB.text1)
@@ -336,32 +398,44 @@ struct PhoneToolConfirmOverlay: View {
                         .foregroundStyle(NB.white.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack(spacing: 12) {
+                if case .sleepWindow = prompt.edit {
+                    SleepWindowWheels(start: $start, end: $end, wheelHeight: 124)
+                        .accessibilityIdentifier("phonetool.sleepWindow")
+                }
+                // ⚠️ Not two equal halves. CANCEL is one short word and CONFIRM ACTION is
+                // two long ones, so an even split left the answer crammed edge to edge in
+                // its own capsule while the refusal sat in white space. The button that is
+                // meant to be read gets the room.
+                HStack(spacing: 10) {
                     Button(action: cancel) {
                         Text(L("CANCEL"))
-                            .font(NBFont.ui(600, 17))
+                            .font(NBFont.ui(600, 16))
+                            .lineLimit(1)
                             .foregroundStyle(NB.lime1)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
+                            .frame(width: 104, height: 54)
                             .background(NB.carbon4, in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("phonetool.cancel")
-                    Button(action: confirm) {
+                    Button(action: { confirm(edited) }) {
                         Text(L("CONFIRM ACTION"))
-                            .font(NBFont.ui(600, 17))
+                            .font(NBFont.ui(600, 16))
+                            // A longer word in another language shrinks rather than clips.
+                            .lineLimit(1).minimumScaleFactor(0.75)
+                            .padding(.horizontal, 14)
                             .foregroundStyle(NB.lime1)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 52)
+                            .frame(height: 54)
                             .background(NB.carbon4, in: Capsule())
                             .overlay(Capsule().stroke(NB.lime1.opacity(0.6), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("phonetool.confirm")
                 }
-                .padding(.top, 6)
+                .padding(.top, 8)
             }
-            .padding(22)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
             .frame(width: min(NB.Layout.screenWidth - 40, 360))
             .background(NB.carbon2, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(NB.hairline, lineWidth: 1))

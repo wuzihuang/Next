@@ -128,7 +128,7 @@ final class HealthSnapshotRead {
 
         async let fuelRows = selectByResultId(
             "day_fuel",
-            columns: "result_id,intake_state,kcal_in,kcal_out,protein_in_g,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,protein_g,fat_g,carb_g,carb_in_g,fat_in_g,weight_kg,energy_distribution",
+            columns: "result_id,intake_state,kcal_in,kcal_out,protein_in_g,slot_states,bmr_kcal,active_kcal,bmr_full_kcal,target_in,target_basis_kcal,resting_source,resting_measured_at,goal_offset_kcal,protein_g,fat_g,carb_g,carb_in_g,fat_in_g,weight_kg,energy_distribution",
             ids: resultIds)
         async let reserveRows = selectByResultId(
             "reserve_daily",

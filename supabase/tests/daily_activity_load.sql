@@ -1,5 +1,5 @@
 begin;
-select plan(36);
+select plan(37);
 insert into auth.users(id) values ('06060606-0000-0000-0000-000000000001');
 insert into public.profiles(user_id,timezone,sex,height_cm,birth_date) values ('06060606-0000-0000-0000-000000000001','UTC','male',180,'1990-01-01') on conflict(user_id) do update set timezone='UTC',sex='male',height_cm=180,birth_date='1990-01-01';
 select set_config('nb.calculation_as_of','2026-09-04 18:00+00',true);
@@ -18,7 +18,10 @@ select is((select kcal_out from nb.compute_fuel('06060606-0000-0000-0000-0000000
 select is((select bmr_full from nb.fuel_components('06060606-0000-0000-0000-000000000001','2026-09-04')),1700,'resting baseline uses the effective age, height, sex and weight');
 insert into public.body_composition(user_id,measured_at,user_day,measurement_source,input_weight_kg,bmr_kcal)
 values('06060606-0000-0000-0000-000000000001','2026-09-04 09:00+00','2026-09-04','device_bia',75,2100);
-select is((select bmr_full from nb.fuel_components('06060606-0000-0000-0000-000000000001','2026-09-04')),1700,'unvalidated device BMR remains a reference, not a silent baseline override');
+-- #29 · the product chose the scan's figure as the day's resting figure, published with
+-- its source rather than silently: fuel-2.0 replaced the ADR 0004 reference-only rule.
+select is((select bmr_full from nb.fuel_components('06060606-0000-0000-0000-000000000001','2026-09-04')),2100,'a body scan taken this morning becomes the day''s resting figure');
+select is((select r.source from nb.resting_kcal('06060606-0000-0000-0000-000000000001','2026-09-04') r),'BODY_SCAN','and the ledger says where the figure came from');
 create temporary table before_future_met as select kcal_out from nb.compute_fuel('06060606-0000-0000-0000-000000000001','2026-09-04');
 update public.raw_samples set met=10 where user_id='06060606-0000-0000-0000-000000000001' and ts='2026-09-04 19:00+00';
 select is((select kcal_out from nb.compute_fuel('06060606-0000-0000-0000-000000000001','2026-09-04')),(select kcal_out from before_future_met),'future MET cannot leak into total while components exclude it');

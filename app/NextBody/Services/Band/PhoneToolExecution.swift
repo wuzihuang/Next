@@ -27,6 +27,16 @@ final class PhoneToolExecution {
         let id: UUID
         let title: String
         let detail: String
+        /// A confirm whose own fields the tap may correct before it approves. The model
+        /// proposes by ear — #28's night is the clearest case — and the person who lived
+        /// the thing being written is already looking at the screen.
+        var edit: Edit?
+
+        enum Edit: Equatable {
+            /// The night's two clock times, `HH:MM`, as proposed. Approved values come back
+            /// as the `start` and `end` the tool writes.
+            case sleepWindow(start: String, end: String)
+        }
     }
 
     enum Failure: String, Error {
@@ -47,6 +57,10 @@ final class PhoneToolExecution {
         let callID: String
         fileprivate var failure: Failure?
         fileprivate var finished = false
+        /// What the confirm's own fields were set to before the tap approved it. A tool
+        /// reads these over its arguments: an edited confirm writes what the screen said,
+        /// not what the model guessed.
+        fileprivate(set) var edited: [String: String] = [:]
         private let current: () -> Environment
         private let cancellation: Cancellation
 
@@ -128,7 +142,7 @@ final class PhoneToolExecution {
     }
 
     func run<Value>(scope: Scope, callID: String, name: String,
-                    confirmation: (title: String, detail: String)?,
+                    confirmation: (title: String, detail: String, edit: Prompt.Edit?)?,
                     action: @MainActor (Execution) async throws -> Value) async throws -> Value {
         let cancellation = Cancellation()
         let execution = Execution(scope: scope, callID: callID, cancellation: cancellation, current: current)
@@ -150,7 +164,8 @@ final class PhoneToolExecution {
         return try await withTaskCancellationHandler {
             try execution.check()
             if let confirmation {
-                let approved = await waitForConfirmation(execution, title: confirmation.title, detail: confirmation.detail)
+                let approved = await waitForConfirmation(execution, title: confirmation.title,
+                                                        detail: confirmation.detail, edit: confirmation.edit)
                 try execution.check()
                 guard approved else { throw Failure.cancelled }
             }
@@ -161,12 +176,16 @@ final class PhoneToolExecution {
         }
     }
 
-    func resolve(id: UUID, approved: Bool) {
+    /// `edited` is what the confirm's own fields read at the moment of the tap. It is kept
+    /// only on an approval that is still eligible: a cancelled or expired confirm writes
+    /// nothing, so there is nothing for it to carry.
+    func resolve(id: UUID, approved: Bool, edited: [String: String] = [:]) {
         guard let waiting = pending, waiting.execution.id == id else { return }
         pending = nil
         prompt = nil
         waiting.timer.cancel()
         let eligible = (try? waiting.execution.check()) != nil
+        if approved, eligible { waiting.execution.edited = edited }
         waiting.continuation.resume(returning: approved && eligible)
         emit()
     }
@@ -190,7 +209,8 @@ final class PhoneToolExecution {
         resolve(id: execution.id, approved: false)
     }
 
-    private func waitForConfirmation(_ execution: Execution, title: String, detail: String) async -> Bool {
+    private func waitForConfirmation(_ execution: Execution, title: String, detail: String,
+                                     edit: Prompt.Edit?) async -> Bool {
         await withCheckedContinuation { continuation in
             let timer = Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -198,7 +218,7 @@ final class PhoneToolExecution {
                 resolve(id: execution.id, approved: false)
             }
             pending = Pending(execution: execution, continuation: continuation, timer: timer)
-            prompt = Prompt(id: execution.id, title: title, detail: detail)
+            prompt = Prompt(id: execution.id, title: title, detail: detail, edit: edit)
             emit()
         }
     }

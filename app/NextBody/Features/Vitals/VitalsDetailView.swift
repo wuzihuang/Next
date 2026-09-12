@@ -331,15 +331,13 @@ struct VitalsDetailView: View {
                         VitalsSplit(bands: r.bands)
                     }
                     VitalsStatPair(left: r.statLeft, right: r.statRight)
-                    if let extraLeft = r.extraLeft, let extraRight = r.extraRight {
-                        VitalsStatPair(left: extraLeft, right: extraRight)
-                    }
                 }
                 if metric == .heart, range != .day {
                     VitalsStatPair(left: r.statLeft, right: r.statRight)
                 }
 
                 footer
+                correctNightLine
             }
             .padding(.horizontal, NB.Layout.gutter)
             .padding(.bottom, 30)
@@ -462,7 +460,7 @@ struct VitalsDetailView: View {
         }
     }
 
-    // MARK: sleep board — hypnogram, then night HRV, then overnight SpO2 on one clock
+    // MARK: sleep board — hypnogram, then the two overnight traces, then four numbers
 
     /// ADR 0008 · the day board is laid out as the score's four groups, in the order the
     /// breakdown lists them, each heading followed by the charts that actually feed it. The
@@ -517,38 +515,6 @@ struct VitalsDetailView: View {
 
         // ---- RECOVERY · what the body did while it was down there
         SleepSectionHeader(group: .recovery, score: score?.recovery, effectiveWeight: score?.effectiveWeight(of: .recovery))
-        let sleepHRV = VitalsReadout.sleepHRVSamples(night: m.sleep, fallback: ticks)
-        let nightly = data.history.suffix(15).dropLast().compactMap { $0.nightInputs?.hrv }
-        let habit = nightly.count >= 5 ? nightly.min()!...nightly.max()! : nil
-        let hrvHigh = SleepScoreMath.hrvUpperBound(sleepHRV.compactMap(\.hrv) + (habit.map { [$0.upperBound] } ?? []))
-        CardBlock(title: L("NIGHT HRV"), trailing: L("SCALE 0–%d MS", Int(hrvHigh))) {
-            if !sleepHRV.isEmpty {
-                VitalsTrace(samples: sleepHRV, value: { $0.hrv },
-                            window: window, low: 0, high: hrvHigh, tint: VitalsMetric.hrv.tint,
-                            referenceBand: habit,
-                            unit: "MS")
-                VitalsAxis(labels: window.labels, highlightsLast: false, tint: VitalsMetric.hrv.tint)
-                    .padding(.trailing, VitalsScaleRail.gutter)
-                VitalsChartLegend(
-                    items: [
-                        .init(text: L("EVERY %d MIN · MEASURED", Int(VitalsTrace.defaultSlotMinutes)),
-                              tint: VitalsMetric.hrv.tint)
-                    ] + (habit.map { _ in
-                        [VitalsChartLegend.Item(text: L("14-NIGHT RANGE"), tint: VitalsMetric.hrv.tint, isArea: true)]
-                    } ?? []),
-                    trailing: sleepHRV.compactMap(\.hrv).max().map { L("NIGHT HIGH %d", Int($0.rounded())) },
-                    trailingTint: VitalsMetric.hrv.tint)
-            } else {
-                let todaySamples = m.vitalsCurve.filter { $0.ts >= m.day.start && $0.ts < m.day.end }
-                let hasOutsideReadings = VitalsReadout.hasHRVOutsideSleep(night: m.sleep, samples: todaySamples)
-                VitalsChartEmpty(line: L("NO RMSSD IN THE WINDOW"),
-                                 sub: hasOutsideReadings
-                                     ? L("HRV RECEIVED OUTSIDE SLEEP; NO VALID SAMPLES DURING THIS SLEEP")
-                                     : L("NO VALID HRV SAMPLES FOR THIS SLEEP"),
-                                 subLineLimit: 2)
-                VitalsAxis(labels: window.labels, highlightsLast: false, tint: VitalsMetric.hrv.tint)
-            }
-        }
         CardBlock(title: L("NIGHT SPO2"), trailing: L("FIXED 85–100 %")) {
             let points = (m.sleep?.spo2 ?? []).filter { m.sleep?.containsSleepTimestamp($0.ts) == true }
             if !points.isEmpty {
@@ -599,8 +565,16 @@ struct VitalsDetailView: View {
                 VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.violet2)
             }
         }
-        if let oxygenMin = r.extraLeft, let respiration = r.respirationLeft {
-            VitalsStatPair(left: oxygenMin, right: respiration)
+        // ⚠️ Night HRV is a tile, not a trace. The band files RMSSD only at the minutes it
+        // caught a clean RR run — a scattering of readings across seven hours — and a curve
+        // drawn through them invents every slope between them. One night mean, read against
+        // this person's own baseline, is the whole of what those readings support.
+        //
+        // So the recovery section closes on four numbers, in the order the body gives them
+        // up: what it carried, how it breathed, how it recovered, how low it went.
+        if let respiration = r.respirationLeft, let heartLow = r.heartLow {
+            VitalsStatPair(left: r.statRight, right: respiration)
+            VitalsStatPair(left: r.statLeft, right: heartLow)
         }
 
         // ---- REGULARITY · only definable against this person's own habit
@@ -1089,6 +1063,31 @@ struct VitalsDetailView: View {
 
     /// The one line that says where the page's numbers came from. 04B rule 05 · the age of
     /// the last tick belongs on the page that prints it, not only on the strip.
+    /// #28 · the last line of the sleep page is the way back to the night's own start and
+    /// end. The window card near the top offers the same correction, but the page runs four
+    /// score groups deep, and the doubt about when the night began usually arrives at the
+    /// bottom of it — after the score, not before. Both open the same wheels.
+    @ViewBuilder
+    private var correctNightLine: some View {
+        if metric == .sleep, let night = m.sleep, night.sleepStart != nil, night.wakeAt != nil,
+           SleepCorrection.canCorrect(day: m.day) {
+            Button { correctingNight = true } label: {
+                // A multi-night window is not looking at one night, so the line says which
+                // one it would change.
+                Text(range == .day ? L("CHANGE TIMES") : L("CHANGE TIMES · %@", m.day.key))
+                    .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
+                    .foregroundStyle(NB.lime1.opacity(0.85))
+                    // Centred: the page's last line is an offer, not another footnote in
+                    // the column of left-aligned grey the footer above it belongs to.
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sleep.changeTimes")
+        }
+    }
+
     private var footer: some View {
         var line: String
         if metric == .sleep, range != .day {

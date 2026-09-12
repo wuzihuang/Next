@@ -12,7 +12,7 @@ final class VitalsSecondLevelTests: XCTestCase {
     private static let cards: [(card: String, title: String, sensor: String, period: String)] = [
         ("SLEEP",        "SLEEP",         "OVERNIGHT STAGING",    "LAST NIGHT"),
         ("HEART",        "HEART",         "OPTICAL PPG SENSOR",   "TODAY"),
-        ("BODY BATTERY", "BODY BATTERY",  "OF 100",               "TODAY'S TARGET"),
+        ("BODY BATTERY", "BODY BATTERY",  "OF 100",               "LAST NIGHT'S INPUTS"),
         ("STRESS",       "STRESS",        "PHYSIOLOGICAL STRAIN", "TODAY"),
         ("TEMP",         "TEMP",          "SKIN BASELINE OFFSET", "TODAY"),
         ("STEPS",        "STEPS",         "DAILY CADENCE ACCUMULATED", "TODAY"),

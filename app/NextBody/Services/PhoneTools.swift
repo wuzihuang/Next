@@ -119,8 +119,8 @@ final class PhoneToolRunner: ObservableObject {
         execution.refreshEligibility()
     }
 
-    func resolveConfirmation(id: UUID, approved: Bool) {
-        execution.resolve(id: id, approved: approved)
+    func resolveConfirmation(id: UUID, approved: Bool, edited: [String: String] = [:]) {
+        execution.resolve(id: id, approved: approved, edited: edited)
     }
 
     private var measurementOwner: (generation: UInt, execution: PhoneToolExecution.Execution)?
@@ -202,7 +202,8 @@ final class PhoneToolRunner: ObservableObject {
     private func runLogged(_ request: Request, scope: PhoneToolExecution.Scope, store: DataStore) async -> Result {
         do {
             return try await execution.run(scope: scope, callID: request.callID, name: request.name,
-                confirmation: request.confirm ? (Self.confirmTitle(request), Self.confirmDetail(request)) : nil) { permit in
+                confirmation: request.confirm ? (Self.confirmTitle(request), Self.confirmDetail(request),
+                                                 Self.confirmEdit(request)) : nil) { permit in
                 switch request.name {
                 case "health.prepare":
                     guard let owner = permit.scope.session.owner else { return .fail("SESSION_CHANGED") }
@@ -255,13 +256,26 @@ final class PhoneToolRunner: ObservableObject {
         }
     }
 
+    /// #28 · a proposed night is the one confirm the screen lets you fix before approving.
+    /// The model heard「昨晚十一点半睡的」and guessed the rest; the wheels below the question
+    /// carry its guess, and CONFIRM writes whatever they read. Undoing a correction has
+    /// nothing to edit, so it stays a plain question.
+    private static func confirmEdit(_ r: Request) -> PhoneToolExecution.Prompt.Edit? {
+        guard r.name == "write", r.args["entity"] as? String == "sleep_night" else { return nil }
+        let fields = r.args["fields"] as? [String: Any] ?? [:]
+        guard fields["clear"] as? Bool != true,
+              let start = fields["start"] as? String, let end = fields["end"] as? String else { return nil }
+        return .sleepWindow(start: start, end: end)
+    }
+
     private static func confirmDetail(_ r: Request) -> String {
         let fields = r.args["fields"] as? [String: Any] ?? [:]
+        let entity = r.args["entity"] as? String ?? ""
         if let label = r.args["label"] as? String, !label.isEmpty {
-            let change = fields.sorted { $0.key < $1.key }.map { "\(Self.fieldWord($0.key)) \(Self.valueWord($0.value))" }.joined(separator: " · ")
+            let change = fields.sorted { $0.key < $1.key }.map { "\(Self.fieldWord($0.key, entity: entity)) \(Self.valueWord($0.value))" }.joined(separator: " · ")
             return r.args["op"] as? String == "update" && !change.isEmpty ? "\(label)\n→ \(change)" : label
         }
-        switch (r.args["entity"] as? String ?? "", r.args["action"] as? String ?? "") {
+        switch (entity, r.args["action"] as? String ?? "") {
         case ("meal", _):
             if let draft = r.args["draft"] as? [String: Any] {
                 let kcal = (draft["kcal"] as? Double) ?? (draft["kcal"] as? Int).map(Double.init) ?? 0
@@ -278,9 +292,12 @@ final class PhoneToolRunner: ObservableObject {
         case ("sleep_night", _):
             let day = fields["day"] as? String ?? ""
             if fields["clear"] as? Bool == true { return day }
+            // The wheels print the two times, so the sentence names the night and says
+            // the guess is editable rather than repeating it above its own picker.
+            if confirmEdit(r) != nil { return L("The night filed under %@. Fix the times if this is not it.", day) }
             return "\(day)\n\(fields["start"] as? String ?? "--:--") → \(fields["end"] as? String ?? "--:--")"
         case ("band_setting", _), ("hr_alarm", _), ("profile", _):
-            return fields.sorted { $0.key < $1.key }.map { "\(Self.fieldWord($0.key)) \(Self.valueWord($0.value))" }.joined(separator: " · ")
+            return fields.sorted { $0.key < $1.key }.map { "\(Self.fieldWord($0.key, entity: entity)) \(Self.valueWord($0.value))" }.joined(separator: " · ")
         case (_, "sport.start"):
             return L(Self.sportMode(named: r.args["mode"] as? String).name)
         case (_, "panel.confirm"):
@@ -290,16 +307,15 @@ final class PhoneToolRunner: ObservableObject {
         }
     }
 
-    private static func fieldWord(_ key: String) -> String {
+    private static func fieldWord(_ key: String, entity: String = "") -> String {
         switch key {
-        case "slot": return L("slot")
+        case "slot": return entity == "band_setting" ? L("measure") : L("slot")
         case "at": return L("time")
         case "name": return L("name")
         case "kcal": return "KCAL"
         case "enabled", "on": return L("enabled")
         case "days": return L("days")
         case "interval_min": return L("every")
-        case "slot": return L("measure")
         case "high": return L("upper")
         case "low": return L("lower")
         case "goal": return L("goal")
@@ -575,8 +591,10 @@ final class PhoneToolRunner: ObservableObject {
         }
         guard let owner = SupabaseClient.currentUserIdSnapshot() else { return .fail("SESSION_CHANGED") }
         let clearing = fields["clear"] as? Bool == true
-        let start = fields["start"] as? String
-        let end = fields["end"] as? String
+        // What the confirm's wheels read when the thumb hit CONFIRM wins over what the
+        // model proposed: the screen is what the person actually agreed to.
+        let start = permit.edited["start"] ?? fields["start"] as? String
+        let end = permit.edited["end"] ?? fields["end"] as? String
         if !clearing && (start == nil || end == nil) {
             return .fail("BAD_ARGS", L("A corrected night needs a start and an end."))
         }
@@ -592,7 +610,11 @@ final class PhoneToolRunner: ObservableObject {
                     expectedOwner: owner)
             }
             await SleepCorrection.republish(day: dayKey, into: store)
-            return .succeed(["record": (receipt as? [String: Any]) ?? ["user_day": dayKey]])
+            // The times that were written, not the ones that were asked for: a confirm the
+            // thumb moved must not leave the turn saying 23:30 when it saved 00:10.
+            var record = (receipt as? [String: Any]) ?? ["user_day": dayKey]
+            if !clearing { record["start"] = start; record["end"] = end }
+            return .succeed(["record": record])
         } catch {
             let code = SleepCorrection.code(error)
             return .fail(code, SleepCorrection.message(code))

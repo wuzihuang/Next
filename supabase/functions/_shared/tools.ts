@@ -63,12 +63,19 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
         if (!data) return record("day.get", { ok: true, data: null });
 
         const { data: fuel, error: fuelError } = await db.from("day_fuel")
-          .select("intake_state, kcal_in, kcal_out, slot_states, target_in")
+          .select("intake_state, kcal_in, kcal_out, slot_states, target_in, bmr_full_kcal, active_kcal, resting_source, goal_offset_kcal")
           .eq("result_id", data.id).maybeSingle();
         if (fuelError) return { ok: false } as Err;
         // F7 §08 · the numbers she will want to say are computed here, not derived by her.
         const targetKcal = fuel?.target_in ?? null;
         const remainingKcal = (targetKcal != null && fuel?.kcal_in != null) ? targetKcal - fuel.kcal_in : null;
+        // #29 · TARGET = resting (whole day) + activity measured so far + goal offset, never
+        // under the sex floor. The three parts travel with it so the sentence can account
+        // for the number instead of restating it.
+        const restingKcal = fuel?.bmr_full_kcal ?? null;
+        const activeKcal = fuel?.active_kcal ?? null;
+        const goalOffsetKcal = fuel?.goal_offset_kcal ?? null;
+        const restingSource = fuel?.resting_source ?? null;
 
         return record("day.get", {
           ok: true,
@@ -81,6 +88,10 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
               deltaKcal: data.fuel_balance_kcal,
               targetKcal,
               remainingKcal,
+              restingKcal,
+              activeKcal,
+              goalOffsetKcal,
+              restingSource,
               slotState: fuel?.slot_states ?? null,
               // F7 §08 · a number the sentence will want has to arrive as a number. "All 4
               // meals still open" was rejected as untraceable because the count of open

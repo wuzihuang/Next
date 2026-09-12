@@ -21,7 +21,7 @@ final class BodyBatteryEntryTests: XCTestCase {
                       "身体电量卡没有进到 13 详情页")
         XCTAssertTrue(app.buttons["range.DAY"].exists)
         XCTAssertTrue(app.buttons["range.WEEK"].exists)
-        XCTAssertTrue(app.staticTexts["TODAY'S TARGET"].exists)
+        XCTAssertTrue(app.staticTexts["LAST NIGHT'S INPUTS"].exists)
     }
 
     func testPageTwoCardOpensBodyBattery() {

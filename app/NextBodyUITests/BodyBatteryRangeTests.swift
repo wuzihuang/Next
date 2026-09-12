@@ -15,7 +15,7 @@ final class BodyBatteryRangeTests: XCTestCase {
         XCTAssertTrue(app.buttons["range.DAY"].exists)
         XCTAssertTrue(app.buttons["range.WEEK"].exists)
         XCTAssertTrue(app.buttons["range.MONTH"].exists)
-        XCTAssertTrue(app.staticTexts["TODAY'S TARGET"].exists)
+        XCTAssertTrue(app.staticTexts["LAST NIGHT'S INPUTS"].exists)
         XCTAssertFalse(app.staticTexts["LAST 7 DAYS"].exists)
         capture(app, name: "body-battery-day")
         XCTAssertFalse(app.staticTexts["A typical morning peak. Not a 30-day sum."].exists)
@@ -28,7 +28,7 @@ final class BodyBatteryRangeTests: XCTestCase {
         XCTAssertTrue(week.staticTexts["SEVEN DAYS"].waitForExistence(timeout: 6))
         XCTAssertTrue(week.staticTexts["WAKE PEAKS"].exists)
         capture(week, name: "body-battery-week")
-        XCTAssertFalse(week.staticTexts["TODAY'S TARGET"].exists)
+        XCTAssertFalse(week.staticTexts["LAST NIGHT'S INPUTS"].exists)
         XCTAssertFalse(week.staticTexts["A typical morning peak. Not a 30-day sum."].exists)
 
         let month = launchBodyBattery(range: "MONTH")
@@ -36,7 +36,7 @@ final class BodyBatteryRangeTests: XCTestCase {
                       "MONTH should open the last 30 user days")
         XCTAssertTrue(month.staticTexts["THIRTY DAYS"].waitForExistence(timeout: 6))
         XCTAssertTrue(month.staticTexts["A typical morning peak. Not a 30-day sum."].waitForExistence(timeout: 6))
-        XCTAssertFalse(month.staticTexts["TODAY'S TARGET"].exists)
+        XCTAssertFalse(month.staticTexts["LAST NIGHT'S INPUTS"].exists)
         capture(month, name: "body-battery-month")
     }
 

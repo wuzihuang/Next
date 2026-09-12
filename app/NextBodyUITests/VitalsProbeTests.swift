@@ -106,7 +106,7 @@ final class VitalsProbeTests: XCTestCase {
         XCTAssertTrue(probe.waitForExistence(timeout: 20),
                       "sleep day should probe the hypnogram")
         XCTAssertGreaterThanOrEqual(probes.count, 3,
-                      "sleep day should probe hypnogram, night HRV and SpO2 independently")
+                      "sleep day should probe hypnogram, SpO2 and respiration independently")
         let idle = readout(probe)
         XCTAssertTrue(idle.contains(" · "), "hypnogram idle was \(idle)")
         XCTAssertNotNil(idle.range(of: #"\d{1,2}:\d{2} · "#, options: .regularExpression),

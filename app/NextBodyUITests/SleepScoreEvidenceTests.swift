@@ -7,7 +7,7 @@ final class SleepScoreEvidenceTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testDayExplainsEffectiveWeightsCoverageAndUnclippedHRV() {
+    func testDayExplainsEffectiveWeightsCoverageAndTheFourRecoveryNumbers() {
         let app = launchSleep(range: "DAY")
         let hero = app.otherElements["vitals.hero"]
         XCTAssertTrue(hero.waitForExistence(timeout: 30))
@@ -28,15 +28,19 @@ final class SleepScoreEvidenceTests: XCTestCase {
         reveal(gap, in: app)
         capture(app, name: "sleep-fixture-day-partial-coverage")
 
-        let ruler = app.staticTexts["SCALE 0–180 MS"]
-        reveal(ruler, in: app)
-        XCTAssertTrue(ruler.exists, "168 ms must be contained by the printed HRV ruler")
-        // This explicit fixture has no staged hypnogram, so its first probe is HRV.
-        // The visual legend is accessibility-hidden by the shared chart component.
-        let hrv = app.otherElements.matching(identifier: "vitals.probe").firstMatch
+        // Recovery closes on four numbers, no HRV trace among them. The fixture's 342
+        // measured HRV minutes are one 168 ms peak and 341 at 67 ms, so their mean prints
+        // 67 — the peak is evidence for the coverage card above, not a curve to draw.
+        let hrv = app.otherElements["NIGHT HRV"]
         reveal(hrv, in: app)
-        XCTAssertTrue((hrv.value as? String ?? "").contains("MS"))
-        capture(app, name: "sleep-fixture-day-hrv-ruler-180")
+        XCTAssertTrue((hrv.value as? String ?? "").hasPrefix("67 MS"))
+        for tile in ["NIGHT SPO2", "MEAN RESPIRATION", "SLEEP LOW HR"] {
+            XCTAssertTrue(app.otherElements[tile].exists, "Missing \(tile) from the four numbers")
+        }
+        XCTAssertFalse(app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "SCALE 0–")).firstMatch.exists,
+                       "The night HRV chart and its ruler are retired")
+        capture(app, name: "sleep-fixture-day-recovery-numbers")
     }
 
     func testWeekExplainsAllFourGroups() {

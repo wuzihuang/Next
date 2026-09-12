@@ -49,8 +49,9 @@ select ok((select nb.measured_burn('08080808-0000-4000-8000-000000000001','2026-
 select is(nb.measured_burn('08080808-0000-4000-8000-000000000004','2026-09-15'),null::numeric,
   'HR-only rows cannot disguise one usable energy slot as a measured day');
 
--- Today's own burn must not move the budget: it reads the fourteen days behind it,
--- or the remaining-budget number would climb every time the user goes for a walk.
+-- The fortnight's median is still the fortnight's: today's own burn does not enter it.
+-- (Since #29 the budget no longer reads this median — it reads today, and a hard morning
+-- is meant to raise it; that is asserted in fuel_target_resting_plus_activity.)
 create temporary table walked_burn as
  select nb.measured_burn('08080808-0000-4000-8000-000000000001','2026-09-15') as kcal;
 insert into public.raw_samples(user_id,ts,sampled_tz,step)
@@ -58,14 +59,14 @@ select '08080808-0000-4000-8000-000000000001', ts, 'UTC', 900
 from generate_series(timestamptz '2026-09-15 04:00+00', timestamptz '2026-09-15 11:55+00', interval '5 minutes') ts;
 select is(nb.measured_burn('08080808-0000-4000-8000-000000000001','2026-09-15'),
           (select kcal from walked_burn),
-  'a hard morning does not raise today’s own budget');
--- The budget follows the burn: same body, same goal, different fortnight of movement.
+  'a hard morning does not move the fortnight’s median');
+-- The budget follows today's burn: same body, the walker against the still one.
 select ok((select (select target_in from nb.compute_fuel('08080808-0000-4000-8000-000000000001','2026-09-15'))
            > (select target_in from nb.compute_fuel('08080808-0000-4000-8000-000000000003','2026-09-15'))),
-  'the walked fortnight budgets more than the still one');
+  'the walked day budgets more than the still one');
 select ok((select (select target_in from nb.compute_fuel('08080808-0000-4000-8000-000000000003','2026-09-15'))
-           >= (select bmr_full from nb.fuel_components('08080808-0000-4000-8000-000000000003','2026-09-14'))),
-  'a CUT on a still fortnight never budgets below basal');
+           >= nb.intake_floor('male') - 20),
+  'a CUT on a still day never budgets below the male floor');
 select ok((select (select target_in from nb.compute_fuel('08080808-0000-4000-8000-000000000002','2026-09-15')) is not null),
   'an account without band history still gets a budget');
 

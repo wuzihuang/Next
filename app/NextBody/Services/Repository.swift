@@ -1016,10 +1016,15 @@ final class Repository {
                         // The estimate itself is assembled in merge(), once every row it is
                         // made of is known.
                         m.targetIn = number(fu["target_in"])
-                        // Published beside the budget so 09 can account for it: the burn
-                        // it was built on, and the measured days behind that burn.
+                        // Published beside the budget so 09 can account for it (#29): resting
+                        // plus the activity measured so far, where the resting figure came
+                        // from, and the goal's offset. Nothing here is recomputed — the phone
+                        // has no second formula, it prints the server's parts.
                         m.targetBasis = number(fu["target_basis_kcal"])
-                        m.targetBasisDays = number(fu["target_basis_days"]).map { Int($0) }
+                        m.targetBasisDays = nil
+                        m.restingSource = fu["resting_source"] as? String
+                        m.restingMeasuredAt = (fu["resting_measured_at"] as? String).flatMap(Self.timestamp)
+                        m.goalOffset = number(fu["goal_offset_kcal"])
                         // The macro targets are the server's split, not a second one computed
                         // here — two answers to "what is my protein target" is one too many.
                         if let p = number(fu["protein_g"]) { m.protein = MacroSlot(target: Int(p), eaten: 0) }
@@ -1331,6 +1336,9 @@ final class Repository {
         m.targetIn = server.targetIn ?? local.targetIn
         m.targetBasis = server.targetBasis ?? local.targetBasis
         m.targetBasisDays = server.targetBasisDays ?? local.targetBasisDays
+        m.restingSource = server.restingSource ?? local.restingSource
+        m.restingMeasuredAt = server.restingMeasuredAt ?? local.restingMeasuredAt
+        m.goalOffset = server.goalOffset ?? local.goalOffset
         m.bmr = server.bmr
         m.bmrFull = server.bmrFull
         m.eActive = server.eActive

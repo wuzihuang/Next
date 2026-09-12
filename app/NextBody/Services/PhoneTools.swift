@@ -1152,7 +1152,7 @@ final class PhoneToolRunner: ObservableObject {
             case "findHoop": route = .findHoop
             case "bandAutoMonitor": route = .bandAutoMonitor
             case "syncCadence": route = .syncCadence
-            case "export": route = .export
+            case "feedback": route = .feedback
             case "about": route = .about
             case "privacy": route = .privacy
             case "plusMenu": route = .plusMenu
@@ -1173,7 +1173,7 @@ final class PhoneToolRunner: ObservableObject {
                     try? await Task.sleep(for: .milliseconds(700))
                     router.deviceSheetRequest = route
                 }
-            case .profileEdit, .goal, .units, .language, .notifications, .appleHealth, .export, .about, .privacy, .deleteAccount, .signOut:
+            case .profileEdit, .goal, .units, .language, .notifications, .appleHealth, .feedback, .about, .privacy, .deleteAccount, .signOut:
                 if router.path.last != .profile { router.open(.profile) }
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(700))

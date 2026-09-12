@@ -138,8 +138,6 @@ final class DataStore: ObservableObject {
     @Published var mealResponsePoints: [MealResponseIndex.Point] = []
     /// True when today's vendor table had rows but every value was a zero / empty slot.
     @Published var mealResponseZerosToday = false
-    /// 11 edge 3 · the export row says PREPARING… while export_all runs; the page can be left.
-    @Published var exportPreparing = false
 
     // 11 · the three tiles. Two net changes over twelve weeks and one absolute value,
     // which is why the third one is labelled apart from the other two.
@@ -294,7 +292,6 @@ final class DataStore: ObservableObject {
         vitals = LiveVitals()
         capabilities = BandCapabilities()
         capabilitiesReadAt = nil
-        exportPreparing = false
         netFatMass12w = nil
         netLeanMass12w = nil
         bodyFatPercent = nil

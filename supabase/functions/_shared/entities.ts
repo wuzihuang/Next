@@ -487,7 +487,7 @@ export const PAGES = [
 ] as const;
 export const SHEETS = [
   "weighIn", "profileEdit", "goal", "units", "language", "notifications", "appleHealth",
-  "bandAlarms", "findHoop", "bandAutoMonitor", "syncCadence", "export", "about", "privacy", "plusMenu",
+  "bandAlarms", "findHoop", "bandAutoMonitor", "syncCadence", "feedback", "about", "privacy", "plusMenu",
   // Opened only; the last tap stays with the user.
   "deleteAccount", "signOut", "unbind", "disconnect", "firmware",
 ] as const;

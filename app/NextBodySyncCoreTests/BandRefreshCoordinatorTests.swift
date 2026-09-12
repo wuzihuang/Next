@@ -125,6 +125,35 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(result.status, .success, "a different band cannot inherit cadence")
     }
 
+    @MainActor func testReturningToTheAppPullsInsideTheCadenceButNotInsideAMinute() async {
+        let f = Fixture()
+        _ = await f.refresh(.latest)
+        // ADR 0026 · the device page's cadence (300 here) no longer holds a return to the app.
+        f.clock.addTimeInterval(61)
+        var result = await f.refresh(.resume)
+        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(f.events.last, "day:alice:0")
+        // Switched away and straight back: the pull that just ran is the answer.
+        f.clock.addTimeInterval(30)
+        result = await f.refresh(.resume)
+        XCTAssertEqual(result.status, .throttled)
+        result = await f.refresh(.foreground)
+        XCTAssertEqual(result.status, .throttled, "the home screen's own timer still honours the cadence")
+    }
+
+    @MainActor func testBackgroundPullReusesNoLiveReceiptAndKeepsTheServerTick() async {
+        let f = Fixture()
+        var result = await f.refresh(.background)
+        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(f.events.first, "prepare:alice:false", "no screen is up to have left a live receipt")
+        f.clock.addTimeInterval(299)
+        result = await f.refresh(.background)
+        XCTAssertEqual(result.status, .throttled)
+        f.clock.addTimeInterval(1)
+        result = await f.refresh(.background)
+        XCTAssertEqual(result.status, .success)
+    }
+
     @MainActor func testFailedReadinessDoesNotConsumeCadence() async {
         let f = Fixture(); f.prepareSucceeds = false
         let failed = await f.refresh(.foreground)

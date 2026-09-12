@@ -263,4 +263,36 @@ final class HealthSnapshotReadTests: XCTestCase {
         do { _ = try await f.reader().detail(days: 0, endingAt: f.day); XCTFail("Malformed formal result") }
         catch { XCTAssertEqual(error as? HealthSnapshotRead.Failure, .unavailable) }
     }
+    /// The hand parser must agree with the formatters it replaced on every shape the server
+    /// sends, and stay quiet on the ones it does not understand.
+    func testTimestampFastPathMatchesFormatters() {
+        let strict = ISO8601DateFormatter(); strict.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        let micro = DateFormatter(); micro.locale = Locale(identifier: "en_US_POSIX")
+        micro.timeZone = TimeZone(secondsFromGMT: 0); micro.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ"
+        let naive = DateFormatter(); naive.locale = Locale(identifier: "en_US_POSIX")
+        naive.timeZone = TimeZone(secondsFromGMT: 0); naive.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        let cases: [(String, Date?)] = [
+            ("2026-09-08T12:00:00Z", plain.date(from: "2026-09-08T12:00:00Z")),
+            ("2026-09-08T12:00:01.123Z", strict.date(from: "2026-09-08T12:00:01.123Z")),
+            ("2026-09-08T12:00:01+08:00", plain.date(from: "2026-09-08T12:00:01+08:00")),
+            ("2026-09-08T01:23:45.123456+00:00", micro.date(from: "2026-09-08T01:23:45.123456+00:00")),
+            ("2026-03-01T00:00:00", naive.date(from: "2026-03-01T00:00:00")),
+            ("2024-02-29T23:59:59-05:30", plain.date(from: "2024-02-29T23:59:59-05:30")),
+            ("1999-12-31T23:59:59Z", plain.date(from: "1999-12-31T23:59:59Z")),
+        ]
+        for (raw, expected) in cases {
+            let got = HealthSnapshotRead.timestamp(raw)
+            XCTAssertNotNil(expected, raw)
+            XCTAssertNotNil(got, raw)
+            XCTAssertEqual(got?.timeIntervalSince1970 ?? -1, expected?.timeIntervalSince1970 ?? -2, accuracy: 0.0005, raw)
+            XCTAssertEqual(ISOTimestamp.parse(raw)?.timeIntervalSince1970 ?? -1,
+                           expected?.timeIntervalSince1970 ?? -2, accuracy: 0.0005, "fast path · \(raw)")
+        }
+        for junk in ["", "2026-09-08", "2026-13-08T12:00:00Z", "2026-09-08T25:00:00Z", "not a date",
+                     "2026-09-08T12:00:00Zjunk", "2026-09-08T12:00:00.Z"] {
+            XCTAssertNil(ISOTimestamp.parse(junk), junk)
+        }
+    }
+
 }

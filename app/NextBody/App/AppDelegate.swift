@@ -5,6 +5,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // ADR 0026 · BGTaskScheduler refuses a launch handler registered after this returns.
+        MainActor.assumeIsolated { BackgroundRefresh.shared.register() }
         return true
     }
 

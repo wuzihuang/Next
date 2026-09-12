@@ -2,15 +2,26 @@ import Foundation
 
 /// Requests describe different work, not the screen that happened to ask for it.
 enum BandRefreshRequest: Equatable, Sendable {
-    case automatic, foreground, fullHistory, latest, phoneTool
+    case automatic, foreground, resume, background, fullHistory, latest, phoneTool
 
     fileprivate func minimumInterval(cadence: TimeInterval) -> TimeInterval {
         switch self {
         case .automatic: min(120, cadence / 2)
         case .foreground: cadence
+        // ADR 0026 · coming back to the app asks the wrist again whatever the cadence is set
+        // to. The one-minute floor only folds an app switched away and straight back into
+        // the pull that just ran; it never lets the device page's EVERY HOUR hold it.
+        case .resume: min(60, cadence)
+        // A background launch is already spaced by the system. The floor is the server's
+        // own five-minute tick: a day settled inside it cannot come back different.
+        case .background: min(300, cadence)
         case .fullHistory, .latest, .phoneTool: 0
         }
     }
+
+    /// A live receipt seconds old is proof enough that the link is up for a pull the user
+    /// did not press for; explicit pulls still walk readiness in full.
+    var reusesRecentLiveReceipt: Bool { self == .foreground || self == .resume }
 }
 
 struct BandRefreshResult: Equatable, Sendable {
@@ -139,7 +150,7 @@ final class BandRefreshCoordinator {
         let flight = Flight(scope: scope, history: request == .fullHistory)
         current = flight
         flight.task = Task { @MainActor in
-            let result = await perform(flight, reuseReceipt: request == .foreground, work: work)
+            let result = await perform(flight, reuseReceipt: request.reusesRecentLiveReceipt, work: work)
             // Await the BLE-cache lifetime cleanup before releasing this shared flight.
             // A different account or new refresh cannot have its cache ended by old work.
             await work.finish()

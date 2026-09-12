@@ -19,7 +19,7 @@ struct ProfileSheet: View {
             case .units:         UnitsSheet()
             case .language:      LanguageSheet()
             case .appleHealth:   AppleHealthSheet()
-            case .export:        ExportSheet()
+            case .feedback:      FeedbackSheet()
             case .privacy:       LegalSheet(title: L("Privacy policy"), body: L(Self.privacyText))
             case .about:         LegalSheet(title: L("Terms of service"), body: L(Self.termsText))
             case .deleteAccount: DeleteAccountSheet()
@@ -35,8 +35,7 @@ struct ProfileSheet: View {
     Your food descriptions are sent to our model to be turned into numbers; \
     they are not used to train anything.
 
-    You can export everything from Profile → Export my data, and deleting your \
-    account removes it all. There is no undo.
+    Deleting your account removes it all. There is no undo.
     """
 
     static let termsText = """
@@ -401,83 +400,6 @@ struct AppleHealthSheet: View {
                     if !baseline.isEmpty { data.profile.appleHealthLinked = true }
                     data.profile = data.profile.restoringHealthSync()
                 }
-            }
-        }
-    }
-}
-
-/// 11 · EXPORT MY DATA · ALL TIME.
-///
-/// ⚠️ 1ACT leaves the format and the audience open — "导什么、含不含原始读数、能不能给医生看
-/// ——都没定。一旦把健康数据外发，合规口径要整个重过一遍，这不是一个按钮的工作量." So this
-/// does the half that is decided: it assembles everything the account owns and shows what is
-/// in it. Sending it anywhere is the undecided half, and a share sheet is exactly the "把健康
-/// 数据外发" that line says not to build yet.
-///
-/// It used to route to the Terms of Service sheet, which is not a smaller version of this —
-/// it is a different screen under the wrong title.
-struct ExportSheet: View {
-    @EnvironmentObject private var data: DataStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var counts: [(String, Int)] = []
-    @State private var failed = false
-
-    var body: some View {
-        SheetFrame(title: L("Export my data")) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(L("Everything this account holds, assembled here. It goes nowhere until you send it."))
-                    .font(NBFont.brand(400, 14))
-                    .lineSpacing(7)
-                    .foregroundStyle(NB.text2)
-
-                if failed {
-                    Text(L("Could not reach the server. Nothing was exported."))
-                        .font(NBFont.ui(400, 12)).tracking(0.02 * 12)
-                        .foregroundStyle(NB.alert2)
-                } else if counts.isEmpty {
-                    Text(L("ASSEMBLING …"))
-                        .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
-                        .foregroundStyle(NB.text3Prod)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(counts, id: \.0) { name, n in
-                            HStack {
-                                Text(name)
-                                    .font(NBFont.ui(400, 13))
-                                    .foregroundStyle(NB.text2)
-                                Spacer(minLength: 0)
-                                Text("\(n)")
-                                    .font(NBFont.dot(700, 13)).tracking(0.04 * 13)
-                                    .foregroundStyle(NB.text1)
-                            }
-                            .frame(height: 40)
-                            .overlay(alignment: .bottom) { Hairline() }
-                        }
-                    }
-                }
-            }
-        } footer: {
-            Text(L("SENDING IT ON IS NOT IN THIS BUILD — THE COMPLIANCE ROUTE IS UNDECIDED"))
-                .font(NBFont.dot(500, 9.5)).tracking(0.14 * 9.5)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(NB.text3Prod)
-        }
-        .task {
-            do {
-                data.exportPreparing = true
-                defer { data.exportPreparing = false }
-                guard let owner = SupabaseClient.currentUserIdSnapshot() else { return }
-                let row = try await SupabaseClient.shared.callFunction("export", payload: [:], expectedOwner: owner)
-                guard let files = row["payload"] as? [String: String] else { throw SupabaseClient.Failure.http(502, "Export incomplete") }
-                func rows(_ filename: String) -> Int { files[filename]?.split(separator: "\n").count ?? 0 }
-                counts = [("Settled days", rows("daily_rollup.ndjson")),
-                          ("Weigh-ins", rows("weigh_ins.ndjson")),
-                          ("Body scans", rows("measurements.ndjson")),
-                          ("Meals", rows("meals.ndjson"))]
-                await Analytics.shared.track("EXPORT_ASSEMBLED",
-                                             ["ROWS": counts.reduce(0) { $0 + $1.1 }])
-            } catch {
-                failed = true
             }
         }
     }

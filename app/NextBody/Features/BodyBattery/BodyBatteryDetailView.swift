@@ -550,19 +550,18 @@ struct BodyBatteryDetailView: View {
             CardBlock(title: L("SEVEN DAYS"),
                       trailing: L("7D AVG %@", Fmt.int(avg.map { Int($0.rounded()) })),
                       trailingIsDot: true) {
-                BodyBatteryWeekBars(values: days.map(\.wake), average: avg,
-                                    todayIndex: days.indices.last)
+                BodyBatteryDayLine(values: days.map(\.wake), average: avg,
+                                   todayIndex: days.indices.last)
                     .frame(height: 130)
-                HStack {
+                HStack(spacing: 0) {
                     ForEach(Array(days.enumerated()), id: \.offset) { i, day in
                         Text(Fmt.weekday(day.day.date).prefix(1))
                             .font(NBFont.dot(i == days.count - 1 ? 700 : 500, 10))
                             .foregroundStyle(i == days.count - 1 ? NB.lime1 : Color(hex: 0x8A8A96))
-                            .frame(width: 34)
-                        if i < days.count - 1 { Spacer(minLength: 0) }
+                            .frame(maxWidth: .infinity)
                     }
                 }
-                Text(L("Rolling 7 days · lime is today."))
+                Text(L("Rolling 7 days · lime is today. A dashed gap is a morning with no reading."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -596,20 +595,21 @@ struct BodyBatteryDetailView: View {
                        foot: L("A typical morning peak. Not a 30-day sum."))
             CardBlock(title: L("THIRTY DAYS"),
                       trailing: L("%d MORNINGS · %d MISSING", mornings, empty), trailingIsDot: true) {
-                BodyBatteryHeatGrid(days: days, today: today)
+                BodyBatteryDayLine(values: days.map(\.wake), average: typical,
+                                   todayIndex: days.indices.last)
+                    .frame(height: 140)
                 HStack(spacing: 6) {
-                    Text(L("LOW")).font(NBFont.dot(700, 10)).foregroundStyle(Color(hex: 0x8A8A96))
-                    ForEach([0.22, 0.48, 0.72, 1.0], id: \.self) { o in
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(NB.lime1.opacity(o))
-                            .frame(width: 20, height: 8)
-                    }
-                    Text(L("HIGH")).font(NBFont.dot(700, 10)).foregroundStyle(Color(hex: 0x8A8A96))
-                    Spacer(minLength: 0)
-                    Text(L("DASH · NO MORNING"))
-                        .font(NBFont.dot(700, 10))
+                    Text(days.first.map { Fmt.displayDate($0.day.date, format: "d MMM").uppercased() } ?? Fmt.dash)
+                        .font(NBFont.dot(500, 10))
                         .foregroundStyle(Color(hex: 0x8A8A96))
+                    Spacer(minLength: 0)
+                    Text(L("TODAY"))
+                        .font(NBFont.dot(700, 10))
+                        .foregroundStyle(NB.lime1)
                 }
+                Text(L("One point per morning peak · a dashed gap is a morning with no reading."))
+                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                    .foregroundStyle(NB.text3Prod)
             }
             CardBlock(title: L("WHAT THE MONTH LOOKED LIKE")) {
                 HStack {
@@ -621,16 +621,16 @@ struct BodyBatteryDetailView: View {
                         .font(NBFont.dot(700, 11))
                         .foregroundStyle(NB.lime1)
                 }
-                BodyBatteryWeekBars(values: rolls.map { $0.average.map { Int($0.rounded()) } },
-                                    average: typical,
-                                    todayIndex: rolls.isEmpty ? nil : rolls.count - 1)
+                BodyBatteryDayLine(values: rolls.map { $0.average.map { Int($0.rounded()) } },
+                                   average: typical,
+                                   todayIndex: rolls.isEmpty ? nil : rolls.count - 1)
                     .frame(height: 72)
-                HStack {
+                HStack(spacing: 0) {
                     ForEach(Array(rolls.enumerated()), id: \.offset) { i, roll in
                         Text(L("%dD %@", roll.days, Fmt.int(roll.average.map { Int($0.rounded()) })))
                             .font(NBFont.dot(500, 9))
                             .foregroundStyle(i == rolls.count - 1 ? NB.lime1 : Color(hex: 0x8A8A96))
-                        if i < rolls.count - 1 { Spacer(minLength: 0) }
+                            .frame(maxWidth: .infinity)
                     }
                 }
                 Hairline()

@@ -196,6 +196,26 @@ final class ChatStore: ObservableObject {
         persist()
     }
 
+    /// F4 §02 · the model cannot write. 「确认记录」 on a food frame commits the draft that frame
+    /// carries, through the one write path Home's panel uses, and the receipt joins the thread
+    /// as her next line. No second turn. A failed write says so in the thread and leaves the
+    /// draft in place, so the same pill can be tapped once more.
+    func confirmMeal(_ frame: PanelWidget, dataStore: DataStore) {
+        guard let index = sessions.firstIndex(where: { $0.id == currentSessionID }) else { return }
+        let now = Date()
+        let slot = MealEntry.Slot.guess(at: now, day: UserDay.containing(now))
+        let reply: ChatMessage
+        if let next = ai.confirmMeal(frameID: frame.id, slot: slot, into: dataStore) {
+            reply = ChatMessage(sender: .assistant, text: next.sentence, at: now, widget: next)
+        } else {
+            reply = ChatMessage(sender: .assistant,
+                                text: ai.lastError ?? L("That meal did not save. Tap confirm once more."), at: now)
+        }
+        sessions[index].messages.append(reply)
+        sessions[index].updatedAt = now
+        persist()
+    }
+
     func send(text: String, image: UIImage? = nil, dataURL: String? = nil, dataStore: DataStore) async {
         prepareForCurrentAccount()
         guard storageReady, !isSending else { return }
@@ -269,7 +289,7 @@ final class ChatStore: ObservableObject {
     }
 
     #if DEBUG && targetEnvironment(simulator)
-    /// `NB_DEBUG_CHAT_FIXTURE=empty|markdown|long|sending` paints a known thread so UI tests can
+    /// `NB_DEBUG_CHAT_FIXTURE=empty|markdown|long|sending|widgets` paints a known thread so UI tests can
     /// check rendering and the landing scroll without calling the model.
     private func applyDebugChatFixtureIfNeeded() {
         let fixture = ProcessInfo.processInfo.environment["NB_DEBUG_CHAT_FIXTURE"] ?? ""
@@ -366,6 +386,36 @@ final class ChatStore: ObservableObject {
                 turnID: userMsg.id
             )
             ai.debugPlayThoughts()
+        case "widgets":
+            // Three frames off the catalogue, so a shot of Chat shows how a plate, a curve and
+            // a ring sit in the thread — the sizes the answer card gives every renderer.
+            let sessionID = "debug-widgets"
+            var plate = WidgetCatalogue.sample(.food)
+            plate.plate = PlateBlock(name: "武汉热干面配绿豆汤", portion: "一碗面 + 一碗汤", kcal: 750,
+                                     protein: 22, carb: 105, fat: 28, pctOfBudget: nil)
+            plate.title = "今日一餐"
+            plate.sentence = "热干面芝麻酱脂肪不低，蛋白质偏少，下一餐记得补上。"
+            plate.footer = nil
+            let curve = WidgetCatalogue.sample(.line)
+            let ring = WidgetCatalogue.sample(.ring)
+            sessions = [
+                ChatSession(
+                    id: sessionID,
+                    title: "Widgets",
+                    subtitle: plate.sentence,
+                    updatedAt: now,
+                    tags: ["DEBUG"],
+                    photosCount: 0,
+                    messages: [
+                        ChatMessage(sender: .user, text: "How is my HRV trending?", at: now.addingTimeInterval(-300)),
+                        ChatMessage(sender: .assistant, text: curve.sentence, at: now.addingTimeInterval(-290), widget: curve),
+                        ChatMessage(sender: .assistant, text: ring.sentence, at: now.addingTimeInterval(-280), widget: ring),
+                        ChatMessage(sender: .user, text: "我今天吃了一个武汉热干面和一个绿豆汤", at: now.addingTimeInterval(-120)),
+                        ChatMessage(sender: .assistant, text: plate.sentence, at: now, widget: plate),
+                    ]
+                ),
+            ]
+            currentSessionID = sessionID
         default:
             break
         }

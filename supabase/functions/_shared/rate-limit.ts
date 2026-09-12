@@ -9,7 +9,8 @@ export type BudgetEndpoint =
   | "asr"
   | "archive-data"
   | "export"
-  | "account-delete";
+  | "account-delete"
+  | "feedback";
 /** serviceOwner is only for an already authenticated internal service worker. SQL
  * independently denies its privileged RPC to every authenticated/anonymous user. */
 export async function enforceRequestBudget(

@@ -111,13 +111,11 @@ struct ProfileView: View {
                     }
                     // ADR 0018 · what the AI remembers, visible and erasable.
                     SettingRow(title: L("AI MEMORY"), value: L("VIEW")) { router.open(.aiMemory, from: .profile) }
-                    // 11 edge 3 · export is async, not modal: the row says PREPARING… and the page can
-                    // be left.
-                    SettingRow(title: L("EXPORT MY DATA"),
-                               value: data.exportPreparing ? L("PREPARING…") : hasScans ? L("ALL TIME") : L("NOTHING YET"),
-                               valueTint: data.exportPreparing ? NB.ember1.opacity(0.85) : nil,
-                               detail: data.exportPreparing ? L("YOU CAN LEAVE THIS PAGE") : nil) {
-                        router.sheet = .export
+                    // A title, the words, up to three screenshots — filed as one issue on the
+                    // product repo with the build and the phone attached, so nobody has to
+                    // write back asking which version.
+                    SettingRow(title: L("REPORT A PROBLEM"), value: L("WRITE")) {
+                        router.sheet = .feedback
                     }
                     SettingRow(title: L("PRIVACY POLICY"), value: L("UPDATED JUN 24")) { router.sheet = .privacy }
                     SettingRow(title: L("TERMS OF SERVICE"), value: "V 2.1") { router.sheet = .about }
@@ -148,11 +146,6 @@ struct ProfileView: View {
         } onBack: {
             router.backToRoot()
         }
-        #if DEBUG
-        .task {
-            if DebugEdge.on("exporting") { data.exportPreparing = true }
-        }
-        #endif
     }
 
     /// 11 rule 06 · true only on the day the goal was changed.

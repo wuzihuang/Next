@@ -484,15 +484,101 @@ final class HealthSnapshotRead {
         return (any as? NSNumber)?.doubleValue
     }
 
+    /// ⚠️ This runs once per row of every table a detail read pulls — tens of thousands of
+    /// calls behind one page open. It used to build one or two `ISO8601DateFormatter`s and a
+    /// `DateFormatter` with four formats on every call, and PostgREST's microsecond stamps
+    /// (`…45.123456+00:00`) miss both ISO fast paths, so almost every call paid for the
+    /// slowest one. That was ~1 ms a row, on the main actor: BODY BATTERY's month read held
+    /// the screen for ten seconds and the DAY / WEEK / MONTH pills stopped answering.
+    /// The shapes the server sends are parsed by hand; the formatters stay as a cached
+    /// fallback for anything else.
     nonisolated static func timestamp(_ raw: String) -> Date? {
-        let strict = ISO8601DateFormatter(); strict.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = strict.date(from: raw) ?? ISO8601DateFormatter().date(from: raw) { return date }
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = TimeZone(secondsFromGMT: 0)
-        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ", "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
-                       "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
-            f.dateFormat = format
-            if let date = f.date(from: raw) { return date }
+        if let date = ISOTimestamp.parse(raw) { return date }
+        if let date = ISOTimestamp.strict.date(from: raw) ?? ISOTimestamp.plain.date(from: raw) { return date }
+        for formatter in ISOTimestamp.loose {
+            if let date = formatter.date(from: raw) { return date }
         }
         return nil
+    }
+}
+
+/// `YYYY-MM-DD[T ]HH:MM:SS[.fraction][Z | ±HH[:MM]]`, straight from the bytes. No zone
+/// means UTC, which is what the old GMT-pinned fallback formats did. Anything else is
+/// left to the formatters.
+enum ISOTimestamp {
+    // Formatters are read-only after construction, which Foundation documents as thread-safe.
+    nonisolated(unsafe) static let strict: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
+    }()
+    nonisolated(unsafe) static let plain = ISO8601DateFormatter()
+    nonisolated(unsafe) static let loose: [DateFormatter] = [
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ", "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss",
+    ].map { format in
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0); f.dateFormat = format; return f
+    }
+
+    nonisolated static func parse(_ raw: String) -> Date? {
+        let b = Array(raw.utf8)
+        var i = 0
+        func digits(_ count: Int) -> Int? {
+            guard i + count <= b.count else { return nil }
+            var v = 0
+            for k in 0..<count {
+                let c = b[i + k]
+                guard c >= 48, c <= 57 else { return nil }
+                v = v * 10 + Int(c - 48)
+            }
+            i += count
+            return v
+        }
+        func expect(_ c: UInt8) -> Bool {
+            guard i < b.count, b[i] == c else { return false }
+            i += 1; return true
+        }
+        guard let year = digits(4), expect(45), let month = digits(2), expect(45), let day = digits(2),
+              i < b.count, b[i] == 84 || b[i] == 32 else { return nil }
+        i += 1
+        guard let hour = digits(2), expect(58), let minute = digits(2), expect(58), let second = digits(2)
+        else { return nil }
+        guard (1...12).contains(month), (1...31).contains(day), hour < 24, minute < 60, second < 61 else { return nil }
+        var fraction = 0.0
+        if i < b.count, b[i] == 46 {
+            i += 1
+            var scale = 0.1, any = false
+            while i < b.count, b[i] >= 48, b[i] <= 57 {
+                fraction += Double(b[i] - 48) * scale; scale /= 10; i += 1; any = true
+            }
+            guard any else { return nil }
+        }
+        var offset = 0
+        if i < b.count {
+            if b[i] == 90 {
+                i += 1
+            } else if b[i] == 43 || b[i] == 45 {
+                let sign = b[i] == 45 ? -1 : 1
+                i += 1
+                guard let oh = digits(2) else { return nil }
+                var om = 0
+                if i < b.count {
+                    if b[i] == 58 { i += 1; guard let m = digits(2) else { return nil }; om = m }
+                    else if let m = digits(2) { om = m }
+                }
+                guard oh < 24, om < 60 else { return nil }
+                offset = sign * (oh * 3600 + om * 60)
+            }
+        }
+        guard i == b.count else { return nil }
+        // Days since 1970-01-01 in the proleptic Gregorian calendar (Howard Hinnant's civil algorithm).
+        let y = month <= 2 ? year - 1 : year
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yoe = y - era * 400
+        let mp = (month + 9) % 12
+        let doy = (153 * mp + 2) / 5 + day - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        let days = era * 146097 + doe - 719468
+        let seconds = Double(days * 86400 + hour * 3600 + minute * 60 + second - offset) + fraction
+        return Date(timeIntervalSince1970: seconds)
     }
 }

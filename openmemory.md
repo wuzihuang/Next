@@ -440,6 +440,26 @@ model credentials and tool execution server-side.
   `nextbody://home`. `NB_DEBUG_NOTIFY=1` still fires a 3s test. Cloud
   APNs Auth Key (p8) cannot be minted by the ASC API. Plan:
   `docs/plans/2026-09-06-notification-reach-plan.md`.
+- **Background pull (ADR 0026)** — `Services/BackgroundRefresh.swift` owns one
+  `BGAppRefreshTask` (`BackgroundRefreshPolicy.taskIdentifier` =
+  `com.nextbody.hoop.refresh`; Info.plist has `fetch` + `BGTaskSchedulerPermittedIdentifiers`;
+  registered in `AppDelegate.didFinishLaunching`). Scheduled on every
+  `didEnterBackground` and after every run, only when
+  `WidgetCenter.getCurrentConfigurations` shows ≥1 of our widgets, a session is on
+  the phone and a band is bound; `earliestBeginDate` is the last `store.lastSync` +
+  30 min (never in the past). A run: `Repository.openSession` →
+  `OriginDataSync.refreshNow(.background)` (floor `min(300, cadence)`, no live-receipt
+  reuse) → `flushPendingEvidence` (settle today + reload even when the band was out of
+  reach) → `WidgetGlancePublisher.publish` + `HomeSnapshot.save` → reschedule.
+  Expiration cancels the Task; `BackgroundTaskCompletion` locks `setTaskCompleted` to
+  once. Returning to the app uses `BandRefreshRequest.resume` (floor `min(60, cadence)`,
+  reuses the live receipt) so the device-page cadence no longer throttles a foreground
+  entry; the HomeView 30 s timer keeps `.foreground` (floor = cadence). Body Battery
+  "empty" = server `observed_at` (last observed tick + 5 min) older than
+  `BodyBatteryReadoutPolicy.goneAfter` (6 h) or no `reserve_daily` row yet; the phone
+  never computes the reserve. Pure rules in `Services/Band/BackgroundRefreshPolicy.swift`
+  (in the `NextBodySyncCore` package; tests `BackgroundRefreshPolicyTests`).
+  Silent push is not an option until the APNs `.p8` exists.
 - **System widget (Paper THREE TIERS)** — TODAY on `NextBodyLiveActivity`
   ships three families on one carbon, no tile columns: small = body battery
   only; medium = three rings then a rail (`NEXTBODY` white, no lime square,

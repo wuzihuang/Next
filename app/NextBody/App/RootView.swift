@@ -191,11 +191,11 @@ struct RootView: View {
                                          edit: .sleepWindow(start: "23:30", end: "07:00"))
                 }
             }
-            // `SIMCTL_CHILD_NB_DEBUG_SHEET=export` lifts one of profile's sheets on top of
+            // `SIMCTL_CHILD_NB_DEBUG_SHEET=feedback` lifts one of profile's sheets on top of
             // whatever the route landed on, for a walk of a sheet that lives behind a tap.
             if let s = ProcessInfo.processInfo.environment["NB_DEBUG_SHEET"] {
                 let sheet: SheetRoute? = switch s {
-                case "export":           .export
+                case "feedback":         .feedback
                 case "deleteAccount":    .deleteAccount
                 case "privacy":          .privacy
                 case "about":            .about
@@ -332,7 +332,6 @@ enum SheetChrome {
         // ADR 0010 · 身体扫描要装下 14 个字段，平衡检查只有一个结论词加三个小数。两种记录
         // 高度差得远，所以按内容给，不共用一个数。
         case .measurement:                  return 620
-        case .export:                       return 440
         case .goal, .notifications, .units: return 480
         default:                            return maxHeight
         }

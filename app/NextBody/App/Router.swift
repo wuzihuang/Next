@@ -85,7 +85,9 @@ enum SheetRoute: Hashable, Identifiable {
     // 10S
     case weighIn
     // 11 · profile
-    case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, export, deleteAccount, signOut
+    case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, deleteAccount, signOut
+    /// Profile › REPORT A PROBLEM · title, words, screenshots → one GitHub issue.
+    case feedback
     /// ADR 0010 · 一条测量记录的全部字段。两个详情页之间没有路，所以清单里的行点开是盖在
     /// 清单上的 sheet，不是第三级页面，关掉回到同一滚动位置。
     case measurement(UUID)

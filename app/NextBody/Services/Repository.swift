@@ -850,6 +850,9 @@ final class Repository {
                 let rows = snapshot.rows, fuel = snapshot.fuel, reserve = snapshot.reserve
                 let training = snapshot.training, weighIns = snapshot.weighIns, weekRows = snapshot.meals
                 let sampleRows = snapshot.reserveSamples, nightRows = snapshot.nights, oxygenRows = snapshot.oxygen
+                // Parse the window's oxygen rows once. Doing it inside the night loop below
+                // re-read every row's timestamp for every night — 30 nights × the whole month.
+                let oxygenPoints = Self.oxygenPoints(rows: oxygenRows)
                 let responseRows = snapshot.response, liveRows = snapshot.live
                 let liveStressRows = snapshot.liveStress, liveHeartRows = snapshot.liveHeart
                 let fuelBy = Dictionary(uniqueKeysWithValues:
@@ -1149,7 +1152,7 @@ final class Repository {
                         continue
                     }
                     let sameWindow = start != nil && wake != nil && local?.sleepStart == start && local?.wakeAt == wake
-                    let oxygen = Self.overnightOxygen(rows: oxygenRows, start: start, wake: wake)
+                    let oxygen = Self.overnightOxygen(points: oxygenPoints, start: start, wake: wake)
                     let respiration = Self.sleepRespiration(raw: night["raw"], start: start, wake: wake)
                     let hrv = Self.sleepHRV(raw: night["raw"], start: start, wake: wake)
                     let remoteHRVInvalidations = Self.sleepHRVInvalidations(raw: night["raw"], start: start, wake: wake)
@@ -1417,14 +1420,23 @@ final class Repository {
     /// Overnight automatic SpO2 clipped to the recorded night. A row written before
     /// `oxygen_samples` existed, or a select that 400s on an unmigrated project, is empty.
     static func overnightOxygen(rows: [[String: Any]]?, start: Date?, wake: Date?) -> [OvernightOxygenPoint] {
-        guard let start, let wake, wake > start else { return [] }
-        return (rows ?? []).compactMap { row -> OvernightOxygenPoint? in
+        overnightOxygen(points: oxygenPoints(rows: rows), start: start, wake: wake)
+    }
+
+    /// Every valid oxygen row in a read, parsed once. A month read hands the same rows to
+    /// every night; the timestamps must not be re-read per night.
+    static func oxygenPoints(rows: [[String: Any]]?) -> [OvernightOxygenPoint] {
+        (rows ?? []).compactMap { row -> OvernightOxygenPoint? in
             guard let at = (row["ts"] as? String).flatMap(Self.timestamp),
                   let percent = numberStatic(row["spo2"]).map({ Int($0) }),
                   (50...100).contains(percent) else { return nil }
-            guard at >= start && at < wake else { return nil }
             return OvernightOxygenPoint(ts: at, percent: percent)
         }
+    }
+
+    static func overnightOxygen(points: [OvernightOxygenPoint], start: Date?, wake: Date?) -> [OvernightOxygenPoint] {
+        guard let start, let wake, wake > start else { return [] }
+        return points.filter { $0.ts >= start && $0.ts < wake }
     }
 
     /// Sleep belongs to its calendar wake date, independent of the 04:00 activity cut.

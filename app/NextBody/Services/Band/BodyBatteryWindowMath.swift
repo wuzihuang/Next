@@ -8,7 +8,7 @@ struct BodyBatteryDayFacts: Equatable, Sendable {
     var worn: Bool?
     var isOpen: Bool
 
-    /// A morning peak the page can put on a bar or a heat cell. Today counts
+    /// A morning peak the page can put on the line. Today counts
     /// once `bbWake` is set — that number is frozen at wake, unlike training load.
     var hasWake: Bool { wake != nil }
 }

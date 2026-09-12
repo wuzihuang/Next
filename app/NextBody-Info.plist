@@ -118,9 +118,14 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.nextbody.hoop.refresh</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
+		<string>fetch</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

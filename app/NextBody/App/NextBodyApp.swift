@@ -74,6 +74,9 @@ struct NextBodyApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
                     BandLiveLifecycle.shared.setPhase(.background)
                     WidgetGlancePublisher.publish(from: data)
+                    // ADR 0026 · a widget on the home screen keeps the reserve moving while
+                    // the app is away: the next pull is asked for the moment we leave.
+                    BackgroundRefresh.shared.scheduleIfWidgetPlaced()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     BandLiveLifecycle.shared.setPhase(.active)
@@ -103,7 +106,9 @@ struct NextBodyApp: App {
             if reason == "consent", await OriginDataSync.refreshAfterConsent(into: data) != nil {
                 // A manual request resumes here, after the takeover gate was released.
             } else {
-                await OriginDataSync.refreshNow(into: data, request: reason == "launch" ? .fullHistory : .foreground)
+                // ADR 0026 · every return to the app asks the wrist, whatever the device page's
+                // cadence says; `.foreground` (the home screen's own timer) still honours it.
+                await OriginDataSync.refreshNow(into: data, request: reason == "launch" ? .fullHistory : .resume)
             }
             guard owner == SupabaseClient.currentUserIdSnapshot() else { return }
             await NotificationReach.refresh(today: data.today, history: data.history,

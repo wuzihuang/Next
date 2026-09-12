@@ -147,7 +147,7 @@ struct ChatDetailView: View {
                                     .id(message.id.uuidString)
                                     .accessibilityIdentifier(latestMessageID == message.id ? "chat.latest-message" : "chat.message")
                             } else {
-                                ChatAnswerView(message: message, onTap: { router.open($0) })
+                                ChatAnswerView(message: message, onTap: { handleWidgetTap(message.widget, $0) })
                                     .id(message.id.uuidString)
                                     .accessibilityIdentifier(latestMessageID == message.id ? "chat.latest-message" : "chat.message")
                             }
@@ -260,6 +260,26 @@ struct ChatDetailView: View {
     private func sendDirect(_ prompt: String) {
         Task {
             await chatStore.send(text: prompt, dataStore: dataStore)
+        }
+    }
+
+    /// The same three answers a tap gets on Home's panel, in the order Home gives them: a
+    /// fresh measurement's frame asks its question back; a food draft's 「确认记录」 commits
+    /// the plate without another turn (F4 §02); everything else opens its page.
+    ///
+    /// ⚠️ Chat used to send every tap to the router, so 「确认记录」 on a plate in Chat opened
+    /// the fuel page and left the meal unwritten. The pill on the frame is the whole point of
+    /// a `food` frame; it has to do the same thing on both faces.
+    private func handleWidgetTap(_ widget: PanelWidget?, _ target: Destination) {
+        isInputFocused = false
+        if let q = widget?.replyPrompt {
+            sendDirect(q)
+        } else if let w = widget, let a = w.action,
+                  a.contains("确认记录") || a.localizedCaseInsensitiveContains("confirm"),
+                  chatStore.ai.canConfirmMeal(frameID: w.id) {
+            chatStore.confirmMeal(w, dataStore: dataStore)
+        } else {
+            router.open(target)
         }
     }
 
@@ -409,16 +429,31 @@ private struct UserBubbleView: View {
 private struct ChatAnswerView: View {
     let message: ChatMessage
     let onTap: (Destination) -> Void
+    /// A frame in Chat is three quarters of the board's canvas: 268 × 352 in a 358 column,
+    /// the width a rich card takes in a message thread. Small enough to read as one reply,
+    /// large enough that the 9.5 pt captions on the canvas still print at 7 pt.
+    static let cardScale: CGFloat = 0.75
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let widget = message.widget, widget.type != .text {
-                GeometryReader { geometry in
-                    PanelWidgetView(widget: widget, onTap: onTap)
-                        .frame(width: 358, height: 470)
-                        .scaleEffect(geometry.size.width / 358, anchor: .topLeading)
-                }
-                .aspectRatio(358.0 / 470.0, contentMode: .fit)
+                // The frame is the board's 358 × 470 canvas, the same one Home's panel shows
+                // at full size. Here it is one answer in a column of bubbles, so it is drawn
+                // at `cardScale` and sits in the same plate the text answers use — an answer
+                // card, not a second panel. Scaling the whole canvas keeps every renderer
+                // and every control where the board put them; the taps land through the
+                // transform, so 「确认记录」 and the action captions stay live.
+                //
+                // ⚠️ It used to be scaled to the column's width, which on every phone is the
+                // canvas's own width: a 470 pt frame with a 62 pt kcal filled the screen.
+                PanelWidgetView(widget: widget, onTap: onTap)
+                    .frame(width: NB.Layout.boardContentWidth, height: NB.Layout.panelHeight)
+                    .scaleEffect(Self.cardScale, anchor: .topLeading)
+                    .frame(width: NB.Layout.boardContentWidth * Self.cardScale,
+                           height: NB.Layout.panelHeight * Self.cardScale, alignment: .topLeading)
+                    .background(Color(hex: 0x111116), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityIdentifier("chat.widget-card")
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     if !message.text.isEmpty {

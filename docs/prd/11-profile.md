@@ -24,8 +24,9 @@
 1 HEALTH REVOKED — APPLE HEALTH row: sub-line `LAST READ AUG 21 · NOTHING NEW`, value `ACCESS OFF` (amber).
   Heat map stays at its last day. No modal.
 2 GOAL SWITCHED — TRAINING GOAL row: sub-line `FROM TOMORROW · TODAY IS UNCHANGED`, value RECOMP (lime).
-3 EXPORT RUNNING — EXPORT MY DATA row: sub-line `YOU CAN LEAVE THIS PAGE`, value `PREPARING…` (amber).
-  Async; finishes through the system share sheet (⚠️ 1ACT: sending health data out is not in this build).
+3 REPORT SENDING — REPORT A PROBLEM sheet (ADR 0027, replaces EXPORT MY DATA): the pill reads
+  `SENDING …`; failure keeps the form and adds one red line (offline / not configured / rate limited);
+  success swaps the form for `FILED · #n` and a Done pill. Nothing leaves the phone but the report.
 4 SIGN OUT — pill SIGN OUT + "The HOOP stays paired and keeps recording. / Your data comes back when you
   sign in." Not the same as delete.
 5 DELETE FAILED — red-bordered card `DELETION FAILED` · "Nothing was removed. Your account is exactly as it
@@ -33,9 +34,9 @@
 
 ## Before ship
 ! Heat map source after reinstall (weight series in the cloud). ! 12-week vs 7-day EMA definitions
-  cross-referenced. ! Export format/scope undecided. ! Chinese widths must be walked separately.
+  cross-referenced. ! Chinese widths must be walked separately.
 ! Delete timing (immediate vs 30-day cooling) — "There is no undo" must be true.
 ! Notification switches must reflect system permission state.
 ! Events: ME_OPEN{STATE} · ME_HEATMAP_TAP{DATE} · ME_ROW_TAP{ROW} · ME_SHEET_SAVE{ROW} ·
-  ME_SHEET_DISMISS{ROW,CHANGED} · ME_GOAL_SET{GOAL} · ME_EXPORT{RANGE} · ME_SIGNOUT · ME_DELETE_CONFIRM{STEP}
+  ME_SHEET_DISMISS{ROW,CHANGED} · ME_GOAL_SET{GOAL} · FEEDBACK_FILED{NUMBER,IMAGES} · ME_SIGNOUT · ME_DELETE_CONFIRM{STEP}
 ! Acceptance: row-open to sheet-close ≤ 5 s for ≥ 85%; CHANGED=false > 60% means the row value is unclear.

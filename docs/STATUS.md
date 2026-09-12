@@ -74,7 +74,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 04D | Home · advice, the third face | built · ADR 0022: one day's set per user day, made once in the background by the first phone of the day (band gets 20 s, then generate), read on every opening; yesterday's shown stale while today's is made; `turn` runs `surface=plan` detached from the connection at 110 s with lease renewal; 3 automatic attempts then REFRESH only; client + turn + `20260909120000` migration need coordinated release |
 | 04C | Page two RESPONSE (retired HRV slot) | built · dial hero + DAY/WEEK/MONTH rolling windows; day is 15-min occupancy envelope, week daily bars, month heat; week/month hero is daily-mean average vs own daytime median (ADR 0012) |
 | 04K | HEART second level | built · Lead layout (ADR 0013): zone dial + DAY/WEEK/MONTH; HRV and overnight SpO2 share the heart clock; week/month hero is the median of daily medians |
-| Q-0 | System widget · TODAY medium | built · one WidgetKit face on the Live Activity extension (battery / load / eaten rings); App Group glance; LOG left off — widgets cannot hold-to-talk |
+| Q-0 | System widget · TODAY medium | built · one WidgetKit face on the Live Activity extension (battery / load / eaten rings); App Group glance; LOG left off — widgets cannot hold-to-talk. ADR 0026: a placed widget schedules a `BGAppRefreshTask` (`com.nextbody.hoop.refresh`, floor 30 min after the last pull) that reads the band, settles today and rewrites the glance; returning to the app always pulls (`.resume`, 1-minute floor, ignores the device-page cadence) |
 | F5 C4 | Notification reach | shipped: ADR 0019 edges (7 kinds), 4/user-day, lock + in-app banners, local `UNNotificationRequest`. Primer copy + settings match the plan. Cloud APNs still needs a portal `.p8` |
 
 04B notes:
@@ -855,7 +855,7 @@ an open question about the bottom strip, so 13 stands — but one of the two boa
 
    | | |
    |---|---|
-   | the settle job | `pg_cron`, hourly, per-user calendar, two days back |
+   | the settle job | `pg_cron`, hourly, per-user calendar, two days back. A day settles in 3–5 s since 20260912150000 (ADR 0028: night evidence and the replay memoised per transaction; it was 40 s, which neither the cron's 84 s nor the phone's 8 s `settle_now` could ever finish) |
    | retention | `pg_cron` nightly · 400 / 90 / 180 days per 1DLA |
    | `account.delete` | `public.account_delete(confirm)` RPC |
    | `export` | `public.export_all()` RPC |

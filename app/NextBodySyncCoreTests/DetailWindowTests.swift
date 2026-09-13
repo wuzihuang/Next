@@ -47,6 +47,7 @@ final class DetailWindowTests: XCTestCase {
         XCTAssertEqual(DetailWindow(.heart, .day).load, .none)
         XCTAssertEqual(DetailWindow(.heart, .week).load, .heartTicks(days: 7))
         XCTAssertEqual(DetailWindow(.metric, .month).load, .heartTicks(days: 30))
+        XCTAssertEqual(DetailWindow(.metric, .week).load, .heartTicks(days: 14))
         XCTAssertEqual(DetailWindow(.active, .day).load, .dailyResults(lookback: 6))
         XCTAssertEqual(DetailWindow(.active, .month).load,
                        .dailyResultsAndHeartTicks(lookback: 29, heartDays: 30))

@@ -655,6 +655,8 @@ final class DataStore: ObservableObject {
                                           mean: 33.85 + (rnd() - 0.5) * 0.5, rnd: rnd)
                 m.sleep = night.summary
                 m.vitalsCurve = night.ticks
+                // The morning's resting pulse, so HEART's week and month have a line to draw.
+                m.nightInputs = NightInputs(rhr: (48 + rnd() * 8).rounded(), rhrBase: 51, rhrNights: 14)
                 if back <= 7 {
                     var extra: [VitalSample] = []
                     var t = m.day.start.addingTimeInterval(4 * 3600)

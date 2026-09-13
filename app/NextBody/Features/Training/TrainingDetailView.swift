@@ -281,27 +281,29 @@ struct TrainingDetailView: View {
     private var weekBoard: some View {
         let days = weekFacts
         let avg = TrainingWindowMath.averageLoad(days)
-        let heavy = days.enumerated().max(by: { ($0.element.load ?? 0) < ($1.element.load ?? 0) })?.offset
         let zones = TrainingWindowMath.typicalZones(days)
+        let prior = Array(facts(count: days.count * 2).prefix(days.count))
+        let delta = MetricTrendMath.delta(current: finishedLoads(days), prior: finishedLoads(prior))
         return VStack(alignment: .leading, spacing: 14) {
-            heroNumber(avg, caption: "OF 21",
-                       foot: L("7-day average of finished days. Today is not in this number."))
+            // The week leads with its columns, not a number: each day's load against the
+            // target that day was set, and the average said once underneath.
             CardBlock(title: L("SEVEN DAYS"),
-                      trailing: L("7D AVG %@", Fmt.load(avg)), trailingIsDot: true) {
-                TrainingDayLine(values: days.map(\.load), average: avg,
-                                todayIndex: days.indices.last, heavyIndex: heavy)
-                    .frame(height: 130)
+                      trailing: L("LOAD VS TARGET · ROLLING"), trailingIsDot: true) {
+                TrainingTargetBars(days: days)
                 HStack(spacing: 0) {
                     ForEach(Array(days.enumerated()), id: \.offset) { i, day in
-                        Text(Fmt.weekday(day.day.date).prefix(1))
-                            .font(NBFont.dot(i == days.count - 1 ? 700 : 500, 10))
-                            .foregroundStyle(i == days.count - 1 ? NB.lime1 : Color(hex: 0x8A8A96))
+                        Text(Fmt.weekday(day.day.date))
+                            .font(NBFont.ui(i == days.count - 1 ? 500 : 400, 9))
+                            .foregroundStyle(i == days.count - 1 ? NB.lime1 : NB.white.opacity(0.45))
                             .frame(maxWidth: .infinity)
                     }
                 }
-                Text(L("Rolling 7 days · lime is today."))
+                .padding(.trailing, VitalsScaleRail.gutter)
+                TrainingTargetBars.legend
+                Text(L("Rolling 7 days · today is hollow because it is still counting."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
+                windowSummary(average: avg, delta: delta, days: days)
             }
             weekIngredients(days)
             CardBlock(title: L("HOW THE ZONES STACK"), trailing: L("MINUTES / DAY"), trailingIsDot: true) {
@@ -358,25 +360,26 @@ struct TrainingDetailView: View {
         let rolls = TrainingWindowMath.weekRolls(days)
         let zones = TrainingWindowMath.typicalZones(days)
         return VStack(alignment: .leading, spacing: 14) {
-            heroNumber(typical, caption: "OF 21",
-                       foot: L("A typical finished day. Not a 30-day sum."))
             CardBlock(title: L("THIRTY DAYS"),
-                      trailing: L("TYPICAL %@", Fmt.load(typical)), trailingIsDot: true) {
-                TrainingDayLine(values: days.map(\.load), average: typical,
-                                todayIndex: days.indices.last)
-                    .frame(height: 140)
+                      trailing: L("LOAD VS TARGET · ROLLING"), trailingIsDot: true) {
+                TrainingTargetBars(days: days)
                 HStack(spacing: 6) {
                     Text(days.first.map { Fmt.displayDate($0.day.date, format: "d MMM").uppercased() } ?? Fmt.dash)
-                        .font(NBFont.dot(500, 10))
-                        .foregroundStyle(Color(hex: 0x8A8A96))
+                        .font(NBFont.ui(400, 9))
+                        .foregroundStyle(NB.white.opacity(0.45))
                     Spacer(minLength: 0)
                     Text(L("TODAY"))
-                        .font(NBFont.dot(700, 10))
+                        .font(NBFont.ui(500, 9))
                         .foregroundStyle(NB.lime1)
                 }
-                Text(L("One point a day on the 0–21 scale."))
+                .padding(.trailing, VitalsScaleRail.gutter)
+                TrainingTargetBars.legend
+                Text(L("One column a day on the 0–21 scale · the tick is that day's target."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
+                // Thirty days have no sixty behind them to compare with, so no change is
+                // printed; the five groups below are where the month's drift reads.
+                windowSummary(average: typical, delta: nil, days: days)
             }
             TrainingIngredientsCard(trailing: L("TYPICAL DAY"), rows: [
                 .init(label: L("HR ZONES 1–3"),
@@ -488,27 +491,47 @@ struct TrainingDetailView: View {
 
     // MARK: shared chrome
 
-    private func heroNumber(_ value: Double?, caption: String, foot: String) -> some View {
-        VStack(spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                Text(Fmt.load(value))
-                    .font(NBFont.dot(800, 64))
-                    .foregroundStyle(value == nil ? NB.text3Prod : NB.text1)
-                Text(L(caption))
-                    .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
-                    .foregroundStyle(NB.white.opacity(0.42))
+    /// Finished days only: today is still counting and must not pull the average.
+    private func finishedLoads(_ days: [TrainingDayFacts]) -> [Double?] {
+        days.map { $0.isOpen ? nil : $0.load }
+    }
+
+    /// The window's one number, said once under its columns: the average finished day,
+    /// how it moved against the window before, and how many finished days landed in
+    /// their zone. The 64 pt figure that used to stand above the chart is gone — a
+    /// rolling window has no single reading, and printed like one it read as today's.
+    private func windowSummary(average: Double?, delta: Double?, days: [TrainingDayFacts]) -> some View {
+        let counts = TrainingWindowMath.bandCounts(days)
+        let finished = counts.light + counts.steady + counts.heavy + counts.over + counts.unknown
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(L("AVG %@", Fmt.load(average)))
+                .font(NBFont.dot(700, 14)).tracking(0.02 * 14)
+                .foregroundStyle(average == nil ? NB.text3Prod : NB.lime1)
+                .lineLimit(1).minimumScaleFactor(0.8)
+            if average != nil {
+                Text(L("OF 21"))
+                    .font(NBFont.ui(600, 10))
+                    .foregroundStyle(NB.text1)
             }
-            Text(foot)
-                .font(NBFont.ui(400, 12))
-                .foregroundStyle(NB.text3Prod)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            if let delta {
+                let magnitude = Fmt.load(abs(delta))
+                let span = L("PRIOR %dD", days.count)
+                Text(L("· %@", magnitude == Fmt.load(0) ? L("LEVEL WITH %@", span)
+                                  : L("%@%@ VS %@", delta > 0 ? "+" : "−", magnitude, span)))
+                    .font(NBFont.ui(500, 10))
+                    .foregroundStyle(NB.white.opacity(0.62))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            Spacer(minLength: 0)
+            Text(L("%d OF %d DAYS IN ZONE", counts.steady, finished))
+                .font(NBFont.ui(400, 10))
+                .foregroundStyle(NB.white.opacity(0.42))
+                .lineLimit(1).minimumScaleFactor(0.8)
         }
-        .padding(.top, 12)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 8)
-        .frame(width: NB.Layout.contentWidth)
-        .cardSkin()
+        .padding(.top, 10)
+        .overlay(alignment: .top) {
+            Rectangle().fill(NB.white.opacity(0.06)).frame(height: 1)
+        }
     }
 
     private func ringCard(load: Double?, caption: String, foot: String) -> some View {

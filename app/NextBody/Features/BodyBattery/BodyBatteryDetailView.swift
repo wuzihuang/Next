@@ -544,11 +544,14 @@ struct BodyBatteryDetailView: View {
         let avg = BodyBatteryWindowMath.averageWake(days)
         let peak = BodyBatteryWindowMath.peakDay(days)
         let night = BodyBatteryWindowMath.typicalNightCharge(days)
+        let prior = Array(facts(count: days.count * 2).prefix(days.count))
+        let delta = MetricTrendMath.delta(current: days.map { $0.wake.map(Double.init) },
+                                          prior: prior.map { $0.wake.map(Double.init) })
         return VStack(alignment: .leading, spacing: 14) {
-            heroNumber(avg.map { Int($0.rounded()) }, caption: "OF 100",
-                       foot: L("7-day average of morning peaks."))
+            // The week leads with its shape, not a number: the line is the seven mornings
+            // and the row under it says the average once, beside how it moved.
             CardBlock(title: L("SEVEN DAYS"),
-                      trailing: L("7D AVG %@", Fmt.int(avg.map { Int($0.rounded()) })),
+                      trailing: L("MORNING PEAKS · ROLLING"),
                       trailingIsDot: true) {
                 BodyBatteryDayLine(values: days.map(\.wake), average: avg,
                                    todayIndex: days.indices.last)
@@ -564,6 +567,8 @@ struct BodyBatteryDetailView: View {
                 Text(L("Rolling 7 days · lime is today. A dashed gap is a morning with no reading."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
+                windowSummary(headline: avg, delta: delta,
+                              recorded: days.filter(\.hasWake).count, of: days.count)
             }
             CardBlock(title: L("WAKE PEAKS"), trailing: L("TYPICAL DAY"), trailingIsDot: true) {
                 weekStat(L("AVERAGE"), Fmt.int(avg.map { Int($0.rounded()) }), NB.lime1)
@@ -591,8 +596,6 @@ struct BodyBatteryDetailView: View {
         let rolls = BodyBatteryWindowMath.weekRolls(days)
         let night = BodyBatteryWindowMath.typicalNightCharge(days)
         return VStack(alignment: .leading, spacing: 14) {
-            heroNumber(typical.map { Int($0.rounded()) }, caption: "30 DAYS",
-                       foot: L("A typical morning peak. Not a 30-day sum."))
             CardBlock(title: L("THIRTY DAYS"),
                       trailing: L("%d MORNINGS · %d MISSING", mornings, empty), trailingIsDot: true) {
                 BodyBatteryDayLine(values: days.map(\.wake), average: typical,
@@ -610,6 +613,10 @@ struct BodyBatteryDetailView: View {
                 Text(L("One point per morning peak · a dashed gap is a morning with no reading."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
+                // Thirty mornings have no sixty behind them to compare with, so the row
+                // is the typical morning and the count; the week-by-week card below is
+                // where the month's drift reads.
+                windowSummary(headline: typical, delta: nil, recorded: mornings, of: days.count)
             }
             CardBlock(title: L("WHAT THE MONTH LOOKED LIKE")) {
                 HStack {
@@ -646,27 +653,39 @@ struct BodyBatteryDetailView: View {
         }
     }
 
-    private func heroNumber(_ value: Int?, caption: String, foot: String) -> some View {
-        VStack(spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                Text(Fmt.int(value))
-                    .font(NBFont.dot(800, 64))
-                    .foregroundStyle(value == nil ? NB.text3Prod : NB.text1)
-                Text(L(caption))
-                    .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
-                    .foregroundStyle(NB.white.opacity(0.42))
+    /// The window's one number, said once under its line: the average morning, how it
+    /// moved against the window before, and how many mornings actually recorded. The
+    /// 64 pt figure that used to stand above the chart is gone — a rolling window has no
+    /// single reading, and printed like one it read as today's.
+    private func windowSummary(headline: Double?, delta: Double?, recorded: Int, of total: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(L("AVG %@", Fmt.int(headline.map { Int($0.rounded()) })))
+                .font(NBFont.dot(700, 14)).tracking(0.02 * 14)
+                .foregroundStyle(headline == nil ? NB.text3Prod : NB.lime1)
+                .lineLimit(1).minimumScaleFactor(0.8)
+            if headline != nil {
+                Text(L("OF 100"))
+                    .font(NBFont.ui(600, 10))
+                    .foregroundStyle(NB.text1)
             }
-            Text(foot)
-                .font(NBFont.ui(400, 12))
-                .foregroundStyle(NB.text3Prod)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            if let delta {
+                let n = Int(delta.rounded())
+                Text(L("· %@", n == 0 ? L("LEVEL WITH %@", L("PRIOR %dD", total))
+                                      : L("%@%@ VS %@", n > 0 ? "+" : "−", String(abs(n)), L("PRIOR %dD", total))))
+                    .font(NBFont.ui(500, 10))
+                    .foregroundStyle(NB.white.opacity(0.62))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            Spacer(minLength: 0)
+            Text(L("%d OF %d MORNINGS", recorded, total))
+                .font(NBFont.ui(400, 10))
+                .foregroundStyle(NB.white.opacity(0.42))
+                .lineLimit(1).minimumScaleFactor(0.8)
         }
-        .padding(.top, 12)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 8)
-        .frame(width: NB.Layout.contentWidth)
-        .cardSkin()
+        .padding(.top, 10)
+        .overlay(alignment: .top) {
+            Rectangle().fill(NB.white.opacity(0.06)).frame(height: 1)
+        }
     }
 
     private func weekStat(_ label: String, _ value: String, _ tint: Color) -> some View {

@@ -37,7 +37,7 @@ let package = Package(
             name: "NextBodySleepCore",
             path: "NextBody/Features/Vitals",
             sources: ["SleepScoreMath.swift", "VitalsProbeMath.swift", "VitalsDialMath.swift",
-                      "HeartWindowMath.swift"]
+                      "HeartWindowMath.swift", "MetricTrendMath.swift"]
         ),
         .testTarget(
             name: "NextBodySleepTests",

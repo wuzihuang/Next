@@ -11,23 +11,29 @@ struct HeartBoard: View {
     let readout: VitalsReadout
     let slotMinutes: Double
     let dial: VitalsDial.Model?
+    /// False on the rolling windows, where the trend hero above already drew the pulse a
+    /// night at a time and a second envelope of the same days would be the page repeating
+    /// itself.
+    var showsLead = true
 
     var body: some View {
-        CardBlock(title: L("HEART RATE"), trailing: readout.chartNote) {
-            lead
-            VitalsAxis(labels: window.labels, highlightsLast: window.endsNow, tint: NB.lime1)
-                .padding(.trailing, VitalsScaleRail.gutter)
-            VitalsChartLegend(
-                items: [
-                    .init(text: range == .day
-                          ? L("EVERY %d MIN · MEASURED", Int(DetailWindow(.heart, .day).slotMinutes))
-                          : L("EVERY DAY · MEASURED"),
-                          tint: NB.lime1, stops: dial?.legendStops)
-                ] + (readout.referenceLabel.map {
-                    [VitalsChartLegend.Item(text: $0, tint: NB.lime1, isArea: true)]
-                } ?? []),
-                trailing: ticks.compactMap { $0.hr }.max().map { L("MAX %d", $0) },
-                trailingTint: NB.lime1)
+        if showsLead {
+            CardBlock(title: L("HEART RATE"), trailing: readout.chartNote) {
+                lead
+                VitalsAxis(labels: window.labels, highlightsLast: window.endsNow, tint: NB.lime1)
+                    .padding(.trailing, VitalsScaleRail.gutter)
+                VitalsChartLegend(
+                    items: [
+                        .init(text: range == .day
+                              ? L("EVERY %d MIN · MEASURED", Int(DetailWindow(.heart, .day).slotMinutes))
+                              : L("EVERY DAY · MEASURED"),
+                              tint: NB.lime1, stops: dial?.legendStops)
+                    ] + (readout.referenceLabel.map {
+                        [VitalsChartLegend.Item(text: $0, tint: NB.lime1, isArea: true)]
+                    } ?? []),
+                    trailing: ticks.compactMap { $0.hr }.max().map { L("MAX %d", $0) },
+                    trailingTint: NB.lime1)
+            }
         }
 
         CardBlock(title: L("ON THE SAME CLOCK"), trailing: L("COMPANIONS SHARE THIS CLOCK")) {

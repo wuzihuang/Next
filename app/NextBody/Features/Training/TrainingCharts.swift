@@ -355,3 +355,120 @@ struct TrainingIngredientsCard: View {
         }
     }
 }
+
+/// WEEK and MONTH lead with this instead of a number: one column a user day for the load
+/// that day reached, against the target that day was set. The target is a tick across the
+/// column and the optimal zone a faint band behind it, so "did I hit it" is read column by
+/// column rather than from one average. A finished day's column wears its band's colour —
+/// light, steady, heavy — and today's is drawn hollow, because it is still counting.
+///
+/// ⚠️ A day with no load is a dotted slot, never a zero column (F2 rule 05).
+struct TrainingTargetBars: View {
+    let days: [TrainingDayFacts]
+    var height: CGFloat = 150
+
+    private static let ceiling = 21.0
+
+    var body: some View {
+        VitalsChartProbe(
+            series: .bins(probeBins),
+            tint: NB.lime1,
+            height: height,
+            trailingInset: VitalsScaleRail.gutter,
+            accessibilityTitle: L("LOAD VS TARGET BY DAY"),
+            accessibilityName: "training.probe.targetBars"
+        ) { _ in
+            HStack(spacing: VitalsScaleRail.gap) {
+                GeometryReader { geo in
+                    let count = max(days.count, 1)
+                    let spacing: CGFloat = days.count > 10 ? 2 : 6
+                    let width = max(2, (geo.size.width - spacing * CGFloat(count - 1)) / CGFloat(count))
+                    let radius = min(width / 2, 6)
+                    HStack(alignment: .bottom, spacing: spacing) {
+                        ForEach(Array(days.enumerated()), id: \.offset) { _, day in
+                            column(day, width: width, radius: radius, height: geo.size.height)
+                        }
+                    }
+                }
+                VitalsScaleRail(labels: ["21", "14", "7", "0"], tint: NB.lime1)
+            }
+        }
+    }
+
+    private func fraction(_ value: Double) -> CGFloat {
+        CGFloat(min(Self.ceiling, max(0, value)) / Self.ceiling)
+    }
+
+    private func tint(_ day: TrainingDayFacts, load: Double) -> Color {
+        switch TrainingWindowMath.band(load: load, zone: day.zone) {
+        case .light:        NB.lime1.opacity(0.45)
+        case .steady:       NB.lime1
+        case .heavy, .over: NB.ember1
+        case .unknown:      NB.lime1.opacity(0.7)
+        }
+    }
+
+    @ViewBuilder
+    private func column(_ day: TrainingDayFacts, width: CGFloat, radius: CGFloat, height: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            if let zone = day.zone {
+                // The zone behind the column: the stretch the day was meant to land in.
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(NB.lime2.opacity(0.16))
+                    .frame(height: max(2, height * (fraction(zone.upperBound) - fraction(zone.lowerBound))))
+                    .offset(y: -height * fraction(zone.lowerBound))
+            }
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .stroke(style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                .foregroundStyle(NB.hairline)
+                .opacity(day.load == nil ? 1 : 0)
+            if let load = day.load {
+                let bar = RoundedRectangle(cornerRadius: radius, style: .continuous)
+                if day.isOpen {
+                    // Today is still counting: hollow, so it is not read as a finished day.
+                    bar.fill(NB.lime1.opacity(0.18))
+                        .overlay(bar.stroke(NB.lime1, lineWidth: 1.5))
+                        .frame(height: max(radius * 2, height * fraction(load)))
+                } else {
+                    bar.fill(tint(day, load: load))
+                        .frame(height: max(2, height * fraction(load)))
+                }
+            }
+            if let target = day.target {
+                // The target as a tick across the whole slot, so a column that stopped
+                // short of it and one that overshot it are both read against the same line.
+                Rectangle()
+                    .fill(NB.limePale)
+                    .frame(height: 2)
+                    .offset(y: -height * fraction(target))
+            }
+        }
+        .frame(width: width, height: height)
+    }
+
+    static var legend: VitalsChartLegend {
+        VitalsChartLegend(
+            items: [
+                .init(text: L("LOAD · PER DAY"), tint: NB.lime1),
+                .init(text: L("TARGET"), tint: NB.limePale),
+                .init(text: L("ZONE"), tint: NB.lime2, isArea: true),
+            ],
+            trailing: L("DOTTED · NO RECORD"),
+            trailingTint: NB.white.opacity(0.45))
+    }
+
+    private var probeBins: [VitalsProbeMath.Bin] {
+        let ranges = VitalsProbeMath.equalSlots(count: days.count)
+        return zip(days, ranges).map { day, range in
+            let clock = MetricWindowMath.slotLabel(day.day.start, count: days.count)
+            guard let load = day.load else {
+                return .init(start: range.start, end: range.end, yFraction: nil,
+                             text: VitalsProbeCopy.gap(clock), vacant: true)
+            }
+            let target = day.target.map { L("TARGET %@", Fmt.load($0)) } ?? L("NO TARGET")
+            return .init(start: range.start, end: range.end,
+                         yFraction: 1 - fraction(load),
+                         text: VitalsProbeCopy.line(clock, L("%@ · %@", Fmt.load(load), target)))
+        }
+    }
+}

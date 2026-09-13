@@ -104,7 +104,10 @@ struct DetailWindow: Hashable, Sendable {
         case .heart:
             return range == .day ? .none : .heartTicks(days: days)
         case .metric:
-            return range == .day ? .none : .heartTicks(days: days)
+            // The week hero says how the window compares with the seven days before it,
+            // and STRESS and TEMP can only say that from ticks — so a week pulls fourteen.
+            // The month's comparison would need sixty and is left unsaid instead.
+            return range == .day ? .none : .heartTicks(days: range == .week ? days * 2 : days)
         case .active:
             return range == .day
                 ? .dailyResults(lookback: 6)

@@ -48,6 +48,7 @@ struct VitalsDetailView: View {
             mealPoints: data.mealResponsePoints.count,
             mealLast: data.mealResponsePoints.last?.ts,
             zerosToday: data.mealResponseZerosToday,
+            sleepScores: data.sleepScores.count,
             minute: Int(now.timeIntervalSinceReferenceDate / 60))
     }
 
@@ -163,15 +164,7 @@ struct VitalsDetailView: View {
     /// history goes stale behind it. A day with no row is an empty `DailyMetrics`, which
     /// yields nil totals rather than zeros.
     private var windowDays: [DailyMetrics] {
-        memoised(\.windowDays) {
-            let first = m.day.adding(days: -(detail.days - 1))
-            let byDay = Dictionary(data.history.map { ($0.day, $0) }, uniquingKeysWith: { _, later in later })
-            return (0..<detail.days).map { offset in
-                let day = first.adding(days: offset)
-                if day == m.day { return m }
-                return byDay[day] ?? DailyMetrics(day: day)
-            }
-        }
+        memoised(\.windowDays) { rows(endingOn: m.day, count: detail.days) }
     }
 
     private func metricDayTotal(_ day: DailyMetrics) -> Double? {
@@ -191,13 +184,6 @@ struct VitalsDetailView: View {
                                       days: detail.days, value: value)
     }
 
-    /// The window's median recorded day, drawn across the bars as this person's own habit.
-    /// Under three days it is not a habit, it is the only day there is.
-    private var metricMedianDay: Double? {
-        let recorded = MetricWindowMath.recorded(metricSlots)
-        return recorded.count >= 3 ? HeartWindowMath.median(recorded) : nil
-    }
-
     private var metricWindowReadout: VitalsReadout {
         switch metric {
         case .stress:
@@ -213,10 +199,212 @@ struct VitalsDetailView: View {
         }
     }
 
-    /// One user day an envelope on the trace windows, exactly as HEART's does.
-    private var metricSlotMinutes: Double {
-        guard isMetricWindow else { return VitalsTrace.defaultSlotMinutes }
-        return HeartWindowMath.slotSeconds(span: window.span, days: detail.days) / 60
+    // MARK: the trend hero · one mark a user day on every rolling window
+
+    /// Every rolling window but RESPONSE leads with the trend hero. RESPONSE keeps its own
+    /// week bars and month heat (ADR 0012), which already are its shape.
+    private var showsTrendHero: Bool {
+        range != .day && metric.showsDetailPills && metric != .response
+    }
+
+    /// The user days before the window, same length, oldest first — what "vs prior 7 days"
+    /// is measured against. A day with no row is an empty `DailyMetrics`, never a zero day.
+    private var priorDays: [DailyMetrics] {
+        memoised(\.priorDays) {
+            rows(endingOn: m.day.adding(days: -detail.days), count: detail.days)
+        }
+    }
+
+    private func rows(endingOn last: UserDay, count: Int) -> [DailyMetrics] {
+        let first = last.adding(days: -(count - 1))
+        let byDay = Dictionary(data.history.map { ($0.day, $0) }, uniquingKeysWith: { _, later in later })
+        return (0..<count).map { offset in
+            let day = first.adding(days: offset)
+            if day == m.day { return m }
+            return byDay[day] ?? DailyMetrics(day: day)
+        }
+    }
+
+    /// Every tick the two windows can see, merged once and filed by the user day its clock
+    /// falls in — the same way the worn-day tile under the page buckets them. A night's
+    /// ticks begin on the evening before the morning that owns the night, and a row can
+    /// carry a neighbour's evening; filing by clock rather than by row keeps the hero and
+    /// the tile counting the same days.
+    private var trendTicksByDay: [UserDay: [VitalSample]] {
+        memoised(\.trendTicksByDay) {
+            let eve = rows(endingOn: m.day.adding(days: -(2 * detail.days)), count: 1)
+            let curve = VitalSample.merging((eve + priorDays + windowDays).flatMap(\.vitalsCurve), with: [])
+            return Dictionary(grouping: curve, by: { UserDay.containing($0.ts) })
+        }
+    }
+
+    /// The value the hero marks for one user day.
+    private func trendValue(_ day: DailyMetrics, ticks: [UserDay: [VitalSample]]) -> Double? {
+        switch metric {
+        case .heart:    day.nightInputs?.rhr
+        case .stress:   MetricTrendMath.mean((ticks[day.day] ?? []).compactMap { $0.stress.map(Double.init) })
+        case .temp:     nightSkinMedian(day, ticks: (ticks[day.day.adding(days: -1)] ?? []) + (ticks[day.day] ?? []))
+        case .steps:    VitalsReadout.daySteps(day)
+        case .distance: VitalsReadout.dayMetres(day)
+        case .active:   VitalsReadout.dayTotalBurn(day)
+        case .sleep:    data.sleepScores[day.day.key].map { Double($0.score) }
+        case .hrv, .response: nil
+        }
+    }
+
+    /// ADR 0009 · skin temperature is a night reading. The median of the ticks the band
+    /// took inside the recorded sleep — not an afternoon with the arm out of a sleeve.
+    private func nightSkinMedian(_ day: DailyMetrics, ticks: [VitalSample]) -> Double? {
+        guard let night = day.sleep, let start = night.sleepStart, let wake = night.wakeAt,
+              wake > start else { return nil }
+        let temps = ticks.compactMap { sample -> Double? in
+            guard sample.ts >= start, sample.ts < wake, night.containsSleepTimestamp(sample.ts)
+            else { return nil }
+            return sample.temp
+        }
+        // Six ticks is half an hour: fewer is a wrist that came off, not a night.
+        return temps.count >= 6 ? MetricTrendMath.median(temps) : nil
+    }
+
+    private var windowTrendValues: [Double?] {
+        memoised(\.windowTrendValues) {
+            let ticks = trendTicksByDay
+            return windowDays.map { trendValue($0, ticks: ticks) }
+        }
+    }
+
+    private var priorTrendValues: [Double?] {
+        memoised(\.priorTrendValues) {
+            let ticks = trendTicksByDay
+            return priorDays.map { trendValue($0, ticks: ticks) }
+        }
+    }
+
+    /// How each instrument's window is drawn: the mark, the ruler, the rule or band across
+    /// it, and the words. The day page's readouts are untouched — a window number is a
+    /// different claim from a day number and the two do not share a formula.
+    private struct TrendSpec {
+        var style: MetricTrendHero.Style
+        var scale: ClosedRange<Double>
+        var zones: VitalsDial.Model? = nil
+        var rule: MetricTrendHero.Rule? = nil
+        var band: MetricTrendHero.Band? = nil
+        var format: (Double) -> String
+        var unit: String
+        var seriesLabel: String
+        var nightly: Bool
+        var empty: (line: String, sub: String)
+    }
+
+    private func trendSpec(values: [Double?]) -> TrendSpec {
+        let habit = MetricTrendMath.habit(values)
+        let whole: (Double) -> String = { String(Int($0.rounded())) }
+        switch metric {
+        case .heart:
+            // The resting pulse, one a night, against the fourteen-night baseline the
+            // morning reading is already judged by. Not the day's mean: a walk to the
+            // shops moves that, and the shape it makes is the shape of the errands.
+            let base = m.nightInputs?.rhrBase
+            return TrendSpec(
+                style: .line,
+                scale: MetricTrendMath.fittedScale(values, step: 5, pad: 4, minimumSpan: 20,
+                                                   fallback: 40...80, including: base.map { $0...$0 }),
+                rule: base.map { .init(value: $0, label: L("BASELINE %@", whole($0))) }
+                    ?? habit.map { .init(value: $0, label: L("MEDIAN %@", whole($0))) },
+                format: whole, unit: "BPM",
+                seriesLabel: L("RESTING · PER NIGHT"), nightly: true,
+                empty: (L("NO RESTING PULSE IN THIS WINDOW"), L("A RECORDED NIGHT SETS THE NEXT POINT")))
+
+        case .stress:
+            let cuts = VitalsDialMath.stressCuts()
+            return TrendSpec(
+                style: .bars, scale: cuts.scale,
+                zones: VitalsReadout.dial(scale: cuts.scale, cuts: cuts.cuts, value: nil,
+                                          names: [L("REST"), L("STEADY"), L("ELEVATED"), L("HIGH")],
+                                          tints: [NB.optimal2, NB.lime1, NB.ember1, NB.alert2]),
+                rule: habit.map { .init(value: $0, label: L("MEDIAN %@", whole($0))) },
+                format: whole, unit: "/ 100",
+                seriesLabel: L("AVERAGE · PER DAY"), nightly: false,
+                empty: (L("NO STRESS TICKS IN THIS WINDOW"), L("THE NEXT SYNC DRAWS THE LINE")))
+
+        case .temp:
+            let tenth: (Double) -> String = { String(format: "%.1f", $0) }
+            let range = SkinTempPresentation.nightRange(today: m, history: data.history, now: now).range
+            let own = range.map { $0.lower...$0.upper }
+            return TrendSpec(
+                style: .line,
+                scale: MetricTrendMath.fittedScale(values, step: 0.5, pad: 0.5, minimumSpan: 2,
+                                                   fallback: 30...38, including: own),
+                rule: own == nil ? habit.map { .init(value: $0, label: L("MEDIAN %@ °C", tenth($0))) } : nil,
+                band: range.map { .init(range: $0.lower...$0.upper,
+                                        label: L("YOUR RANGE %.1f–%.1f °C", $0.lower, $0.upper)) },
+                format: tenth, unit: "°C",
+                seriesLabel: L("NIGHT MEDIAN · PER NIGHT"), nightly: true,
+                empty: (L("NO NIGHT SKIN TICKS IN THIS WINDOW"), L("A RECORDED NIGHT SETS THE NEXT POINT")))
+
+        case .sleep:
+            return TrendSpec(
+                style: .bars, scale: VitalsDialMath.sleepCuts().scale,
+                zones: VitalsReadout.sleepDial(score: 0),
+                rule: habit.map { .init(value: $0, label: L("MEDIAN %@", whole($0))) },
+                format: whole, unit: "/ 100",
+                seriesLabel: L("SCORE · PER NIGHT"), nightly: true,
+                empty: sleepScoreEmpty)
+
+        case .steps, .distance, .active, .hrv, .response:
+            let format = VitalsReadout.windowFormat(metric)
+            let peak = MetricTrendMath.recorded(values).max() ?? 0
+            return TrendSpec(
+                style: .bars, scale: 0...max(peak, 1),
+                rule: habit.map { .init(value: $0, label: L("MEDIAN %@", format($0))) },
+                format: format,
+                // Distance prints its own unit — `6.4 KM` — so none is appended.
+                unit: metric == .distance ? "" : (VitalsReadout.windowUnit(metric) ?? ""),
+                seriesLabel: L("TOTAL · PER DAY"), nightly: false,
+                empty: (L("NO DAYS ON RECORD IN THIS WINDOW"), L("THE NEXT SYNC FILLS THE DAYS")))
+        }
+    }
+
+    private var trendHero: some View {
+        let values = windowTrendValues
+        let spec = trendSpec(values: values)
+        let days = windowDays
+        let recorded = MetricTrendMath.recorded(values).count
+        let headline = MetricTrendMath.headline(values)
+        let delta = MetricTrendMath.delta(current: values, prior: priorTrendValues)
+        let rolls: [MetricTrendHero.Roll] = range == .month
+            ? MetricTrendMath.weekRolls(values).enumerated().map { i, roll in
+                .init(id: i, label: L("%dD", roll.count), value: roll.average)
+            }
+            : []
+        return MetricTrendHero(
+            caption: L("%@ · %@", metric.sensor, L(detail.periodKey)),
+            points: zip(days, values).map { .init(start: $0.day.start, value: $1) },
+            style: spec.style, scale: spec.scale, tint: metric.tint,
+            zones: spec.zones, rule: spec.rule, band: spec.band,
+            format: spec.format, unit: spec.unit,
+            seriesLabel: spec.seriesLabel,
+            summary: .init(
+                headline: L("MEDIAN %@", headline.map(spec.format) ?? Fmt.dash),
+                unit: spec.unit.isEmpty ? nil : spec.unit,
+                delta: trendDeltaText(delta, nightly: spec.nightly, format: spec.format),
+                worn: spec.nightly
+                    ? L("%d OF %d NIGHTS", recorded, days.count)
+                    : L("%d OF %d DAYS", recorded, days.count)),
+            rolls: rolls,
+            rollCaption: spec.nightly ? L("AVERAGE OF RECORDED NIGHTS") : L("AVERAGE OF RECORDED DAYS"),
+            emptyLine: spec.empty.line, emptySub: spec.empty.sub)
+    }
+
+    /// "+2 VS PRIOR 7D": this window's median against the one before it. A change that
+    /// rounds away to nothing says so rather than printing a signed zero.
+    private func trendDeltaText(_ delta: Double?, nightly: Bool,
+                                format: (Double) -> String) -> String? {
+        guard let delta else { return nil }
+        let span = nightly ? L("PRIOR %d NIGHTS", detail.days) : L("PRIOR %dD", detail.days)
+        let magnitude = format(abs(delta))
+        if magnitude == format(0) { return L("LEVEL WITH %@", span) }
+        return L("%@%@ VS %@", delta > 0 ? "+" : "−", magnitude, span)
     }
 
     private var mealBoard: MealResponsePresentation.Board {
@@ -270,8 +458,10 @@ struct VitalsDetailView: View {
                     }
                 }
 
-                if metric == .sleep, range != .day {
-                    multiNightHero
+                if showsTrendHero {
+                    // A rolling window has no single reading, so it leads with its shape:
+                    // one mark a user day, the median printed once underneath.
+                    trendHero
                 } else if metric == .sleep, let score = todayScore {
                     // The card led with the score; the board must not lead with something else.
                     VitalsHero(sensor: heroSensor,
@@ -299,12 +489,15 @@ struct VitalsDetailView: View {
                 if metric == .sleep {
                     if range == .day { sleepBoard(r) } else { multiNightBoard }
                 } else if metric == .heart {
+                    // On a window the hero already drew the pulse's shape; the board keeps
+                    // only the companions that share its clock.
                     HeartBoard(range: range, window: window, ticks: ticks,
                                oxygen: heartOxygen, readout: r,
-                               slotMinutes: heartSlotMinutes, dial: r.dial)
+                               slotMinutes: heartSlotMinutes, dial: r.dial,
+                               showsLead: range == .day)
                 } else if metric == .active, !isMetricWindow {
                     ActiveEnergyBoard(model: activeModel)
-                } else {
+                } else if !isMetricWindow {
                     CardBlock(title: chartTitle, trailing: r.chartNote) {
                         chart(r)
                         if metric != .response || range == .day {
@@ -640,33 +833,12 @@ struct VitalsDetailView: View {
 
     private var sleepWindow: SleepWindowSummary { SleepWindowSummary(slots: sleepSlots) }
 
-    /// A median score, how many nights it was taken over, and which group is dragging.
-    /// The night count is not decoration: three nights not worn pulls a median down, and
-    /// without it that reads as three bad nights.
-    private var multiNightHero: some View {
-        let summary = sleepWindow
-        return VitalsHero(
-            sensor: metric.sensor,
-            value: summary.score.map(String.init),
-            unit: L("MEDIAN"),
-            tint: metric.tint,
-            dial: summary.score.map(VitalsReadout.sleepDial(score:)),
-            footLeft: L("%d OF %d NIGHTS", summary.recorded, summary.slots.count),
-            footRight: summary.weakest.map { L("%@ LOWEST", $0.title) })
-    }
-
+    /// The score by night now leads the page as the trend hero; the board underneath is
+    /// what a median score cannot say by itself — which group is dragging, how the stages
+    /// split, when the nights began.
     @ViewBuilder
     private var multiNightBoard: some View {
         let summary = sleepWindow
-        CardBlock(title: L("SCORE BY NIGHT"),
-                  trailing: L("%d NIGHTS · ROLLING", summary.slots.count)) {
-            if summary.recorded > 0 {
-                SleepScoreBars(slots: summary.slots)
-                SleepScoreBars.legend
-            } else {
-                VitalsChartEmpty(line: sleepScoreEmpty.line, sub: sleepScoreEmpty.sub)
-            }
-        }
         if summary.recorded > 0 {
             CardBlock(title: L("SCORE BREAKDOWN"), trailing: L("GROUP MEDIANS")) {
                 SleepWindowBreakdown(summary: summary)
@@ -761,52 +933,11 @@ struct VitalsDetailView: View {
 
     // MARK: the eight charts
 
+    /// The day page's chart. The rolling windows no longer draw a chart card: their shape
+    /// is the trend hero at the top of the page.
     @ViewBuilder
     private func chart(_ r: VitalsReadout) -> some View {
-        if isMetricWindow {
-            metricWindowChart(r)
-        } else {
-            dayChart(r)
-        }
-    }
-
-    /// The rolling window for the five. Trace instruments keep their trace and change only
-    /// the grain — one envelope a user day rather than one every half hour. Accumulated
-    /// instruments become one bar a day, because a cumulative climb across thirty days is
-    /// a monotone ramp that says nothing about any day in it.
-    @ViewBuilder
-    private func metricWindowChart(_ r: VitalsReadout) -> some View {
-        switch metric {
-        case .stress:
-            trace(value: { $0.stress.map(Double.init) }, low: 0, high: 100, r: r,
-                  empty: (L("NO STRESS TICKS IN THIS WINDOW"), L("THE NEXT SYNC DRAWS THE LINE")),
-                  has: ticks.contains { $0.stress != nil },
-                  slotMinutes: metricSlotMinutes)
-
-        case .temp:
-            if let axis = r.traceRange, ticks.contains(where: { $0.temp != nil }) {
-                VitalsTrace(samples: ticks, value: { $0.temp },
-                            window: window, low: axis.lowerBound, high: axis.upperBound,
-                            tint: metric.tint,
-                            zones: r.dial,
-                            slotMinutes: metricSlotMinutes,
-                            valueFormat: { String(format: "%.1f", $0) },
-                            unit: "°C")
-            } else {
-                VitalsChartEmpty(line: L("NO SKIN TICKS IN THIS WINDOW"),
-                                 sub: L("THE NEXT SYNC DRAWS THE LINE"))
-            }
-
-        default:
-            let slots = metricSlots
-            if MetricWindowMath.sum(slots) != nil {
-                MetricDayBars(slots: slots, tint: metric.tint, median: metricMedianDay,
-                              format: VitalsReadout.windowFormat(metric))
-            } else {
-                VitalsChartEmpty(line: L("NO DAYS ON RECORD IN THIS WINDOW"),
-                                 sub: L("THE NEXT SYNC FILLS THE DAYS"))
-            }
-        }
+        dayChart(r)
     }
 
     @ViewBuilder
@@ -899,35 +1030,7 @@ struct VitalsDetailView: View {
     /// printed on top of the field: the band's name, the extreme, and the envelope's width.
     @ViewBuilder
     private func chartLegend(_ r: VitalsReadout) -> some View {
-        if isMetricWindow {
-            metricWindowLegend(r)
-        } else {
-            dayChartLegend(r)
-        }
-    }
-
-    @ViewBuilder
-    private func metricWindowLegend(_ r: VitalsReadout) -> some View {
-        switch metric {
-        case .stress, .temp:
-            if let extreme = traceExtreme {
-                VitalsChartLegend(
-                    items: [.init(text: L("EVERY DAY · MEASURED"), tint: metric.tint,
-                                  stops: r.dial?.legendStops)]
-                        + (r.referenceLabel.map {
-                            [VitalsChartLegend.Item(text: $0, tint: metric.tint, isArea: true)]
-                        } ?? []),
-                    trailing: traceExtremeLabel(extreme),
-                    trailingTint: metric.tint)
-            }
-
-        default:
-            let slots = metricSlots
-            if MetricWindowMath.sum(slots) != nil {
-                MetricDayBars.legend(tint: metric.tint, median: metricMedianDay,
-                                     format: VitalsReadout.windowFormat(metric))
-            }
-        }
+        dayChartLegend(r)
     }
 
     @ViewBuilder
@@ -1163,6 +1266,8 @@ final class VitalsDetailMemo {
         let mealPoints: Int
         let mealLast: Date?
         let zerosToday: Bool
+        /// The sleep trend reads `data.sleepScores`, which arrives after the page opens.
+        let sleepScores: Int
         let minute: Int
     }
 
@@ -1170,6 +1275,10 @@ final class VitalsDetailMemo {
     var ticks: [VitalSample]?
     var heartOxygen: [OvernightOxygenPoint]?
     var windowDays: [DailyMetrics]?
+    var priorDays: [DailyMetrics]?
+    var trendTicksByDay: [UserDay: [VitalSample]]?
+    var windowTrendValues: [Double?]?
+    var priorTrendValues: [Double?]?
     var metricSlots: [MetricDayBars.Slot]?
     var mealBoard: MealResponsePresentation.Board?
     var activeModel: ActiveEnergyModel?
@@ -1179,6 +1288,7 @@ final class VitalsDetailMemo {
         if key != current {
             key = current
             ticks = nil; heartOxygen = nil; windowDays = nil; metricSlots = nil
+            priorDays = nil; trendTicksByDay = nil; windowTrendValues = nil; priorTrendValues = nil
             mealBoard = nil; activeModel = nil
         }
         if let cached = self[keyPath: slot] { return cached }

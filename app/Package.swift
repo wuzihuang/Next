@@ -92,6 +92,8 @@ let package = Package(
                 "NotificationReachMath.swift",
                 "SkinTempNightRange.swift",
                 "HomeLaunchPolicy.swift",
+                "IdlePlateLock.swift",
+                "IdlePlateMotion.swift",
                 "LaunchFilmPolicy.swift",
                 "LaunchGate.swift",
                 "BandReadinessFlight.swift",

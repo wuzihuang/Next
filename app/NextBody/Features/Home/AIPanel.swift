@@ -29,6 +29,8 @@ struct AIPanel: View {
     let onWidget: (Destination) -> Void
 
     private var ceremony: Bool { firstRun?.playing == true }
+    /// The day's locked look. Written on idle appear; events may cover once.
+    @State private var plateLock: IdlePlateLock.Snapshot? = IdlePlateStore.load()
     var body: some View {
         ZStack {
             // Idle planet and an AI frame must not share this ZStack. Two sibling
@@ -128,6 +130,7 @@ struct AIPanel: View {
         ZStack {
             HalftoneScreen {
                 StandbyArt(
+                    plate: plateLock?.plate ?? 1,
                     charge: reserve.map { Double($0) / 100 } ?? 0,
                     chargeKnown: reserve != nil
                 )
@@ -178,6 +181,42 @@ struct AIPanel: View {
                 .padding(.bottom, 18)
             }
         }
+        .onAppear { resolveIdlePlate(appear: true) }
+        .onChange(of: m.bodyBattery) { _, _ in resolveIdlePlate(appear: false) }
+        .onChange(of: band.batteryPercent) { _, _ in resolveIdlePlate(appear: false) }
+        .onChange(of: band.connected) { _, _ in resolveIdlePlate(appear: false) }
+    }
+
+    /// `appear: true` is a new idle show (day may flip). `false` is an in-place
+    /// tick that may apply a one-shot event but must not redraw the day pick.
+    private func resolveIdlePlate(appear: Bool) {
+        let day = m.day.key
+        let wearer = SessionKeychain.userId ?? band.mac
+        let stored = plateLock ?? IdlePlateStore.load()
+        var snap = IdlePlateLock.appear(
+            wearer: wearer,
+            day: day,
+            stored: stored,
+            idleVisible: !appear,
+            hour: Calendar.current.component(.hour, from: Date()),
+            bpm: live.liveHR)
+        if let ev = IdlePlateLock.edge(
+            reserve: m.bodyBatteryForDisplay(),
+            wakeReserve: m.bbWake,
+            bandPercent: band.batteryPercent,
+            charging: band.displayedCharge == .charging || band.displayedCharge == .full,
+            disconnectedFor: IdlePlateLock.disconnectedFor(
+                bound: !band.mac.isEmpty,
+                connected: band.connected,
+                disconnectStamp: IdlePlateStore.disconnectStamp(),
+                now: Date()),
+            reaching: live.phase == .reaching,
+            noContact: !band.connected,
+            bpm: live.liveHR) {
+            snap = IdlePlateLock.applyEvent(ev, stored: snap, day: day)
+        }
+        plateLock = snap
+        IdlePlateStore.save(snap)
     }
 
     private func filledWidget(_ widget: PanelWidget) -> some View {

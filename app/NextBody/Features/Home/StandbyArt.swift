@@ -463,10 +463,12 @@ struct OrbitField {
     }
 }
 
-/// 04 · 01 默认 — the standby illustration inside the panel. It is the same field the boot
-/// ceremony ends on, still turning: the panel is not handed a fresh drawing at ◇11.
+/// 04 · idle 场。FirstRun 仍画 OrbitField；日常 idle 画当天锁住的那张板，
+/// 钟只在这块场可见时加，Reduce Motion 停在姿势上。
 struct StandbyArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Day-pool / event plate from `IdlePlateLock`. Ceremony does not pass this.
+    var plate: Int = 1
     /// 0…1 — drives the lime band's length so it reads as a charge level, not a decoration.
     var charge: Double = 0.72
     var chargeKnown = true
@@ -493,10 +495,17 @@ struct StandbyArt: View {
         }
     }
 
+    private var moving: Bool { animate && !reduceMotion }
+
     private var canvas: some View {
         Canvas { ctx, size in
-            OrbitField(clock: clock, charge: charge, chargeKnown: chargeKnown)
-                .draw(in: &ctx, size: size)
+            IdlePlateArt.draw(
+                plate: plate,
+                pose: IdlePlateMotion.pose(plate: plate, clock: clock, moving: moving),
+                charge: charge,
+                chargeKnown: chargeKnown,
+                in: &ctx,
+                size: size)
         }
     }
 }

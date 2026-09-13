@@ -41,9 +41,11 @@ final class BandReadiness {
                 if Band.live.state != .connected { await Band.live.reconnectIfBound() }
                 guard allowed(account: account, binding: binding), Band.live.state == .connected else { return false }
                 log.notice("readiness connected elapsed=\(ProcessInfo.processInfo.systemUptime - start)")
+                if reason == "sync" { BandSyncActivity.shared.show(.identity) }
                 let identity = try? await Band.live.readIdentity()
                 guard allowed(account: account, binding: binding), Band.live.state == .connected else { return false }
                 do {
+                    if reason == "sync" { BandSyncActivity.shared.show(.battery) }
                     let battery = try await Band.live.readBattery()
                     guard allowed(account: account, binding: binding), Band.live.state == .connected else { return false }
                     snapshot = Snapshot(account: account, binding: binding, identity: identity, battery: battery)

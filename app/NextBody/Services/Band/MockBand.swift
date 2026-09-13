@@ -85,8 +85,11 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func reconnectIfBound() async {
         guard let bound = BoundBand.identifier, state != .connected else { return }
+        hub.send(.connectionStep(.searching))
         state = .connecting
+        hub.send(.connectionStep(.connecting))
         try? await Task.sleep(for: .milliseconds(700))
+        hub.send(.connectionStep(.verifying))
         state = .connected
         _ = try? await readBattery()
         _ = bound

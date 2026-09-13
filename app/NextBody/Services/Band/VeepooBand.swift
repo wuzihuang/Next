@@ -213,8 +213,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     case .BleConnectTimeout, .BleConfirmTimeout:
                         if once.claim() { c.resume(throwing: BandError.timeout("connect")) }
                     case .BleConnecting:
+                        self.hub.send(.connectionStep(.connecting))
                         progress(0.25)
                     case .BleConnectSuccess:
+                        self.hub.send(.connectionStep(.verifying))
                         progress(0.7)
                     @unknown default:
                         break
@@ -495,6 +497,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 guard !Task.isCancelled, self.state != .connected else { break }
                 // The SDK's remembered peripheral can differ from our durable binding.
                 // Scan explicitly, then connect only the bound UUID through the verified path.
+                self.hub.send(.connectionStep(.searching))
                 await self.startScan(auto: false)
                 for _ in 0..<200 {
                     if self.state == .connected || Task.isCancelled { break }

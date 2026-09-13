@@ -313,6 +313,7 @@ enum BandEvent {
     case findHoop(FindHoopPhase)
     /// History dump tick from the SDK: 1-based day being read, days on the band, 0…100 of that day.
     case historyRead(day: Int, of: Int, percent: Int)
+    case connectionStep(BandSyncProgress.Stage)
 }
 
 /// Fan-out for `BandService.events`. A bare `AsyncStream` has one consumer and ends for good

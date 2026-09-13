@@ -32,14 +32,18 @@ final class OriginDataSync {
     @discardableResult
     static func refreshNow(into store: DataStore, request: BandRefreshRequest = .automatic) async -> BandRefreshResult {
 #if DEBUG
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SYNC_STAGE"] != nil {
+            return .init(status: .throttled)
+        }
         if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_EVIDENCE"] == "1" {
             return .init(status: .throttled)
         }
 #endif
         let result = await refreshCoordinator.refresh(request, cadence: SyncCadence.interval,
             work: refreshWork(into: store, request: request))
-        // ADR 0018 · the next turn cites the band's alarms without a BLE round trip.
-        await PhoneToolRunner.shared.primeAlarms()
+        // Alarm warm-up is not health sync. Do not keep the sync button busy after the
+        // shared refresh has published its terminal result.
+        Task { await PhoneToolRunner.shared.primeAlarms() }
         return result
     }
 
@@ -60,6 +64,7 @@ final class OriginDataSync {
                       Band.live.state == .connected else { return false }
                 BandPresence.shared.start(store: store)
                 store.band.connected = true
+                BandSyncActivity.shared.show(.capabilities)
                 await BandPresence.shared.refresh(store: store, prepared: BandReadiness.shared.snapshot)
                 guard refreshState().rejection(expected: scope) == nil else { return false }
                 do {
@@ -69,6 +74,7 @@ final class OriginDataSync {
                 } catch { return false }
                 today = UserDay.containing(Date())
                 BandSyncActivity.shared.phase = "syncing"
+                BandSyncActivity.shared.show(.reading)
                 let held = BandReadiness.shared.snapshot?.identity?.watchDataDayNumber
                 BandSyncActivity.shared.expect(total: max(2, held ?? 7))
                 return true
@@ -82,9 +88,10 @@ final class OriginDataSync {
                 guard let scope else { return .init(result: .init(status: .cancelled)) }
                 return await sync.backfillIfNeeded(scope: scope, today: today, recentDays: recentDays, into: store)
             }, checkHistory: { true }, finish: {
+                BandSyncActivity.shared.show(.finishing)
                 await Band.live.finishFreshSync()
-                BandSyncActivity.shared.phase = "idle"
-                BandSyncActivity.shared.stopCounting()
+            }, completed: { result in
+                BandSyncActivity.shared.complete(success: result.status == .success)
             })
     }
 
@@ -137,6 +144,7 @@ final class OriginDataSync {
     private func sync(day: UserDay, scope: BandRefreshCoordinator.Scope,
                       into store: DataStore, settle: Bool = true) async -> Int {
         lastOutcome = "failed"
+        BandSyncActivity.shared.show(.reading)
         let now = Date()
         let iso = ISO8601DateFormatter()
         let originReadISO = ISO8601DateFormatter()
@@ -564,6 +572,7 @@ final class OriginDataSync {
             return 0
         }
 
+        BandSyncActivity.shared.show(.saving)
         let publication: BandEvidencePublication
         do { publication = try Self.evidencePublication(userId: userId) }
         catch {
@@ -751,6 +760,7 @@ final class OriginDataSync {
             await Repository.shared.markDeviceSynced(at: now)
         }
         if settle, Self.refreshState().rejection(expected: scope) == nil {
+            BandSyncActivity.shared.show(.updating)
             await Repository.shared.settleNow(days: day == UserDay.containing(now) ? 1 : 2)
             guard Self.refreshState().rejection(expected: scope) == nil else { return changedCount }
             await Repository.shared.load(days: 1, endingAt: day, into: store)
@@ -972,6 +982,7 @@ final class OriginDataSync {
         }
         for offset in offsets {
             if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
+            BandSyncActivity.shared.show(.reading)
             let points = await sync(day: today.adding(days: -offset), scope: scope, into: store, settle: false)
             let status = BandRefreshResult.Status(rawValue: lastOutcome) ?? .failed
             BandSyncActivity.shared.step()
@@ -979,11 +990,13 @@ final class OriginDataSync {
             if status == .success, recentDays[offset] != nil { recoveredDays.insert(offset) }
         }
         if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
+        BandSyncActivity.shared.updatingResults()
         await Repository.shared.settleNow(days: days + max(0, elapsedDays))
         if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
         await Repository.shared.load(days: days, endingAt: today, into: store)
         if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
         await Repository.shared.loadSleepScores(days: 30, endingAt: today, into: store)
+        BandSyncActivity.shared.resultsLoaded()
         return .init(result: .combining(results, at: Date()), recoveredDays: recoveredDays)
     }
 

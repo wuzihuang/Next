@@ -2232,7 +2232,24 @@ pull have portable regression coverage. All 826 Swift tests passed. Four simulat
 UI paths (A/B success and failed-save retry) and the existing single-removal UI test passed.
 The simulator registration fixture is isolated from saved account sessions.
 
-Signed Debug and Release builds passed. Physical installation is pending: the old iPhone process
-remained listed after both terminate and kill requests, and installation stalled. The
-user has been asked to restart/unlock the phone. No backend migration or function change
-is needed for this repair; physical rebind verification remains outstanding.
+Signed Debug and Release builds passed. Installation initially stalled on the old iPhone
+process, then recovered during the sync-progress follow-up below. The new Debug app also
+contains this rebind repair. No backend migration or function change is needed;
+physical rebind verification remains outstanding.
+
+## Whole-sync progress · 2026-09-13
+
+The progress bar now owns fixed workflow segments rather than exposing the SDK dump's
+percentage as whole-sync completion. Search, BLE connection, verification, identity,
+battery and device preparation have real callback/checkpoint labels. Dump completion,
+daily filing, result updates and cleanup remain separate; only the shared refresh's
+terminal success publishes 100% and clears the busy button. Retries do not rewind the
+bar, failures do not reach 100%, and a binding change during cleanup cannot publish a
+stale success. Alarm cache warming no longer extends the health-sync button lifetime.
+These are workflow percentages, not remaining-time estimates.
+
+Validation: 831 portable Swift tests, three Chinese UI assertions (verification,
+updating results, 100%/button agreement), and signed Debug compilation passed. A simulator
+visual check confirmed the 92% updating-results layout. The Debug app was installed on
+the connected iPhone; a full real-band sync and rebind still need a user walk. No server
+migration or Edge Function deployment is required.

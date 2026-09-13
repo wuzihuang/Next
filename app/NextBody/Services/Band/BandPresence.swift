@@ -33,6 +33,11 @@ final class BandPresence {
                     store.applyBandObservation(battery: b)
                 case .historyRead(let day, let of, let percent):
                     BandSyncActivity.shared.reportRead(day: day, of: of, percent: percent)
+                case .connectionStep(let step):
+                    if BandSyncActivity.shared.phase == "connecting",
+                       [.searching, .connecting, .verifying].contains(BandSyncActivity.shared.workflow.stage) {
+                        BandSyncActivity.shared.show(step)
+                    }
                 default:
                     break
                 }
@@ -185,23 +190,31 @@ final class BandSyncActivity: ObservableObject {
     /// day at a time and the SDK sets the pace, so this is the honest thing to show: not a
     /// speed, but where the read has got to. Zero total means nothing is being counted.
     @Published private(set) var progress = BandSyncPolicy.ReadProgress()
+    @Published private(set) var workflow = BandSyncProgress()
 
     var done: Int { progress.done }
     var total: Int { progress.total }
     var percent: Int { progress.percent }
-    var fraction: Double { progress.fraction }
+    var fraction: Double { workflow.fraction }
 
-    func beginCounting() { progress.begin() }
+    func show(_ stage: BandSyncProgress.Stage) { workflow.show(stage) }
+    func updatingResults() { workflow.updatingResults() }
+    func resultsLoaded() { workflow.resultsLoaded() }
+    func complete(success: Bool) { workflow.finish(success: success); phase = "idle" }
+
+    func beginCounting() { progress.begin(); workflow.begin() }
     /// The backfill knows how many retained days it will walk once it has asked the band.
     func expect(total value: Int) {
         var next = progress
         next.expect(total: value)
         progress = next
+        workflow.expect(value)
     }
     func step() {
         var next = progress
         next.step()
         progress = next
+        workflow.filedDay()
     }
     /// Movement inside the day being read, 0…100. Ignored once the dump is driving.
     func within(percent value: Int) {
@@ -209,6 +222,7 @@ final class BandSyncActivity: ObservableObject {
         var next = progress
         next.within(percent: value)
         progress = next
+        workflow.read(next.fraction)
     }
     /// The real number of days this pull will read, once the plan is known.
     func revise(total value: Int) {
@@ -216,6 +230,7 @@ final class BandSyncActivity: ObservableObject {
         var next = progress
         next.revise(total: value)
         progress = next
+        workflow.expect(value)
     }
     /// SDK dump tick: which day of how many, and 0…100 of that day.
     func reportRead(day: Int, of: Int, percent: Int) {
@@ -223,6 +238,7 @@ final class BandSyncActivity: ObservableObject {
         var next = progress
         next.reportRead(day: day, of: of, percent: percent)
         progress = next
+        workflow.read(next.fraction)
     }
     func stopCounting() { progress.stop() }
 
@@ -234,6 +250,9 @@ final class BandSyncActivity: ObservableObject {
         next.expect(total: count)
         for _ in 0..<value { next.step() }
         progress = next
+        workflow.begin()
+        workflow.show(.reading)
+        workflow.read(next.fraction)
     }
     #endif
 }

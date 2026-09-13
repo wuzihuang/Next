@@ -86,6 +86,7 @@ final class BandRefreshCoordinator {
         let history: @MainActor (_ recentDays: [Int: BandRefreshResult]) async -> HistoryResult
         var checkHistory: @MainActor () -> Bool = { false }
         var finish: @MainActor () async -> Void = {}
+        var completed: @MainActor (BandRefreshResult) -> Void = { _ in }
     }
 
     private final class Flight {
@@ -154,6 +155,7 @@ final class BandRefreshCoordinator {
             // Await the BLE-cache lifetime cleanup before releasing this shared flight.
             // A different account or new refresh cannot have its cache ended by old work.
             await work.finish()
+            work.completed(resultForWaiter(result, scope: scope))
             if flight.startedReading,
                result.status == .success || result.status == .partial || result.status == .failed {
                 lastAttempt = (scope, now())

@@ -130,6 +130,19 @@ struct DeviceView: View {
         }
         .task {
             #if DEBUG
+            if Band.allowsSeed, let raw = ProcessInfo.processInfo.environment["NB_DEBUG_SYNC_STAGE"],
+               let stage = BandSyncProgress.Stage(rawValue: raw) {
+                syncActivity.beginCounting()
+                syncActivity.phase = "connecting"
+                if stage == .reading || stage == .updating || stage == .complete {
+                    syncActivity.phase = "syncing"
+                    syncActivity.reportRead(day: 3, of: 3, percent: 100)
+                }
+                if stage == .complete { syncActivity.complete(success: true) }
+                else if stage == .updating { syncActivity.updatingResults() }
+                else { syncActivity.show(stage) }
+                return
+            }
             if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_SYNC_PROGRESS"] {
                 syncing = true
                 if let n = Int(raw) {
@@ -469,12 +482,12 @@ struct DeviceView: View {
             Task { await pullBandNow() }
         } label: {
             HStack(spacing: 6) {
-                if syncInProgress {
+                if syncActivity.workflow.active {
                     ProgressView()
                         .controlSize(.small)
                         .tint(NB.lime1)
                 }
-                Text(syncInProgress ? L(connectingForSync ? "CONNECTING" : "SYNCING…") : L("SYNC"))
+                Text(syncActivity.workflow.active ? L(syncActivity.workflow.stage.buttonLabel) : L("SYNC"))
                     .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
                     .foregroundStyle(NB.lime1)
             }
@@ -490,7 +503,7 @@ struct DeviceView: View {
         .disabled(BoundBand.identifier == nil || syncing)
         .accessibilityLabel(L("Sync now"))
         .accessibilityHint(L("Connect this HOOP if needed, then pull the latest readings."))
-        .accessibilityValue(syncInProgress ? L(connectingForSync ? "CONNECTING" : "SYNCING…") : "")
+        .accessibilityValue(syncActivity.workflow.active ? L(syncActivity.workflow.stage.label) : "")
     }
 
     /// The shared refresh owns readiness, admission, history and the actual completion.
@@ -618,14 +631,13 @@ struct DeviceView: View {
     /// What the bar is doing. Connecting has no count yet; a day count only appears once
     /// the band has said how many days it still holds.
     private var syncProgressWord: String {
-        if connectingForSync || !connected { return L("CONNECTING") }
-        if syncActivity.total > 0 {
+        let prefix = "\(Int(syncActivity.fraction * 100))% · "
+        if syncActivity.workflow.stage == .reading, syncActivity.total > 0 {
             let day = min(syncActivity.done + 1, syncActivity.total)
             let line = L("READING DAY") + " \(day) " + L("OF") + " \(syncActivity.total)"
-            if (1..<100).contains(syncActivity.percent) { return line + " · \(syncActivity.percent)%" }
-            return line
+            return prefix + line
         }
-        return L("READING THE BAND")
+        return prefix + L(syncActivity.workflow.stage.label)
     }
 
     private func pendingDays(_ slot: HoopSlot) -> Int {
@@ -808,7 +820,7 @@ struct DeviceView: View {
 
             // The band answers one day at a time and the SDK sets that pace, so the honest
             // thing to show is how far the read has got, not a speed.
-            if syncInProgress {
+            if syncInProgress || syncActivity.workflow.stage == .complete {
                 VStack(alignment: .leading, spacing: 6) {
                     DottedProgress(progress: syncActivity.fraction,
                                    lit: NB.carbon4, track: NB.carbon4.opacity(0.18))

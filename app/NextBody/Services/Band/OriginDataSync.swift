@@ -89,6 +89,7 @@ final class OriginDataSync {
     }
 
     static func waitForCurrentPull() async { await refreshCoordinator.waitForCurrentPull() }
+    static var isIdle: Bool { refreshCoordinator.isIdle }
 
     /// The app calls this only after releasing the consent takeover's exclusive gate.
     static func refreshAfterConsent(into store: DataStore) async -> BandRefreshResult? {

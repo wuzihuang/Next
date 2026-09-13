@@ -18,7 +18,7 @@ struct ActivateSecondSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    enum Face: Equatable { case searching, nothingFound, found, pairing, paired, stopped(String) }
+    enum Face: Equatable { case preparing, searching, nothingFound, found, pairing, paired, stopped(String) }
     @State private var face: Face = .searching
     @State private var nearby: [DiscoveredBand] = []
     @State private var picked: String?
@@ -27,8 +27,10 @@ struct ActivateSecondSheet: View {
     @State private var scanTask: Task<Void, Never>?
     @State private var activated: DeviceSetStore.SlotSnapshot?
     @State private var activatedAt: Date?
+    @State private var activationOwner = UUID()
+    @State private var targetSlot: HoopSlot?
 
-    private var slot: HoopSlot { hoops.openSlot ?? .b }
+    private var slot: HoopSlot { targetSlot ?? hoops.openSlot ?? .b }
     private var worn: HoopSlot { slot.other }
     private var bound: Set<String> { Set(DeviceSlots.bindings.map(\.identifier)) }
     private var candidates: [DiscoveredBand] { nearby.filter { !bound.contains($0.id) }.sorted { $0.rssi > $1.rssi } }
@@ -37,6 +39,13 @@ struct ActivateSecondSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             switch face {
+            case .preparing:
+                SheetHead(eyebrow: L("PREPARING"), title: L("Preparing to pair"),
+                          body: L("Finishing the current HOOP command before searching. Your other HOOP stays paired."))
+                ProgressView().tint(NB.lime1).padding(24)
+                Spacer()
+                OutlineKey(title: L("CANCEL"), tint: NB.lime1) { dismiss() }
+                    .padding(.horizontal, 16).padding(.bottom, 28)
             case .searching, .nothingFound: searching
             case .found: found
             case .pairing: pairing
@@ -46,8 +55,18 @@ struct ActivateSecondSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(NB.carbon2)
-        .onAppear { startScan() }
-        .onDisappear { scanTask?.cancel(); Task { await Band.live.stopScan() } }
+        .interactiveDismissDisabled(face == .pairing)
+        .onAppear { targetSlot = hoops.openSlot; startScan() }
+        .onDisappear {
+            scanTask?.cancel()
+            let pending = scanTask
+            Task {
+                await pending?.value
+                guard hoops.activationGate.owner == activationOwner else { return }
+                await Band.live.stopScan()
+                hoops.endActivation(owner: activationOwner)
+            }
+        }
     }
 
     // MARK: S1 · searching (02's rings, white — no green before there is a success)
@@ -207,7 +226,7 @@ struct ActivateSecondSheet: View {
     private func stopped(_ why: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             SheetHead(eyebrow: L("STOPPED · SLOT") + " \(slot.rawValue)", title: L("Couldn't reach it"),
-                      body: why + " " + L("Your wrist HOOP is back on the link. Nothing changed in your set."),
+                      body: why + " " + L("Your other HOOP remains paired."),
                       trailing: percent, ember: true)
             DottedProgress(progress: progress)
                 .frame(width: NB.Layout.contentWidth - 16, height: 6)
@@ -263,13 +282,20 @@ struct ActivateSecondSheet: View {
     /// are shown greyed. The strongest new one is picked, 1.5 s after the first answers.
     private func startScan() {
         nearby = []; picked = nil; progress = 0; stage = 0
-        face = .searching
+        face = .preparing
         scanTask?.cancel()
         scanTask = Task {
+            do { try await hoops.prepareActivation(owner: activationOwner) }
+            catch {
+                guard !Task.isCancelled else { return }
+                face = .stopped(L("The HOOP is switching or finishing a command. Try again shortly."))
+                return
+            }
             await BluetoothState.shared.waitForState()
             guard !Task.isCancelled else { return }
             if BluetoothState.shared.poweredOff { face = .stopped(L("Bluetooth is off.")); return }
             if BluetoothState.shared.permissionDenied { face = .stopped(L("Bluetooth permission is off for NextBody.")); return }
+            face = .searching
             let timeout = Task {
                 try? await Task.sleep(for: .seconds(15))
                 guard !Task.isCancelled, candidates.isEmpty, face == .searching else { return }
@@ -313,7 +339,7 @@ struct ActivateSecondSheet: View {
         Task {
             await Band.live.stopScan()
             do {
-                activated = try await DeviceSetStore.shared.activateSecond(device, store: data) { s in
+                activated = try await DeviceSetStore.shared.activateSecond(device, store: data, owner: activationOwner) { s in
                     stage = s.rawValue
                 } progress: { p in
                     withAnimation(.easeOut(duration: 0.2)) { progress = max(progress, p) }

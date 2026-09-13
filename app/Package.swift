@@ -110,6 +110,7 @@ let package = Package(
                 "BatteryDrainMath.swift",
                 "DeviceSlots.swift",
                 "DeviceReleaseOperation.swift",
+                "DeviceActivationGate.swift",
                 "VitalSample.swift",
                 "SamplePageRead.swift",
                 "VitalsTimelinePolicy.swift",

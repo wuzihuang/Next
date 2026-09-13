@@ -188,10 +188,18 @@ final class DataStore: ObservableObject {
         // is bound before the gate was ever walked, and every launch would try to reconnect.
         if Band.allowsSeed, BoundBand.identifier == nil { BoundBand.identifier = "C4-2E-8F-1A-73-9D" }
         #if DEBUG
+        // Simulator regression: enter the real add flow immediately after local removal.
+        if Band.allowsSeed, let raw = ProcessInfo.processInfo.environment["NB_DEBUG_RELEASED_SLOT"],
+           let released = HoopSlot(rawValue: raw) {
+            DeviceSlots.set(SlotBinding(slot: .a, identifier: "C4-2E-8F-1A-73-9D"))
+            DeviceSlots.set(SlotBinding(slot: .b, identifier: "8E-41-C0-2B-77-1F"))
+            DeviceSlots.remove(released)
+        }
         // `SIMCTL_CHILD_NB_DEBUG_SECOND_HOOP=1` seeds the mock's second band into slot B so the
         // two-HOOP DEVICE page (9-0 A) can be walked without tapping through activation.
         if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SECOND_HOOP"] != nil,
-           DeviceSlots.binding(.b) == nil {
+           DeviceSlots.binding(.b) == nil,
+           ProcessInfo.processInfo.environment["NB_DEBUG_RELEASED_SLOT"] == nil {
             DeviceSlots.set(SlotBinding(slot: .b, identifier: "8E-41-C0-2B-77-1F", name: "NEXTBODY HOOP",
                                         boundAt: Date().addingTimeInterval(-2 * 86_400)))
         }

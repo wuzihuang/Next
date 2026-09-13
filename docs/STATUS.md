@@ -2215,3 +2215,24 @@ All eight selected device/training UI checks passed after restoring the shortene
 training evidence strings' missing Chinese translations and checking them in reading order.
 This records the repository and existing backend/device delivery path, not an App Store
 or TestFlight submission.
+
+## Single-HOOP rebind repair · 2026-09-13
+
+Activation now reserves the radio before scanning, closes background read admission and
+waits for the admitted native work/shared pull to finish, with a 20-second preparation
+deadline and an explicit cancel/retry face. Device-page reads and alarm priming participate
+in that drain. Scanning no longer overwrites a surviving verified link's connection state.
+The selected empty slot stays fixed through success; failed registration restores the
+survivor and requests reconnection, and only an acknowledged registration reports success.
+
+The device log showed discovery followed by an old-band settings read and a system
+scene-update watchdog. The closed-source SDK hang itself has not been reproduced in a
+mock; serialization, cancellation, timeout/retry and interruption of the old full-history
+pull have portable regression coverage. All 826 Swift tests passed. Four simulated rebind
+UI paths (A/B success and failed-save retry) and the existing single-removal UI test passed.
+The simulator registration fixture is isolated from saved account sessions.
+
+Signed Debug and Release builds passed. Physical installation is pending: the old iPhone process
+remained listed after both terminate and kill requests, and installation stalled. The
+user has been asked to restart/unlock the phone. No backend migration or function change
+is needed for this repair; physical rebind verification remains outstanding.

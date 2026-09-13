@@ -114,7 +114,9 @@ final class VeepooBand: BandService, @unchecked Sendable {
     /// the scan sees it. A manual scan from 02 must never do that — the pairing chain then
     /// ran twice, once by the SDK and once by the app, and the band answered nothing after.
     private func startScan(auto: Bool) async {
-        state = .scanning
+        // Discovery can run while the survivor is connected. Do not turn that verified
+        // link into .idle at stopScan (or invalidate a history read still draining).
+        if state != .connected { state = .scanning }
         await MainActor.run {
             scanned = [:]
             central.automaticConnection = auto

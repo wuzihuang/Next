@@ -1,4 +1,9 @@
 {
+  "PREPARING": "准备中",
+  "Preparing to pair": "正在准备配对",
+  "Finishing the current HOOP command before searching. Your other HOOP stays paired.": "正在结束当前手环操作，随后开始搜索。另一只手环仍保持绑定。",
+  "Your other HOOP remains paired.": "另一只手环仍保持绑定。",
+  "Pairing could not be saved. Check your connection and try again.": "未能保存配对，请检查网络后重试。",
   "No night baseline yet. The range is a rule estimate.": "还没有夜间基线，建议范围目前按规则估算。",
   "The range is a rule estimate, not a personal training dose.": "建议范围是规则估算，不代表适合你的个人训练剂量。",
   "Recording coverage is unavailable. Sync to retrieve it.": "暂时无法判断记录覆盖率，请同步后查看。",

@@ -219,18 +219,18 @@ struct DeviceView: View {
             // and not the latest devices row after a radio swap. Refresh even when
             // the radio is down — companionship does not need a live link.
             await Repository.shared.loadLastSync(into: data)
-            guard connected else { return }
+            guard connected, !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
             // Seeded BandState is already CONNECTED; the mock radio may still be idle.
             // Ask it to come up before the firmware identity rows stay dashes.
             if Band.live.state != .connected {
-                await Band.live.reconnectIfBound()
+                guard await BandReadiness.shared.ensureReady(into: data, reason: "device-page") else { return }
             }
-            if !DebugEdge.on("levelonly"), let fresh = try? await Band.live.readBattery() {
+            if !DebugEdge.on("levelonly"), let fresh = try? await readDevice({ try await Band.live.readBattery() }) {
                 data.applyBandObservation(battery: fresh)
             }
-            identity = try? await Band.live.readIdentity()
+            identity = try? await readDevice { try await Band.live.readIdentity() }
             if let identity { data.applyBandObservation(identity: identity) }
-            if let fresh = try? await Band.live.readCapabilities() {
+            if let fresh = try? await readDevice({ try await Band.live.readCapabilities() }) {
                 data.capabilities = fresh
                 if let deviceId = Repository.shared.deviceId,
                    let userId = await SupabaseClient.shared.currentUserId {
@@ -239,7 +239,7 @@ struct DeviceView: View {
                 }
             }
             await checkForUpdate()
-            if let list = try? await Band.live.readAlarms() {
+            if let list = try? await readDevice({ try await Band.live.readAlarms() }) {
                 alarmCount = list.count
                 PhoneToolRunner.shared.remember(list)
             }
@@ -260,7 +260,7 @@ struct DeviceView: View {
             #endif
             await OriginDataSync.refreshNow(into: data)
             do {
-                autoRead = try await Band.live.readAutoMonitoring()
+                autoRead = try await readDevice { try await Band.live.readAutoMonitoring() }
                 rememberOpticalSwitch(autoRead)
                 if let autoRead { PhoneToolRunner.shared.remember(read: autoRead) }
             } catch {
@@ -277,20 +277,21 @@ struct DeviceView: View {
         }
         .onChange(of: connected) { _, on in
             guard on else { autoRead = nil; return }
+            guard !BandLiveLifecycle.shared.hasExclusiveOperation else { return }
             Task {
-                if !DebugEdge.on("levelonly"), let fresh = try? await Band.live.readBattery() {
+                if !DebugEdge.on("levelonly"), let fresh = try? await readDevice({ try await Band.live.readBattery() }) {
                     data.applyBandObservation(battery: fresh)
                 }
-                if identity == nil, let fresh = try? await Band.live.readIdentity() {
+                if identity == nil, let fresh = try? await readDevice({ try await Band.live.readIdentity() }) {
                     identity = fresh
                     data.applyBandObservation(identity: fresh)
                 }
                 if check == .idle { await checkForUpdate() }
-                if let list = try? await Band.live.readAlarms() {
+                if let list = try? await readDevice({ try await Band.live.readAlarms() }) {
                     alarmCount = list.count
                 }
                 do {
-                    autoRead = try await Band.live.readAutoMonitoring()
+                    autoRead = try await readDevice { try await Band.live.readAutoMonitoring() }
                     rememberOpticalSwitch(autoRead)
                 } catch {
                     autoRead = .failed(error)
@@ -371,13 +372,21 @@ struct DeviceView: View {
         .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.ember1.opacity(0.25), lineWidth: 1))
     }
 
-    /// Ask the update server. The card says "checking" while this runs, and afterwards one of
-    /// three things: an offer, "up to date", or that the server could not be reached.
+    /// Page reads participate in the same drain as sync. A page task resumed after a
+    /// pairing sheet opens cannot enqueue a stale command against the borrowed link.
+    private func readDevice<T>(_ work: () async throws -> T) async throws -> T {
+        guard let account = SupabaseClient.currentUserIdSnapshot(), let binding = BoundBand.identifier else {
+            throw CancellationError()
+        }
+        return try await BandReadiness.read(account: account, binding: binding, work: work)
+    }
+
+    /// Ask the update server; a failed check never promises an up-to-date band.
     private func checkForUpdate() async {
         guard connected, check != .checking else { return }
         check = .checking
         do {
-            offer = try await Band.live.checkFirmwareUpdate()
+            offer = try await readDevice { try await Band.live.checkFirmwareUpdate() }
             check = .done
         } catch {
             offer = nil

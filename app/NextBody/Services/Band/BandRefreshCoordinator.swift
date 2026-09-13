@@ -166,6 +166,7 @@ final class BandRefreshCoordinator {
     }
 
     func waitForCurrentPull() async { _ = await current?.task.value }
+    var isIdle: Bool { current == nil }
 
     private func resultForWaiter(_ result: BandRefreshResult, scope: Scope) -> BandRefreshResult {
         if Task.isCancelled { return .init(status: .cancelled, points: result.points) }

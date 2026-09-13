@@ -690,8 +690,11 @@ final class PhoneToolRunner: ObservableObject {
     /// Read the band's alarms once the band is there, so the first question after launch
     /// already has the list. Called after a successful foreground band sync.
     func primeAlarms() async {
-        guard BoundBand.identifier != nil, Band.live.state == .connected else { return }
-        if let list = try? await Band.live.readAlarms() { remember(list) }
+        guard let binding = BoundBand.identifier,
+              let account = SupabaseClient.currentUserIdSnapshot(), Band.live.state == .connected else { return }
+        if let list = try? await BandReadiness.read(account: account, binding: binding, work: {
+            try await Band.live.readAlarms()
+        }) { remember(list) }
     }
 
     private func writeAlarm(_ op: String, id: String?, match: [String: Any], fields: [String: Any], permit: PhoneToolExecution.Execution) async -> Result {

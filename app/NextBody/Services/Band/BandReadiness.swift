@@ -85,6 +85,7 @@ final class BandReadiness {
 
     /// Call after closing native admission with the exclusive-operation gate.
     func awaitNativeIdle() async { await nativeDrain.waitUntilIdle() }
+    var isNativeIdle: Bool { nativeDrain.isIdle }
 
     /// Measurement admission stays closed through stream cancellation and its queued stop.
     func beginMeasurement() async {

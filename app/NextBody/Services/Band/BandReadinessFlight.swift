@@ -37,6 +37,8 @@ final class BandNativeDrain {
     private var active = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
+    var isIdle: Bool { active == 0 }
+
     func begin() { active += 1 }
 
     func end() {

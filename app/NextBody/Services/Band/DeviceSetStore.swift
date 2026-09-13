@@ -68,6 +68,39 @@ final class DeviceSetStore: ObservableObject {
     @Published private(set) var isReleasing = false
     private var bindingRevision = 0
     private var replaying = false
+    let activationGate = DeviceActivationGate()
+
+    func prepareActivation(owner: UUID) async throws {
+        guard !isReleasing, phase == .idle || activationGate.owner == owner,
+              openSlot != nil else { throw DeviceActivationGate.Failure.busy }
+        // Close admission synchronously before the first suspension/scan. Existing pulls
+        // stop at their next scope check instead of finishing a week of history.
+        do {
+            try await activationGate.prepare(owner: owner, acquired: {
+                bindingRevision += 1
+                BandLiveLifecycle.shared.refreshEligibility()
+            }) {
+                OriginDataSync.isIdle && BandReadiness.shared.isNativeIdle
+            }
+            await LiveReadout.shared.standDown { }
+            BandLiveLifecycle.shared.refreshEligibility()
+            try Task.checkCancellation()
+            guard let slot = openSlot else { throw DeviceActivationGate.Failure.busy }
+            phase = .activating(slot)
+            Self.log.notice("activate: radio ready for scan")
+        } catch {
+            endActivation(owner: owner)
+            BandLiveLifecycle.shared.refreshEligibility()
+            throw error
+        }
+    }
+
+    func endActivation(owner: UUID) {
+        guard activationGate.owner == owner else { return }
+        activationGate.release(owner: owner)
+        phase = .idle
+        BandLiveLifecycle.shared.refreshEligibility()
+    }
 
     var hasSecond: Bool { slots.count >= 2 }
     var standbySlot: HoopSlot? { hasSecond ? wearing.other : nil }
@@ -141,16 +174,20 @@ final class DeviceSetStore: ObservableObject {
     }
 
     func load() async {
-        guard !isReleasing else { return }
+        guard !isReleasing, !activationGate.isHeld else { return }
         hydrateFromLocal()
         #if DEBUG
         // The explicit two-band simulator fixture has no server bindings.
-        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SECOND_HOOP"] != nil { return }
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SECOND_HOOP"] != nil
+            || ProcessInfo.processInfo.environment["NB_DEBUG_RELEASED_SLOT"] != nil { return }
         #endif
         let revision = bindingRevision
         await replayPending()
-        guard let set = try? await Repository.shared.loadDeviceSet() else { hydrateFromLocal(); return }
-        guard !isReleasing, revision == bindingRevision else { return }
+        guard let set = try? await Repository.shared.loadDeviceSet() else {
+            if !activationGate.isHeld, revision == bindingRevision { hydrateFromLocal() }
+            return
+        }
+        guard !isReleasing, !activationGate.isHeld, revision == bindingRevision else { return }
         apply(set)
         // A switch settles once the band has been read, but that read can still be
         // draining when the handover finishes. Finishing the job here costs one call and
@@ -261,7 +298,7 @@ final class DeviceSetStore: ObservableObject {
     /// date is a time the wearer pinned on the correction sheet and is never second-guessed.
     @discardableResult
     func declareWearing(_ slot: HoopSlot, since: Date? = nil, store: DataStore) async -> Bool {
-        guard !isReleasing, slots[slot] != nil else { return false }
+        guard !isReleasing, !activationGate.isHeld, slots[slot] != nil else { return false }
         let now = Date()
         let floor = timeline.earliestSwitch(to: slot) ?? .distantPast
         let effective = max(min(since ?? now, now), floor)
@@ -296,6 +333,7 @@ final class DeviceSetStore: ObservableObject {
             guard !Task.isCancelled else { return }
             var target = DeviceSlots.wearing
             while !Task.isCancelled {
+                guard !activationGate.isHeld else { return }
                 if DeviceSlots.transport == target, let landed, landed.slot == target,
                    Date().timeIntervalSince(landed.at) < 5 {
                     Self.log.notice("handover skip target=\(target.rawValue, privacy: .public) · just landed")
@@ -426,7 +464,7 @@ final class DeviceSetStore: ObservableObject {
     /// that was interrupted — bring it back. The app talks to the band on your wrist and
     /// nothing else: the other one is read when you next put it on.
     func reconcileTransport(store: DataStore) async {
-        guard !isReleasing, phase == .idle, handover == nil || handover?.isCancelled == true,
+        guard !isReleasing, !activationGate.isHeld, phase == .idle, handover == nil || handover?.isCancelled == true,
               DeviceSlots.transport != DeviceSlots.wearing,
               DeviceSlots.binding(DeviceSlots.wearing) != nil else { return }
         scheduleHandover(store: store, settling: nil)
@@ -440,15 +478,17 @@ final class DeviceSetStore: ObservableObject {
     /// Give the second band its slot: connect, verify, read what it can do, register the
     /// row. The worn band's link is borrowed for the duration and handed back afterwards.
     /// Nothing the new band recorded before this moment enters the timeline.
-    func activateSecond(_ device: DiscoveredBand, store: DataStore,
+    func activateSecond(_ device: DiscoveredBand, store: DataStore, owner: UUID,
                         stage: @escaping @MainActor (ActivationStage) -> Void,
                         progress: @escaping @MainActor (Double) -> Void = { _ in }) async throws -> SlotSnapshot {
-        guard !isReleasing, let slot = openSlot else { throw BandError.rejected("set full") }
+        guard !isReleasing, activationGate.owner == owner, let slot = openSlot,
+              !DeviceSlots.bindings.contains(where: { $0.identifier == device.id }) else {
+            throw DeviceActivationGate.Failure.busy
+        }
         let previous = DeviceSlots.transport
         phase = .activating(slot)
-        defer { phase = .idle }
-        await OriginDataSync.waitForCurrentPull()
-        await BandReadiness.shared.awaitNativeIdle()
+        defer { endActivation(owner: owner) }
+        // Preparation already drained the old link before scanning began.
         noteTransportObservation(from: store.band, lastSync: store.lastSync)
         await Band.live.disconnect()
         DeviceSlots.set(SlotBinding(slot: slot, identifier: device.id, name: device.name))
@@ -469,8 +509,10 @@ final class DeviceSetStore: ObservableObject {
             progress(0.85)
             stage(.activate)
             let battery = try await Band.live.readBattery()
-            progress(1.0)
-            await Repository.shared.registerDevice(identity: identity, battery: battery, slot: slot)
+            guard await Repository.shared.registerDevice(identity: identity, battery: battery, slot: slot),
+                  DeviceSlots.binding(slot)?.deviceId != nil else {
+                throw BandError.rejected(L("Pairing could not be saved. Check your connection and try again."))
+            }
             if let deviceId = DeviceSlots.binding(slot)?.deviceId,
                let userId = await SupabaseClient.shared.currentUserId {
                 await Repository.shared.saveCapabilities(caps, deviceId: deviceId, userId: userId,
@@ -485,6 +527,7 @@ final class DeviceSetStore: ObservableObject {
             snap.boundAt = DeviceSlots.binding(slot)?.boundAt ?? Date()
             snap.holdsDays = identity.watchDataDayNumber
             slots[slot] = snap
+            progress(1.0)
             Task { await Analytics.shared.track("DEVICE_MEMBER_ACTIVATED", ["SLOT": slot.rawValue]) }
         } catch {
             DeviceSlots.remove(slot)
@@ -493,6 +536,8 @@ final class DeviceSetStore: ObservableObject {
             BoundBand.switchTransport(to: previous)
             BandReadiness.shared.invalidateSnapshot()
             transport = previous
+            Repository.shared.adoptTransportDevice(id: slots[previous]?.deviceId)
+            Task { await OriginDataSync.refreshNow(into: store, request: .latest) }
             throw error
         }
         // Hand the link back to the worn band. The new band waits on its charger.
@@ -509,7 +554,7 @@ final class DeviceSetStore: ObservableObject {
     /// The server closes one binding before any local state is removed. A surviving slot
     /// keeps its identity; removing A must not rename B or prevent filling A again.
     func release(_ slot: HoopSlot, store: DataStore) async throws {
-        guard !isReleasing, phase == .idle else { throw DeviceReleaseError.busy }
+        guard !isReleasing, !activationGate.isHeld, phase == .idle else { throw DeviceReleaseError.busy }
         guard !replaying, DeviceSlots.pendingOps.isEmpty else {
             Task { await replayPending() }
             throw DeviceReleaseError.pendingChanges

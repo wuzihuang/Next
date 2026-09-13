@@ -370,8 +370,20 @@ final class Repository {
     /// One bound row per slot (unbound_at is null). Since two HOOPs, one wearer a slot is
     /// assigned at activation and a new BLE alias in the same slot is the same band on a
     /// different phone: the row is patched, never unbound and re-inserted.
-    func registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = nil) async {
-        guard let userId = await db.currentUserId else { return }
+    @discardableResult
+    func registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = nil) async -> Bool {
+        #if DEBUG
+        // Rebind UI fixtures must never register mock hardware against a saved session.
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_RELEASED_SLOT"] != nil {
+            if ProcessInfo.processInfo.environment["NB_DEBUG_ACTIVATION_SAVE"] == "success" {
+                rememberDevice(id: "00000000-0000-0000-0000-000000000001", slot: slot ?? BoundBand.transportSlot,
+                               boundAt: Date(), name: identity?.name)
+                return true
+            }
+            return false
+        }
+        #endif
+        guard let userId = await db.currentUserId else { return false }
         let slot = slot ?? BoundBand.transportSlot
         var row: [String: Any] = [:]
         if let identity {
@@ -399,24 +411,27 @@ final class Repository {
             ]).first
             if let id = bound?["id"] as? String {
                 let existingBle = bound?["ble_identifier"] as? String
-                rememberDevice(id: id, slot: slot, boundAt: bound?["bound_at"], name: identity?.name)
                 // Simulator seed must not steal a real binding and reset companionship.
                 if let ble, ble != BoundBand.seedIdentifier, existingBle != ble { row["ble_identifier"] = ble }
                 if !row.isEmpty { _ = try await db.patch("devices", id: id, row: row) }
+                rememberDevice(id: id, slot: slot, boundAt: bound?["bound_at"], name: identity?.name)
             } else if let ble {
                 row["user_id"] = userId
                 row["ble_identifier"] = ble
                 row["ble_identifier_kind"] = "uuid"
                 row["slot"] = slot.rawValue
                 let inserted = try await db.insert("devices", row: row).first
-                rememberDevice(id: inserted?["id"] as? String, slot: slot, boundAt: inserted?["bound_at"] ?? Date(),
+                guard let id = inserted?["id"] as? String else { return false }
+                rememberDevice(id: id, slot: slot, boundAt: inserted?["bound_at"] ?? Date(),
                                name: identity?.name)
-            }
+            } else { return false }
             await loadCompanionSince(into: DataStore.shared)
+            return true
         } catch {
             #if DEBUG
             NSLog("Repository.registerDevice failed: %@", "\(error)")
             #endif
+            return false
         }
     }
 

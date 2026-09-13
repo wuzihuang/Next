@@ -64,7 +64,8 @@ final class BandLiveLifecycle {
     }
 
     var hasExclusiveOperation: Bool {
-        exclusive || LiveSessionStore.shared.session != nil || LiveSessionStore.shared.opening
+        exclusive || DeviceSetStore.shared.activationGate.isHeld
+            || LiveSessionStore.shared.session != nil || LiveSessionStore.shared.opening
             || LiveSessionStore.shared.cleaningUp || BandMeasurementLifetime.shared.isBusy
     }
 

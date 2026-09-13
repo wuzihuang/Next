@@ -93,6 +93,7 @@ final class PlanEntryTests: XCTestCase {
     private func launchHome() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
+        app.launchEnvironment["NB_DEBUG_LANG"] = "en"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
         app.launchEnvironment["NB_DEBUG_LANG"] = "en"
         app.launchEnvironment["NB_DEBUG_NOW"] = shiftedISO(-12 * 3600)

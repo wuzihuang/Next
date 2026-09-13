@@ -23,6 +23,22 @@ final class DetailBackTapTests: XCTestCase {
                       "a tap on the leading back mark did not pop the detail page")
     }
 
+    func testBackRemainsUsableAfterScrollingDownAndReturningToTop() {
+        let app = launchDetail("fuel")
+        let back = app.buttons["Back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 30))
+        let scroll = app.scrollViews.firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        scroll.swipeUp()
+        scroll.swipeUp()
+        XCTAssertTrue(back.isHittable, "collapsed title lost its back target")
+        scroll.swipeDown()
+        scroll.swipeDown()
+        XCTAssertTrue(back.isHittable, "expanded title lost its back target")
+        back.tap()
+        XCTAssertTrue(waitUntilGone(back, timeout: 6))
+    }
+
     func testTappingChatLeadingBackMarkReturnsHome() {
         let app = launchDetail("chat")
         XCTAssertTrue(app.buttons["HISTORY"].waitForExistence(timeout: 45),
@@ -155,6 +171,7 @@ final class DetailBackTapTests: XCTestCase {
     private func launchDetail(_ route: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
+        app.launchEnvironment["NB_DEBUG_LANG"] = "en"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
         app.launchEnvironment["NB_DEBUG_ROUTE"] = route
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

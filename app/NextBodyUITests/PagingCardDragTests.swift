@@ -12,6 +12,7 @@ final class PagingCardDragTests: XCTestCase {
     func testDraggingLeftFromFuelCardTurnsPageInsteadOfOpeningDetail() {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
+        app.launchEnvironment["NB_DEBUG_LANG"] = "en"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
         // Evening, past the wake+6h window — same clock setup as HomeDisplayTapTests.
         app.launchEnvironment["NB_DEBUG_NOW"] = shiftedISO(-12 * 3600)
@@ -94,6 +95,7 @@ final class PagingCardDragTests: XCTestCase {
     private func launchToHome() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
+        app.launchEnvironment["NB_DEBUG_LANG"] = "en"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
         // Evening, past the wake+6h window — same clock setup as HomeDisplayTapTests.
         app.launchEnvironment["NB_DEBUG_NOW"] = shiftedISO(-12 * 3600)

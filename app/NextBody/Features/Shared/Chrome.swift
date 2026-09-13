@@ -482,7 +482,7 @@ struct DetailScroll<Trailing: View, Content: View>: View {
                     .ignoresSafeArea(edges: .top)
                     .allowsHitTesting(false)
             }
-            .modifier(ScrollOffsetWatcher { scrolled = max(0, $0) })
+            .modifier(ScrollOffsetWatcher { scrolled = $0 })
             #if DEBUG
             // `SIMCTL_CHILD_NB_DEBUG_SCROLL=1` drives the page down, part way back up, then to
             // the top, so the bar's states can be screenshotted without a finger.
@@ -683,15 +683,17 @@ extension DetailScroll where Trailing == EmptyView {
 
 /// The page's scroll offset, 0 at rest and positive once the page has moved up. iOS 18 reads
 /// the scroll view's own geometry; iOS 17 reads the preference the content publishes.
+/// Chrome is fully collapsed at 52pt. Beyond that point its appearance is constant,
+/// so discard further travel before publishing it back into the view hierarchy.
 private struct ScrollOffsetWatcher: ViewModifier {
     let onChange: (CGFloat) -> Void
     func body(content: Content) -> some View {
         if #available(iOS 18, *) {
             content.onScrollGeometryChange(for: CGFloat.self) { g in
-                g.contentOffset.y + g.contentInsets.top
+                min(52, max(0, g.contentOffset.y + g.contentInsets.top))
             } action: { _, new in onChange(new) }
         } else {
-            content.onPreferenceChange(DetailOffsetKey.self) { onChange($0) }
+            content.onPreferenceChange(DetailOffsetKey.self) { onChange(min(52, max(0, $0))) }
         }
     }
 }

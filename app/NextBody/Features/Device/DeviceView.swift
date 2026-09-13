@@ -69,7 +69,7 @@ struct DeviceView: View {
             VStack(alignment: .leading, spacing: 14) {
                 // 9-0 A · slots never move: A above, B below. The lime moves with the
                 // declaration — that is the only thing that changes places.
-                Group {
+                VStack(alignment: .leading, spacing: 18) {
                     slotSlab(.a)
                     if hoops.hasSecond { slotSlab(.b) } else { emptySlotSlab }
                 }
@@ -599,8 +599,9 @@ struct DeviceView: View {
         }
     }
 
-    /// 34pt strip at the top of a slab: the slot letter, the strip word, since when.
-    /// The link's whereabouts is the pill; this strip is the declaration.
+    /// The state line at the top of a slab: the slot letter, the strip word, since when.
+    /// The link's whereabouts is the pill; this strip is the declaration. 50pt, not 34:
+    /// a 28pt key inside 34 left three points of air and read as a seam.
     private func slotStrip(_ slot: HoopSlot, onLime: Bool) -> some View {
         HStack(spacing: 10) {
             HoopKeyGlyph(letter: slot.rawValue, onLime: onLime)
@@ -621,7 +622,7 @@ struct DeviceView: View {
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 34)
+        .frame(height: 50)
         .overlay(alignment: .bottom) {
             Rectangle().fill(onLime ? NB.carbon4.opacity(0.15) : NB.white.opacity(0.08)).frame(height: 1)
         }
@@ -694,7 +695,7 @@ struct DeviceView: View {
                 Chevron()
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.vertical, 17)
             Hairline().padding(.horizontal, 16)
             HStack(spacing: 0) {
                 standbyCell(L("BATTERY"), standbyBattery(snap))

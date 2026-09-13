@@ -11,7 +11,7 @@ struct ChatMarkdownView: View {
 
     var body: some View {
         let document = ChatMarkdown.parse(source)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 blockView(block)
             }
@@ -29,7 +29,7 @@ struct ChatMarkdownView: View {
                 .foregroundStyle(color)
         case let .paragraph(inlines):
             inlineText(inlines, size: size, weight: 400)
-                .lineSpacing(5)
+                .lineSpacing(6)
         case let .bullet(inlines):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle()

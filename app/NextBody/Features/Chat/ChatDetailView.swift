@@ -25,7 +25,7 @@ struct ChatDetailView: View {
         // with dead space beneath it. As insets, the bar and the dock hug the page's edges and
         // the message lane takes everything between them.
         messageScrollView
-            .safeAreaInset(edge: .top, spacing: 0) {
+            .safeAreaInset(edge: .top, spacing: 8) {
                 ChatTopBarView(
                     onBack: {
                         isInputFocused = false
@@ -39,7 +39,10 @@ struct ChatDetailView: View {
                 )
                 .modifier(ChatChromeBand(band: .header))
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            // A little floor of carbon between the thread and the dock plate. The last
+            // line's own air (`ChatThreadAir`) is what `scrollTo` keeps; this spacing
+            // is extra and must stay small so the two do not add up to a void.
+            .safeAreaInset(edge: .bottom, spacing: 8) {
                 ChatBottomDockView(
                     inputText: $inputText,
                     isInputFocused: $isInputFocused,
@@ -128,7 +131,7 @@ struct ChatDetailView: View {
     private var messageScrollView: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 18) {
+                VStack(spacing: 22) {
                     if let error = chatStore.persistenceError {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(error)
@@ -141,10 +144,12 @@ struct ChatDetailView: View {
                         ForEach(session.messages) { message in
                             if message.sender == .user {
                                 UserBubbleView(message: message)
+                                    .padding(.bottom, bottomAir(for: message.id))
                                     .id(message.id.uuidString)
                                     .accessibilityIdentifier(latestMessageID == message.id ? "chat.latest-message" : "chat.message")
                             } else {
                                 ChatAnswerView(message: message, onTap: { handleWidgetTap(message.widget, $0) })
+                                    .padding(.bottom, bottomAir(for: message.id))
                                     .id(message.id.uuidString)
                                     .accessibilityIdentifier(latestMessageID == message.id ? "chat.latest-message" : "chat.message")
                             }
@@ -153,16 +158,20 @@ struct ChatDetailView: View {
 
                     if chatStore.isSendingCurrentSession {
                         ThinkingStatusView(thoughts: chatStore.thoughts, reading: chatStore.reading)
+                            // ⚠️ Padding must sit inside the identified view. `scrollTo` pins
+                            // that view's bottom to the dock; air applied after `.id` is
+                            // scrolled off and the last line kisses the input again.
+                            .padding(.bottom, ChatThreadAir.aboveDock)
                             .id(ChatScrollTarget.thinking)
                     }
 
                     Color.clear
-                        .frame(height: 4)
+                        .frame(height: ChatThreadAir.aboveDock)
                         .id(ChatScrollTarget.bottom)
                 }
                 .padding(.horizontal, NB.Layout.gutter)
-                .padding(.top, 6)
-                .padding(.bottom, 10)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
                 .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
@@ -201,6 +210,13 @@ struct ChatDetailView: View {
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// Extra height kept under the line `jumpToLatest` pins to the dock. Applied
+    /// *before* `.id` so `scrollTo(..., anchor: .bottom)` cannot eat it.
+    private func bottomAir(for id: UUID) -> CGFloat {
+        guard latestMessageID == id, !chatStore.isSendingCurrentSession else { return 0 }
+        return ChatThreadAir.aboveDock
     }
 
     private var latestMessageID: UUID? {
@@ -364,8 +380,8 @@ private struct ChatTopBarView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, NB.Layout.gutter)
-        .padding(.top, 4)
-        .padding(.bottom, 6)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
     }
 }
 
@@ -406,7 +422,7 @@ private struct UserBubbleView: View {
                         .foregroundStyle(NB.text3Prod)
                 }
             }
-            .padding(14)
+            .padding(16)
             .background(Color(hex: 0x1C1C24), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -432,7 +448,7 @@ private struct ChatAnswerView: View {
     static let cardScale: CGFloat = 0.75
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             if let widget = message.widget, widget.type != .text {
                 // The frame is the board's 358 × 470 canvas, the same one Home's panel shows
                 // at full size. Here it is one answer in a column of bubbles, so it is drawn
@@ -473,10 +489,10 @@ private struct ChatAnswerView: View {
                         )
                     }
                 }
-                .lineSpacing(5)
+                .lineSpacing(6)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
+                .padding(18)
                 .background(Color(hex: 0x111116), in: RoundedRectangle(cornerRadius: 14))
             }
             if let widget = message.widget {
@@ -546,7 +562,7 @@ private struct ThinkingStatusView: View {
             }
         }
         .accessibilityIdentifier("chat.thinking")
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(hex: 0x111116), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(NB.lime1.opacity(0.2), lineWidth: 1))
@@ -593,8 +609,8 @@ private struct ChatBottomDockView: View {
             inputRow
         }
         .padding(.horizontal, NB.Layout.gutter)
-        .padding(.top, 8)
-        .padding(.bottom, 0)
+        .padding(.top, 12)
+        .padding(.bottom, 12)
     }
 
     private func stagedPhotoPill(_ img: UIImage) -> some View {
@@ -670,11 +686,17 @@ private struct ChatBottomDockView: View {
             .accessibilityLabel(L("Send"))
             .disabled(!canSend)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .background(Color(hex: 0x131318), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(NB.hairline, lineWidth: 1))
     }
+}
+
+/// Air the last line keeps above the dock. `jumpToLatest` pins that line's bottom
+/// to the inset, so this has to live *inside* the identified view.
+private enum ChatThreadAir {
+    static let aboveDock: CGFloat = 16
 }
 
 /// Header and dock sit on the same carbon as the thread, so a fill alone disappears.

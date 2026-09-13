@@ -25,6 +25,10 @@ struct OrbitField {
     var coreLit: Bool = true
     /// ◇4 — from here the body is on the ring.
     var moving: Bool = true
+    /// Day-pool / event look. 1 is the shipping field; other ids only change
+    /// composition (size, tilt, whether the lime band is on). They share this
+    /// drawing language — not a second gray-sphere renderer.
+    var plate: Int = 1
 
     // The board's geometry, in the board's own 358 × 470 units.
     static let planetR: CGFloat = 74
@@ -57,7 +61,8 @@ struct OrbitField {
     func draw(in ctx: inout GraphicsContext, size: CGSize) {
         let sx = size.width / 358, sy = size.height / 470
         let s = min(sx, sy)
-        let c = CGPoint(x: size.width / 2, y: 196 * sy)
+        let look = Self.look(plate)
+        let c = CGPoint(x: size.width / 2 + look.offsetX * s, y: look.cy * sy)
 
         ctx.fill(Path(CGRect(origin: .zero, size: size)),
                  with: .color(NB.panelWash.opacity(coreLit ? 1 : 0.2)))
@@ -84,29 +89,122 @@ struct OrbitField {
 
         nebula(&ctx, size: size, s: s, alpha: a)
         dust(&ctx, sx: sx, sy: sy, s: s, alpha: a)
-        for lane in 0..<3 { meteor(&ctx, lane: lane, sx: sx, sy: sy, s: s, alpha: a) }
-        visitor(&ctx, c: c, s: s, alpha: a)
+        if look.meteors {
+            for lane in 0..<3 { meteor(&ctx, lane: lane, sx: sx, sy: sy, s: s, alpha: a) }
+        }
+        if look.visitor { visitor(&ctx, c: c, s: s, alpha: a) }
+
+        if look.arcs {
+            arcs(&ctx, c: c, s: s, alpha: a)
+        }
 
         // Everything upstage of the planet, in order of depth. The far half of the blue
         // orbit reads dimmer and the body crosses it *behind* the sphere: that occlusion
         // is the whole trick, and without it the ellipse is a flat drawing on glass.
-        ring(&ctx, c: c, s: s, from: Double.pi, to: 2 * .pi, swept: swept,
-             alpha: 0.11, width: 2.2 * s)
-        if moving, sin(bodyA) < 0 { body(&ctx, c: c, s: s, angle: bodyA) }
-        halo(&ctx, c: c, s: s, angle: haloA, incl: incl, growth: a, back: true)
+        if look.orbit {
+            ring(&ctx, c: c, s: s, from: Double.pi, to: 2 * .pi, swept: swept,
+                 alpha: 0.11, width: 2.2 * s)
+        }
+        if look.body, moving, sin(bodyA) < 0 { body(&ctx, c: c, s: s, angle: bodyA) }
+        if look.halo {
+            halo(&ctx, c: c, s: s, angle: haloA, incl: incl, growth: a, back: true)
+        }
 
-        planet(&ctx, c: c, s: s, alpha: a, light: light)
+        if look.planet {
+            planet(&ctx, c: c, s: s, alpha: a, light: light, gray: look.gray)
+        }
 
         // …and everything downstage of it.
-        halo(&ctx, c: c, s: s, angle: haloA, incl: incl, growth: a, back: false)
-        ring(&ctx, c: c, s: s, from: 0, to: Double.pi, swept: swept,
-             alpha: 0.27, width: 2.8 * s)
+        if look.halo {
+            halo(&ctx, c: c, s: s, angle: haloA, incl: incl, growth: a, back: false)
+        }
+        if look.orbit {
+            ring(&ctx, c: c, s: s, from: 0, to: Double.pi, swept: swept,
+                 alpha: 0.27, width: 2.8 * s)
+        }
         // The orbit lights up just ahead of the body, so you can see where it is going.
-        if moving {
+        if look.body, moving {
             ring(&ctx, c: c, s: s, from: bodyA + 0.26, to: bodyA + 1.30, swept: .infinity,
                  alpha: 0.26, width: 3 * s, color: NB.violet2)
         }
-        if moving, sin(bodyA) >= 0 { body(&ctx, c: c, s: s, angle: bodyA) }
+        if look.body, moving, sin(bodyA) >= 0 { body(&ctx, c: c, s: s, angle: bodyA) }
+
+        if look.horizon {
+            horizon(&ctx, size: size, s: s, ember: plate == 15 || plate == 25)
+        }
+        if plate == 10 {
+            var beam = Path()
+            beam.move(to: CGPoint(x: 48 * sx, y: 72 * sy))
+            beam.addLine(to: CGPoint(x: 310 * sx, y: 340 * sy))
+            ctx.stroke(beam, with: .color(NB.white.opacity(0.22 * a)),
+                       style: StrokeStyle(lineWidth: 1.4 * s, lineCap: .round))
+        }
+    }
+
+    private struct Look {
+        var cy: CGFloat = 196
+        var offsetX: CGFloat = 0
+        var planetR: CGFloat = 74
+        var planet = true
+        var halo = true
+        var orbit = true
+        var body = true
+        var visitor = true
+        var meteors = true
+        var gray = false
+        var arcs = false
+        var horizon = false
+    }
+
+    private static func look(_ plate: Int) -> Look {
+        switch plate {
+        case 2, 23:
+            return Look(cy: 196, planetR: 78, halo: false, orbit: false, body: false,
+                        visitor: false, gray: true)
+        case 3:
+            return Look(cy: 168, planetR: 70)
+        case 4:
+            return Look(planet: false, halo: false, orbit: false, body: false,
+                        visitor: false, arcs: true)
+        case 5:
+            return Look(cy: 186, planetR: 68, gray: true)
+        case 6:
+            return Look(planet: false, halo: false, body: false, visitor: false, arcs: true)
+        case 7:
+            return Look(cy: 186, planetR: 72)
+        case 8:
+            return Look(cy: 176, planetR: 48)
+        case 9:
+            return Look(halo: false, body: false)
+        case 10:
+            return Look(planet: false, halo: false, orbit: false, body: false,
+                        visitor: false, meteors: true)
+        case 11:
+            return Look(cy: 96, offsetX: 110, planetR: 120, body: false, visitor: false)
+        case 12:
+            return Look(planetR: 80, visitor: false, gray: true)
+        case 14:
+            return Look(planet: false, halo: false, body: false, visitor: false)
+        case 15, 16, 25:
+            return Look(cy: 168, planetR: 64, halo: false, body: false,
+                        visitor: false, meteors: false, horizon: true)
+        case 20:
+            return Look(cy: 188, offsetX: 96, planetR: 86, body: false, visitor: false)
+        case 21:
+            return Look(cy: 200, offsetX: -130, planetR: 140, halo: false,
+                        body: false, visitor: false)
+        case 22:
+            return Look(cy: 210, planetR: 66)
+        case 26:
+            return Look(cy: 186, offsetX: 36, planetR: 76, halo: false)
+        case 27:
+            return Look(planet: false, halo: false, orbit: false, body: false,
+                        visitor: false, arcs: true)
+        case 28:
+            return Look(cy: 188, planetR: 76)
+        default:
+            return Look()
+        }
     }
 
     // MARK: geometry
@@ -155,7 +253,8 @@ struct OrbitField {
     /// planet's poles rather than lying in the blue orbit's plane, so its narrow axis is
     /// the one pointing at the eye — which is why depth here reads off `cos`, not `sin`.
     private func haloPoint(_ t: Double, c: CGPoint, s: CGFloat, incl: Double) -> CGPoint {
-        point(t, c: c, rx: Self.haloR * s * CGFloat(incl), ry: Self.haloR * s,
+        let haloR = Self.look(plate).planetR * (90 / 74)
+        return point(t, c: c, rx: haloR * s * CGFloat(incl), ry: haloR * s,
               tilt: haloPlane)
     }
 
@@ -260,16 +359,17 @@ struct OrbitField {
     /// form so it always reads as a sphere; the lime and ember on its limb come from the
     /// band and follow it, and fade out entirely while the band is round the back.
     private func planet(_ ctx: inout GraphicsContext, c: CGPoint, s: CGFloat,
-                        alpha: Double, light: (angle: Double, strength: Double)) {
-        let r = Self.planetR * s * CGFloat(0.35 + 0.65 * alpha)
+                        alpha: Double, light: (angle: Double, strength: Double),
+                        gray: Bool = false) {
+        let r = Self.look(plate).planetR * s * CGFloat(0.35 + 0.65 * alpha)
         let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
         let disc = Path(ellipseIn: rect)
         let key = CGPoint(x: c.x - r * 0.42, y: c.y - r * 0.48)
 
         ctx.fill(disc, with: .color(NB.discInk))
         ctx.fill(disc, with: .radialGradient(
-            Gradient(colors: [NB.white.opacity(0.15 * alpha), NB.white.opacity(0)]),
-            center: key, startRadius: 0, endRadius: r * 1.15))
+            Gradient(colors: [NB.white.opacity((gray ? 0.40 : 0.15) * alpha), NB.white.opacity(0)]),
+            center: key, startRadius: 0, endRadius: r * (gray ? 0.95 : 1.15)))
         ctx.fill(disc, with: .radialGradient(
             Gradient(colors: [NB.panelInk.opacity(0), NB.panelInk.opacity(0.80 * alpha)]),
             center: CGPoint(x: c.x * 2 - key.x, y: c.y * 2 - key.y),
@@ -277,8 +377,9 @@ struct OrbitField {
         ctx.stroke(disc, with: .color(NB.white.opacity(0.10 * alpha)), lineWidth: 1)
 
         // The band's light on the near limb, and a cold ember answer on the far one.
+        // A gray look (moon / silhouette) keeps the sphere and drops the lime.
         let k = light.strength * alpha
-        guard k > 0.01 else { return }
+        guard k > 0.01, !gray else { return }
         let la = light.angle
         arc(&ctx, c: c, r: r, from: la - 0.8, span: 1.6,
             width: 2.4 * s, color: NB.lime1.opacity(0.28 * k))
@@ -288,6 +389,39 @@ struct OrbitField {
             width: 2.6 * s, color: NB.ember2.opacity(0.30 * k))
         arc(&ctx, c: c, r: r + 2 * s, from: la + .pi - 0.6, span: 1.2,
             width: 9 * s, color: NB.run2.opacity(0.06 * k))
+    }
+
+    /// Plate 4 / 6 / 27 — LED ellipses, no second renderer. They turn with the field clock.
+    private func arcs(_ ctx: inout GraphicsContext, c: CGPoint, s: CGFloat, alpha: Double) {
+        let spin = clock * 2 * .pi / Self.precession
+        let rings: [(CGFloat, CGFloat, Double, Double)] = [
+            (126, 34, Self.tilt + spin * 0.15, 0.28),
+            (148, 48, Self.tilt - spin * 0.22, 0.16),
+            (98, 22, -Self.tilt + spin * 0.11, 0.22),
+        ]
+        for (rx, ry, tilt, a) in rings {
+            var path = Path()
+            let steps = 48
+            for i in 0...steps {
+                let t = Double.pi * 2 * Double(i) / Double(steps)
+                let p = point(t, c: c, rx: rx * s, ry: ry * s, tilt: tilt)
+                if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+            }
+            ctx.stroke(path, with: .color(NB.white.opacity(a * alpha)),
+                       style: StrokeStyle(lineWidth: 1.6 * s, lineCap: .round))
+        }
+    }
+
+    private func horizon(_ ctx: inout GraphicsContext, size: CGSize, s: CGFloat, ember: Bool) {
+        let tint = ember ? NB.ember1 : NB.blue1
+        let y = size.height * 0.62
+        let r = 140 * s
+        ctx.fill(Path(ellipseIn: CGRect(x: size.width / 2 - r, y: y - r * 0.28,
+                                        width: r * 2, height: r * 0.7)),
+                 with: .radialGradient(
+                    Gradient(colors: [tint.opacity(0.22), tint.opacity(0)]),
+                    center: CGPoint(x: size.width / 2, y: y),
+                    startRadius: 0, endRadius: r))
     }
 
     /// The small body, with the tail it drags. It swells and brightens on the near side of
@@ -499,13 +633,9 @@ struct StandbyArt: View {
 
     private var canvas: some View {
         Canvas { ctx, size in
-            IdlePlateArt.draw(
-                plate: plate,
-                pose: IdlePlateMotion.pose(plate: plate, clock: clock, moving: moving),
-                charge: charge,
-                chargeKnown: chargeKnown,
-                in: &ctx,
-                size: size)
+            OrbitField(clock: clock, charge: charge, chargeKnown: chargeKnown,
+                       moving: moving, plate: plate)
+                .draw(in: &ctx, size: size)
         }
     }
 }

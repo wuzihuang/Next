@@ -175,16 +175,11 @@ struct HomeView: View {
     }
     private var planLipPlaying: Bool {
         PlanFaceMath.hintPlaying(reduceMotion: planMotionReduced) && !planSettledOpen
+            && scenePhase == .active && router.path.isEmpty && router.takeover == nil
     }
     /// Named so Home's ZStack does not type-check the eight-card page inline.
     private var instrumentsPage: some View {
-        VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
-                   sleepScore: data.sleepScores[data.today.day.key],
-                   width: columnWidth, height: pageTwoHeight,
-                   onOpen: { card in
-                       Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": card.cardKey]) }
-                       router.open(card.destination, from: .home)
-                   })
+        HomeInstrumentsPage(width: columnWidth, height: pageTwoHeight)
             .frame(width: columnWidth, height: pageTwoHeight, alignment: .top)
             .offset(x: screen.width + NB.Layout.gutter + pageShift, y: panelTop)
             .opacity(firstRun.dockVisible ? 1 : 0)
@@ -844,6 +839,10 @@ struct HomeView: View {
                        m: data.todayForDisplay, band: data.band,
                        lastSync: data.lastSync, vitals: data.vitals,
                        widget: widget, firstRun: firstRun,
+                       idleAnimationActive: scenePhase == .active && router.path.isEmpty
+                           && router.takeover == nil && router.homePage == 0
+                           && !planSettledOpen && !plusOpen && keyboard.height == 0
+                           && dockMode == .idle && liveSession.session == nil,
                        size: full ? screen
                                   : CGSize(width: columnWidth, height: panelHeight),
                        radius: firstRun.panelRadius,
@@ -1565,5 +1564,24 @@ private struct NightHomeDiagnosticObserver: View {
         NightDiagnostics.shared.record("ui.home_input", fields: HomeSnapshot.diagnosticFields(
             day: metrics.day, samples: metrics.vitalsCurve, sleep: metrics.sleep))
         #endif
+    }
+}
+
+/// Keep the history-derived cards behind stable inputs. Finger positions belong to the
+/// outer offset; changing them must not recreate the cards' data and action closures.
+private struct HomeInstrumentsPage: View {
+    @EnvironmentObject private var data: DataStore
+    @EnvironmentObject private var router: Router
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        VitalsPage(m: data.today, history: data.history, vitals: data.vitals,
+                   sleepScore: data.sleepScores[data.today.day.key],
+                   width: width, height: height,
+                   onOpen: { card in
+                       Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": card.cardKey]) }
+                       router.open(card.destination, from: .home)
+                   })
     }
 }

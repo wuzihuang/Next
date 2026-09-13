@@ -466,7 +466,7 @@ enum IdlePlateArt {
 }
 
 enum IdlePlateStore {
-    private static let key = "nb.idlePlate.lock"
+    private static let key = "nb.idlePlate.lock.v2"
 
     static func load() -> IdlePlateLock.Snapshot? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }

@@ -15,11 +15,25 @@ final class SyncProgressStageTests: XCTestCase {
         assertHomeMatches(app, line: "92% · 正在更新结果")
     }
 
-    func test100AndButtonCompletionAgree() {
+    func testCompletionClearsTheBarAndTheButtonTogether() {
         let app = launch(stage: "complete")
-        XCTAssertTrue(app.staticTexts["100% · 同步完成"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["立即同步"].waitForExistence(timeout: 20))
         XCTAssertEqual(app.buttons["立即同步"].value as? String ?? "", "")
-        assertHomeMatches(app, line: "100% · 同步完成")
+        XCTAssertFalse(app.otherElements["device.syncProgress"].exists,
+                       "A finished sync must not leave the bar sitting at 100%")
+        XCTAssertFalse(app.staticTexts["100% · 同步完成"].exists)
+        // Nothing here waits for a late label, so give the page its entry beat before
+        // tapping back; a tap during the transition is swallowed.
+        let back = app.buttons["返回"]
+        XCTAssertTrue(back.waitForExistence(timeout: 20))
+        XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: back)], timeout: 10)
+        back.tap()
+        let close = app.buttons["panel-dismiss"]
+        if close.exists { close.tap() }
+        let status = app.staticTexts["panel.syncStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 20))
+        XCTAssertNotEqual(status.label, "100% · 同步完成")
+        XCTAssertFalse(app.otherElements["panel.syncProgress"].exists)
     }
 
     private func assertHomeMatches(_ app: XCUIApplication, line: String) {

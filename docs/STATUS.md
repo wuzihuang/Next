@@ -2243,9 +2243,10 @@ The progress bar now owns fixed workflow segments rather than exposing the SDK d
 percentage as whole-sync completion. Search, BLE connection, verification, identity,
 battery and device preparation have real callback/checkpoint labels. Dump completion,
 daily filing, result updates and cleanup remain separate; only the shared refresh's
-terminal success publishes 100% and clears the busy button. Retries do not rewind the
-bar, failures do not reach 100%, and a binding change during cleanup cannot publish a
-stale success. Alarm cache warming no longer extends the health-sync button lifetime.
+terminal success publishes 100% and clears the busy button, and the bar leaves with it:
+the display and Device show progress only while the sync is running, never a finished bar
+parked at 100%. Retries do not rewind the bar, failures do not reach 100%, and a binding
+change during cleanup cannot publish a stale success. Alarm cache warming no longer extends the health-sync button lifetime.
 These are workflow percentages, not remaining-time estimates.
 
 Home's standby display and Device now share `BandSyncActivity.progressLine`, fraction

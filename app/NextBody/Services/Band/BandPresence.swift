@@ -208,7 +208,9 @@ final class BandSyncActivity: ObservableObject {
     var total: Int { progress.total }
     var percent: Int { progress.percent }
     var fraction: Double { workflow.fraction }
-    var showsProgress: Bool { workflow.active || workflow.stage == .complete }
+    /// Only while the sync is running. Completion clears the bar on both surfaces at once;
+    /// a finished bar left sitting at 100% is not a state, it is clutter.
+    var showsProgress: Bool { workflow.active }
 
     /// Home's display and Device render this exact line, including the same rounding
     /// and day counter. Neither surface owns another sync state or percentage.

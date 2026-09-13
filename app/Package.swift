@@ -74,6 +74,7 @@ let package = Package(
                 "BandDeltaTransport.swift",
                 "BandHistoryReadCache.swift",
                 "BandRefreshCoordinator.swift",
+                "BandMetadataRefreshPolicy.swift",
                 "BandSyncProgress.swift",
                 "BackgroundRefreshPolicy.swift",
                 "BandMeasurementLifetime.swift",

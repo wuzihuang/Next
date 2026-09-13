@@ -14,6 +14,7 @@ import Combine
 final class BandPresence {
     static let shared = BandPresence()
     private var listener: Task<Void, Never>?
+    private var metadata = BandMetadataRefreshPolicy()
 
     /// Idempotent. `.state` keeps STANDBY / OFFLINE true to the link; `.battery` is what the
     /// SDK pushes on its own, which is the number the pip should show without being asked.
@@ -70,7 +71,15 @@ final class BandPresence {
         }
         guard isCurrent() else { return }
         store.applyBandObservation(identity: identity, battery: battery)
-        await Repository.shared.registerDevice(identity: identity, battery: battery)
+        func metadataKey() -> BandMetadataRefreshPolicy.Key? {
+            guard let identity, let deviceID = Repository.shared.deviceId else { return nil }
+            return .init(account: account, binding: binding, deviceID: deviceID, firmware: identity.firmware)
+        }
+        // Battery observations remain fresh, but registration/capability publication is
+        // initialization, not something to repeat on every automatic health-data pull.
+        guard metadata.needsRefresh(metadataKey()) else { return }
+        BandSyncActivity.shared.show(.capabilities)
+        guard await Repository.shared.registerDevice(identity: identity, battery: battery) else { return }
 
         guard isCurrent() else { return }
 
@@ -82,8 +91,11 @@ final class BandPresence {
             store.capabilitiesReadAt = Date()
             if let deviceId = Repository.shared.deviceId,
                let userId = await SupabaseClient.shared.currentUserId {
-                await Repository.shared.saveCapabilities(caps, deviceId: deviceId, userId: userId,
-                                                          holdsDays: identity?.watchDataDayNumber)
+                guard userId == account, isCurrent() else { return }
+                let saved = await Repository.shared.saveCapabilities(caps, deviceId: deviceId, userId: userId,
+                                                                     holdsDays: identity?.watchDataDayNumber)
+                guard isCurrent() else { return }
+                metadata.complete(metadataKey(), success: saved)
             }
         }
 

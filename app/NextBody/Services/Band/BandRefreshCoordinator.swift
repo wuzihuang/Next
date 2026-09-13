@@ -6,8 +6,7 @@ enum BandRefreshRequest: Equatable, Sendable {
 
     fileprivate func minimumInterval(cadence: TimeInterval) -> TimeInterval {
         switch self {
-        case .automatic: min(120, cadence / 2)
-        case .foreground: cadence
+        case .automatic, .foreground: cadence
         // ADR 0026 · coming back to the app asks the wrist again whatever the cadence is set
         // to. The one-minute floor only folds an app switched away and straight back into
         // the pull that just ran; it never lets the device page's EVERY HOUR hold it.
@@ -92,7 +91,6 @@ final class BandRefreshCoordinator {
     private final class Flight {
         let scope: Scope
         var wantsHistory: Bool
-        var startedReading = false
         var task: Task<BandRefreshResult, Never>!
         init(scope: Scope, history: Bool) { self.scope = scope; wantsHistory = history }
     }
@@ -156,8 +154,10 @@ final class BandRefreshCoordinator {
             // A different account or new refresh cannot have its cache ended by old work.
             await work.finish()
             work.completed(resultForWaiter(result, scope: scope))
-            if flight.startedReading,
-               result.status == .success || result.status == .partial || result.status == .failed {
+            // A failed connection is still an attempt. Automatic callers must not
+            // restart preparation on every timer tick; explicit retries bypass cadence.
+            if result.status == .success || result.status == .partial || result.status == .failed
+                || result.status == .disconnected {
                 lastAttempt = (scope, now())
             }
             if current === flight { current = nil }
@@ -182,7 +182,6 @@ final class BandRefreshCoordinator {
         let ready = await work.prepare(reuseReceipt)
         if let rejected = state().rejection(expected: scope) { return .init(status: rejected) }
         guard ready else { return .init(status: state().connected ? .failed : .disconnected) }
-        flight.startedReading = true
         var recentDays: [Int: BandRefreshResult] = [:]
         for offset in [1, 0] {
             if let rejected = state().rejection(expected: scope) {

@@ -108,7 +108,9 @@ struct NextBodyApp: App {
             } else {
                 // ADR 0026 · every return to the app asks the wrist, whatever the device page's
                 // cadence says; `.foreground` (the home screen's own timer) still honours it.
-                await OriginDataSync.refreshNow(into: data, request: reason == "launch" ? .fullHistory : .resume)
+                // Home and didBecomeActive may already have completed the launch pull.
+                // Routine work still repairs missing history; launch is not a force button.
+                await OriginDataSync.refreshNow(into: data, request: reason == "launch" ? .automatic : .resume)
             }
             guard owner == SupabaseClient.currentUserIdSnapshot() else { return }
             await NotificationReach.refresh(today: data.today, history: data.history,

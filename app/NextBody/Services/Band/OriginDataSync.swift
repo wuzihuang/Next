@@ -54,6 +54,7 @@ final class OriginDataSync {
         return .init(
             prepare: { reuseReceipt in
                 guard let scope else { return false }
+                log.notice("refresh begin request=\(String(describing: request), privacy: .public)")
                 BandSyncActivity.shared.phase = "connecting"
                 BandSyncActivity.shared.beginCounting()
                 if request != .phoneTool {
@@ -64,7 +65,6 @@ final class OriginDataSync {
                       Band.live.state == .connected else { return false }
                 BandPresence.shared.start(store: store)
                 store.band.connected = true
-                BandSyncActivity.shared.show(.capabilities)
                 await BandPresence.shared.refresh(store: store, prepared: BandReadiness.shared.snapshot)
                 guard refreshState().rejection(expected: scope) == nil else { return false }
                 do {
@@ -91,6 +91,7 @@ final class OriginDataSync {
                 BandSyncActivity.shared.show(.finishing)
                 await Band.live.finishFreshSync()
             }, completed: { result in
+                log.notice("refresh end status=\(result.status.rawValue, privacy: .public)")
                 BandSyncActivity.shared.complete(success: result.status == .success)
             })
     }

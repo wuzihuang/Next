@@ -116,10 +116,10 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         result = await f.refresh(.foreground)
         XCTAssertEqual(result.status, .throttled)
         result = await f.refresh(.automatic)
-        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(result.status, .throttled, "opening Device must not shorten Home's cadence")
         result = await f.refresh(.latest)
         XCTAssertEqual(result.status, .success)
-        XCTAssertEqual(f.events.count, 9)
+        XCTAssertEqual(f.events.count, 6)
         f.binding = "band-b"
         result = await f.refresh(.foreground)
         XCTAssertEqual(result.status, .success, "a different band cannot inherit cadence")
@@ -154,14 +154,16 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(result.status, .success)
     }
 
-    @MainActor func testFailedReadinessDoesNotConsumeCadence() async {
+    @MainActor func testFailedReadinessWaitsForCadenceButManualRetryBypassesIt() async {
         let f = Fixture(); f.prepareSucceeds = false
         let failed = await f.refresh(.foreground)
         XCTAssertEqual(failed.status, .failed)
         f.prepareSucceeds = true
         let retry = await f.refresh(.foreground)
-        XCTAssertEqual(retry.status, .success)
-        XCTAssertEqual(f.events, ["prepare:alice:true", "prepare:alice:true", "day:alice:1", "day:alice:0"])
+        XCTAssertEqual(retry.status, .throttled)
+        let manual = await f.refresh(.fullHistory)
+        XCTAssertEqual(manual.status, .success)
+        XCTAssertEqual(f.events, ["prepare:alice:true", "prepare:alice:false", "day:alice:1", "day:alice:0", "history"])
     }
 
     @MainActor func testHistoryCanJoinWhileTodayIsStillReading() async {

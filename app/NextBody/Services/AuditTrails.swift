@@ -45,8 +45,9 @@ extension Repository {
     /// `holdsDays` is the band's saveDays — how many days of history it still carries. It
     /// travels with the capability row because the first-sync backfill reads it, and a
     /// null there used to invent a 7. WITH YOU is `devices.bound_at`, not this field.
+    @discardableResult
     func saveCapabilities(_ caps: BandCapabilities, deviceId: String, userId: String,
-                          holdsDays: Int? = nil) async {
+                          holdsDays: Int? = nil) async -> Bool {
         var row: [String: Any] = [
             "device_id": deviceId,
             "user_id": userId,
@@ -59,7 +60,10 @@ extension Repository {
             "auto_measure": caps.autoMeasure.rawValue,
         ]
         if let holdsDays, holdsDays > 0 { row["watch_data_day_number"] = holdsDays }
-        _ = try? await db.upsert("device_capabilities", row: row, onConflict: "device_id")
+        do {
+            _ = try await db.upsert("device_capabilities", row: row, onConflict: "device_id")
+            return true
+        } catch { return false }
     }
 }
 

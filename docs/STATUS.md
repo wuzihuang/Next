@@ -2198,3 +2198,20 @@ Physical BLE cleanup after the user's selected removal still needs a walk.
   the seeded retained-day count down to the days actually being read, so a pull ends at
   100% instead of stopping at three sevenths and vanishing. Four unit tests cover both.
 - Not in V1: automatic wear detection, Preferred HOOP, handing a HOOP to someone else.
+
+## Release audit · 2026-09-13
+
+Source `a533376d` is pushed to `origin/main`, including all pending app/backend changes,
+the five migrations and `output/fx` assets. The production project
+`gkgzwcxivnffsecshvfs` has no missing local migrations. The affected function dependency
+closures were republished: `turn` v92, `memory-settle` v10 and `asr` v33; all are ACTIVE,
+keep JWT verification enabled and reject unauthenticated requests with HTTP 401.
+Required GROK, DASHSCOPE and settlement secrets exist remotely; model names use the
+committed defaults. Secret values remain outside Git.
+
+Validation: 822 Swift tests, 303 Deno tests, lint, Release iOS build and the isolated
+database rebuild with single-removal, dual-HOOP and daily-settlement suites passed.
+All eight selected device/training UI checks passed after restoring the shortened
+training evidence strings' missing Chinese translations and checking them in reading order.
+This records the repository and existing backend/device delivery path, not an App Store
+or TestFlight submission.

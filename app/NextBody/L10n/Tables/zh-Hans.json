@@ -1,4 +1,10 @@
 {
+  "No night baseline yet. The range is a rule estimate.": "还没有夜间基线，建议范围目前按规则估算。",
+  "The range is a rule estimate, not a personal training dose.": "建议范围是规则估算，不代表适合你的个人训练剂量。",
+  "Recording coverage is unavailable. Sync to retrieve it.": "暂时无法判断记录覆盖率，请同步后查看。",
+  "Guidance, not an exercise quota.": "仅供参考，不是必须完成的运动指标。",
+  "Fewer than five baseline nights. The range is an early estimate.": "基线不足五夜，建议范围仍是初步估算。",
+  "Coverage is valid recorded minutes against elapsed time, not time worn.": "覆盖率按有效记录时长与已过去时长计算，不是佩戴时长。",
   "%@ removed": "%@ 已解除配对",
   "Pairing removed successfully. All synced history is still in your account.": "已成功解除配对，已同步的历史记录仍保留在你的账号中。",
   "Confirming removal…": "正在确认解绑结果…",

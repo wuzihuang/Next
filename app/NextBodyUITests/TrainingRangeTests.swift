@@ -88,10 +88,12 @@ final class TrainingRangeTests: XCTestCase {
         XCTAssertTrue(app.otherElements["training.evidence"].staticTexts["基线建立中"].isHittable)
         XCTAssertTrue(app.staticTexts["HRV 基线夜数"].exists)
         XCTAssertTrue(app.staticTexts["静息心率基线夜数"].exists)
+        // Check in reading order: revealing coverage can scroll the baseline note out
+        // of SwiftUI's accessibility tree on a compact phone.
+        reveal(app.staticTexts["基线不足五夜，建议范围仍是初步估算。"], in: app)
         reveal(app.staticTexts["有效心率"], in: app)
         XCTAssertTrue(app.staticTexts["有记录时长"].exists)
-        XCTAssertTrue(app.staticTexts["基线不足五夜，建议范围仍是初步估算。"].exists)
-        XCTAssertTrue(app.staticTexts["覆盖率按有效记录时长与已过去时长计算，不是佩戴时长。"].exists)
+        reveal(app.staticTexts["覆盖率按有效记录时长与已过去时长计算，不是佩戴时长。"], in: app)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Training Chinese calculation evidence"
         screenshot.lifetime = .keepAlways

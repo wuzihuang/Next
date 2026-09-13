@@ -4,7 +4,7 @@ import SwiftUI
 /// One widget at a time; every widget is tappable and carries the page it lands on (F0 rule 06).
 struct AIPanel: View {
     @ObservedObject private var consent = ConsentStore.shared
-    /// 07 · 16 · she names the tool she is on while the singularity turns.
+    /// 07 · 16 · she names the tool she is on while the glitter field turns.
     @ObservedObject private var ai = AIService.shared
     /// 04 · the band measuring right now. While this resting face is what the user is
     /// looking at, HomeView keeps the session open (`liveReadoutWanted`) and HR / STRESS are
@@ -23,6 +23,8 @@ struct AIPanel: View {
     /// 01M · while the ceremony runs, this same surface is the whole screen. The fold at
     /// ◇7 animates its frame and corner radius — one layer, never a cross-fade.
     var firstRun: FirstRun?
+    /// Home owns visibility; an offscreen panel retains its pose without drawing frames.
+    var idleAnimationActive = true
     var size: CGSize = CGSize(width: NB.Layout.contentWidth, height: NB.Layout.panelHeight)
     var radius: CGFloat = NB.R.hero
     var onDismissWidget: () -> Void = {}
@@ -132,7 +134,8 @@ struct AIPanel: View {
                 StandbyArt(
                     plate: plateLock?.plate ?? 1,
                     charge: reserve.map { Double($0) / 100 } ?? 0,
-                    chargeKnown: reserve != nil
+                    chargeKnown: reserve != nil,
+                    animate: idleAnimationActive
                 )
             }
             if !consent.granted {
@@ -192,6 +195,15 @@ struct AIPanel: View {
     private func resolveIdlePlate(appear: Bool) {
         let day = m.day.key
         let wearer = SessionKeychain.userId ?? band.mac
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_PLATE"],
+           let forced = Int(raw), forced > 0 {
+            let snap = IdlePlateLock.Snapshot(day: day, plate: forced, lockedBy: .daily)
+            plateLock = snap
+            IdlePlateStore.save(snap)
+            return
+        }
+        #endif
         let stored = plateLock ?? IdlePlateStore.load()
         var snap = IdlePlateLock.appear(
             wearer: wearer,
@@ -445,19 +457,16 @@ private struct BeatPip: View {
     }
 }
 
-/// 07 · 16 · 02 · THINKING — the singularity.
+/// 07 · 16 · 02 · THINKING — Originkit Glitter Wrap on the panel.
 ///
-/// The board reuses Connect 04's gravitational collapse on purpose: idle → thinking has to
-/// read as one planet being pulled in, not as a page change, or the user thinks they left
-/// the screen. Five arms, a black core, no spinner, no skeleton, no fake progress bar.
+/// Reverse-perspective glitter (white / cool gray / lime) falls inward with additive
+/// trails and a soft edge halo. No spinner, no skeleton, no fake progress bar.
 ///
 /// The foot of the panel is her own reasoning. The server cuts the model's reasoning stream
 /// into lines and each one lands here the moment it is whole: typed out behind a lime
 /// cursor, the line above lifting a step and dropping a grey, four kept, the fifth pushing
 /// the oldest off. No status label stands in for her — a turn that streams no thoughts
 /// names the tool it is reading, and nothing pretends to be a thought.
-///
-/// The disk answers the stream: every thought that lands sends one ring out from the core.
 struct ThinkingStage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The question, echoed at the top: an LED has no input field, and without the echo
@@ -469,13 +478,10 @@ struct ThinkingStage: View {
     var thoughts: [AIService.Thought] = []
     var startedAt: Date = Date()
 
-    private static let arms = 5
     /// Lines the foot holds. A fifth arrival pushes the first off.
     private static let shown = 4
     /// Characters a second while a line types out. Faster than reading, slower than a paste.
     private static let typeRate = 46.0
-    /// How long the ring a thought sends out lives.
-    private static let pulseLife = 1.4
 
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { tl in
@@ -487,7 +493,7 @@ struct ThinkingStage: View {
                     // A spoken question is not a caption: one line cut "how many calories
                     // were in the noodles I had at lunch" down to "HOW MANY CALORIES WERE…",
                     // and the echo exists so she can see she was heard right. Three lines,
-                    // wrapping, tail-truncated past that — the disk gives up the height.
+                    // wrapping, tail-truncated past that — the field gives up the height.
                     Text("\"\(question.uppercased())\"")
                         .font(NBFont.dot(500, 11)).tracking(0.16 * 11)
                         .foregroundStyle(NB.white.opacity(0.42))
@@ -498,12 +504,12 @@ struct ThinkingStage: View {
                         .padding(.horizontal, 22)
                         .padding(.top, 26)
                 }
-                let pulses = reduceMotion ? [] : thoughts.map { now.timeIntervalSince($0.at) }
-                    .filter { $0 >= 0 && $0 < Self.pulseLife }
-                // The disk takes whatever height the header and the four lines leave — a
-                // fixed 260 pushed the header off the top of a shorter phone's panel.
-                Canvas { ctx, size in draw(&ctx, size: size, t: reduceMotion ? 0 : t, pulses: pulses) }
+                // Below THINKING and the ASR echo, above the thought stream.
+                // The halo feathers this slot — it does not sit under the words.
+                GlitterWrapStage(paused: reduceMotion)
                     .frame(maxHeight: .infinity)
+                    .allowsHitTesting(false)
+                    .padding(.top, 10)
                 stream(now: now)
             }
             // 07 · 16 · 02 · the stream you can feel. One hair-light tap under the characters
@@ -632,108 +638,5 @@ struct ThinkingStage: View {
         case .some(let t) where t.hasPrefix("measurement"):   return L("READING YOUR SCANS")
         case .some:                                           return L("PREPARING YOUR ANSWER")
         }
-    }
-
-    // MARK: the singularity
-
-    /// A black hole seen from a little above its disk. Five arms of matter slide down a
-    /// logarithmic spiral into the core and are replaced at the rim; the side of the disk
-    /// coming toward us runs hotter (Doppler); the light from the far side is bent over
-    /// and under the hole as two thin arcs; a photon ring hugs the horizon with a wave of
-    /// brightness running round it. Behind all of it, a still field of faint stars.
-    /// One colour, lime, at many brightnesses — the pale lime is the hottest point only.
-    private func draw(_ ctx: inout GraphicsContext, size: CGSize, t: Double, pulses: [Double]) {
-        let c = CGPoint(x: size.width / 2, y: size.height / 2 + 4)
-        // The board's disk is r150 on a 358-wide panel; a taller panel does not grow it past that.
-        let rMax = min(150, min(size.width, size.height) * 0.55)
-        let core = rMax * 0.19
-        // The disk is seen from above at a lean — flattened, and turned a little off the
-        // horizontal so it never reads as an eye. The hole and the bent light stay upright.
-        let tilt: CGFloat = 0.68
-        let lean = -16.0 * .pi / 180
-        let (lc, ls) = (CGFloat(cos(lean)), CGFloat(sin(lean)))
-        func onDisk(_ a: Double, _ r: CGFloat) -> CGPoint {
-            let x = CGFloat(cos(a)) * r, y = CGFloat(sin(a)) * r * tilt
-            return CGPoint(x: c.x + x * lc - y * ls, y: c.y + x * ls + y * lc)
-        }
-        let spin = t * 0.42
-
-        func dot(_ x: CGFloat, _ y: CGFloat, _ d: CGFloat, _ alpha: Double, _ color: Color = NB.lime1) {
-            ctx.fill(Path(ellipseIn: CGRect(x: x - d / 2, y: y - d / 2, width: d, height: d)),
-                     with: .color(color.opacity(max(0, min(1, alpha)))))
-        }
-
-        // Stars. Fixed positions from the index, each breathing at its own slow rate.
-        for i in 0..<64 {
-            let h = Self.scatter(i)
-            let breathe = 0.65 + 0.35 * sin(t * (0.5 + h.2 * 1.3) + h.3 * .pi * 2)
-            dot(CGFloat(h.0) * size.width, CGFloat(h.1) * size.height, 1.5, (0.04 + 0.11 * h.3) * breathe)
-        }
-
-        // The far side's light, bent over the top of the hole and under it.
-        for (over, base) in [(true, 0.34), (false, 0.16)] {
-            let rr = core * 1.78
-            for i in 0..<34 {
-                let f = Double(i) / 33.0
-                let a = (over ? .pi : 0) + 0.32 + f * (.pi - 0.64)
-                let envelope = sin(f * .pi)
-                let glide = 0.75 + 0.25 * sin(a * 2 + t * 1.4)
-                dot(c.x + CGFloat(cos(a)) * rr, c.y + CGFloat(sin(a)) * rr * 0.92, 2.6, base * envelope * glide)
-            }
-        }
-
-        // The disk. Two passes so the near half crosses in front of the hole.
-        struct Grain { let x: CGFloat; let y: CGFloat; let d: CGFloat; let alpha: Double; let near: Bool }
-        var grains: [Grain] = []
-        grains.reserveCapacity(Self.arms * 30)
-        for arm in 0..<Self.arms {
-            let phase = Double(arm) * (.pi * 2 / Double(Self.arms))
-            for i in 0..<30 {
-                // Matter slides down the arm: u runs 0 (rim) → 1 (core) and wraps.
-                let u = (Double(i) / 30.0 + t * 0.045).truncatingRemainder(dividingBy: 1)
-                let r = core * 1.22 + (rMax - core * 1.22) * pow(1 - u, 1.7)
-                let a = phase + spin + u * 2.6
-                let ca = cos(a), sa = sin(a)
-                // Hotter toward the core; hotter on the side coming toward us.
-                var alpha = (0.06 + 0.70 * pow(u, 1.4)) * (1 + 0.42 * ca)
-                // Born dim at the rim, gone dim at the horizon, so the wrap is never seen.
-                alpha *= min(1, u * 9, (1 - u) * 9)
-                let p = onDisk(a, CGFloat(r))
-                grains.append(Grain(x: p.x, y: p.y, d: u > 0.72 ? 3.6 : 2.8, alpha: alpha, near: sa > 0))
-            }
-        }
-        for g in grains where !g.near { dot(g.x, g.y, g.d, g.alpha) }
-
-        // The hole, and the photon ring around it with a wave of heat running round.
-        ctx.fill(Path(ellipseIn: CGRect(x: c.x - core, y: c.y - core * 0.96, width: core * 2, height: core * 1.92)),
-                 with: .color(NB.panelInk))
-        for i in 0..<40 {
-            let a = spin * 1.6 + Double(i) * (.pi * 2 / 40)
-            let heat = 0.5 + 0.5 * sin(a * 3 - t * 3.2)
-            let x = c.x + CGFloat(cos(a)) * core, y = c.y + CGFloat(sin(a)) * core * 0.96
-            dot(x, y, 4.6, 0.55 + 0.4 * heat, heat > 0.92 ? NB.limePale : NB.lime1)
-        }
-
-        for g in grains where g.near { dot(g.x, g.y, g.d, g.alpha) }
-
-        // A thought landed: one ring leaves the core along the disk and fades.
-        for age in pulses {
-            let f = age / Self.pulseLife
-            let rr = core * 1.3 + CGFloat(f) * (rMax - core * 1.3) * 1.05
-            let alpha = 0.6 * pow(1 - f, 1.6)
-            for i in 0..<48 {
-                let p = onDisk(Double(i) * (.pi * 2 / 48) + spin, rr)
-                dot(p.x, p.y, 2.6, alpha)
-            }
-        }
-    }
-
-    /// Four fixed pseudo-random numbers in 0…1 for star `i` — the same sky every frame.
-    private static func scatter(_ i: Int) -> (Double, Double, Double, Double) {
-        func f(_ k: Double) -> Double {
-            let v = sin(Double(i) * 12.9898 + k * 78.233) * 43758.5453
-            return v - floor(v)
-        }
-        return (f(1), f(2), f(3), f(4))
     }
 }

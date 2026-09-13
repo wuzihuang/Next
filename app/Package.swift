@@ -94,6 +94,7 @@ let package = Package(
                 "HomeLaunchPolicy.swift",
                 "IdlePlateLock.swift",
                 "IdlePlateMotion.swift",
+                "GlitterWrapField.swift",
                 "LaunchFilmPolicy.swift",
                 "LaunchGate.swift",
                 "BandReadinessFlight.swift",

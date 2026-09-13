@@ -201,16 +201,27 @@ struct AIPanel: View {
     }
 
     private var header: some View {
+      VStack(spacing: 7) {
         HStack(spacing: 0) {
             Text(L(headerLine))
                 .font(NBFont.brand(500, 11.5)).tracking(0.08 * 11.5)
                 .foregroundStyle(headerTint)
+                .lineLimit(1).minimumScaleFactor(0.75)
+                .accessibilityIdentifier("panel.syncStatus")
             Spacer(minLength: 0)
             Text(Fmt.clock(Date()))
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                 .foregroundStyle(NB.white.opacity(0.30))
         }
-        .padding(.horizontal, 22)
+        if syncActivity.showsProgress {
+            DottedProgress(progress: syncActivity.fraction, lit: NB.lime1, track: NB.white.opacity(0.12))
+                .frame(height: 4)
+                .animation(.linear(duration: 0.15), value: syncActivity.fraction)
+                .accessibilityIdentifier("panel.syncProgress")
+                .accessibilityValue(syncActivity.progressLine)
+        }
+      }
+      .padding(.horizontal, 22)
     }
 
     /// The morning line and nothing else — sleep never reaches the screen (F0 rule 03).
@@ -308,6 +319,7 @@ struct AIPanel: View {
     /// 04 · the state word. OFFLINE is the link, NO CONTACT is the wrist, and LIVE is only
     /// said while the band is actually answering — never as a label for a stored number.
     private var headerLine: String {
+        if syncActivity.showsProgress { return syncActivity.progressLine }
         let phase: String
         switch live.phase {
         case .live: phase = live.liveHR == nil ? "reaching" : "live"
@@ -321,7 +333,7 @@ struct AIPanel: View {
     }
 
     private var headerTint: Color {
-        if syncActivity.phase != "idle" { return NB.lime1 }
+        if syncActivity.showsProgress { return NB.lime1 }
         guard band.connected else { return NB.white.opacity(0.55) }
         switch live.phase {
         case .live where live.liveHR != nil, .stress: return NB.lime1
@@ -334,6 +346,7 @@ struct AIPanel: View {
     /// closes this goes back to the age of the tick, which is the only other thing they
     /// could be — nothing here ever calls a stored number "now".
     private var sourceLine: String {
+        if syncActivity.workflow.active { return L("SYNCING…") }
         guard band.connected else { return agoText }
         switch live.phase {
         case .live where live.liveHR != nil: return L("LIVE")

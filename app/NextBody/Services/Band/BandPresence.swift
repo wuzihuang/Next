@@ -196,6 +196,17 @@ final class BandSyncActivity: ObservableObject {
     var total: Int { progress.total }
     var percent: Int { progress.percent }
     var fraction: Double { workflow.fraction }
+    var showsProgress: Bool { workflow.active || workflow.stage == .complete }
+
+    /// Home's display and Device render this exact line, including the same rounding
+    /// and day counter. Neither surface owns another sync state or percentage.
+    var progressLine: String {
+        let prefix = "\(Int(fraction * 100))% · "
+        if workflow.stage == .reading, total > 0 {
+            return prefix + L("READING DAY") + " \(min(done + 1, total)) " + L("OF") + " \(total)"
+        }
+        return prefix + L(workflow.stage.label)
+    }
 
     func show(_ stage: BandSyncProgress.Stage) { workflow.show(stage) }
     func updatingResults() { workflow.updatingResults() }

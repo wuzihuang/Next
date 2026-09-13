@@ -2248,6 +2248,12 @@ bar, failures do not reach 100%, and a binding change during cleanup cannot publ
 stale success. Alarm cache warming no longer extends the health-sync button lifetime.
 These are workflow percentages, not remaining-time estimates.
 
+Home's standby display and Device now share `BandSyncActivity.progressLine`, fraction
+and visibility. Home no longer reduces the detailed stage to the old connecting/syncing
+word or shows an unrelated stress-measurement percentage during sync. Three UI regressions
+navigate from Device back to Home and assert identical verification, result-update and
+completion lines. The signed Debug update is installed on the connected iPhone.
+
 Validation: 831 portable Swift tests, three Chinese UI assertions (verification,
 updating results, 100%/button agreement), and signed Debug compilation passed. A simulator
 visual check confirmed the 92% updating-results layout. The Debug app was installed on

@@ -631,13 +631,7 @@ struct DeviceView: View {
     /// What the bar is doing. Connecting has no count yet; a day count only appears once
     /// the band has said how many days it still holds.
     private var syncProgressWord: String {
-        let prefix = "\(Int(syncActivity.fraction * 100))% · "
-        if syncActivity.workflow.stage == .reading, syncActivity.total > 0 {
-            let day = min(syncActivity.done + 1, syncActivity.total)
-            let line = L("READING DAY") + " \(day) " + L("OF") + " \(syncActivity.total)"
-            return prefix + line
-        }
-        return prefix + L(syncActivity.workflow.stage.label)
+        syncActivity.progressLine
     }
 
     private func pendingDays(_ slot: HoopSlot) -> Int {
@@ -820,7 +814,7 @@ struct DeviceView: View {
 
             // The band answers one day at a time and the SDK sets that pace, so the honest
             // thing to show is how far the read has got, not a speed.
-            if syncInProgress || syncActivity.workflow.stage == .complete {
+            if syncActivity.showsProgress {
                 VStack(alignment: .leading, spacing: 6) {
                     DottedProgress(progress: syncActivity.fraction,
                                    lit: NB.carbon4, track: NB.carbon4.opacity(0.18))

@@ -711,8 +711,10 @@ model credentials and tool execution server-side.
   `WidgetCatalogue` statics need `@MainActor` on the nested function.
   `PhoneTools.fieldWord` maps meal `slot` → `L("slot")` and `band_setting`
   `slot` → `L("measure")` via the entity argument — never two `case "slot"`
-  arms. Verified clean with README's simulator `xcodebuild` (zero `warning:`
-  lines).
+  arms. `ISOTimestamp.loose` is `[DateFormatter]` (Sendable) and must not
+  carry `nonisolated(unsafe)`; `strict`/`plain` keep it because
+  `ISO8601DateFormatter` is still not Sendable. Verified clean with README's
+  simulator `xcodebuild` (zero `warning:` lines).
 - Female health stays off the product surface. G70 answers the female read with
   `state=None` and `function.female=0`; it is a calendar write (SDK business lock),
   not a sensor, and F1 already spent both second-level pages. Sweep it in DEBUG only.

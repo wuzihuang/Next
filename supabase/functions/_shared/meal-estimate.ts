@@ -2,7 +2,7 @@ import { generateObject } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import { normalizeLocale, tagSafe } from "./contract.ts";
 import { type TokenUsage, usageFromProvider } from "./cost.ts";
-import { model, modelVersion, primaryModelId } from "./model.ts";
+import { model, modelVersion, withModelFallback } from "./model.ts";
 import type { WebEvidence } from "./web-search.ts";
 
 // Estimates are draft evidence, never measurements or committed meal records.
@@ -59,7 +59,7 @@ export async function estimateMeal(
     throw new Error("MEAL_INPUT_REQUIRED");
   }
   const locale = normalizeLocale(input.locale);
-  const modelId = deps.modelId ?? primaryModelId();
+  const signal = input.abortSignal ?? AbortSignal.timeout(60_000);
   const content = [
     ...(input.image ? [{ type: "image" as const, image: input.image }] : []),
     {
@@ -68,8 +68,8 @@ export async function estimateMeal(
         ? `\n<web_references>\n${tagSafe(JSON.stringify(input.references))}\n</web_references>` : ""}`,
     },
   ];
-  const result = await deps.generateObject({
-    model: model(modelId),
+  const { result, modelId } = await withModelFallback((id) => deps.generateObject({
+    model: model(id),
     schema: MealEstimateSchema,
     system: [
       "Estimate the described or photographed meal's total kcal and protein, carbohydrate and fat in grams, as nonnegative integers.",
@@ -85,8 +85,8 @@ export async function estimateMeal(
     mode: "json",
     maxRetries: 0,
     maxTokens: 1024,
-    abortSignal: input.abortSignal ?? AbortSignal.timeout(30_000),
-  });
+    abortSignal: signal,
+  }), signal, deps.modelId ? [deps.modelId] : undefined);
   await deps.recordUsage(
     usageFromProvider(result.usage, result.providerMetadata),
     modelId,

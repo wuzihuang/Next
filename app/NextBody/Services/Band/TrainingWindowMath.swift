@@ -62,6 +62,23 @@ enum TrainingWindowMath {
     static let fullRing: Double = 21
     static let hardSessionMinutes = 20
 
+    /// Contiguous days that published a load. An empty slot ends a run so WEEK / MONTH
+    /// can break the line without drawing a zero or a missing-data mark.
+    static func lineRuns(_ values: [Double?]) -> [[(index: Int, value: Double)]] {
+        var out: [[(index: Int, value: Double)]] = []
+        var run: [(index: Int, value: Double)] = []
+        for (i, value) in values.enumerated() {
+            if let value {
+                run.append((i, value))
+            } else if !run.isEmpty {
+                out.append(run)
+                run = []
+            }
+        }
+        if !run.isEmpty { out.append(run) }
+        return out
+    }
+
     /// Oldest → newest, `count` user days ending at `end`.
     /// Mean of finished days that published a load. An open today and an empty
     /// slot stay out of the denominator — they are not zero.

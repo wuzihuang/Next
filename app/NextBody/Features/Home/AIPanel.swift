@@ -562,6 +562,7 @@ struct ThinkingStage: View {
     private var readingLine: String {
         switch reading {
         case .none:                       return L("THINKING...")
+        case "image.inspect":            return L("READING THE IMAGE")
         case "web.search":               return L("SEARCHING THE WEB")
         case "meal.estimate":            return L("CHECKING FOOD NUTRITION")
         case "meal.log":                 return L("SAVING YOUR MEAL")

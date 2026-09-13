@@ -597,9 +597,11 @@ actor SupabaseClient {
     /// model-facing surface lives; account.delete and export are database work that happens
     /// to be listed among them, and they are reachable this way without a deploy.
     @discardableResult
-    func rpc(_ name: String, args: [String: Any] = [:], expectedOwner: String? = nil) async throws -> Any {
+    func rpc(_ name: String, args: [String: Any] = [:], expectedOwner: String? = nil,
+             timeout: TimeInterval = 30) async throws -> Any {
         if let expectedOwner, userId != expectedOwner { throw CancellationError() }
         var r = URLRequest(url: SupabaseConfig.url.appendingPathComponent("rest/v1/rpc/\(name)"))
+        r.timeoutInterval = timeout
         r.httpMethod = "POST"
         r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
         r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",

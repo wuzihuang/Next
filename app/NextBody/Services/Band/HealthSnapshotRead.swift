@@ -507,11 +507,12 @@ final class HealthSnapshotRead {
 /// left to the formatters.
 enum ISOTimestamp {
     // Formatters are read-only after construction, which Foundation documents as thread-safe.
+    // DateFormatter is Sendable; ISO8601DateFormatter is not, so only those two stay unsafe.
     nonisolated(unsafe) static let strict: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
     }()
     nonisolated(unsafe) static let plain = ISO8601DateFormatter()
-    nonisolated(unsafe) static let loose: [DateFormatter] = [
+    static let loose: [DateFormatter] = [
         "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ", "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
         "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss",
     ].map { format in

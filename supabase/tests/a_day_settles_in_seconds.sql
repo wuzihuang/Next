@@ -1,7 +1,7 @@
 -- 20260912150000 · a night's evidence is computed once per settle, a day's replay once per
 -- transaction, and settle_now stops before the caller's statement budget.
 begin;
-select plan(13);
+select plan(17);
 insert into auth.users(id) values('0c0c0c0c-0000-0000-0000-000000000031');
 insert into public.profiles(user_id,timezone,birth_date) values('0c0c0c0c-0000-0000-0000-000000000031','UTC','1990-01-01');
 select set_config('nb.today',nb.user_day_of(now(),'UTC')::text,true);
@@ -49,6 +49,15 @@ select is(
  (select to_jsonb(e) from nb.night_evidence_parts_at_uncached('0c0c0c0c-0000-0000-0000-000000000031',current_setting('nb.today')::date-3,now()) e),
  'asked again, the memo still equals the engine');
 select is((select last_value::int from evidence_calls),3,'and only the engine side ran again');
+-- A night that has woken answers the same under any later as-of, from the memo.
+select is(
+ (select to_jsonb(e) from nb.night_evidence_parts_at('0c0c0c0c-0000-0000-0000-000000000031',current_setting('nb.today')::date-3,now()+interval '3 hours') e),
+ (select to_jsonb(e) from nb.night_evidence_parts_at_uncached('0c0c0c0c-0000-0000-0000-000000000031',current_setting('nb.today')::date-3,now()+interval '3 hours') e),
+ 'a closed night reads the same under a later as-of');
+select is((select last_value::int from evidence_calls),4,'and the memo answered it without the engine');
+-- A night still in progress keeps its exact as-of: asked as of its middle, the engine runs.
+select is((select count(*)::int from nb.night_evidence_parts_at('0c0c0c0c-0000-0000-0000-000000000031',current_setting('nb.today')::date-3,(current_setting('nb.today')::date-3)::timestamptz+interval '3 hours') e),1,'an as-of inside the night still answers');
+select is((select last_value::int from evidence_calls),5,'from the engine, not from the closed memo');
 
 -- 2 · a late fact re-dirties yesterday: every night at most once per day settled, and a
 -- day's replay exactly once — yesterday, the day its night began on, and today.

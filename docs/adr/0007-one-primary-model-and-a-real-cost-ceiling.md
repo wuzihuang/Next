@@ -1,5 +1,17 @@
 # 主模型只有一个，fallback 只留阿里云直供，额度按真实单价封顶
 
+## 2026-09-13 · Grok 主模型，千问备用
+
+用户指定 Next 后端默认使用自有 Grok 网关的 `grok-4.6`，失败时只切到当前 DashScope `qwen3.8-flash`。此裁决覆盖下文原有主模型和候选备用链；ASR 与联网搜索仍使用各自现有千问接口。
+
+连接说明：[Grok 网关接入 Supabase Edge Function 与 Vercel AI SDK](https://app.notion.com/p/3daf5b5cf6c481989604f8188ffd3054)。该网关现已支持 `/v1/chat/completions`，以实际调用验证，沿用项目 `ai@4.3.16` 与 compatible provider，未升级整个 SDK。`GROK_BASE_URL`、`GROK_API_KEY` 只由服务端 secrets 提供，`GROK_MODEL` 默认 `grok-4.6`；`DASHSCOPE_MODEL` 默认 `qwen3.8-flash`。旧 Vercel Gateway 与 Kimi/DeepSeek 候选不再参与此链。
+
+主对话、读图、估餐、会话记忆都使用这条链。单个供应商 HTTP 请求上限30秒，为备用留出时间；整轮截止时间、用户取消、权限、额度与持久化错误仍直接终止。只重试当前尚未执行工具的模型步骤，保留已完成步骤，不重复手机操作。图片转录的长度在类型验证后做上下文裁剪；两家读图都失败时返回明确工具失败，让模型说明限制或尝试原图估餐。
+
+各次成功调用按实际模型 ID 与 token 用量记录。网关使用周额度；现有数据库金额门禁仍对未配置专属价格的模型应用 `*` 估算价格，此估算不代表 Grok 的真实现金账单。本次不修改既有用户额度或数据库价格表。
+
+验证与上线：302 个后端测试及 lint 通过；真实网关完成流式工具调用往返、891 字符/36 个数字的合成订单图识别、估餐草稿。生产项目 `gkgzwcxivnffsecshvfs` 已部署 `turn v87` 和 `memory-settle v6`，均保留 JWT 校验。演示账号线上聊天及订单图请求成功，数据库各次调用均为 `grok-4.6`；同 operation 重放未增加模型调用，未认证请求返回401。故障注入测试覆盖千问切换与不重放已开始的工具步骤；未人为中断生产 Grok 服务。
+
 2026-09-05 用户确认：文本、视觉与 chat 统一走同一个模型；保留 fallback 但不许降级到小模型；按真实价格设每日额度，目标是让用户免费用三年。
 
 `qwen3.8-flash` 承担文本、视觉与 chat 三条路。官方模型页现在列的输入模态是 Image / Text / Video，调用格式就是 OpenAI 兼容的 `image_url` content part，走的还是同一个端点，所以 `visionModel()` 与 `VISION_MODEL_VERSION` 可以撤掉，`meal` 的照片路径与 `turn` 的 `image.inspect` 都改走 `model()`。撤掉之前必须先用真实照片打一次验证：`docs/STATUS.md` 记着的实测结论是该模型"没有图片输入"，与现行文档冲突，可能是当时尚未具备、也可能当时试的是 Gateway 通道。同一次验证顺手记下 `usage`，用来校准下面所有 token 估算。不存在 `qwen3.8-vl-*`；自 Qwen3.5 起主线系列原生多模态，独立 VL 产品线不再迭代，`qwen3-vl-flash` 在新加坡地域不支持 Function Calling，这一点主线模型没有。

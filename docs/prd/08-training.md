@@ -18,14 +18,15 @@ NOT IN V1: GPS track/pace · manual session entry · custom target · plans/peri
 05 Sources must sum exactly to the ring; no 「其他」 filler. On mismatch the whole block is —— and reported.
 06 Target derives from this morning's recovery; user cannot change it. No recovery → TARGET and OPTIMAL
    ZONE both ——, ring draws only what happened, no target tick, and no 「差 2.1」 sentence.
-07 The curve connects only sampled time. Missing point or HR 0 (notWear) is a gap: dashed, cumulative
-   line flat inside it, never interpolated. Gaps ≥ 60 min total → one note beside the ring 「今天有 N
-   小时没记到」, once a day.
+07 The curve connects only sampled time. Missing point or HR 0 (notWear) breaks the line and is
+   never interpolated. Do not shade the hole, label it, or add a DATA MISSING note — an empty
+   stretch is just empty.
 08 Every failure degrades in place: the block becomes —— plus one reason line. No modal, no full-page
    error, no bounce home. DEVICE_BUSY / TIMEOUT / network share this rule.
 09 DAY / WEEK / MONTH are filters of one page (ADR 0015 / Paper 08C A). Same three
    words as HEART. Month is 30 user days. Week/month heroes are finished-day
-   averages on the 0–21 scale, never sums. Empty days stay empty.
+   averages on the 0–21 scale, never sums — drawn as a number plus a daily line,
+   not the 0–21 ring. Empty days stay empty.
 10 Commands are serial: at most one read in flight (points → sport records → HRV); reuse a running sync.
 11 Home card and this page read the same day result from the same sync; the detail never recomputes.
 
@@ -36,8 +37,8 @@ NOT IN V1: GPS track/pace · manual session entry · custom target · plans/peri
 2 NO HEART RATE — STEPS bar filled, HR MIN dashed 0, `AUTO HR IS OFF` (amber), "Steps alone can't move
   the ring. Turn continuous heart rate back on and today rebuilds itself." Must name the cause and link
   straight to the switch.
-3 NOT WORN — dashed gap on the curve with `3H GAP` label, `NOT ON THE WRIST 13:00–16:00` (amber), "The
-  line goes flat, not up. Whatever happened in those three hours isn't in today's number."
+3 NOT WORN — the curve breaks across the unsampled stretch. No amber callout, no
+  `DATA MISSING` line: the hole in the line is the whole statement.
 4 IN SESSION — SESSION RUNNING 14:32 pill; `SCREEN MISSING · SPEC ONLY`; the button is held until the
   running screen exists (Android opt-ack ≈12 s, iOS returns immediately — no shared optimistic animation).
 5 OVER THE RING — ring capped at 21 and amber, `RAW 23.6` once in the sub-line, `RING FULL · 6.5 OVER

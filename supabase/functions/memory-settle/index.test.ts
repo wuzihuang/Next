@@ -74,6 +74,24 @@ Deno.test("a due session is summarized once, written through the trusted writer,
   assertEquals(h.usages.length, 1);
 });
 
+Deno.test("memory generation falls back before performing its single trusted write", async () => {
+  const h = harness({ due: [session], transcript });
+  const original = h.deps.generateObject;
+  const ids: string[] = [];
+  const accounted: string[] = [];
+  h.deps.generateObject = ((options: Parameters<typeof original>[0]) => {
+    ids.push(options.model.modelId);
+    if (ids.length === 1) return Promise.reject(Object.assign(new Error("unavailable"), { name: "AI_APICallError" }));
+    return original(options);
+  }) as typeof original;
+  h.deps.recordUsage = (_db, _usage, id) => { accounted.push(id); return Promise.resolve(); };
+  const out = await (await handleMemorySettle(request(), h.deps)).json();
+  assertEquals(out.settled, [session]);
+  assertEquals(ids, ["grok-4.6", "qwen3.8-flash"]);
+  assertEquals(accounted, ["qwen3.8-flash"]);
+  assertEquals(h.writes.length, 1);
+});
+
 Deno.test("closing a session from the phone marks it closed before the sweep", async () => {
   const h = harness({ due: [] });
   const out = await (await handleMemorySettle(request({ close_session: session }), h.deps)).json();

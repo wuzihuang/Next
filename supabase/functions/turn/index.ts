@@ -17,7 +17,8 @@ import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { ChatHistory, coachFrame, coachMessages } from "../_shared/coach.ts";
 import { ThoughtStream } from "../_shared/thoughts.ts";
-import { model, MODEL_VERSION, modelChain, primaryModelId } from "../_shared/model.ts";
+import { model, modelVersion, primaryModelId, modelChain, isModelFailure, withModelFallback } from "../_shared/model.ts";
+import { ImageExtract } from "../_shared/image-inspection.ts";
 import { systemPrompt, type Surface } from "../_shared/prompt.ts";
 import { buildTools, FIND_TOOL, PERSONAL_ENTITIES, READ_TOOL } from "../_shared/tools.ts";
 import { ENTITIES, resolveMatch, WRITE_ACTIONS } from "../_shared/entities.ts";
@@ -57,21 +58,19 @@ const WRITE_CLAIM_PATTERNS = ["已记录", "已记入", "已保存", "记好了"
 /// A suspended turn waits this long for the phone. Confirmation dialogs time out at 60 s
 /// on the phone; the rest is transport.
 const SUSPEND_TTL_MS = 5 * 60_000;
-/// Model work budget per request. ADR 0022 · the advice face runs detached from its
-/// connection with a longer budget; 110 s leaves prefetch room under the hosted free
-/// tier's 150 s wall clock. F4 keeps the panel and Chat at 55 s.
-/// A web-verified meal estimate is a search (≤35 s) and then an estimate (≤30 s) before the
-/// render step; 55 s ended those turns in the fallback frame. 80 s keeps the whole run,
-/// including the fallback's save, inside the 90 s claim lease without a renewal.
-export const TURN_DEADLINE_MS = 80_000;
+/// Model work budget per request. Image turns can contain a provider fallback plus a
+/// structured read and a final answer. 80 s cut those turns off after their evidence was
+/// already ready, producing a failure frame at exactly 80,000 ms. Leave persistence room
+/// under the hosted 150 s wall clock and renew the execution lease while work continues.
+export const TURN_DEADLINE_MS = 120_000;
 /// A meal's web check is optional and bounded; past this the estimate goes ahead unreferenced.
 export const MEAL_SEARCH_CAP_MS = 15_000;
 /// How many rejected frames a turn hands back to the model before the verdict stands.
 export const MAX_RENDER_OBJECTIONS = 2;
 export const PLAN_DEADLINE_MS = 110_000;
-/// A detached advice turn renews its 90 s execution lease before a model step once this
-/// much of it has been used, so an expired lease always means a dead run.
-const PLAN_LEASE_RENEW_MS = 30_000;
+/// Every surface renews its 90 s execution lease before another model step once this much
+/// time has elapsed. Long image tools are user-visible streamed work, not dead claims.
+const TURN_LEASE_RENEW_MS = 30_000;
 
 export type TurnDependencies = {
   authenticate: (request: Request) => Promise<string | null>;
@@ -220,7 +219,8 @@ export async function handleTurn(
   const ctx: Ctx = { db, userId, dayKey, tz, cache: new Map(),
     ...(resolved.explicitRange ? { from: resolved.from, to: resolved.to } : {}) };
   const routedFrame = (frame: Envelope): Envelope => surface === "panel" && isChat ? { ...frame, handoff: "chat" } : frame;
-  const save = (frame: Envelope, trace: unknown[], latency: number) => completeTurn(db, turnId, text, routedFrame(frame), trace, latency, conversationId, resolved, leaseId, sessionId);
+  let responseModelId = primaryModelId();
+  const save = (frame: Envelope, trace: unknown[], latency: number) => completeTurn(db, turnId, text, routedFrame(frame), trace, latency, conversationId, resolved, leaseId, sessionId, modelVersion(responseModelId));
   // 11 · 07 · language is an app-side preference: the app sends it with the turn, and the
   // profile row stands in for a client that does not. Every word on screen follows it.
   const locale = normalizeLocale(body.locale ?? prof?.locale);
@@ -387,7 +387,7 @@ export async function handleTurn(
     const assertModelBudget = async () => {
       signal.throwIfAborted();
       if (Date.now() >= deadline) throw new Error("TURN_DEADLINE");
-      if (isPlan && Date.now() - leaseRenewedAt >= (deps.leaseRenewAfterMs ?? PLAN_LEASE_RENEW_MS)) {
+      if (Date.now() - leaseRenewedAt >= (deps.leaseRenewAfterMs ?? TURN_LEASE_RENEW_MS)) {
         // A lost lease means a later request already took this turn over: stop here rather
         // than publish over it. record_claimed_ai_turn would refuse the frame anyway.
         const renewed = await db.rpc("renew_ai_turn", { p_turn: turnId, p_lease: leaseId, p_ttl_seconds: 90 });
@@ -427,8 +427,8 @@ export async function handleTurn(
     };
     let mealDraft: MealEstimateDraft | null = suspended?.mealDraft ?? null;
     tools["meal.estimate"] = {
-      description: "Estimate the meal in this turn's words or attached image. Only select for a meal description or a requested meal estimate, never for an unrelated question containing a food word. Common dishes are estimated directly; give reference_query only for a packaged or branded product, or a dish you cannot estimate. The search is best-effort and capped, and the estimate proceeds without it. Returns a draft, not a saved record.",
-      parameters: z.object({ reference_query: z.coerce.string().optional().describe("Optional. Public packaged/branded product or unfamiliar dish nutrition question; no personal details. Omit for common dishes. For an unidentified photo use image.inspect first.") }),
+      description: "Estimate the meal in this turn's words or attached image. This tool reads an attached food image itself, so do not call image.inspect first. Only select for a meal description or a requested meal estimate, never for an unrelated question containing a food word. Common dishes are estimated directly; give reference_query only for a packaged or branded product, or a dish you cannot estimate. The search is best-effort and capped, and the estimate proceeds without it. Returns a draft, not a saved record.",
+      parameters: z.object({ reference_query: z.coerce.string().optional().describe("Optional. Public packaged/branded product or unfamiliar dish nutrition question; no personal details. Omit for common dishes.") }),
       execute: async ({ reference_query }: { reference_query?: string }) => {
         if (!mealDraft) {
           // The user ruled that a meal never waits on the web: a search is a bounded bonus,
@@ -463,7 +463,13 @@ export async function handleTurn(
         execute: async () => {
           if (!extracted) {
             await assertModelBudget();
-            extracted = await inspectImage(image, text, locale, deps, db, turnId, signal);
+            try {
+              extracted = await inspectImage(image, text, locale, deps, db, turnId, signal);
+            } catch (error) {
+              if (signal.aborted || !isModelFailure(error)) throw error;
+              console.warn("image inspection unavailable", (error as Error).name);
+              return { ok: false, error: "IMAGE_READ_FAILED", say: "The image could not be read reliably. Do not invent visible facts. For a meal estimate, try meal.estimate using the original attached image; otherwise explain the limitation and ask for the relevant text." };
+            }
             ledger.harvest(extracted, "image.inspect");
             // ⚠️ visibleText is a string, and harvest only walks numbers. A photo whose text
             // the model transcribed ("101") was then rejected as untraceable when it quoted
@@ -791,6 +797,7 @@ export async function handleTurn(
         abortSignal: signal,
         onStepFinish: async ({ toolResults, usage, providerMetadata, response }) => {
           await deps.recordUsage(db, usageFromProvider(usage, providerMetadata), modelId, turnId);
+          responseModelId = modelId;
           finishTurnStep(workflow, toolResults ?? []);
           if (workflow.coachHandoff && !isChat && surface === "panel") {
             effectiveSurface = "chat";
@@ -823,30 +830,22 @@ export async function handleTurn(
       if (!envelope && !calledTools) throw new Error("WORKFLOW_OUTPUT_REQUIRED");
     };
     const runStep = async () => {
-      const ids = modelChain();
+      const chain = modelChain();
+      const ids = chain.slice(Math.max(0, chain.indexOf(responseModelId)));
       let lastError: unknown;
       for (const [index, modelId] of ids.entries()) {
+        const traceBefore = trace.length;
+        const stepsBefore = workflow.completedSteps;
         try {
           await attempt(modelId);
           return;
         } catch (e) {
           thoughts.flush();
           lastError = e;
-          const providerFailure = e instanceof Error &&
-            (e.name === "AI_APICallError" || e.name === "AI_RetryError");
-          if (!providerFailure || signal.aborted || workflow.completedSteps > 0 || trace.length > 0) throw e;
-          const fast = Date.now() - started < 20_000;
-          if (index === 0 && fast) {
-            console.error("turn attempt 1 failed, retrying:", e instanceof Error ? `${e.name}: ${e.message}` : e);
-            envelope = null;
-            try {
-              await attempt(modelId);
-              return;
-            } catch (retryError) {
-              thoughts.flush();
-                  lastError = retryError;
-            }
-          }
+          // Earlier completed steps are safe to preserve. Never replay a step that
+          // already executed a tool or settled its result, especially a phone write.
+          if (!isModelFailure(e) || signal.aborted || workflow.completedSteps !== stepsBefore || trace.length !== traceBefore) throw e;
+          if (index < ids.length - 1) console.warn("turn model fallback", modelId, (e as Error).name);
         }
       }
       throw lastError;
@@ -1030,13 +1029,6 @@ function planFallback(locale: "zh-CN" | "en-US"): Envelope {
   };
 }
 
-const ImageExtract = z.object({
-  summary: z.string().max(320),
-  visibleText: z.string().max(180).optional(),
-  objects: z.array(z.string().max(48)).max(8),
-  numericFacts: z.array(z.number()).max(12),
-});
-
 async function inspectImage(
   image: string,
   userText: string,
@@ -1046,8 +1038,8 @@ async function inspectImage(
   turnId: string,
   signal: AbortSignal,
 ): Promise<Record<string, unknown>> {
-  const result = await deps.generateObject({
-    model: model(),
+  const { result, modelId } = await withModelFallback((id) => deps.generateObject({
+    model: model(id),
     schema: ImageExtract,
     system: [
       "Inspect the image and report only directly visible facts.",
@@ -1066,8 +1058,8 @@ async function inspectImage(
     mode: "json",
     abortSignal: signal,
     maxRetries: 0,
-  });
-  await deps.recordUsage(db, usageFromProvider(result.usage, result.providerMetadata), primaryModelId(), turnId);
+  }), signal);
+  await deps.recordUsage(db, usageFromProvider(result.usage, result.providerMetadata), modelId, turnId);
   return result.object;
 }
 
@@ -1090,11 +1082,12 @@ async function completeTurn(
   db: ReturnType<typeof userClient>, turnId: string,
   text: string, envelope: Envelope, trace: unknown[], latency: number, conversationId: string | null,
   queryContext: TurnContext, leaseId: string, sessionId: string | null,
+  modelVersion: string,
 ) {
   const { data: receipt, error } = await db.rpc("record_claimed_ai_turn", {
     p_lease: leaseId, p_query_context: conversationId ? queryContext : null,
     p_turn: turnId, p_text: text, p_envelope: envelope, p_trace: trace,
-    p_latency: latency, p_model: MODEL_VERSION, p_conversation: conversationId,
+    p_latency: latency, p_model: modelVersion, p_conversation: conversationId,
   });
   if (error || !receipt?.frame_id) throw new Error("TURN_PERSIST_FAILED");
   try {

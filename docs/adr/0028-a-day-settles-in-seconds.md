@@ -33,6 +33,8 @@
 
 同日第二刀 `20260912160000_training_ticks_once_per_settle.sql`：`training_load_ticks` 在一次 `settle_day` 里只建一次（五个调用方都在 `settle_day` 内，含 `daily_training` 上的两个触发器；`sport_heart_rate_samples` 没有失效触发器，所以这个 memo 只在 `nb.settling_day` 标着当天时生效，结算之外每次都走引擎），`night_evidence_parts_at_uncached` 里把规范夜从五次读改成一个物化 CTE。一天 4.8 → 3.7 s。它同时补上第一刀漏掉的一件事：改名的引擎带着原来的 ACL，新建的包装不带——`night_evidence_parts_at` 包装曾对 anon / authenticated 可执行，两处包装都 revoke 到与引擎一致，`training_load_evidence.sql` 第 39 条和新测试都断言这一点。
 
+第三刀 `20260912170000_replay_walks_its_ticks_once.sql`，三件事。回放的递归 CTE `replay` join 的 `numbered` 不是 materialized，只被引用一次，规划器把它内联进了递归项——288 步递归每一步都把 tick_grid → observed → fused → feature 整条链重跑一遍，一天 83,000 次 `raw_samples` 索引查找；一个 `materialized` 让它算一次，回放本身 1264 → 165 ms。夜间证据引擎里同一夜的 HRV JSON 被 `merge_sleep_hrv` 合并两次（原生点一次、撤销一次），每个原生点的时间戳解析 5 次、数值 3 次；`night` CTE 带上合并结果，原生点经 `offset 0` 挡住上拉的 lateral 子查询各解析一次。包装函数的 key 对已收尾的夜不再带 as-of：引擎里所有与 as-of 比较的项（原生点与原始采样的 `ts < as_of`、资格判定的 `wake_at <= as_of`）在 `wake_at` 过后就已定死，因为覆盖的分钟止于 `wake_at`；候选行（前后各一天）的 `wake_at` 都不晚于 as-of 时，答案与任何更晚的 as-of 相同，一次追三天的结算每个基线夜只算一次。仍在进行的夜保留精确 as-of。一天 3.6 → 1.9 s（今天 2.4 → 1.3 s，另一账号 2.5 → 1.3 s）。
+
 memo 放在事务级 setting 里，就是 `nb.replay_key` 早就在用的模式：随事务消亡，不占目录行，STABLE 的 SQL 函数里读得到（验证过：带 `SET` 子句的 STABLE plpgsql 函数里 `set_config(…, true)` 写的值在函数退出后仍在，rollback 后消失）。
 
 ## 验证
@@ -46,7 +48,7 @@ memo 放在事务级 setting 里，就是 `nb.replay_key` 早就在用的模式�
 - 结果**按构造不变**：memo 返回的就是引擎返回的。`calculation_version` 不动，不触发全量重放。
 - 6 小时撤成 `——` 的显示规则（CONTEXT「身体电量窗」）不动；ADR 0026 修的是「tick 没上来」，这条修的是「tick 上来了没人算」，两条互不替代。
 - 同一夜在不同 as-of 下仍会各算一次（键含 as-of）。已收尾的夜其实与 as-of 无关，把键归一化能把跨天的重复也省掉，但要在包装里先读 `wake_at`；本期不做，一天 3–5 秒够用。
-- 一天仍要 3–4 秒，不是毫秒。剩下的是回放本身的递归（1.2 s）和夜间证据里逐点解析原生 HRV JSON（`bb_instant` 7 万次、`merge_sleep_hrv` 21 次，约 1.2 s）；再往下走要么把解析结果落成表，要么改回放算法。等它成为问题再说。手机 8 秒预算的一半是 4 秒，3–4 秒一天意味着每次回前台结算一到两天；手环补传昨夜会把账号重新标脏到前天，最坏要两次回前台才到今天，其间每小时的 cron 也在追。
+- 一天 1.3–2 秒，不是毫秒。剩下的大头是夜间证据里对每一夜原生 HRV JSON 的解析（`bb_instant` / `bb_number` 是带异常块的 plpgsql，每次调用有子事务开销）和 `training_load_ticks` 的一次构建；再往下走要把解析结果落成表。等它成为问题再说。手机 8 秒预算的一半是 4 秒，2 秒一天意味着每次回前台结算两到三天，手环补传昨夜把账号标脏到前天也一次追完。
 
 ## 考虑过的替代
 

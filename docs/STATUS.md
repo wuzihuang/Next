@@ -64,7 +64,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 07 | the render contract · 27 types, 10 renderers, 8 slots | built |
 | 05 | Dock · idle / typing / listening | built, walked on device |
 | 06 | the plus menu and the measurement takeover | built, walked on device |
-| 08 | Training detail · Paper 08C A DIAL + DAY/WEEK/MONTH (1 / 7 / 30 user days); hero stays 0–21 | built |
+| 08 | Training detail · DAY is the 0–21 ring; WEEK/MONTH are a daily line (hero still 0–21, never a sum). Missing stretches break the line and are not labelled | built |
 | 09 | Fuel detail · Paper 09H DAY/WEEK/MONTH (1 / 7 / 28 user days); month is a typical day | built |
 | 10 + 10S | Composition, and the manual weigh-in | built, walked on device |
 | 11 | Profile · 11C Instrument plates (identity / body battery curve / year composition / measurements) and 13 sheets | built from Paper `57U-0` + `13A` |
@@ -855,7 +855,7 @@ an open question about the bottom strip, so 13 stands — but one of the two boa
 
    | | |
    |---|---|
-   | the settle job | `pg_cron`, hourly, per-user calendar, two days back. A day settles in 3–5 s since 20260912150000 (ADR 0028: night evidence and the replay memoised per transaction; it was 40 s, which neither the cron's 84 s nor the phone's 8 s `settle_now` could ever finish) |
+   | the settle job | `pg_cron`, hourly, per-user calendar, two days back. A day settles in 1.3–2 s since 20260912150000–170000 (ADR 0028: night evidence, replay and training ticks memoised per transaction, the replay's recursion no longer re-running its tick chain per step; it was 40 s, which neither the cron's 84 s nor the phone's 8 s `settle_now` could ever finish) |
    | retention | `pg_cron` nightly · 400 / 90 / 180 days per 1DLA |
    | `account.delete` | `public.account_delete(confirm)` RPC |
    | `export` | `public.export_all()` RPC |
@@ -2092,3 +2092,109 @@ and the PostgreSQL 16 ingestion/revision/delta harness passed including concurre
 correction and receipt validation. A complete Supabase PostgreSQL 17 migration rebuild
 and all three SQL suites also passed. This change has not been deployed or installed;
 end-to-end synchronization time on a physical band has not yet been measured.
+
+## Phase 12 · two HOOPs, one wearer (2026-09-13, not deployed, not installed)
+
+Single-HOOP removal revision: CONNECTION now opens an A / B selection and confirms only
+that binding. The surviving slot keeps its letter and becomes active; removing the final
+HOOP returns to pairing. Local bindings are removed only after the server succeeds, and
+the vacant slot can be activated again (including A when B remains). Historical readings
+stay on the account. This supersedes the whole-set release behavior described below;
+the new `release_device` migration and app update require release together.
+Validated with the 813-test Swift suite, the added slot-removal regression, simulator
+and device Debug builds, the `RemoveHoopTests` UI flow, and a full isolated database
+rebuild running `release_one_hoop.sql` plus `two_hoops_one_wearer.sql`.
+The first phone retry exposed an unpublished RPC: `20260913160000_release_one_hoop`
+is now applied to production (2026-09-13), with authenticated execution and no anonymous
+execution verified. The acknowledgment no longer waits for BLE/history cleanup; the app
+shows an explicit success screen and distinguishes missing binding, pending wear changes,
+service/auth failures and an unconfirmed timeout. Targeted release-operation and UI tests
+passed; the signed Debug update was installed on the connected iPhone 17 Pro Max.
+Physical BLE cleanup after the user's selected removal still needs a walk.
+
+`docs/plans/2026-09-12-dual-device-continuity.md` §04.5 is built as V1: a set is two slots
+(A / B) on one account, worn by one person, switched by hand. ADR 0029 has the rulings.
+
+- Server: `20260913100000_two_hoops_one_wearer.sql` — `devices.slot`, `wear_events`,
+  `band_standby_samples` / `band_standby_sleep`, `nb.wearer_device_key`, the
+  `ingest_band_domain` wrapper over `ingest_band_domain_single`, `publish_sleep_night`,
+  `record_wear_event` (idempotent by op id, clamped to `bound_at`, reprojects on back-dating),
+  `wear_timeline`, `release_device_set`. Proven by `supabase/tests/two_hoops_one_wearer.sql`
+  in the disposable container; the band ingestion / revision / receipt / sleep-correction /
+  settle suites still pass on top of it. **Not pushed.**
+- Phone: `DeviceSlots` (slots + wear timeline in UserDefaults; `BoundBand.identifier` now
+  reads the transport slot, legacy keys migrate into slot A), `DeviceSetStore` (load,
+  declare, handover, standby sync, activation, release), sleep rows carry `device_key` and
+  go through `publish_sleep_night`. DEVICE: wearing strip, standby slab with its own
+  `SYNC B`, dashed `Add your second HOOP` slot, WEARING › `I'm wearing HOOP B`, CONNECTION ›
+  `Release both HOOPs`. Sheets: `ActivateSecondSheet`, `WearSwitchSheet`, `ReleaseSetSheet`
+  (`NB_DEBUG_DEVICE_SHEET=activateSecond|wearSwitch|releaseSet`; `NB_DEBUG_SECOND_HOOP=1` seeds
+  slot B on a simulator so the set page is walkable without tapping through activation). Connected screen carries
+  the `KEEP WEARING. CHARGE THE OTHER.` line. MockBand advertises a second band
+  (`8E-41-C0-2B-77-1F`) 0.9 s after the first.
+- Real-device walk (iPhone 17 Pro Max, two HOOPs, 2026-09-13): activation of the second
+  band worked first time (slot B, capabilities, battery). It also exposed that the phone
+  keys evidence by peripheral UUID while `devices.ble_identifier` is the MAC, so the wearer
+  rule never matched and the worn band's own ticks were held — fixed by
+  `20260913120000_wearer_is_keyed_by_the_phone.sql` (`devices.client_key`,
+  `claim_device_key`), both migrations **applied to production** through the Management
+  API and the held ticks re-projected. Activation faces now reuse Connect's scan rings and
+  dotted progress (A·S1–S4); slots stay put, the lime slides on a declaration.
+- Switching is one tap (2026-09-13, `20260913140000_the_switch_finds_its_own_start.sql`,
+  applied to production): tapping the other HOOP's card opens a confirmation and nothing
+  else. `record_wear_event` with no time files at now and marks the row `auto`; after the
+  phone has read the newly worn band, `settle_wear_start` walks that band's own run of
+  on-wrist ticks backwards (45-minute gap, 24-hour horizon, never across an earlier
+  declaration, only while the outgoing band was idle) and moves the start there. The
+  picker and the Now/Earlier wheel are gone; a time pinned by hand is `manual` and lives
+  behind the `Counted from …` line (`NB_DEBUG_DEVICE_SHEET=wearCorrect`).
+- Five things the first real-device session turned up, all fixed 2026-09-13:
+  an outlined key inside a plain button is hit-tested on its glyphs only, so `NOT NOW`
+  did nothing (`.contentShape(Capsule())`, also applied to Forget and Disconnect);
+  the chrome pill said CONNECTED while the slab still said CONNECTING (the slab now says
+  `WEARING · SYNCING` once the link is up); a pull draws a dotted bar and
+  `READING DAY 4 OF 9` from a new day counter on `BandSyncActivity` (the rate is the
+  SDK's — only the position is new); flat and nearly-flat bands have their own words on
+  both cards, in the switch sheet, and in the sync failure message; and the band on the
+  charger no longer carries a SYNC key at all — its days come back when it is worn, with
+  an ember warning inside the last 24 h of the firmware's retention window. Walked on the
+  simulator with `NB_DEBUG_STANDBY=flat|low|pending|risk` and `NB_DEBUG_SYNC_PROGRESS=n`.
+- The switch is measured against four numbers (2026-09-13): tap → lime moves (local, the
+  declaration no longer waits on the network); tap → link on the new band with today read
+  (`WEAR_SWITCH_CONNECTED.MS`, now a `.handover` refresh that skips the deep backfill);
+  tap → everything the band holds (`WEAR_SWITCH_CAUGHT_UP.MS`, a background `.fullHistory`
+  with the bar still drawing); and a burst of taps, which collapses to at most one link
+  move through a single serialized handover task with a 400 ms settle that always chases
+  the newest declaration. A pull already walking the old band's week no longer holds the
+  switch: the transport pointer moves first so that flight stops at its next day boundary,
+  and the strip says `FINISHING A · THEN B` while it does. Walked on the simulator with
+  `NB_DEBUG_SWITCH=B,A,B,A` and `NB_DEBUG_SWITCH_MS=30` (0 moves, ends on A), `=B` (1 move)
+  and `=A,B` at 2500 ms (2 moves).
+- The device page's sync bar was a prop and is now proportional (2026-09-13). It drew a
+  stuck zero through connecting and the first day, then snapped to 100% the moment one day
+  finished, because the counter set `total = max(total, done)` while the real day count was
+  not known until after the first two days had been read — a later, larger total even
+  pulled it backwards. `BandSyncPolicy.ReadProgress` now owns the numbers, seeded from the
+  band's retained-day count in `prepare` and taken over by the SDK's own dump ticks
+  (`BandEvent.historyRead(day:of:percent:)`) once they speak, so the bar also moves within
+  a day. Connecting has no size at all, so `DottedProgress(progress:)` takes an optional
+  and travels a lit window instead of drawing a position it does not have. Measured on a
+  simulator at 0, 3 and 8 of 9: empty, one third, eight ninths. The travelling window
+  could not be verified from screenshots — `simctl io screenshot` does not capture
+  animation frames.
+- A switch runs one sync, not two (2026-09-13). Splitting the handover into a fast first
+  pass plus a background catch-up made the page connect and sync twice for one tap: the
+  second pass re-ran `prepare` and re-read the two recent days before reaching the
+  history. There is now a single `.fullHistory` pull per switch, and the handover phase is
+  released as soon as the link is up so the strip stops saying CONNECTING while the days
+  come in. The `.handover` request kind added for the split is gone.
+- The sync bar moves inside a day, not once per day (2026-09-13). The SDK's own dump
+  reports `(day, totalDay, percent)` and drives the bar continuously, but only on a cold
+  read: `readAllDataIfStale` caches the bulk dump, so a repeat sync skipped it and the only
+  movement left was one step per day — three jumps. `ReadProgress.within(percent:)` now
+  carries the day's own checkpoints (each band command that came back: the origin page and
+  the health read per page, the sleep read, the filing), four to six per day instead of
+  one, and stands down the moment the dump speaks. `ReadProgress.revise(total:)` corrects
+  the seeded retained-day count down to the days actually being read, so a pull ends at
+  100% instead of stopping at three sevenths and vanishing. Four unit tests cover both.
+- Not in V1: automatic wear detection, Preferred HOOP, handing a HOOP to someone else.

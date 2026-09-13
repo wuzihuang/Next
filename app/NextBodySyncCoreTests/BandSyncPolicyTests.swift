@@ -130,4 +130,91 @@ final class BandSyncPolicyTests: XCTestCase {
         XCTAssertTrue(needsAudit(confirmedHistory(), outcome: nil), "missing overall outcome must be repaired")
     }
 
+    func testReadFractionUsesTheDayBeingReadAndItsPercent() {
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 1, of: 7, percent: 0), 0, accuracy: 0.0001)
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 1, of: 7, percent: 50), 0.5 / 7, accuracy: 0.0001)
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 4, of: 7, percent: 0), 3.0 / 7, accuracy: 0.0001)
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 4, of: 7, percent: 50), 3.5 / 7, accuracy: 0.0001)
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 7, of: 7, percent: 100), 1, accuracy: 0.0001)
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 1, of: 0, percent: 50), 0)
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 9, of: 7, percent: 100), 1)
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 1, of: 7, percent: 150), 1.0 / 7, accuracy: 0.0001)
+        XCTAssertEqual(BandSyncPolicy.readFraction(day: 0, of: 7, percent: 0), 0)
+    }
+
+    func testReadProgressDoesNotJumpToCompleteOnTheFirstFinishedDay() {
+        var progress = BandSyncPolicy.ReadProgress()
+        XCTAssertEqual(progress.fraction, 0)
+        progress.expect(total: 7)
+        XCTAssertEqual(progress.fraction, 0)
+        progress.step()
+        XCTAssertEqual(progress.done, 1)
+        XCTAssertEqual(progress.total, 7)
+        XCTAssertEqual(progress.fraction, 1.0 / 7, accuracy: 0.0001)
+        progress.step()
+        XCTAssertEqual(progress.fraction, 2.0 / 7, accuracy: 0.0001)
+    }
+
+    func testReadProgressFollowsTheDeviceDumpAndIgnoresLaterFilingSteps() {
+        var progress = BandSyncPolicy.ReadProgress()
+        progress.expect(total: 2)
+        progress.reportRead(day: 4, of: 7, percent: 50)
+        XCTAssertEqual(progress.done, 3)
+        XCTAssertEqual(progress.total, 7)
+        XCTAssertEqual(progress.percent, 50)
+        XCTAssertEqual(progress.fraction, 3.5 / 7, accuracy: 0.0001)
+        progress.step()
+        progress.expect(total: 9)
+        XCTAssertEqual(progress.done, 3)
+        XCTAssertEqual(progress.total, 7)
+        XCTAssertEqual(progress.fraction, 3.5 / 7, accuracy: 0.0001)
+        progress.reportRead(day: 1, of: 7, percent: 0)
+        XCTAssertEqual(progress.fraction, 3.5 / 7, accuracy: 0.0001,
+                       "a later domain dump must not rewind the bar")
+        progress.reportRead(day: 7, of: 7, percent: 100)
+        XCTAssertEqual(progress.fraction, 1, accuracy: 0.0001)
+    }
+
+    func testWithinMovesTheBarInsideADayAndNeverRewinds() {
+        var progress = BandSyncPolicy.ReadProgress()
+        progress.expect(total: 4)
+        progress.step()                       // one day filed, three to go
+        XCTAssertEqual(progress.fraction, 0.25, accuracy: 0.001)
+        progress.within(percent: 50)
+        XCTAssertEqual(progress.fraction, 0.375, accuracy: 0.001)
+        progress.within(percent: 20)          // a later checkpoint cannot go backwards
+        XCTAssertEqual(progress.fraction, 0.375, accuracy: 0.001)
+        progress.step()                       // the next day starts from its own zero
+        XCTAssertEqual(progress.fraction, 0.5, accuracy: 0.001)
+    }
+
+    func testWithinStandsDownOnceTheDeviceDumpIsDriving() {
+        var progress = BandSyncPolicy.ReadProgress()
+        progress.expect(total: 7)
+        progress.reportRead(day: 3, of: 7, percent: 40)
+        let fromDevice = progress.fraction
+        progress.within(percent: 99)
+        XCTAssertEqual(progress.fraction, fromDevice, accuracy: 0.0001)
+    }
+
+    func testReviseLetsAPullFinishWhenFewerDaysNeedReading() {
+        var progress = BandSyncPolicy.ReadProgress()
+        progress.expect(total: 7)             // the band holds seven days
+        progress.step(); progress.step()
+        XCTAssertEqual(progress.fraction, 2.0 / 7, accuracy: 0.001)
+        progress.revise(total: 3)             // only three of them need reading
+        XCTAssertEqual(progress.fraction, 2.0 / 3, accuracy: 0.001)
+        progress.step()
+        XCTAssertEqual(progress.fraction, 1, accuracy: 0.001)
+    }
+
+    func testReviseNeverDropsBelowWhatIsAlreadyDone() {
+        var progress = BandSyncPolicy.ReadProgress()
+        progress.expect(total: 7)
+        for _ in 0..<5 { progress.step() }
+        progress.revise(total: 2)
+        XCTAssertEqual(progress.total, 5)
+        XCTAssertEqual(progress.fraction, 1, accuracy: 0.001)
+    }
+
 }

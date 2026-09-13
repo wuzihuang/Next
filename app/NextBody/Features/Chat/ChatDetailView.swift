@@ -51,9 +51,6 @@ struct ChatDetailView: View {
                         attachedDataURL = nil
                         selectedPhotoItem = nil
                     },
-                    onQuickPrompt: { prompt in
-                        sendDirect(prompt)
-                    },
                     onSubmit: {
                         submitMessage()
                     }
@@ -155,7 +152,7 @@ struct ChatDetailView: View {
                     }
 
                     if chatStore.isSendingCurrentSession {
-                        ThinkingStatusView(thoughts: chatStore.thoughts)
+                        ThinkingStatusView(thoughts: chatStore.thoughts, reading: chatStore.reading)
                             .id(ChatScrollTarget.thinking)
                     }
 
@@ -340,7 +337,7 @@ private struct ChatTopBarView: View {
                             .foregroundStyle(NB.lime1)
                     }
                 }
-                .frame(minHeight: DetailBack.hitHeight, alignment: .leading)
+                .frame(minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(HotZoneTap(pressedOpacity: 1, pressedScale: 1))
@@ -367,8 +364,8 @@ private struct ChatTopBarView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, NB.Layout.gutter)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
     }
 }
 
@@ -493,6 +490,7 @@ private struct ChatAnswerView: View {
 // MARK: - Thinking View
 private struct ThinkingStatusView: View {
     let thoughts: [AIService.Thought]
+    let reading: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Characters a second, the panel's rate — the two surfaces print at the same pace.
@@ -536,6 +534,16 @@ private struct ThinkingStatusView: View {
                     }
                 }
             }
+
+            if let progress = progressLine {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini).tint(NB.lime1)
+                    Text(progress)
+                        .font(NBFont.ui(400, 12))
+                        .foregroundStyle(NB.text2.opacity(0.72))
+                }
+                .accessibilityIdentifier("chat.thinking.progress")
+            }
         }
         .accessibilityIdentifier("chat.thinking")
         .padding(14)
@@ -550,6 +558,20 @@ private struct ThinkingStatusView: View {
         if reduceMotion { return last.text.count }
         return min(last.text.count, Int(max(0, now.timeIntervalSince(last.at)) * Self.typeRate))
     }
+
+    private var progressLine: String? {
+        switch reading {
+        case "image.inspect":             return L("READING THE IMAGE")
+        case "web.search":                return L("SEARCHING THE WEB")
+        case "meal.estimate":             return L("CHECKING FOOD NUTRITION")
+        case "meal.log":                  return L("SAVING YOUR MEAL")
+        case "health.prepare":            return L("PREPARING HEALTH DATA")
+        case "workflow.ready":            return L("PREPARING YOUR ANSWER")
+        case .some(let t) where t.hasPrefix("screen.render"): return L("DRAWING IT")
+        case .some:                        return L("PREPARING YOUR ANSWER")
+        case .none:                        return nil
+        }
+    }
 }
 
 // MARK: - Bottom Dock View · Cyber Telemetry
@@ -560,13 +582,10 @@ private struct ChatBottomDockView: View {
     let canSend: Bool
     let onPickPhoto: () -> Void
     let onRemovePhoto: () -> Void
-    let onQuickPrompt: (String) -> Void
     let onSubmit: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
-            quickCommandScrollView
-
             if let img = attachedImage {
                 stagedPhotoPill(img)
             }
@@ -574,42 +593,8 @@ private struct ChatBottomDockView: View {
             inputRow
         }
         .padding(.horizontal, NB.Layout.gutter)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-    }
-
-    private var quickCommandScrollView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Button {
-                    onQuickPrompt(L("Suggest useful adjustments from my latest data"))
-                } label: {
-                    Text(L("[CMD: GET ADVICE]"))
-                        .font(NBFont.dot(600, 11))
-                        .tracking(0.03 * 11)
-                        .foregroundStyle(NB.lime1)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(NB.lime1.opacity(0.08), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(NB.lime1.opacity(0.25), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    onQuickPrompt(L("Correlate sleep stages with nocturnal HRV"))
-                } label: {
-                    Text(L("[CMD: SLEEP CORRELATION]"))
-                        .font(NBFont.dot(500, 11))
-                        .tracking(0.03 * 11)
-                        .foregroundStyle(NB.text2)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(NB.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(NB.hairline, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-            }
-        }
+        .padding(.top, 8)
+        .padding(.bottom, 0)
     }
 
     private func stagedPhotoPill(_ img: UIImage) -> some View {

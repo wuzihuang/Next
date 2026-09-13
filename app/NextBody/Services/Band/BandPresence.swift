@@ -31,6 +31,8 @@ final class BandPresence {
                     guard ConsentStore.shared.granted, SupabaseClient.currentUserIdSnapshot() != nil,
                           BoundBand.identifier != nil else { continue }
                     store.applyBandObservation(battery: b)
+                case .historyRead(let day, let of, let percent):
+                    BandSyncActivity.shared.reportRead(day: day, of: of, percent: percent)
                 default:
                     break
                 }
@@ -179,4 +181,59 @@ final class BandPresence {
 final class BandSyncActivity: ObservableObject {
     static let shared = BandSyncActivity()
     @Published var phase = "idle"
+    /// Days the current pull has finished, and how many it expects. The band answers one
+    /// day at a time and the SDK sets the pace, so this is the honest thing to show: not a
+    /// speed, but where the read has got to. Zero total means nothing is being counted.
+    @Published private(set) var progress = BandSyncPolicy.ReadProgress()
+
+    var done: Int { progress.done }
+    var total: Int { progress.total }
+    var percent: Int { progress.percent }
+    var fraction: Double { progress.fraction }
+
+    func beginCounting() { progress.begin() }
+    /// The backfill knows how many retained days it will walk once it has asked the band.
+    func expect(total value: Int) {
+        var next = progress
+        next.expect(total: value)
+        progress = next
+    }
+    func step() {
+        var next = progress
+        next.step()
+        progress = next
+    }
+    /// Movement inside the day being read, 0…100. Ignored once the dump is driving.
+    func within(percent value: Int) {
+        guard phase != "idle" else { return }
+        var next = progress
+        next.within(percent: value)
+        progress = next
+    }
+    /// The real number of days this pull will read, once the plan is known.
+    func revise(total value: Int) {
+        guard phase != "idle" else { return }
+        var next = progress
+        next.revise(total: value)
+        progress = next
+    }
+    /// SDK dump tick: which day of how many, and 0…100 of that day.
+    func reportRead(day: Int, of: Int, percent: Int) {
+        guard phase != "idle" else { return }
+        var next = progress
+        next.reportRead(day: day, of: of, percent: percent)
+        progress = next
+    }
+    func stopCounting() { progress.stop() }
+
+    #if DEBUG
+    /// `NB_DEBUG_SYNC_PROGRESS=3` paints the bar without a band to read.
+    func debugShow(done value: Int, total count: Int) {
+        phase = "syncing"
+        var next = BandSyncPolicy.ReadProgress()
+        next.expect(total: count)
+        for _ in 0..<value { next.step() }
+        progress = next
+    }
+    #endif
 }

@@ -1,7 +1,7 @@
 import XCTest
 
-/// 12S · walks the Device page to the release health-light row. Only reads the lamp
-/// status; the user observes the physical writes.
+/// 12S · walks the Device page to the health-light row in the debug card. Only reads the
+/// lamp status; the user observes the physical writes.
 final class HealthLightSheetTests: XCTestCase {
     func testDeviceLightRowExposesFourStates() {
         continueAfterFailure = false

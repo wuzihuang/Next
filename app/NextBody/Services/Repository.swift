@@ -14,6 +14,9 @@ final class Repository {
     /// it, and neither is worth a round trip of its own.
     private(set) var deviceId: String?
 
+    /// The link moved to the other slot; sync_runs and capabilities now name that row.
+    func adoptTransportDevice(id: String?) { deviceId = id }
+
     private var homeFastTask: Task<Void, Never>?
     private var evidencePublicationTask: Task<Void, Never>?
     private var homeFastDone = false
@@ -190,6 +193,7 @@ final class Repository {
         guard let rows = try? await db.select("devices", query: [
             .init(name: "select", value: "id,last_origin_sync_at,bound_at"),
             .init(name: "unbound_at", value: "is.null"),
+            .init(name: "slot", value: "eq.\(BoundBand.transportSlot.rawValue)"),
             .init(name: "limit", value: "1"),
         ]), let row = rows.first else { return }
         guard account != nil, account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
@@ -209,9 +213,10 @@ final class Repository {
         ])
         async let deviceRows = db.select("devices", query: [
             .init(name: "select", value: "id,firmware_version,battery_percent,device_number,last_origin_sync_at,bound_at"),
-            // The bound one. A forgotten HOOP keeps its row (12 · "your history stays") and
-            // must not lend the header its last battery reading.
+            // The bound one in the transport slot. A forgotten HOOP keeps its row (12 ·
+            // "your history stays") and must not lend the header its last battery reading.
             .init(name: "unbound_at", value: "is.null"),
+            .init(name: "slot", value: "eq.\(BoundBand.transportSlot.rawValue)"),
             .init(name: "limit", value: "1"),
         ])
         let found = (try? await profileRows)?.first
@@ -360,12 +365,14 @@ final class Repository {
         return facts
     }
 
-    /// The bound HOOP's row. Written at the end of pairing, not only after Home reconnects
+    /// The transport HOOP's row. Written at the end of pairing, not only after Home reconnects
     /// — a kill on the onboarding screens used to leave the account with no devices row.
-    /// One bound row per user (unbound_at is null): patched when it is the same band,
-    /// unbound + inserted when the ble identifier changed.
-    func registerDevice(identity: BandIdentity?, battery: BandBattery?) async {
+    /// One bound row per slot (unbound_at is null). Since two HOOPs, one wearer a slot is
+    /// assigned at activation and a new BLE alias in the same slot is the same band on a
+    /// different phone: the row is patched, never unbound and re-inserted.
+    func registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = nil) async {
         guard let userId = await db.currentUserId else { return }
+        let slot = slot ?? BoundBand.transportSlot
         var row: [String: Any] = [:]
         if let identity {
             row["firmware_version"] = identity.firmware
@@ -377,44 +384,33 @@ final class Repository {
             if let p = battery.percent { row["battery_percent"] = p }
             if let l = battery.level { row["battery_level"] = l }
         }
-        let ble = identity?.bleIdentifier ?? BoundBand.identifier
+        let ble = identity?.bleIdentifier ?? DeviceSlots.binding(slot)?.identifier
+        // The key this phone files evidence under (a CoreBluetooth UUID, not the MAC) is
+        // what the wearer rule matches — 20260913120000.
+        if let clientKey = DeviceSlots.binding(slot)?.identifier, clientKey != BoundBand.seedIdentifier {
+            row["client_key"] = clientKey
+        }
         do {
             let bound = try await db.select("devices", query: [
-                .init(name: "select", value: "id,ble_identifier,device_number,bound_at"),
+                .init(name: "select", value: "id,ble_identifier,device_number,bound_at,slot"),
                 .init(name: "unbound_at", value: "is.null"),
+                .init(name: "slot", value: "eq.\(slot.rawValue)"),
                 .init(name: "limit", value: "1"),
             ]).first
             if let id = bound?["id"] as? String {
                 let existingBle = bound?["ble_identifier"] as? String
-                let sameHoop = {
-                    guard let number = identity?.deviceNumber, !number.isEmpty,
-                          number == bound?["device_number"] as? String else { return false }
-                    return true
-                }()
+                rememberDevice(id: id, slot: slot, boundAt: bound?["bound_at"], name: identity?.name)
                 // Simulator seed must not steal a real binding and reset companionship.
-                if let ble, ble == BoundBand.seedIdentifier, existingBle != ble {
-                    deviceId = id
-                    applyBoundAt(bound?["bound_at"], into: DataStore.shared)
-                } else if let ble, existingBle != ble, !sameHoop {
-                    _ = try await db.patch("devices", id: id, row: [
-                        "unbound_at": ISO8601DateFormatter().string(from: Date()),
-                    ])
-                    var insert = row
-                    insert["user_id"] = userId
-                    insert["ble_identifier"] = ble
-                    insert["ble_identifier_kind"] = "uuid"
-                    rememberInsertedDevice(try await db.insert("devices", row: insert).first)
-                } else {
-                    deviceId = id
-                    applyBoundAt(bound?["bound_at"], into: DataStore.shared)
-                    if ble != nil, existingBle != ble { row["ble_identifier"] = ble }
-                    if !row.isEmpty { _ = try await db.patch("devices", id: id, row: row) }
-                }
+                if let ble, ble != BoundBand.seedIdentifier, existingBle != ble { row["ble_identifier"] = ble }
+                if !row.isEmpty { _ = try await db.patch("devices", id: id, row: row) }
             } else if let ble {
                 row["user_id"] = userId
                 row["ble_identifier"] = ble
                 row["ble_identifier_kind"] = "uuid"
-                rememberInsertedDevice(try await db.insert("devices", row: row).first)
+                row["slot"] = slot.rawValue
+                let inserted = try await db.insert("devices", row: row).first
+                rememberDevice(id: inserted?["id"] as? String, slot: slot, boundAt: inserted?["bound_at"] ?? Date(),
+                               name: identity?.name)
             }
             await loadCompanionSince(into: DataStore.shared)
         } catch {
@@ -424,25 +420,64 @@ final class Repository {
         }
     }
 
-    /// F3 · Forget this HOOP writes unbound_at. The row stays so history still has a device
-    /// to name; the unique "one bound per user" slot opens for the next pair.
-    func unbindBoundDevice() async {
-        do {
-            let bound = try await db.select("devices", query: [
-                .init(name: "select", value: "id"),
-                .init(name: "unbound_at", value: "is.null"),
-                .init(name: "limit", value: "1"),
-            ]).first
-            let id = bound?["id"] as? String ?? deviceId
-            guard let id else { return }
-            _ = try await db.patch("devices", id: id, row: [
-                "unbound_at": ISO8601DateFormatter().string(from: Date()),
-            ])
-            deviceId = nil
-        } catch {
-            #if DEBUG
-            NSLog("Repository.unbindBoundDevice failed: %@", "\(error)")
-            #endif
+    /// Release exactly the selected binding. Failure must leave the phone paired.
+    func releaseDevice(id: String) async throws -> [String: Any] {
+        guard let result = try await db.rpc("release_device", args: ["p_device_id": id], timeout: 12) as? [String: Any],
+              result["devices"] is [[String: Any]] else {
+            throw BandError.rejected("Invalid device release response")
+        }
+        return result
+    }
+
+    /// The server's view of the set: both bound rows and every wear declaration.
+    func loadDeviceSet() async throws -> [String: Any] {
+        guard let result = try await db.rpc("wear_timeline") as? [String: Any] else { return [:] }
+        return result
+    }
+
+    /// This phone's key for one band of the set; held ticks under it are re-projected.
+    func claimDeviceKey(deviceId: String, clientKey: String) async throws -> [String: Any] {
+        let result = try await db.rpc("claim_device_key", args: ["p_device_id": deviceId, "p_client_key": clientKey])
+        return result as? [String: Any] ?? [:]
+    }
+
+    /// One declaration: the person wears the band in `deviceId`. A nil `effectiveAt` says
+    /// "from now, and work out when I put it on" — the server files it at now and
+    /// `settleWearStart` moves the start once the band has been read. A date is a time the
+    /// wearer pinned by hand and is taken exactly as given.
+    func recordWearEvent(deviceId: String, effectiveAt: Date?, opId: String) async throws -> [String: Any] {
+        let when: Any = effectiveAt.map { ISO8601DateFormatter().string(from: $0) as Any } ?? NSNull()
+        let result = try await db.rpc("record_wear_event", args: [
+            "p_device_id": deviceId,
+            "p_effective_at": when,
+            "p_client_op_id": opId,
+        ])
+        return result as? [String: Any] ?? [:]
+    }
+
+    /// After the newly worn band has been read: let its own wrist evidence move the start.
+    /// Without an operation id the server settles the newest declaration.
+    func settleWearStart(opId: String? = nil) async throws -> [String: Any] {
+        let result = try await db.rpc("settle_wear_start", args: ["p_client_op_id": opId as Any? ?? NSNull()])
+        return result as? [String: Any] ?? [:]
+    }
+
+    /// The transport slot's device row id and binding start, kept on the slot binding so a
+    /// standby sync can name its own row without re-reading the server.
+    private func rememberDevice(id: String?, slot: HoopSlot, boundAt: Any?, name: String?) {
+        var binding = DeviceSlots.binding(slot)
+        if binding == nil, let identifier = BoundBand.identifier, slot == BoundBand.transportSlot {
+            binding = SlotBinding(slot: slot, identifier: identifier)
+        }
+        guard var binding else { return }
+        if let id { binding.deviceId = id }
+        if let name, !name.isEmpty { binding.name = name }
+        let start = (boundAt as? String).flatMap(Self.timestamp) ?? (boundAt as? Date)
+        if let start, binding.boundAt == nil || start < binding.boundAt! { binding.boundAt = start }
+        DeviceSlots.set(binding)
+        if slot == BoundBand.transportSlot {
+            deviceId = binding.deviceId
+            applyBoundAt(boundAt as? String, into: DataStore.shared, fallback: start)
         }
     }
 

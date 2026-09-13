@@ -44,6 +44,18 @@ Deno.test("different questions keep the system prompt byte-for-byte identical", 
   assert(c.includes("ENTITIES (find / write)"));
 });
 
+Deno.test("a food photo is estimated directly instead of paying for two vision reads", () => {
+  for (const locale of ["en-US", "zh-CN"]) {
+    const prompt = systemPrompt(locale, "chat");
+    assert(prompt.includes(locale === "zh-CN"
+      ? "报餐直接用 meal.estimate，包括看不出菜名的食物照片"
+      : "use meal.estimate directly, including for an unknown food photo"));
+    assert(prompt.includes(locale === "zh-CN" ? "不要先调用 image.inspect" : "do not call image.inspect first"));
+    assert(!prompt.includes("Identify an unknown food photo with image.inspect first"));
+    assert(!prompt.includes("未知食物照片先 image.inspect"));
+  }
+});
+
 Deno.test("advice has its own evidence and variation rules without the panel's no-advice/slot constraints", () => {
   for (const locale of ["en-US", "zh-CN"]) {
     const prompt = systemPrompt(locale, "plan");

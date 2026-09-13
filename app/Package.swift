@@ -108,6 +108,8 @@ let package = Package(
                 "BandPersonalInfoPolicy.swift",
                 "BatteryLog.swift",
                 "BatteryDrainMath.swift",
+                "DeviceSlots.swift",
+                "DeviceReleaseOperation.swift",
                 "VitalSample.swift",
                 "SamplePageRead.swift",
                 "VitalsTimelinePolicy.swift",

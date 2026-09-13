@@ -90,3 +90,20 @@ Deno.test("meal tool rejects empty input and remote images before model invocati
     "INVALID_MEAL_IMAGE",
   );
 });
+
+Deno.test("a failed Grok meal generation falls back and attributes the draft to Qwen", async () => {
+  const ids: string[] = [];
+  const recorded: string[] = [];
+  const draft = await estimateMeal({ text: "Rice", locale: "en-US" }, {
+    generateObject: ((options: { model: { modelId: string } }) => {
+      ids.push(options.model.modelId);
+      if (ids.length === 1) return Promise.reject(Object.assign(new Error("invalid JSON"), { name: "AI_NoObjectGeneratedError" }));
+      return Promise.resolve({ object: nutrition, usage: { promptTokens: 100, completionTokens: 20 } });
+    }) as unknown as MealEstimateDependencies["generateObject"],
+    recordUsage: (_usage, id) => { recorded.push(id); return Promise.resolve(); },
+  });
+  assertEquals(ids, ["grok-4.6", "qwen3.8-flash"]);
+  assertEquals(recorded, ["qwen3.8-flash"]);
+  assertEquals(draft.model_version, "qwen3.8-flash/2026-09");
+  assertEquals(draft.requires_confirmation, true);
+});

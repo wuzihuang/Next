@@ -187,6 +187,17 @@ final class TrainingWindowMathTests: XCTestCase {
         XCTAssertEqual(TrainingWindowMath.weekRolls(days).map(\.days), [2, 7, 7, 7, 7])
     }
 
+    func testLineRunsBreakAtEmptyDaysAndNeverInventAZero() {
+        XCTAssertEqual(indexes([1, 2, nil, 4]), [[0, 1], [3]])
+        XCTAssertEqual(indexes([nil, 3, 4, nil, nil, 9]), [[1, 2], [5]])
+        XCTAssertEqual(indexes([Double?.none, nil]), [])
+        XCTAssertEqual(indexes([8]), [[0]])
+    }
+
+    private func indexes(_ values: [Double?]) -> [[Int]] {
+        TrainingWindowMath.lineRuns(values).map { $0.map(\.index) }
+    }
+
     private func point(_ day: UserDay, minute: Double, load: Double) -> TrainingCurvePoint {
         TrainingCurvePoint(ts: day.start.addingTimeInterval(minute * 60), load: load)
     }

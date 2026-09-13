@@ -31,6 +31,9 @@ final class ChatStore: ObservableObject {
         if let handoff = currentPanelHandoff { return handoff.service.thoughts(for: handoff.scope.turnID) }
         return ai.thoughts
     }
+    var reading: String? {
+        currentPanelHandoff?.service.reading ?? ai.reading
+    }
     @Published private(set) var persistenceError: String?
     private var accountID: String?
     private var archiveStore: ChatArchiveStore?

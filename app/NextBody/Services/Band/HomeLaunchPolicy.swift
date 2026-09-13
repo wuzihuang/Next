@@ -162,6 +162,67 @@ enum BandSyncPolicy {
         default: return "STANDBY"
         }
     }
+
+    /// SDK history dump: `day` is the 1-based day being read, `percent` 0…100 of that day.
+    /// Day 4 at 50% of 7 is 3.5/7, not 4/7 and not 1.0 after the first finished day.
+    static func readFraction(day: Int, of total: Int, percent: Int) -> Double {
+        guard total > 0 else { return 0 }
+        let clampedPercent = min(max(percent, 0), 100)
+        let completed = max(day - 1, 0)
+        return min(1, (Double(completed) + Double(clampedPercent) / 100) / Double(total))
+    }
+
+    /// Counting for the device-page bar. The BLE dump owns the numbers once it speaks;
+    /// filing steps after that must not snap the bar to 100% or rewind it.
+    struct ReadProgress: Equatable, Sendable {
+        var done = 0
+        var total = 0
+        var percent = 0
+        private var deviceOwned = false
+
+        var fraction: Double { BandSyncPolicy.readFraction(day: done + 1, of: total, percent: percent) }
+
+        mutating func begin() { self = .init() }
+        mutating func stop() { self = .init() }
+
+        mutating func expect(total value: Int) {
+            guard !deviceOwned else { return }
+            total = max(total, max(value, done))
+        }
+
+        mutating func step() {
+            guard !deviceOwned else { return }
+            percent = 0
+            done += 1
+            total = max(total, done)
+        }
+
+        /// How far through the current day's own work, when the device dump is not
+        /// driving. A pull that reuses the cached dump has nothing else to move the bar:
+        /// without this it steps once per day and reads as three jumps.
+        mutating func within(percent value: Int) {
+            guard !deviceOwned, total > 0 else { return }
+            percent = max(percent, min(max(value, 0), 100))
+        }
+
+        /// The seed is the band's retained-day count; the plan is what will actually be
+        /// read. Correcting it downwards moves the bar forward, and stops a pull from
+        /// ending at two thirds because the other days did not need reading.
+        mutating func revise(total value: Int) {
+            guard !deviceOwned else { return }
+            total = max(done, max(value, 1))
+        }
+
+        mutating func reportRead(day: Int, of: Int, percent: Int) {
+            let next = BandSyncPolicy.readFraction(day: day, of: of, percent: percent)
+            if deviceOwned, next + 0.0005 < fraction { return }
+            deviceOwned = true
+            let days = max(of, 1)
+            total = days
+            done = min(max(day - 1, 0), days)
+            self.percent = min(max(percent, 0), 100)
+        }
+    }
 }
 
 extension HomeLaunchPolicy {

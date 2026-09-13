@@ -6,6 +6,10 @@ struct DeviceView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
     @ObservedObject private var syncActivity = BandSyncActivity.shared
+    /// 9-0 A · the two-HOOP set: both slots, the wear timeline, the link moves.
+    @ObservedObject private var hoops = DeviceSetStore.shared
+    /// The lime ground is one shape that slides between the slots on a declaration.
+    @Namespace private var limeSlot
 
     @State private var sheet: SheetRoute?
     @State private var identity: BandIdentity?
@@ -53,7 +57,9 @@ struct DeviceView: View {
             HStack(spacing: 7) {
                 Circle().fill(connected ? NB.lime1 : NB.white.opacity(0.3))
                     .frame(width: 6, height: 6)
-                Text(connected ? L("CONNECTED") : L("DISCONNECTED"))
+                // The pill names the band on the link (A/B); the lime slab names the worn one.
+                Text(connected ? L("CONNECTED") + (hoops.hasSecond ? " · \(hoops.transport.rawValue)" : "")
+                               : L("DISCONNECTED"))
                     .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(connected ? NB.lime1 : NB.text3Prod)
             }
@@ -61,8 +67,21 @@ struct DeviceView: View {
             .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
         }) {
             VStack(alignment: .leading, spacing: 14) {
-                limeHero
+                // 9-0 A · slots never move: A above, B below. The lime moves with the
+                // declaration — that is the only thing that changes places.
+                Group {
+                    slotSlab(.a)
+                    if hoops.hasSecond { slotSlab(.b) } else { emptySlotSlab }
+                }
+                .animation(.spring(duration: 0.65, bounce: 0.12), value: hoops.wearing)
                 actionTiles
+                if hoops.hasSecond {
+                    GroupLabel12(L("WEARING"))
+                    RowCard {
+                        DestructiveRow(title: countedFromTitle, detail: countedFromDetail,
+                                       tint: NB.text1, last: true) { sheet = .wearCorrect }
+                    }
+                }
                 if let syncMessage {
                     Text(syncMessage)
                         .font(NBFont.ui(400, 12))
@@ -75,9 +94,6 @@ struct DeviceView: View {
 
                 GroupLabel12(L("FIRMWARE"))
                 RowCard { firmwareSection }
-
-                GroupLabel12(L("SIDE LIGHT"))
-                RowCard { healthLightRow }
 
                 #if DEBUG
                 debugHeader
@@ -95,15 +111,67 @@ struct DeviceView: View {
                                        detail: L("Bluetooth, distance, or a flat battery."),
                                        tint: NB.text1) { sheet = .findBand }
                     }
-                    DestructiveRow(title: L("Forget this HOOP"),
-                                   detail: L("Removes it from this phone. Your history stays."),
-                                   tint: NB.alert2, last: true) { sheet = .unbind }
+                    if hoops.hasSecond {
+                        DestructiveRow(title: L("Remove a HOOP"),
+                                       detail: L("Choose one to remove. Your other HOOP and history stay."),
+                                       tint: NB.alert2, last: true) { sheet = .releaseSet }
+                            .accessibilityIdentifier("device.removeHoop")
+                    } else {
+                        DestructiveRow(title: L("Forget this HOOP"),
+                                       detail: L("Removes it from this phone. Your history stays."),
+                                       tint: NB.alert2, last: true) { sheet = .unbind }
+                    }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 30)
         } onBack: {
             router.back()
+        }
+        .task {
+            #if DEBUG
+            if let raw = ProcessInfo.processInfo.environment["NB_DEBUG_SYNC_PROGRESS"] {
+                syncing = true
+                if let n = Int(raw) {
+                    BandSyncActivity.shared.debugShow(done: n, total: 9)
+                } else if raw.contains(":"), let n = Int(raw.split(separator: ":")[0]),
+                          let within = Int(raw.split(separator: ":")[1]) {
+                    // `=3:50` · half way through the fourth day, the movement a pull now
+                    // makes between one day and the next.
+                    BandSyncActivity.shared.debugShow(done: n, total: 9)
+                    BandSyncActivity.shared.within(percent: within)
+                } else {
+                    // `=connecting` · no size yet, which is the state the bar used to draw
+                    // as a stuck zero.
+                    BandSyncActivity.shared.beginCounting()
+                    BandSyncActivity.shared.phase = "connecting"
+                }
+            }
+            #endif
+            await hoops.load()
+            #if DEBUG
+            // `NB_DEBUG_SWITCH=B,A,B` taps the switch for you, 1.2 s apart, so the rapid
+            // case can be walked and read back from the log.
+            if let script = ProcessInfo.processInfo.environment["NB_DEBUG_SWITCH"] {
+                let slots = script.split(separator: ",").compactMap { HoopSlot(rawValue: String($0)) }
+                Task { @MainActor in
+                    let gap = ProcessInfo.processInfo.environment["NB_DEBUG_SWITCH_MS"].flatMap(Int.init) ?? 1200
+                    for slot in slots {
+                        try? await Task.sleep(for: .milliseconds(gap))
+                        await hoops.declareWearing(slot, store: data)
+                    }
+                }
+            }
+            #endif
+            hoops.noteTransportObservation(from: data.band, lastSync: data.lastSync)
+            hoops.noteHoldsDays(identity?.watchDataDayNumber, slot: hoops.transport)
+            await hoops.reconcileTransport(store: data)
+        }
+        .onChange(of: data.band) { _, band in
+            hoops.noteTransportObservation(from: band, lastSync: data.lastSync)
+        }
+        .onChange(of: identity?.watchDataDayNumber) { _, days in
+            hoops.noteHoldsDays(days, slot: hoops.transport)
         }
         .onReceive(router.$deviceSheetRequest) { request in
             guard let request else { return }
@@ -118,6 +186,10 @@ struct DeviceView: View {
                 case "bandAlarms": sheet = .bandAlarms
                 case "bandAutoMonitor": sheet = .bandAutoMonitor
                 case "healthLight": sheet = .healthLight
+                case "activateSecond": sheet = .activateSecond
+                case "wearSwitch": sheet = .wearSwitch(hoops.wearing.other.rawValue)
+                case "wearCorrect": sheet = .wearCorrect
+                case "releaseSet": sheet = .releaseSet
                 default: break
                 }
             }
@@ -178,6 +250,10 @@ struct DeviceView: View {
                 case "bandAlarms": sheet = .bandAlarms
                 case "bandAutoMonitor": sheet = .bandAutoMonitor
                 case "healthLight": sheet = .healthLight
+                case "activateSecond": sheet = .activateSecond
+                case "wearSwitch": sheet = .wearSwitch(hoops.wearing.other.rawValue)
+                case "wearCorrect": sheet = .wearCorrect
+                case "releaseSet": sheet = .releaseSet
                 default: break
                 }
             }
@@ -226,19 +302,23 @@ struct DeviceView: View {
                 switch r {
                 case .bandAutoMonitor: AutoMeasurementSheet(initial: autoRead) { autoRead = $0 }
                 case .syncCadence:     SyncCadenceSheet(minutes: $cadence)
-                case .unbind:          ForgetHoopSheet()
+                case .unbind:          ReleaseSetSheet(initialSlot: hoops.wearing)
                 case .disconnect:      DisconnectSheet()
                 case .findBand:        WhyWontItConnectSheet()
                 case .findHoop:        FindHoopSheet()
+                case .activateSecond:  ActivateSecondSheet()
+                case .wearSwitch(let raw):
+                    WearSwitchSheet(to: HoopSlot(rawValue: raw) ?? hoops.wearing.other)
+                case .wearCorrect:     WearCorrectSheet()
+                case .releaseSet:      ReleaseSetSheet()
                 case .bandAlarms:      AlarmsSheet { alarmCount = $0 }
+                #if DEBUG
                 case .healthLight:     HealthLightSheet()
+                #endif
                 default:               WhyWontItConnectSheet()
                 }
             }
-            .presentationDetents([
-                [.bandAutoMonitor, .findHoop, .bandAlarms, .healthLight].contains(r)
-                    ? .fraction(0.78) : .fraction(0.62)
-            ])
+            .presentationDetents([.fraction(Self.sheetFraction(r))])
             .presentationDragIndicator(.visible)
             .presentationBackground(NB.carbon2)
             .presentationCornerRadius(NB.R.panel)
@@ -423,7 +503,10 @@ struct DeviceView: View {
         case .busy:
             syncMessage = L("Finish the current measurement or device operation, then sync again.")
         case .disconnected, .unbound:
-            syncMessage = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
+            let snap = hoops.snapshot(hoops.wearing)
+            syncMessage = (snap?.isFlat == true || snap?.isLow == true)
+                ? L("Could not reach this HOOP. It was nearly out of charge when last read — put it on its charger, then tap Sync.")
+                : L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
         case .partial:
             syncMessage = L("Some readings could not sync. Tap Sync to try again.")
         case .failed:
@@ -448,11 +531,260 @@ struct DeviceView: View {
         return BatteryLog.plot(data.batteryLog, from: window.start, to: window.end)
     }
 
-    /// Name + SYNC, 12 BRIDGE TREND lead corridor, then WORN / WITH YOU / SYNCED / LAST POINT.
-    private var limeHero: some View {
-        VStack(spacing: 0) {
+    // MARK: 9-0 A · the set
+
+    /// What the record counts from, and who decided it. The switch itself is the other
+    /// HOOP's card; this row exists only to correct a start the app worked out.
+    private var countedFromTitle: String {
+        guard let since = hoops.wearingSince else { return L("Tap the other HOOP to switch") }
+        return L("Counted from") + " " + Self.stamp(since)
+    }
+
+    private var countedFromDetail: String {
+        guard hoops.wearingSince != nil else { return L("Your record follows the one you name.") }
+        return hoops.wearingInferred
+            ? L("HOOP") + " \(hoops.wearing.rawValue) " + L("worked this out. Tap if you put it on earlier.")
+            : L("You set this time. Tap to change it.")
+    }
+
+    /// A deadline in a sentence carries its day: `today 13:52`, `tomorrow 09:00`, `Sep 17`.
+    private static func dayStamp(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return L("today") + " " + stamp(date) }
+        if calendar.isDateInTomorrow(date) { return L("tomorrow") + " " + stamp(date) }
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.setLocalizedDateFormatFromTemplate("MMM d")
+        return f.string(from: date)
+    }
+
+    private static func stamp(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.setLocalizedDateFormatFromTemplate(Calendar.current.isDateInToday(date) ? "HH:mm" : "MMM d HH:mm")
+        return f.string(from: date)
+    }
+
+    /// One slot: lime when it is the declared wearer, carbon otherwise. Same position
+    /// either way — only the colour and the strip word change.
+    @ViewBuilder private func slotSlab(_ slot: HoopSlot) -> some View {
+        if slot == hoops.wearing {
+            limeHero(slot)
+                .transition(.opacity)
+        } else {
+            standbySlab(slot)
+                .transition(.opacity)
+        }
+    }
+
+    /// 34pt strip at the top of a slab: the slot letter, the strip word, since when.
+    /// The link's whereabouts is the pill; this strip is the declaration.
+    private func slotStrip(_ slot: HoopSlot, onLime: Bool) -> some View {
+        HStack(spacing: 10) {
+            HoopKeyGlyph(letter: slot.rawValue, onLime: onLime)
+            Text(onLime ? stripWord : standbyWord(hoops.snapshot(slot), pending: pendingDays(slot)))
+                .font(NBFont.dot(600, 10.5)).tracking(0.2 * 10.5)
+                .foregroundStyle(onLime ? NB.carbon4 : (pendingDays(slot) > 0 ? NB.ember1 : NB.white.opacity(0.55)))
+                .lineLimit(1).minimumScaleFactor(0.8)
+            Spacer(minLength: 0)
+            if onLime, syncActivity.total > 0 {
+                Text("\(syncActivity.done) / \(syncActivity.total) " + L("DAYS"))
+                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
+                    .foregroundStyle(NB.carbon4.opacity(0.7))
+                    .contentTransition(.numericText())
+            } else if onLime, let since = hoops.wearingSince {
+                Text(L("SINCE") + " " + Self.stamp(since).uppercased())
+                    .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+                    .foregroundStyle(NB.carbon4.opacity(0.55))
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 34)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(onLime ? NB.carbon4.opacity(0.15) : NB.white.opacity(0.08)).frame(height: 1)
+        }
+        .accessibilityIdentifier("device.slotStrip.\(slot.rawValue)")
+    }
+
+    /// What the bar is doing. Connecting has no count yet; a day count only appears once
+    /// the band has said how many days it still holds.
+    private var syncProgressWord: String {
+        if connectingForSync || !connected { return L("CONNECTING") }
+        if syncActivity.total > 0 {
+            let day = min(syncActivity.done + 1, syncActivity.total)
+            let line = L("READING DAY") + " \(day) " + L("OF") + " \(syncActivity.total)"
+            if (1..<100).contains(syncActivity.percent) { return line + " · \(syncActivity.percent)%" }
+            return line
+        }
+        return L("READING THE BAND")
+    }
+
+    private func pendingDays(_ slot: HoopSlot) -> Int {
+        let snap = hoops.snapshot(slot)
+        return WearTimeline.pendingDays(lastSync: snap?.lastSync, boundAt: snap?.boundAt,
+                                        now: Date(), holdsDays: snap?.holdsDays)
+    }
+
+    /// The strip and the chrome pill must never contradict each other: the pill is the
+    /// link, so once it says CONNECTED the strip stops saying CONNECTING and names what
+    /// the link is actually doing.
+    private var stripWord: String {
+        switch hoops.phase {
+        // PRD W2 · the band being left finishes the command it is on. Saying CONNECTING
+        // here would be a lie: the link is still on the other HOOP.
+        case .finishing(let s):
+            return L("FINISHING") + " \(s.rawValue) · " + L("THEN") + " \(hoops.wearing.rawValue)"
+        case .switching(let s) where s == hoops.wearing:
+            return connected ? L("WEARING · SYNCING") : L("WEARING · CONNECTING")
+        case .activating:
+            return L("WEARING · LINK AWAY")
+        default:
+            if connected && hoops.transport == hoops.wearing {
+                // The bar under this strip says CONNECTING while the link is being
+                // prepared; the strip must not claim reading has started.
+                if connectingForSync { return L("WEARING · CONNECTING") }
+                return syncInProgress ? L("WEARING · SYNCING") : L("WEARING")
+            }
+            // A flat band is not a Bluetooth problem, and saying so sends people to
+            // the wrong fix.
+            if hoops.isFlat(hoops.wearing) { return L("WEARING · FLAT") }
+            return L("WEARING · NOT CONNECTED")
+        }
+    }
+
+    /// The other HOOP: what it last said, when it was last read, and its own SYNC key.
+    /// Nothing here is live — the app talks to one band at a time.
+    private func standbySlab(_ slot: HoopSlot) -> some View {
+        let snap = hoops.snapshot(slot)
+        let deadline = WearTimeline.syncDeadline(lastSync: snap?.lastSync, boundAt: snap?.boundAt,
+                                                 holdsDays: snap?.holdsDays)
+        // The whole card is the switch. It carries no SYNC key of its own: the app talks
+        // to the band on your wrist, and this one is read when you put it on.
+        return Button { sheet = .wearSwitch(slot.rawValue) } label: {
+          VStack(alignment: .leading, spacing: 0) {
+            slotStrip(slot, onLime: false)
             HStack(alignment: .center, spacing: 12) {
-                Text(data.band.name)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(snap?.name ?? "NEXTBODY HOOP")
+                        .font(NBFont.ui(600, 22)).tracking(-0.03 * 22)
+                        .foregroundStyle(NB.text1)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Text(standbyPlan(snap, pending: pendingDays(slot), deadline: deadline))
+                        .font(NBFont.ui(400, 12)).tracking(0.01 * 12)
+                        .foregroundStyle(standbyAtRisk(pending: pendingDays(slot), deadline: deadline)
+                                         ? NB.ember1 : NB.white.opacity(0.42))
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Chevron()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            Hairline().padding(.horizontal, 16)
+            HStack(spacing: 0) {
+                standbyCell(L("BATTERY"), standbyBattery(snap))
+                Rectangle().fill(NB.white.opacity(0.08)).frame(width: 1)
+                standbyCell(L("LAST SYNC"), snap?.lastSync.map { Self.stamp($0).uppercased() } ?? L("NEVER"))
+                Rectangle().fill(NB.white.opacity(0.08)).frame(width: 1)
+                standbyCell(L("SYNC BEFORE"), deadline.map { Self.stamp($0).uppercased() } ?? Fmt.dash)
+            }
+            .frame(height: 56)
+          }
+          .frame(width: NB.Layout.contentWidth)
+          .cardSkin()
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("device.standbySlab")
+    }
+
+    private func standbyWord(_ snap: DeviceSetStore.SlotSnapshot?, pending: Int) -> String {
+        if case .activating = hoops.phase { return L("ACTIVATING") }
+        if snap?.isFlat == true { return L("FLAT") }
+        if pending > 0 { return L("PENDING") + " \(pending) " + L(pending == 1 ? "DAY" : "DAYS") }
+        if snap?.isLow == true { return L("LOW") }
+        switch snap?.battery?.chargeState {
+        case .charging?: return L("CHARGING")
+        case .full?: return L("CHARGED · READY")
+        default: return L("READY")
+        }
+    }
+
+    /// One sentence under the name: what happens to this band's days, and by when.
+    /// 4 · a band that has gone flat records nothing, so "wear it" is not the answer.
+    private func standbyPlan(_ snap: DeviceSetStore.SlotSnapshot?, pending: Int, deadline: Date?) -> String {
+        if snap?.isFlat == true { return L("It is out of charge and recording nothing. Charge it.") }
+        if standbyAtRisk(pending: pending, deadline: deadline), let deadline {
+            return L("Wear it before") + " " + Self.dayStamp(deadline) + " " + L("or its oldest days are gone.")
+        }
+        if pending > 0 { return L("What it recorded syncs when you put it on.") }
+        if snap?.isLow == true { return L("Nearly out of charge. Top it up before you swap.") }
+        return L("Waiting on its charger. Tap to wear it instead.")
+    }
+
+    /// The firmware only keeps so many days. Inside the last day of that window the
+    /// oldest unsynced day is about to be overwritten.
+    private func standbyAtRisk(pending: Int, deadline: Date?) -> Bool {
+        guard pending > 0, let deadline else { return false }
+        return Date() > deadline.addingTimeInterval(-86_400)
+    }
+
+    private func standbyBattery(_ snap: DeviceSetStore.SlotSnapshot?) -> String {
+        guard let battery = snap?.battery else { return Fmt.dash }
+        if let p = battery.percent, battery.isPercent { return "\(p)%" }
+        if let level = battery.level { return L("LEVEL") + " \(level)" }
+        return Fmt.dash
+    }
+
+    private func standbyCell(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(NBFont.dot(500, 9)).tracking(0.2 * 9)
+                .foregroundStyle(NB.white.opacity(0.34))
+            Text(value)
+                .font(NBFont.dot(600, 12)).tracking(0.06 * 12)
+                .foregroundStyle(NB.text1)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The only entry for the second HOOP (§03.3 step 5): a dashed empty slot on DEVICE.
+    private var emptySlotSlab: some View {
+        Button { sheet = .activateSecond } label: {
+            HStack(spacing: 12) {
+                HoopKeyGlyph(letter: hoops.openSlot?.rawValue ?? "B")
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L("Add your second HOOP"))
+                        .font(NBFont.ui(600, 16)).tracking(-0.02 * 16)
+                        .foregroundStyle(NB.text1)
+                    Text(L("KEEP WEARING. CHARGE THE OTHER."))
+                        .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
+                        .foregroundStyle(NB.white.opacity(0.4))
+                }
+                Spacer(minLength: 0)
+                Chevron()
+            }
+            .padding(16)
+            .frame(minHeight: 72)
+            .frame(width: NB.Layout.contentWidth, alignment: .leading)
+            .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
+                .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                .foregroundStyle(NB.white.opacity(0.22)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(BoundBand.identifier == nil)
+        .accessibilityIdentifier("device.addSecond")
+    }
+
+    /// Name + SYNC, 12 BRIDGE TREND lead corridor, then WORN / WITH YOU / SYNCED / LAST POINT.
+    private func limeHero(_ slot: HoopSlot) -> some View {
+        VStack(spacing: 0) {
+            if hoops.hasSecond { slotStrip(slot, onLime: true) }
+            HStack(alignment: .center, spacing: 12) {
+                Text(hoops.hasSecond ? (hoops.snapshot(slot)?.name ?? data.band.name) : data.band.name)
                     .font(NBFont.ui(600, 26))
                     .tracking(-0.03 * 26)
                     .foregroundStyle(NB.carbon4)
@@ -464,6 +796,24 @@ struct DeviceView: View {
             .padding(.horizontal, 16)
             .padding(.top, 18)
             .padding(.bottom, 6)
+
+            // The band answers one day at a time and the SDK sets that pace, so the honest
+            // thing to show is how far the read has got, not a speed.
+            if syncInProgress {
+                VStack(alignment: .leading, spacing: 6) {
+                    DottedProgress(progress: syncActivity.fraction,
+                                   lit: NB.carbon4, track: NB.carbon4.opacity(0.18))
+                        .frame(height: 6)
+                        .animation(.linear(duration: 0.15), value: syncActivity.fraction)
+                    Text(syncProgressWord)
+                        .font(NBFont.dot(600, 9.5)).tracking(0.18 * 9.5)
+                        .foregroundStyle(NB.carbon4.opacity(0.62))
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+                .transition(.opacity)
+                .accessibilityIdentifier("device.syncProgress")
+            }
 
             Button {
                 router.open(.battery, from: router.entry)
@@ -527,7 +877,11 @@ struct DeviceView: View {
             }
         }
         .frame(width: NB.Layout.contentWidth)
-        .background(NB.lime1, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
+                .fill(NB.lime1)
+                .matchedGeometryEffect(id: "wearingLime", in: limeSlot)
+        }
         .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
             .stroke(NB.lime1, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
@@ -574,6 +928,19 @@ struct DeviceView: View {
             .accessibilityIdentifier("device.alarms")
         }
         .frame(width: NB.Layout.contentWidth)
+    }
+
+    /// How much of the screen a sheet takes. A table or a picture wants the tall detent,
+    /// a confirmation wants only the room its own sentence needs.
+    private static func sheetFraction(_ route: SheetRoute) -> CGFloat {
+        switch route {
+        case .bandAutoMonitor, .findHoop, .bandAlarms, .healthLight, .activateSecond: return 0.78
+        case .wearCorrect:  return 0.74
+        case .releaseSet:   return 0.82
+        // 9-0 A·S8 · a question, the HOOP it names, and one key.
+        case .wearSwitch:   return 0.55
+        default:            return 0.62
+        }
     }
 
     /// Consecutive worn days from the same flame the home header uses. Amber / gray
@@ -696,18 +1063,21 @@ struct DeviceView: View {
         return clock
     }
 
-    /// 12S · the light on the side of the band. The value is the phone's saved choice;
-    /// "band default" means nothing has been chosen and nothing is sent.
+    #if DEBUG
+    /// 12S · the light on the side of the band. ADR 0023 · this firmware answers
+    /// `healthLightType=0`, so the SDK light is not addressable and the side light the
+    /// wearer sees is the measurement LED. The row stays as a probe, inside DEBUG, and
+    /// never as a page of its own. The value is the phone's saved choice; "band default"
+    /// means nothing has been chosen and nothing is sent.
     private var healthLightRow: some View {
         NavRow(title: L("Health light"),
                detail: L("THE LIGHT ON THE SIDE · WRITTEN BACK ON EVERY CONNECT"),
                value: BandHealthLightState(rawValue: healthLightRaw).map { L($0.title) } ?? L("BAND DEFAULT"),
-               valueTint: NB.lime1,
+               valueTint: NB.ember1,
                enabled: connected,
                last: true) { sheet = .healthLight }
     }
 
-    #if DEBUG
     private var debugHeader: some View {
         HStack(spacing: 8) {
             Text(L("DEBUG"))
@@ -748,8 +1118,8 @@ struct DeviceView: View {
             NavRow(title: L("Capability sweep"),
                    detail: L("READ WHAT THIS FIRMWARE ANSWERS"),
                    value: "",
-                   valueTint: NB.ember1,
-                   last: true) { capabilitySweep = true }
+                   valueTint: NB.ember1) { capabilitySweep = true }
+            healthLightRow
         }
         .frame(width: NB.Layout.contentWidth)
         .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
@@ -1403,52 +1773,6 @@ struct SyncCadenceSheet: View {
     }
 }
 
-/// The only row on DEVICE that asks twice.
-/// ⚠️ The SDK only offers disconnect(); "forget" is the app clearing its own device id.
-/// "Forget this HOOP" is possible; "factory reset" is not, and the two must never blur.
-struct ForgetHoopSheet: View {
-    @EnvironmentObject private var data: DataStore
-    @EnvironmentObject private var session: SessionStore
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(L("Forget this HOOP?"))
-                .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
-                .foregroundStyle(NB.text1)
-            Text(L("This phone stops pairing with it. Everything it has already sent you stays — 12 weeks of nights and every reading. Pairing it again takes about a minute."))
-                .font(NBFont.brand(400, 14))
-                .lineSpacing(7)
-                .foregroundStyle(NB.text2)
-            Spacer(minLength: 0)
-            LimePillButton(title: L("Keep it paired")) { dismiss() }
-            Button {
-                // F3 · Forget writes unbound_at so the account is UNPAIRED. Clearing only
-                // the local UUID left the server claiming a band and no way back to Connect.
-                Task {
-                    await Repository.shared.unbindBoundDevice()
-                    BoundBand.forget()
-                    await Band.live.disconnect()
-                    data.band = .unknown
-                    session.stage = .gateConnect
-                    dismiss()
-                }
-            } label: {
-                Text(L("FORGET THIS HOOP"))
-                    .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                    .foregroundStyle(NB.alert2)
-                    .frame(width: NB.Layout.contentWidth, height: 52)
-                    .overlay(Capsule().stroke(NB.alert2.opacity(0.6), lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 26)
-        .padding(.bottom, 26)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NB.carbon2)
-    }
-}
 
 /// Reversible, so the safe button is not red.
 struct DisconnectSheet: View {
@@ -1478,6 +1802,7 @@ struct DisconnectSheet: View {
                     .foregroundStyle(NB.text2)
                     .frame(width: NB.Layout.contentWidth, height: 52)
                     .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
         }

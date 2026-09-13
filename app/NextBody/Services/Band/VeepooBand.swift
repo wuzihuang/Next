@@ -163,13 +163,14 @@ final class VeepooBand: BandService, @unchecked Sendable {
         if state == .scanning { state = .idle }
     }
 
-    func connect(_ device: DiscoveredBand) async throws {
+    func connect(_ device: DiscoveredBand, progress: @escaping @Sendable (Double) -> Void) async throws {
         // The SDK may already hold a verified link to this very band (a reconnect, or an
         // auto-connect it started itself). Pairing it a second time is what left the band
         // silent to every command after — so a verified link is simply kept.
         if state == .connected, central.peripheralModel?.peripheral?.identifier.uuidString == device.id {
             Self.log.notice("connect: already verified")
             BoundBand.remember(peripheralIdentifier: device.id)
+            progress(1)
             return
         }
         guard let model = await MainActor.run(body: { scanned[device.id] }) else {
@@ -181,6 +182,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         var verified = false
         defer { if !verified { state = .disconnected } }
         Self.log.notice("connect start")
+        progress(0)
         let once = Once()
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             // 02 edge 4 · STOPPED. The SDK's own 30 s timeout is the app's last line, not its
@@ -202,13 +204,16 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     NightDiagnostics.shared.record("sdk.connect_step", fields: ["state": String(step.rawValue)])
                     switch step {
                     case .BleVerifyPasswordSuccess:
+                        progress(1)
                         if once.claim() { c.resume() }
                     case .BlePoweredOff, .BleConnectFailed, .BleVerifyPasswordFailure:
                         if once.claim() { c.resume(throwing: BandError.rejected("connect step \(step.rawValue)")) }
                     case .BleConnectTimeout, .BleConfirmTimeout:
                         if once.claim() { c.resume(throwing: BandError.timeout("connect")) }
-                    case .BleConnecting, .BleConnectSuccess:
-                        break
+                    case .BleConnecting:
+                        progress(0.25)
+                    case .BleConnectSuccess:
+                        progress(0.7)
                     @unknown default:
                         break
                     }
@@ -800,9 +805,12 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 switch state {
                 case .start:
                     Self.log.notice("readAllData start · \(totalDay) days on the band")
+                    self.noteHistoryRead(day: max(Int(day), 1), of: Int(totalDay), percent: 0)
                 case .reading:
                     Self.log.notice("readAllData day \(day)/\(totalDay) · \(progress)%")
+                    self.noteHistoryRead(day: Int(day), of: Int(totalDay), percent: Int(progress))
                 case .complete:
+                    self.noteHistoryRead(day: max(Int(totalDay), 1), of: Int(totalDay), percent: 100)
                     done(.success(()))
                 case .invalid:
                     done(.failure(BandError.rejected("readAllData: SDK reports invalid")))
@@ -816,6 +824,14 @@ final class VeepooBand: BandService, @unchecked Sendable {
               state == .connected, startedAt <= completedAt else { throw CancellationError() }
         historyReads.record(.complete, for: .all, generation: generation, startedAt: startedAt, at: completedAt)
         return .init(status: .complete, startedAt: startedAt, completedAt: completedAt)
+    }
+
+    /// The dump's own day/percent is the only honest bar during a pull. Later domain
+    /// commands use the same event; the counter refuses to rewind.
+    private func noteHistoryRead(day: Int, of: Int, percent: Int) {
+        let days = max(of, 1)
+        let current = min(max(day, 1), days)
+        hub.send(.historyRead(day: current, of: days, percent: min(max(percent, 0), 100)))
     }
 
     /// Snapshot existing connection metadata only; never add a native command to history sync.
@@ -931,8 +947,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
             let opticalStatus: BandDomainReadStatus = model.bloodGlucoseType == 0 ? .unsupported : .complete
             if model.hrvType != 0 && cachedHRV == nil {
                 do { try await self.sdk("readHRV", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
-                    peripheral.veepooSdkStartReadDeviceHrvData { state, _, _, _ in
+                    peripheral.veepooSdkStartReadDeviceHrvData { state, totalDay, day, progress in
                         switch state {
+                        case .start, .reading:
+                            self.noteHistoryRead(day: Int(day), of: Int(totalDay), percent: Int(progress))
                         case .complete: done(.success(()))
                         case .invalid: done(.failure(BandError.unsupported("HRV history")))
                         default: break
@@ -948,8 +966,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
             }
             if [2, 4].contains(model.temperatureType) && cachedTemperature == nil {
                 do { try await self.sdk("readTemperature", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
-                    peripheral.veepooSdkStartReadDeviceTemperatureData { state, _, _, _ in
+                    peripheral.veepooSdkStartReadDeviceTemperatureData { state, totalDay, day, progress in
                         switch state {
+                        case .start, .reading:
+                            self.noteHistoryRead(day: Int(day), of: Int(totalDay), percent: Int(progress))
                         case .complete: done(.success(()))
                         case .invalid: done(.failure(BandError.unsupported("temperature history")))
                         default: break
@@ -965,8 +985,10 @@ final class VeepooBand: BandService, @unchecked Sendable {
             }
             if model.oxygenType != 0 && cachedOxygen == nil {
                 do { try await self.sdk("readOxygen", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
-                    peripheral.veepooSdkStartReadDeviceOxygenData { state, _, _, _ in
+                    peripheral.veepooSdkStartReadDeviceOxygenData { state, totalDay, day, progress in
                         switch state {
+                        case .start, .reading:
+                            self.noteHistoryRead(day: Int(day), of: Int(totalDay), percent: Int(progress))
                         case .complete: done(.success(()))
                         case .invalid: done(.failure(BandError.unsupported("oxygen history")))
                         default: break
@@ -2762,27 +2784,67 @@ final class VeepooBand: BandService, @unchecked Sendable {
 }
 #endif
 
-/// Preserve the existing binding/cache key while recording this phone's stable BLE UUID.
+/// The band the app is talking to. Since two HOOPs, one wearer (2026-09-13) this reads the
+/// transport slot in `DeviceSlots`: every call site that keys readiness, refresh scope and
+/// evidence by `identifier` follows the link the moment the transport slot changes.
 enum BoundBand {
     /// MockBand / simulator walk-through. Must never unbind a real HOOP.
     static let seedIdentifier = "C4-2E-8F-1A-73-9D"
-    private static let key = "nb.band.identifier"
-    private static let peripheralKey = "nb.band.peripheralIdentifier"
-    private static let peripheralOwnerKey = "nb.band.peripheralBinding"
+    private static let legacyKey = "nb.band.identifier"
+    private static let legacyPeripheralKey = "nb.band.peripheralIdentifier"
+    private static let legacyPeripheralOwnerKey = "nb.band.peripheralBinding"
+
+    /// A phone that bound one HOOP before slots existed keeps it, in slot A.
+    private static func migrateIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard DeviceSlots.bindings.isEmpty, let legacy = defaults.string(forKey: legacyKey) else { return }
+        let peripheral = defaults.string(forKey: legacyPeripheralOwnerKey) == legacy
+            ? defaults.string(forKey: legacyPeripheralKey) : nil
+        DeviceSlots.set(SlotBinding(slot: .a, identifier: legacy, peripheralIdentifier: peripheral))
+        DeviceSlots.transport = .a
+        DeviceSlots.wearing = .a
+        for key in [legacyKey, legacyPeripheralKey, legacyPeripheralOwnerKey] { defaults.removeObject(forKey: key) }
+    }
+
+    /// The durable binding key of the transport band. `nil` means nothing is bound.
     static var identifier: String? {
-        get { UserDefaults.standard.string(forKey: key) }
-        set { UserDefaults.standard.setValue(newValue, forKey: key) }
+        get {
+            migrateIfNeeded()
+            return DeviceSlots.binding(DeviceSlots.transport)?.identifier
+        }
+        set {
+            migrateIfNeeded()
+            let slot = DeviceSlots.transport
+            guard let newValue else { DeviceSlots.remove(slot); return }
+            var binding = DeviceSlots.binding(slot) ?? SlotBinding(slot: slot, identifier: newValue)
+            if binding.identifier != newValue { binding.peripheralIdentifier = nil }
+            binding.identifier = newValue
+            DeviceSlots.set(binding)
+        }
+    }
+
+    /// The slot the link currently targets.
+    static var transportSlot: HoopSlot {
+        migrateIfNeeded()
+        return DeviceSlots.transport
+    }
+
+    /// Point the link at another slot. The caller disconnects first and reconnects after;
+    /// readiness snapshots and refresh scopes keyed by `identifier` fall out on their own.
+    static func switchTransport(to slot: HoopSlot) {
+        migrateIfNeeded()
+        DeviceSlots.transport = slot
     }
 
     static var peripheralIdentifier: String? {
-        let defaults = UserDefaults.standard
-        if defaults.string(forKey: peripheralOwnerKey) == identifier,
-           let value = defaults.string(forKey: peripheralKey), UUID(uuidString: value) != nil {
+        migrateIfNeeded()
+        if let value = DeviceSlots.binding(DeviceSlots.transport)?.peripheralIdentifier,
+           UUID(uuidString: value) != nil {
             return value
         }
         // Compatibility with this SDK's old MAC-based bindings. Accept its remembered
         // UUID only when its MAC exactly matches our binding; never pick a nearby band.
-        let remembered = defaults.dictionary(forKey: "deviceMessageKey")
+        let remembered = UserDefaults.standard.dictionary(forKey: "deviceMessageKey")
         return BandSyncPolicy.legacyPeripheralIdentifier(bound: identifier,
             rememberedAddress: remembered?["deviceMacKey"] as? String,
             rememberedPeripheral: remembered?["deviceUUIDKey"] as? String)
@@ -2790,19 +2852,23 @@ enum BoundBand {
 
     static func remember(peripheralIdentifier: String) {
         guard UUID(uuidString: peripheralIdentifier) != nil else { return }
+        migrateIfNeeded()
+        let slot = DeviceSlots.transport
         // A reconnect keeps legacy cache keys; a new pairing gets the stable UUID.
         if !BandSyncPolicy.matchesBoundDevice(discovered: peripheralIdentifier, bound: identifier,
                                               boundPeripheral: self.peripheralIdentifier) {
             identifier = peripheralIdentifier
         }
-        UserDefaults.standard.set(peripheralIdentifier, forKey: peripheralKey)
-        UserDefaults.standard.set(identifier, forKey: peripheralOwnerKey)
+        guard var binding = DeviceSlots.binding(slot) else { return }
+        binding.peripheralIdentifier = peripheralIdentifier
+        DeviceSlots.set(binding)
     }
 
-    /// Forget only the app binding; server history stays.
+    /// Forget only the app bindings — both slots; server history stays.
     static func forget() {
-        for storedKey in [key, peripheralKey, peripheralOwnerKey] {
-            UserDefaults.standard.removeObject(forKey: storedKey)
+        DeviceSlots.forgetAll()
+        for key in [legacyKey, legacyPeripheralKey, legacyPeripheralOwnerKey] {
+            UserDefaults.standard.removeObject(forKey: key)
         }
     }
 }

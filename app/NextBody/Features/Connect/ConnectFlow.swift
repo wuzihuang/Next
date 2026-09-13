@@ -23,7 +23,7 @@ struct ConnectFlow: View {
     @State private var lowBatteryLine: String?
     @State private var scanBegan: Date?
 
-    /// 04 · the percentage maps to four real steps; never a fake tween.
+    /// 04 · the percentage maps to four real steps; the number moves when the band answers.
     private static let stages = ["CONNECT", "AUTHORISE", "READ CAPABILITIES", "READ FIRMWARE"]
 
     var body: some View {
@@ -42,6 +42,7 @@ struct ConnectFlow: View {
             }
         }
         .carbonPage()
+        .animation(nil, value: step)
         // 02 edge 2 · the radio going off mid-search ends the search; coming back restarts it.
         .onReceive(BluetoothState.shared.$poweredOff.dropFirst()) { off in
             guard step == .searching else { return }
@@ -54,7 +55,6 @@ struct ConnectFlow: View {
             else if scanEdge == .permission { runScan() }
         }
         .task { await session.ensureSession() }
-        .transaction { $0.animation = nil }
         #if DEBUG
         // `SIMCTL_CHILD_NB_DEBUG_CONNECT_STEP=3` opens the flow on that screen for a walk —
         // the screen only, none of the scan or pairing work behind it.
@@ -173,22 +173,24 @@ struct ConnectFlow: View {
                 await session.ensureSession()
 
                 // 02 rule 02 · four fixed segments: connect 0–35, authorise 35–60, capabilities
-                // 60–85, version and battery 85–100. Whichever does not return, the bar stops there.
-                await advance(to: 0.35, stage: 0)
+                // 60–85, version and battery 85–100. The number moves when the band answers.
                 if DebugEdge.on("stopped") { throw BandError.timeout("connect") }
                 if DebugEdge.on("taken") { throw BandError.rejected("paired elsewhere") }
-                try await Band.live.connect(device)
-
-                await advance(to: 0.60, stage: 1)
+                pairStage = 0
+                try await Band.live.connect(device, progress: { p in
+                    Task { @MainActor in mark(0.35 * p, stage: 0) }
+                })
+                mark(0.35, stage: 1)
                 let identity = try await Band.live.readIdentity()
 
-                await advance(to: 0.85, stage: 2)
+                mark(0.60, stage: 2)
                 // The capability table decides which measurement entries exist at all,
                 // so it is read before the first screen that could offer one.
                 let caps = try await Band.live.readCapabilities()
 
-                await advance(to: 1.0, stage: 3)
+                mark(0.85, stage: 3)
                 let battery = try await Band.live.readBattery()
+                mark(1.0, stage: 3)
                 // 02 rule 05 · isPercent false → BATTERY LOW, never an invented percent.
                 if DebugEdge.on("lowbattery") { lowBatteryLine = "BATTERY 8%" }
                 else if !battery.isPercent { if (battery.level ?? 4) <= 1 { lowBatteryLine = "BATTERY LOW" } }
@@ -226,12 +228,9 @@ struct ConnectFlow: View {
         }
     }
 
-    private func advance(to target: Double, stage: Int) async {
+    private func mark(_ value: Double, stage: Int) {
         pairStage = stage
-        while progress < target {
-            try? await Task.sleep(for: .milliseconds(24))
-            withAnimation(.linear(duration: 0.03)) { progress = min(target, progress + 0.01) }
-        }
+        withAnimation(.easeOut(duration: 0.2)) { progress = max(progress, min(1, value)) }
     }
 
     private static func capabilitySet(_ caps: BandCapabilities) -> Set<BandState.Capability> {
@@ -768,17 +767,20 @@ private struct Pairing: View {
     }
 }
 
-private struct DottedProgress: View {
+struct DottedProgress: View {
     let progress: Double
+    /// The lime card needs a carbon bar; everywhere else the lime one is right.
+    var lit: Color = NB.lime1
+    var track: Color = NB.white.opacity(0.10)
     var body: some View {
         Canvas { ctx, size in
             let n = 60
             let pitch = size.width / CGFloat(n)
             for i in 0..<n {
-                let lit = Double(i) / Double(n) < progress
+                let on = Double(i) / Double(n) < progress
                 ctx.fill(Path(roundedRect: CGRect(x: CGFloat(i) * pitch, y: 1,
                                                   width: pitch - 2, height: 4), cornerRadius: 1),
-                         with: .color(lit ? NB.lime1 : NB.white.opacity(0.10)))
+                         with: .color(on ? lit : track))
             }
         }
     }
@@ -910,6 +912,18 @@ private struct Connected: View {
                 .frame(width: w, alignment: .center)
                 .offset(y: Chrome.boardY(664))
                 .opacity(footer)
+
+            // 9-0 00B · the second HOOP is not paired here. One line says where it goes;
+            // Device › Add your second HOOP does the work later.
+            Text(L("KEEP WEARING. CHARGE THE OTHER.") + "\n" + L("Add your second HOOP from the Device page."))
+                .font(NBFont.dot(500, 10.5)).tracking(0.16 * 10.5)
+                .multilineTextAlignment(.center)
+                .lineSpacing(5)
+                .foregroundStyle(NB.white.opacity(0.28))
+                .frame(width: w, alignment: .center)
+                .offset(y: Chrome.boardY(lowBattery == nil ? 684 : 706))
+                .opacity(footer)
+                .accessibilityIdentifier("connect.secondHoopHint")
 
             // 02 rule 05 · low battery does not block pairing; it gets one amber line here.
             if let lowBattery {

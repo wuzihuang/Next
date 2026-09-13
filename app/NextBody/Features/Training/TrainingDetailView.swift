@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// 08 / ADR 0015 · training load. One page, DAY / WEEK / MONTH. Style A is the
-/// dial: the ring stays the hero, the cards under it are the ingredients that
-/// built today's scalar. Back always returns to the root.
+/// 08 / ADR 0015 · training load. One page, DAY / WEEK / MONTH. DAY is the
+/// ring; WEEK and MONTH are a line of daily loads. The hero stays 0–21.
 struct TrainingDetailView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
@@ -56,8 +55,6 @@ struct TrainingDetailView: View {
             curvePoints.map { TrainingCurvePoint(ts: $0.ts, load: $0.load) },
             day: m.day, through: Date())
     }
-    private var gapMinutes: Int { Int(curveData.gaps.reduce(0) { $0 + $1.duration } / 60) }
-    private var longestGap: DateInterval? { curveData.gaps.max { $0.duration < $1.duration } }
 
     private var weekFacts: [TrainingDayFacts] { facts(count: DetailWindow(.training, .week).days) }
     private var monthFacts: [TrainingDayFacts] { facts(count: DetailWindow(.training, .month).days) }
@@ -199,10 +196,6 @@ struct TrainingDetailView: View {
                 Text(L("LATEST LOAD SAMPLE %@", Fmt.clock(last.ts)))
                     .font(NBFont.ui(400, 10)).foregroundStyle(NB.text3Prod)
             }
-            if gapMinutes > 0 {
-                Text(L("Shaded intervals are missing data."))
-                    .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
-            }
         }
     }
 
@@ -291,22 +284,22 @@ struct TrainingDetailView: View {
         let heavy = days.enumerated().max(by: { ($0.element.load ?? 0) < ($1.element.load ?? 0) })?.offset
         let zones = TrainingWindowMath.typicalZones(days)
         return VStack(alignment: .leading, spacing: 14) {
-            ringCard(load: avg, caption: "OF 21",
-                     foot: L("7-day average of finished days. Today is not in this number."))
+            heroNumber(avg, caption: "OF 21",
+                       foot: L("7-day average of finished days. Today is not in this number."))
             CardBlock(title: L("SEVEN DAYS"),
                       trailing: L("7D AVG %@", Fmt.load(avg)), trailingIsDot: true) {
-                TrainingWeekBars(values: days.map(\.load), average: avg, heavyIndex: heavy)
+                TrainingDayLine(values: days.map(\.load), average: avg,
+                                todayIndex: days.indices.last, heavyIndex: heavy)
                     .frame(height: 130)
-                HStack {
+                HStack(spacing: 0) {
                     ForEach(Array(days.enumerated()), id: \.offset) { i, day in
                         Text(Fmt.weekday(day.day.date).prefix(1))
-                            .font(NBFont.dot(i == heavy ? 700 : 500, 10))
-                            .foregroundStyle(i == heavy ? NB.ember1 : Color(hex: 0x8A8A96))
-                            .frame(width: 34)
-                        if i < days.count - 1 { Spacer(minLength: 0) }
+                            .font(NBFont.dot(i == days.count - 1 ? 700 : 500, 10))
+                            .foregroundStyle(i == days.count - 1 ? NB.lime1 : Color(hex: 0x8A8A96))
+                            .frame(maxWidth: .infinity)
                     }
                 }
-                Text(L("Rolling 7 days · amber is the heaviest."))
+                Text(L("Rolling 7 days · lime is today."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
@@ -361,33 +354,29 @@ struct TrainingDetailView: View {
     private var monthBoard: some View {
         let days = monthFacts
         let typical = TrainingWindowMath.typicalLoad(days)
-        let recorded = TrainingWindowMath.recordedCount(days)
-        let empty = TrainingWindowMath.emptyCount(days)
         let counts = TrainingWindowMath.bandCounts(days)
         let rolls = TrainingWindowMath.weekRolls(days)
         let zones = TrainingWindowMath.typicalZones(days)
         return VStack(alignment: .leading, spacing: 14) {
-            ringCard(load: typical, caption: "30 DAYS",
-                     foot: L("A typical finished day. Not a 30-day sum."))
+            heroNumber(typical, caption: "OF 21",
+                       foot: L("A typical finished day. Not a 30-day sum."))
             CardBlock(title: L("THIRTY DAYS"),
-                      trailing: L("%d RECORDED · %d EMPTY", recorded, empty), trailingIsDot: true) {
-                TrainingHeatGrid(days: days)
+                      trailing: L("TYPICAL %@", Fmt.load(typical)), trailingIsDot: true) {
+                TrainingDayLine(values: days.map(\.load), average: typical,
+                                todayIndex: days.indices.last)
+                    .frame(height: 140)
                 HStack(spacing: 6) {
-                    Text(L("LIGHT")).font(NBFont.dot(700, 10)).foregroundStyle(Color(hex: 0x8A8A96))
-                    ForEach([0.28, 0.47, 0.72, 1.0], id: \.self) { o in
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(NB.lime1.opacity(o))
-                            .frame(width: 20, height: 8)
-                    }
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(NB.ember1)
-                        .frame(width: 20, height: 8)
-                    Text(L("HEAVY")).font(NBFont.dot(700, 10)).foregroundStyle(Color(hex: 0x8A8A96))
-                    Spacer(minLength: 0)
-                    Text(L("DASH · NO DATA"))
-                        .font(NBFont.dot(700, 10))
+                    Text(days.first.map { Fmt.displayDate($0.day.date, format: "d MMM").uppercased() } ?? Fmt.dash)
+                        .font(NBFont.dot(500, 10))
                         .foregroundStyle(Color(hex: 0x8A8A96))
+                    Spacer(minLength: 0)
+                    Text(L("TODAY"))
+                        .font(NBFont.dot(700, 10))
+                        .foregroundStyle(NB.lime1)
                 }
+                Text(L("One point a day on the 0–21 scale."))
+                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
+                    .foregroundStyle(NB.text3Prod)
             }
             TrainingIngredientsCard(trailing: L("TYPICAL DAY"), rows: [
                 .init(label: L("HR ZONES 1–3"),
@@ -416,14 +405,17 @@ struct TrainingDetailView: View {
                         .font(NBFont.dot(700, 11))
                         .foregroundStyle(NB.lime1)
                 }
-                TrainingWeekBars(values: rolls.map(\.average), average: typical)
+                TrainingDayLine(values: rolls.map(\.average), average: typical,
+                                todayIndex: rolls.isEmpty ? nil : rolls.count - 1)
                     .frame(height: 72)
-                HStack {
+                HStack(spacing: 0) {
                     ForEach(Array(rolls.enumerated()), id: \.offset) { i, roll in
                         Text(L("%dD %@", roll.days, Fmt.load(roll.average)))
                             .font(NBFont.dot(500, 9))
-                            .foregroundStyle(i == rolls.count - 1 ? NB.ember1 : Color(hex: 0x8A8A96))
-                        if i < rolls.count - 1 { Spacer(minLength: 0) }
+                            .foregroundStyle(i == rolls.count - 1 ? NB.lime1 : Color(hex: 0x8A8A96))
+                            .frame(maxWidth: .infinity)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
                 }
                 Text(L("2 days, then four groups of 7."))
@@ -496,6 +488,29 @@ struct TrainingDetailView: View {
 
     // MARK: shared chrome
 
+    private func heroNumber(_ value: Double?, caption: String, foot: String) -> some View {
+        VStack(spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Text(Fmt.load(value))
+                    .font(NBFont.dot(800, 64))
+                    .foregroundStyle(value == nil ? NB.text3Prod : NB.text1)
+                Text(L(caption))
+                    .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
+                    .foregroundStyle(NB.white.opacity(0.42))
+            }
+            Text(foot)
+                .font(NBFont.ui(400, 12))
+                .foregroundStyle(NB.text3Prod)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 12)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 8)
+        .frame(width: NB.Layout.contentWidth)
+        .cardSkin()
+    }
+
     private func ringCard(load: Double?, caption: String, foot: String) -> some View {
         VStack(spacing: 18) {
             BigTrainingRing(load: load, target: range == .day ? m.targetLoad : nil,
@@ -537,10 +552,6 @@ struct TrainingDetailView: View {
             EdgeNote(line: L("AUTO HR IS OFF"),
                      text: L("Steps still count. Turn on continuous heart rate for intensity."),
                      action: { router.open(.deviceAutoMonitor, from: .home) })
-        }
-        if gapMinutes >= 60, let gap = longestGap {
-            EdgeNote(line: L("DATA MISSING %@–%@", Fmt.clock(gap.start), Fmt.clock(gap.end)),
-                     text: L("Activity in this interval may not be included."))
         }
     }
 

@@ -54,6 +54,88 @@ struct BigTrainingRing: View {
     }
 }
 
+/// One day's load on the 0–21 ruler. WEEK and MONTH use this instead of the
+/// ring: a missing day is a hole, not a zero and not a dashed callout.
+struct TrainingDayLine: View {
+    let values: [Double?]
+    let average: Double?
+    var todayIndex: Int? = nil
+    var heavyIndex: Int? = nil
+
+    private static let ceiling = 21.0
+    private static let pad: CGFloat = 8
+
+    var body: some View {
+        Canvas { ctx, size in
+            guard !values.isEmpty else { return }
+            let plot = max(0, size.height - Self.pad * 2)
+            let slot = size.width / CGFloat(values.count)
+            func y(_ value: Double) -> CGFloat {
+                size.height - Self.pad - CGFloat(min(Self.ceiling, max(0, value))) / Self.ceiling * plot
+            }
+            func point(_ index: Int, _ value: Double) -> CGPoint {
+                CGPoint(x: (CGFloat(index) + 0.5) * slot, y: y(value))
+            }
+
+            for rule in [7.0, 14.0] {
+                ctx.fill(Path(CGRect(x: 0, y: y(rule), width: size.width, height: 1)),
+                         with: .color(NB.white.opacity(0.06)))
+            }
+            ctx.fill(Path(CGRect(x: 0, y: size.height - 1, width: size.width, height: 1)),
+                     with: .color(NB.white.opacity(0.10)))
+
+            let runs = TrainingWindowMath.lineRuns(values).map { $0.map { point($0.index, $0.value) } }
+            guard !runs.isEmpty else { return }
+
+            for run in runs where run.count > 1 {
+                var area = Path()
+                area.move(to: CGPoint(x: run[0].x, y: size.height))
+                for p in run { area.addLine(to: p) }
+                area.addLine(to: CGPoint(x: run[run.count - 1].x, y: size.height))
+                area.closeSubpath()
+                let crest = run.map(\.y).min() ?? 0
+                ctx.fill(area, with: .linearGradient(
+                    Gradient(colors: [NB.lime1.opacity(0.18), NB.lime1.opacity(0)]),
+                    startPoint: CGPoint(x: 0, y: crest),
+                    endPoint: CGPoint(x: 0, y: size.height)))
+            }
+
+            for run in runs where run.count > 1 {
+                var line = Path()
+                line.move(to: run[0])
+                for p in run.dropFirst() { line.addLine(to: p) }
+                ctx.stroke(line, with: .color(NB.lime1),
+                           style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+            }
+
+            if let average {
+                var rule = Path()
+                rule.move(to: CGPoint(x: 0, y: y(average)))
+                rule.addLine(to: CGPoint(x: size.width, y: y(average)))
+                ctx.stroke(rule, with: .color(NB.limePale.opacity(0.4)),
+                           style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+            }
+
+            let r: CGFloat = values.count > 14 ? 1.8 : 2.6
+            for (index, value) in values.enumerated() {
+                guard let value else { continue }
+                let p = point(index, value)
+                let heavy = index == heavyIndex && index != todayIndex
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)),
+                         with: .color(heavy ? NB.ember1 : NB.lime1.opacity(0.9)))
+            }
+
+            if let todayIndex, values.indices.contains(todayIndex), let value = values[todayIndex] {
+                let p = point(todayIndex, value)
+                ctx.stroke(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)),
+                           with: .color(NB.lime1.opacity(0.45)), lineWidth: 1)
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 3.4, y: p.y - 3.4, width: 6.8, height: 6.8)),
+                         with: .color(NB.lime1))
+            }
+        }
+    }
+}
+
 /// Recorded cumulative values on the actual user-day clock. Missing intervals
 /// interrupt the line; a target is a horizontal reference, never a prediction.
 struct CumulativeCurve: View {
@@ -102,17 +184,6 @@ struct CumulativeCurve: View {
                 }
                 .stroke(NB.white.opacity(0.10), lineWidth: 1)
 
-                ForEach(Array(data.gaps.enumerated()), id: \.offset) { _, gap in
-                    let start = size.width * TrainingWindowMath.dayFraction(gap.start, day: day)
-                    let end = size.width * TrainingWindowMath.dayFraction(gap.end, day: day)
-                    Rectangle().fill(NB.ember1.opacity(0.09))
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(NB.ember1.opacity(0.5)).frame(height: 2)
-                        }
-                        .frame(width: max(0, end - start), height: size.height - 24)
-                        .offset(x: start, y: 12)
-                }
-
                 ForEach(Array(data.segments.enumerated()), id: \.offset) { _, segment in
                     if let first = segment.first, let last = segment.last {
                         Path { p in
@@ -145,45 +216,6 @@ struct CumulativeCurve: View {
                         .frame(width: size.width, height: size.height)
                 }
             }
-        }
-    }
-}
-
-/// Seven (or N) daily loads. A nil slot is an empty track, never a zero bar.
-struct TrainingWeekBars: View {
-    let values: [Double?]
-    let average: Double?
-    var heavyIndex: Int? = nil
-
-    var body: some View {
-        GeometryReader { geo in
-            let h = geo.size.height
-            ZStack(alignment: .topLeading) {
-                HStack(spacing: 0) {
-                    ForEach(values.indices, id: \.self) { i in
-                        ZStack(alignment: .bottom) {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color(hex: 0x16161B))
-                            if let v = values[i] {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(i == heavyIndex ? NB.ember1
-                                          : i == values.count - 1 ? NB.lime1 : NB.lime1.opacity(0.55))
-                                    .frame(height: h * CGFloat(min(1, v / 21)))
-                            }
-                        }
-                        .frame(width: 34, height: h)
-                        if i < values.count - 1 { Spacer(minLength: 0) }
-                    }
-                }
-                if let average {
-                    Path { p in
-                        let y = h - h * CGFloat(min(1, average / 21))
-                        p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: geo.size.width, y: y))
-                    }
-                    .stroke(NB.limePale.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-                }
-            }
-            .clipped()
         }
     }
 }
@@ -259,42 +291,6 @@ struct TrainingZoneStack: View {
             }
         }
         .frame(height: 104, alignment: .bottom)
-    }
-}
-
-/// Thirty heat cells. A missing day is a dashed empty slot, never a dim zero.
-struct TrainingHeatGrid: View {
-    let days: [TrainingDayFacts]
-    private let cell: CGFloat = 26
-    private let gap: CGFloat = 4
-
-    var body: some View {
-        let columns = Array(repeating: GridItem(.fixed(cell), spacing: gap), count: 10)
-        LazyVGrid(columns: columns, spacing: gap) {
-            ForEach(Array(days.enumerated()), id: \.offset) { _, day in
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(fill(for: day))
-                    .overlay {
-                        if day.load == nil {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(NB.white.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                        }
-                    }
-                    .frame(width: cell, height: cell)
-            }
-        }
-        .frame(width: 10 * cell + 9 * gap)
-    }
-
-    private func fill(for day: TrainingDayFacts) -> Color {
-        guard let load = day.load else { return NB.white.opacity(0.04) }
-        switch TrainingWindowMath.band(load: load, zone: day.zone) {
-        case .light:  return NB.lime1.opacity(0.28)
-        case .steady: return NB.lime1.opacity(0.72)
-        case .heavy:  return NB.lime1
-        case .over:   return NB.ember1
-        case .unknown: return NB.text3Prod.opacity(0.4)
-        }
     }
 }
 

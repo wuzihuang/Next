@@ -12,7 +12,7 @@
 import { generateObject } from "npm:ai@4.3.16";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { userClient, serviceClient, currentUserId, cors, json, userDayKey } from "../_shared/db.ts";
-import { model, primaryModelId } from "../_shared/model.ts";
+import { model, withModelFallback } from "../_shared/model.ts";
 import { usageFromProvider } from "../_shared/cost.ts";
 import { recordAiUsage, checkAiSpend } from "../_shared/ai-quota.ts";
 import { normalizeLocale } from "../_shared/contract.ts";
@@ -87,16 +87,20 @@ export async function handleMemorySettle(req: Request, deps = defaults): Promise
     if (lines.length === 0) { skipped.push({ session, reason: "EMPTY" }); continue; }
     const old = (await loadMemory(db, userId)) ?? emptyMemory;
     try {
-      const result = await deps.generateObject({
-        model: model(),
-        schema: MemoryDoc,
-        system: memoryPrompt(locale),
-        messages: memoryMessages(old, lines, today),
-        mode: "json",
-        maxRetries: 0,
-        abortSignal: AbortSignal.timeout(40_000),
-      });
-      await deps.recordUsage(db, usageFromProvider(result.usage, result.providerMetadata), primaryModelId());
+      const signal = AbortSignal.timeout(60_000);
+      const { result, modelId } = await withModelFallback(async (id) => {
+        if (!await deps.spend(db)) throw new Error("AI_SPEND_LIMIT");
+        return deps.generateObject({
+          model: model(id),
+          schema: MemoryDoc,
+          system: memoryPrompt(locale),
+          messages: memoryMessages(old, lines, today),
+          mode: "json",
+          maxRetries: 0,
+          abortSignal: signal,
+        });
+      }, signal);
+      await deps.recordUsage(db, usageFromProvider(result.usage, result.providerMetadata), modelId);
       const doc = fitMemory(result.object);
       const write = await deps.trusted().rpc("write_user_memory_trusted", {
         p_owner: userId, p_session: session, p_summary: doc.summary, p_facts: doc.facts, p_tokens: estimateTokens(doc),

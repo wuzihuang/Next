@@ -1,7 +1,7 @@
 import XCTest
 
-/// ADR 0015 · TRAINING is the ring plus DAY / WEEK / MONTH. Week and month
-/// heroes stay on the 0–21 day scale — never a 7-day or 30-day sum.
+/// ADR 0015 · TRAINING is DAY / WEEK / MONTH. The day ring stays 0–21;
+/// week and month are a line of daily loads on that same scale.
 final class TrainingRangeTests: XCTestCase {
 
     override func setUpWithError() throws {
@@ -29,8 +29,11 @@ final class TrainingRangeTests: XCTestCase {
                       "WEEK should open the last 7 user days")
         XCTAssertTrue(week.staticTexts["SEVEN DAYS"].waitForExistence(timeout: 6))
         XCTAssertTrue(week.staticTexts["INGREDIENTS"].exists)
+        XCTAssertTrue(week.staticTexts["Rolling 7 days · lime is today."].exists)
         XCTAssertFalse(week.staticTexts["THROUGH THE DAY"].exists)
         XCTAssertFalse(week.staticTexts["A typical finished day. Not a 30-day sum."].exists)
+        XCTAssertFalse(week.staticTexts["DASH · NO DATA"].exists)
+        XCTAssertFalse(week.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "DATA MISSING")).firstMatch.exists)
         reveal(week.staticTexts["HOW THE ZONES STACK"], in: week)
         XCTAssertTrue(week.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "SHARED SCALE")).firstMatch.exists)
 
@@ -39,7 +42,9 @@ final class TrainingRangeTests: XCTestCase {
                       "MONTH should open the last 30 user days")
         XCTAssertTrue(month.staticTexts["THIRTY DAYS"].waitForExistence(timeout: 6))
         XCTAssertTrue(month.staticTexts["A typical finished day. Not a 30-day sum."].waitForExistence(timeout: 6))
+        XCTAssertTrue(month.staticTexts["One point a day on the 0–21 scale."].exists)
         XCTAssertFalse(month.staticTexts["THROUGH THE DAY"].exists)
+        XCTAssertFalse(month.staticTexts["DASH · NO DATA"].exists)
     }
 
     func testDebugRangeOpensOnMonth() {
@@ -59,6 +64,8 @@ final class TrainingRangeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No suggested range yet. Recorded activity is still shown below."].exists)
         reveal(app.staticTexts["THROUGH THE DAY"], in: app)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "LATEST LOAD SAMPLE")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["Shaded intervals are missing data."].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "DATA MISSING")).firstMatch.exists)
         reveal(app.staticTexts["INGREDIENTS"], in: app)
         XCTAssertTrue(app.staticTexts["1,652"].exists, "the real day total survives a missing target")
         XCTAssertTrue(app.staticTexts["ELEVATED HR PERIOD"].exists)

@@ -2,7 +2,7 @@ import {
   assert,
   assertEquals,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { streamText } from "npm:ai@4.3.16";
+import { generateObject, streamText } from "npm:ai@4.3.16";
 import {
   convertArrayToReadableStream,
   MockLanguageModelV1,
@@ -286,6 +286,87 @@ Deno.test("an attached image does not automatically invoke a vision or meal mode
   assertSuccess(await (await handleTurn(request({ image }), h.deps)).text());
   assert(h.activeTools[0].includes("image.inspect"));
   assertEquals(h.usages.length, 2);
+});
+
+Deno.test("a dense order screenshot passes actual SDK image validation and reaches the answer", async () => {
+  const visibleText = "米饭一份，鸡肉一份，蔬菜一份；".repeat(30);
+  const imageModel = new MockLanguageModelV1({ defaultObjectGenerationMode: "json", doGenerate: () => Promise.resolve({
+    text: JSON.stringify({ summary: "订单内容".repeat(100), visibleText, objects: Array(15).fill("菜品"), numericFacts: Array.from({ length: 24 }, (_, i) => i) }),
+    finishReason: "stop", usage: { promptTokens: 100, completionTokens: 500 },
+    rawCall: { rawPrompt: null, rawSettings: {} },
+  }) });
+  const h = harness([{ calls: [{ name: "image.inspect", args: {} }] }, { text: "已识别订单里的食物，可以继续估算。" }], {
+    generateObject: ((options: Parameters<typeof generateObject>[0]) => generateObject({ ...options, model: imageModel })) as typeof generateObject,
+  });
+  assertSuccess(await (await handleTurn(request({ text: "这个是我今天中午吃的食物", image, surface: "chat" }), h.deps)).text());
+  assertEquals(h.activeTools.length, 2);
+  assertEquals(h.usages.length, 3);
+});
+
+Deno.test("invalid image JSON falls back to Qwen and can still finish the chat", async () => {
+  const ids: string[] = [];
+  const h = harness([{ calls: [{ name: "image.inspect", args: {} }] }, { text: "图中有米饭和鸡肉。" }], {
+    generateObject: ((options: Parameters<typeof generateObject>[0]) => {
+      ids.push(options.model.modelId);
+      return generateObject({ ...options, model: new MockLanguageModelV1({ defaultObjectGenerationMode: "json", doGenerate: () => Promise.resolve({
+        text: ids.length === 1 ? '{"summary":42}' : '{"summary":"米饭和鸡肉","visibleText":null}',
+        finishReason: "stop", usage: { promptTokens: 20, completionTokens: 10 }, rawCall: { rawPrompt: null, rawSettings: {} },
+      }) }) });
+    }) as typeof generateObject,
+  });
+  assertSuccess(await (await handleTurn(request({ image, surface: "chat" }), h.deps)).text());
+  assertEquals(ids, ["grok-4.6", "qwen3.8-flash"]);
+});
+
+Deno.test("two invalid image results return a tool limitation instead of killing the reply", async () => {
+  let attempts = 0;
+  const h = harness([{ calls: [{ name: "image.inspect", args: {} }] }, { text: "这张图片暂时无法可靠识别，请补充菜名。" }], {
+    generateObject: () => {
+      attempts++;
+      return Promise.reject(Object.assign(new Error("response did not match schema"), { name: "AI_NoObjectGeneratedError" }));
+    },
+  });
+  assertSuccess(await (await handleTurn(request({ image, surface: "chat" }), h.deps)).text());
+  assertEquals(attempts, 2);
+  assert(JSON.stringify(h.prompts[1]).includes("IMAGE_READ_FAILED"));
+});
+
+Deno.test("provider failure after a completed read continues on Qwen without repeating the read", async () => {
+  const h = harness([{ calls: [{ name: "find", args: { entity: "metric" } }] }, { calls: [render] }]);
+  const original = h.deps.streamText;
+  const ids: string[] = [];
+  h.deps.streamText = options => {
+    ids.push(options.model.modelId);
+    if (ids.length === 2) throw Object.assign(new Error("503"), { name: "AI_APICallError" });
+    return original(options);
+  };
+  assertSuccess(await (await handleTurn(request(), h.deps)).text());
+  assertEquals(ids, ["grok-4.6", "grok-4.6", "qwen3.8-flash"]);
+  assertEquals((h.saved[0].p_trace as { tool: string }[]).map(t => t.tool), ["find", render.name]);
+  assertEquals(h.saved[0].p_model, "qwen3.8-flash/2026-09");
+});
+
+Deno.test("a provider stream failure after a tool has started never repeats that step", async () => {
+  const h = harness([]);
+  let attempts = 0;
+  h.deps.streamText = options => {
+    attempts++;
+    return streamText({ ...options, model: new MockLanguageModelV1({ doStream: () => Promise.resolve({
+      rawCall: { rawPrompt: null, rawSettings: {} },
+      stream: new ReadableStream({
+        async start(controller) {
+          controller.enqueue({ type: "tool-call", toolCallType: "function", toolCallId: "one-call", toolName: "find", args: '{"entity":"metric"}' });
+          await new Promise(resolve => setTimeout(resolve, 10));
+          controller.enqueue({ type: "error", error: Object.assign(new Error("stream failed"), { name: "AI_APICallError" }) });
+          controller.close();
+        },
+      }),
+    }) }) });
+  };
+  const body = await (await handleTurn(request(), h.deps)).text();
+  assert(body.includes("MODEL_UNAVAILABLE"));
+  assertEquals(attempts, 1);
+  assertEquals((h.saved[0].p_trace as { tool: string }[]).map(t => t.tool), ["find"]);
 });
 
 Deno.test("meal generation runs only after model-selected meal.estimate", async () => {
@@ -1040,10 +1121,10 @@ async function settle(until: () => boolean, ms = 3_000) {
   while (!until() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
 }
 
-Deno.test("the advice budget is 110 s and every other surface has 80 s inside the 90 s lease", () => {
+Deno.test("image-capable turns have 120 s and advice keeps its 110 s budget", () => {
   assertEquals(PLAN_DEADLINE_MS, 110_000);
-  assertEquals(TURN_DEADLINE_MS, 80_000);
-  assert(TURN_DEADLINE_MS < 90_000);
+  assertEquals(TURN_DEADLINE_MS, 120_000);
+  assert(TURN_DEADLINE_MS < 150_000);
 });
 
 Deno.test("an advice turn keeps generating after the phone aborts its request and saves the day's set", async () => {
@@ -1076,14 +1157,15 @@ Deno.test("an advice turn finishes its durable result after the reader cancels t
   assertEquals((h.saved[0].p_envelope as { type: string }).type, "plan");
 });
 
-Deno.test("a detached advice turn renews its lease before a model step; the panel never does", async () => {
+Deno.test("long-lived advice and panel turns renew their lease before another model step", async () => {
   const plan = harness([{ calls: [advicePlan] }], { leaseRenewAfterMs: 0 });
   assertSuccess(await (await handleTurn(request({ surface: "plan", text: "" }), plan.deps)).text());
   assert(plan.rpcCalls.includes("renew_ai_turn"), plan.rpcCalls.join(","));
   assert(plan.rpcCalls.indexOf("renew_ai_turn") < plan.rpcCalls.indexOf("record_claimed_ai_turn"));
   const panel = harness([{ calls: [ready] }, { calls: [render] }], { leaseRenewAfterMs: 0 });
   assertSuccess(await (await handleTurn(request(), panel.deps)).text());
-  assertEquals(panel.rpcCalls.includes("renew_ai_turn"), false);
+  assert(panel.rpcCalls.includes("renew_ai_turn"), panel.rpcCalls.join(","));
+  assert(panel.rpcCalls.indexOf("renew_ai_turn") < panel.rpcCalls.indexOf("record_claimed_ai_turn"));
 });
 
 Deno.test("an advice turn whose lease was taken over stops before publishing a set", async () => {

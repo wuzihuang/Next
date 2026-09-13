@@ -93,11 +93,22 @@ enum SheetRoute: Hashable, Identifiable {
     case measurement(UUID)
     // 12S · device
     case bandAutoMonitor, findBand, unbind, disconnect, firmware, syncCadence
+    /// 9-0 A·S1–S6 · give the second HOOP its slot (docs/plans/2026-09-12-dual-device-continuity.md).
+    case activateSecond
+    /// 9-0 A·S8 · one tap on the other HOOP's card. There are only two, so the tap is the
+    /// choice and the sheet only confirms. The payload is the slot being switched to.
+    case wearSwitch(String)
+    /// The `Counted from …` line: the wearer pins a different start by hand. Not the
+    /// switching path — the app works the start out from the band's own evidence.
+    case wearCorrect
+    /// Choose one HOOP to remove; the other binding and account history stay.
+    case releaseSet
     /// 12Y · find the wrist (LED). Not `.findBand`.
     case findHoop
     /// 12Y · new-alarm table (SWITCH).
     case bandAlarms
-    /// 12S · the light on the side. A choice here is written to the band on every connect.
+    /// 12S · the light on the side. DEBUG only — it lives in the Device page's debug card,
+    /// not as a page of its own. A choice here is written to the band on every connect.
     case healthLight
     // dock
     case plusMenu

@@ -187,6 +187,15 @@ final class DataStore: ObservableObject {
         // ⚠️ Simulator only. On a device a made-up identifier makes the app believe a band
         // is bound before the gate was ever walked, and every launch would try to reconnect.
         if Band.allowsSeed, BoundBand.identifier == nil { BoundBand.identifier = "C4-2E-8F-1A-73-9D" }
+        #if DEBUG
+        // `SIMCTL_CHILD_NB_DEBUG_SECOND_HOOP=1` seeds the mock's second band into slot B so the
+        // two-HOOP DEVICE page (9-0 A) can be walked without tapping through activation.
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SECOND_HOOP"] != nil,
+           DeviceSlots.binding(.b) == nil {
+            DeviceSlots.set(SlotBinding(slot: .b, identifier: "8E-41-C0-2B-77-1F", name: "NEXTBODY HOOP",
+                                        boundAt: Date().addingTimeInterval(-2 * 86_400)))
+        }
+        #endif
         // Earlier device builds wrote that seed; a real phone carrying it is not bound to anything.
         if !Band.allowsSeed, BoundBand.identifier == "C4-2E-8F-1A-73-9D" { BoundBand.forget() }
         // The board's numbers exist so the flow is walkable on a simulator with no band.

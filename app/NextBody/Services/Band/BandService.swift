@@ -9,7 +9,7 @@ protocol BandService: AnyObject {
 
     func startScan() async
     func stopScan() async
-    func connect(_ device: DiscoveredBand) async throws
+    func connect(_ device: DiscoveredBand, progress: @escaping @Sendable (Double) -> Void) async throws
     /// F1 · A · the gate is walked once. After that the band is bound, and every later launch
     /// reconnects to it on its own — being asked to pair again is how a user learns their
     /// history is gone.
@@ -175,6 +175,9 @@ extension BandService {
         guard !Task.isCancelled else { return }
         await reconnectIfBound()
     }
+    func connect(_ device: DiscoveredBand) async throws {
+        try await connect(device, progress: { _ in })
+    }
     func prepareFreshSync() async {}
     func finishFreshSync() async {}
     /// 14 · one answer from the band about its sport state: 0 not started, 1 running,
@@ -308,6 +311,8 @@ enum BandEvent {
     case deviceInitiatedMeasurementFinished
     /// Firmware find-the-wrist: Enter / Exit / Timeout after `startFindHoop`.
     case findHoop(FindHoopPhase)
+    /// History dump tick from the SDK: 1-based day being read, days on the band, 0…100 of that day.
+    case historyRead(day: Int, of: Int, percent: Int)
 }
 
 /// Fan-out for `BandService.events`. A bare `AsyncStream` has one consumer and ends for good
@@ -688,7 +693,9 @@ final class DisconnectedBand: BandService, @unchecked Sendable {
 
     func startScan() async {}
     func stopScan() async {}
-    func connect(_: DiscoveredBand) async throws { throw BandError.notConnected }
+    func connect(_: DiscoveredBand, progress _: @escaping @Sendable (Double) -> Void) async throws {
+        throw BandError.notConnected
+    }
     func reconnectIfBound() async {}
     func disconnect() async { state = .disconnected }
 

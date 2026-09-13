@@ -47,17 +47,37 @@ final class MockBand: BandService, @unchecked Sendable {
     func startScan() async {
         state = .scanning
         try? await Task.sleep(for: .seconds(2.2))
-        guard state == .scanning else { return }
+        // A scan that started while the bound band reconnected (DEVICE page + activation
+        // sheet at once) still answers, as the real radio does.
+        guard state == .scanning || state == .connected || state == .connecting else { return }
         hub.send(.discovered(DiscoveredBand(
-            id: "C4-2E-8F-1A-73-9D", name: "NEXTBODY HOOP", rssi: -46, batteryPercent: 96)))
+            id: Self.firstHoop, name: "NEXTBODY HOOP", rssi: -46, batteryPercent: 96)))
+        // The second HOOP of a set sits on its charger a little further away. It arrives
+        // late so Connect's first-discovered pick still lands on the first band.
+        try? await Task.sleep(for: .milliseconds(900))
+        guard state == .scanning || state == .connected || state == .connecting else { return }
+        hub.send(.discovered(DiscoveredBand(
+            id: Self.secondHoop, name: "NEXTBODY HOOP", rssi: -61, batteryPercent: 71)))
     }
+
+    /// Two simulator bands, so the two-HOOP set (9-0) can be walked without hardware.
+    static let firstHoop = "C4-2E-8F-1A-73-9D"
+    static let secondHoop = "8E-41-C0-2B-77-1F"
+    private var onSecond: Bool { BoundBand.identifier == Self.secondHoop }
 
     func stopScan() async { if state == .scanning { state = .idle } }
 
-    func connect(_ device: DiscoveredBand) async throws {
+    func connect(_ device: DiscoveredBand, progress: @escaping @Sendable (Double) -> Void) async throws {
         state = .connecting
-        // 02 · 04 · four real steps, not a fake tween.
-        for _ in 0..<4 { try? await Task.sleep(for: .milliseconds(600)) }
+        // Same beats the real SDK reports: connecting → link up → password verified.
+        progress(0)
+        try? await Task.sleep(for: .milliseconds(600))
+        progress(0.25)
+        try? await Task.sleep(for: .milliseconds(600))
+        progress(0.7)
+        try? await Task.sleep(for: .milliseconds(600))
+        progress(1)
+        try? await Task.sleep(for: .milliseconds(600))
         state = .connected
         BoundBand.identifier = device.id
         hub.send(.battery(try await readBattery()))
@@ -74,11 +94,31 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func disconnect() async { state = .disconnected }
 
+    func prepareFreshSync() async { dumpedThisRefresh = false }
+    func finishFreshSync() async {}
+
+    /// One dump per refresh, the way the real SDK reads every retained day before
+    /// the per-day cache lookups. The ticks are what the device-page bar follows.
+    private var dumpedThisRefresh = false
+    private func simulateHistoryDump() async {
+        guard !dumpedThisRefresh else { return }
+        dumpedThisRefresh = true
+        let days = 7
+        for day in 1...days {
+            hub.send(.historyRead(day: day, of: days, percent: 0))
+            try? await Task.sleep(for: .milliseconds(70))
+            hub.send(.historyRead(day: day, of: days, percent: 55))
+            try? await Task.sleep(for: .milliseconds(70))
+            hub.send(.historyRead(day: day, of: days, percent: 100))
+        }
+    }
+
     func readIdentity() async throws -> BandIdentity {
         try await requireConnection()
         return BandIdentity(
             name: "NEXTBODY HOOP", model: "KR96 PRO", hardware: "1.2", firmware: "2.4.1",
-            deviceNumber: "HB-0042", bleIdentifier: "C4-2E-8F-1A-73-9D",
+            deviceNumber: onSecond ? "HB-0107" : "HB-0042",
+            bleIdentifier: onSecond ? Self.secondHoop : Self.firstHoop,
             watchDataDayNumber: 7, sportMode: "10 TYPES")
     }
 
@@ -103,6 +143,8 @@ final class MockBand: BandService, @unchecked Sendable {
             battery = BandBattery(isPercent: true, percent: 64, level: nil, chargeState: .charging)
         } else if DebugEdge.on("charged") {
             battery = BandBattery(isPercent: true, percent: 100, level: nil, chargeState: .full)
+        } else if onSecond {
+            battery = BandBattery(isPercent: true, percent: 71, level: nil, chargeState: .charging)
         } else {
             battery = BandBattery(isPercent: true, percent: 82, level: nil, chargeState: .unplugged)
         }
@@ -118,6 +160,7 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func readOriginData(dayOffset: Int) async throws -> [OriginPoint] {
         try await requireConnection()
+        await simulateHistoryDump()
         try? await Task.sleep(for: .milliseconds(400))
         // 288 five-minute points, a plausible day: asleep until 07, a walk, a session at 18.
         return (0..<288).map { i in
@@ -148,6 +191,7 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func readSleep(dayOffset: Int) async throws -> SleepNight? {
         try await requireConnection()
+        await simulateHistoryDump()
         // Scientific sleep adds the band's own REM runs. Turning its automatic PPG off
         // deliberately falls back to the basic deep/light line, just like the real firmware.
         let scientificSleep = autoMonitoringSlots
@@ -191,6 +235,7 @@ final class MockBand: BandService, @unchecked Sendable {
 
     func readHealthData(dayOffset: Int) async throws -> BandHealthData {
         try await requireConnection()
+        await simulateHistoryDump()
         let temperatures = stride(from: 0, to: 24 * 60, by: 5).map { minute in
             TemperatureSample(time: String(format: "%02d:%02d", minute / 60, minute % 60),
                               celsius: 34.0 + 0.4 * sin(Double(minute) / 180))

@@ -597,19 +597,19 @@ struct OrbitField {
     }
 }
 
-/// 04 · idle 场。FirstRun 仍画 OrbitField；日常 idle 画当天锁住的那张板，
-/// 钟只在这块场可见时加，Reduce Motion 停在姿势上。
+/// 04 · idle 场。FirstRun 仍画 OrbitField；日常 idle 画当天锁住的那张板
+///（Paper V-1 / IdlePlateArt），钟只在这块场可见时加，Reduce Motion 停在姿势上。
 struct StandbyArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Day-pool / event plate from `IdlePlateLock`. Ceremony does not pass this.
     var plate: Int = 1
-    /// 0…1 — drives the lime band's length so it reads as a charge level, not a decoration.
+    /// 0…1 — kept so the charge cluster and any future lime band share one number.
     var charge: Double = 0.72
     var chargeKnown = true
     var animate = true
 
-    /// Starts part-turned so the held pose is a composed one rather than the zero frame.
-    @State private var clock: Double = 6
+    /// Mid-loop so the held pose is a composed one rather than the zero frame.
+    @State private var clock: Double = 0.45
     @State private var lastTick: Date?
 
     var body: some View {
@@ -633,9 +633,13 @@ struct StandbyArt: View {
 
     private var canvas: some View {
         Canvas { ctx, size in
-            OrbitField(clock: clock, charge: charge, chargeKnown: chargeKnown,
-                       moving: moving, plate: plate)
-                .draw(in: &ctx, size: size)
+            IdlePlateArt.draw(
+                plate: plate,
+                pose: IdlePlateMotion.pose(plate: plate, clock: clock, moving: moving),
+                charge: charge,
+                chargeKnown: chargeKnown,
+                in: &ctx,
+                size: size)
         }
     }
 }

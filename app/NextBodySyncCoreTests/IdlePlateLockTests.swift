@@ -171,6 +171,27 @@ final class IdlePlateLockTests: XCTestCase {
         XCTAssertEqual(low, .lowReserve)
     }
 
+    func testAdvanceVisitWalksEveryPaintedLook() {
+        var previous: Int?
+        var seen: [Int] = []
+        for _ in 0..<IdlePlateLock.reviewRoster.count {
+            previous = IdlePlateLock.advanceVisit(previous: previous)
+            seen.append(previous!)
+        }
+        XCTAssertEqual(seen, Array(1...28))
+        XCTAssertEqual(IdlePlateLock.advanceVisit(previous: 28), 1)
+        XCTAssertEqual(IdlePlateLock.advanceVisit(previous: 7), 8)
+        XCTAssertEqual(IdlePlateLock.advanceVisit(previous: nil), 1)
+        XCTAssertEqual(IdlePlateLock.advanceVisit(previous: 99), 1)
+    }
+
+    func testVisitLockIsNotCoveredByAnEvent() {
+        let snap = IdlePlateLock.Snapshot(day: day, plate: 4, lockedBy: .visit)
+        let held = IdlePlateLock.applyEvent(.lowReserve, stored: snap, day: day)
+        XCTAssertEqual(held.plate, 4)
+        XCTAssertEqual(held.lockedBy, .visit)
+    }
+
     func testReserveAt25IsNotLowUnlessBelowWake() {
         XCTAssertNil(IdlePlateLock.edge(
             reserve: 25, wakeReserve: 20, bandPercent: 80, charging: false,

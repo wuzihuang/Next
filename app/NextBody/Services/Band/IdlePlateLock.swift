@@ -19,8 +19,12 @@ public enum IdlePlateLock: Sendable {
     public static let bandAwaySeconds: TimeInterval = 4 * 3600
 
     public enum LockedBy: String, Equatable, Sendable, Codable {
-        case daily, event
+        case daily, event, visit
     }
+
+    /// Every painted look, including event and forbidden plates. Product idle
+    /// never draws from this list — `appear` still uses `dayPool`.
+    public static let reviewRoster: [Int] = Array(1...28)
 
     public enum Event: Equatable, Sendable {
         case lowReserve
@@ -62,6 +66,17 @@ public enum IdlePlateLock: Sendable {
         return plate
     }
 
+    /// Next look on the review roster. Unknown / missing previous starts at 01.
+    /// Product idle does not call this — a DEBUG visit walk does.
+    public static func advanceVisit(previous: Int?) -> Int {
+        let roster = reviewRoster
+        guard !roster.isEmpty else { return 1 }
+        guard let previous, let i = roster.firstIndex(of: previous) else {
+            return roster[0]
+        }
+        return roster[(i + 1) % roster.count]
+    }
+
     /// First idle appear of a user-day writes the lock. Same day keeps it.
     /// A new user-day only takes if idle is not already on screen (`idleVisible`).
     /// `hour` and `bpm` are ignored on purpose.
@@ -87,7 +102,7 @@ public enum IdlePlateLock: Sendable {
     /// Clearing the edge is not this function — the snapshot stays.
     public static func applyEvent(_ event: Event, stored: Snapshot, day: String) -> Snapshot {
         guard stored.day == day else { return stored }
-        if stored.lockedBy == .event { return stored }
+        if stored.lockedBy != .daily { return stored }
         return Snapshot(day: stored.day, plate: plate(for: event), lockedBy: .event)
     }
 

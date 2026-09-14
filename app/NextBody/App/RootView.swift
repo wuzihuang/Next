@@ -76,6 +76,9 @@ struct RootView: View {
         }
         .animation(.easeOut(duration: 0.18), value: confirmation?.id)
         .onAppear { phoneTools.router = router }
+        #if DEBUG
+        .overlay { IdlePlateDumpOverlay() }
+        #endif
     }
 
     #if DEBUG

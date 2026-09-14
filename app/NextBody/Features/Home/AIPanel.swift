@@ -33,6 +33,11 @@ struct AIPanel: View {
     private var ceremony: Bool { firstRun?.playing == true }
     /// The day's locked look. Written on idle appear; events may cover once.
     @State private var plateLock: IdlePlateLock.Snapshot? = IdlePlateStore.load()
+    #if DEBUG
+    @Environment(\.scenePhase) private var scenePhase
+    /// One advance per foreground, not per idle reappear.
+    @State private var visitRotatedForActive = false
+    #endif
     var body: some View {
         ZStack {
             // Idle planet and an AI frame must not share this ZStack. Two sibling
@@ -185,9 +190,18 @@ struct AIPanel: View {
             }
         }
         .onAppear { resolveIdlePlate(appear: true) }
+        #if DEBUG
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { visitRotatedForActive = false }
+            else if phase == .active { resolveIdlePlate(appear: true) }
+        }
+        #endif
         .onChange(of: m.bodyBattery) { _, _ in resolveIdlePlate(appear: false) }
         .onChange(of: band.batteryPercent) { _, _ in resolveIdlePlate(appear: false) }
-        .onChange(of: band.connected) { _, _ in resolveIdlePlate(appear: false) }
+        .onChange(of: band.connected) { _, connected in
+            IdlePlateStore.noteConnection(connected)
+            resolveIdlePlate(appear: false)
+        }
     }
 
     /// `appear: true` is a new idle show (day may flip). `false` is an in-place
@@ -203,7 +217,15 @@ struct AIPanel: View {
             IdlePlateStore.save(snap)
             return
         }
+        if visitRotateEnabled {
+            if appear {
+                applyVisitPlate(day: day)
+                return
+            }
+            if plateLock?.lockedBy == .visit { return }
+        }
         #endif
+        IdlePlateStore.noteConnection(band.connected)
         let stored = plateLock ?? IdlePlateStore.load()
         var snap = IdlePlateLock.appear(
             wearer: wearer,
@@ -230,6 +252,28 @@ struct AIPanel: View {
         plateLock = snap
         IdlePlateStore.save(snap)
     }
+
+    #if DEBUG
+    /// DEBUG default: each time the app becomes active, walk one look on
+    /// `reviewRoster` (01…28) so every paint can be judged. Release stays
+    /// one plate per user-day. Pin with `NB_DEBUG_PLATE`; restore the
+    /// playbook with `NB_DEBUG_PLATE_DAILY=1`.
+    private var visitRotateEnabled: Bool {
+        if IdlePlateDump.requested { return false }
+        let env = ProcessInfo.processInfo.environment
+        if env["NB_DEBUG_PLATE"] != nil { return false }
+        if env["NB_DEBUG_PLATE_DAILY"] == "1" { return false }
+        return true
+    }
+
+    private func applyVisitPlate(day: String) {
+        if visitRotatedForActive, plateLock?.lockedBy == .visit { return }
+        visitRotatedForActive = true
+        let plate = IdlePlateLock.advanceVisit(previous: IdlePlateStore.loadVisitPlate())
+        IdlePlateStore.saveVisitPlate(plate)
+        plateLock = IdlePlateLock.Snapshot(day: day, plate: plate, lockedBy: .visit)
+    }
+    #endif
 
     private func filledWidget(_ widget: PanelWidget) -> some View {
         // Self-contained result canvases draw once above the shared LED surface.
@@ -260,6 +304,15 @@ struct AIPanel: View {
                 .lineLimit(1).minimumScaleFactor(0.75)
                 .accessibilityIdentifier("panel.syncStatus")
             Spacer(minLength: 0)
+            #if DEBUG
+            if visitRotateEnabled || ProcessInfo.processInfo.environment["NB_DEBUG_PLATE"] != nil {
+                Text(String(format: "%02d", plateLock?.plate ?? 0))
+                    .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
+                    .foregroundStyle(NB.lime1.opacity(0.55))
+                    .padding(.trailing, 8)
+                    .accessibilityIdentifier("panel.idlePlate")
+            }
+            #endif
             Text(Fmt.clock(Date()))
                 .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
                 .foregroundStyle(NB.white.opacity(0.30))

@@ -25,6 +25,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<!-- 01 · Google 原生登录。这个 client ID 不是机密（它和 bundle id 绑定，Google 靠 bundle
 	     校验来源），反转形式就是 SDK 回调用的 URL scheme。Supabase 那边校验的正是它做 aud。 -->
 	<key>GIDClientID</key>

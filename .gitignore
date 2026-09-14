@@ -28,6 +28,9 @@ CLAUDE.md
 AGENTS.md
 app/build/
 
+# Local TestFlight / App Store Connect archive artifacts
+.asc/
+
 # dev harness credentials (project API keys, a test session) — minted locally, never committed
 supabase/scripts/dev/apikeys.json
 supabase/scripts/dev/session.json

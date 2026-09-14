@@ -76,10 +76,11 @@ model credentials and tool execution server-side.
   internal `Friend` (`d62d8979-1adc-45e2-85c4-964b58a7c896`) and `Internal Testers`
   (`8598b996-8b7b-4d9c-9f6a-82e6b6df538a`); external `Public`
   (`9e585745-be37-48cb-bf27-a16a79b0dd81`) with public link
-  `https://testflight.apple.com/join/x4yW7mJQ`. Latest processed build is `1.0` (4)
-  (`1f1f674d-f2c2-49bd-a12d-4472b395759a`, uploaded 2026-09-06, encryption exempt).
-  First external Beta App Review was submitted 2026-09-13 and is now
-  `APPROVED` / `BETA_APPROVED`; the public link can be used to join and install.
+  `https://testflight.apple.com/join/x4yW7mJQ`. Latest public build is `1.0` (5)
+  (`a60b86c3-6fa7-4a07-aab2-b8e1ba7a1a17`, uploaded 2026-09-14, encryption exempt,
+  `IN_BETA_TESTING` / `APPROVED`). Previous public build `1.0` (4)
+  (`1f1f674d-f2c2-49bd-a12d-4472b395759a`) remains approved. Local
+  `CURRENT_PROJECT_VERSION` is 5. The public link can be used to join and install.
   Do not confuse with the older phone bundle
   `com.walnutechnology.nextbody.app`.
 - App Store screenshots live on Paper `NEXTBODY-HOOP` page `screenshot` (`S-0`): one

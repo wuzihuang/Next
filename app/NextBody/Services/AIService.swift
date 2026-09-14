@@ -362,7 +362,14 @@ final class AIService: ObservableObject {
             guard activeTurnID == turnID else { return .failed(nil) }
             reading = nil
             if let request, frame == nil, !responseFailed { return .suspended(request) }
-            if responseFailed && (surface == "chat" || coachHandoffReceived || lastErrorCode == "RATE_LIMITED") { return .failed(nil) }
+            if responseFailed && lastErrorCode == "RATE_LIMITED" { return .failed(nil) }
+            // Chat used to throw away every error event, including a finished meal plate
+            // sitting in fallback_frame. That is why typed food logs showed the retry line
+            // after the numbers were already on the wire.
+            if responseFailed && (surface == "chat" || coachHandoffReceived)
+                && (frame?["type"] as? String) != "food" {
+                return .failed(nil)
+            }
             if let frame {
                 // ⚠️ A frame this build cannot decode — a type the server learned after the
                 // app shipped, or a malformed envelope — used to come back as nil, and Home
@@ -499,24 +506,41 @@ final class AIService: ObservableObject {
         #if DEBUG
         let latencyStarted = Date()
         #endif
+        // The file path used to wait for the socket to fail (8 s) and then upload.
+        // Both rails start on release; the first usable transcript wins.
+        let result = await firstTranscript(stream: stream, clip: clip, operationID: operationID)
+        #if DEBUG
+        let elapsedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
+        os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
+            .notice("NB latency · asr first_rail ms=\(elapsedMs, privacy: .public)")
+        #endif
+        return result
+    }
+
+    private func firstTranscript(stream: ASRStreamingSession, clip: URL, operationID: UUID) async -> Transcript {
+        await withTaskGroup(of: Transcript.self) { group in
+            group.addTask { await self.streamTranscript(stream) }
+            group.addTask { await self.transcribe(clip, operationID: operationID) }
+            var lastFailure: Transcript?
+            for await result in group {
+                switch result {
+                case .text, .silence:
+                    stream.cancel()
+                    group.cancelAll()
+                    return result
+                case .failed:
+                    lastFailure = result
+                }
+            }
+            return lastFailure ?? .failed("MODEL_UNAVAILABLE")
+        }
+    }
+
+    private func streamTranscript(_ stream: ASRStreamingSession) async -> Transcript {
         switch await stream.finish() {
-        case .text(let text):
-            try? FileManager.default.removeItem(at: clip)
-            #if DEBUG
-            let elapsedMs = Int(Date().timeIntervalSince(latencyStarted) * 1_000)
-            os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
-                .notice("NB latency · asr stream response ms=\(elapsedMs, privacy: .public)")
-            #endif
-            return .text(text)
-        case .silence:
-            try? FileManager.default.removeItem(at: clip)
-            return .silence
-        case .failed(let reason):
-            #if DEBUG
-            os.Logger(subsystem: "com.nextbody.hoop", category: "ai-latency")
-                .error("NB latency · asr stream fallback reason=\(reason, privacy: .public)")
-            #endif
-            return await transcribe(clip, operationID: operationID)
+        case .text(let text): return .text(text)
+        case .silence: return .silence
+        case .failed(let reason): return .failed(reason)
         }
     }
 
@@ -528,6 +552,7 @@ final class AIService: ObservableObject {
             .notice("NB latency · asr start bytes=\(bytes, privacy: .public)")
         #endif
         defer { try? FileManager.default.removeItem(at: clip) }
+        if Task.isCancelled { return .failed("CANCELLED") }
         do {
             let out = try await SupabaseClient.shared.uploadFunction(
                 "asr", fileURL: clip, field: "audio", filename: "clip.wav", mime: "audio/wav", requestID: operationID)
@@ -545,6 +570,7 @@ final class AIService: ObservableObject {
             let text = (out["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return text.isEmpty ? .silence : .text(text)
         } catch {
+            if Task.isCancelled { return .failed("CANCELLED") }
             if case SupabaseClient.Failure.http(let status, let body) = error, status == 429 {
                 let fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
                 lastErrorCode = "RATE_LIMITED"

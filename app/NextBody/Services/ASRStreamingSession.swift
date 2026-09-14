@@ -17,6 +17,10 @@ final class ASRStreamingSession: @unchecked Sendable {
     private var result: ASRStreamResult?
     private var waiter: CheckedContinuation<ASRStreamResult, Never>?
     private var closed = false
+    private var idleWork: DispatchWorkItem?
+    /// Idle only. Any provider event resets this. An 8 s wall clock after `finish`
+    /// used to fail a stream that was still speaking, then the file path added ~20 s.
+    private static let idleSeconds: TimeInterval = 20
 
     init(request: URLRequest) {
         task = URLSession.shared.webSocketTask(with: request)
@@ -49,9 +53,7 @@ final class ASRStreamingSession: @unchecked Sendable {
                     return
                 }
                 enqueue(.string(text))
-                queue.asyncAfter(deadline: .now() + 8) { [weak self] in
-                    self?.complete(.failed("STREAM_TIMEOUT"))
-                }
+                self.armIdleClock()
             }
         }
     }
@@ -117,6 +119,7 @@ final class ASRStreamingSession: @unchecked Sendable {
         }
         guard let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = event["type"] as? String else { return }
+        if waiter != nil { armIdleClock() }
         switch type {
         case "done":
             if let text = (event["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -134,8 +137,19 @@ final class ASRStreamingSession: @unchecked Sendable {
         }
     }
 
+    private func armIdleClock() {
+        idleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.complete(.failed("STREAM_STALL"))
+        }
+        idleWork = work
+        queue.asyncAfter(deadline: .now() + Self.idleSeconds, execute: work)
+    }
+
     private func complete(_ value: ASRStreamResult) {
         guard result == nil else { return }
+        idleWork?.cancel()
+        idleWork = nil
         result = value
         closed = true
         sendQueue.removeAll(keepingCapacity: false)

@@ -60,13 +60,11 @@ actor SupabaseClient {
         return URLSession(configuration: c)
     }()
     /// A turn's SSE stream is silent while the server runs a tool, and the server now
-    /// writes a comment line every 15 s to say it is still alive. This session's timeout
-    /// is the gap between two bytes, so three missed heartbeats means the connection is
-    /// dead, not that the model is slow. The 30 s read session above hung up on every
-    /// web-backed meal estimate.
+    /// writes a comment line every 8 s to say it is still alive. This session's timeout
+    /// is the gap between two bytes — idle only, not a wall clock on the whole turn.
     private let streamSession: URLSession = {
         let c = URLSessionConfiguration.default
-        c.timeoutIntervalForRequest = 45
+        c.timeoutIntervalForRequest = 120
         c.waitsForConnectivity = false
         return URLSession(configuration: c)
     }()
@@ -222,12 +220,15 @@ actor SupabaseClient {
     /// Every authenticated request gets one bounded recovery from an expired access token.
     /// The refresh operation is single-flight, so a foreground sync's parallel chunk uploads
     /// cannot consume the rotating refresh token several times at once.
-    private func authenticatedData(for request: URLRequest, expectedOwner: String? = nil) async throws -> (Data, URLResponse) {
+    private func authenticatedData(for request: URLRequest, expectedOwner: String? = nil,
+                                   longRunning: Bool = false) async throws -> (Data, URLResponse) {
         if let expectedOwner, userId != expectedOwner { throw CancellationError() }
         let pinned = requestSession
         return try await SessionBoundTransport.perform(request, session: pinned,
             current: { await self.requestSession },
-            send: { [session] in try await session.data(for: $0) },
+            send: { [session, streamSession] in
+                try await (longRunning ? streamSession : session).data(for: $0)
+            },
             refresh: { await self.refreshedToken(for: pinned) })
     }
 
@@ -675,7 +676,7 @@ actor SupabaseClient {
         // request() sets JSON; multipart has to say its own boundary or the far side sees one
         // undifferentiated blob and answers E_SCHEMA.
         r.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        let (out, resp) = try await authenticatedData(for: r)
+        let (out, resp) = try await authenticatedData(for: r, longRunning: true)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw Failure.http(code, String(data: out, encoding: .utf8) ?? "")

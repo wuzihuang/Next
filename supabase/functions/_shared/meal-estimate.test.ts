@@ -4,6 +4,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   estimateMeal,
+  foodDraftEnvelope,
   type MealEstimateDependencies,
 } from "./meal-estimate.ts";
 
@@ -106,4 +107,25 @@ Deno.test("a failed Grok meal generation falls back and attributes the draft to 
   assertEquals(recorded, ["qwen3.8-flash"]);
   assertEquals(draft.model_version, "qwen3.8-flash/2026-09");
   assertEquals(draft.requires_confirmation, true);
+});
+
+Deno.test("a finished estimate is already a confirmation card", () => {
+  const draft = {
+    ...nutrition,
+    confidence: "MEDIUM" as const,
+    draft_id: "draft",
+    source: "typed" as const,
+    is_estimate: true as const,
+    requires_confirmation: true as const,
+    model_version: "qwen3.8-flash/2026-09",
+  };
+  const zh = foodDraftEnvelope(draft, "zh-CN");
+  assertEquals(zh.type, "food");
+  assertEquals(zh.target, "fuel");
+  assertEquals(zh.action, "确认记录");
+  assertEquals(zh.data.name, "Rice");
+  assertEquals(zh.data.kcal, 200);
+  const en = foodDraftEnvelope(draft, "en-US");
+  assertEquals(en.action, "CONFIRM");
+  assertEquals(en.sentence, "Review this meal estimate before saving.");
 });

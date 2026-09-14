@@ -30,7 +30,7 @@ struct PlusMenuSheet: View {
             MenuRow(icon: .camera, title: L("Photograph your meal"),
                     detail: L("Opens the camera. The plate is logged as soon as you shoot.")) { close(); onCamera?() }
             MenuRow(icon: .library, title: L("Photo library"),
-                    detail: L("Pick one you already have.")) { close(); onLibrary?() }
+                    detail: L("Pick food or an order. AI reads it automatically.")) { close(); onLibrary?() }
 
             Hairline().padding(.vertical, 8)
             GroupHeader(L("SPORT MODE"))

@@ -35,15 +35,10 @@ function compatibleModel(id: string, provider: string, baseURL: string, apiKey: 
       return `${baseURL}${path}`;
     },
     defaultObjectGenerationMode: "json",
-    // Bound each provider request so the fallback still has time inside the turn.
-    // This owns only the HTTP request, not execution of the model's tools.
-    fetch: (url, init) => fetch(url, {
-      ...init,
-      signal: AbortSignal.any([
-        ...(init?.signal ? [init.signal] : []),
-        AbortSignal.timeout(30_000),
-      ]),
-    }),
+    // No wall-clock HTTP cap. A thinking model can sit silent and then emit;
+    // AbortSignal.timeout used to kill that work at 30 s, then 60 s, and the
+    // phone showed the retry line. The caller's signal still cancels a lost
+    // lease or a panel the user left.
   });
 }
 

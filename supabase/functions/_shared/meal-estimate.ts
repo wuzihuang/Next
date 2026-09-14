@@ -1,6 +1,6 @@
 import { generateObject } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
-import { normalizeLocale, tagSafe } from "./contract.ts";
+import { normalizeLocale, tagSafe, type Envelope } from "./contract.ts";
 import { type TokenUsage, usageFromProvider } from "./cost.ts";
 import { model, modelVersion, withModelFallback } from "./model.ts";
 import type { WebEvidence } from "./web-search.ts";
@@ -22,6 +22,38 @@ export type MealEstimateDraft = z.infer<typeof MealEstimateSchema> & {
   requires_confirmation: true;
   model_version: string;
 };
+
+/// A finished estimate is already the confirmation card. Waiting for a second model
+/// step to call screen.render.food is how branded meals died at ~94 s with
+/// 「这次回复没有完成」 after the numbers were already in hand.
+export function foodDraftEnvelope(
+  draft: MealEstimateDraft,
+  locale: "zh-CN" | "en-US",
+): Envelope {
+  const en = locale === "en-US";
+  return {
+    type: "food",
+    title: draft.name.slice(0, 18),
+    tag: "FUEL",
+    sentence: en
+      ? "Review this meal estimate before saving."
+      : "请确认这份食物估算后再记录。",
+    footer: en
+      ? `P ${draft.protein_g}g · C ${draft.carb_g}g · F ${draft.fat_g}g`
+      : `蛋白 ${draft.protein_g}g · 碳水 ${draft.carb_g}g · 脂肪 ${draft.fat_g}g`,
+    action: en ? "CONFIRM" : "确认记录",
+    data: {
+      name: draft.name,
+      kcal: draft.kcal,
+      macros: { p: draft.protein_g, c: draft.carb_g, f: draft.fat_g },
+      rows: [{ label: draft.name, value: String(draft.kcal) }],
+    },
+    ttl_min: 20,
+    priority: "normal",
+    locale,
+    target: "fuel",
+  };
+}
 
 export type MealEstimateInput = {
   text: string;
@@ -59,7 +91,7 @@ export async function estimateMeal(
     throw new Error("MEAL_INPUT_REQUIRED");
   }
   const locale = normalizeLocale(input.locale);
-  const signal = input.abortSignal ?? AbortSignal.timeout(60_000);
+  const signal = input.abortSignal;
   const content = [
     ...(input.image ? [{ type: "image" as const, image: input.image }] : []),
     {

@@ -1,5 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  ASR_QUIET_MS,
+  ASR_STALL_MS,
   type AsrDependencies,
   audioDurationSeconds,
   handleAsr,
@@ -56,6 +58,11 @@ function deps(overrides: Partial<AsrDependencies> = {}): AsrDependencies {
     ...overrides,
   };
 }
+
+Deno.test("a live stream is only cut after it goes idle, not on a wall clock", () => {
+  assertEquals(ASR_QUIET_MS, 1_600);
+  assertEquals(ASR_STALL_MS, 20_000);
+});
 
 Deno.test("an exhausted daily allowance never sends audio to the model", async () => {
   let transcribed = false;

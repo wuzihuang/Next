@@ -35,7 +35,7 @@ import {
 } from "../_shared/turn-phase.ts";
 import { clientFreshness, freshnessContext } from "../_shared/freshness.ts";
 import { createTurnContext, withTurnRange, workflowRangeSchema, type TurnContext } from "../_shared/turn-context.ts";
-import { estimateMeal, type MealEstimateDraft } from "../_shared/meal-estimate.ts";
+import { estimateMeal, foodDraftEnvelope, type MealEstimateDraft } from "../_shared/meal-estimate.ts";
 import type { Ctx } from "../_shared/sources.ts";
 import { repairTextToolCall } from "../_shared/tool-repair.ts";
 import { DO_TOOL, PHONE_TOOLS, WRITE_TOOL, normalizePhoneArgs, phoneToolDescription, phoneToolResult, type PhoneToolRequest } from "../_shared/phone-tools.ts";
@@ -58,18 +58,14 @@ const WRITE_CLAIM_PATTERNS = ["已记录", "已记入", "已保存", "记好了"
 /// A suspended turn waits this long for the phone. Confirmation dialogs time out at 60 s
 /// on the phone; the rest is transport.
 const SUSPEND_TTL_MS = 5 * 60_000;
-/// Model work budget per request. Image turns can contain a provider fallback plus a
-/// structured read and a final answer. 80 s cut those turns off after their evidence was
-/// already ready, producing a failure frame at exactly 80,000 ms. Leave persistence room
-/// under the hosted 150 s wall clock and renew the execution lease while work continues.
-export const TURN_DEADLINE_MS = 120_000;
 /// A meal's web check is optional and bounded; past this the estimate goes ahead unreferenced.
-export const MEAL_SEARCH_CAP_MS = 15_000;
+/// 15 s of DashScope search from us-west-1 was the extra wait on branded sauces. The
+/// estimate already proceeds without sources — four seconds is a bonus, not a gate.
+export const MEAL_SEARCH_CAP_MS = 4_000;
 /// How many rejected frames a turn hands back to the model before the verdict stands.
 export const MAX_RENDER_OBJECTIONS = 2;
-export const PLAN_DEADLINE_MS = 110_000;
-/// Every surface renews its 90 s execution lease before another model step once this much
-/// time has elapsed. Long image tools are user-visible streamed work, not dead claims.
+/// Every surface renews its 90 s execution lease while the model is still moving.
+/// A wall-clock turn budget used to abort thinking work that was still producing.
 const TURN_LEASE_RENEW_MS = 30_000;
 
 export type TurnDependencies = {
@@ -224,6 +220,9 @@ export async function handleTurn(
   // 11 · 07 · language is an app-side preference: the app sends it with the turn, and the
   // profile row stands in for a client that does not. Every word on screen follows it.
   const locale = normalizeLocale(body.locale ?? prof?.locale);
+  // Assigned as soon as meal.estimate returns so a later model/stream failure can still
+  // publish the confirmation card instead of 「这次回复没有完成」.
+  let recoveredMeal: MealEstimateDraft | null = null;
 
   // Replaying the same Idempotency-Key returns the same frames, so a dropped connection
   // never costs a second model call.
@@ -245,6 +244,7 @@ export async function handleTurn(
   // An interrupted request needs an explicit failure frame. The idle battery card
   // made failed meal requests look like successful answers to a different question.
   const fallback = () => {
+    if (recoveredMeal) return Promise.resolve(routedFrame(foodDraftEnvelope(recoveredMeal, locale)));
     if (isChat) return Promise.resolve(routedFrame(coachFrame(locale === "zh-CN"
       ? "这次回复没有完成，请稍后重试。"
       : "I couldn't complete this reply. Please try again.", locale)));
@@ -369,30 +369,37 @@ export async function handleTurn(
   const trace: unknown[] = suspended ? [...suspended.trace] : [];
 
   return sse(async (send) => {
+    let leaseTick: ReturnType<typeof setInterval> | undefined;
     try {
     send("state", { value: "THINKING" });
     if (surface === "panel" && isChat) send("coach.handoff", {});
 
     // One workflow owns all modalities. The model chooses the read/estimate tools;
     // neither client keywords nor automatic image preflight select a second AI path.
-    // ADR 0005 left this open: F4 writes 55 s and the code wrote 50. Aligned on the spec —
-    // a 12-week composition question spends three steps and was losing the render to the
-    // gap between the two numbers.
-    const deadline = started + (isPlan ? PLAN_DEADLINE_MS : TURN_DEADLINE_MS);
-    // ADR 0022 · the advice face keeps generating after the phone stops listening: its
-    // abort signal is the deadline alone. Every other surface still ends with the request.
-    const budget = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
-    const signal = isPlan ? budget : AbortSignal.any([budget, req.signal]);
+    // A thinking model can sit silent and then emit. A 55 / 80 / 120 s wall clock
+    // used to abort that work and persist 「这次回复没有完成」. Heartbeats keep the
+    // SSE hops alive; the lease is renewed while steps continue. Only a lost lease,
+    // a spend stop, or the user leaving a panel turn ends a run that is still moving.
+    const run = new AbortController();
+    const signal = isPlan || isChat ? run.signal : AbortSignal.any([run.signal, req.signal]);
     let leaseRenewedAt = started;
+    const renewLease = async () => {
+      const renewed = await db.rpc("renew_ai_turn", { p_turn: turnId, p_lease: leaseId, p_ttl_seconds: 90 });
+      if (renewed.error || renewed.data !== true) throw new Error("TURN_LEASE_LOST");
+      leaseRenewedAt = Date.now();
+    };
+    const renewAfter = deps.leaseRenewAfterMs ?? TURN_LEASE_RENEW_MS;
+    if (renewAfter > 0) {
+      leaseTick = setInterval(() => {
+        void renewLease().catch(() => run.abort());
+      }, renewAfter);
+    }
     const assertModelBudget = async () => {
       signal.throwIfAborted();
-      if (Date.now() >= deadline) throw new Error("TURN_DEADLINE");
-      if (Date.now() - leaseRenewedAt >= (deps.leaseRenewAfterMs ?? TURN_LEASE_RENEW_MS)) {
+      if (Date.now() - leaseRenewedAt >= renewAfter) {
         // A lost lease means a later request already took this turn over: stop here rather
         // than publish over it. record_claimed_ai_turn would refuse the frame anyway.
-        const renewed = await db.rpc("renew_ai_turn", { p_turn: turnId, p_lease: leaseId, p_ttl_seconds: 90 });
-        if (renewed.error || renewed.data !== true) throw new Error("TURN_LEASE_LOST");
-        leaseRenewedAt = Date.now();
+        await renewLease();
       }
       if (!await deps.spend(db)) throw new Error("AI_SPEND_LIMIT");
       signal.throwIfAborted();
@@ -426,6 +433,7 @@ export async function handleTurn(
       execute: ({ query }: { query: string }) => runWebSearch(query),
     };
     let mealDraft: MealEstimateDraft | null = suspended?.mealDraft ?? null;
+    if (mealDraft) recoveredMeal = mealDraft;
     tools["meal.estimate"] = {
       description: "Estimate the meal in this turn's words or attached image. This tool reads an attached food image itself, so do not call image.inspect first. Only select for a meal description or a requested meal estimate, never for an unrelated question containing a food word. Common dishes are estimated directly; give reference_query only for a packaged or branded product, or a dish you cannot estimate. The search is best-effort and capped, and the estimate proceeds without it. Returns a draft, not a saved record.",
       parameters: z.object({ reference_query: z.coerce.string().optional().describe("Optional. Public packaged/branded product or unfamiliar dish nutrition question; no personal details. Omit for common dishes.") }),
@@ -451,6 +459,8 @@ export async function handleTurn(
             recordUsage: (usage, modelId) => deps.recordUsage(db, usage, modelId, turnId),
           });
           ledger.harvest(mealDraft, "meal.estimate");
+          recoveredMeal = mealDraft;
+          if (!envelope) envelope = foodDraftEnvelope(mealDraft, locale);
         }
         return { ok: true, data: mealDraft };
       },
@@ -855,14 +865,20 @@ export async function handleTurn(
       while (!envelope && !pending && workflow.completedSteps < MAX_TURN_STEPS) {
         await runStep();
       }
+      if (!envelope && recoveredMeal) envelope = foodDraftEnvelope(recoveredMeal, locale);
       ledger.seal();
     } catch (e) {
       console.error("turn failed:", e instanceof Error ? (e.stack ?? e.message) : e);
-      const fb = await fallback();
-      await save(fb, trace, Date.now() - started);
-      send("error", { code: "MODEL_UNAVAILABLE", fallback_frame: fb });
-      send("done", {});
-      return;
+      if (!envelope && recoveredMeal) envelope = foodDraftEnvelope(recoveredMeal, locale);
+      if (envelope) {
+        ledger.seal();
+      } else {
+        const fb = await fallback();
+        await save(fb, trace, Date.now() - started);
+        send("error", { code: "MODEL_UNAVAILABLE", fallback_frame: fb });
+        send("done", {});
+        return;
+      }
     }
 
     // ADR 0018 · suspend: store the conversation and hand the tool to the phone. A render in
@@ -967,11 +983,12 @@ export async function handleTurn(
     send("screen.render", { envelope: canonical });
     send("done", {});
     } finally {
+      if (leaseTick) clearInterval(leaseTick);
       // Ending this request may leave another phone tool pending. Only durable
       // terminal completion retires the snapshot; release never owns that decision.
       await db.rpc("release_ai_turn", {p_turn:turnId,p_lease:leaseId});
     }
-  }, fallback, { detached: isPlan, heartbeatMs: deps.heartbeatMs });
+  }, fallback, { detached: isPlan || isChat, heartbeatMs: deps.heartbeatMs });
   } catch (error) {
     // Pre-stream work owns the lease too: a failed state read or prefetch must not
     // strand it or turn an unavailable suspension into a newly admitted operation.
@@ -1109,11 +1126,10 @@ async function completeTurn(
 /// reading, the stream is then cancelled, and events written after that are dropped
 /// while the run continues to its durable result. EdgeRuntime.waitUntil keeps the isolate
 /// alive for it; locally and in tests the awaited start() does the same.
-/// The phone's URLSession gives up when nothing arrives for 30 s, and a web-backed
-/// meal estimate or a long read step can be silent for longer than that. An SSE comment
-/// line every HEARTBEAT_MS keeps every hop on the route (phone, gateway, proxies) sure the
-/// turn is alive; readers skip comment lines by protocol, so no client changes.
-export const HEARTBEAT_MS = 15_000;
+/// The phone's URLSession gives up only when nothing arrives for a long idle gap.
+/// An SSE comment line every HEARTBEAT_MS keeps every hop sure the turn is still
+/// moving; readers skip comment lines by protocol, so no client event changes.
+export const HEARTBEAT_MS = 8_000;
 
 function sse(run: (send: (event: string, data: unknown) => void) => void | Promise<void>, onFailure?: () => Promise<Envelope>,
   options: { detached?: boolean; heartbeatMs?: number } = {}): Response {

@@ -26,13 +26,11 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_SECONDS = 60;
 /// The floor under that net: the quiet a stream must hold before it settles on the
 /// words it already has, when the provider's own rhythm has been steady.
-const QUIET_MS = 1_600;
-/// And how long the whole flush may take before the file path takes the take instead.
-/// The provider's own end lands 0.8–3.5 s after the commit when it lands at all, and
-/// the client gives the socket 8 s before it uploads the clip anyway: 5 s keeps every
-/// stream that was going to finish and starts the upload while that patience still
-/// has room, instead of burning it on a provider that has already stopped.
-const CEILING_MS = 5_000;
+export const ASR_QUIET_MS = 1_600;
+/// Idle only. Partials, completed sentences and PCM reset this clock. A wall
+/// ceiling used to kill a stream that was still speaking (5 s) and the client
+/// then sat 8 s more before uploading — that is what made a 6 s clip cost 20 s.
+export const ASR_STALL_MS = 20_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AsrTranscript =
@@ -82,11 +80,6 @@ async function providerTranscribe(
         // before hearing it. `enable_lid` asks the model to name it instead.
         parameters: { asr_options: { enable_lid: true } },
       }),
-      // The whole clip travels as base64 inside the JSON body, so the budget has
-      // to cover the upload as well as the recognition. 11 s cut a 10 s clip off
-      // mid-flight and the dock reported it as "didn't catch that" (2026-09-06).
-      // The client gives up at 30 s; stay under that so it sees our answer.
-      signal: AbortSignal.timeout(22_000),
     },
   );
   if (!res.ok) {
@@ -227,9 +220,12 @@ function streamTranscription(
   let lastPartialAt = 0;
   let widestGap = 0;
   let grace: number | undefined;
-  let ceiling: number | undefined;
+  let lastActivity = Date.now();
   const openedAt = Date.now();
   const since = () => Date.now() - openedAt;
+  const bump = () => {
+    lastActivity = Date.now();
+  };
   const pending: Uint8Array[] = [];
 
   let resolveLifetime: () => void = () => {};
@@ -249,9 +245,8 @@ function streamTranscription(
   const close = () => {
     if (closed) return;
     closed = true;
-    clearTimeout(timeout);
+    clearInterval(stallWatch);
     clearTimeout(grace);
-    clearTimeout(ceiling);
     console.log(
       "ASR_STREAM_CLOSED",
       JSON.stringify({
@@ -325,12 +320,6 @@ function streamTranscription(
     // proof it has caught up with the audio: it pauses mid-sentence for seconds
     // and then finishes the line, so only what it has closed counts as said.
     settleWhenQuiet();
-    // ⚠️ 2026-09-08 · reaching this while increments are still arriving means the
-    // provider is mid-sentence, and settling would hand back half of one. The clip
-    // is still on the phone: failing sends it up the file path, which answers with
-    // the whole sentence. Slow and right beats fast and wrong — and this is under
-    // the client's own 8 s patience, so it costs one upload, not a lost take.
-    ceiling = setTimeout(() => fail("CEILING_STILL_STREAMING"), CEILING_MS);
   };
   // ⚠️ 2026-09-08 · 600 ms was read off the 280 ms spacing of a short Chinese
   // phrase, and every longer sentence paid for it: the provider pauses in the
@@ -348,7 +337,7 @@ function streamTranscription(
     clearTimeout(grace);
     grace = setTimeout(
       () => settle("QUIET"),
-      Math.max(QUIET_MS, widestGap + QUIET_MS / 2),
+      Math.max(ASR_QUIET_MS, widestGap + ASR_QUIET_MS / 2),
     );
   };
   const settle = (reason: string) => {
@@ -383,7 +372,15 @@ function streamTranscription(
     finalEvent = { type: "done", text };
     close();
   };
-  const timeout = setTimeout(() => fail("STREAM_TIMEOUT"), 70_000);
+  const stallWatch = setInterval(() => {
+    if (closed || Date.now() - lastActivity < ASR_STALL_MS) return;
+    const text = segments.join("").trim();
+    if (finishSent && text && !lastPartial.trim()) {
+      settle("STALL");
+      return;
+    }
+    fail("STREAM_STALL");
+  }, 1_000);
 
   // Connecting to the provider is the longest silent stretch of the whole turn
   // (1878 ms measured on 2026-09-06 before the first increment could arrive).
@@ -401,6 +398,7 @@ function streamTranscription(
       switch (event.kind) {
         case "ready":
           upstreamReady = true;
+          bump();
           console.log("ASR_STREAM_READY", since());
           pending.splice(0).forEach(sendAudio);
           sendClient({ type: "ready" });
@@ -409,6 +407,7 @@ function streamTranscription(
         case "partial":
           if (event.text) {
             lastPartial = event.text;
+            bump();
             if (partialCount === 0) console.log("ASR_STREAM_FIRST_PARTIAL", since());
             else widestGap = Math.max(widestGap, since() - lastPartialAt);
             lastPartialAt = since();
@@ -418,6 +417,7 @@ function streamTranscription(
           }
           break;
         case "completed":
+          bump();
           console.log("ASR_STREAM_COMPLETED", since());
           // One finished sentence, not the whole answer: keep it and let the
           // next one start clean. The stream ends when the words stop, not here.
@@ -462,6 +462,7 @@ function streamTranscription(
       }
       if (type === "finish") {
         finishRequested = true;
+        bump();
         finishProvider();
       } else if (type === "cancel") {
         finalEvent = null;
@@ -481,6 +482,7 @@ function streamTranscription(
       )
       : null;
     if (!bytes?.length) return;
+    bump();
     byteCount += bytes.length;
     if (byteCount > MAX_BYTES || byteCount / 32_000 > MAX_SECONDS) {
       fail("TOO_LARGE");

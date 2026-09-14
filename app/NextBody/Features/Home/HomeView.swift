@@ -35,11 +35,8 @@ struct HomeView: View {
     /// 05 edges · what the dock is saying instead of listening.
     @State private var dockNote: DockNote?
     @State private var rootShift: CGFloat = 0
-    /// 05 · C · the photo waits for the caption; they leave as one message.
+    /// Picking a photo sends it directly for food recognition.
     @State private var photoItem: PhotosPickerItem?
-    /// Plus · Photograph your meal sends the plate as soon as the shutter returns.
-    /// The keyboard-field camera key still attaches and waits for a caption.
-    @State private var cameraSendsFood = false
     @State private var attachment: Attachment?
     struct Attachment: Equatable {
         var image: UIImage
@@ -279,7 +276,7 @@ struct HomeView: View {
                 .transition(.opacity)
                 .zIndex(3)
             PlusMenuSheet(inline: true, onClose: { closePlus() },
-                          onCamera: { openCamera(afterMenu: true, sendFood: true) },
+                          onCamera: { openCamera(afterMenu: true) },
                           onLibrary: { showPicker = true })
                 .padding(.horizontal, NB.Layout.gutter - 8)
                 .padding(.top, 10)
@@ -433,7 +430,7 @@ struct HomeView: View {
         .photosPicker(isPresented: $showPicker, selection: $photoItem, matching: .images)
         .onChange(of: photoItem) { _, item in
             guard item != nil else { return }
-            Task { await attachFromPicker() }
+            Task { await sendFromPicker() }
         }
         .statusBarHidden(firstRun.statusBarHidden)
         // Any tap at all lands on ◇11 — there is no "skip?" to answer.
@@ -497,7 +494,7 @@ struct HomeView: View {
             if ProcessInfo.processInfo.environment["NB_DEBUG_CAMERA"] == "1" {
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(1.2))
-                    openCamera(sendFood: true)
+                    openCamera()
                 }
             }
             if !debugDockApplied, let dock = ProcessInfo.processInfo.environment["NB_DEBUG_DOCK"] {
@@ -730,7 +727,7 @@ struct HomeView: View {
                      onPlusLongPress: {
                         let wait = plusOpen
                         if wait { closePlus() }
-                        openCamera(afterMenu: wait, sendFood: true)
+                        openCamera(afterMenu: wait)
                      },
                      menuOpen: plusOpen,
                      onListen: beginListening,
@@ -1093,17 +1090,14 @@ struct HomeView: View {
     /// A Shot widget tap lands here. The shutter is the send — same as plus-menu food photo.
     private func fireWidgetShot() {
         guard WidgetBridge.consumePhoto() else { return }
-        openCamera(sendFood: true)
+        openCamera()
     }
 
-    /// Plus · Photograph your meal, and a hold on the dock orb, open the camera and send
-    /// the plate; the keyboard-field camera key attaches and waits for a caption.
+    /// Every camera entry sends the captured image directly for food recognition.
     /// Simulator / no camera → say so, rather than silently opening the library.
     /// `afterMenu` waits for the plus sheet's dismiss (0.22 s) so the camera cover is not fighting it.
-    private func openCamera(afterMenu: Bool = false, sendFood: Bool = false) {
-        cameraSendsFood = sendFood
+    private func openCamera(afterMenu: Bool = false) {
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            cameraSendsFood = false
             note(DockNote(line: L("CAMERA UNAVAILABLE"), text: L("Use Photo library from the plus menu.")), clearAfter: 4)
             return
         }
@@ -1127,28 +1121,21 @@ struct HomeView: View {
                     if granted {
                         presentSystemCamera()
                     } else {
-                        cameraSendsFood = false
                         noteCameraDenied()
                     }
                 }
             }
         default:
-            cameraSendsFood = false
             noteCameraDenied()
         }
     }
 
     private func presentSystemCamera() {
-        let sendFood = cameraSendsFood
         CameraGate.present(
             onCapture: { image in
-                cameraSendsFood = false
-                Task {
-                    if sendFood { await sendFoodPhoto(image) }
-                    else { await attach(image: image) }
-                }
+                Task { await sendFoodPhoto(image) }
             },
-            onCancel: { cameraSendsFood = false })
+            onCancel: {})
     }
 
     private func noteCameraDenied() {
@@ -1158,10 +1145,9 @@ struct HomeView: View {
             action: L("Open Settings")))
     }
 
-    /// Default caption for a plus-menu food photo. The vision model still reads the plate;
-    /// this sentence is only the turn's words.
+    /// The model identifies food photos and order screenshots without a typed caption.
     private static var foodPhotoPrompt: String {
-        L("Log this food from the photo.")
+        L("Identify the food in this image and estimate its calories to log this meal. If it is an order or receipt, use the food items and quantities shown. If it is not food-related, explain what you see without creating a meal.")
     }
 
     /// Shutter → prepare → send. No caption step: photographing the meal is the send.
@@ -1183,12 +1169,12 @@ struct HomeView: View {
         }
     }
 
-    private func attachFromPicker() async {
+    private func sendFromPicker() async {
         do {
             guard let item = photoItem,
                   let data = try await item.loadTransferable(type: Data.self),
                   let raw = UIImage(data: data) else { throw CocoaError(.fileReadCorruptFile) }
-            await attach(image: raw)
+            await sendFoodPhoto(raw)
         } catch {
             note(DockNote(line: L("UPLOAD FAILED"), text: L("Tap the photo to retry, or remove it.")))
             await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": 0, "OK": false])
@@ -1197,41 +1183,10 @@ struct HomeView: View {
 
     private func retryAttach() async {
         if let image = attachment?.image {
-            await attach(image: image, clearingFirst: false)
+            await sendFoodPhoto(image)
             return
         }
-        await attachFromPicker()
-    }
-
-    /// 05 · C02 → C04 · the thumbnail lands, the progress is drawn on the photo itself, and
-    /// 100 % is the only completion signal. ⚠️ There is no storage bucket in this build: the
-    /// bytes travel with the message, so "upload" is the read-and-resize that makes them ready.
-    private func attach(image raw: UIImage, clearingFirst: Bool = true) async {
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { dockNote = nil }
-        if clearingFirst { attachment = nil }
-        do {
-            guard let payload = AIImagePayload.prepare(raw) else { throw CocoaError(.fileWriteUnknown) }
-            if DebugEdge.on("uploadfailed") { throw CocoaError(.fileWriteUnknown) }
-            var a = Attachment(image: payload.preview, dataURL: payload.dataURL, progress: 0)
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { attachment = a }
-            // the bar and the percentage climb on the photo; the field stays typeable throughout
-            for step in 1...10 {
-                try? await Task.sleep(for: .milliseconds(60))
-                a.progress = Double(step) / 10
-                attachment = a
-            }
-            await Analytics.shared.track("PHOTO_ATTACH", [:])
-            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 600, "BYTES": payload.byteCount, "OK": true])
-            if dockMode != .keyboard { withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { dockMode = .keyboard } }
-        } catch {
-            // 05 edge 4 · UPLOAD FAILED. The caption stays, the send stays dark, the photo says so.
-            if var a = attachment { a.failed = true; attachment = a }
-            else {
-                attachment = Attachment(image: raw, dataURL: "", progress: 0, failed: true)
-            }
-            note(DockNote(line: L("UPLOAD FAILED"), text: L("Tap the photo to retry, or remove it.")))
-            await Analytics.shared.track("PHOTO_UPLOAD", ["MS": 0, "BYTES": 0, "OK": false])
-        }
+        await sendFromPicker()
     }
 
     /// 05 edges · show the line, and clear it on its own when the board says so.

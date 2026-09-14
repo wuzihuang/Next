@@ -7,7 +7,7 @@ import {
   convertArrayToReadableStream,
   MockLanguageModelV1,
 } from "npm:ai@4.3.16/test";
-import { handleTurn, PLAN_DEADLINE_MS, TURN_DEADLINE_MS, type TurnDependencies } from "./index.ts";
+import { handleTurn, HEARTBEAT_MS, MEAL_SEARCH_CAP_MS, type TurnDependencies } from "./index.ts";
 
 const operationId = "11111111-1111-4111-8111-111111111111";
 const conversationId = "22222222-2222-4222-8222-222222222222";
@@ -396,8 +396,8 @@ Deno.test("meal generation runs only after model-selected meal.estimate", async 
       .text(),
   );
   assertEquals(generated, 1);
-  assertEquals(h.activeTools.length, 3);
-  assertEquals(h.usages.length, 5); // Three main steps, web lookup, then the estimate.
+  assertEquals(h.activeTools.length, 1);
+  assertEquals((h.saved[0].p_envelope as { type: string }).type, "food");
   assertEquals((h.saved[0].p_envelope as { handoff?: string }).handoff, undefined);
   assertEquals(
     (h.saved[0].p_trace as { tool: string }[])[0].tool,
@@ -623,9 +623,9 @@ Deno.test("food draft references from production render directly after estimatio
       text: "我晚上吃了两个肠粉，还有一碗那个什么肠粉虾饺面。", locale,
     }), h.deps)).text();
     assertSuccess(body);
-    assertEquals(h.activeTools.length, 2);
+    assertEquals(h.activeTools.length, 1);
     assertEquals((h.saved[0].p_trace as { tool: string }[]).map(x => x.tool), [
-      "meal.estimate", "screen.render.food",
+      "meal.estimate",
     ]);
     const frame = h.saved[0].p_envelope as { type: string; target: string; data: Record<string, unknown>; action: string };
     assertEquals(frame.type, "food");
@@ -1121,10 +1121,9 @@ async function settle(until: () => boolean, ms = 3_000) {
   while (!until() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
 }
 
-Deno.test("image-capable turns have 120 s and advice keeps its 110 s budget", () => {
-  assertEquals(PLAN_DEADLINE_MS, 110_000);
-  assertEquals(TURN_DEADLINE_MS, 120_000);
-  assert(TURN_DEADLINE_MS < 150_000);
+Deno.test("a live turn is kept alive by heartbeats, not a wall-clock budget", () => {
+  assertEquals(HEARTBEAT_MS, 8_000);
+  assertEquals(MEAL_SEARCH_CAP_MS, 4_000);
 });
 
 Deno.test("an advice turn keeps generating after the phone aborts its request and saves the day's set", async () => {
@@ -1146,6 +1145,18 @@ Deno.test("a panel turn still ends with its request", async () => {
   const body = await response.text();
   assert(body.includes("event: error"), body);
   assertEquals(h.upserts.length, 0);
+});
+
+Deno.test("a chat turn keeps generating after the phone aborts its request", async () => {
+  const h = harness([{ text: "Got it, I am still here." }]);
+  const aborter = new AbortController();
+  const response = await handleTurn(
+    abortableRequest({ surface: "chat", conversation_id: conversationId, text: "Hello" }, aborter.signal),
+    h.deps,
+  );
+  aborter.abort();
+  assertSuccess(await response.text());
+  assertEquals((h.saved[0].p_envelope as { data: { sub: string } }).data.sub, "Got it, I am still here.");
 });
 
 Deno.test("an advice turn finishes its durable result after the reader cancels the stream", async () => {
@@ -1236,10 +1247,50 @@ Deno.test("a food frame that cites the draft as a claim renders in one step", as
   });
   const body = await (await handleTurn(request({ text: "I had a latte" }), h.deps)).text();
   assertSuccess(body);
-  // Two model steps, not three: the frame was accepted the first time it was offered.
-  assertEquals(h.activeTools.length, 2);
-  assertEquals((h.saved[0].p_trace as { tool: string }[]).map(x => x.tool), ["meal.estimate", "screen.render.food"]);
+  assertEquals(h.activeTools.length, 1);
+  assertEquals((h.saved[0].p_trace as { tool: string }[]).map(x => x.tool), ["meal.estimate"]);
   assertEquals((h.saved[0].p_envelope as { type: string }).type, "food");
+});
+
+Deno.test("a completed meal draft still renders when the model step dies afterwards", async () => {
+  const h = harness([]);
+  h.deps.generateObject = (() => Promise.resolve({
+    object: { name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, confidence: "MEDIUM" },
+    usage: { promptTokens: 5, completionTokens: 6 },
+  })) as unknown as TurnDependencies["generateObject"];
+  h.deps.streamText = (options) =>
+    streamText({
+      ...options,
+      model: new MockLanguageModelV1({
+        doStream: () =>
+          Promise.resolve({
+            rawCall: { rawPrompt: null, rawSettings: {} },
+            stream: new ReadableStream({
+              async start(controller) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallType: "function",
+                  toolCallId: "meal",
+                  toolName: "meal.estimate",
+                  args: "{}",
+                });
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                controller.enqueue({
+                  type: "error",
+                  error: Object.assign(new Error("stream failed"), { name: "AI_APICallError" }),
+                });
+                controller.close();
+              },
+            }),
+          }),
+      }),
+    });
+  const body = await (await handleTurn(request({ text: "I ate rice" }), h.deps)).text();
+  assertSuccess(body);
+  const frame = h.saved[0].p_envelope as { type: string; data: { name: string; kcal: number } };
+  assertEquals(frame.type, "food");
+  assertEquals(frame.data.name, "Rice");
+  assertEquals(frame.data.kcal, 200);
 });
 
 Deno.test("a meal search that times out still leaves the model its own estimate", async () => {

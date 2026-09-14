@@ -72,8 +72,15 @@ model credentials and tool execution server-side.
 - `docs/STATUS.md`: current implementation and verification record.
 - `CONTEXT.md` plus `docs/adr/`: domain vocabulary and architectural decisions.
 - App Store Connect: NextBody `6799623125` (`com.nextbody.hoop`, SKU `nextbody-hoop-ios`,
-  team `BP7F7PYU33`, widget `com.nextbody.hoop.LiveActivity`). No TestFlight build, group,
-  or tester exists yet. Do not confuse with the older phone bundle
+  team `BP7F7PYU33`, widget `com.nextbody.hoop.LiveActivity`). TestFlight groups:
+  internal `Friend` (`d62d8979-1adc-45e2-85c4-964b58a7c896`) and `Internal Testers`
+  (`8598b996-8b7b-4d9c-9f6a-82e6b6df538a`); external `Public`
+  (`9e585745-be37-48cb-bf27-a16a79b0dd81`) with public link
+  `https://testflight.apple.com/join/x4yW7mJQ`. Latest processed build is `1.0` (4)
+  (`1f1f674d-f2c2-49bd-a12d-4472b395759a`, uploaded 2026-09-06, encryption exempt).
+  First external Beta App Review was submitted 2026-09-13 and is now
+  `APPROVED` / `BETA_APPROVED`; the public link can be used to join and install.
+  Do not confuse with the older phone bundle
   `com.walnutechnology.nextbody.app`.
 - App Store screenshots live on Paper `NEXTBODY-HOOP` page `screenshot` (`S-0`): one
   5-up review board plus five 1290×2796 iPhone 6.7 frames. Screens are cloned from
@@ -215,6 +222,18 @@ model credentials and tool execution server-side.
 - Thinking is always enabled; `TURN_THINKING_BUDGET` controls the per-step ceiling.
 - AI latency is measured at ASR response, SSE state, first thought, first tool, render, and done.
 - Source-backed frames must call `data.read` for the metric before rendering.
+- Voice meal logs are two hops, not one: `/asr` then `/turn`. On release the
+  client races the realtime socket against the WAV/`qwen3-asr-flash` upload —
+  first usable transcript wins; it no longer waits 8 s then uploads. The
+  stream is cut only after `ASR_STALL_MS` (20 s) of silence, not a 5 s / 70 s
+  wall clock, and flash has no 22 s HTTP cap. A Chat fallback reading
+  「这次回复没有完成，请稍后重试。」 is `/turn` after `meal.estimate` with no
+  render — same path for typed Chat. After a finished estimate the server
+  publishes `foodDraftEnvelope` immediately and still renders that plate if
+  the next model/stream dies. Chat is detached like advice. There is no
+  120 s / 60 s turn or model wall clock; SSE heartbeat 8 s and lease renew
+  every 30 s keep a thinking model alive. Meal web search stays a 4 s bonus.
+  Client SSE/upload idle gap is 120 s. Chat keeps a food `fallback_frame`.
 
 # Next Project Guide
 
@@ -306,6 +325,16 @@ model credentials and tool execution server-side.
   positive, equal is `0 TO GO`. An ember fill is EATEN / TARGET and stops at full.
   Unlogged cannot name a delta. NEXT_MEAL stays off the card. Macros stay three
   independent bars. Arithmetic is SyncCore-tested.
+- **Fuel TARGET (ADR 0025 / fuel-2.0)** — one server number, `day_fuel.target_in`.
+  `TARGET = full-day resting + activity so far + goal offset` (CUT −500 /
+  RECOMP −380 / BULK +300), never under 1500 male / 1200 female, then P/F/C
+  rewrite. Resting is the latest `device_bia` `bmr_kcal` (`BODY_SCAN`), else
+  Mifflin. OUT is the *prorated* resting + the same activity, so the cyan burn
+  sits below the white budget until the day closes. 2026-09-14 owner row:
+  scan 2229 + active 436 + BULK +300 = **2965**; OUT ~2597→2609. Winter lean /
+  cut intent is TDEE − 500 (eat ~2100 on a 2600 day), not a Strength/BULK
+  surplus. Goal sheet copy is the trap: BULK paints as Strength / 力量
+  (“Lean mass first”), CUT as Endurance / 耐力.
 - **Body Battery live preview** — `DataStore` rebases from the server score and applies
   unsynced live sensor minutes; the next settlement always replaces the preview anchor.
 - **MealResponseIndex** — Pure SyncCore index: timestamped optical points and recorded sleep
@@ -421,6 +450,65 @@ model credentials and tool execution server-side.
 - [Leave blank - user populates]
 
 ## Components
+- **Idle planet field** — Daily Home idle draws `IdlePlateArt` (Paper V-1
+  `星球显示屏`, 358×470 recipes + atmosphere) through `StandbyArt`. Pose is
+  `IdlePlateMotion` (8s seamless revolution — moons / pips ride closed
+  ellipses via `around()` + `pose.satellite`; far half occults behind the
+  disc. Visible-arc shepherds use `alongArc()` / `svgArcPoint()` so plate 21
+  never ducks behind the giant.   Soft filled discs (08/09) keep a night-ramped `sphere` — `hazeOrb` is
+  only a highlight wash, not the body. Plates 02 / 20 use two `softBall()`
+  layers (center fill + offset highlight) that dissolve to clear so the
+  Paper screenshot reads as a glow moon + right crescent, not a flashlight
+  or a hard 3D cut-out. `featherRim` dissolves a hard disc into `#070709` (09/15)
+  (`pad` must stay ≤ 1.0). Plate 02 must not get an extra ink fill or
+  a second `haloRing` over the disc. `mist()` fades by ~48% radius for
+  horizon / low blooms (16/25); Paper 16 JSX has no traveler pip. Plate 28 foreground rings stay
+  at Paper 90/50/28. `paperOvals` are radial bowls, not hard black discs; 23
+  lips stay typed `PaperLip` but stay off the V-1 paint so pits do not read
+  as water drops; ovals are solid Paper ellipse fills. `filmGrain` hashes
+  the Paper plate overlay after `look()`. No glow-breathe fake.
+  Reduce Motion holds the Paper rest seat). Day
+  pick is `IdlePlateLock` + `IdlePlateStore`. FirstRun still uses `OrbitField`
+  and must stay frozen. Release is one plate per user-day. DEBUG walks
+  `IdlePlateLock.advanceVisit` (01…28) once per app foreground so every
+  look can be judged; `IdlePlateStore` keeps the visit cursor off the
+  daily snapshot. Pin with `NB_DEBUG_PLATE=1…28`; restore the playbook
+  with `NB_DEBUG_PLATE_DAILY=1`. Geometry source of
+  truth is the Paper artboard (e.g. plate 01 ball 164 at 97/106, rings −14°,
+  moon 7×7 at 286/214; 03 ice 156 at 101/50 −3°; 05 umber 136 at 111/110 −22°
+  + moon 88/108; 06 dashed orbits around 150 at 105/120; 07 blue-gray 144 at
+  107/106 −24°; 08 is a 90px warm ball at 95/145 plus a wide diagonal band
+  (no rings); 09 is a 150px cool ball at 104/115 plus a fading diagonal;
+  10 is a dashed blue line from top-left with a star at (14, 94); 11 is an
+  860px right-limb with diagonal lines and no rings; 12 silhouette 170 at
+  94/103; 13 is a bright diagonal plus dashed 210×110 ellipse at −32° (no
+  moon); 14 is a 56px dim ball at 151/167, dashed r=62 circle, fade line;
+  16 is a bottom cyan bloom + far circles + left dashed crescent; 17 is a
+  violet bloom + 128×96 ellipse at 18° + pip (294, 210); 18 is two magenta
+  blooms + rings at (200, 210) + pip (106, 264); 19 is a 150px ivory ball
+  at 105/125 with a thin −13° ring and three color ticks; 20 blue 184 at
+  206/103 + far arcs; 21 left giant 404 at −262/38 + pip 223/218; 22 ivory
+  136 at 111/118 −2°; 24 is a cyan cubic trail + static head (366, 92);
+  25 low amber bloom 240×130 at 59/248 + inner 100×40 at 129/278 + arc
+  `M 244 410 A 64 15 −4`; 26 violet 160 at 170/150 left-lit; 27 dashed
+  arcs `1.2 8` / `1.6 7` + pip 150/138), not the old LED OrbitField.
+  Plate 02/23 craters are Paper mares/pits with radial bowls (no hard
+  discs); 23 paints Paper SVG elliptical pits plus typed `PaperLip`
+  elliptical-arc strokes (cream `0xFFFAF0`, not circular bowl rims)
+  and the Paper bottom fade 30%→85%. `discWash` is the 142° night
+  overlay on 02/08/23. Plate 02 also
+  paints a 440px `haloRing` (stops 70/77/86/100) and a Paper night
+  ramp — do not flatten it to a mid-gray balloon. Sphere specular is
+  `specA` (plate 15 keeps it near 0); `limbA` 0 drops the default 1px
+  white rim (02/08/09/11/16/21). `bloom()` fades by 70% radius so a
+  large ellipse stays haze (16/17), not a hard disc. `paperBlurLine`
+  is the Paper-blurred stroke (08: 94/58/30 at 6/10/16%; 13: 42/14
+  at 16/28% plus a 2.4px 90% core) — do not stroke those widths as
+  hard `paperLine` (that reads as a gray road). DEBUG `NB_DUMP_PLATES=1`
+  plus `NB_DUMP_PLATE` / `NB_DUMP_CLOCK` (via `SIMCTL_CHILD_*`) holds
+  one 358×470 still on the real window for `simctl io screenshot`.
+  Crop the iPhone 17 Pro Max 1320×2868 capture at x=123 y=729 w=1074
+  h=1410.
 - **Notification reach** — ASC App ID `com.nextbody.hoop` (`MBK78HK26T`)
   has `PUSH_NOTIFICATIONS`. Debug entitlements use `aps-environment`
   development; Release uses `production`. `NotificationPrimer` (F5 C4)
@@ -512,12 +600,56 @@ model credentials and tool execution server-side.
   cells (lime deficit / outline level / red surplus). Colour comes from two logged meal
   slots plus band coverage and live BALANCE — weigh-ins never light a square, and the
   open user day is allowed to colour before 04:00 so the map is not empty until tomorrow.
-- **Profile 11C Instrument** — `ProfileView.swift` lands Paper `57U-0`. Three
+- **Profile 11C Instrument** — `ProfileView.swift` is the live 我的 page. Four
   `panelWash` plates: identity (NOW + brand name + lime avatar + HEIGHT/WEIGHT/AGE
-  rail), composition (YEAR header → today, cells → that day, one-line
-  DEFICIT/SURPLUS/LEVEL/GAP legend, 12-week gauges on the same card), measurements
-  (recent three + `ALL_MEASUREMENTS` only). Settings rows stay `carbon4`. Page gap
-  is 16. Nav trailing is a lime YOU pip. 11D/E/F stay Paper-only.
+  rail), Body Battery (curve + MORNING/NIGHT/NOW), composition (YEAR header →
+  today, 26×7 Daily Direction cells → that day, DEFICIT/SURPLUS/LEVEL/GAP
+  legend, 12-week gauges on the same card), measurements (recent three +
+  `ALL_MEASUREMENTS` only). Settings rows stay `carbon4` (ACCOUNT /
+  PREFERENCES including HAPTICS + APPLE HEALTH last-read / DATA & LEGAL).
+  Page gap is 16. Nav trailing is a lime YOU pip. Current 1:1 Paper replica
+  of that code is Hoop Sport `01M1M2B4XWK5W388XSKACJ1K9N` page `我的` (`B-0`),
+  artboard `11C · 我的 · ME` (390, fit-content). NEXTBODY-HOOP `11 · 我的
+  Profile` / old `57U-0` is the earlier spec (no Body Battery plate, old
+  month-dot map, EXPORT MY DATA). 11D/E/F stay Paper-only. UI/brand type on
+  device is Fusion Pixel; Paper still paints Inter Tight / Jost / Doto.
+- **Pro exploration (Paper only, 2026-09-13)** — not in code. STATUS 08 still
+  holds: no purchase entry. Legal copy still says NEXTBODY is free forever.
+  Chosen direction is C taken as **signage**: full-bleed lime `#EFF65A` ×
+  black type, monthly only `$6` (Jost `$` + Doto `6`). Live 1:1 ME stays
+  on `B-0`. The paid flow lives on Hoop Sport page `订阅` (`A-0`).
+  **The planet is background only, and only on the dark screens.** ME
+  carries no sky: both ME boards are flat carbon `#0B0B0D` with no
+  bloom, stars, or ring, because a gradient sky above a stack of plates
+  read as two unrelated pages. Pro on ME is a **plate**, not a
+  full-bleed bar — 358 wide, radius 26, lime `#EFF65A`, built like the
+  identity plate (head row + `#00000029` hairline + 44px bottom rail)
+  and sitting first inside `Page stack`. Free head is `MEMBERSHIP` /
+  `START PRO` / `$6` / `A MONTH`; Pro head is `MEMBERSHIP` /
+  `PRO IS ON` / `13 OCT` / `RENEWS`; both rails list TALK · COACH ·
+  MEALS · ADVICE · DISPLAY. ME Pro's identity plate stays dark carbon
+  so two lime plates never stack. Planet geometry still derives from
+  NEXTBODY-HOOP `V-1` Plate 01; `x-paper-clone` cannot cross files, so
+  A-0 redraws the SVG. B-0 A–E / S1–S5 are the rejected first pass.
+  Free = band + vitals + logging; Pro = the AI.
+  **The pitch is three blocks, not five features.** The five AI names
+  (TALK / COACH / MEALS / ADVICE / DISPLAY) are a feature list, not a
+  value proposition; the paywall copy collapses them into DISPLAY ·
+  CONTROL (run the app by voice, band read live), MEALS (say the plate,
+  macros split, gap named), COACH · SUGGEST (what to do today, where
+  you're going next, ask anything). Every line is a scene, not a
+  capability noun. A-0 carries four paywall directions to pick from:
+  `11C · Paywall · START PRO` (Horizon — the only planet screen: a `Sky`
+  layer with a 460px disc bleeding off the bottom at 42% opacity, wide
+  −13° rings, faint stars, bottom scrim, three 22px lines over it),
+  `Paywall B · Chapters` (no planet, 01/02/03 Doto numerals, headline +
+  scene paragraph, scrolls past one screen), `Paywall C · Proof cards`
+  (three carbon plates, each showing the actual result — spoken prompt
+  bubble + sleep bars, macro bars + lime gap note, today's suggestion +
+  12-week rail), `Paywall D · Lime signage` (inverted: full lime, black
+  40px headlines split by black hairlines, dark `Start Pro` slab).
+  `11C · Need Pro · Sheet` has no planet at all — the lime sheet carries
+  the frozen ask plus the same three blocks as a hairline-topped list.
 - **Composition 10E** — `CompositionDetailView.swift` + `CompositionWindowMath.swift`.
   Body fat % is the protagonist. Same DAY / WEEK / MONTH chrome as Battery 12F.
   DAY is this-scan vs last-scan (no chart). WEEK breaks the line on empty days
@@ -735,13 +867,14 @@ model credentials and tool execution server-side.
 - Chinese UI/brand type uses Fusion Pixel 12px proportional zh_hans, cascaded behind Doto/Jost/Inter Tight so numbers stay pixel-dot and CJK stays pixel.
 - AI turns carry `AppLanguage.serverLocale`. The system prompt, meal vision prompt, and chart slot descriptions are written in the selected language and lock the frame to that language regardless of user input.
 - The idle panel is represented by `widget == nil`; THINKING and completed personalized frames are represented by non-nil widgets.
-- `StandbyArt` (the planet) lives only on `idlePlate`. `AIPanel` switches idle / occupied / ceremony as one exclusive tree with animations disabled on the swap, so the orbit cannot cross-fade under a reading. Photo answers paint an opaque unlit LED field under the words (`unlitField`); they used to sit on `Color.clear`. The standby charge cluster (`BODY BATTERY` + the 64pt %) sits below the planet's limb (bottom pad 10, vitals 6 above, hint 8 above) so the lime band on the near side does not cross the hero. Do not restore equal 16pt vertical padding.
+- `StandbyArt` (the planet) lives only on `idlePlate`. Daily idle paints `IdlePlateArt` — Paper V-1 `星球显示屏` 1:1 recipes plus atmosphere/grain/limb, driven by `IdlePlateMotion` (8s closed orbit: moons/pips ride `around()`, far half occults). FirstRun ceremony still paints `OrbitField` and must not be swapped onto a day plate. `IdlePlateLock` picks the day-pool / event plate; `IdlePlateStore` persists the snapshot and the BLE-down stamp. Release stays one plate per user-day. DEBUG default walks `advanceVisit` (01…28) once per foreground — header shows the plate index — so every paint can be reviewed; `NB_DEBUG_PLATE=1…28` pins, `NB_DEBUG_PLATE_DAILY=1` restores the playbook. Day-pool plates do not draw the lime charge band (that band belongs to FirstRun `OrbitField`). The planet does not breathe in size. `AIPanel` switches idle / occupied / ceremony as one exclusive tree with animations disabled on the swap, so the orbit cannot cross-fade under a reading. Photo answers paint an opaque unlit LED field under the words (`unlitField`); they used to sit on `Color.clear`. The standby charge cluster (`BODY BATTERY` + the 64pt %) sits below the planet's limb (bottom pad 10, vitals 6 above, hint 8 above). Do not restore equal 16pt vertical padding.
 - Every asynchronous panel request carries a request ID; dismissing or starting another request invalidates late results so they cannot replace STANDBY.
 - The panel’s chart layer is drawn behind `HalftoneScreen`, while text remains crisp above it.
 - Home horizontal paging owns recognized drags; panel and card taps must not fire at the end of a page swipe. A 探点 on a vitals detail chart card is the same rule on a different axis: horizontal travel owns the chart, vertical travel stays page scroll.
 - First-run skip is a root `TapGesture` only while `firstRun.playing`. After idle it is `.none`: SwiftUI's parent tap cancels a child `UIViewRepresentable` (`PressHold`) even when the handler is a no-op. Keyboard still worked because it is a `Button`.
-- Push-to-talk ASR streams during recording and commits on release; any stream failure falls
-  back to the completed WAV upload instead of losing the utterance.
+- Push-to-talk ASR streams during recording and, on release, races the socket
+  against the WAV upload; the first usable transcript wins. A live stream is
+  not cut by a wall clock — only after it goes idle.
 - AI image bytes are never persisted to Postgres or Storage. `image.inspect` produces an
   ephemeral factual extract for the Thinking turn and the UI distinguishes sending from
   server-confirmed analysis.

@@ -1065,28 +1065,28 @@
 }
 
 .lp-phone-sleep {
-  left: 200px;
+  left: calc(50% - 520px);
   top: 155px;
   transform: rotate(-14deg);
   transform-origin: 0 0;
 }
 
 .lp-phone-heart {
-  left: 1042px;
+  left: calc(50% + 322px);
   top: 155px;
   transform: rotate(14deg);
   transform-origin: 0 0;
 }
 
 .lp-phone-vitals {
-  left: 380px;
+  left: calc(50% - 340px);
   top: 85px;
   transform: rotate(-7deg);
   transform-origin: 0 0;
 }
 
 .lp-phone-battery {
-  left: 832px;
+  left: calc(50% + 112px);
   top: 85px;
   transform: rotate(7deg);
   transform-origin: 0 0;
@@ -1134,9 +1134,10 @@
 
 .lp-radar img {
   flex: 1;
-  height: 473px;
+  height: auto;
+  max-height: 560px;
   min-width: 0;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .lp-comp {
@@ -2207,8 +2208,9 @@
 }
 
 .lp-finishes-photo {
-  background: #000 url('{{ 'finishes.png' | asset_url }}') 50% / cover;
-  height: 760px;
+  aspect-ratio: 1712 / 919;
+  background: #000 url('{{ 'finishes.png' | asset_url }}') 50% / contain no-repeat;
+  max-height: 880px;
   width: 100%;
 }
 
@@ -2591,7 +2593,15 @@
 
   .lp-radar img {
     height: 280px;
+    max-height: none;
+    object-fit: cover;
     width: 100%;
+  }
+
+  .lp-finishes-photo {
+    aspect-ratio: auto;
+    background-size: cover;
+    max-height: none;
   }
 
   .lp-comp-hero {

@@ -50,6 +50,8 @@
 	<true/>
 	<key>NBFunctionsBase</key>
 	<string>$(NB_FUNCTIONS_BASE)</string>
+	<key>RevenueCatAPIKey</key>
+	<string>$(REVENUECAT_API_KEY)</string>
 	<!-- Only 127.0.0.1, and only so a DEBUG build can talk to a locally served copy of the
 	     Edge Functions. Nothing else is exempted, and the loopback exception cannot reach
 	     anything off this machine. -->

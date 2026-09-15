@@ -39,8 +39,10 @@ struct ProfileSheet: View {
     """
 
     static let termsText = """
-    NEXTBODY is free, forever. There is no subscription, no in-app purchase and no \
-    paywall — the band is the product.
+    The band and the readings it writes are yours with the purchase of HOOP. \
+    NextBody Pro is an App Store subscription for AI: the panel, coach, daily \
+    suggestions and voice. The first month is free if this health account has \
+    not claimed it, then $6 / month. Skipping Pro leaves the band and vitals working.
 
     NEXTBODY is not a medical device. Nothing it shows is a diagnosis, and nothing it \
     says is medical advice. If something about your body worries you, see a doctor.

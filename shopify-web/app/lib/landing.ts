@@ -163,7 +163,7 @@ const en: LandingCopy = {
   htmlLang: 'en',
   title: 'NEXTBODY · HOOP — The screenless band',
   description:
-    'A band with no screen. It reads your heart, sleep, and training all day, and says it plainly in the NextBody app. $99. No subscription.',
+    'A band with no screen. It reads your heart, sleep, and training all day, and says it plainly in the NextBody app. $99 once for the band. App AI is NextBody Pro.',
   nav: {
     band: 'THE BAND',
     app: 'THE APP',
@@ -176,8 +176,8 @@ const en: LandingCopy = {
     title: ['BUILD YOUR', 'NEXT BODY.'],
     lede: 'A band with no screen. It reads your heart, sleep, and training all day, and says it plainly in the app.',
     cta: 'Get HOOP — $99',
-    noSub: 'No subscription. Ever.',
-    floor: ['NO SCREEN', '5 DAYS PER CHARGE', '$99 · NO SUBSCRIPTION', 'READ IN THE APP'],
+    noSub: 'The band is $99 once.',
+    floor: ['NO SCREEN', '5 DAYS PER CHARGE', '$99 · ONCE', 'READ IN THE APP'],
   },
   gallery: {
     kicker: 'THE OBJECT',
@@ -344,11 +344,11 @@ const en: LandingCopy = {
   finishes: {
     kicker: 'TWO FINISHES',
     price: '$99',
-    title: 'No subscription.',
-    lede: 'Memberships in this category start at $239 a year. HOOP is $99 once — black or white — so more people can actually manage their body.',
+    title: 'The band is once.',
+    lede: 'HOOP is $99 once — black or white. The app that reads the band is included. App AI is NextBody Pro: one free month if this health account has not claimed it, then $6 / month.',
     facts: [
-      {value: '$99', label: 'ONCE'},
-      {value: '$0', label: 'PER MONTH'},
+      {value: '$99', label: 'BAND'},
+      {value: '$6', label: 'PRO / MONTH'},
       {value: '2', label: 'FINISHES'},
     ],
     white: 'WHITE',
@@ -407,7 +407,7 @@ const zh: LandingCopy = {
   htmlLang: 'zh-Hans',
   title: 'NEXTBODY · HOOP — 无屏手环',
   description:
-    '一条没有屏幕的手环。它整天读你的心率、睡眠和训练，然后在 NextBody App 里把话说清楚。$99，永不订阅。',
+    '一条没有屏幕的手环。它整天读你的心率、睡眠和训练，然后在 NextBody App 里把话说清楚。手环 $99 一次付清。App 里的 AI 是 NextBody Pro。',
   nav: {
     band: '手环',
     app: 'App',
@@ -420,8 +420,8 @@ const zh: LandingCopy = {
     title: ['打造', '下一副身体。'],
     lede: '一条没有屏幕的手环。它整天读你的心率、睡眠和训练，然后在 App 里把话说清楚。',
     cta: '购买 HOOP — $99',
-    noSub: '永不订阅。',
-    floor: ['没有屏幕', '一次充电 5 天', '$99 · 无订阅', '在 App 里读'],
+    noSub: '手环 $99，一次付清。',
+    floor: ['没有屏幕', '一次充电 5 天', '$99 · 一次', '在 App 里读'],
   },
   gallery: {
     kicker: '这件东西',
@@ -584,11 +584,11 @@ const zh: LandingCopy = {
   finishes: {
     kicker: '两种配色',
     price: '$99',
-    title: '无需订阅。',
-    lede: '同类产品的会员费一年从 $239 起。HOOP 只要 $99，一次付清——黑色或白色——让更多人真的管得起自己的身体。',
+    title: '手环一次付清。',
+    lede: 'HOOP $99，一次付清——黑色或白色。读取手环的 App 随手环。App 里的 AI 是 NextBody Pro：这个健康账号还没领过则首月免费，之后每月 $6。',
     facts: [
-      {value: '$99', label: '一次'},
-      {value: '$0', label: '每月'},
+      {value: '$99', label: '手环'},
+      {value: '$6', label: 'PRO / 月'},
       {value: '2', label: '种配色'},
     ],
     white: 'WHITE',

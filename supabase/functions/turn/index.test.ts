@@ -201,6 +201,10 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, store
       events.push("quota");
       return Promise.resolve({ allowed: true, remaining: 9 });
     },
+    entitlement: () => {
+      events.push("entitlement");
+      return Promise.resolve({ allowed: true as const, introClaimed: false });
+    },
     spend: () => {
       events.push("spend");
       return Promise.resolve(true);
@@ -233,6 +237,26 @@ function assertSuccess(body: string) {
   assert(body.includes("event: done"), body);
   assertEquals(body.includes("event: error"), false, body);
 }
+
+Deno.test("a missing Pro entitlement never consumes quota or calls a model", async () => {
+  const h = harness([], {
+    entitlement: () => Promise.resolve({
+      allowed: false as const,
+      introClaimed: false,
+      reason: "missing",
+    }),
+    quota: () => {
+      throw new Error("quota must not run without Pro");
+    },
+  });
+  const response = await handleTurn(request(), h.deps);
+  assertEquals(response.status, 402);
+  const body = await response.json();
+  assertEquals(body.error, "SUBSCRIPTION_REQUIRED");
+  assertEquals(body.intro_claimed, false);
+  assertEquals(h.activeTools.length, 0);
+  assertEquals(h.usages.length, 0);
+});
 
 Deno.test("count and amount admission denials never call any model", async () => {
   for (const reason of ["count", "spend"] as const) {
@@ -277,7 +301,7 @@ Deno.test("real SDK reads and declares ready then renders in two steps with comp
     "workflow.ready",
     render.name,
   ]);
-  assertEquals(h.events.slice(0, 3), ["quota", "spend", "model"]);
+  assertEquals(h.events.slice(0, 4), ["entitlement", "quota", "spend", "model"]);
   assertEquals(body.includes("event: coach.handoff"), false);
 });
 

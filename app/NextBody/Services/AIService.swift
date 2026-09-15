@@ -396,6 +396,14 @@ final class AIService: ObservableObject {
                    let raw = fields?["tool_request"] as? [String: Any], let request = PhoneToolRunner.Request(raw) {
                     return .suspended(request)
                 }
+                if status == 402 || lastErrorCode == "SUBSCRIPTION_REQUIRED" {
+                    lastErrorCode = "SUBSCRIPTION_REQUIRED"
+                    lastError = L("NextBody Pro is required for AI.")
+                    BillingStore.shared.handleServerDenial(
+                        introClaimed: fields?["intro_claimed"] as? Bool,
+                        presentCard: surface != "plan")
+                    return .failed(nil)
+                }
                 if status == 429 {
                     lastErrorCode = "RATE_LIMITED"
                     lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
@@ -545,11 +553,21 @@ final class AIService: ObservableObject {
             let text = (out["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return text.isEmpty ? .silence : .text(text)
         } catch {
-            if case SupabaseClient.Failure.http(let status, let body) = error, status == 429 {
+            if case SupabaseClient.Failure.http(let status, let body) = error {
                 let fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
-                lastErrorCode = "RATE_LIMITED"
-                lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
-                    ?? L("Your AI allowance is unavailable. Please try again later.")
+                if status == 402 || fields?["error"] as? String == "SUBSCRIPTION_REQUIRED" {
+                    lastErrorCode = "SUBSCRIPTION_REQUIRED"
+                    lastError = L("NextBody Pro is required for AI.")
+                    BillingStore.shared.handleServerDenial(
+                        introClaimed: fields?["intro_claimed"] as? Bool,
+                        presentCard: true)
+                } else if status == 429 {
+                    lastErrorCode = "RATE_LIMITED"
+                    lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
+                        ?? L("Your AI allowance is unavailable. Please try again later.")
+                } else {
+                    lastError = L("Could not complete that request. Please try again.")
+                }
             } else {
                 lastError = L("Could not complete that request. Please try again.")
             }

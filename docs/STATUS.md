@@ -50,8 +50,9 @@ frame so the dots' crossfade can be screenshotted.
 
 ### iOS app · `app/`
 
-Plain SwiftUI, no third-party packages. `NextBody.xcodeproj` uses a synchronized root group,
-so adding a file to `app/NextBody/` is all it takes — there is no file list to maintain.
+Plain SwiftUI. SPM brings in Google Sign-In and RevenueCat (`purchases-ios-spm`).
+`NextBody.xcodeproj` uses a synchronized root group, so adding a file to `app/NextBody/`
+is all it takes — there is no file list to maintain.
 
 | Board | Screen | State |
 |---|---|---|
@@ -59,7 +60,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 01M · 02M | the 2.6s pixel-fall wordmark | built, all five beats |
 | 01M · 05 | the 7.40s first run, eleven beats and four fallbacks | built, walked on device |
 | 02 | Connect · 5 screens | built, walked on device |
-| 03 | Onboarding · 6 screens + 3 sheets + the 18+ gate | built, walked on device |
+| 03 | Onboarding · 6 screens + 3 sheets + the 18+ gate + membership card (Paper A-0; Offer A/B) | built · `NB_DEBUG_ONB_STEP=membership` / `NB_DEBUG_PRO=offerA\|offerB` |
 | 04 + 07 | Home · panel, strip, dock | built, walked on device |
 | 07 | the render contract · 27 types, 10 renderers, 8 slots | built |
 | 05 | Dock · idle / typing / listening | built, walked on device |
@@ -577,7 +578,7 @@ there is no enum to correct. It becomes real when the update flow is built.
 | 05 每日方向与判定不共用颜色 | held · 11's legend is the three directions plus two greys |
 | 06 没有 target 的 widget 不许上屏 | **was wrong, fixed** |
 | 07 V1 只有 iOS | held |
-| 08 没有收费入口 | held · no purchase, subscription or upgrade copy |
+| 08 AI 走 PRO | **open** · ADR 0030；手环仍一次买断，AI 走 `hoop_pro_monthly` |
 | 09 BIA 与秤都是 MEASURED，推算值 DERIVED | held · the evidence card tags every field |
 | 10 屏是版式的事实源 | held |
 

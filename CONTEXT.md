@@ -249,3 +249,7 @@ _Avoid_: 日报, 晚报, 把计划总结当通知
 **用餐空档 (open meal)**:
 下一顿主餐仍未确认。通知边沿还要求这次同步里人动了，且近七个用户日有过餐。
 _Avoid_: 12:30 午饭闹钟, 进食窗口
+
+**NextBody PRO**:
+健康账号上的 App AI 会员（ADR 0030）。商品 `hoop_pro_monthly`，$6 / month；这个健康账号从未领取过试用时，商店 Introductory Offer 送一个月，必须先绑 App Store 支付。没有有效权益时，面板 / 教练 / 当日建议 / ASR 全部拒绝（`SUBSCRIPTION_REQUIRED`）。手环、生命体征、测量不收订阅。跳过会员卡不送试用。
+_Avoid_: 永远免费, 客户端空发一个月, 自己收银行卡号, 把 Shopify 手环卖成订阅

@@ -8,6 +8,7 @@ struct HomeView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var billing: BillingStore
 
     @StateObject private var ai = AIService.shared
     @StateObject private var adviceAI = AIService()
@@ -459,6 +460,7 @@ struct HomeView: View {
         .onDisappear { BandLiveLifecycle.shared.setForegroundWanted(false) }
         .background { NightHomeDiagnosticObserver(metrics: data.today) }
         .task {
+            billing.considerWelcome()
             // DEBUG · 05 edges on a simulator with no microphone story of its own.
             switch DebugEdge.name {
             case "micdenied":   note(DockNote(line: L("MICROPHONE OFF"), text: L("Typing still works.\nTurn the mic on in Settings."), action: L("Open Settings")))
@@ -974,6 +976,7 @@ struct HomeView: View {
     /// REFRESH: the only way to regenerate within the day.
     private func refreshPlan() {
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
+        guard billing.allowAI() else { return }
         planStore.refresh(day: data.today.day, store: data, ai: adviceAI)
     }
 
@@ -1058,6 +1061,7 @@ struct HomeView: View {
     /// the recorder will not start, the dock stays idle rather than animating over nothing —
     /// which is what it did before there was a recorder at all.
     private func beginListening() {
+        guard billing.allowAI() else { return }
         let operationID = UUID()
         voiceOperationID = operationID
         Task {
@@ -1394,6 +1398,7 @@ struct HomeView: View {
         // this side does not ask. The panel is already NOT COLLECTING, and the way back is the
         // consent screen, not a turn.
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
+        guard billing.allowAI() else { return }
         // 05 edge 5 · OFFLINE. The message never leaves the dock: the draft is put back and the
         // capsule says when to try.
         if !reachability.isOnline || DebugEdge.on("offline") {

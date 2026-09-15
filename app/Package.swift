@@ -138,5 +138,15 @@ let package = Package(
             dependencies: ["NextBodySyncCore", "NextBodyLocalData"],
             path: "NextBodySyncCoreTests"
         ),
+        .target(
+            name: "NextBodyBillingCore",
+            path: "NextBody/Services/Billing",
+            sources: ["BillingCatalog.swift", "BillingOffer.swift"]
+        ),
+        .testTarget(
+            name: "NextBodyBillingTests",
+            dependencies: ["NextBodyBillingCore"],
+            path: "NextBodyBillingTests"
+        ),
     ]
 )

@@ -9,6 +9,7 @@ struct ProfileView: View {
     @ObservedObject private var haptics = HapticsSetting.shared
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var billing: BillingStore
 
     private var hasScans: Bool {
         #if DEBUG
@@ -42,6 +43,7 @@ struct ProfileView: View {
         }) {
             VStack(alignment: .leading, spacing: 16) {
                 identityCard
+                ProfileProCard(billing: billing)
                 bodyBatteryCard
                 compositionCard
                 // ADR 0010 · Composition 回答「这一年往哪走」，这块回答「我最近测了什么」。
@@ -118,7 +120,7 @@ struct ProfileView: View {
                         router.sheet = .feedback
                     }
                     SettingRow(title: L("PRIVACY POLICY"), value: L("UPDATED JUN 24")) { router.sheet = .privacy }
-                    SettingRow(title: L("TERMS OF SERVICE"), value: "V 2.1") { router.sheet = .about }
+                    SettingRow(title: L("TERMS OF SERVICE"), value: "V 2.2") { router.sheet = .about }
                     // The second of only two places in the product allowed to use red.
                     SettingRow(title: L("DELETE ACCOUNT"), value: L("PERMANENT"),
                                titleTint: NB.alert2) { router.sheet = .deleteAccount }

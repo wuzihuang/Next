@@ -302,12 +302,12 @@ export const POLICIES: PolicyPage[] = [
         heading: {en: 'What we owe you', zh: '我们欠你什么'},
         body: {
           en: [
-            'A band that works, an app that reads it, and no subscription for that core reading. If we ever put a paid tier on top, what you bought today keeps working as it works today.',
+            'A band that works, and an app that reads it, without a subscription for that core reading. App AI is NextBody Pro. What you bought as the band keeps working if you skip Pro.',
             'The service is offered as it is. Features move, screens change, and a release can carry a bug. We do not promise the app is available every minute, only that we act like people who intend it to be.',
             'Where the law lets us limit liability, our total liability to you is capped at what you paid for the band. Nothing here removes a right your own consumer law gives you.',
           ],
           zh: [
-            '一条能用的手环、一个能读它的 App，核心读数不收订阅费。若我们日后加上付费层，你今天买到的东西仍按今天的方式继续工作。',
+            '一条能用的手环、一个能读它的 App，核心读数不收订阅费。App 里的 AI 是 NextBody Pro。跳过 Pro，你买到的手环仍按今天的方式继续工作。',
             '服务按现状提供。功能会挪、界面会变、某个版本可能带 bug。我们不承诺 App 每分钟都在线，只承诺我们像真心想让它在线的人那样做事。',
             '在法律允许限制责任的范围内，我们对你的全部责任以你为手环支付的金额为上限。本协议不剥夺你所在地消费者法给你的任何权利。',
           ],
@@ -369,13 +369,13 @@ export const POLICIES: PolicyPage[] = [
         heading: {en: 'The product and the price', zh: '产品与价格'},
         body: {
           en: [
-            'HOOP is $99 once, in black or white. The knit nylon strap and the sport strap are both in the box. There is no membership and no monthly fee for the app that reads the band.',
+            'HOOP is $99 once, in black or white. The knit nylon strap and the sport strap are both in the box. The app that reads the band is included. App AI is NextBody Pro at $6 / month.',
             'Prices are in US dollars and exclude any duty or import tax your country charges. Where sales tax or VAT applies, it is shown before you pay.',
             'Photography is photography. Finish and strap colour can differ slightly from a render on your screen.',
             'If a price or a spec is obviously wrong — a typo, a decimal in the wrong place — we can correct it and let you decide again before anything ships.',
           ],
           zh: [
-            'HOOP 售价 $99，一次付清，黑色或白色。编织尼龙表带和运动表带都在盒里。读取手环的 App 没有会员费，也没有月费。',
+            'HOOP 售价 $99，一次付清，黑色或白色。编织尼龙表带和运动表带都在盒里。读取手环的 App 随手环。App 里的 AI 是 NextBody Pro，每月 $6。',
             '价格以美元计，不含你所在国家征收的关税或进口税。适用销售税或增值税时，会在付款前显示。',
             '照片终归是照片。表面颜色和表带颜色与屏幕上的渲染可能略有差别。',
             '若价格或规格明显写错 —— 打字错误、小数点跑位 —— 我们可以更正，并在发货前让你重新决定。',

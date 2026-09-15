@@ -5,3 +5,6 @@
 // ⚠️ The $() is not a typo: xcconfig treats // as a comment, so the slashes have to be
 // split or the value is truncated to "http:".
 // NB_FUNCTIONS_BASE = http:/$()/127.0.0.1:8000/functions/v1
+
+// Public RevenueCat SDK key (appl_…). The secret API key stays on the server.
+// REVENUECAT_API_KEY = appl_your_public_sdk_key

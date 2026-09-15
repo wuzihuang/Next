@@ -10,6 +10,7 @@ struct NextBodyApp: App {
     @StateObject private var router = Router()
     @StateObject private var data = DataStore.shared
     @StateObject private var language = AppLanguage.shared
+    @StateObject private var billing = BillingStore.shared
     @Environment(\.scenePhase) private var phase
 
     init() {
@@ -25,6 +26,7 @@ struct NextBodyApp: App {
                 .environmentObject(router)
                 .environmentObject(data)
                 .environmentObject(language)
+                .environmentObject(billing)
                 .environment(\.locale, language.swiftLocale)
                 .id(language.locale.rawValue)
                 .preferredColorScheme(.dark)
@@ -49,7 +51,13 @@ struct NextBodyApp: App {
                     BandLiveLifecycle.shared.setPhase(phase)
                     SessionActivity.clearOrphans()
                     // Restoring the local account gates BLE, not cloud homepage hydration.
-                    if await session.ensureSession() { requestForegroundRefresh(reason: "launch") }
+                    billing.configure()
+                    if await session.ensureSession() {
+                        if let userId = await SupabaseClient.shared.currentUserId {
+                            await billing.identify(userId: userId)
+                        }
+                        requestForegroundRefresh(reason: "launch")
+                    }
                     await session.resolveLaunch()
                     WidgetGlancePublisher.publish(from: data)
                     BandLiveLifecycle.shared.refreshEligibility()

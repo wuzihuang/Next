@@ -222,6 +222,7 @@ final class ChatStore: ObservableObject {
     func send(text: String, image: UIImage? = nil, dataURL: String? = nil, dataStore: DataStore) async {
         prepareForCurrentAccount()
         guard storageReady, !isSending else { return }
+        guard BillingStore.shared.allowAI() else { return }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || image != nil || dataURL != nil else { return }
 
         if currentSession == nil || sessions.isEmpty {

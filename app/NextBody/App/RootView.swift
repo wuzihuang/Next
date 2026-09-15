@@ -4,6 +4,7 @@ import os
 struct RootView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var billing: BillingStore
     @ObservedObject private var phoneTools = PhoneToolRunner.shared
     /// 走查用：`NB_DEBUG_CONFIRM` 摆出的那个确认框。真实确认框要一整轮 AI 对话才会出现，
     /// 而没有会话的模拟器永远走不到那一步。Release 里恒为 nil。
@@ -21,6 +22,10 @@ struct RootView: View {
 
             if session.holdingLaunchStill {
                 LaunchMark()
+            }
+
+            if session.stage == .root, billing.presentation != nil {
+                MembershipCardHost(billing: billing, onFinished: { })
             }
         }
         .statusBarHidden(session.holdingLaunchStill)

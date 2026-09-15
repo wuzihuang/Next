@@ -9,7 +9,7 @@ struct OnboardingFlow: View {
 
     // 补屏 A · 六屏变七屏. Consent comes first: before HealthKit's dialog, before the first
     // band read. An account that has already answered this version skips straight past it.
-    enum Step: String, Hashable { case consent, healthSync, confirm, goal, fingersOn, scanning, baseline }
+    enum Step: String, Hashable { case consent, healthSync, confirm, goal, fingersOn, scanning, baseline, membership }
     /// 03 edge 3 · after the band dropped mid-scan and Connect ran again, the profile is on
     /// record and the run resumes at BASELINE 01, not at the first question.
     @State private var step: Step = {
@@ -23,6 +23,7 @@ struct OnboardingFlow: View {
             case "fingersOn": return .fingersOn
             case "scanning": return .scanning
             case "baseline": return .baseline
+            case "membership": return .membership
             default: break
             }
         }
@@ -104,7 +105,7 @@ struct OnboardingFlow: View {
             case .fingersOn:
                 FingersOn(onBack: { step = .goal }, onStart: { step = .scanning }, onSkip: {
                     Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "USER"]) }
-                    enter()
+                    finishTowardHome()
                 })
             case .scanning:
                 ScanningScreen(info: personalInfo, onDone: { r in
@@ -113,14 +114,16 @@ struct OnboardingFlow: View {
                     step = .baseline
                 }, onSkip: {
                     Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "FAILED"]) }
-                    enter()
+                    finishTowardHome()
                 }, onReconnect: {
                     // 03 edge 3 · reuse the whole pairing chain, then come back to BASELINE 01.
                     UserDefaults.standard.set(true, forKey: "nb.onboarding.resumeAtBaseline")
                     session.stage = .gateConnect
                 })
             case .baseline:
-                BaselineScreen(reading: baseline, onEnter: enter)
+                BaselineScreen(reading: baseline, onEnter: finishTowardHome)
+            case .membership:
+                MembershipCardHost(billing: BillingStore.shared, onFinished: enter)
             }
 
             // F5 · D08 — the 18 gate is caught on the birthday screen, not buried in the terms.
@@ -172,6 +175,18 @@ struct OnboardingFlow: View {
         if synced { data.profile.appleHealthLinked = true }
         await Analytics.shared.track("HEALTH_PROMPT", ["GRANTED_FIELDS": filled.count])
         step = .confirm
+    }
+
+    private func finishTowardHome() {
+        Task {
+            await BillingStore.shared.refresh()
+            if BillingStore.shared.isPro {
+                BillingStore.shared.markWelcomeSeen()
+                enter()
+            } else {
+                step = .membership
+            }
+        }
     }
 
     private func enter() {

@@ -28,6 +28,7 @@ import { buildRenderTools } from "../_shared/charts.ts";
 import { userClient, currentUserId, cors, json, userDayKey } from "../_shared/db.ts";
 import { enforceRequestBudget } from "../_shared/rate-limit.ts";
 import { consumeAiQuota, checkAiSpend, quotaDeniedResponse, recordAiUsage } from "../_shared/ai-quota.ts";
+import { requireProEntitlement, subscriptionRequiredResponse } from "../_shared/billing.ts";
 import { usageFromProvider, type TokenUsage } from "../_shared/cost.ts";
 import {
   MAX_TURN_STEPS, MAX_RESUMES, createTurnWorkflow, finishTurnStep, gateTurnTool, restoreTurnWorkflow,
@@ -79,6 +80,13 @@ export type TurnDependencies = {
   quota: (db: SupabaseClient, operationId: string) => Promise<
     { allowed: true; remaining?: number } | { allowed: false; reason: "count" | "spend" | "unavailable" }
   >;
+  entitlement: (db: SupabaseClient) => Promise<
+    { allowed: true; introClaimed: boolean } | {
+      allowed: false;
+      introClaimed: boolean;
+      reason: "missing" | "expired" | "unavailable";
+    }
+  >;
   spend: (db: SupabaseClient) => Promise<boolean>;
   streamText: typeof streamText;
   generateObject: typeof generateObject;
@@ -102,6 +110,7 @@ const defaults: TurnDependencies = {
   client: userClient,
   budget: (db) => enforceRequestBudget(db, "turn"),
   quota: (db, operationId) => consumeAiQuota(db, "turn", operationId),
+  entitlement: (db) => requireProEntitlement(db),
   spend: async (db) => (await checkAiSpend(db)).allowed,
   streamText,
   generateObject,
@@ -299,6 +308,11 @@ export async function handleTurn(
     return json({ error: "TURN_SUSPENDED", tool_request: suspended.pending }, 409);
   }
   if (!suspended) {
+    const entitlement = await deps.entitlement(db);
+    if (!entitlement.allowed) {
+      await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId });
+      return subscriptionRequiredResponse(entitlement);
+    }
     const quota = await deps.quota(db, turnId);
     if (!quota.allowed) {
       await db.rpc("release_ai_turn", { p_turn: turnId, p_lease: leaseId });

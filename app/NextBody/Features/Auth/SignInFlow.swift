@@ -361,6 +361,11 @@ struct SignInFlow: View {
         session.email = email
         session.isSignedIn = true
         session.stage = nextStage
+        Task {
+            if let userId = await SupabaseClient.shared.currentUserId {
+                await BillingStore.shared.identify(userId: userId)
+            }
+        }
     }
 }
 

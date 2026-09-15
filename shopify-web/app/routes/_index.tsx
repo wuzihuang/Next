@@ -14,7 +14,7 @@ export const meta: Route.MetaFunction = () => {
     {
       name: 'description',
       content:
-        'A band with no screen. It reads your heart, sleep, and training all day, and says it plainly in the NextBody app. $99. No subscription.',
+        'A band with no screen. It reads your heart, sleep, and training all day, and says it plainly in the NextBody app. $99 once for the band. App AI is NextBody Pro.',
     },
   ];
 };

@@ -14,7 +14,7 @@ export const meta: Route.MetaFunction = () => {
     {
       name: 'description',
       content:
-        '一条没有屏幕的手环。它整天读你的心率、睡眠和训练，然后在 NextBody App 里把话说清楚。$99，永不订阅。',
+        '一条没有屏幕的手环。它整天读你的心率、睡眠和训练，然后在 NextBody App 里把话说清楚。手环 $99 一次付清。App 里的 AI 是 NextBody Pro。',
     },
   ];
 };

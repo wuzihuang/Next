@@ -51,11 +51,35 @@ function deps(overrides: Partial<AsrDependencies> = {}): AsrDependencies {
     client: () => ({} as never),
     budget: () => Promise.resolve(null),
     quota: () => Promise.resolve({ allowed: true as const }),
+    entitlement: () => Promise.resolve({ allowed: true as const, introClaimed: false }),
     transcribe: () => Promise.resolve({ ok: true, text: "hello" }),
     recordUsage: () => Promise.resolve(),
     ...overrides,
   };
 }
+
+Deno.test("a missing Pro entitlement never sends audio to the model", async () => {
+  let transcribed = false;
+  const response = await handleAsr(
+    audioRequest(),
+    deps({
+      entitlement: () => Promise.resolve({
+        allowed: false as const,
+        introClaimed: true,
+        reason: "expired",
+      }),
+      transcribe: () => {
+        transcribed = true;
+        return Promise.resolve({ ok: true, text: "hello" });
+      },
+    }),
+  );
+  assertEquals(response.status, 402);
+  const body = await response.json();
+  assertEquals(body.error, "SUBSCRIPTION_REQUIRED");
+  assertEquals(body.intro_claimed, true);
+  assertEquals(transcribed, false);
+});
 
 Deno.test("an exhausted daily allowance never sends audio to the model", async () => {
   let transcribed = false;

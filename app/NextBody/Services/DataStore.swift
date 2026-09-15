@@ -1202,7 +1202,10 @@ final class SessionStore: ObservableObject {
         DataStore.shared.clearAccountDisplay()
         // The Keychain copy of the session goes too, or the next launch would restore it
         // straight past the gate.
-        Task { await SupabaseClient.shared.signOut() }
+        Task {
+            await BillingStore.shared.logOut()
+            await SupabaseClient.shared.signOut()
+        }
     }
 
     /// 11 · DELETE EVERYTHING, the phone half of it. reset() is a sign-out, and a sign-out
@@ -1228,6 +1231,7 @@ final class SessionStore: ObservableObject {
         PlanCheckQueue.shared.purge()
         PlanStore.shared.reset()
         PlanStore.purge(owner: SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId)
+        Task { await BillingStore.shared.logOut() }
         ConsentStore.shared.purge()
         Task { await Analytics.shared.purge() }
 

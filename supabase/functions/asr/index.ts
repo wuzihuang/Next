@@ -20,6 +20,7 @@ import {
   quotaDeniedResponse,
   recordAiUsage,
 } from "../_shared/ai-quota.ts";
+import { requireProEntitlement, subscriptionRequiredResponse } from "../_shared/billing.ts";
 import { type TokenUsage, usageFromProvider } from "../_shared/cost.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -47,6 +48,13 @@ export type AsrDependencies = {
     { allowed: true } | {
       allowed: false;
       reason: "count" | "spend" | "unavailable";
+    }
+  >;
+  entitlement: (db: SupabaseClient) => Promise<
+    { allowed: true; introClaimed: boolean } | {
+      allowed: false;
+      introClaimed: boolean;
+      reason: "missing" | "expired" | "unavailable";
     }
   >;
   transcribe: (bytes: Uint8Array, mime: string) => Promise<AsrTranscript>;
@@ -106,6 +114,7 @@ const defaults: AsrDependencies = {
   client: userClient,
   budget: (db) => enforceRequestBudget(db, "asr"),
   quota: (db, operationId) => consumeAiQuota(db, "asr", operationId),
+  entitlement: (db) => requireProEntitlement(db),
   transcribe: providerTranscribe,
   recordUsage: (db, usage, modelId) =>
     recordAiUsage(db, { endpoint: "asr", modelId, usage }),
@@ -126,6 +135,8 @@ export async function handleAsr(
     const db = deps.client(req);
     const limited = await deps.budget(db);
     if (limited) return limited;
+    const entitlement = await deps.entitlement(db);
+    if (!entitlement.allowed) return subscriptionRequiredResponse(entitlement);
     const quota = await deps.quota(db, operationId);
     if (!quota.allowed) return quotaDeniedResponse("en-US", quota);
     return streamTranscription(req, deps, db);
@@ -163,6 +174,8 @@ export async function handleAsr(
   try {
     const limited = await deps.budget(db);
     if (limited) return limited;
+    const entitlement = await deps.entitlement(db);
+    if (!entitlement.allowed) return subscriptionRequiredResponse(entitlement);
     const quota = await deps.quota(db, operationId);
     if (!quota.allowed) return quotaDeniedResponse("en-US", quota);
     let result: AsrTranscript;

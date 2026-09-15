@@ -182,7 +182,7 @@ const en: ShopCopy = {
   shop: {
     kicker: 'NEXTBODY',
     title: 'Get HOOP.',
-    lede: '$99 once. No subscription. Black or white. Both straps in the box.',
+    lede: '$99 once for the band. Black or white. Both straps in the box. App AI is NextBody Pro.',
     empty: 'Nothing in this collection yet.',
     view: 'View',
     from: 'From',
@@ -338,7 +338,7 @@ const zh: ShopCopy = {
   shop: {
     kicker: 'NEXTBODY',
     title: '购买 HOOP。',
-    lede: '$99 一次付清。永不订阅。黑色或白色。盒内两条表带都有。',
+    lede: '$99 一次付清买手环。黑色或白色。盒内两条表带都有。App 里的 AI 是 NextBody Pro。',
     empty: '这个系列里还没有商品。',
     view: '查看',
     from: '起',

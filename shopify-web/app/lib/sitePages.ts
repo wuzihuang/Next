@@ -98,11 +98,11 @@ export const SITE_PAGES: SitePage[] = [
         body: {
           en: [
             '$99 once. Black or white. The knit nylon strap and the sport strap are both in the box, along with the charger.',
-            'There is no subscription for the app that reads the band. Memberships in this category start at $239 a year; we decided not to be a club.',
+            'The app that reads the band comes with the band. App AI is NextBody Pro: one free month if this health account has not claimed it, then $6 / month.',
           ],
           zh: [
             '$99 一次付清。黑色或白色。编织尼龙表带和运动表带都在盒里，充电器也在。',
-            '读取手环的 App 没有订阅费。同类产品的会员费一年从 $239 起；我们决定不做会所。',
+            '读取手环的 App 随手环。App 里的 AI 是 NextBody Pro：这个健康账号还没领过则首月免费，之后每月 $6。',
           ],
         },
       },
@@ -476,21 +476,21 @@ export const JOURNAL: JournalArticle[] = [
   },
   {
     handle: 'no-subscription',
-    title: {en: 'No subscription. Ever.', zh: '永不订阅。'},
+    title: {en: 'The band is $99 once.', zh: '手环 $99，一次付清。'},
     lede: {
-      en: 'The band is $99. The app that reads it does not rent you back your own night.',
-      zh: '手环 $99。读取它的 App 不会把你自己的夜晚再租给你。',
+      en: 'The band and the readings are yours with HOOP. App AI is NextBody Pro.',
+      zh: '手环和读数随 HOOP。App 里的 AI 是 NextBody Pro。',
     },
     date: '2026-06-04',
     image: '/landing/finishes.png',
     body: {
       en: [
-        'Memberships in this category start at $239 a year. That is a second product.',
-        'HOOP is the band and the reading. You buy it once.',
+        'HOOP is the band and the reading. You buy the band once.',
+        'App AI — the panel, coach, suggestions and voice — is NextBody Pro at $6 / month, with one free month if this health account has not claimed it.',
       ],
       zh: [
-        '同类产品的会员费一年从 $239 起。那是另一件产品。',
-        'HOOP 是手环和读数。你买一次。',
+        'HOOP 是手环和读数。手环买一次。',
+        'App 里的 AI——面板、教练、建议和语音——是 NextBody Pro，每月 $6；这个健康账号还没领过则首月免费。',
       ],
     },
   },

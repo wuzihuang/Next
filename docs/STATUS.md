@@ -1,5 +1,26 @@
 # NEXTBODY · build status
 
+## AI Coach voice · production release · 2026-09-22
+
+Production `gkgzwcxivnffsecshvfs` now runs `turn` **v107 ACTIVE**, with JWT
+verification enabled. The release extends downloaded v106 with only the approved
+`eaa7afd8` Coach prompt: direct answers, short default responses, focused suggestions,
+no stock praise or closing offers, and room for requested detail and essential safety
+information. Both app languages use the same writing rules.
+
+All 43 downloaded runtime files match the validated candidate; `coach.ts` is the
+only changed runtime file. The entrypoint type check, 12 Coach/prompt regressions
+and changed-file lint passed. Type checking used the unchanged `ReadContext`
+interface, which production bundles omit as a type-only module. Anonymous requests
+return 401. The existing test account's authenticated chat request returned
+`402 SUBSCRIPTION_REQUIRED`, so live model writing quality was not verified and
+no membership was changed for testing.
+
+The prompt is also carried into main. No database migration, model, provider secret,
+other Edge Function or iOS release was included. Frozen before/candidate/after
+sources, hashes, deployment receipt and smoke outcomes are retained at
+`/tmp/next-coach-release-20260922-qslieyzn/release-manifest.json`.
+
 ## Recurrent sync failure · 2026-09-21
 
 Production traces confirmed that slow settlement held the calculation-work lock,

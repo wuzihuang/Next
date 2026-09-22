@@ -339,8 +339,10 @@ final class DataStore: ObservableObject {
     }
 
     /// Board 04 · 01 默认 — the screen the whole product is measured against.
+    /// `VitalsClock.now` so `NB_DEBUG_NOW` and the seed ticks share one evening, not 03:00.
     static func seedToday() -> DailyMetrics {
-        var m = DailyMetrics(day: UserDay.containing(Date()))
+        let now = VitalsClock.now
+        var m = DailyMetrics(day: UserDay.containing(now))
         m.trainingLoad = 12.4
         m.targetLoad = 14.5
         m.optimalZone = 13.0...16.0
@@ -354,7 +356,7 @@ final class DataStore: ObservableObject {
                                           dayCharge: 38, nightCharge: 38,
                                           wakeAt: Calendar.current.date(bySettingHour: 7, minute: 12,
                                               second: 0, of: m.day.start),
-                                          observedAt: Date(), confidence: .medium,
+                                          observedAt: now, confidence: .medium,
                                           algoVersion: "bb-2.1")
         m.nightInputs = NightInputs(hrv: 54, hrvBase: 61, rhr: 51, rhrBase: 48,
                                     rhrNights: 9, multiplier: 0.88)
@@ -391,7 +393,7 @@ final class DataStore: ObservableObject {
         m.worn = true
         m.wearRun = 4
         m.wearMiss = 0
-        m.asOf = Date()
+        m.asOf = now
         // The ticks the board's 72 was made of: five minutes apart from the earlier of
         // the user-day cut and last night's bed time, so the sleep page has RMSSD to plot.
         var ticks: [VitalSample] = []
@@ -400,11 +402,11 @@ final class DataStore: ObservableObject {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
             return Double((seed >> 33) % 1_000) / 1_000
         }
-        let wakeAt = Calendar.current.date(bySettingHour: 7, minute: 12, second: 0, of: Date())
+        let wakeAt = Calendar.current.date(bySettingHour: 7, minute: 12, second: 0, of: now)
             ?? m.day.start.addingTimeInterval(3 * 3600 + 12 * 60)
         let sleepStart = wakeAt.addingTimeInterval(-432 * 60)
         var t = min(m.day.start, sleepStart)
-        while t <= Date() {
+        while t <= now {
             let hour = Calendar.current.component(.hour, from: t)
             let offWrist = hour == 13
             let asleep = t >= sleepStart && t < wakeAt
@@ -414,6 +416,7 @@ final class DataStore: ObservableObject {
                 // the 18:00 session, nothing while asleep.
                 let session = hour == 18
                 let steps = asleep ? 0 : session ? Int(120 + rnd() * 60) : Int(rnd() * 40)
+                let met = asleep ? 1.0 : session ? 6.0 : (steps > 0 ? 1.8 : 1.0)
                 ticks.append(VitalSample(
                     ts: t,
                     hr: Int((asleep ? 49 : 68) + rnd() * (asleep ? 6 : 22)),
@@ -423,14 +426,31 @@ final class DataStore: ObservableObject {
                     // simulator a core-temperature number for a value the band records at 33.
                     temp: (asleep ? 33.8 : session ? 33.1 : 33.4) + rnd() * 0.2,
                     steps: steps,
+                    met: met,
                     vendorCalories: Double(steps) * 0.04 + (asleep ? 0.2 : 0.6),
                     dis: Double(steps) * 0.72,
                     hrv: (asleep ? 48 : 38) + rnd() * (asleep ? 18 : 16)))
             }
             t = t.addingTimeInterval(300)
         }
+        #if DEBUG && targetEnvironment(simulator)
+        if DebugEdge.on("restonly") {
+            m.eActive = 0
+            m.eTrain = 0
+            m.eOutNow = m.bmr
+            m.activeForecast = 0
+            m.eOutFull = m.bmrFull
+            m.trainingLoad = 0
+            m.zoneMinutes = [0, 0, 0, 0, 0]
+            ticks = ticks.map { sample in
+                VitalSample(ts: sample.ts, hr: sample.hr, stress: sample.stress,
+                            temp: sample.temp, steps: 0, met: 1,
+                            vendorCalories: sample.vendorCalories, dis: 0, hrv: sample.hrv,
+                            hrvValid: sample.hrvValid, hrvObservedAt: sample.hrvObservedAt)
+            }
+        }
+        #endif
         m.vitalsCurve = ticks
-        let now = Date()
         // Peak sits on this user day at 07:12, not on the calendar clock of `Date()`
         // — before 04:00 that clock is tomorrow morning.
         m.reserveCurve = seedReserveCurve(
@@ -773,36 +793,143 @@ final class DataStore: ObservableObject {
             let at = day.pinningClock(Date())
             let entry = MealEntry(id: UUID(), day: day, at: at,
                 slot: .guess(at: at, day: day), status: .confirmed, text: name,
-                kcal: Double(Int(kcal)), protein: 0, carb: 0, fat: 0, source: .typed)
+                kcal: kcal, protein: 0, carb: 0, fat: 0, source: .typed)
             overlayPendingMeals([entry], removedIDs: [])
             NotificationReach.evaluate(store: self)
+            postMealReceipt(entry.text, added: [entry.id])
             return
         }
-        do { try MealQueue.shared.createManual(text: text, kcal: kcal, day: day, into: self) }
+        do {
+            let submitted = try MealQueue.shared.createManual(text: text, kcal: kcal, day: day, into: self)
+            postMealReceipt(text.trimmingCharacters(in: .whitespacesAndNewlines), added: [submitted])
+        }
         catch { AIService.shared.lastError = error.localizedDescription }
     }
 
     /// A correction appends a replacement and soft-deletes the old cloud record.
-    func amendMeal(_ id: UUID, text: String, kcal: Double, protein: Int, carb: Int, fat: Int,
-                   at: Date, slot: MealEntry.Slot) {
-        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Every field is optional: what the caller leaves out keeps the value the row already
+    /// has. The estimate wrote four numbers for a reason — asking the person to retype all
+    /// four to fix one of them is how the sheet used to work, and it is not an edit, it is
+    /// a data-entry form. The plate's own fields (group, photo, portion, micronutrients)
+    /// ride across to the replacement row unless this call names a new portion.
+    func amendMeal(_ id: UUID, text: String? = nil, kcal: Double? = nil, protein: Double? = nil,
+                   carb: Double? = nil, fat: Double? = nil, at: Date? = nil, slot: MealEntry.Slot? = nil,
+                   portion: String? = nil,
+                   fiber: Double?? = nil, sugar: Double?? = nil, sodium: Double?? = nil,
+                   announce: Bool = true) {
         let source = meals.first(where: { $0.id == id }) ?? recentMeals.first(where: { $0.id == id })
-        guard let entry = source, canEdit(entry), kcal.isFinite, kcal >= 1, kcal <= 100000, !name.isEmpty,
-              protein >= 0, carb >= 0, fat >= 0,
-              let owner = SupabaseClient.currentUserIdSnapshot() else { return }
-        let eatenAt = entry.day.pinningClock(at)
+        guard let entry = source, canEdit(entry) else { return }
+        let name = (text ?? entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let kcal = kcal ?? entry.kcal
+        let protein = protein ?? entry.protein
+        let carb = carb ?? entry.carb
+        let fat = fat ?? entry.fat
+        let slot = slot ?? entry.slot
+        let portion = portion ?? entry.portion
+        let fiber = fiber ?? entry.fiber
+        let sugar = sugar ?? entry.sugar
+        let sodium = sodium ?? entry.sodium
+        guard kcal.isFinite, kcal >= 0, kcal <= 100000, !name.isEmpty,
+              [protein, carb, fat].allSatisfy({ $0.isFinite && (0...100000).contains($0) }),
+              [fiber, sugar, sodium].compactMap({ $0 }).allSatisfy({ $0.isFinite && (0...100000).contains($0) }) else { return }
+        let eatenAt = entry.day.pinningClock(at ?? entry.at)
         let replacementID = UUID()
+        if Band.allowsSeed {
+            overlayPendingMeals([
+                MealEntry(id: replacementID, day: entry.day, at: eatenAt, slot: slot,
+                          status: .confirmed, text: name, kcal: kcal, protein: protein,
+                          carb: carb, fat: fat, revisions: entry.revisions + 1, source: entry.source,
+                          groupID: entry.groupID, portion: portion, photoPath: entry.photoPath,
+                          fiber: fiber, sugar: sugar, sodium: sodium)
+            ], removedIDs: [id])
+            NotificationReach.evaluate(store: self)
+            if announce { postMealReceipt(name, added: [replacementID], replaced: entry) }
+            return
+        }
+        guard let owner = SupabaseClient.currentUserIdSnapshot() else { return }
         let stamp = ISO8601DateFormatter()
         stamp.formatOptions = [.withInternetDateTime]
-        let replacement: [String: Any] = [
+        var replacement: [String: Any] = [
             "id": replacementID.uuidString.lowercased(), "user_day": entry.day.key,
-            "slot": slot.rawValue, "name": name, "kcal": Int(kcal),
+            "slot": slot.rawValue, "name": name, "kcal": kcal,
             "protein_g": protein, "carb_g": carb, "fat_g": fat,
             "logged_at": stamp.string(from: eatenAt),
             "confidence": "HIGH", "model_version": "manual-amendment-v1",
         ]
+        if let group = entry.groupID { replacement["meal_group_id"] = group.uuidString.lowercased() }
+        if let photo = entry.photoPath { replacement["photo_path"] = photo }
+        if let portion, !portion.isEmpty { replacement["portion"] = String(portion.prefix(64)) }
+        if let fiber { replacement["fiber_g"] = fiber }
+        if let sugar { replacement["sugar_g"] = sugar }
+        if let sodium { replacement["sodium_mg"] = sodium }
         do { try MealQueue.shared.enqueueAmend(mealID: id, replacement: replacement, source: entry.source, revisions: entry.revisions + 1, ownerUserId: owner) }
         catch { AIService.shared.lastError = error.localizedDescription; return }
+        if announce { postMealReceipt(name, added: [replacementID], replaced: entry) }
+    }
+
+    func applySeedSessionLoad(delta: Double, zones: [Double]) {
+        guard Band.allowsSeed, delta.isFinite, delta > 0 else { return }
+        today.trainingLoad = min(20.9, (today.trainingLoad ?? 0) + delta)
+        if let current = today.zoneMinutes, current.count == 5, zones.count == 5 {
+            today.zoneMinutes = zip(current, zones).map { $0 + Int($1.rounded()) }
+        } else if zones.count == 5 {
+            today.zoneMinutes = zones.map { Int($0.rounded()) }
+        }
+        objectWillChange.send()
+    }
+
+    /// What just went on the record, for the few seconds a person is still looking at the
+    /// screen that put it there. The phone tools have had an undo stack since ADR 0018, but
+    /// only the model could reach it: saying "撤销" worked, tapping did not exist. This is
+    /// the same right, on a surface.
+    struct MealReceipt: Identifiable, Equatable {
+        let id = UUID()
+        let line: String
+        /// TARGET_IN minus what is now eaten. `nil` when there is no target to count down.
+        let left: Double?
+        /// The rows this action wrote. Undo removes exactly these.
+        let added: [UUID]
+        /// The row this action replaced, restored verbatim if undone.
+        let replaced: MealEntry?
+        let at = Date()
+
+        static func == (a: MealReceipt, b: MealReceipt) -> Bool { a.id == b.id }
+    }
+
+    @Published var mealReceipt: MealReceipt?
+
+    /// Eight seconds is the whole of it. A receipt that outlives the glance becomes a
+    /// second chrome element nobody asked for, and an undo with no memory of the tap is
+    /// worse than no undo.
+    static let receiptLifetime: TimeInterval = 8
+
+    func postMealReceipt(_ line: String, added: [UUID], replaced: MealEntry? = nil) {
+        let eaten = meals.filter { $0.day == UserDay.containing(Date()) && $0.status != .skipped }
+            .reduce(0.0) { $0 + $1.kcal }
+        let left = today.targetIn.map { $0 - eaten }
+        let receipt = MealReceipt(line: line, left: left, added: added, replaced: replaced)
+        mealReceipt = receipt
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(Self.receiptLifetime * 1_000_000_000))
+            if mealReceipt?.id == receipt.id { mealReceipt = nil }
+        }
+    }
+
+    /// Undo is a real deletion, not a visual one: the rows leave by the same outbox that
+    /// wrote them, so a phone that was offline for both still ends up with neither.
+    func undoMealReceipt() {
+        guard let receipt = mealReceipt else { return }
+        mealReceipt = nil
+        // An edit is a soft delete plus a new row, so undoing one is another edit — the same
+        // shape PhoneTools already uses for the model's undo, not a second write path.
+        if let previous = receipt.replaced, let current = receipt.added.first {
+            amendMeal(current, text: previous.text, kcal: previous.kcal, protein: previous.protein,
+                      carb: previous.carb, fat: previous.fat, at: previous.at, slot: previous.slot,
+                      portion: previous.portion, fiber: previous.fiber,
+                      sugar: previous.sugar, sodium: previous.sodium, announce: false)
+            return
+        }
+        for id in receipt.added { deleteMeal(id) }
     }
 
     func overlayPendingMeals(_ entries: [MealEntry], removedIDs: Set<UUID>) {
@@ -811,6 +938,36 @@ final class DataStore: ObservableObject {
             + entries.filter { $0.day == UserDay.containing(Date()) }
         recentMeals = recentMeals.filter { !removedIDs.contains($0.id) && !replacementIDs.contains($0.id) } + entries
         recomputeFuel()
+    }
+
+    func applyCommittedMealItems(_ items: [[String: Any]], ids: [UUID],
+                                 slot: MealEntry.Slot, day: UserDay, source: MealEntry.Source,
+                                 groupID: UUID? = nil, photoPath: String? = nil) {
+        let at = day.pinningClock(Date())
+        let entries: [MealEntry] = items.enumerated().compactMap { index, item in
+            let name = (item["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard let kcal = (item["kcal"] as? Double) ?? (item["kcal"] as? Int).map(Double.init),
+                  !name.isEmpty, kcal.isFinite, kcal >= 0, ids.indices.contains(index) else { return nil }
+            let id = ids[index]
+            let protein = (item["protein_g"] as? NSNumber)?.doubleValue ?? 0
+            let carb = (item["carb_g"] as? NSNumber)?.doubleValue ?? 0
+            let fat = (item["fat_g"] as? NSNumber)?.doubleValue ?? 0
+            func micro(_ key: String) -> Double? {
+                (item[key] as? NSNumber)?.doubleValue
+            }
+            return MealEntry(id: id, day: day, at: at, slot: slot, status: .confirmed,
+                             text: name, kcal: kcal, protein: protein, carb: carb, fat: fat, source: source,
+                             groupID: groupID,
+                             portion: (item["portion"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                             photoPath: photoPath,
+                             fiber: micro("fiber_g"), sugar: micro("sugar_g"), sodium: micro("sodium_mg"))
+        }
+        guard !entries.isEmpty else { return }
+        overlayPendingMeals(entries, removedIDs: [])
+        NotificationReach.evaluate(store: self)
+        postMealReceipt(entries.count == 1 ? entries[0].text
+                        : entries.prefix(3).map(\.text).joined(separator: " · "),
+                        added: entries.map(\.id))
     }
 
     /// Confirmed plates on screen are EATEN. A stale UNLOGGED/0 header after load
@@ -825,6 +982,11 @@ final class DataStore: ObservableObject {
 
     /// F0 right column: 09 needs an edit/delete entry point. Range-limited to 7 user days (F2 §08).
     func deleteMeal(_ id: UUID) {
+        if Band.allowsSeed {
+            overlayPendingMeals([], removedIDs: [id])
+            NotificationReach.evaluate(store: self)
+            return
+        }
         guard let owner = SupabaseClient.currentUserIdSnapshot() else { return }
         do { try MealQueue.shared.enqueueDelete(mealID: id, ownerUserId: owner) }
         catch { AIService.shared.lastError = error.localizedDescription; return }
@@ -840,9 +1002,9 @@ final class DataStore: ObservableObject {
         let isFasted: Bool
         if case .fasted = today.fuelState { isFasted = confirmed.isEmpty } else { isFasted = false }
         today.eIn = confirmed.isEmpty ? (isFasted ? 0 : nil) : confirmed.reduce(0) { $0 + $1.kcal }
-        today.proteinIn = confirmed.isEmpty && !isFasted ? nil : confirmed.reduce(0) { $0 + $1.protein }
-        today.carbIn = confirmed.isEmpty && !isFasted ? nil : confirmed.reduce(0) { $0 + $1.carb }
-        today.fatIn = confirmed.isEmpty && !isFasted ? nil : confirmed.reduce(0) { $0 + $1.fat }
+        today.proteinIn = confirmed.isEmpty && !isFasted ? nil : Int(confirmed.reduce(0.0) { $0 + $1.protein }.rounded())
+        today.carbIn = confirmed.isEmpty && !isFasted ? nil : Int(confirmed.reduce(0.0) { $0 + $1.carb }.rounded())
+        today.fatIn = confirmed.isEmpty && !isFasted ? nil : Int(confirmed.reduce(0.0) { $0 + $1.fat }.rounded())
         if let eIn = today.eIn, let out = today.eOutNow { today.balance = eIn - out }
         else { today.balance = nil }
         if confirmed.isEmpty {
@@ -859,9 +1021,9 @@ final class DataStore: ObservableObject {
         // The macro rows are the day's own meals added up (same rule as Repository.load):
         // a plate logged just now moves the tile the same instant, not on the next reload.
         if !confirmed.isEmpty {
-            let p = confirmed.reduce(0) { $0 + $1.protein }
-            let c = confirmed.reduce(0) { $0 + $1.carb }
-            let f = confirmed.reduce(0) { $0 + $1.fat }
+            let p = Int(confirmed.reduce(0.0) { $0 + $1.protein }.rounded())
+            let c = Int(confirmed.reduce(0.0) { $0 + $1.carb }.rounded())
+            let f = Int(confirmed.reduce(0.0) { $0 + $1.fat }.rounded())
             today.protein = today.protein.map { MacroSlot(target: $0.target, eaten: p) }
             today.carb    = today.carb.map    { MacroSlot(target: $0.target, eaten: c) }
             today.fat     = today.fat.map     { MacroSlot(target: $0.target, eaten: f) }
@@ -869,10 +1031,22 @@ final class DataStore: ObservableObject {
         objectWillChange.send()
     }
 
-    func addWeighIn(_ w: WeighIn) {
-        guard let ownerUserId = SupabaseClient.currentUserIdSnapshot() else { return }
+    @discardableResult
+    func addWeighIn(_ w: WeighIn) -> Bool {
+        if Band.allowsSeed {
+            weighIns = (weighIns + [w]).sorted { $0.date > $1.date }
+            today.weightKg = w.weightKg
+            if let bf = w.bodyFatPercent {
+                today.fatKg = w.weightKg * bf / 100
+                today.leanKg = w.weightKg - (today.fatKg ?? 0)
+                today.fatSource = w.source
+            }
+            objectWillChange.send()
+            return true
+        }
+        guard let ownerUserId = SupabaseClient.currentUserIdSnapshot() else { return false }
         do { try WeighInQueue.shared.enqueue(w, ownerUserId: ownerUserId) }
-        catch { AIService.shared.lastError = error.localizedDescription; return }
+        catch { AIService.shared.lastError = error.localizedDescription; return false }
         weighIns = (weighIns + [w]).sorted { $0.date > $1.date }
         today.weightKg = w.weightKg
         if let bf = w.bodyFatPercent {
@@ -880,6 +1054,7 @@ final class DataStore: ObservableObject {
             today.leanKg = w.weightKg - (today.fatKg ?? 0)
             today.fatSource = w.source
         }
+        return true
     }
 }
 
@@ -907,11 +1082,23 @@ struct MealEntry: Identifiable, Hashable, Codable {
     var status: Status
     var text: String
     var kcal: Double
-    var protein: Int
-    var carb: Int
-    var fat: Int
+    var protein: Double
+    var carb: Double
+    var fat: Double
     var revisions: Int = 0
     var source: Source = .voice
+    /// One estimate is one plate. Every row it wrote carries the same group, which is how a
+    /// plate can be reopened, re-portioned or saved as a favourite while the day's table
+    /// stays ungrouped (一餐 is not a row; 这一次拍的这盘 is).
+    var groupID: UUID?
+    /// The model's own words for how much: "1 碗", "200 g". Editable without arithmetic.
+    var portion: String?
+    /// Object path in the private `meal-photos` bucket. `nil` for typed and voice meals.
+    var photoPath: String?
+    /// Absent is absent. A missing micronutrient prints ——, never 0.
+    var fiber: Double?
+    var sugar: Double?
+    var sodium: Double?
 
     enum Source: String, Hashable, Codable { case voice = "VOICE", typed = "TYPED", photo = "PHOTO" }
 
@@ -926,7 +1113,11 @@ struct MealEntry: Identifiable, Hashable, Codable {
             MealEntry(id: UUID(), day: day, at: at(1, 20, plusDay: false), slot: .snack, status: .confirmed,
                       text: "Half a bowl of noodles + one egg", kcal: 310, protein: 14, carb: 42, fat: 9, source: .voice),
             MealEntry(id: UUID(), day: day, at: at(8, 10), slot: .breakfast, status: .confirmed,
-                      text: "Oats, Greek yoghurt, blueberries", kcal: 420, protein: 28, carb: 52, fat: 11, source: .typed),
+                      text: "Oats", kcal: 180, protein: 8, carb: 30, fat: 4, source: .typed),
+            MealEntry(id: UUID(), day: day, at: at(8, 11), slot: .breakfast, status: .confirmed,
+                      text: "Greek yoghurt", kcal: 140, protein: 16, carb: 8, fat: 5, source: .typed),
+            MealEntry(id: UUID(), day: day, at: at(8, 12), slot: .breakfast, status: .confirmed,
+                      text: "Blueberries", kcal: 100, protein: 4, carb: 14, fat: 2, source: .typed),
             MealEntry(id: UUID(), day: day, at: at(12, 40), slot: .lunch, status: .confirmed,
                       text: "Chicken salad with quinoa", kcal: 510, protein: 42, carb: 38, fat: 22, source: .photo),
             MealEntry(id: UUID(), day: day, at: at(19, 0), slot: .dinner, status: .open,
@@ -979,6 +1170,11 @@ struct Profile: Hashable, Codable {
     var goal: Goal
     var usesMetric: Bool
     var appleHealthLinked: Bool
+    /// What the band counts a full day of walking as. It is pushed to the firmware with the
+    /// rest of the personal info, so the ring on the wrist and the number here are the same
+    /// number. 8,000 is the default the app shipped with and the value every older row
+    /// decodes to, since the field is new.
+    var stepGoal: Int = 8_000
 
     /// The name every screen draws. The gate has no username field and onboarding never
     /// asks, so an account can genuinely have none — Apple hands one over at the first
@@ -1202,7 +1398,11 @@ final class SessionStore: ObservableObject {
         DataStore.shared.clearAccountDisplay()
         // The Keychain copy of the session goes too, or the next launch would restore it
         // straight past the gate.
-        Task { await SupabaseClient.shared.signOut() }
+        Task {
+            async let billingLogout: Void = BillingStore.shared.logOut()
+            await SupabaseClient.shared.signOut()
+            await billingLogout
+        }
     }
 
     /// 11 · DELETE EVERYTHING, the phone half of it. reset() is a sign-out, and a sign-out
@@ -1228,6 +1428,7 @@ final class SessionStore: ObservableObject {
         PlanCheckQueue.shared.purge()
         PlanStore.shared.reset()
         PlanStore.purge(owner: SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId)
+        Task { await BillingStore.shared.logOut() }
         ConsentStore.shared.purge()
         Task { await Analytics.shared.purge() }
 

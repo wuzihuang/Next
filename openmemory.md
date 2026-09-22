@@ -76,11 +76,11 @@ model credentials and tool execution server-side.
   internal `Friend` (`d62d8979-1adc-45e2-85c4-964b58a7c896`) and `Internal Testers`
   (`8598b996-8b7b-4d9c-9f6a-82e6b6df538a`); external `Public`
   (`9e585745-be37-48cb-bf27-a16a79b0dd81`) with public link
-  `https://testflight.apple.com/join/x4yW7mJQ`. Latest public build is `1.0` (5)
-  (`a60b86c3-6fa7-4a07-aab2-b8e1ba7a1a17`, uploaded 2026-09-14, encryption exempt,
-  `IN_BETA_TESTING` / `APPROVED`). Previous public build `1.0` (4)
-  (`1f1f674d-f2c2-49bd-a12d-4472b395759a`) remains approved. Local
-  `CURRENT_PROJECT_VERSION` is 5. The public link can be used to join and install.
+  `https://testflight.apple.com/join/x4yW7mJQ`. Latest public build is `1.0` (6)
+  (`20ef55fb-1f5c-4e01-a1e0-2beb037942b1`, uploaded 2026-09-19, encryption exempt,
+  `IN_BETA_TESTING` / `APPROVED`). Previous public builds `1.0` (5) and `1.0` (4)
+  remain approved. Local `CURRENT_PROJECT_VERSION` is 6. The public link can
+  be used to join and install.
   Do not confuse with the older phone bundle
   `com.walnutechnology.nextbody.app`.
 - App Store screenshots live on Paper `NEXTBODY-HOOP` page `screenshot` (`S-0`): one
@@ -235,6 +235,20 @@ model credentials and tool execution server-side.
   120 s / 60 s turn or model wall clock; SSE heartbeat 8 s and lease renew
   every 30 s keep a thinking model alive. Meal web search stays a 4 s bonus.
   Client SSE/upload idle gap is 120 s. Chat keeps a food `fallback_frame`.
+- Simulator seed is compile-time `Band.allowsSeed` (`#if targetEnvironment(simulator)`).
+  Mock never replaces cloud home rows (`Repository.bootstrapHome` returns after
+  `openSession`), never flushes meals / weigh-ins / profiles / sport HR
+  (`saveProfile`, `addWeighIn`, `MealQueue`, `SportEvidenceQueue`,
+  `flushPendingEvidence`). `NB_DEBUG_EDGE=restonly` is DEBUG+simulator only.
+  `seedToday()` and vitals boards share `VitalsClock.now` so `NB_DEBUG_NOW`
+  includes the 18:00 session ticks (overnight `Date()` has no activity MET).
+- Activity hour bars (`ActiveEnergyMath.hourly` + `LivedHourBars`) are activity
+  only: `kcal==0` draws nothing; rest-only days stay blank. Fuel AI plates
+  commit `items[]` without confirmation (`foodDraftEnvelope` already logged,
+  action `OPEN FUEL`). Edit-meal plate `rise` is 0; the sheet pads internally
+  so the keyboard cannot pin the handle to the top. Sport recap
+  (`SportRecapMath`) is local; simulator `applySeedSessionLoad` bumps load;
+  mock HR never hits `ingest_sport_heart_rate`.
 
 # Next Project Guide
 
@@ -463,7 +477,9 @@ model credentials and tool execution server-side.
   or a hard 3D cut-out. `featherRim` dissolves a hard disc into `#070709` (09/15)
   (`pad` must stay ≤ 1.0). Plate 02 must not get an extra ink fill or
   a second `haloRing` over the disc. `mist()` fades by ~48% radius for
-  horizon / low blooms (16/25); Paper 16 JSX has no traveler pip. Plate 28 foreground rings stay
+  horizon / low blooms (16/25). Plate 16 keeps the cyan horizon mist and
+  also rides a high-sky moon on `orbitGuide` so the board reads as a
+  turning world (Paper JSX had no pip). Plate 28 foreground rings stay
   at Paper 90/50/28. `paperOvals` are radial bowls, not hard black discs; 23
   lips stay typed `PaperLip` but stay off the V-1 paint so pits do not read
   as water drops; ovals are solid Paper ellipse fills. `filmGrain` hashes
@@ -474,13 +490,20 @@ model credentials and tool execution server-side.
   `IdlePlateLock.advanceVisit` (01…28) once per app foreground so every
   look can be judged; `IdlePlateStore` keeps the visit cursor off the
   daily snapshot. Pin with `NB_DEBUG_PLATE=1…28`; restore the playbook
-  with `NB_DEBUG_PLATE_DAILY=1`. Geometry source of
+  with `NB_DEBUG_PLATE_DAILY=1`. Saturn plates spin `pose.ringDeg` one
+  closed turn per loop (Paper rest at t=0); `ansaGlow` rides the ring.
+  Plate 02 is a moon in the field (r≈92, dust ring, shepherd) — not a
+  320px balloon. Shepherds without a Paper dashed path get `orbitGuide`
+  (the closed ellipse `ride` traces) so a moon reads as orbit, not a
+  blink. Plate 19/28 keep authored ring seats so SVG arcs and
+  edge-on rings do not tumble. Geometry source of
   truth is the Paper artboard (e.g. plate 01 ball 164 at 97/106, rings −14°,
   moon 7×7 at 286/214; 03 ice 156 at 101/50 −3°; 05 umber 136 at 111/110 −22°
   + moon 88/108; 06 dashed orbits around 150 at 105/120; 07 blue-gray 144 at
   107/106 −24°; 08 is a 90px warm ball at 95/145 plus a wide diagonal band
   (no rings); 09 is a 150px cool ball at 104/115 plus a fading diagonal;
-  10 is a dashed blue line from top-left with a star at (14, 94); 11 is an
+  10 is a dashed blue diagonal; the (14, 94) star rides `around()` so it
+  travels the trail instead of sitting still; 11 is an
   860px right-limb with diagonal lines and no rings; 12 silhouette 170 at
   94/103; 13 is a bright diagonal plus dashed 210×110 ellipse at −32° (no
   moon); 14 is a 56px dim ball at 151/167, dashed r=62 circle, fade line;
@@ -489,12 +512,15 @@ model credentials and tool execution server-side.
   blooms + rings at (200, 210) + pip (106, 264); 19 is a 150px ivory ball
   at 105/125 with a thin −13° ring and three color ticks; 20 blue 184 at
   206/103 + far arcs; 21 left giant 404 at −262/38 + pip 223/218; 22 ivory
-  136 at 111/118 −2°; 24 is a cyan cubic trail + static head (366, 92);
+  136 at 111/118 −2°; 24 is a cyan cubic trail whose head rides
+  `pose.comet` along `plate24Point`;
   25 low amber bloom 240×130 at 59/248 + inner 100×40 at 129/278 + arc
   `M 244 410 A 64 15 −4`; 26 violet 160 at 170/150 left-lit; 27 dashed
   arcs `1.2 8` / `1.6 7` + pip 150/138), not the old LED OrbitField.
   Plate 02/23 craters are Paper mares/pits with radial bowls (no hard
-  discs); 23 paints Paper SVG elliptical pits plus typed `PaperLip`
+  discs). Plate 23 keeps the 600px close-up; its sky pip rides a tight
+  top-strip ellipse (rest 300/42 around 179/38) so it never leaves the
+  board. 23 paints Paper SVG elliptical pits plus typed `PaperLip`
   elliptical-arc strokes (cream `0xFFFAF0`, not circular bowl rims)
   and the Paper bottom fade 30%→85%. `discWash` is the 142° night
   overlay on 02/08/23. Plate 02 also
@@ -838,6 +864,13 @@ model credentials and tool execution server-side.
   to the recorded night — never restored onto `raw_samples.spo2`.
 
 ## Patterns
+- Band sync outcome is wrist facts only (`BandSyncPolicy.dayStatus`).
+  `settle_now` writes derived scores afterwards and cannot mark a complete
+  reading `partial`. Doing that showed "Some readings could not sync" after
+  a successful upload and forced the next pull to re-read the week. A
+  statement timeout (PostgreSQL `57014`, authenticated 8 s) retries once
+  (`Repository.settleNow`) and stays off the reading failure line. Cron and
+  foreground settle still finish the scores.
 - NextBody `xcodebuild` warning cleanup: MockBand progress loops must
   `await progress(done)` rather than `MainActor.run { progress(done) }`
   (captured `var` in a Sendable closure). DEBUG panel pin helpers that touch

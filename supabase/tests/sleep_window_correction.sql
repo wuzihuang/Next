@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
-select plan(15);
+select plan(16);
 
 -- #28 · one night the band filed from 22:00 to 07:00, with a stage line that says where
 -- every minute of it went. The user says the first ninety minutes were reading, not sleep.
@@ -73,10 +73,12 @@ select results_eq($$select sleep_start,nb.bb_instant(raw->>'recorded_start')
   $$values (timestamptz '2026-09-14 23:30+00', timestamptz '2026-09-14 21:40+00')$$,
   'a later sync refreshes the band window and leaves the correction standing');
 
--- A window with no recorded sleep in it is not a night. It is refused, and the row it
--- would have replaced is left exactly as it was.
-select throws_ok($$select public.correct_sleep_window('2026-09-15','07:00','07:30')$$,
-  '22023', 'WINDOW_HAS_NO_SLEEP', 'a window holding no recorded sleep cannot be published');
+-- A fully uncovered correction is now a reported window with unknown stages. It
+-- preserves the band receipt and contributes no invented minutes to reserve charging.
+select lives_ok($$select public.correct_sleep_window('2026-09-15','07:00','07:30')$$,
+  'a window with no recorded stages can be explicitly reported');
+select is((select count(*) from nb.sleep_evidence_minutes('28280000-0000-4000-8000-000000000001','2026-09-15')),
+  0::bigint, 'uncovered correction does not fabricate sleep stage evidence');
 
 select lives_ok($$select public.clear_sleep_correction('2026-09-15')$$,
   'the correction can be cleared');

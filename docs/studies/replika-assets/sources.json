@@ -1,0 +1,76 @@
+{
+  "retrieved": "2026-09-20",
+  "provider": "Mobbin MCP",
+  "screens": [
+    {
+      "file": "01-onboarding.jpg",
+      "flow": "Creating a Replika",
+      "flow_url": "https://mobbin.com/flows/381cc18a-e9aa-41b4-8e68-bdf807f772a5",
+      "screen_id": "5eb6f0d4-a26e-4cda-ab1e-928ca345dcbd",
+      "position": 8
+    },
+    {
+      "file": "02-paywall.jpg",
+      "flow": "Selecting a character type",
+      "flow_url": "https://mobbin.com/flows/b558f09a-f3ae-422d-98c6-ad93bc0f49e5",
+      "screen_id": "68cc7d89-7efa-4044-bee9-3b908f3a5f83",
+      "position": 5
+    },
+    {
+      "file": "03-relationship.jpg",
+      "flow": "Changing relationship status",
+      "flow_url": "https://mobbin.com/flows/10bfd239-830c-4ab7-b2a7-0bdb55a18698",
+      "screen_id": "70f95b89-3edd-40d2-8724-76f45840363f",
+      "position": 1
+    },
+    {
+      "file": "04-memory.jpg",
+      "flow": "Memory",
+      "flow_url": "https://mobbin.com/flows/36f7b7b9-1214-4df9-957c-7592a1fa2436",
+      "screen_id": "350f52ff-99ff-4ee6-a427-41f5a51f0338",
+      "position": 5
+    },
+    {
+      "file": "05-diary.jpg",
+      "flow": "Diary",
+      "flow_url": "https://mobbin.com/flows/c230779c-271e-4fbf-aa75-83d35a5603f1",
+      "screen_id": "23c1b816-89bf-4724-bcff-75888cfba5b9",
+      "position": 4
+    },
+    {
+      "file": "06-pro.jpg",
+      "flow": "Subscribing to Pro",
+      "flow_url": "https://mobbin.com/flows/82104830-e092-42ad-b222-559ff5680006",
+      "screen_id": "ed6f5730-640b-41e4-a6c1-81ec2b98dce5",
+      "position": 4
+    },
+    {
+      "file": "07-mind.jpg",
+      "flow": "Replika's Mind",
+      "flow_url": "https://mobbin.com/flows/eb05d42b-2165-47e1-aa1d-4aa70fd6724b",
+      "screen_id": "1f669994-5650-4e40-b449-16712bd7ea9c",
+      "position": 3
+    },
+    {
+      "file": "08-store.jpg",
+      "flow": "Purchasing an item",
+      "flow_url": "https://mobbin.com/flows/0858cd28-8682-4acf-a0cc-04224c2339a6",
+      "screen_id": "6e9b1c1e-4b46-4f57-b8f6-ca54e906d829",
+      "position": 4
+    },
+    {
+      "file": "09-call.jpg",
+      "flow": "Starting a call",
+      "flow_url": "https://mobbin.com/flows/ec409a5e-42b8-4cc9-8825-feb181346aa3",
+      "screen_id": "8350b3fd-ac1d-420f-97e0-aff92551d927",
+      "position": 3
+    },
+    {
+      "file": "10-home.jpg",
+      "flow": "Selecting a character type",
+      "flow_url": "https://mobbin.com/flows/b558f09a-f3ae-422d-98c6-ad93bc0f49e5",
+      "screen_id": "8530501c-f43c-4964-b442-5e497d4d275c",
+      "position": 9
+    }
+  ]
+}

@@ -14,7 +14,7 @@ select '09060606-0000-0000-0000-000000000001',('09060606-1000-0000-0000-'||lpad(
 '09060606-0000-0000-0000-000000000002','09060606-0000-0000-0000-000000000003',
 '2026-09-04 10:00+00'::timestamptz+make_interval(secs=>i*10),200,'UTC' from generate_series(0,1) i;
 select is((select sum(extract(epoch from(ends_at-starts_at))) from nb.training_heart_intervals('09060606-0000-0000-0000-000000000001','2026-09-04')),10::numeric,'two live reports establish ten seconds only');
-select is((select training_load from nb.compute_training('09060606-0000-0000-0000-000000000001','2026-09-04')),null::numeric,'high frequency without resting baseline does not fabricate HRR');
+select is((select training_load from nb.compute_training('09060606-0000-0000-0000-000000000001','2026-09-04')),0.1::numeric,'before resting baseline is ready, age-maximum zones retain observed exercise');
 select is((nb.training_evidence('09060606-0000-0000-0000-000000000001','2026-09-04')->>'hr_seconds')::numeric,10::numeric,'HR evidence survives unavailable baseline');
 select is(nb.training_evidence('09060606-0000-0000-0000-000000000001','2026-09-04')->>'baseline_estimated','true','missing baseline is explicitly estimated');
 -- Three actual one-hour sleep nights establish a qualified resting baseline.
@@ -47,16 +47,16 @@ select is((nb.training_evidence('09060606-0000-0000-0000-000000000001','2026-09-
 -- A full coarse slot already includes these 15 seconds: replace, do not append.
 insert into public.raw_samples(user_id,ts,sampled_tz,heart,step,met)
 values('09060606-0000-0000-0000-000000000001','2026-09-04 10:00+00','UTC',200,500,3);
-select is((select sum(raw) from nb.activity_ticks('09060606-0000-0000-0000-000000000001','2026-09-04')),7.25::numeric,'fine HR replaces ten coarse high-HR seconds and MET is max once');
+select is((select sum(raw) from nb.activity_ticks('09060606-0000-0000-0000-000000000001','2026-09-04')),7.25625::numeric,'fine HR replaces coarse seconds; movement still counts during the low-HR interval');
 select is((nb.training_evidence('09060606-0000-0000-0000-000000000001','2026-09-04')->>'recorded_seconds')::numeric,300::numeric,'coarse and fine observation coverage do not add');
 select is((nb.training_evidence('09060606-0000-0000-0000-000000000001','2026-09-04')->>'movement_seconds')::numeric,300::numeric,'coarse movement keeps its own single slot');
 update public.raw_samples set heart=60,step=0,met=25 where user_id='09060606-0000-0000-0000-000000000001' and ts='2026-09-04 10:00+00';
-select is((select sum(raw) from nb.activity_ticks('09060606-0000-0000-0000-000000000001','2026-09-04')),2.25::numeric,'stronger movement contribution wins instead of adding to fine HR');
+select is((select sum(raw) from nb.activity_ticks('09060606-0000-0000-0000-000000000001','2026-09-04')),2.3375::numeric,'each interval uses its stronger signal instead of adding overlapping HR and movement');
 -- Incomplete and future coarse slots cannot affect score, evidence or steps.
 insert into public.raw_samples(user_id,ts,sampled_tz,heart,step,met) values
 ('09060606-0000-0000-0000-000000000001','2026-09-04 17:58+00','UTC',200,900,25),
 ('09060606-0000-0000-0000-000000000001','2026-09-04 18:05+00','UTC',200,900,25);
-select is((select sum(raw) from nb.activity_ticks('09060606-0000-0000-0000-000000000001','2026-09-04')),2.25::numeric,'future and unfinished coarse values excluded');
+select is((select sum(raw) from nb.activity_ticks('09060606-0000-0000-0000-000000000001','2026-09-04')),2.3375::numeric,'future and unfinished coarse values excluded');
 select is((select sum(steps) from nb.training_observations('09060606-0000-0000-0000-000000000001','2026-09-04')),0::bigint,'unfinished slot steps excluded by the same source');
 -- Isolated, paused, and >15-second-separated observations prove no extra interval.
 insert into public.sport_heart_rate_samples(user_id,id,session_id,continuity_id,observed_at,heart_rate,sampled_tz) values
@@ -66,7 +66,7 @@ insert into public.sport_heart_rate_samples(user_id,id,session_id,continuity_id,
 ('09060606-0000-0000-0000-000000000001','09060606-4000-0000-0000-000000000004','09060606-0000-0000-0000-000000000008','09060606-0000-0000-0000-000000000010','2026-09-04 18:00:05+00',200,'UTC');
 select is((select sum(extract(epoch from(ends_at-starts_at))) from nb.training_heart_intervals('09060606-0000-0000-0000-000000000001','2026-09-04')),15::numeric,'pause, long gap, lone report and future sample establish no added coverage');
 select is((select peak_hr from nb.compute_training('09060606-0000-0000-0000-000000000001','2026-09-04')),220::smallint,'lone report remains a peak observation without fabricated duration');
-select is((select sum(raw) from nb.activity_ticks('09060606-0000-0000-0000-000000000001','2026-09-04')),2.25::numeric,'report-only peak cannot increase load');
+select is((select sum(raw) from nb.activity_ticks('09060606-0000-0000-0000-000000000001','2026-09-04')),2.3375::numeric,'report-only peak cannot increase load');
 -- Cross-bucket integration is clipped exactly, including the 04:00 day boundary.
 insert into public.sport_heart_rate_samples(user_id,id,session_id,continuity_id,observed_at,heart_rate,sampled_tz)
 select '09060606-0000-0000-0000-000000000001',('09060606-5000-0000-0000-'||lpad(i::text,12,'0'))::uuid,

@@ -85,7 +85,7 @@ final class BandRefreshCoordinator {
         let history: @MainActor (_ recentDays: [Int: BandRefreshResult]) async -> HistoryResult
         var checkHistory: @MainActor () -> Bool = { false }
         var finish: @MainActor () async -> Void = {}
-        var completed: @MainActor (BandRefreshResult) -> Void = { _ in }
+        var completed: @MainActor (BandRefreshResult) async -> Void = { _ in }
     }
 
     private final class Flight {
@@ -153,7 +153,7 @@ final class BandRefreshCoordinator {
             // Await the BLE-cache lifetime cleanup before releasing this shared flight.
             // A different account or new refresh cannot have its cache ended by old work.
             await work.finish()
-            work.completed(resultForWaiter(result, scope: scope))
+            await work.completed(resultForWaiter(result, scope: scope))
             // A failed connection is still an attempt. Automatic callers must not
             // restart preparation on every timer tick; explicit retries bypass cadence.
             if result.status == .success || result.status == .partial || result.status == .failed

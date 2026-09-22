@@ -1,0 +1,69 @@
+{
+  "identifier" : "HoopPro",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "HOOPPROGROUP",
+      "localizations" : [
+
+      ],
+      "name" : "NextBody Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "6.00",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "A1B2C3D4E5F60718",
+          "introductoryOffer" : {
+            "internalID" : "B2C3D4E5F6071891",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Panel, coach, daily suggestions and voice.",
+              "displayName" : "NextBody Pro",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "面板、教练、当日建议和语音。",
+              "displayName" : "NextBody Pro",
+              "locale" : "zh_Hans"
+            }
+          ],
+          "productID" : "hoop_pro_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "NextBody Pro Monthly",
+          "subscriptionGroupID" : "HOOPPROGROUP",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

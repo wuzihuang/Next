@@ -530,9 +530,9 @@ struct DeviceView: View {
                 ? L("Could not reach this HOOP. It was nearly out of charge when last read — put it on its charger, then tap Sync.")
                 : L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
         case .partial:
-            syncMessage = L("Some readings could not sync. Tap Sync to try again.")
+            syncMessage = syncActivity.failureLine ?? L("Some readings could not sync. Tap Sync to try again.")
         case .failed:
-            syncMessage = L("Sync did not complete. Tap Sync to try again.")
+            syncMessage = syncActivity.failureLine ?? L("Sync did not complete. Tap Sync to try again.")
         case .cancelled, .throttled:
             break
         }

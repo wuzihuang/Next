@@ -71,6 +71,7 @@ let package = Package(
                 "OriginObservationPolicy.swift",
                 "BandDomainSyncState.swift",
                 "BandEvidencePublication.swift",
+                "EvidencePublicationDrain.swift",
                 "BandDeltaTransport.swift",
                 "BandHistoryReadCache.swift",
                 "BandRefreshCoordinator.swift",
@@ -89,6 +90,9 @@ let package = Package(
                 "BandAlarmMath.swift",
                 "HealthSampleMapping.swift",
                 "MealResponseIndex.swift",
+                "PortionMath.swift",
+                "MealMicroTotals.swift",
+                "BodyScanCadence.swift",
                 "NotificationReachMath.swift",
                 "SkinTempNightRange.swift",
                 "HomeLaunchPolicy.swift",
@@ -104,6 +108,8 @@ let package = Package(
                 "ActivityEnergyPolicy.swift",
                 "ActiveEnergyMath.swift",
                 "SportMetricAccumulator.swift",
+                "SportRecapMath.swift",
+                "SportSessionRecap.swift",
                 "SportLiveInfo.swift",
                 "SportWristMath.swift",
                 "BandSportSubscription.swift",
@@ -129,6 +135,7 @@ let package = Package(
                 "FuelCardMath.swift",
                 "CompositionWindowMath.swift",
                 "TrainingWindowMath.swift",
+                "TrainingSettlement.swift",
                 "BodyBatteryWindowMath.swift",
                 "WidgetFaceMath.swift",
             ]
@@ -137,6 +144,16 @@ let package = Package(
             name: "NextBodySyncCoreTests",
             dependencies: ["NextBodySyncCore", "NextBodyLocalData"],
             path: "NextBodySyncCoreTests"
+        ),
+        .target(
+            name: "NextBodyBillingCore",
+            path: "NextBody/Services/Billing",
+            sources: ["BillingCatalog.swift", "BillingOffer.swift"]
+        ),
+        .testTarget(
+            name: "NextBodyBillingTests",
+            dependencies: ["NextBodyBillingCore"],
+            path: "NextBodyBillingTests"
         ),
     ]
 )

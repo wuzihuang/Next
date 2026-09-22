@@ -119,7 +119,7 @@ async function dayRows(ctx: Ctx, fromDay: string, toDay: string): Promise<DayRow
   const { data, error } = await ctx.db.from("daily_results")
     .select("user_day, training_load, reserve_score, fuel_balance_kcal, " +
       "day_fuel(kcal_in, kcal_out, target_in, protein_g, carb_g, fat_g, protein_in_g, carb_in_g, fat_in_g), " +
-      "daily_training(zone_minutes, peak_hr, segments, session_count), " +
+      "daily_training(zone_minutes, peak_hr, segments, session_count, evidence), " +
       "reserve_daily(current_value, wake_value, min_value, night_inputs)")
     .eq("user_id", ctx.userId).gte("user_day", fromDay).lte("user_day", toDay).order("user_day");
   if (error) throw new Error("SOURCE_QUERY_FAILED");
@@ -374,10 +374,15 @@ export const SOURCES: Source[] = [
       const { reading } = await readMetricWindow(ctx, "trainingLoad", 1);
       const v = reading.stats.latest;
       if (v == null) return null;
-      // F7 §08 · the remainder is a number the ring's own caption asks for («还差多少»),
-      // so the server computes it. The model may not subtract: 21 − 2.6 came back as an
-      // untraceable 18.4 and threw the whole frame away.
-      return { data: { kind: "arc", value: v, goal: 21, unit: "" }, agg: { value: v, goal: 21, left: r1(21 - v), pct: Math.round(v / 21 * 100) }, evidence: reading.evidence, hero: `${v}`, window: reading.evidence.to === ctx.dayKey ? "TODAY" : reading.evidence.to };
+      const day = reading.evidence.to;
+      const target = one(one((await dayRows(ctx, day, day))?.[0]?.daily_training)?.evidence)?.target;
+      const suggested = typeof target?.target === "number" && Number.isFinite(target.target) ? target.target : null;
+      // 21 describes the scale. Remaining training is measured against the
+      // published sleep-led target, and remains unknown when that target is absent.
+      return { data: { kind: "arc", value: v, goal: 21, unit: "" },
+        agg: { value: v, goal: 21, target: suggested, lower: target?.lower ?? null, upper: target?.upper ?? null,
+          left: suggested == null ? null : r1(Math.max(0, suggested - v)), scaleLeft: r1(21 - v), pct: Math.round(v / 21 * 100) },
+        evidence: reading.evidence, hero: `${v}`, window: day === ctx.dayKey ? "TODAY" : day };
     },
   },
   {

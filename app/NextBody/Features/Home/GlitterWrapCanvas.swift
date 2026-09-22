@@ -13,7 +13,7 @@ struct GlitterWrapStage: View {
     }
 }
 
-private struct GlitterWrapHaloMask: View {
+struct GlitterWrapHaloMask: View {
     var body: some View {
         GeometryReader { g in
             let w = g.size.width

@@ -2,6 +2,46 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class BandSyncProgressTests: XCTestCase {
+    func testHistoryAndDailyModesHaveSeparateCopy() {
+        var progress = BandSyncProgress()
+        progress.begin()
+        XCTAssertEqual(progress.modeLabel, "DAILY SYNC")
+        progress.beginHistory()
+        XCTAssertEqual(progress.modeLabel, "BACKFILLING HISTORY")
+        progress.begin()
+        XCTAssertEqual(progress.modeLabel, "DAILY SYNC")
+    }
+
+    func testHistoryDeadlineTracksProgressInsteadOfRepeatedCallbacks() {
+        let deadline = BandSyncDeadline(startedAt: 100)
+        XCTAssertFalse(deadline.expired(at: 144))
+        deadline.advance("day1:10", at: 120)
+        deadline.advance("day1:10", at: 140)
+        XCTAssertFalse(deadline.expired(at: 164))
+        XCTAssertTrue(deadline.expired(at: 165), "A repeated callback cannot hide a stuck command")
+        deadline.advance("day1:20", at: 165)
+        XCTAssertFalse(deadline.expired(at: 166))
+        deadline.advance("day7:99", at: 399)
+        XCTAssertTrue(deadline.expired(at: 400), "Progress cannot exceed the absolute ceiling")
+    }
+
+    @MainActor func testSharedRefreshWaitsForAsyncCompletionReceipt() async {
+        var persisted = false
+        let coordinator = BandRefreshCoordinator(state: {
+            .init(account: "account", binding: "band", consent: true, exclusive: false, connected: true)
+        })
+        let result = await coordinator.refresh(.latest, cadence: 0, work: .init(
+            prepare: { _ in true }, day: { _ in .init(status: .success) },
+            history: { _ in .init(result: nil) }, completed: { _ in
+                await Task.yield()
+                XCTAssertFalse(coordinator.isIdle)
+                persisted = true
+            }))
+        XCTAssertEqual(result.status, .success)
+        XCTAssertTrue(persisted)
+        XCTAssertTrue(coordinator.isIdle)
+    }
+
     @MainActor func testScopeChangeDuringCleanupCannotPublish100() async {
         var binding = "A"
         var progress = BandSyncProgress()

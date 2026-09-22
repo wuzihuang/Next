@@ -68,26 +68,57 @@ final class FuelRangeTests: XCTestCase {
         name.tap()
         name.typeText("Architecture test lunch\n")
         calories.tap()
-        calories.typeText("525")
+        calories.typeText("525.4")
         let save = app.buttons["Save"]
         XCTAssertTrue(save.isEnabled)
         save.tap()
         XCTAssertTrue(app.staticTexts["Architecture test lunch"].waitForExistence(timeout: 6),
                       "The simulator's memory-only meal must survive closing the plate without a signed-in account")
+        XCTAssertTrue(app.staticTexts["525.4"].waitForExistence(timeout: 6),
+                      "Food energy must retain its decimal after saving")
     }
 
-    private func launchFuel(range: String? = nil, manualPlate: Bool = false) -> XCUIApplication {
+    func testEditMealKeepsNameAndSaveReachableAboveKeyboard() {
+        let app = launchFuel(editPlate: true)
+        let name = app.textFields["fuel.edit.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 30))
+        name.tap()
+        let focusShot = XCTAttachment(screenshot: app.screenshot())
+        focusShot.lifetime = .keepAlways
+        add(focusShot)
+        name.typeText(" Edited")
+        let keyboardAppeared = app.keyboards.firstMatch.waitForExistence(timeout: 5)
+        if !keyboardAppeared { print(app.debugDescription) }
+        XCTAssertTrue(keyboardAppeared)
+        let edited = name.value as? String ?? ""
+        XCTAssertTrue(edited.contains("Edited"))
+        let save = app.buttons.matching(NSPredicate(format: "label == %@", "Save")).firstMatch
+        XCTAssertTrue(name.isHittable, "The focused food name must remain visible")
+        if !save.isHittable { print(app.debugDescription) }
+        XCTAssertTrue(save.isHittable, "The keyboard must leave Save reachable")
+        XCTAssertGreaterThanOrEqual(app.staticTexts["Edit this meal"].frame.minY, app.frame.minY)
+        save.tap()
+        let saved = app.staticTexts[edited].waitForExistence(timeout: 6)
+        if !saved { print(app.debugDescription) }
+        XCTAssertTrue(saved)
+    }
+
+    private func launchFuel(range: String? = nil, manualPlate: Bool = false, editPlate: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
         app.launchEnvironment["NB_DEBUG_LANG"] = "en"
         app.launchEnvironment["NB_DEBUG_ROUTE"] = "fuel"
         if manualPlate { app.launchEnvironment["NB_DEBUG_FUEL_PLATE"] = "1" }
+        if editPlate { app.launchEnvironment["NB_DEBUG_FUEL_PLATE"] = "edit" }
         if let range {
             app.launchEnvironment["NB_DEBUG_FUEL_RANGE"] = range
         }
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
+        // The first-morning notification primer can cover this route on a fresh install.
+        let notNow = app.buttons["Not now"]
+        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
         return app
     }
 }

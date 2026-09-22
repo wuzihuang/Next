@@ -20,6 +20,8 @@ final class SportEvidenceQueue {
     }
 
     func enqueue(_ observation: SportHeartRateEvidence, ownerUserId: String) throws {
+        // Simulator mock packets must never reach ingest_sport_heart_rate (#36 / #37).
+        guard !Band.allowsSeed else { return }
         guard ownerUserId == SupabaseClient.currentUserIdSnapshot(), ConsentStore.shared.granted else {
             throw CancellationError()
         }
@@ -32,6 +34,7 @@ final class SportEvidenceQueue {
     }
 
     func enqueue(_ observation: SportEnergyEvidence, ownerUserId: String) throws {
+        guard !Band.allowsSeed else { return }
         guard ownerUserId == SupabaseClient.currentUserIdSnapshot(), ConsentStore.shared.granted else {
             throw CancellationError()
         }
@@ -56,6 +59,7 @@ final class SportEvidenceQueue {
     /// Repository owns publication/settlement after every evidence queue is drained.
     /// Snapshot the account's work so a continuing workout cannot extend this drain forever.
     func flush() async {
+        guard !Band.allowsSeed else { return }
         guard !flushing, !Task.isCancelled, ConsentStore.shared.granted,
               Reachability.shared.isOnline, !DebugEdge.on("offline"),
               let owner = SupabaseClient.currentUserIdSnapshot() else { return }

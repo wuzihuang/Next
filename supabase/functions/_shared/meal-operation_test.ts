@@ -23,7 +23,7 @@ Deno.test("legacy create retries use a stable row id and retain an existing acce
   assertEquals(existing.id, meal);
 });
 Deno.test("invalid nutrients and impossible dates never reach storage", async () => {
-  for (const bad of [{ kcal: null }, { kcal: 1.2 }, { kcal: -1 }, { user_day: "2026-02-30" }, { protein_g: -5 }]) {
+  for (const bad of [{ kcal: null }, { kcal: 100000.1 }, { kcal: -1 }, { user_day: "2026-02-30" }, { protein_g: -5 }]) {
     const response = await handleMealWrite(request({ ...base, ...bad }), "create", {
       ...dependencies(), apply: () => { throw new Error("must not call"); },
     });
@@ -113,5 +113,21 @@ Deno.test("manual meal retry compares recorded instants across database timestam
       ...dependencies(), canonicalMeal: () => Promise.resolve({ id: meal, ...fields, logged_at: savedAt }),
     });
     assertEquals(response.status, expected);
+  }
+});
+
+Deno.test("fractional nutrients survive create validation", async () => {
+  const nutrients = { kcal: 123.4, protein_g: 23.6, carb_g: 8.2, fat_g: 2.5,
+    fiber_g: 1.3, sugar_g: 0.2, sodium_mg: 45.7 };
+  let received: unknown;
+  const response = await handleMealWrite(request({ ...base, ...nutrients }), "create", {
+    ...dependencies(), apply: (_req, args) => {
+      received = args.p_payload;
+      return Promise.resolve({ data: { operation_id: op, client_op_id: op, meal_id: op, id: op }, error: null });
+    },
+  });
+  assertEquals(response.status, 200);
+  for (const [key, value] of Object.entries(nutrients)) {
+    assertEquals((received as Record<string, unknown>)[key], value);
   }
 });

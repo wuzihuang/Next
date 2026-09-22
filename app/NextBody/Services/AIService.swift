@@ -15,11 +15,51 @@ final class AIService: ObservableObject {
     /// ADR 0022 · with TURN_IN_PROGRESS the server names how long its lease has left.
     @Published private(set) var lastRetryAfter: Int?
     @Published var thinking = false
+    /// The plate the phone just photographed, held only until the turn comes back and says
+    /// where the server stored it. Remembering it under that path is what lets the receipt
+    /// and the food table show the photo without downloading the bytes the phone just sent.
+    var pendingPlatePhoto: UIImage?
+
+    /// A plate that has been sent and has no row yet.
+    ///
+    /// The estimate is written server-side the moment it finishes, so the gap between the
+    /// shutter and the row is only as long as the model takes — but for those seconds the
+    /// food table would otherwise say nothing happened. This is what stands in that gap: the
+    /// photo and the caption that were sent, and the word READING where the numbers will be.
+    /// It is never a number. A placeholder that guesses a kcal would be a lie with a spinner.
+    struct ReadingPlate: Equatable {
+        let caption: String
+        let image: UIImage?
+        let at = Date()
+        static func == (a: ReadingPlate, b: ReadingPlate) -> Bool { a.at == b.at }
+    }
+    @Published var readingPlate: ReadingPlate?
+
+    func beginReadingPlate(caption: String, image: UIImage?) {
+        readingPlate = ReadingPlate(caption: caption, image: image)
+    }
+
+    func endReadingPlate() { readingPlate = nil }
+
     private var activeTurnID: UUID?
     private var coachHandoffReceived = false
 
     func thoughts(for turnID: UUID) -> [Thought] {
         activeTurnID == turnID ? thoughts : []
+    }
+
+    /// Called before the panel enters THINKING, including the wait for speech transcription.
+    /// Retire the old turn now so its late events cannot refill the new request's progress.
+    /// Meal drafts intentionally survive: the new request may be their confirmation.
+    func prepareForNewRequest() {
+        if let activeTurnID { PhoneToolRunner.shared.finishTurn(activeTurnID) }
+        activeTurnID = nil
+        thinking = false
+        thoughts = []
+        reading = nil
+        lastError = nil
+        lastErrorCode = nil
+        lastRetryAfter = nil
     }
 
     private func receiveCoachHandoff(surface: String, onHandoff: (() -> Void)?) {
@@ -150,8 +190,12 @@ final class AIService: ObservableObject {
     /// ADR 0018 · one user action is one turn, even when the turn pauses for the phone. A
     /// `tool.request` runs here through `PhoneToolRunner`, and the same Idempotency-Key goes
     /// back with the result until the server answers with a frame.
+    /// `intent: "meal"` is the surface saying what the person was doing, not a classifier.
+    /// A photo announces itself; LOG A MEAL is the only way a typed plate can. The server
+    /// uses it for one decision — whether the run outlives the connection — and never to
+    /// pick a tool: the model still chooses meal.estimate or does not.
     func turn(_ text: String, day: UserDay, store: DataStore,
-              imageDataURL: String? = nil, surface: String = "panel",
+              imageDataURL: String? = nil, surface: String = "panel", intent: String? = nil,
               history: [[String: String]] = [], conversationID: UUID? = nil, turnID: UUID = UUID(),
               prepareData: Bool = true, onCoachHandoff: (() -> Void)? = nil) async -> PanelWidget? {
         #if DEBUG
@@ -175,12 +219,38 @@ final class AIService: ObservableObject {
             PhoneToolRunner.shared.finishTurn(turnID)
             if activeTurnID == turnID {
                 thinking = false
+                thoughts = []
                 reading = nil
                 activeTurnID = nil
             }
         }
 
         #if DEBUG && targetEnvironment(simulator)
+        if Band.allowsSeed, surface == "panel",
+           ProcessInfo.processInfo.environment["NB_DEBUG_MEAL_SPLIT"] == "1" {
+            thoughts = [Thought(text: "Reading the plate", at: Date())]
+            try? await Task.sleep(for: .milliseconds(400))
+            let items: [[String: Any]] = [
+                ["name": "Rice", "kcal": 200, "protein_g": 4, "carb_g": 42, "fat_g": 1],
+                ["name": "Egg", "kcal": 90, "protein_g": 8, "carb_g": 1, "fat_g": 6],
+                ["name": "Greens", "kcal": 40, "protein_g": 2, "carb_g": 6, "fat_g": 1],
+            ]
+            store.applyCommittedMealItems(items, ids: [UUID(), UUID(), UUID()],
+                                          slot: MealEntry.Slot.guess(at: Date(), day: day),
+                                          day: day, source: .photo)
+            return widget(from: [
+                "type": "food", "title": "LOGGED", "tag": "FUEL",
+                "sentence": "This meal is on the record.",
+                "footer": "P 14g · C 49g · F 8g",
+                "action": "OPEN FUEL", "target": "fuel",
+                "data": [
+                    "name": "Rice, Egg, Greens", "kcal": 330,
+                    "macros": ["p": 14, "c": 49, "f": 8],
+                    "rows": items.map { ["label": $0["name"] as? String ?? "", "value": "\($0["kcal"] ?? 0)"] },
+                    "items": items, "committed": true, "requires_confirmation": false,
+                ],
+            ])
+        }
         if Band.allowsSeed, surface == "panel",
            let fixture = ProcessInfo.processInfo.environment["NB_DEBUG_COACH_HANDOFF"],
            ["1", "failure"].contains(fixture) {
@@ -223,6 +293,7 @@ final class AIService: ObservableObject {
         if surface == "chat" { payload["history"] = history }
         if let conversationID { payload["conversation_id"] = conversationID.uuidString }
         if let imageDataURL { payload["image"] = imageDataURL }
+        if let intent { payload["intent"] = intent }
 
         // The same body every time: the server hashes text + conversation into the lease.
         var toolResult: [String: Any]?
@@ -376,14 +447,41 @@ final class AIService: ObservableObject {
                 // then left the panel on THINKING forever. Every envelope carries a title
                 // and a sentence; print those rather than hang.
                 let w = widget(from: frame) ?? undecodedFrame(frame)
-                if !responseFailed, let w, let fields = frame["data"] as? [String: Any],
-                   let draftID = fields["draft_id"] as? String, UUID(uuidString: draftID) != nil,
-                   let macros = fields["macros"] as? [String: Any] {
-                    var output = fields
-                    output["protein_g"] = macros["p"]
-                    output["carb_g"] = macros["c"]
-                    output["fat_g"] = macros["f"]
-                    mealDraft = MealDraft(frameID: w.id, mealID: UUID(), day: day, owner: requestOwner, output: output)
+                if !responseFailed, let w, let fields = frame["data"] as? [String: Any] {
+                    let committed = fields["committed"] as? Bool == true
+                    let items = (fields["items"] as? [[String: Any]]) ?? []
+                    if committed {
+                        let rows = items.isEmpty
+                            ? [[
+                                "name": fields["name"] as Any,
+                                "kcal": fields["kcal"] as Any,
+                                "protein_g": (fields["macros"] as? [String: Any])?["p"] as Any,
+                                "carb_g": (fields["macros"] as? [String: Any])?["c"] as Any,
+                                "fat_g": (fields["macros"] as? [String: Any])?["f"] as Any,
+                            ]]
+                            : items
+                        let ids = (fields["meal_ids"] as? [String] ?? []).compactMap(UUID.init(uuidString:))
+                        let photo = fields["photo_path"] as? String
+                        if let photo, let sent = pendingPlatePhoto {
+                            MealPhotoStore.shared.remember(sent, for: photo)
+                        }
+                        pendingPlatePhoto = nil
+                        DataStore.shared.applyCommittedMealItems(
+                            rows, ids: ids,
+                            slot: MealEntry.Slot.guess(at: Date(), day: day),
+                            day: day,
+                            source: photo != nil ? .photo : ((fields["source"] as? String) == "photo" ? .photo : .voice),
+                            groupID: (fields["group_id"] as? String).flatMap(UUID.init(uuidString:)),
+                            photoPath: photo)
+                        mealDraft = nil
+                    } else if let draftID = fields["draft_id"] as? String, UUID(uuidString: draftID) != nil,
+                              let macros = fields["macros"] as? [String: Any] {
+                        var output = fields
+                        output["protein_g"] = macros["p"]
+                        output["carb_g"] = macros["c"]
+                        output["fat_g"] = macros["f"]
+                        mealDraft = MealDraft(frameID: w.id, mealID: UUID(), day: day, owner: requestOwner, output: output)
+                    }
                 }
                 #if DEBUG
                 os.Logger(subsystem: "com.nextbody.hoop", category: "turn")
@@ -402,6 +500,14 @@ final class AIService: ObservableObject {
                 if status == 409, lastErrorCode == "TURN_SUSPENDED",
                    let raw = fields?["tool_request"] as? [String: Any], let request = PhoneToolRunner.Request(raw) {
                     return .suspended(request)
+                }
+                if status == 402 || lastErrorCode == "SUBSCRIPTION_REQUIRED" {
+                    guard SupabaseClient.currentUserIdSnapshot() == requestOwner else { return .failed(nil) }
+                    lastErrorCode = "SUBSCRIPTION_REQUIRED"
+                    lastError = L("NextBody Pro is required for AI.")
+                    BillingStore.shared.handleServerDenial(introClaimed: fields?["intro_claimed"] as? Bool,
+                        presentCard: surface != "plan", surface: surface)
+                    return .failed(nil)
                 }
                 if status == 429 {
                     lastErrorCode = "RATE_LIMITED"
@@ -537,14 +643,24 @@ final class AIService: ObservableObject {
     }
 
     private func streamTranscript(_ stream: ASRStreamingSession) async -> Transcript {
-        switch await stream.finish() {
+        let owner = SupabaseClient.currentUserIdSnapshot()
+        let result = await stream.finish()
+        guard owner == SupabaseClient.currentUserIdSnapshot() else { return .failed("CANCELLED") }
+        switch result {
         case .text(let text): return .text(text)
         case .silence: return .silence
-        case .failed(let reason): return .failed(reason)
+        case .failed(let reason):
+            if reason == "SUBSCRIPTION_REQUIRED" {
+                lastErrorCode = reason
+                lastError = L("NextBody Pro is required for AI.")
+                BillingStore.shared.handleServerDenial(introClaimed: nil, presentCard: true, surface: "asr")
+            }
+            return .failed(reason)
         }
     }
 
     func transcribe(_ clip: URL, operationID: UUID = UUID()) async -> Transcript {
+        let requestOwner = SupabaseClient.currentUserIdSnapshot()
         #if DEBUG
         let latencyStarted = Date()
         let bytes = (try? FileManager.default.attributesOfItem(atPath: clip.path)[.size] as? NSNumber)?.intValue ?? 0
@@ -571,11 +687,21 @@ final class AIService: ObservableObject {
             return text.isEmpty ? .silence : .text(text)
         } catch {
             if Task.isCancelled { return .failed("CANCELLED") }
-            if case SupabaseClient.Failure.http(let status, let body) = error, status == 429 {
+            guard SupabaseClient.currentUserIdSnapshot() == requestOwner else { return .failed("CANCELLED") }
+            if case SupabaseClient.Failure.http(let status, let body) = error {
                 let fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
-                lastErrorCode = "RATE_LIMITED"
-                lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
-                    ?? L("Your AI allowance is unavailable. Please try again later.")
+                if status == 402 || fields?["error"] as? String == "SUBSCRIPTION_REQUIRED" {
+                    lastErrorCode = "SUBSCRIPTION_REQUIRED"
+                    lastError = L("NextBody Pro is required for AI.")
+                    BillingStore.shared.handleServerDenial(introClaimed: fields?["intro_claimed"] as? Bool,
+                        presentCard: true, surface: "asr")
+                } else if status == 429 {
+                    lastErrorCode = "RATE_LIMITED"
+                    lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
+                        ?? L("Your AI allowance is unavailable. Please try again later.")
+                } else {
+                    lastError = L("Could not complete that request. Please try again.")
+                }
             } else {
                 lastError = L("Could not complete that request. Please try again.")
             }

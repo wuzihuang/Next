@@ -6,6 +6,7 @@ import { enforceRequestBudget } from "../_shared/rate-limit.ts";
 // line up with this timing exactly.
 
 import { ARCHIVE_BUCKET } from "../_shared/archive.ts";
+import { MEAL_PHOTO_BUCKET } from "../_shared/meal-estimate.ts";
 import {
   cors,
   currentUserId,
@@ -35,16 +36,20 @@ Deno.serve(async (req) => {
   // Tombstoning blocks new archive preparation and authenticated object writes.
   // Remove prefix contents, including a pending worker's uploaded object, before
   // removing manifests/user. A racing worker compensates if finalization fails.
-  while (true) {
-    const objects = await db.storage.from(ARCHIVE_BUCKET).list(userId, {
-      limit: 100,
-    });
-    if (objects.error) return json({ error: "DELETE_RETRY_REQUIRED" }, 503);
-    if (!objects.data.length) break;
-    const removed = await db.storage.from(ARCHIVE_BUCKET).remove(
-      objects.data.map((o) => `${userId}/${o.name}`),
-    );
-    if (removed.error) return json({ error: "DELETE_RETRY_REQUIRED" }, 503);
+  // The header's promise, kept literally: the evidence archive and the meal photos are the
+  // two places this account's bytes live outside PostgreSQL, and both empty before the rows.
+  for (const bucket of [ARCHIVE_BUCKET, MEAL_PHOTO_BUCKET]) {
+    while (true) {
+      const objects = await db.storage.from(bucket).list(userId, {
+        limit: 100,
+      });
+      if (objects.error) return json({ error: "DELETE_RETRY_REQUIRED" }, 503);
+      if (!objects.data.length) break;
+      const removed = await db.storage.from(bucket).remove(
+        objects.data.map((o) => `${userId}/${o.name}`),
+      );
+      if (removed.error) return json({ error: "DELETE_RETRY_REQUIRED" }, 503);
+    }
   }
 
   for (
@@ -56,6 +61,7 @@ Deno.serve(async (req) => {
       "analytics_events",
       "call_changes",
       "meals",
+      "meal_favorites",
       "weigh_ins",
       "body_composition",
       "balance_checks",

@@ -110,21 +110,6 @@ struct Dock: View {
     }
 
     @ViewBuilder private var centre: some View {
-        if let note, mode == .idle {
-            Button { onListen() } label: {
-                ZStack {
-                    Capsule().fill(NB.ember1.opacity(0.06))
-                    Capsule().stroke(NB.ember1.opacity(0.36), lineWidth: 1)
-                    Text(note.line)
-                        .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
-                        .foregroundStyle(NB.ember1.opacity(0.85))
-                }
-                .frame(height: NB.Layout.dockHeight)
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(note.line)
-        } else {
         switch mode {
         case .idle, .listening:
             // 05M · B · one continuous press: down → armed at 200 ms → recording → release sends,
@@ -138,9 +123,21 @@ struct Dock: View {
             // the face inside it is exchanged.
             let listening = mode == .listening
             let cancel = listening && (cancelling || DebugEdge.on("cancelling"))
+            // 05 edges · a sentence on screen changes the key's face — amber outline instead of
+            // the lime pill — and nothing else. It is the same view and the same press.
+            // ⚠️ This used to be a Button in its own branch, and that cost the key both halves
+            // of its gesture: while an edge was up the hold never armed (a Button settles on
+            // lift-off), and the lift then opened a chamber with no finger in it, which left
+            // nothing to close it. One face, one press, however the key is painted.
+            let edge = !listening && note != nil
             ZStack {
                 RoundedRectangle(cornerRadius: listening ? 30 : NB.Layout.dockHeight / 2, style: .continuous)
-                    .fill(cancel ? Color(hex: 0x141418) : NB.lime1)
+                    .fill(cancel ? Color(hex: 0x141418) : edge ? NB.ember1.opacity(0.06) : NB.lime1)
+                if edge {
+                    RoundedRectangle(cornerRadius: NB.Layout.dockHeight / 2, style: .continuous)
+                        .stroke(NB.ember1.opacity(0.36), lineWidth: 1)
+                        .transition(.opacity)
+                }
                 if cancel {
                     RoundedRectangle(cornerRadius: 30, style: .continuous)
                         .stroke(NB.alert2.opacity(0.52), lineWidth: 1.5)
@@ -148,6 +145,11 @@ struct Dock: View {
                 }
                 if listening {
                     RecordingChamber(cancelling: cancel).transition(.opacity)
+                } else if let note {
+                    Text(note.line)
+                        .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
+                        .foregroundStyle(NB.ember1.opacity(0.85))
+                        .transition(.opacity)
                 } else {
                     DotMatrix().transition(.opacity)
                 }
@@ -180,7 +182,13 @@ struct Dock: View {
                         pressing = false; armed = false; cancelling = false
                         guard wasArmed else { return }   // a slip under 200 ms: nothing began
                         if wasCancelling || interrupted { onCancelListening() } else { onStopListening() }
-                    }
+                    },
+                    // The way out of a chamber no finger is holding. A tap cannot reach here
+                    // during a take — the recognizer takes the touch away from the view the
+                    // moment it arms — so this is only ever a chamber left open by a press
+                    // whose lift never came back. Nothing is sent: a take the person did not
+                    // end is half a sentence, and half a sentence is worse than none.
+                    onTap: { if listening { onCancelListening() } }
                 )
             )
             // B·03 / B·04 · the cancel mark hangs 68 pt above the chamber's lip, on a dotted
@@ -201,7 +209,9 @@ struct Dock: View {
             .scaleEffect(pressing && !listening ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: pressing)
             .animation(.easeOut(duration: 0.16), value: cancel)
-            .accessibilityLabel(listening ? (cancel ? "Release to cancel" : "Listening · release to send · slide up to cancel") : "Hold to talk")
+            .accessibilityLabel(listening ? (cancel ? "Release to cancel" : "Listening · release to send · slide up to cancel")
+                                          : edge ? (note?.line ?? "") : "Hold to talk")
+            .accessibilityHint(edge ? L("Hold to talk") : "")
             .accessibilityAddTraits(.startsMediaSession)
 
         case .keyboard, .plus:
@@ -231,7 +241,6 @@ struct Dock: View {
             .background(NB.carbon4, in: Capsule())
             .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
             .onAppear { focused = true }
-        }
         }
     }
 

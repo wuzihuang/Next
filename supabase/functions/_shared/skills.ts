@@ -187,7 +187,7 @@ export const CHART_SKILLS: ChartSkill[] = [
   },
   {
     type: "food", family: "rows", shape: "ONE ITEM",
-    use: "用户报了一顿吃的（S10）：渲染草稿帧，action 固定「确认记录」，由屏幕那一侧提交。",
+    use: "用户报了一顿吃的（S10）：估成功即已写入，action 固定「打开热量」。",
     avoid: "用户问的是今天吃了多少（不是在报餐）时用 meal 或 balance。",
     sources: [],
     copy: "name 写菜名，portion 写份量；kcal 与三个宏量只在工具给过时才写，绝不估；sentence 说这一餐大致是什么。",

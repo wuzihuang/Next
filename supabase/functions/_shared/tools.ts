@@ -57,7 +57,7 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
       execute: async ({ dayKey }) => {
         const { data, error } = await db
           .from("daily_results")
-          .select("training_load, reserve_score, fuel_balance_kcal, daily_direction, the_call, the_call_confidence, id")
+          .select("training_load, reserve_score, fuel_balance_kcal, daily_direction, the_call, the_call_confidence, id, daily_training(evidence)")
           .eq("user_id", userId).eq("user_day", dayKey).maybeSingle();
         if (error) return { ok: false } as Err;
         if (!data) return record("day.get", { ok: true, data: null });
@@ -76,11 +76,17 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
         const activeKcal = fuel?.active_kcal ?? null;
         const goalOffsetKcal = fuel?.goal_offset_kcal ?? null;
         const restingSource = fuel?.resting_source ?? null;
+        const training = Array.isArray(data.daily_training) ? data.daily_training[0] : data.daily_training;
+        const target = training?.evidence?.target ?? null;
 
         return record("day.get", {
           ok: true,
           data: {
             trainingLoad: data.training_load,
+            trainingTarget: target,
+            remainingLoad: typeof target?.target === "number" && typeof data.training_load === "number"
+              ? Math.round(Math.max(0, target.target - data.training_load) * 10) / 10 : null,
+            trainingSessions: training?.evidence?.sessions ?? [],
             bodyBattery: data.reserve_score,
             fuel: {
               intakeKcal: fuel?.kcal_in ?? null,
@@ -336,15 +342,35 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
         return { ok: true, data: { summary: doc.summary, facts, count: facts.length } };
       }
       case "sport_session": {
-        const { data, error } = await db.from("daily_results").select("user_day, training_load, daily_training(segments, session_count, active_minutes, peak_hr)")
-          .eq("user_id", userId).gte("user_day", r.from).lte("user_day", r.to).order("user_day", { ascending: false }).limit(limit(raw));
-        if (error) return { ok: false } as Err;
+        const [{ data, error }, manual] = await Promise.all([
+          db.from("daily_results").select("user_day, training_load, daily_training(segments, session_count, active_minutes, peak_hr, evidence)")
+            .eq("user_id", userId).gte("user_day", r.from).lte("user_day", r.to).order("user_day", { ascending: false }).limit(limit(raw)),
+          db.from("manual_sport_sessions").select("id, user_day, started_at, ended_at, sport_mode")
+            .eq("user_id", userId).gte("user_day", r.from).lte("user_day", r.to).order("user_day", { ascending: false }).limit(limit(raw)),
+        ]);
+        if (error || manual.error) return { ok: false } as Err;
         const items: Record<string, unknown>[] = [];
+        const settled = new Set<string>();
         for (const d of data ?? []) {
           const t = Array.isArray(d.daily_training) ? d.daily_training[0] : d.daily_training;
+          if (Array.isArray(t?.evidence?.sessions)) {
+            for (const session of t.evidence.sessions) {
+              settled.add(session.session_id);
+              items.push({ ...session,
+                id: `${d.user_day}#${session.session_id}`, day: d.user_day, source: session.source ?? "recorded_session" });
+            }
+            continue;
+          }
           const segments = Array.isArray(t?.segments) ? t.segments : [];
           if (!segments.length) continue;
           for (const [i, seg] of segments.entries()) items.push({ id: `${d.user_day}#${i + 1}`, day: d.user_day, ...seg, label: `${d.user_day} · segment ${i + 1}` });
+        }
+        for (const session of manual.data ?? []) {
+          if (settled.has(session.id)) continue;
+          items.push({ id: `${session.user_day}#${session.id}`, session_id: session.id, day: session.user_day,
+            started_at: session.started_at, ended_at: session.ended_at, sport_mode: session.sport_mode,
+            source: "manual", calculation_pending: true, load_delta: null,
+            label: `${session.user_day} · ${clockIn(session.started_at, ctx.tz)}→${clockIn(session.ended_at, ctx.tz)}` });
         }
         return record("find.sport_session", { ok: true, data: { items, count: items.length } });
       }
@@ -366,6 +392,7 @@ export function buildTools(db: SupabaseClient, userId: string, ledger: NumberLed
             start: clockIn(n.sleep_start, ctx.tz), end: clockIn(n.wake_at, ctx.tz),
             start_at: n.sleep_start, end_at: n.wake_at,
             minutes: n.total_minutes, score: scoreOf.get(n.user_day) ?? null,
+            source: recorded.source ?? "device",
             corrected: n.corrected_start != null, corrected_at: n.corrected_at ?? null,
             ...(n.corrected_start != null
               ? { band_start: clockIn(recorded.recorded_start as string, ctx.tz), band_end: clockIn(recorded.recorded_end as string, ctx.tz) }

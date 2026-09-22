@@ -2,6 +2,22 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class SportLiveInfoTests: XCTestCase {
+    func testFreshnessUsesReceiptAgeAndNeverLabelsAnOldBeatLive() {
+        let received = Date(timeIntervalSince1970: 100)
+        XCTAssertEqual(SportHeartFreshness.state(receivedAt: received, now: received), .live)
+        XCTAssertEqual(SportHeartFreshness.state(receivedAt: received, now: received.addingTimeInterval(3)), .stale)
+        XCTAssertEqual(SportHeartFreshness.state(receivedAt: received, now: received.addingTimeInterval(10)), .missing)
+        XCTAssertEqual(SportHeartFreshness.state(receivedAt: nil, now: received), .missing)
+        XCTAssertEqual(SportHeartFreshness.state(receivedAt: received, now: received.addingTimeInterval(-1)), .missing)
+    }
+
+    func testReceiptClockIsPreservedAcrossMainActorHandoff() {
+        let receipt = Date(timeIntervalSince1970: 100)
+        let report = SportLiveInfo.deviceReport(heartRate: 123, rawCalories: 0,
+            durationSec: 4, runState: 1, receivedAt: receipt)
+        XCTAssertEqual(report.receivedAt, receipt)
+    }
+
     func testUnknownEnergyUnitsNeverBecomeKcal() {
         for raw: UInt32 in [0, 50, 100, 150, 11_273, UInt32.max] {
             let report = SportLiveInfo.deviceReport(heartRate: 80, rawCalories: raw, durationSec: 0, runState: 1)

@@ -1,6 +1,112 @@
 import XCTest
 @testable import NextBodySyncCore
 
+/// The user's day: real recovery can happen while awake, and physiological strain
+/// can happen while still or asleep. These exercise the replay, not UI arithmetic.
+final class BodyBatteryAdaptiveTests: XCTestCase {
+    private let baseline = BodyBatteryEngine.Baseline(
+        restingHeartRate: 55, maximumHeartRate: 190, hrvMS: 50, recoveryMultiplier: 1)
+
+    private func replay(_ tick: BodyBatteryEngine.Tick, count: Int = 24,
+                        anchor: Double = 50) -> BodyBatteryEngine.Result {
+        BodyBatteryEngine.replay(anchor: anchor, ticks: Array(repeating: tick, count: count),
+                                 baseline: baseline)
+    }
+
+    func testSustainedDaytimeRestActuallyRecharges() {
+        let result = replay(.init(heartRate: 55, hrvMS: 55, stress: 20, steps: 0, met: 1))
+        XCTAssertGreaterThan(result.value, 53, "Two hours of restorative rest must produce net recovery.")
+    }
+
+    func testSustainedRestingPulseCanRecoverWithMissingAutonomicChannels() {
+        let result = replay(.init(heartRate: 55, steps: 0, met: 1))
+        XCTAssertGreaterThan(result.value, 50,
+            "Missing HRV and stress reduce confidence, but do not veto sustained heart and movement evidence.")
+    }
+
+    func testElevatedNonExerciseHeartRateCostsReserve() {
+        let calm = replay(.init(heartRate: 72, steps: 0, met: 1))
+        let elevated = replay(.init(heartRate: 90, steps: 0, met: 1))
+        XCTAssertLessThan(elevated.value, calm.value - 3,
+            "A raised resting pulse matters before crossing a workout HRR zone.")
+    }
+
+    func testSustainedSevereStrainCanReachLowReserveWithoutExercise() {
+        let result = replay(.init(heartRate: 90, hrvMS: 20, stress: 90, steps: 0, met: 1),
+                            count: 144, anchor: 85)
+        XCTAssertLessThan(result.value, 20)
+    }
+
+    func testSleepWithSevereStrainDoesNotChargeLikeRestorativeSleep() {
+        let calm = replay(.init(heartRate: 55, hrvMS: 55, stress: 20, steps: 0, met: 1, sleepStage: 1),
+                          count: 72)
+        let strained = replay(.init(heartRate: 90, hrvMS: 20, stress: 90, steps: 0, met: 1, sleepStage: 1),
+                              count: 72)
+        XCTAssertLessThan(strained.value, calm.value - 15)
+        XCTAssertLessThanOrEqual(strained.value, 50,
+            "The sleep label cannot override strong ongoing physiological strain.")
+    }
+
+    func testMissingEvidenceAndBriefRestCannotRefillTheBattery() {
+        XCTAssertEqual(replay(.init(), count: 144).value, 50)
+        XCTAssertLessThanOrEqual(replay(.init(heartRate: 55, stress: 20, steps: 0, met: 1), count: 1).value, 50)
+        XCTAssertLessThanOrEqual(replay(.init(heartRate: 55, hrvMS: 55, stress: 90, steps: 0, met: 1)).value, 50)
+    }
+
+    func testARecordingGapRestartsTheRestWindow() {
+        let quiet = BodyBatteryEngine.Tick(heartRate: 55, hrvMS: 55, stress: 20, steps: 0, met: 1)
+        let interrupted = BodyBatteryEngine.replay(anchor: 50,
+            ticks: Array(repeating: quiet, count: 4) + [.init()] + Array(repeating: quiet, count: 4),
+            baseline: baseline)
+        XCTAssertEqual(interrupted.drivers.restorativeRest, 0)
+        XCTAssertLessThan(interrupted.value, 50)
+    }
+
+    func testZeroStepsDoNotMeanRestDuringNonWalkingExercise() {
+        let result = replay(.init(heartRate: 150, hrvMS: 55, stress: 20, steps: 0, met: 8))
+        XCTAssertEqual(result.drivers.restorativeRest, 0)
+        XCTAssertLessThan(result.value, 35)
+    }
+
+    func testIsolatedOxygenDipDoesNotChangeSleepRecovery() {
+        let quiet = BodyBatteryEngine.Tick(heartRate: 55, stress: 20, sleepStage: 1, oxygen: 98)
+        var ticks = Array(repeating: quiet, count: 24)
+        ticks[10].oxygen = 85
+        let oneDip = BodyBatteryEngine.replay(anchor: 50, ticks: ticks, baseline: baseline)
+        XCTAssertEqual(oneDip.value, replay(quiet).value, accuracy: 1e-10)
+        for i in 10..<16 { ticks[i].oxygen = 92 }
+        XCTAssertLessThan(BodyBatteryEngine.replay(anchor: 50, ticks: ticks, baseline: baseline).value, oneDip.value)
+    }
+
+    func testAuxiliaryEvidenceRequiresFifteenMinutesRegardlessOfSampleFrequency() {
+        let quiet = BodyBatteryEngine.Tick(durationMinutes: 1, heartRate: 55, stress: 20,
+                                            sleepStage: 1, oxygen: 98)
+        var ticks = Array(repeating: quiet, count: 60)
+        let normal = BodyBatteryEngine.replay(anchor: 50, ticks: ticks, baseline: baseline)
+        for i in 20..<23 { ticks[i].oxygen = 85 }
+        XCTAssertEqual(BodyBatteryEngine.replay(anchor: 50, ticks: ticks, baseline: baseline).value,
+                       normal.value, accuracy: 1e-10, "Three minute readings are not fifteen minutes of evidence.")
+        for i in 20..<40 { ticks[i].oxygen = 92 }
+        XCTAssertLessThan(BodyBatteryEngine.replay(anchor: 50, ticks: ticks, baseline: baseline).value,
+                          normal.value)
+    }
+
+    func testIncreasingStressNeverImprovesReserveAndAllDriversClose() {
+        for anchor in [0.0, 0.1, 20, 50, 90, 100] {
+            var previous = Double.infinity
+            for stress in stride(from: 20, through: 100, by: 10) {
+                let result = replay(.init(heartRate: 55, hrvMS: 50, stress: stress, steps: 0, met: 1), anchor: anchor)
+                XCTAssertLessThanOrEqual(result.value, previous + 1e-9)
+                XCTAssertTrue((0...100).contains(result.value))
+                let d = result.drivers
+                XCTAssertEqual(result.value - anchor, d.recovery + d.restorativeRest - d.awake - d.movement - d.stress,
+                               accuracy: 1e-9)
+                previous = result.value
+            }
+        }
+    }
+}
+
 final class BodyBatteryEngineTests: XCTestCase {
     private let baseline = BodyBatteryEngine.Baseline(
         restingHeartRate: 55, maximumHeartRate: 190, hrvMS: 50, recoveryMultiplier: 1)
@@ -16,16 +122,22 @@ final class BodyBatteryEngineTests: XCTestCase {
             accuracy: 1e-10)
     }
 
-    func testMissingQuietEvidenceNeverEarnsRestCredit() {
+    func testMissingAutonomicChannelsReduceButDoNotVetoRest() {
+        let complete = BodyBatteryEngine.replay(anchor: 50,
+            ticks: Array(repeating: .init(heartRate: 55, hrvMS: 50, stress: 20, steps: 0, met: 1), count: 24),
+            baseline: baseline)
         for tick in [
             BodyBatteryEngine.Tick(heartRate: 55, hrvMS: 50, steps: 0, met: 1),
-            .init(heartRate: 55, stress: 20, steps: 0, met: 1),
-            .init(heartRate: 55, hrvMS: 50, stress: 20, met: 1)
+            .init(heartRate: 55, stress: 20, steps: 0, met: 1)
         ] {
             let result = BodyBatteryEngine.replay(anchor: 50,
                 ticks: Array(repeating: tick, count: 24), baseline: baseline)
-            XCTAssertEqual(result.drivers.restorativeRest, 0)
+            XCTAssertGreaterThan(result.drivers.restorativeRest, 0)
+            XCTAssertLessThan(result.value, complete.value)
         }
+        let missingMovement = BodyBatteryEngine.replay(anchor: 50,
+            ticks: Array(repeating: .init(heartRate: 55, hrvMS: 50, stress: 20), count: 24), baseline: baseline)
+        XCTAssertEqual(missingMovement.drivers.restorativeRest, 0)
     }
 
     func testRestCreditStartsAfterTwentyCompletedQuietMinutes() {
@@ -36,8 +148,8 @@ final class BodyBatteryEngineTests: XCTestCase {
             ticks: Array(repeating: tick, count: 5), baseline: baseline)
         XCTAssertEqual(twenty.drivers.restorativeRest, 0)
         XCTAssertGreaterThan(twentyFive.drivers.restorativeRest, 0)
-        XCTAssertLessThan(twentyFive.value, twenty.value,
-            "Rest credit moderates drain; it is not advertised as net charging.")
+        XCTAssertGreaterThan(twentyFive.value, twenty.value,
+            "A sustained restorative state can overcome awake drain.")
     }
 
     func testRecoveryMultiplierUsesTheServerLowerBound() {
@@ -120,8 +232,12 @@ final class BodyBatteryDrainCalibrationTests: XCTestCase {
         XCTAssertEqual(
             close(sleptMinutes: nil, workout: false, from: first, wornThroughTheNight: true), 0,
             "A day that truly never slept is allowed to reach empty.")
-        XCTAssertGreaterThan(close(sleptMinutes: nil, workout: false, from: first), 0,
-                             "A night the band never saw is not a sleepless night.")
+        let morning = Array(workingDay(withWorkout: false).prefix(72))
+        let unknown = BodyBatteryEngine.replay(anchor: first, ticks: morning, baseline: baseline(sleptMinutes: nil))
+        let sleepless = BodyBatteryEngine.replay(anchor: first, ticks: morning,
+            baseline: baseline(sleptMinutes: nil, wornThroughTheNight: true))
+        XCTAssertGreaterThan(unknown.value, sleepless.value,
+                             "Before either reaches zero, an unobserved night incurs no sleep-debt penalty.")
     }
 
     func testAQuietRestDayStillEndsHigh() {

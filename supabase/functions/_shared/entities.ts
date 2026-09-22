@@ -107,13 +107,16 @@ export const ENTITIES: Record<string, EntityDef> = {
   },
   sleep_night: {
     find: "recorded nights in a range: day, start, end (local clock), minutes, score, corrected, and the band's own window when a correction stands. find keys: day | from+to.",
-    ops: { update: "day, then start and end as local clock times (HH:MM) — the night's own start and end; or clear: true to drop a correction and give the band its window back" },
+    ops: {
+      create: "day (wake date), start and end as local HH:MM. Backfill a missing night within 30 days; real observations are recovered automatically, unmeasured stages stay unknown",
+      update: "day, then start and end as local clock times (HH:MM) — the night's own start and end; or clear: true to drop a correction and give the band its window back",
+    },
     where: "phone",
   },
   sport_session: {
-    find: "training segments per day: day, start, minutes, peak, load. find keys: day | from+to.",
-    ops: {},
-    where: "server",
+    find: "recorded and backfilled training sessions per day: day, start, minutes, peak, load, data coverage. find keys: day | from+to.",
+    ops: { create: "day (start date), start and end as local HH:MM, mode? (sport). Backfill a completed session within 30 days, end earlier than start means next day. Reuses measured data and recalculates load without double counting; missing measurements stay unknown" },
+    where: "phone",
   },
   chat_session: {
     find: "chat sessions saved on this phone: id, title, updated_at.",
@@ -126,7 +129,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     where: "server",
   },
   screen: {
-    find: "what the panel shows now: type, title, whether a food draft awaits CONFIRM.",
+    find: "what the panel shows now: type, title, whether a food plate is on the record.",
     ops: { delete: "— clears the panel" },
     where: "phone",
   },
@@ -145,13 +148,14 @@ export const WRITE_ENTITIES = ENTITY_NAMES.filter((n) => Object.keys(ENTITIES[n]
 /// confirmed with the record named; settings that are cheap to reverse are not.
 export function confirmFor(entity: string, op: Op, fields: Record<string, unknown>): boolean {
   switch (entity) {
-    case "meal": return op !== "restore";
+    case "meal": return op !== "restore" && op !== "create";
     case "day": return true;
     case "weigh_in": return true;
     case "alarm": return true;
     case "band_setting": return true;
     // #28 · a corrected night moves the sleep score and the night's charge with it.
     case "sleep_night": return true;
+    case "sport_session": return true;
     case "hr_alarm": return true;
     case "profile": return ["height_cm", "birth_date", "sex"].some((k) => fields[k] != null);
     case "memory": return fields.all === true;
@@ -253,6 +257,18 @@ export function normalizeWrite(raw: Record<string, unknown>, today: string): Nor
   if (Object.keys(cleanMatch).length) out.match = cleanMatch;
 
   const f: Record<string, unknown> = {};
+  if (entity === "sleep_night" || entity === "sport_session") {
+    const day = normalizeDay(fields.day ?? fields.date ?? match.day, today);
+    if (day) {
+      const parsed = new Date(`${day}T00:00:00Z`);
+      if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== day) {
+        return { ok: false, say: "Use a valid calendar date as YYYY-MM-DD." };
+      }
+      if (day > today || day < addDays(today, -30)) {
+        return { ok: false, say: "Sleep and sport records must be within the past 30 days, including today. Future records cannot be saved." };
+      }
+    }
+  }
   switch (entity) {
     case "meal": {
       const name = str(fields.name) ?? str(fields.text) ?? str(fields.dish);
@@ -260,9 +276,9 @@ export function normalizeWrite(raw: Record<string, unknown>, today: string): Nor
       if (name) f.name = name.slice(0, 200);
       if (kcal != null) {
         if (kcal <= 0 || kcal > 100000) return { ok: false, say: "kcal must be a positive number of calories." };
-        f.kcal = Math.round(kcal);
+        f.kcal = kcal;
       }
-      for (const k of ["protein_g", "carb_g", "fat_g"]) { const v = int(fields[k]); if (v != null && v >= 0) f[k] = v; }
+      for (const k of ["protein_g", "carb_g", "fat_g"]) { const v = num(fields[k]); if (v != null && v >= 0 && v <= 100000) f[k] = v; }
       const slot = normalizeSlot(fields.slot); if (slot) f.slot = slot;
       const day = normalizeDay(fields.day ?? fields.date, today); if (day) f.day = day;
       const at = normalizeTime(fields.at ?? fields.time); if (at) f.at = at;
@@ -314,14 +330,27 @@ export function normalizeWrite(raw: Record<string, unknown>, today: string): Nor
     }
     case "sleep_night": {
       const day = normalizeDay(fields.day ?? fields.date ?? match.day, today);
-      if (!day) return { ok: false, say: `update sleep_night needs day: "yesterday", "today" or YYYY-MM-DD. A night is filed under the day it was woken on.` };
+      if (!day) return { ok: false, say: `${op} sleep_night needs day: "yesterday", "today" or YYYY-MM-DD. A night is filed under the day it was woken on.` };
       f.day = day;
-      if (bool(fields.clear ?? fields.reset) === true) { f.clear = true; break; }
+      if (bool(fields.clear ?? fields.reset) === true) {
+        if (op !== "update") return { ok: false, say: "clear is only supported when updating an existing sleep_night." };
+        f.clear = true; break;
+      }
       const start = normalizeTime(fields.start ?? fields.sleep_start ?? fields.from);
       const end = normalizeTime(fields.end ?? fields.wake_at ?? fields.wake ?? fields.to);
-      if (!start || !end) return { ok: false, say: `update sleep_night needs start and end as local clock times, e.g. start "23:30", end "07:00" — or clear: true.` };
+      if (!start || !end) return { ok: false, say: `${op} sleep_night needs start and end as local clock times, e.g. start "23:30", end "07:00".` };
       if (start === end) return { ok: false, say: "start and end cannot be the same time." };
       f.start = start; f.end = end;
+      break;
+    }
+    case "sport_session": {
+      const day = normalizeDay(fields.day ?? fields.date ?? match.day, today);
+      if (!day) return { ok: false, say: "create sport_session needs day (the date the session started)." };
+      const start = normalizeTime(fields.start ?? fields.from);
+      const end = normalizeTime(fields.end ?? fields.to);
+      if (!start || !end || start === end) return { ok: false, say: "create sport_session needs distinct start and end as local HH:MM. Clarify ambiguous morning/evening times before writing." };
+      f.day = day; f.start = start; f.end = end;
+      f.mode = normalizeSportMode(fields.mode ?? fields.sport);
       break;
     }
     case "hr_alarm": {

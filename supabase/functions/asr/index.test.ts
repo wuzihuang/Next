@@ -51,6 +51,7 @@ function deps(overrides: Partial<AsrDependencies> = {}): AsrDependencies {
   return {
     authenticate: () => Promise.resolve("u"),
     client: () => ({} as never),
+    entitlement: () => Promise.resolve({ allowed: true, introClaimed: false }),
     budget: () => Promise.resolve(null),
     quota: () => Promise.resolve({ allowed: true as const }),
     transcribe: () => Promise.resolve({ ok: true, text: "hello" }),
@@ -211,4 +212,20 @@ Deno.test("audio duration and spend limits block the provider before submission"
   );
   assertEquals((await handleAsr(audioRequest(), hooks)).status, 429);
   assertEquals(submitted, false);
+});
+
+Deno.test("POST and WebSocket reject non-Pro before quota or model work", async () => {
+  for (const request of [audioRequest(), new Request(`http://localhost/asr?operation_id=${OPERATION}`, {
+    headers: { Upgrade: "websocket", "Idempotency-Key": OPERATION },
+  })]) {
+    let called = 0;
+    const response = await handleAsr(request, deps({
+      entitlement: () => Promise.resolve({ allowed: false, introClaimed: true, reason: "expired" }),
+      quota: () => { called++; return Promise.resolve({ allowed: true }); },
+      transcribe: () => { called++; return Promise.resolve({ ok: true, text: "no" }); },
+    }));
+    assertEquals(response.status, 402);
+    assertEquals(await response.json(), { error: "SUBSCRIPTION_REQUIRED", intro_claimed: true });
+    assertEquals(called, 0);
+  }
 });

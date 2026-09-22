@@ -360,7 +360,13 @@ struct SignInFlow: View {
     private func finish() {
         session.email = email
         session.isSignedIn = true
-        session.stage = nextStage
+        Task {
+            if let userId = await SupabaseClient.shared.currentUserId {
+                await BillingStore.shared.identify(userId: userId)
+                guard SupabaseClient.currentUserIdSnapshot() == userId else { return }
+            }
+            session.stage = nextStage
+        }
     }
 }
 
@@ -566,16 +572,41 @@ private struct GateSpinner: View {
     }
 }
 
+/// The two lime words open the documents they name: agreeing to text you cannot open is not
+/// much of an agreement.
 private struct LegalLine: View {
+    @State private var shown: LegalText.Kind?
+
+    private var line: AttributedString {
+        func run(_ s: String, _ color: Color, link: String? = nil) -> AttributedString {
+            var a = AttributedString(s)
+            a.foregroundColor = color
+            if let link { a.link = URL(string: link) }
+            return a
+        }
+        return run(L("By continuing you agree to our "), NB.text3Prod)
+            + run(L("Terms"), NB.lime1, link: "nb-legal://terms")
+            + run(L(" and "), NB.text3Prod)
+            + run(L("Privacy Policy"), NB.lime1, link: "nb-legal://privacy")
+    }
+
     var body: some View {
-        (Text(L("By continuing you agree to our "))
-            .foregroundColor(NB.text3Prod)
-         + Text(L("Terms")).foregroundColor(NB.lime1)
-         + Text(L(" and ")).foregroundColor(NB.text3Prod)
-         + Text(L("Privacy Policy")).foregroundColor(NB.lime1))
+        Text(line)
             .font(NBFont.ui(400, 12.5))
             .tracking(0.02 * 12.5)
             .multilineTextAlignment(.center)
+            .tint(NB.lime1)
+            .environment(\.openURL, OpenURLAction { url in
+                shown = url.host == "privacy" ? .privacy : .terms
+                return .handled
+            })
+            .sheet(isPresented: Binding(get: { shown != nil }, set: { if !$0 { shown = nil } })) {
+                if let shown {
+                    LegalSheet(shown)
+                        .background(NB.carbon2)
+                        .preferredColorScheme(.dark)
+                }
+            }
     }
 }
 

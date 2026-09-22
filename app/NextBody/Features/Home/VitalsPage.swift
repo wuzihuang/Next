@@ -366,16 +366,10 @@ struct ActiveEnergyCard: View {
 
     private var snapshot: (value: String?, foot: String, hint: String?, hours: [ActiveEnergyHour]) {
         let now = min(VitalsClock.now, min(m.asOf ?? VitalsClock.now, m.day.end))
-        let samples = m.vitalsCurve
-        let windows = ActiveEnergyModel.sportWindows(m)
-        let split = ActiveEnergyMath.split(
-            dayStart: m.day.start, now: now, bmr: m.bmr, bmrFull: m.bmrFull,
-            eActive: m.eActive, eTrain: m.eTrain, eOutNow: m.eOutNow,
-            ticks: samples, sportWindows: windows)
-        let hours = ActiveEnergyMath.hourly(
-            dayStart: m.day.start, now: now, split: split,
-            ticks: samples, sportWindows: windows)
-        let peak = ActiveEnergyMath.peakHour(hours)
+        let model = ActiveEnergyModel.make(m: m, now: now, history: [])
+        let split = model.split
+        let hours = model.hours
+        let peak = model.peak
         let kcal = split.active
         let foot = kcal == nil ? L("WAITING FOR VERIFIED ENERGY")
                                : L("%@ + %@ = %@",
@@ -812,9 +806,12 @@ enum VitalsMath {
 enum VitalsClock {
     static var now: Date {
         #if DEBUG
-        if Band.allowsSeed, let raw = ProcessInfo.processInfo.environment["NB_DEBUG_NOW"],
-           let debugNow = ISO8601DateFormatter().date(from: raw) {
-            return debugNow
+        if Band.allowsSeed, let raw = ProcessInfo.processInfo.environment["NB_DEBUG_NOW"] {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime]
+            if let debugNow = iso.date(from: raw) { return debugNow }
+            iso.formatOptions = [.withFullDate, .withTime, .withDashSeparatorInDate, .withColonSeparatorInTime]
+            if let debugNow = iso.date(from: raw) { return debugNow }
         }
         #endif
         return Date()

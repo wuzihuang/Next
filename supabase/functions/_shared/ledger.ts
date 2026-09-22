@@ -31,11 +31,23 @@ export class NumberLedger {
     values.forEach(value=>this.add(value, `evidence.${scope.id}`));
   }
   hasClaim(claim: MeasurementClaim): boolean {
+    return this.claimMismatch(claim) === null;
+  }
+
+  /// Why a claim fails, in words the model can act on in the same render retry.
+  /// 2026-09-17 「我昨天晚上睡的咋样」: read 09-16→09-17, cited 09-17→09-17, got a bare
+  /// "read the correct evidence" and spent a reread plus two reads (~30 s) on it.
+  claimMismatch(claim: MeasurementClaim): string | null {
     const entry = this.evidence.get(claim.id);
-    if (!entry || !Number.isFinite(claim.value)) return false;
+    if (!entry) return `No evidence id "${claim.id}" was returned this turn; copy the id from a read result.`;
+    if (!Number.isFinite(claim.value)) return `Claim ${claim.id} has no numeric value.`;
     const s = entry.scope;
-    if (s.metric !== claim.metric || s.unit !== claim.unit || s.from !== claim.from || s.to !== claim.to) return false;
-    return entry.values.some(v => Math.abs(v-claim.value)<=0.05 || Math.round(v)===claim.value || Math.round(v*10)/10===claim.value);
+    const scope = JSON.stringify({ id: s.id, metric: s.metric, unit: s.unit, from: s.from, to: s.to });
+    if (s.metric !== claim.metric || s.unit !== claim.unit || s.from !== claim.from || s.to !== claim.to) {
+      return `Claim ${claim.id} must copy that evidence's scope exactly: ${scope}. Keep its from/to even if the screen shows one day.`;
+    }
+    const matches = entry.values.some(v => Math.abs(v-claim.value)<=0.05 || Math.round(v)===claim.value || Math.round(v*10)/10===claim.value);
+    return matches ? null : `Value ${claim.value} is not in evidence ${scope}; use a value that read returned.`;
   }
 
   private values: number[] = [];
@@ -250,7 +262,11 @@ export function auditFrame(envelope: Record<string, unknown>, ledger: NumberLedg
   const AXIS_KEYS = new Set(["label", "dayKey", "t", "ts", "slot", "name", "day", "date", "unit", "mode", "k",
     // 07 · heat and columns carry their axes as arrays of labels ("04", "MO"); a heat map
     // was rejected over the "04" of its first two-hour column.
-    "rowLabels", "colLabels", "labels", "window"]);
+    "rowLabels", "colLabels", "labels", "window",
+    // Identifiers are addresses, not readings. A food frame carries its plate's group and
+    // the object path of its photo so the phone can reopen them; the digits inside a UUID
+    // are not a claim about anybody's body, and the frame never prints them.
+    "id", "group_id", "photo_path", "draft_id", "meal_ids"]);
   const walk = (node: unknown) => {
     if (typeof node === "string") texts.push(node);
     else if (typeof node === "number") {

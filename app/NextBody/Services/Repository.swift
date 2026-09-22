@@ -18,7 +18,7 @@ final class Repository {
     func adoptTransportDevice(id: String?) { deviceId = id }
 
     private var homeFastTask: Task<Void, Never>?
-    private var evidencePublicationTask: Task<Void, Never>?
+    private let evidencePublication = EvidencePublicationDrain()
     private var homeFastDone = false
     private var readGeneration: UInt = 0
     private var sleepScoreGeneration: UInt = 0
@@ -44,8 +44,8 @@ final class Repository {
         deviceId = nil
         summaryRevisions = [:]
         homeFastTask?.cancel()
-        evidencePublicationTask?.cancel()
-        evidencePublicationTask = nil
+        evidencePublication.cancel()
+        SportRecapStore.shared.reset()
         readGeneration &+= 1
         sessionGeneration &+= 1
         sleepScoreGeneration &+= 1
@@ -60,6 +60,13 @@ final class Repository {
 #if DEBUG
         if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_EVIDENCE"] == "1" { return }
 #endif
+        // Simulator seed is the walk-through ledger. Cloud rows for the demo session
+        // must not replace it, or mock meals / rest-only bars / session load vanish.
+        if Band.allowsSeed {
+            try? await openSession()
+            homeFastDone = true
+            return
+        }
         if let homeFastTask { await homeFastTask.value }
         if homeFastDone { return }
         let task = Task { @MainActor in
@@ -131,17 +138,22 @@ final class Repository {
         await flushPendingEvidence()
     }
 
+    /// Hand the account's write/settlement work over to the band refresh in order.
+    func waitForEvidencePublication() async {
+        await evidencePublication.waitForCurrent()
+    }
+
     /// Account-owned outboxes can retry without a connected band or an active sensor read.
-    func flushPendingEvidence() async {
+    func flushPendingEvidence(afterCurrent: Bool = false) async {
+        guard !Band.allowsSeed else { return }
         guard let account = SupabaseClient.currentUserIdSnapshot(), Reachability.shared.isOnline else { return }
-        if let running = evidencePublicationTask { await running.value; return }
         let generation = sessionGeneration
-        let task = Task { @MainActor in
+        await evidencePublication.run(afterCurrent: afterCurrent, authorized: { [self] in
+            account == SupabaseClient.currentUserIdSnapshot() && generation == sessionGeneration
+        }, publish: { [self] in
+            if afterCurrent { lastForegroundSettleAt = nil }
             await publishPendingEvidence(account: account, generation: generation)
-        }
-        evidencePublicationTask = task
-        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
-        if generation == sessionGeneration { evidencePublicationTask = nil }
+        })
     }
 
     /// Issue #21 · when this account last asked the server to settle today from the
@@ -159,6 +171,17 @@ final class Repository {
         await SportEvidenceQueue.shared.flush()
         guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
               !Task.isCancelled else { return }
+        await SportRecapStore.shared.flush()
+        guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
+              !Task.isCancelled else { return }
+        guard await WeighInQueue.shared.flush() else {
+            if account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration {
+                SportRecapStore.shared.trainingError = L("Updated weight is waiting to upload. Retry sync.")
+            }
+            return
+        }
+        guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
+              !Task.isCancelled else { return }
         let today = UserDay.containing(Date())
         do {
             let status = try await calculationStatusIfAvailable(from: today.key, to: today.key)
@@ -169,7 +192,8 @@ final class Repository {
                 }
             }
             guard HomeLaunchPolicy.shouldSettleOnForeground(pending: pending,
-                                                            lastSettledAt: lastForegroundSettleAt),
+                                                            lastSettledAt: lastForegroundSettleAt,
+                                                            bandRefreshActive: !OriginDataSync.isIdle),
                   account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration,
                   !Task.isCancelled else { return }
             lastForegroundSettleAt = Date()
@@ -184,7 +208,13 @@ final class Repository {
             await loadSleepScores(days: 30, endingAt: today, into: DataStore.shared)
             guard account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
             HomeSnapshot.save(from: DataStore.shared)
-        } catch { BandLog.shared.record("publish drained evidence", error: error) }
+        } catch {
+            if account == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration {
+                SportRecapStore.shared.trainingError = L("Training could not update. Retry sync.")
+                lastForegroundSettleAt = nil
+            }
+            BandLog.shared.record("publish drained evidence", error: error)
+        }
     }
 
     func loadLastSync(into store: DataStore) async {
@@ -511,12 +541,74 @@ final class Repository {
     /// hour; this asks for the caller's own window now, so a page that just came off the band
     /// is on the screen before the hour turns. `days` back from today, today included.
     /// Quiet when the RPC is not deployed yet — the cron still comes round.
-    func settleNow(days: Int) async {
-        do { _ = try await db.rpc("settle_now", args: ["p_days": days]) }
-        catch {
-            #if DEBUG
-            NSLog("Repository.settleNow failed: %@", "\(error)")
-            #endif
+    @discardableResult
+    func settleNow(days: Int) async -> Bool {
+        if await invokeSettle(days: days) { return true }
+        NightDiagnostics.shared.record("sync.settlement_retry", fields: ["days": String(days)])
+        return await invokeSettle(days: days)
+    }
+
+    private func invokeSettle(days: Int) async -> Bool {
+        do {
+            _ = try await db.rpc("settle_now", args: ["p_days": days])
+            return true
+        } catch {
+            BandLog.shared.record("settle_now", error: error)
+            var fields = ["kind": String(describing: type(of: error))]
+            if case SupabaseFailure.http(let status, let body) = error {
+                fields["httpStatus"] = String(status)
+                if let bytes = body.data(using: .utf8),
+                   let payload = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                   let code = payload["code"] as? String,
+                   code.count <= 12, code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) {
+                    fields["serverCode"] = code
+                }
+            } else if case SupabaseFailure.transport(let transport) = error {
+                fields["transportCode"] = String((transport as NSError).code)
+            }
+            NightDiagnostics.shared.record("sync.settlement_failed", fields: fields)
+            return false
+        }
+    }
+
+    /// After a real session the ingest trigger has dirtied today. Drop the foreground
+    /// throttle so flush settles and reloads training load (#37). Simulator seed never
+    /// publishes mock heart rate, so this is a no-op behind `Band.allowsSeed`.
+    func settleAfterSport() async {
+        guard !Band.allowsSeed, let owner = SupabaseClient.currentUserIdSnapshot() else { return }
+        let generation = sessionGeneration
+        let recaps = SportRecapStore.shared
+        guard Reachability.shared.isOnline else {
+            recaps.trainingError = L("Training is waiting for a connection. Retry sync.")
+            return
+        }
+        recaps.updatingTraining = true
+        recaps.trainingError = nil
+        defer {
+            if owner == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration {
+                recaps.updatingTraining = false
+            }
+        }
+        await flushPendingEvidence(afterCurrent: true)
+        guard owner == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+        do {
+            let local = try LocalDataStore.shared()
+            let pendingHeart = try local.operations(account: owner, kind: "sport-heart-rate")
+            let pendingEnergy = try local.operations(account: owner, kind: "sport-energy")
+            if !pendingHeart.isEmpty || !pendingEnergy.isEmpty {
+                recaps.trainingError = L("Training evidence is waiting to upload. Retry sync.")
+                return
+            }
+            let today = UserDay.containing(Date())
+            let status = try await calculationStatusIfAvailable(from: today.key, to: today.key)
+            guard owner == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+            if status == nil || status?.isEmpty == true || status?.contains(where: { $0["pending"] as? Bool != false }) == true {
+                recaps.trainingError = L("Training could not update. Retry sync.")
+            }
+        } catch {
+            guard owner == SupabaseClient.currentUserIdSnapshot(), generation == sessionGeneration else { return }
+            recaps.trainingError = L("Training could not update. Retry sync.")
+            BandLog.shared.record("verify session settlement", error: error)
         }
     }
 
@@ -605,7 +697,7 @@ final class Repository {
         sleepScoreGeneration &+= 1
         let request = sleepScoreGeneration
         let session = sessionGeneration
-        let from = day.adding(days: 1 - min(max(days, 1), 30)).key
+        let from = day.adding(days: 1 - min(max(days, 1), SleepCorrection.horizonDays + 2)).key
         store.sleepScoreLoadState = .loading
         do {
             let rows = try await db.select("night_score", query: [
@@ -682,6 +774,9 @@ final class Repository {
                 didPublish: { [self] revisions in summaryRevisions[account] = revisions }) else { return }
             snapshot.publish { snapshot in
                 let rows = snapshot.rows, fuel = snapshot.fuel
+                let trainingBy = Dictionary(uniqueKeysWithValues: snapshot.training.compactMap { row in
+                    (row["result_id"] as? String).map { ($0, row) }
+                })
                 let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
                 let summaries: [DailyMetrics] = rows.compactMap { row in
                     guard let key = row["user_day"] as? String, let date = f.date(from: key) else { return nil }
@@ -697,6 +792,10 @@ final class Repository {
                     }
                     var m = DailyMetrics(day: d)
                     m.trainingLoad = number(row["training_load"])
+                    if let training = trainingBy[row["id"] as? String ?? ""] {
+                        m.applyTrainingSettlement(TrainingSettlement(evidence: training["evidence"] as? [String: Any]))
+                        m.recordedSteps = number(training["recorded_steps"]).map(Int.init)
+                    }
                     m.bodyBattery = number(row["reserve_score"]).map(Int.init)
                     m.balance = number(row["fuel_balance_kcal"])
                     m.asOf = asOf; m.calcVersion = row["algo_version"] as? String ?? "?"
@@ -1005,6 +1104,7 @@ final class Repository {
                         }
                     }
                     if let t = trainingBy[id] {
+                        m.applyTrainingSettlement(TrainingSettlement(evidence: t["evidence"] as? [String: Any]))
                         m.recordedSteps = number(t["recorded_steps"]).map(Int.init)
                         if let e = t["evidence"] as? [String: Any],
                            let elapsed = number(e["elapsed_minutes"]),
@@ -1136,10 +1236,16 @@ final class Repository {
                         day: d, at: at, slot: slot, status: .confirmed,
                         text: row["text_input"] as? String ?? "",
                         kcal: number(row["kcal"]) ?? 0,
-                        protein: Int(number(row["protein_g"]) ?? 0),
-                        carb: Int(number(row["carb_g"]) ?? 0),
-                        fat: Int(number(row["fat_g"]) ?? 0),
-                        source: .typed)
+                        protein: number(row["protein_g"]) ?? 0,
+                        carb: number(row["carb_g"]) ?? 0,
+                        fat: number(row["fat_g"]) ?? 0,
+                        source: (row["photo_path"] as? String) == nil ? .typed : .photo,
+                        groupID: (row["meal_group_id"] as? String).flatMap(UUID.init(uuidString:)),
+                        portion: row["portion"] as? String,
+                        photoPath: row["photo_path"] as? String,
+                        fiber: number(row["fiber_g"]),
+                        sugar: number(row["sugar_g"]),
+                        sodium: number(row["sodium_mg"]))
                 }
 
                 // Today's list is the shown day's rows out of the week just fetched — the same
@@ -1168,6 +1274,8 @@ final class Repository {
                     history[index].vitalsCurve = snapshot.vitals(for: history[index].day, local: localSamples)
                 }
 
+                let sleepSourceSamples = snapshot.sleepVitals(
+                    local: store.history.flatMap(\.vitalsCurve) + store.today.vitalsCurve)
                 // Raw device sleep is independent of settled sleepMinutes. A pending formal
                 // calculation must not hide a night already received from the band.
                 for index in history.indices {
@@ -1178,7 +1286,7 @@ final class Repository {
                         guard let wake = ($0["wake_at"] as? String).flatMap(Self.timestamp) else { return true }
                         return Calendar.current.isDate(wake, inSameDayAs: history[index].day.start)
                     }),
-                          let total = number(night["total_minutes"]), total.isFinite, total > 0 else {
+                          let total = number(night["total_minutes"]), total.isFinite, total >= 0 else {
                         history[index].sleep = local
                         continue
                     }
@@ -1193,9 +1301,12 @@ final class Repository {
                     // person wearing it said so, so the lag rule below does not apply.
                     let correctedAt = (night["corrected_at"] as? String).flatMap(Self.timestamp)
                     let corrected = (night["corrected_start"] as? String) != nil
+                    let source = (night["raw"] as? [String: Any])?["source"] as? String
+                    let reported = source == "user_reported"
                     // Cloud publication can lag the completed SDK night. A shorter remote
                     // window must not truncate observations already confirmed on this device.
-                    if !corrected, let local, let localStart = local.sleepStart, let localWake = local.wakeAt,
+                    if !corrected, !reported, let local, !local.isCorrected, !local.isUserReported,
+                       let localStart = local.sleepStart, let localWake = local.wakeAt,
                        let start, let wake, localStart <= start, localWake >= wake,
                        (localStart < start || localWake > wake) {
                         history[index].sleep = local
@@ -1209,9 +1320,11 @@ final class Repository {
                     let rawIntervals = ((night["raw"] as? [String: Any])?["intervals"] as? [[String: Any]] ?? []).compactMap { row -> SleepInterval? in
                         guard let intervalStart = (row["start"] as? String).flatMap(Self.timestamp),
                               let intervalEnd = (row["end"] as? String).flatMap(Self.timestamp),
-                              intervalEnd > intervalStart,
-                              let start, let wake, intervalStart >= start, intervalEnd <= wake else { return nil }
-                        return SleepInterval(start: intervalStart, end: intervalEnd)
+                              intervalEnd > intervalStart, let start, let wake,
+                              let clipped = SleepWindowCorrection.clipInterval(start: intervalStart, end: intervalEnd,
+                                                                               windowStart: start, windowEnd: wake)
+                        else { return nil }
+                        return SleepInterval(start: clipped.start, end: clipped.end)
                     }.sorted { $0.start < $1.start }
 
                     // Absence predates segmented sleep: retain nil so old records use their
@@ -1227,7 +1340,7 @@ final class Repository {
                     }
                     func inSleep(_ at: Date) -> Bool {
                         guard let start, let wake, at >= start, at < wake else { return false }
-                        guard let intervals else { return true }
+                        guard !corrected, !reported, let intervals else { return true }
                         return intervals.contains { at >= $0.start && at < $0.end }
                     }
                     var displayLine = !rawLine.isEmpty ? rawLine : sameWindow &&
@@ -1239,9 +1352,19 @@ final class Repository {
                     let bandStart = ((night["raw"] as? [String: Any])?["recorded_start"] as? String).flatMap(Self.timestamp)
                     let bandEnd = ((night["raw"] as? [String: Any])?["recorded_end"] as? String).flatMap(Self.timestamp)
                     if corrected, let bandStart, let start, let wake {
+                        // Local display runs were already rebased on a previous correction.
+                        // Clip the server's original line, never a cached display line twice.
+                        let recordedLine = !rawLine.isEmpty ? rawLine : line
                         displayLine = SleepWindowCorrection
-                            .clip(displayLine.map { ($0.stage, $0.minutes, $0.offsetMinutes) },
-                                  bandStart: bandStart, start: start, end: wake)
+                            .clip(recordedLine.map { ($0.stage, $0.minutes, $0.offsetMinutes) },
+                                  bandStart: bandStart, start: start, end: wake,
+                                  recordedIntervals: ((night["raw"] as? [String: Any])?["intervals"] as? [[String: Any]] ?? [])
+                                    .compactMap { interval -> (start: Date, end: Date)? in
+                                        guard let from = (interval["start"] as? String).flatMap(Self.timestamp),
+                                              let to = (interval["end"] as? String).flatMap(Self.timestamp), to > from
+                                        else { return nil }
+                                        return (from, to)
+                                    })
                             .map { SleepStageRun(stage: $0.stage, minutes: $0.minutes, offsetMinutes: $0.offsetMinutes) }
                     }
                     // A corrected reading at the same timestamp is one observation. Local
@@ -1255,12 +1378,29 @@ final class Repository {
                     let hrvInvalidations = remoteHRVInvalidations
                         .merging(local?.hrvInvalidatedMinutes ?? [:], uniquingKeysWith: max)
                         .filter { inSleep($0.key) }
-                    let localHRV = (local?.hrv ?? []).filter { inSleep($0.ts) }
+                    // Edited snapshots contain coarse backfill too; rebuild that from the
+                    // current raw samples rather than treating an older fill as native RR.
+                    let localHRV = (local?.isCorrected == true || local?.isUserReported == true
+                        ? [] : local?.hrv ?? []).filter { inSleep($0.ts) }
                     let hasLocalHRV = !localHRV.isEmpty || (sameWindow && local?.hrv != nil)
-                    let combinedHRV: [SleepHRVPoint]? = hrv == nil && !hasLocalHRV
+                    var combinedHRV: [SleepHRVPoint]? = hrv == nil && !hasLocalHRV
                         && hrvInvalidations.isEmpty ? nil : SleepHRVPoint.merging(hrv ?? [],
                             with: localHRV, invalidatedMinutes: hrvInvalidations)
                             .filter { inSleep($0.ts) }
+                    let nightSamples = sleepSourceSamples.filter { inSleep($0.ts) }
+                    if corrected || reported {
+                        // The native minute wins. Coarser source samples only fill genuine
+                        // gaps and never restore an explicitly invalidated RR minute.
+                        let native = combinedHRV ?? []
+                        let fallback = SleepWindowCorrection.hrvBackfill(
+                            samples: nightSamples, nativeMinutes: native.map(\.ts),
+                            invalidatedMinutes: Array(hrvInvalidations.keys))
+                            .compactMap { sample -> SleepHRVPoint? in
+                                guard let value = sample.hrv else { return nil }
+                                return SleepHRVPoint(ts: sample.ts, rmssdMS: value, observedAt: sample.hrvObservedAt)
+                            }
+                        combinedHRV = (native + fallback).sorted { $0.ts < $1.ts }
+                    }
                     history[index].sleep = SleepSummary(
                         totalMinutes: Int(total),
                         deepMinutes: number(night["deep_minutes"]).map { Int($0) } ?? 0,
@@ -1274,7 +1414,9 @@ final class Repository {
                         intervals: intervals,
                         correctedAt: corrected ? (correctedAt ?? Date()) : nil,
                         bandStart: corrected ? bandStart : nil,
-                        bandEnd: corrected ? bandEnd : nil)
+                        bandEnd: corrected ? bandEnd : nil,
+                        source: source,
+                        heartRate: nightSamples.filter { ($0.hr ?? 0) > 0 })
                 }
 
                 if let live = liveRows.first,
@@ -1639,8 +1781,11 @@ final class Repository {
               status == 400 || status == 404 else { return false }
         let text = body.lowercased()
         switch capability {
-        case "result_revision":
-            return text.contains("result_revision") &&
+        case "meal_fields":
+            return HealthSnapshotRead.isMissingMealFields(error)
+        case "result_revision", "training_evidence":
+            let names = capability == "result_revision" ? ["result_revision"] : ["evidence", "recorded_steps"]
+            return names.contains(where: text.contains) &&
                 (text.contains("42703") || text.contains("does not exist") ||
                  (text.contains("pgrst204") && text.contains("column")))
         case "worn":

@@ -25,14 +25,14 @@ struct ActiveEnergySplit: Equatable, Sendable {
 }
 
 struct ActiveEnergyHour: Equatable, Sendable {
-    /// Full-hour BMR floor when the hour has not started; lived hours include movement.
+    /// Bar height is movement only. Lived rest hours are 0; future hours are 0, never a BMR floor.
     var kcal: Double
     var lived: Bool
 }
 
 struct ActiveEnergyWeekBar: Equatable, Sendable {
     var start: Date
-    var out: Double?
+    var active: Double?
     var isToday: Bool
 }
 
@@ -144,16 +144,15 @@ enum ActiveEnergyMath {
             elapsedMinutes: elapsed > 0 ? elapsed : nil)
     }
 
-    /// User-day hours, 04:00 → 04:00 (23/25 on DST changes). Future hours keep the BMR floor
-    /// so the faded bars have a height; they are never 0.
+    /// User-day hours, 04:00 → 04:00 (23/25 on DST changes). Bar height is activity only:
+    /// a lived rest hour is 0, and a future hour is 0 — BMR never paints into the column.
     static func hourly(dayStart: Date, now: Date, split: ActiveEnergySplit,
                        ticks: [VitalSample], sportWindows: [(Date, Date)],
                        calendar: Calendar = .current) -> [ActiveEnergyHour] {
-        guard let resting = split.resting, let active = split.active, split.out != nil,
-              resting >= 0, active >= 0, now > dayStart else { return [] }
+        guard let active = split.active,
+              active >= 0, now > dayStart else { return [] }
         let dayEnd = FuelWindowMath.dayEnd(dayStart: dayStart, calendar: calendar)
         let hourCount = Int((dayEnd.timeIntervalSince(dayStart) / 3600).rounded())
-        let floor = (split.bmrFull ?? 0) / Double(hourCount)
         var extra = [Double](repeating: 0, count: hourCount)
         for sample in ticks where sample.ts >= dayStart && sample.ts <= now {
             var index = Int(sample.ts.timeIntervalSince(dayStart) / 3600)
@@ -165,19 +164,16 @@ enum ActiveEnergyMath {
         let totalExtra = extra.reduce(0, +)
         // The daily total can arrive before its raw samples. Do not invent a last-hour peak.
         guard active == 0 || totalExtra > 0 else { return [] }
-        let elapsedHours = min(Double(hourCount), now.timeIntervalSince(dayStart) / 3600)
         return (0..<hourCount).map { i in
             let fraction = livedFraction(hour: i, dayStart: dayStart, now: now)
             let movement = totalExtra > 0 ? active * extra[i] / totalExtra : 0
-            return ActiveEnergyHour(
-                kcal: fraction > 0 ? resting * fraction / elapsedHours + movement : floor,
-                lived: fraction > 0)
+            return ActiveEnergyHour(kcal: fraction > 0 ? movement : 0, lived: fraction > 0)
         }
     }
 
     static func peakHour(_ hours: [ActiveEnergyHour]) -> (index: Int, kcal: Double)? {
         var best: (Int, Double)?
-        for (i, hour) in hours.enumerated() where hour.lived {
+        for (i, hour) in hours.enumerated() where hour.lived && hour.kcal > 0 {
             if best == nil || hour.kcal > best!.1 { best = (i, hour.kcal) }
         }
         return best.map { (index: $0.0, kcal: $0.1) }
@@ -235,14 +231,14 @@ enum ActiveEnergyMath {
         return (solid, dashed)
     }
 
-    static func week(days: [(start: Date, out: Double?)], todayStart: Date)
+    static func week(days: [(start: Date, active: Double?)], todayStart: Date)
     -> (bars: [ActiveEnergyWeekBar], average: Double?, todayDelta: Double?) {
         let bars = days.map {
-            ActiveEnergyWeekBar(start: $0.start, out: $0.out, isToday: $0.start == todayStart)
+            ActiveEnergyWeekBar(start: $0.start, active: $0.active, isToday: $0.start == todayStart)
         }
-        let values = bars.compactMap(\.out)
+        let values = bars.compactMap(\.active)
         let average = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
-        let today = bars.first(where: \.isToday)?.out
+        let today = bars.first(where: \.isToday)?.active
         let delta = today.flatMap { t in average.map { t - $0 } }
         return (bars, average, delta)
     }

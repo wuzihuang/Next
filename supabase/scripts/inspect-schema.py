@@ -19,6 +19,13 @@ IMAGE = "public.ecr.aws/supabase/postgres:17.6.1.166"
 PLATFORM = """
 create extension if not exists pg_cron with schema extensions;
 create extension if not exists pgtap with schema extensions;
+-- GoTrue applies these after the Postgres image's older auth baseline. Match the
+-- platform JWT accessor so application policies are tested without local stubs.
+alter table auth.users add column if not exists is_anonymous boolean not null default false;
+create or replace function auth.jwt() returns jsonb language sql stable as $jwt$
+ select coalesce(nullif(current_setting('request.jwt.claim',true),''),
+                 nullif(current_setting('request.jwt.claims',true),''))::jsonb
+$jwt$;
 create table storage.buckets(id text primary key,name text,owner uuid,
  created_at timestamptz default now(),updated_at timestamptz default now(),
  public boolean default false,avif_autodetection boolean default false,
@@ -90,11 +97,11 @@ def main():
             print(f"Apply {filename}", flush=True)
             sql("begin;\n" + source + "\ncommit;\n")
         schema = command("docker", "exec", name, "pg_dump", "-U", "postgres", "-d", "postgres",
-                         "--schema-only", "--schema=public", "--schema=nb", "--no-owner")
+                         "--schema-only", "--schema=public", "--schema=nb", "--schema=health_commands", "--no-owner")
         (output / "schema.sql").write_text(schema)
         definitions_query = """
 select pg_get_functiondef(p.oid)||';' from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-where n.nspname in ('nb','public') and p.prokind='f'
+where n.nspname in ('nb','public','health_commands') and p.prokind='f'
 order by n.nspname,p.proname,pg_get_function_identity_arguments(p.oid);
 """
         definitions = sql(definitions_query)

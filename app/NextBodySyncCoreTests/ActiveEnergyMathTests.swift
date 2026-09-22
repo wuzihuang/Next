@@ -43,7 +43,7 @@ final class ActiveEnergyMathTests: XCTestCase {
             eActive: 175, eTrain: nil, eOutNow: 675, ticks: ticks, sportWindows: [])
         let hours = ActiveEnergyMath.hourly(dayStart: date(hour: 4), now: date(hour: 12),
                                            split: split, ticks: ticks, sportWindows: [])
-        XCTAssertEqual(hours.filter(\.lived).reduce(0) { $0 + $1.kcal }, 675, accuracy: 0.01)
+        XCTAssertEqual(hours.filter(\.lived).reduce(0) { $0 + $1.kcal }, 175, accuracy: 0.01)
     }
 
     func testDSTHoursRetainEveryRecordedCalorieAndRecoverTheFullDayBMR() {
@@ -61,7 +61,7 @@ final class ActiveEnergyMathTests: XCTestCase {
             let hours = ActiveEnergyMath.hourly(dayStart: start, now: end, split: split,
                 ticks: ticks, sportWindows: [], calendar: local)
             XCTAssertEqual(hours.count, count)
-            XCTAssertEqual(hours.reduce(0) { $0 + $1.kcal }, 1_875, accuracy: 0.01)
+            XCTAssertEqual(hours.reduce(0) { $0 + $1.kcal }, 175, accuracy: 0.01)
             XCTAssertEqual(ActiveEnergyMath.peakHour(hours)?.index, count - 1)
         }
     }
@@ -92,7 +92,7 @@ final class ActiveEnergyMathTests: XCTestCase {
         let hours = ActiveEnergyMath.hourly(dayStart: start, now: now, split: split,
                                            ticks: ticks, sportWindows: [], calendar: calendar)
         XCTAssertEqual(ActiveEnergyMath.peakHour(hours)?.index, 4)
-        XCTAssertEqual(hours.filter(\.lived).reduce(0) { $0 + $1.kcal }, 675, accuracy: 0.01)
+        XCTAssertEqual(hours.filter(\.lived).reduce(0) { $0 + $1.kcal }, 175, accuracy: 0.01)
     }
 
     func testPrintedRoundedPartsStillAddToTheSettledActiveTotal() {
@@ -218,7 +218,7 @@ final class ActiveEnergyMathTests: XCTestCase {
         XCTAssertEqual(split.active, 380)
     }
 
-    func testHourlyLivedHoursSumToOutAndFutureKeepsTheBmrFloor() {
+    func testHourlyLivedHoursSumToActiveAndFutureHasNoHeight() {
         let start = date(hour: 4)
         let now = date(hour: 16, minute: 40)
         let ticks = walk(from: start, to: now) { hour, _ in hour == 16 ? 400 : 10 }
@@ -232,12 +232,50 @@ final class ActiveEnergyMathTests: XCTestCase {
         XCTAssertEqual(hours.count, 24)
         let lived = hours.filter(\.lived)
         XCTAssertEqual(lived.count, 13)
-        XCTAssertEqual(lived.reduce(0) { $0 + $1.kcal }, 1_387, accuracy: 0.5)
+        XCTAssertEqual(lived.reduce(0) { $0 + $1.kcal }, 486, accuracy: 0.5)
         let future = hours.filter { !$0.lived }
         XCTAssertFalse(future.isEmpty)
-        XCTAssertEqual(future[0].kcal, 1_708 / 24, accuracy: 0.01)
+        XCTAssertEqual(future[0].kcal, 0, accuracy: 0.01)
         let peak = ActiveEnergyMath.peakHour(hours)
         XCTAssertEqual(peak?.index, 12)
+    }
+
+    func testRestOnlyLivedHoursHaveNoBarHeight() {
+        let start = date(hour: 4)
+        let now = date(hour: 12)
+        let ticks = walk(from: start, to: now) { _, _ in 0 }
+        let split = ActiveEnergyMath.split(
+            dayStart: start, now: now, bmr: 500, bmrFull: 1_500,
+            eActive: 0, eTrain: nil, eOutNow: 500,
+            ticks: ticks, sportWindows: [], calendar: calendar)
+        let hours = ActiveEnergyMath.hourly(
+            dayStart: start, now: now, split: split,
+            ticks: ticks, sportWindows: [], calendar: calendar)
+        XCTAssertFalse(hours.isEmpty)
+        XCTAssertEqual(hours.filter(\.lived).reduce(0) { $0 + $1.kcal }, 0, accuracy: 0.01)
+        XCTAssertNil(ActiveEnergyMath.peakHour(hours))
+    }
+
+    func testMissingActivityCannotBorrowRestingEnergyForHourlyBars() {
+        let start = date(hour: 4)
+        let now = date(hour: 12)
+        let split = ActiveEnergyMath.split(dayStart: start, now: now, bmr: 500,
+            bmrFull: 1500, eActive: nil, eTrain: nil, eOutNow: 500,
+            ticks: [], sportWindows: [], calendar: calendar)
+        XCTAssertNil(split.active)
+        XCTAssertTrue(ActiveEnergyMath.hourly(dayStart: start, now: now, split: split,
+            ticks: [], sportWindows: [], calendar: calendar).isEmpty)
+    }
+
+    func testWeekPreservesMeasuredZeroAndMissingDaysSeparately() {
+        let today = date(hour: 4)
+        let week = ActiveEnergyMath.week(days: [(today, 0),
+            (today.addingTimeInterval(-86400), nil),
+            (today.addingTimeInterval(-172800), 300)], todayStart: today)
+        XCTAssertEqual(week.bars[0].active, 0)
+        XCTAssertNil(week.bars[1].active)
+        XCTAssertEqual(week.average, 150)
+        XCTAssertEqual(week.todayDelta, -150)
     }
 
     func testVendorCaloriesNeverEnterTheSplit() {
@@ -287,7 +325,7 @@ final class ActiveEnergyMathTests: XCTestCase {
         let week = ActiveEnergyMath.week(days: Array(days), todayStart: today)
         XCTAssertEqual(week.bars.count, 7)
         XCTAssertEqual(week.bars.last?.isToday, true)
-        XCTAssertEqual(week.bars.compactMap(\.out).count, 6)
+        XCTAssertEqual(week.bars.compactMap(\.active).count, 6)
         XCTAssertNotNil(week.average)
     }
 

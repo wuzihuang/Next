@@ -17,9 +17,11 @@ struct SportHeartRateEvidence: Codable, Equatable, Sendable {
 /// observations for the earlier workout. SQL also enforces the same interval limit.
 struct SportHeartRateEvidenceStream {
     static let maximumGap: TimeInterval = 15
-    let sessionID = UUID()
+    let sessionID: UUID
     private var continuityID = UUID()
     private var lastObservedAt: Date?
+
+    init(sessionID: UUID = UUID()) { self.sessionID = sessionID }
 
     mutating func interrupted() {
         continuityID = UUID()

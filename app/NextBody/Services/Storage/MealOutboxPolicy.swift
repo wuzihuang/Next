@@ -10,21 +10,39 @@ public enum MealOutboxPolicy {
               let draft = output["draft_id"] as? String, UUID(uuidString: draft) != nil else {
             throw LocalDataStore.Failure.database("Invalid meal estimate")
         }
-        func nutrient(_ key: String, minimum: Double) throws -> Int {
+        func nutrient(_ key: String, minimum: Double) throws -> Double {
             guard let value = output[key] as? NSNumber,
                   CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite,
-                  value.doubleValue >= minimum, value.doubleValue <= 100000,
-                  value.doubleValue.rounded() == value.doubleValue else {
+                  value.doubleValue >= minimum, value.doubleValue <= 100000 else {
                 throw LocalDataStore.Failure.database("Incomplete meal nutrients: " + key)
             }
-            return value.intValue
+            return value.doubleValue
         }
-        let body: [String: Any] = ["id": operation.id, "draft_id": draft,
+        /// The plate's own fields: present or absent, never null. The write path treats an
+        /// explicit null as a malformed field, and 0 is not how this product says "unknown".
+        func optional(_ key: String, from source: [String: Any]) -> [String: Any] {
+            guard let value = source[key], !(value is NSNull) else { return [:] }
+            if let text = value as? String { return text.isEmpty ? [:] : [key: text] }
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite, number.doubleValue >= 0,
+                  number.doubleValue <= 100000
+            else { return [:] }
+            return [key: number.doubleValue]
+        }
+        let micros = output["micros"] as? [String: Any] ?? [:]
+        var plate = optional("meal_group_id", from: ["meal_group_id": output["group_id"] ?? NSNull()])
+        plate.merge(optional("photo_path", from: output)) { _, new in new }
+        plate.merge(optional("portion", from: output)) { _, new in new }
+        plate.merge(optional("fiber_g", from: ["fiber_g": micros["fiber"] ?? NSNull()])) { _, new in new }
+        plate.merge(optional("sugar_g", from: ["sugar_g": micros["sugar"] ?? NSNull()])) { _, new in new }
+        plate.merge(optional("sodium_mg", from: ["sodium_mg": micros["sodium"] ?? NSNull()])) { _, new in new }
+        let body: [String: Any] = (["id": operation.id, "draft_id": draft,
             "user_day": original["user_day"] ?? "", "slot": original["slot"] ?? "",
-            "name": output["name"] ?? original["name"] ?? "", "kcal": try nutrient("kcal", minimum: 1),
+            "name": output["name"] ?? original["name"] ?? "", "kcal": try nutrient("kcal", minimum: 0),
             "protein_g": try nutrient("protein_g", minimum: 0), "carb_g": try nutrient("carb_g", minimum: 0),
             "fat_g": try nutrient("fat_g", minimum: 0), "confidence": output["confidence"] ?? "MEDIUM",
-            "model_version": output["model_version"] ?? ""]
+            "model_version": output["model_version"] ?? ""] as [String: Any])
+            .merging(plate) { _, new in new }
         return try JSONSerialization.data(withJSONObject:
             ["kind": "create", "meal_id": operation.id, "body": body], options: .sortedKeys)
     }

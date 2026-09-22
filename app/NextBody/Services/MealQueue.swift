@@ -34,14 +34,41 @@ final class MealQueue: ObservableObject {
         })
     }
 
-    func createManual(text: String, kcal: Double, day: UserDay, into data: DataStore) throws {
+    @discardableResult
+    func createManual(text: String, kcal: Double, day: UserDay, into data: DataStore) throws -> UUID {
         guard kcal.isFinite, kcal >= 1, kcal <= 100000,
               let owner = SupabaseClient.currentUserIdSnapshot() else { throw MealPublication.Failure.invalidMeal }
         try ensureCanAdd(day: day, into: data)
         let at = day.pinningClock(Date())
-        _ = try publication(owner: owner).createManual(day: day.key,
-            slot: MealEntry.Slot.guess(at: at, day: day).rawValue, name: text, kcal: Int(kcal), at: at)
+        let submitted = try publication(owner: owner).createManual(day: day.key,
+            slot: MealEntry.Slot.guess(at: at, day: day).rawValue, name: text, kcal: kcal, at: at)
         try didSubmit(owner: owner, into: data)
+        return submitted.id
+    }
+
+    /// A row whose numbers are already known and already accepted — a 常吃 logged again.
+    /// Nothing is estimated on the way in, so this never calls the model and never waits.
+    @discardableResult
+    func createKnown(_ item: MealFavorites.Item, day: UserDay, into data: DataStore) throws -> UUID {
+        guard let owner = SupabaseClient.currentUserIdSnapshot() else { throw MealPublication.Failure.invalidMeal }
+        try ensureCanAdd(day: day, into: data)
+        let at = day.pinningClock(Date())
+        let id = UUID()
+        var fields: [String: Any] = [
+            "draft_id": id.uuidString.lowercased(), "user_day": day.key,
+            "slot": MealEntry.Slot.guess(at: at, day: day).rawValue,
+            "name": item.name.trimmingCharacters(in: .whitespacesAndNewlines),
+            "kcal": item.kcal, "protein_g": item.protein, "carb_g": item.carb, "fat_g": item.fat,
+            "confidence": "HIGH", "model_version": "favourite-v1",
+            "logged_at": ISO8601DateFormatter().string(from: at),
+        ]
+        if let portion = item.portion, !portion.isEmpty { fields["portion"] = String(portion.prefix(64)) }
+        if let fiber = item.fiber { fields["fiber_g"] = fiber }
+        if let sugar = item.sugar { fields["sugar_g"] = sugar }
+        if let sodium = item.sodium { fields["sodium_mg"] = sodium }
+        let submitted = try publication(owner: owner).create(id: id, fields: fields, source: "TYPED")
+        try didSubmit(owner: owner, into: data)
+        return submitted.id
     }
 
     func confirmDraft(_ output: [String: Any], mealID: UUID, day: UserDay,
@@ -95,7 +122,13 @@ final class MealQueue: ObservableObject {
                 slot: slot, status: row.confirmed ? .confirmed : .open, text: row.name,
                 kcal: row.kcal, protein: row.protein, carb: row.carb, fat: row.fat,
                 revisions: row.revisions ?? previous?.revisions ?? 0,
-                source: row.source.flatMap { MealEntry.Source(rawValue: $0.uppercased()) } ?? previous?.source ?? .voice)
+                source: row.source.flatMap { MealEntry.Source(rawValue: $0.uppercased()) } ?? previous?.source ?? .voice,
+                groupID: row.groupID.flatMap(UUID.init(uuidString:)) ?? previous?.groupID,
+                portion: row.portion ?? previous?.portion,
+                photoPath: row.photoPath ?? previous?.photoPath,
+                fiber: row.fiber ?? previous?.fiber,
+                sugar: row.sugar ?? previous?.sugar,
+                sodium: row.sodium ?? previous?.sodium)
         }
         guard !entries.isEmpty || !projection.removedIDs.isEmpty else { return }
         data.overlayPendingMeals(entries, removedIDs: projection.removedIDs)

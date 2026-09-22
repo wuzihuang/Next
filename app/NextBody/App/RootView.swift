@@ -4,6 +4,7 @@ import os
 struct RootView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var router: Router
+    @EnvironmentObject private var billing: BillingStore
     @ObservedObject private var phoneTools = PhoneToolRunner.shared
     /// 走查用：`NB_DEBUG_CONFIRM` 摆出的那个确认框。真实确认框要一整轮 AI 对话才会出现，
     /// 而没有会话的模拟器永远走不到那一步。Release 里恒为 nil。
@@ -22,6 +23,17 @@ struct RootView: View {
             if session.holdingLaunchStill {
                 LaunchMark()
             }
+
+            if session.stage == .root, billing.presentation != nil {
+                MembershipCardHost(billing: billing, onFinished: { })
+            }
+
+            // 11D · above the paywall's slot: the purchase clears `presentation` first.
+            if session.stage == .root, billing.celebrating {
+                ProSuccessView(snapshot: billing.snapshot, onStart: { billing.celebrating = false })
+                    .transition(.opacity)
+                    .zIndex(2)
+            }
         }
         .statusBarHidden(session.holdingLaunchStill)
         .carbonPage()
@@ -36,6 +48,9 @@ struct RootView: View {
         }
         .sheet(item: $router.sheet) { s in
             SheetHost(route: s)
+        }
+        .sheet(isPresented: $billing.showingCustomerCenter) {
+            ManageMembershipHost(billing: billing, onFinished: { billing.showingCustomerCenter = false })
         }
         // ADR 0018 · a phone tool with a side effect asks here, wherever the turn started.
         // ⚠️ Drawn by the app, not a system alert. `.alert(_:isPresented:presenting:)` showed on
@@ -75,6 +90,7 @@ struct RootView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: confirmation?.id)
+        .animation(.easeOut(duration: 0.35), value: billing.celebrating)
         .onAppear { phoneTools.router = router }
         #if DEBUG
         .overlay { IdlePlateDumpOverlay() }

@@ -122,7 +122,7 @@ struct ReserveDrivers: Codable, Hashable {
     var awake: Double
     var movement: Double
     var stress: Double
-    /// Where the day started at 04:00 — yesterday's closing value.
+    /// Where the local day started at midnight — yesterday's closing value.
     var anchor: Int
     /// True when there was no yesterday and the 20 is the cold-start assumption. The page
     /// has to say so in words rather than let it read as something we measured.
@@ -316,11 +316,21 @@ struct SleepSummary: Codable, Hashable {
     var bandStart: Date? = nil
     var bandEnd: Date? = nil
     var isCorrected: Bool { correctedAt != nil }
+    /// A person's reported window remains distinct from a device measurement.
+    var source: String? = nil
+    var isUserReported: Bool { source == "user_reported" }
+    /// Actual heart observations in the full edited window, including its preceding day.
+    var heartRate: [VitalSample]? = nil
+    var unstagedMinutes: Int {
+        guard isCorrected || isUserReported, let sleepStart, let wakeAt else { return 0 }
+        return SleepWindowCorrection.unstagedMinutes(
+            line.map { ($0.stage, $0.minutes, $0.offsetMinutes) }, start: sleepStart, end: wakeAt)
+    }
 
     func containsSleepTimestamp(_ timestamp: Date) -> Bool {
         guard let sleepStart, let wakeAt, wakeAt > sleepStart,
               timestamp >= sleepStart, timestamp < wakeAt else { return false }
-        guard let intervals else { return true }
+        guard !isCorrected, !isUserReported, let intervals else { return true }
         return intervals.contains { $0.end > $0.start && timestamp >= $0.start && timestamp < $0.end }
     }
 }
@@ -364,7 +374,7 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
 
     // Training Load 0–21 · never a percentage
     var trainingLoad: Double?          // TRAINING_LOAD
-    var targetLoad: Double?            // TARGET_LOAD, from BB_WAKE
+    var targetLoad: Double?            // Server-published recovery-led recommendation
     var optimalZone: ClosedRange<Double>?
     var zoneMinutes: [Int]?            // ZONE_MIN[1..5], always multiples of 5
     /// 补屏 B · true without a weight: met ≥ 3 points × 5, and the band's own metres.
@@ -375,6 +385,7 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     var loadCurve: [LoadPoint] = []
     var peakHR: Int?
     var trainingEvidence: TrainingEvidence?
+    var trainingSettlement: TrainingSettlement?
     var recordedSteps: Int?
 
     // Body Battery
@@ -501,7 +512,7 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     // optimalZone is a range; it stays out of the wire format and is rebuilt server-side.
     private enum CodingKeys: String, CodingKey {
         case day, trainingLoad, targetLoad, zoneMinutes, activeMinutes, distanceM, bbWake, bodyBattery
-        case trainingEvidence, recordedSteps
+        case trainingEvidence, trainingSettlement, recordedSteps
         case bmr, eActive, eTrain, eTrainPlan, eOutNow, activeForecast, eOutFull, energyDistribution
         case eIn, balance, targetIn, targetBasis, targetBasisDays, restingSource, restingMeasuredAt, goalOffset
         case nextMeal, protein, carb, fat
@@ -512,6 +523,13 @@ struct DailyMetrics: Codable, Hashable, Identifiable {
     }
 
     init(day: UserDay) { self.day = day }
+
+    mutating func applyTrainingSettlement(_ settlement: TrainingSettlement) {
+        trainingSettlement = settlement
+        let recommendation = settlement.recommendation(legacyTarget: targetLoad, legacyZone: optimalZone)
+        targetLoad = recommendation.target
+        optimalZone = recommendation.zone
+    }
 }
 
 /// One macro row: a target and how much of it has been eaten.
@@ -529,6 +547,12 @@ enum MeasurementSource: String, Codable, Hashable {
 /// F2 rule 05 rendered: a number that isn't there is an em-dash, never a zero.
 enum Fmt {
     static let dash = "——"
+
+    /// Food records show one decimal; daily energy/target dials keep their own format.
+    static func nutrient(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return dash }
+        return String(format: "%.1f", value)
+    }
 
     static func load(_ v: Double?) -> String { v.map { String(format: "%.1f", min($0, 20.9)) } ?? dash }
     static func kcal(_ v: Double?) -> String {

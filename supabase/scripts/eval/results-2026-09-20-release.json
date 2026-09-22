@@ -1,0 +1,2321 @@
+{
+ "report": {
+  "context": {
+   "set": "supabase/scripts/eval/jev-release-set.json",
+   "setVersion": "2026-09-20.release.1",
+   "split": "test",
+   "currentDay": "2026-09-20",
+   "model": "jev-1.13.0",
+   "questionVersion": "2026-09-20.3",
+   "catalogVersion": "cat-fb49a451",
+   "ranAt": "2026-09-20T15:26:13.274Z"
+  },
+  "all": {
+   "samples": 108,
+   "accepted_accuracy": 1,
+   "accepted": 59,
+   "coverage": 0.983,
+   "wrong_admission_rate": 0,
+   "wrong_admissions": [],
+   "missed": [
+    {
+     "id": "r004",
+     "text": "Show today’s food calories against my target",
+     "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+    }
+   ],
+   "wrong_binding": [],
+   "latency_ms": {
+    "p50": 329,
+    "p95": 442
+   },
+   "input_tokens": 225410,
+   "fallback_reasons": {
+    "LOW_CONFIDENCE (metric:confidence)": 12,
+    "LOW_CONFIDENCE (request_scope:confidence)": 8,
+    "NEGATED_REQUEST": 8,
+    "WINDOW_UNRESOLVED": 5,
+    "LOW_CONFIDENCE (time_range:confidence)": 4,
+    "REFERS_TO_EARLIER_TURN": 3,
+    "EXPLANATION_NOT_ENABLED": 3,
+    "WRITE_OR_ACTION": 2,
+    "NO_BINDING": 2,
+    "LOW_CONFIDENCE (time_range:probability)": 1,
+    "METRIC_NO_MATCH (NOT_SUPPORTED_distance)": 1
+   }
+  },
+  "dev": {
+   "samples": 0,
+   "accepted_accuracy": null,
+   "accepted": 0,
+   "coverage": null,
+   "wrong_admission_rate": null,
+   "wrong_admissions": [],
+   "missed": [],
+   "wrong_binding": [],
+   "latency_ms": {
+    "p50": null,
+    "p95": null
+   },
+   "input_tokens": 0,
+   "fallback_reasons": {}
+  },
+  "test": {
+   "samples": 108,
+   "accepted_accuracy": 1,
+   "accepted": 59,
+   "coverage": 0.983,
+   "wrong_admission_rate": 0,
+   "wrong_admissions": [],
+   "missed": [
+    {
+     "id": "r004",
+     "text": "Show today’s food calories against my target",
+     "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+    }
+   ],
+   "wrong_binding": [],
+   "latency_ms": {
+    "p50": 329,
+    "p95": 442
+   },
+   "input_tokens": 225410,
+   "fallback_reasons": {
+    "LOW_CONFIDENCE (metric:confidence)": 12,
+    "LOW_CONFIDENCE (request_scope:confidence)": 8,
+    "NEGATED_REQUEST": 8,
+    "WINDOW_UNRESOLVED": 5,
+    "LOW_CONFIDENCE (time_range:confidence)": 4,
+    "REFERS_TO_EARLIER_TURN": 3,
+    "EXPLANATION_NOT_ENABLED": 3,
+    "WRITE_OR_ACTION": 2,
+    "NO_BINDING": 2,
+    "LOW_CONFIDENCE (time_range:probability)": 1,
+    "METRIC_NO_MATCH (NOT_SUPPORTED_distance)": 1
+   }
+  },
+  "by_language": {
+   "zh": {
+    "samples": 54,
+    "accepted_accuracy": 1,
+    "accepted": 30,
+    "coverage": 1,
+    "wrong_admission_rate": 0,
+    "wrong_admissions": [],
+    "missed": [],
+    "wrong_binding": [],
+    "latency_ms": {
+     "p50": 332,
+     "p95": 498
+    },
+    "input_tokens": 113973,
+    "fallback_reasons": {
+     "NEGATED_REQUEST": 4,
+     "LOW_CONFIDENCE (metric:confidence)": 4,
+     "LOW_CONFIDENCE (request_scope:confidence)": 4,
+     "WINDOW_UNRESOLVED": 3,
+     "WRITE_OR_ACTION": 2,
+     "LOW_CONFIDENCE (time_range:confidence)": 2,
+     "EXPLANATION_NOT_ENABLED": 2,
+     "LOW_CONFIDENCE (time_range:probability)": 1,
+     "NO_BINDING": 1,
+     "REFERS_TO_EARLIER_TURN": 1
+    }
+   },
+   "en": {
+    "samples": 54,
+    "accepted_accuracy": 1,
+    "accepted": 29,
+    "coverage": 0.967,
+    "wrong_admission_rate": 0,
+    "wrong_admissions": [],
+    "missed": [
+     {
+      "id": "r004",
+      "text": "Show today’s food calories against my target",
+      "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+     }
+    ],
+    "wrong_binding": [],
+    "latency_ms": {
+     "p50": 329,
+     "p95": 442
+    },
+    "input_tokens": 111437,
+    "fallback_reasons": {
+     "LOW_CONFIDENCE (metric:confidence)": 8,
+     "LOW_CONFIDENCE (request_scope:confidence)": 4,
+     "NEGATED_REQUEST": 4,
+     "LOW_CONFIDENCE (time_range:confidence)": 2,
+     "REFERS_TO_EARLIER_TURN": 2,
+     "WINDOW_UNRESOLVED": 2,
+     "NO_BINDING": 1,
+     "EXPLANATION_NOT_ENABLED": 1,
+     "METRIC_NO_MATCH (NOT_SUPPORTED_distance)": 1
+    }
+   }
+  }
+ },
+ "outcomes": [
+  {
+   "id": "r001",
+   "split": "test",
+   "lang": "zh",
+   "text": "请显示我今天已记录的摄入热量",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:kcal.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:kcal.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 1090,
+   "inputTokens": 2329
+  },
+  {
+   "id": "r002",
+   "split": "test",
+   "lang": "zh",
+   "text": "今天累计吃进了几卡",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:kcal.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:kcal.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 1128,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r003",
+   "split": "test",
+   "lang": "en",
+   "text": "Display my recorded calorie intake for today",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:kcal.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:kcal.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 1019,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r004",
+   "split": "test",
+   "lang": "en",
+   "text": "Show today’s food calories against my target",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:kcal.today",
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+   },
+   "correct": false,
+   "wrongAdmission": false,
+   "latencyMs": 1128,
+   "inputTokens": 2322
+  },
+  {
+   "id": "r005",
+   "split": "test",
+   "lang": "zh",
+   "text": "今天记录的蛋白质一共几克",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:protein.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:protein.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 288,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r006",
+   "split": "test",
+   "lang": "zh",
+   "text": "展示今日蛋白质摄入量",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:protein.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:protein.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 300,
+   "inputTokens": 2325
+  },
+  {
+   "id": "r007",
+   "split": "test",
+   "lang": "en",
+   "text": "Display today’s protein intake in grams",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:protein.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:protein.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 299,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r008",
+   "split": "test",
+   "lang": "en",
+   "text": "Show my protein target progress today",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:protein.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:protein.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 325,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r009",
+   "split": "test",
+   "lang": "zh",
+   "text": "把今天走的步数显示出来",
+   "expected": {
+    "route": "fast",
+    "binding": "bars:steps.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "bars:steps.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 342,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r010",
+   "split": "test",
+   "lang": "zh",
+   "text": "今日步数累计是多少",
+   "expected": {
+    "route": "fast",
+    "binding": "bars:steps.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "bars:steps.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 290,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r011",
+   "split": "test",
+   "lang": "en",
+   "text": "Display the number of steps recorded today",
+   "expected": {
+    "route": "fast",
+    "binding": "bars:steps.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "bars:steps.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 310,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r012",
+   "split": "test",
+   "lang": "en",
+   "text": "Show my step count for today",
+   "expected": {
+    "route": "fast",
+    "binding": "bars:steps.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "bars:steps.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 304,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r013",
+   "split": "test",
+   "lang": "zh",
+   "text": "画出今天的心率变化",
+   "expected": {
+    "route": "fast",
+    "binding": "line:heart.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:heart.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 328,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r014",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示今日心率折线图",
+   "expected": {
+    "route": "fast",
+    "binding": "line:heart.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:heart.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 310,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r015",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot my heart rate throughout today",
+   "expected": {
+    "route": "fast",
+    "binding": "line:heart.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:heart.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 349,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r016",
+   "split": "test",
+   "lang": "en",
+   "text": "Display today’s heart-rate curve",
+   "expected": {
+    "route": "fast",
+    "binding": "line:heart.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:heart.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 273,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r017",
+   "split": "test",
+   "lang": "zh",
+   "text": "我现在的身体电量是多少",
+   "expected": {
+    "route": "fast",
+    "binding": "battery:battery.now",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "battery:battery.now",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 302,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r018",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示当前 Body Battery 数值",
+   "expected": {
+    "route": "fast",
+    "binding": "battery:battery.now",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "battery:battery.now",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 292,
+   "inputTokens": 2325
+  },
+  {
+   "id": "r019",
+   "split": "test",
+   "lang": "en",
+   "text": "Display my current Body Battery level",
+   "expected": {
+    "route": "fast",
+    "binding": "battery:battery.now",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "battery:battery.now",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 297,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r020",
+   "split": "test",
+   "lang": "en",
+   "text": "What is my Body Battery value right now",
+   "expected": {
+    "route": "fast",
+    "binding": "battery:battery.now",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "battery:battery.now",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 321,
+   "inputTokens": 2322
+  },
+  {
+   "id": "r021",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示身体电量今天的变化曲线",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 343,
+   "inputTokens": 2328
+  },
+  {
+   "id": "r022",
+   "split": "test",
+   "lang": "zh",
+   "text": "把今日身体电量画成趋势图",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 343,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r023",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot the Body Battery curve for today",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 339,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r024",
+   "split": "test",
+   "lang": "en",
+   "text": "Show how my Body Battery changed today",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 339,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r025",
+   "split": "test",
+   "lang": "zh",
+   "text": "今天的训练负荷分数是几分",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:load.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:load.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 286,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r026",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示今日训练负荷数值",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:load.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:load.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 356,
+   "inputTokens": 2325
+  },
+  {
+   "id": "r027",
+   "split": "test",
+   "lang": "en",
+   "text": "Display today’s training load score",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:load.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:load.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 313,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r028",
+   "split": "test",
+   "lang": "en",
+   "text": "What is my recorded training load today",
+   "expected": {
+    "route": "fast",
+    "binding": "ring:load.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "ring:load.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 310,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r029",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示昨晚的睡眠评分",
+   "expected": {
+    "route": "fast",
+    "binding": "score:sleep.score.night",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "score:sleep.score.night",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 400,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r030",
+   "split": "test",
+   "lang": "zh",
+   "text": "昨夜睡眠得分是多少",
+   "expected": {
+    "route": "fast",
+    "binding": "score:sleep.score.night",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "score:sleep.score.night",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 309,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r031",
+   "split": "test",
+   "lang": "en",
+   "text": "Display the sleep score from last night",
+   "expected": {
+    "route": "fast",
+    "binding": "score:sleep.score.night",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "score:sleep.score.night",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 329,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r032",
+   "split": "test",
+   "lang": "en",
+   "text": "What score did I get for last night’s sleep",
+   "expected": {
+    "route": "fast",
+    "binding": "score:sleep.score.night",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "score:sleep.score.night",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 341,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r033",
+   "split": "test",
+   "lang": "zh",
+   "text": "列出今天已经记下的餐食",
+   "expected": {
+    "route": "fast",
+    "binding": "meal:meals.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "meal:meals.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 319,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r034",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示今日已记录餐食清单",
+   "expected": {
+    "route": "fast",
+    "binding": "meal:meals.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "meal:meals.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 332,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r035",
+   "split": "test",
+   "lang": "en",
+   "text": "List the meals I have logged today",
+   "expected": {
+    "route": "fast",
+    "binding": "meal:meals.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "meal:meals.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 350,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r036",
+   "split": "test",
+   "lang": "en",
+   "text": "Display my recorded meals for today",
+   "expected": {
+    "route": "fast",
+    "binding": "meal:meals.today",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "meal:meals.today",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 339,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r037",
+   "split": "test",
+   "lang": "zh",
+   "text": "画出最近七天摄入热量的趋势",
+   "expected": {
+    "route": "fast",
+    "binding": "line:intakeKcal.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:intakeKcal.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 341,
+   "inputTokens": 2328
+  },
+  {
+   "id": "r038",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示近7天饮食热量曲线",
+   "expected": {
+    "route": "fast",
+    "binding": "line:intakeKcal.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:intakeKcal.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 357,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r039",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot food calorie intake over the last seven days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:intakeKcal.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:intakeKcal.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 340,
+   "inputTokens": 2323
+  },
+  {
+   "id": "r040",
+   "split": "test",
+   "lang": "en",
+   "text": "Display my calorie intake trend for the past 7 days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:intakeKcal.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:intakeKcal.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 300,
+   "inputTokens": 2325
+  },
+  {
+   "id": "r041",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示近30天摄入热量折线图",
+   "expected": {
+    "route": "fast",
+    "binding": "line:intakeKcal.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:intakeKcal.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 340,
+   "inputTokens": 2328
+  },
+  {
+   "id": "r042",
+   "split": "test",
+   "lang": "zh",
+   "text": "画出最近三十天饮食热量趋势",
+   "expected": {
+    "route": "fast",
+    "binding": "line:intakeKcal.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:intakeKcal.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 283,
+   "inputTokens": 2328
+  },
+  {
+   "id": "r043",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot calorie intake over the past thirty days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:intakeKcal.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:intakeKcal.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 369,
+   "inputTokens": 2322
+  },
+  {
+   "id": "r044",
+   "split": "test",
+   "lang": "en",
+   "text": "Show a line chart of food calories for the last 30 days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:intakeKcal.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:intakeKcal.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 380,
+   "inputTokens": 2328
+  },
+  {
+   "id": "r045",
+   "split": "test",
+   "lang": "zh",
+   "text": "画出近七天训练负荷趋势",
+   "expected": {
+    "route": "fast",
+    "binding": "line:trainingLoad.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:trainingLoad.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 337,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r046",
+   "split": "test",
+   "lang": "zh",
+   "text": "展示最近7天训练负荷曲线",
+   "expected": {
+    "route": "fast",
+    "binding": "line:trainingLoad.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:trainingLoad.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 319,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r047",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot training load over the last seven days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:trainingLoad.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:trainingLoad.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 321,
+   "inputTokens": 2322
+  },
+  {
+   "id": "r048",
+   "split": "test",
+   "lang": "en",
+   "text": "Display a training load trend for the past 7 days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:trainingLoad.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:trainingLoad.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 330,
+   "inputTokens": 2325
+  },
+  {
+   "id": "r049",
+   "split": "test",
+   "lang": "zh",
+   "text": "画出近七天身体电量曲线",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 401,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r050",
+   "split": "test",
+   "lang": "zh",
+   "text": "最近7天的身体电量趋势图",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 299,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r051",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot Body Battery over the past seven days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 328,
+   "inputTokens": 2322
+  },
+  {
+   "id": "r052",
+   "split": "test",
+   "lang": "en",
+   "text": "Display the Body Battery trend for the last 7 days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.7d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.7d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 360,
+   "inputTokens": 2325
+  },
+  {
+   "id": "r053",
+   "split": "test",
+   "lang": "zh",
+   "text": "画出近30天训练负荷曲线",
+   "expected": {
+    "route": "fast",
+    "binding": "line:trainingLoad.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:trainingLoad.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 322,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r054",
+   "split": "test",
+   "lang": "zh",
+   "text": "最近三十天的训练负荷趋势图",
+   "expected": {
+    "route": "fast",
+    "binding": "line:trainingLoad.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:trainingLoad.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 321,
+   "inputTokens": 2328
+  },
+  {
+   "id": "r055",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot training load over the past thirty days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:trainingLoad.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:trainingLoad.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 291,
+   "inputTokens": 2322
+  },
+  {
+   "id": "r056",
+   "split": "test",
+   "lang": "en",
+   "text": "Show training load as a line for the last 30 days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:trainingLoad.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:trainingLoad.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 329,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r057",
+   "split": "test",
+   "lang": "zh",
+   "text": "画出近30天身体电量趋势",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 349,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r058",
+   "split": "test",
+   "lang": "zh",
+   "text": "展示最近三十天身体电量曲线",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 368,
+   "inputTokens": 2328
+  },
+  {
+   "id": "r059",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot Body Battery over the last thirty days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 340,
+   "inputTokens": 2322
+  },
+  {
+   "id": "r060",
+   "split": "test",
+   "lang": "en",
+   "text": "Show a Body Battery line chart for the past 30 days",
+   "expected": {
+    "route": "fast",
+    "binding": "line:bodyBattery.30d",
+    "reason": null
+   },
+   "got": {
+    "route": "fast",
+    "binding": "line:bodyBattery.30d",
+    "reason": null
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 312,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r061",
+   "split": "test",
+   "lang": "zh",
+   "text": "我并非不想知道今天的步数",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NEGATED_REQUEST"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r062",
+   "split": "test",
+   "lang": "zh",
+   "text": "不要给我显示今日心率",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NEGATED_REQUEST"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r063",
+   "split": "test",
+   "lang": "zh",
+   "text": "我没有不想查今天的蛋白质",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NEGATED_REQUEST"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r064",
+   "split": "test",
+   "lang": "zh",
+   "text": "别查昨夜睡眠分数",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NEGATED_REQUEST"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r065",
+   "split": "test",
+   "lang": "en",
+   "text": "I do not want today’s calories displayed",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NEGATED_REQUEST"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r066",
+   "split": "test",
+   "lang": "en",
+   "text": "Never show my sleep score",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NEGATED_REQUEST"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r067",
+   "split": "test",
+   "lang": "en",
+   "text": "Don’t display the Body Battery chart",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NEGATED_REQUEST"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r068",
+   "split": "test",
+   "lang": "en",
+   "text": "I cannot say I want today’s steps",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NEGATED_REQUEST"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r069",
+   "split": "test",
+   "lang": "zh",
+   "text": "请记录午餐吃了三个鸡蛋",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 349,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r070",
+   "split": "test",
+   "lang": "zh",
+   "text": "把今天的体重改成六十公斤",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "WRITE_OR_ACTION"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 389,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r071",
+   "split": "test",
+   "lang": "zh",
+   "text": "删除昨天的跑步记录",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 302,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r072",
+   "split": "test",
+   "lang": "zh",
+   "text": "设一个明早七点半的闹钟",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (time_range:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 338,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r073",
+   "split": "test",
+   "lang": "en",
+   "text": "Log oatmeal for my breakfast",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 333,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r074",
+   "split": "test",
+   "lang": "en",
+   "text": "Change my target to 1800 calories",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 350,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r075",
+   "split": "test",
+   "lang": "en",
+   "text": "Delete yesterday’s sleep entry",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 390,
+   "inputTokens": 2319
+  },
+  {
+   "id": "r076",
+   "split": "test",
+   "lang": "en",
+   "text": "Start a running workout",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 331,
+   "inputTokens": 2318
+  },
+  {
+   "id": "r077",
+   "split": "test",
+   "lang": "zh",
+   "text": "今天的步数和摄入热量分别是多少",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 329,
+   "inputTokens": 2330
+  },
+  {
+   "id": "r078",
+   "split": "test",
+   "lang": "zh",
+   "text": "先显示心率再设置闹钟",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (time_range:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 408,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r079",
+   "split": "test",
+   "lang": "zh",
+   "text": "比较睡眠与训练负荷的关系",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 389,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r080",
+   "split": "test",
+   "lang": "zh",
+   "text": "我胸口疼而且心率高怎么办",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (time_range:probability)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 429,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r081",
+   "split": "test",
+   "lang": "en",
+   "text": "Show my steps and protein intake together",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 349,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r082",
+   "split": "test",
+   "lang": "en",
+   "text": "Show sleep first and then log breakfast",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 442,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r083",
+   "split": "test",
+   "lang": "en",
+   "text": "Compare my heart rate with my sleep",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 430,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r084",
+   "split": "test",
+   "lang": "en",
+   "text": "My chest hurts, should I exercise",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (time_range:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 361,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r085",
+   "split": "test",
+   "lang": "zh",
+   "text": "看看上周的训练负荷",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "WINDOW_UNRESOLVED"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 390,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r086",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示本月的摄入热量",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "WINDOW_UNRESOLVED"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 340,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r087",
+   "split": "test",
+   "lang": "zh",
+   "text": "展示九月十五日的身体电量",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "WINDOW_UNRESOLVED"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 380,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r088",
+   "split": "test",
+   "lang": "zh",
+   "text": "查看最近七天体重",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NO_BINDING"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 350,
+   "inputTokens": 2323
+  },
+  {
+   "id": "r089",
+   "split": "test",
+   "lang": "en",
+   "text": "Show training load for the previous calendar week",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "REFERS_TO_EARLIER_TURN"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r090",
+   "split": "test",
+   "lang": "en",
+   "text": "Display food calories for this calendar month",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "WINDOW_UNRESOLVED"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 310,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r091",
+   "split": "test",
+   "lang": "en",
+   "text": "Show Body Battery on September 15",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "WINDOW_UNRESOLVED"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 309,
+   "inputTokens": 2322
+  },
+  {
+   "id": "r092",
+   "split": "test",
+   "lang": "en",
+   "text": "Plot weight for the last seven days",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "NO_BINDING"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 280,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r093",
+   "split": "test",
+   "lang": "zh",
+   "text": "为什么昨夜的睡眠分数变低",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "EXPLANATION_NOT_ENABLED"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 315,
+   "inputTokens": 2327
+  },
+  {
+   "id": "r094",
+   "split": "test",
+   "lang": "zh",
+   "text": "今天的训练负荷适合我吗",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "EXPLANATION_NOT_ENABLED"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 312,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r095",
+   "split": "test",
+   "lang": "zh",
+   "text": "帮我制定改善睡眠的计划",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "WRITE_OR_ACTION"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 305,
+   "inputTokens": 2326
+  },
+  {
+   "id": "r096",
+   "split": "test",
+   "lang": "zh",
+   "text": "刚才那张图换成一个月",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "REFERS_TO_EARLIER_TURN"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r097",
+   "split": "test",
+   "lang": "en",
+   "text": "Why is my sleep score lower",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (time_range:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 328,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r098",
+   "split": "test",
+   "lang": "en",
+   "text": "Is my current training load appropriate",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "EXPLANATION_NOT_ENABLED"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 347,
+   "inputTokens": 2320
+  },
+  {
+   "id": "r099",
+   "split": "test",
+   "lang": "en",
+   "text": "Make a plan to improve my sleep",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (metric:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 371,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r100",
+   "split": "test",
+   "lang": "en",
+   "text": "Show that same chart for a month",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "REFERS_TO_EARLIER_TURN"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 0,
+   "inputTokens": 0
+  },
+  {
+   "id": "r101",
+   "split": "test",
+   "lang": "zh",
+   "text": "今天走了多少公里",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 367,
+   "inputTokens": 2323
+  },
+  {
+   "id": "r102",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示今天消耗的热量",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 332,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r103",
+   "split": "test",
+   "lang": "zh",
+   "text": "昨夜血氧最低是多少",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 309,
+   "inputTokens": 2324
+  },
+  {
+   "id": "r104",
+   "split": "test",
+   "lang": "zh",
+   "text": "显示我当前的压力分数",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 498,
+   "inputTokens": 2325
+  },
+  {
+   "id": "r105",
+   "split": "test",
+   "lang": "en",
+   "text": "How many kilometres have I walked today",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "METRIC_NO_MATCH (NOT_SUPPORTED_distance)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 301,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r106",
+   "split": "test",
+   "lang": "en",
+   "text": "Display today’s calories burned",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 301,
+   "inputTokens": 2319
+  },
+  {
+   "id": "r107",
+   "split": "test",
+   "lang": "en",
+   "text": "What was my lowest oxygen last night",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 280,
+   "inputTokens": 2321
+  },
+  {
+   "id": "r108",
+   "split": "test",
+   "lang": "en",
+   "text": "Show my current stress score",
+   "expected": {
+    "route": "legacy",
+    "binding": null,
+    "reason": null
+   },
+   "got": {
+    "route": "legacy",
+    "binding": null,
+    "reason": "LOW_CONFIDENCE (request_scope:confidence)"
+   },
+   "correct": true,
+   "wrongAdmission": false,
+   "latencyMs": 367,
+   "inputTokens": 2319
+  }
+ ]
+}

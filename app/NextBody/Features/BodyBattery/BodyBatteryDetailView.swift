@@ -102,9 +102,9 @@ struct BodyBatteryDetailView: View {
                 await Analytics.shared.track("BB_ATTRIBUTION_MISMATCH",
                                              ["TICKS": m.reserveCurve.count])
             }
-            if let wake = m.bbWake, let target = m.targetLoad, let zone = m.optimalZone {
+            if let reserve = m.bodyBattery, let target = m.targetLoad, let zone = m.optimalZone {
                 await Analytics.shared.track("BB_TARGET_SET",
-                                             ["BB": wake, "TARGET": target,
+                                             ["BB": reserve, "TARGET": target,
                                               "LO": zone.lowerBound, "HI": zone.upperBound])
             }
             if m.bodyBatteryFreshness(at: Date()) == .stale, let at = m.bodyBatteryObservedAt {
@@ -181,7 +181,7 @@ struct BodyBatteryDetailView: View {
 
     /// 13 · WHY <n> as a ledger. Where the day started, four signed rows with the reason
     /// each one has its sign, the balance after each, and the number at the top as the last
-    /// balance. Sleep is the only row that charges; the other three only ever drain, and the
+    /// balance. Recovery combines sleep and sustained rest; the other three drain, and the
     /// caption under each says what the model charged for. No training target here — the
     /// target is a training-page fact, and it read as a fifth term of the sum.
     @ViewBuilder private var ledgerCard: some View {
@@ -215,7 +215,7 @@ struct BodyBatteryDetailView: View {
                 Hairline()
                 LedgerEdge(label: nowClock.map { L("NOW %@", $0) } ?? L("NOW"), value: now,
                            note: nil, tint: NB.lime1)
-                Text(L("Only sleep charges it. Being awake drains it on its own; moving and stress cost more on top."))
+                Text(L("Sleep and sustained quiet rest can recharge your battery. Activity and physiological strain use it; high strain can limit recovery even during sleep."))
                     .font(NBFont.brand(400, 13))
                     .lineSpacing(6)
                     .foregroundStyle(NB.white.opacity(0.62))
@@ -237,7 +237,7 @@ struct BodyBatteryDetailView: View {
         case .recovery: L("Recovery")
         case .awake:    L("Just being awake")
         case .movement: L("Moving around")
-        case .stress:   L("Stress")
+        case .stress:   L("Physiological strain")
         }
     }
 
@@ -245,10 +245,7 @@ struct BodyBatteryDetailView: View {
     private func ledgerReason(_ term: BodyBatteryLedgerRow.Term, _ d: ReserveDrivers) -> String {
         switch term {
         case .recovery:
-            if let multiplier = m.nightInputs?.multiplier {
-                return L("Charged while asleep · multiplier %.2f", multiplier)
-            }
-            return L("Charged while asleep")
+            return L("Sleep and sustained quiet rest since midnight")
         case .awake:
             if let minutes = BodyBatteryLedgerMath.awakeMinutes(
                 wakeAt: m.bodyBatteryWakeAt, dayStart: m.day.start, observedAt: m.bodyBatteryObservedAt) {
@@ -263,10 +260,10 @@ struct BodyBatteryDetailView: View {
         case .stress:
             if let minutes = BodyBatteryLedgerMath.stressedMinutes(m.vitalsCurve) {
                 return minutes > 0
-                    ? L("Stress above 40 for %@ · HRV under baseline", Fmt.duration(minutes))
-                    : L("Stress stayed under 40 · HRV under baseline")
+                    ? L("Stress above 40 for %@ · heart rate and HRV also considered", Fmt.duration(minutes))
+                    : L("Heart rate and HRV relative to your own baseline")
             }
-            return L("Stress above 40 and HRV under baseline")
+            return L("Heart rate, HRV and stress; sustained temperature and oxygen changes can limit recovery")
         }
     }
 
@@ -301,7 +298,7 @@ struct BodyBatteryDetailView: View {
                     }
                 }
             }
-            Text(L("Last night's HRV and resting heart rate, against your 14-night baselines, set how fast sleep charged the battery."))
+            Text(L("Nightly baselines guide sleep recovery. Each interval also uses its heart rate, HRV and stress. Daytime rest uses a separate daytime baseline."))
                 .font(NBFont.brand(400, 13))
                 .lineSpacing(6)
                 .foregroundStyle(NB.white.opacity(0.62))
@@ -477,7 +474,7 @@ struct BodyBatteryDetailView: View {
     }
 
     /// Re-read real band evidence through the existing sync lane. A request to refresh
-    /// never edits a calculated value or resets the frozen training target.
+    /// never edits a calculated value. Settlement updates reserve and training guidance together.
     private func refreshBattery() async {
         guard !isRefreshing else { return }
         refreshMessage = nil
@@ -496,9 +493,14 @@ struct BodyBatteryDetailView: View {
         }
         isRefreshing = true
         defer { isRefreshing = false }
-        await OriginDataSync.refreshNow(into: data, request: .latest)
+        let result = await OriginDataSync.refreshNow(into: data, request: .latest)
+        guard !Task.isCancelled else { return }
         if Band.live.state != .connected {
             refreshMessage = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
+        } else if result.status == .partial {
+            refreshMessage = L("Some readings could not sync. Tap Sync to try again.")
+        } else if result.status == .failed {
+            refreshMessage = L("Sync did not complete. Tap Sync to try again.")
         }
     }
 

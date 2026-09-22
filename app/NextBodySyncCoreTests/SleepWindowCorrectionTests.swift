@@ -59,4 +59,97 @@ final class SleepWindowCorrectionTests: XCTestCase {
     func testAnEmptyWindowKeepsNothing() {
         XCTAssertTrue(SleepWindowCorrection.clip(night, bandStart: bandStart, start: at(300), end: at(300)).isEmpty)
     }
+
+    func testReportedNightWithoutStageDataStaysEntirelyUnstaged() {
+        XCTAssertEqual(SleepWindowCorrection.unstagedMinutes([], start: at(0), end: at(480)), 480)
+    }
+
+    func testExpandedWindowCountsOnlyUncoveredMinutesAsUnstaged() {
+        let runs = SleepWindowCorrection.clip(night, bandStart: bandStart, start: at(-60), end: at(600))
+        XCTAssertEqual(SleepWindowCorrection.unstagedMinutes(
+            runs.map { ($0.stage, $0.minutes, $0.offsetMinutes) }, start: at(-60), end: at(600)), 120)
+    }
+
+    func testStageOverlapDoesNotEraseAnUnmeasuredGap() {
+        XCTAssertEqual(SleepWindowCorrection.unstagedMinutes(
+            [(0, 60, 0), (1, 60, 30), (2, 30, 120)], start: at(0), end: at(180)), 60)
+    }
+
+    func testADeviceIntervalIntersectingCorrectedStartIsClippedNotDropped() {
+        let interval = SleepWindowCorrection.clipInterval(start: at(0), end: at(180),
+                                                          windowStart: at(60), windowEnd: at(240))
+        XCTAssertEqual(interval?.start, at(60))
+        XCTAssertEqual(interval?.end, at(180))
+    }
+
+    func testAnOutsideDeviceIntervalDoesNotBecomeNewStageEvidence() {
+        XCTAssertNil(SleepWindowCorrection.clipInterval(start: at(0), end: at(60),
+                                                        windowStart: at(60), windowEnd: at(240)))
+    }
+
+
+    func testHRVBackfillUsesOnlyRealUnoccupiedMinutesAndHonorsInvalidations() {
+        let native = at(1)
+        let invalid = at(2)
+        let samples = [
+            VitalSample(ts: native.addingTimeInterval(10), hr: nil, stress: nil, hrv: 50),
+            VitalSample(ts: invalid.addingTimeInterval(10), hr: nil, stress: nil, hrv: 60),
+            VitalSample(ts: at(3), hr: nil, stress: nil, hrv: 42),
+            VitalSample(ts: at(3).addingTimeInterval(10), hr: nil, stress: nil, hrv: 43),
+            VitalSample(ts: at(4), hr: nil, stress: nil, hrv: nil),
+            VitalSample(ts: at(5), hr: nil, stress: nil, hrv: 30, hrvValid: false),
+        ]
+        let filled = SleepWindowCorrection.hrvBackfill(samples: samples,
+                                                       nativeMinutes: [native], invalidatedMinutes: [invalid])
+        XCTAssertEqual(filled.map(\.ts), [at(3)])
+        XCTAssertEqual(filled.map(\.hrv), [42])
+    }
+
+
+    func testLegacyStageLineUsesOriginalIntervalsBeforeClipping() {
+        let runs = SleepWindowCorrection.clip([(1, 90, nil), (2, 30, nil)],
+            bandStart: bandStart, start: at(80), end: at(180),
+            recordedIntervals: [(at(0), at(60)), (at(120), at(180))])
+        XCTAssertEqual(runs, [
+            .init(stage: 1, minutes: 30, offsetMinutes: 40),
+            .init(stage: 2, minutes: 30, offsetMinutes: 70),
+        ])
+    }
+
+    func testExplicitStageOffsetsAreNotPositionedAgain() {
+        let runs = SleepWindowCorrection.clip([(2, 30, 150)],
+            bandStart: bandStart, start: at(80), end: at(180),
+            recordedIntervals: [(at(0), at(60)), (at(120), at(180))])
+        XCTAssertEqual(runs, [.init(stage: 2, minutes: 30, offsetMinutes: 70)])
+    }
+
+
+    func testRestoringExpandedReportedNightDoesNotReplaceDurationWithStageCoverage() {
+        let restored = SleepWindowCorrection.restoreReportedWindow(totalMinutes: 480,
+            deviceRuns: [(1, 180, nil), (0, 180, nil)],
+            bandStart: at(60), start: at(0), end: at(480), recordedIntervals: [])
+        XCTAssertEqual(restored.totalMinutes, 480)
+        XCTAssertEqual(restored.line.map(\.minutes).reduce(0, +), 360)
+        XCTAssertEqual(restored.line.first?.offsetMinutes, 60)
+    }
+
+    func testRestoringManualNightWithoutMeasurementsKeepsReportedDuration() {
+        let restored = SleepWindowCorrection.restoreReportedWindow(totalMinutes: 480,
+            deviceRuns: [], bandStart: at(0), start: at(0), end: at(480), recordedIntervals: [])
+        XCTAssertEqual(restored.totalMinutes, 480)
+        XCTAssertTrue(restored.line.isEmpty)
+    }
+
+    func testRestoringReportedNightKeepsOriginalSessionGapAndDuration() {
+        let restored = SleepWindowCorrection.restoreReportedWindow(totalMinutes: 100,
+            deviceRuns: [(1, 90, nil), (2, 30, nil)],
+            bandStart: bandStart, start: at(80), end: at(180),
+            recordedIntervals: [(at(0), at(60)), (at(120), at(180))])
+        XCTAssertEqual(restored.totalMinutes, 100)
+        XCTAssertEqual(restored.line, [
+            .init(stage: 1, minutes: 30, offsetMinutes: 40),
+            .init(stage: 2, minutes: 30, offsetMinutes: 70),
+        ])
+    }
+
 }

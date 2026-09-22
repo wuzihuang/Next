@@ -24,10 +24,11 @@ import { buildTools, FIND_TOOL, PERSONAL_ENTITIES, READ_TOOL } from "../_shared/
 import { ENTITIES, resolveMatch, WRITE_ACTIONS } from "../_shared/entities.ts";
 import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
 import { Envelope, normalizeLocale, slowDownFrame, tagSafe } from "../_shared/contract.ts";
-import { buildRenderTools } from "../_shared/charts.ts";
+import { buildRenderTools, RENDER_TOOL } from "../_shared/charts.ts";
 import { userClient, currentUserId, cors, json, userDayKey } from "../_shared/db.ts";
 import { enforceRequestBudget } from "../_shared/rate-limit.ts";
-import { consumeAiQuota, checkAiSpend, quotaDeniedResponse, recordAiUsage } from "../_shared/ai-quota.ts";
+import { consumeAiQuota, checkAiSpend, quotaDeniedResponse, recordAiUsage, recordProviderAttempt } from "../_shared/ai-quota.ts";
+import { requireProEntitlement, subscriptionRequiredResponse } from "../_shared/billing.ts";
 import { usageFromProvider, type TokenUsage } from "../_shared/cost.ts";
 import {
   MAX_TURN_STEPS, MAX_RESUMES, createTurnWorkflow, finishTurnStep, gateTurnTool, restoreTurnWorkflow,
@@ -35,7 +36,7 @@ import {
 } from "../_shared/turn-phase.ts";
 import { clientFreshness, freshnessContext } from "../_shared/freshness.ts";
 import { createTurnContext, withTurnRange, workflowRangeSchema, type TurnContext } from "../_shared/turn-context.ts";
-import { estimateMeal, foodDraftEnvelope, type MealEstimateDraft } from "../_shared/meal-estimate.ts";
+import { estimateMeal, foodDraftEnvelope, looksLikeMealPrompt, commitEstimatedMeals, storeMealPhoto, type MealEstimateDraft } from "../_shared/meal-estimate.ts";
 import type { Ctx } from "../_shared/sources.ts";
 import { repairTextToolCall } from "../_shared/tool-repair.ts";
 import { DO_TOOL, PHONE_TOOLS, WRITE_TOOL, normalizePhoneArgs, phoneToolDescription, phoneToolResult, type PhoneToolRequest } from "../_shared/phone-tools.ts";
@@ -44,13 +45,20 @@ import { buildPlanTool, planContext, savePlanRow, PLAN_LOOKBACK_DAYS, PLAN_RENDE
 import { addDays } from "../_shared/sources.ts";
 import { searchWeb, WEB_SEARCH, type WebEvidence, type WebSearchResult } from "../_shared/web-search.ts";
 import { ADVICE_REFERENCES } from "../_shared/advice-evidence.ts";
+import { DATA_METRICS } from "../_shared/data-read.ts";
+import { jevConfig } from "../_shared/typesafe.ts";
+import { routeTurn, type JevAttempt } from "../_shared/decision-router.ts";
+import { runFastTurn, type FastTurnResult, type ProbeResult } from "../_shared/fast-turn.ts";
+
+import { fetchAs, type Kind } from "../_shared/sources.ts";
 
 const HOURLY = 60;
 /// A trace entry whose ok:true result backs a "logged / set / started" sentence: any
 /// `write`, or a `do` whose action changes state.
 function wroteSomething(entry: unknown): boolean {
-  const r = entry as { tool?: string; args?: { action?: string }; result?: { ok?: boolean } };
+  const r = entry as { tool?: string; args?: { action?: string }; result?: { ok?: boolean; logged?: boolean } };
   if (r.result?.ok !== true) return false;
+  if (r.tool === "meal.estimate" && r.result.logged) return true;
   return r.tool === WRITE_TOOL || (r.tool === DO_TOOL && WRITE_ACTIONS.has(String(r.args?.action)));
 }
 /// The banned-phrase sources that exist only because the model could not write.
@@ -62,18 +70,32 @@ const SUSPEND_TTL_MS = 5 * 60_000;
 /// 15 s of DashScope search from us-west-1 was the extra wait on branded sauces. The
 /// estimate already proceeds without sources — four seconds is a bonus, not a gate.
 export const MEAL_SEARCH_CAP_MS = 4_000;
+export const MEAL_TURN_TIMEOUT_MS = 45_000;
 /// How many rejected frames a turn hands back to the model before the verdict stands.
 export const MAX_RENDER_OBJECTIONS = 2;
+/// Routing has to finish early in the turn or not happen: it may shorten a turn, never
+/// lengthen one. Past this point from the turn's start the request goes to the model.
+const JEV_ROUTE_DEADLINE_MS = 10_000;
+/// The one text frame a guided turn keeps for a window that turned out to have no data.
+const TEXT_RENDER_TOOL = "screen.render.text";
 /// Every surface renews its 90 s execution lease while the model is still moving.
 /// A wall-clock turn budget used to abort thinking work that was still producing.
 const TURN_LEASE_RENEW_MS = 30_000;
 
 export type TurnDependencies = {
+  mealTimeoutMs?: number;
   authenticate: (request: Request) => Promise<string | null>;
   client: (request: Request) => SupabaseClient;
   budget: (db: SupabaseClient) => Promise<Response | null>;
   quota: (db: SupabaseClient, operationId: string) => Promise<
     { allowed: true; remaining?: number } | { allowed: false; reason: "count" | "spend" | "unavailable" }
+  >;
+  entitlement: (db: SupabaseClient) => Promise<
+    { allowed: true; introClaimed: boolean } | {
+      allowed: false;
+      introClaimed: boolean;
+      reason: "missing" | "expired" | "unavailable";
+    }
   >;
   spend: (db: SupabaseClient) => Promise<boolean>;
   streamText: typeof streamText;
@@ -85,6 +107,9 @@ export type TurnDependencies = {
     modelId: string,
     turnId?: string,
   ) => Promise<void>;
+  /// One real Jev attempt, priced from its usage or booked as an unknown-cost upper bound.
+  /// Throwing here blocks further paid work in the turn rather than losing the charge.
+  recordProviderAttempt: (db: SupabaseClient, attempt: JevAttempt, turnId?: string) => Promise<void>;
   /// Tests shorten the renewal threshold; production uses PLAN_LEASE_RENEW_MS.
   leaseRenewAfterMs?: number;
   /// Tests shorten the SSE keepalive; production uses HEARTBEAT_MS.
@@ -98,11 +123,13 @@ const defaults: TurnDependencies = {
   client: userClient,
   budget: (db) => enforceRequestBudget(db, "turn"),
   quota: (db, operationId) => consumeAiQuota(db, "turn", operationId),
+  entitlement: (db) => requireProEntitlement(db),
   spend: async (db) => (await checkAiSpend(db)).allowed,
   streamText,
   generateObject,
   recordUsage: (db, usage, modelId, turnId) =>
     recordAiUsage(db, { endpoint: "turn", modelId, usage, turnId }),
+  recordProviderAttempt: (db, attempt, turnId) => recordProviderAttempt(db, attempt, turnId),
 };
 
 /// What a suspended turn stores between the phone's request and its resume.
@@ -223,6 +250,12 @@ export async function handleTurn(
   // Assigned as soon as meal.estimate returns so a later model/stream failure can still
   // publish the confirmation card instead of 「这次回复没有完成」.
   let recoveredMeal: MealEstimateDraft | null = null;
+  let mealWriteForbidden = false;
+
+  // Recheck on every request, including phone-tool resumes and saved replays.
+  // A suspended turn may outlive the subscription that admitted it.
+  const entitlement = await deps.entitlement(db);
+  if (!entitlement.allowed) return subscriptionRequiredResponse(entitlement);
 
   // Replaying the same Idempotency-Key returns the same frames, so a dropped connection
   // never costs a second model call.
@@ -244,6 +277,13 @@ export async function handleTurn(
   // An interrupted request needs an explicit failure frame. The idle battery card
   // made failed meal requests look like successful answers to a different question.
   const fallback = () => {
+    if (mealWriteForbidden) {
+      const sentence = locale === "zh-CN"
+        ? "这顿没有记录：云端写入被拒绝。请检查账户状态和数据收集授权。"
+        : "This meal was not saved: cloud recording was denied. Check your account and data collection consent.";
+      return Promise.resolve(routedFrame(isChat ? coachFrame(sentence, locale)
+        : { ...panelFailure(locale), sentence }));
+    }
     if (recoveredMeal) return Promise.resolve(routedFrame(foodDraftEnvelope(recoveredMeal, locale)));
     if (isChat) return Promise.resolve(routedFrame(coachFrame(locale === "zh-CN"
       ? "这次回复没有完成，请稍后重试。"
@@ -370,6 +410,7 @@ export async function handleTurn(
 
   return sse(async (send) => {
     let leaseTick: ReturnType<typeof setInterval> | undefined;
+    let mealDeadline: ReturnType<typeof setTimeout> | undefined;
     try {
     send("state", { value: "THINKING" });
     if (surface === "panel" && isChat) send("coach.handoff", {});
@@ -381,7 +422,16 @@ export async function handleTurn(
     // SSE hops alive; the lease is renewed while steps continue. Only a lost lease,
     // a spend stop, or the user leaving a panel turn ends a run that is still moving.
     const run = new AbortController();
-    const signal = isPlan || isChat ? run.signal : AbortSignal.any([run.signal, req.signal]);
+    // A photo of a plate is self-evidently a meal; a typed one is only evident to the
+    // surface the person typed it on. LOG A MEAL says so, and a meal log that was already
+    // going to be written server-side should not die because the plate was dismissed.
+    const mealTurn = looksLikeMealPrompt(text, image) || body.intent === "meal";
+    const boundMeal = () => {
+      mealDeadline ??= setTimeout(() => run.abort(new DOMException("Meal recognition timed out", "TimeoutError")),
+        deps.mealTimeoutMs ?? MEAL_TURN_TIMEOUT_MS);
+    };
+    if (mealTurn) boundMeal();
+    const signal = isPlan || isChat || mealTurn ? run.signal : AbortSignal.any([run.signal, req.signal]);
     let leaseRenewedAt = started;
     const renewLease = async () => {
       const renewed = await db.rpc("renew_ai_turn", { p_turn: turnId, p_lease: leaseId, p_ttl_seconds: 90 });
@@ -434,35 +484,72 @@ export async function handleTurn(
     };
     let mealDraft: MealEstimateDraft | null = suspended?.mealDraft ?? null;
     if (mealDraft) recoveredMeal = mealDraft;
+    let estimateWork: Promise<MealEstimateDraft> | null = null;
+    let photoWork: Promise<string | undefined> | null = null;
+    const estimateDeps = {
+      generateObject: deps.generateObject,
+      recordUsage: (usage: TokenUsage, modelId: string) => deps.recordUsage(db, usage, modelId, turnId),
+    };
+    if (!mealDraft && looksLikeMealPrompt(text, image) && surface === "panel") {
+      estimateWork = estimateMeal({
+        text, image, locale, draftId: turnId, abortSignal: run.signal,
+      }, estimateDeps);
+      // Prefetch may finish after the model chooses a different tool. Handle the
+      // rejection so an unused estimate cannot become an uncaught failure.
+      void estimateWork.catch(() => {});
+    }
+    let envelope: Envelope | null = null;
+    const finishEstimate = async (draft: MealEstimateDraft) => {
+      // A portion is a quantity this tool returned, said in words: "200 g", "1 bowl". The
+      // frame prints it on the row beside the kcal, so the number inside it has to be as
+      // traceable as the kcal is — the ledger takes numbers, and this is where they are.
+      draft.items.forEach((item, index) => {
+        for (const match of (item.portion ?? "").matchAll(/\d+(?:\.\d+)?/g)) {
+          ledger.add(Number(match[0]), `meal.estimate.items[${index}].portion`);
+        }
+      });
+      // A recovered draft from an older archived turn has no group of its own.
+      const grouped = draft.group_id ? draft : { ...draft, group_id: draft.draft_id };
+      const stored = !grouped.photo_path && image
+        ? await (photoWork ?? storeMealPhoto(db, userId, grouped.group_id, image))
+        : grouped.photo_path;
+      const withPhoto = stored === grouped.photo_path ? grouped : { ...grouped, photo_path: stored };
+      const committed = await commitEstimatedMeals(db, withPhoto, dayKey, tz).catch((error) => {
+        mealWriteForbidden = error instanceof Error && error.message === "MEAL_WRITE_FORBIDDEN";
+        throw error;
+      });
+      recoveredMeal = committed;
+      mealDraft = committed;
+      if (!envelope) envelope = foodDraftEnvelope(committed, locale);
+      return committed;
+    };
     tools["meal.estimate"] = {
-      description: "Estimate the meal in this turn's words or attached image. This tool reads an attached food image itself, so do not call image.inspect first. Only select for a meal description or a requested meal estimate, never for an unrelated question containing a food word. Common dishes are estimated directly; give reference_query only for a packaged or branded product, or a dish you cannot estimate. The search is best-effort and capped, and the estimate proceeds without it. Returns a draft, not a saved record.",
+      description: "Estimate the meal in this turn's words or attached image. This tool reads an attached food image itself, so do not call image.inspect first. Only select for a meal description or a requested meal estimate, never for an unrelated question containing a food word. Common dishes are estimated directly; give reference_query only for a packaged or branded product, or a dish you cannot estimate. The search is best-effort and capped, and the estimate proceeds without it. Each distinct food is its own item. A successful estimate is written immediately — not a draft awaiting confirmation.",
       parameters: z.object({ reference_query: z.coerce.string().optional().describe("Optional. Public packaged/branded product or unfamiliar dish nutrition question; no personal details. Omit for common dishes.") }),
       execute: async ({ reference_query }: { reference_query?: string }) => {
         if (!mealDraft) {
-          // The user ruled that a meal never waits on the web: a search is a bounded bonus,
-          // and a slow or failed one leaves the estimate to the model's own knowledge.
+          boundMeal();
+          // Store the already submitted photo while inference runs, not after it.
+          if (image && !photoWork) photoWork = storeMealPhoto(db, userId, turnId, image);
           const evidence: WebEvidence[] = [];
           if (reference_query?.trim()) {
             try {
               const reference = await runWebSearch(reference_query, MEAL_SEARCH_CAP_MS);
               if (reference.ok) evidence.push(reference.data);
             } catch (e) {
-              // The cap fired, or the provider threw: a search that did not answer is a
-              // search that did not happen. Only the turn's own abort ends the estimate.
-              if (signal.aborted) throw e;
+              if (run.signal.aborted) throw e;
               console.error("meal search skipped:", e instanceof Error ? e.message : e);
             }
           }
           await assertModelBudget();
-          mealDraft = await estimateMeal({ text, image, locale, references: evidence, draftId: turnId, abortSignal: signal }, {
-            generateObject: deps.generateObject,
-            recordUsage: (usage, modelId) => deps.recordUsage(db, usage, modelId, turnId),
-          });
-          ledger.harvest(mealDraft, "meal.estimate");
-          recoveredMeal = mealDraft;
-          if (!envelope) envelope = foodDraftEnvelope(mealDraft, locale);
+          if (!estimateWork) {
+            estimateWork = estimateMeal({ text, image, locale, references: evidence, draftId: turnId, abortSignal: run.signal }, estimateDeps);
+          }
+          const estimated = await estimateWork;
+          ledger.harvest(estimated, "meal.estimate");
+          mealDraft = await finishEstimate(estimated);
         }
-        return { ok: true, data: mealDraft };
+        return { ok: true, logged: mealDraft.logged, data: mealDraft };
       },
     };
     if (image) {
@@ -556,7 +643,6 @@ export async function handleTurn(
       };
     }
 
-    let envelope: Envelope | null = null;
     const thoughtBanned = deps.bannedPatterns ?? await loadBanned(db);
     let banned = isChat ? [] : thoughtBanned;
     const renderTools = buildRenderTools(ctx, ledger, (env) => { envelope = env; }, locale);
@@ -580,22 +666,17 @@ export async function handleTurn(
       food.description += " Uses this turn's meal.estimate draft for the dish and nutrition; name, title and sentence may be omitted. Send no claims: an estimate is not a measurement, so the draft is never citable evidence.";
       const renderFood = food.execute;
       food.execute = async (args, opts) => {
-        if (!mealDraft) return { rendered: false, error: "ESTIMATE_REQUIRED", say: "Request one reread and use meal.estimate first. Food output is a confirmation draft." };
-        const draft = mealDraft;
-        // ⚠️ Every number this frame shows is overwritten below from the draft, and a draft
-        // is harvested for traceability but never registered as measurement evidence — so a
-        // claim citing it could not match by construction. The model kept attaching one,
-        // the gate kept answering INVALID_EVIDENCE, and each rejection cost a whole model
-        // round trip: a branded meal that needed a web check then ran past the turn deadline
-        // and came back MODEL_UNAVAILABLE. Dropping the field loses no audit — the sentence
-        // is still checked number by number against the ledger.
+        if (!mealDraft) return { rendered: false, error: "ESTIMATE_REQUIRED", say: "Request one reread and use meal.estimate first. Food output is a logged plate." };
+        const draft = mealDraft.logged ? mealDraft : await finishEstimate(mealDraft);
+        mealDraft = draft;
+        const card = foodDraftEnvelope(draft, locale);
         const result = await renderFood({ ...args, claims: undefined,
-          title: typeof args.title === "string" && args.title.trim() ? args.title : draft.name,
-          sentence: typeof args.sentence === "string" && args.sentence.trim() ? args.sentence
-            : locale === "zh-CN" ? "请确认这份食物估算后再记录。" : "Review this meal estimate before saving.",
+          title: typeof args.title === "string" && args.title.trim() ? args.title : card.title,
+          sentence: typeof args.sentence === "string" && args.sentence.trim() && !/confirm|确认/i.test(args.sentence)
+            ? args.sentence : card.sentence,
           name: draft.name, kcal: draft.kcal, protein_g: draft.protein_g,
           carb_g: draft.carb_g, fat_g: draft.fat_g, pct_of_budget: undefined,
-          action: locale === "zh-CN" ? "确认记录" : "CONFIRM",
+          action: card.action,
         }, opts);
         return result;
       };
@@ -675,7 +756,7 @@ export async function handleTurn(
       },
     };
     if (isChat) renderTools["screen.render.text"] = coachTextTool;
-    const workflow: TurnWorkflow = suspended
+    let workflow: TurnWorkflow = suspended
       ? restoreTurnWorkflow(suspended.workflow)
       : isPlan
         // The plan surface renders from prefetched evidence; reread opens the read step.
@@ -749,6 +830,22 @@ export async function handleTurn(
     });
     const traced = Object.fromEntries(Object.entries({ ...tools, ...phoneTools, ...renderTools, ...controls }).map(([name, t]) => [name, traceTool(name, t)]));
 
+    /// The deterministic route's evidence read. It passes the same pending-upload gate the
+    /// traced read tools apply, waits for the same settlement, and fetches through the
+    /// turn's own source cache — so the render that follows reuses this exact snapshot
+    /// rather than reading the database a second time.
+    const probeSource = async (sourceId: string, kind: Kind, from: string, to: string): Promise<ProbeResult> => {
+      if (!healthPrepared && ((effectiveFreshness?.pending_operations ?? 0) > 0 || effectiveFreshness?.status === "failed")) {
+        return { ok: false, reason: "FRESHNESS_PENDING" };
+      }
+      try {
+        await healthContext(from, to);
+        return { ok: true, result: await fetchAs(sourceId, kind, ctx) };
+      } catch {
+        return { ok: false, reason: "SOURCE_FAILED" };
+      }
+    };
+
     // F5 C7 · loaded before the model runs: the list that scans the finished frame scans
     // every thought line on its way to the screen too.
     const thoughts = new ThoughtStream((t) => send("thought", { text: t }), thoughtBanned);
@@ -785,6 +882,8 @@ export async function handleTurn(
         ? coachMessages(history.data, text, currentDay, `${sourceContext}${photoContext}`)
         : [{ role: "user", content: `<user_text>\n${tagSafe(text)}\n</user_text>\n\ncurrentDay=${currentDay}; requestedDay=${dayKey}${sourceContext}${photoContext}` }];
     }
+    let guidedOutput = false;
+    let guidedOutputReminders = 0;
     const attempt = async (modelId = modelChain()[0]) => {
       await assertModelBudget();
       let stepFinished = false;
@@ -837,7 +936,15 @@ export async function handleTurn(
       thoughts.flush();
       if (!stepFinished) throw new Error("MODEL_STEP_INCOMPLETE");
       if (isChat && !envelope && !calledTools && answer.trim()) envelope = coachFrame(answer.trim(), locale);
-      if (!envelope && !calledTools) throw new Error("WORKFLOW_OUTPUT_REQUIRED");
+      if (!envelope && !calledTools) {
+        // A read-only guided turn can recover once when the model answers in prose,
+        // including after a rejected frame. Keep all render gates and the step budget.
+        if (guidedOutput && guidedOutputReminders++ < 1 && workflow.completedSteps < MAX_TURN_STEPS) {
+          messages.push({ role: "user", content: "No frame was published. Finish by calling the selected screen.render tool (screen.render.text only for no data). If the previous frame was rejected, correct that objection and call the render tool again. Plain prose cannot finish this request." });
+          return;
+        }
+        throw new Error("WORKFLOW_OUTPUT_REQUIRED");
+      }
     };
     const runStep = async () => {
       const chain = modelChain();
@@ -861,7 +968,126 @@ export async function handleTurn(
       throw lastError;
     };
 
+    // ADR 0031 · Jev decides a limited class of read-only requests, and this turn then
+    // guides the model with a chosen tool/chart/window (templates are opt-in). Everything it does
+    // not accept — every other surface, every image, every write, every resume, every
+    // request it is unsure about — falls straight through to the model loop below with
+    // the turn untouched: same operation, same lease, same quota, same phases.
+    let jevRoute: "fast" | "assisted" | "legacy" = "legacy";
+    let paidFallbackBlocked = false;
+    if (!envelope && !pending && !suspended) {
+      const config = jevConfig();
+      // ⚠️ `shadow` performs no provider call in this version. An online shadow would spend
+      // real money on a decision the user never sees, and this project's accounting cannot
+      // separate an experiment's cost from the user's own daily cap (nb.ai_quotas has one
+      // spend bucket). Until it can, shadow evaluation is the offline runner in
+      // supabase/scripts/eval, and `shadow` behaves as `off` here.
+      const routed = config.mode === "on" && await deps.spend(db)
+        ? await routeTurn({
+          text, locale, currentDay, surface, hasImage: !!image, isResume: !!suspended, config,
+          deadlineAt: started + JEV_ROUTE_DEADLINE_MS, signal,
+        })
+        : { outcome: "abstain" as const, reason: "MODE_OFF" as const, attempts: [] };
+      // Every provider attempt is accounted for, including one whose answer was unusable
+      // and one that may have been billed with no usage returned.
+      for (const attempt of routed.attempts) {
+        try {
+          await deps.recordProviderAttempt(db, attempt, turnId);
+        } catch (e) {
+          // An attempt we cannot put on the books cannot be followed by more paid work.
+          console.error("jev accounting failed:", e instanceof Error ? e.message : e);
+          paidFallbackBlocked = true;
+        }
+      }
+      // The turn is being cancelled, not the decision: never start a model step after it.
+      if (routed.outcome === "cancelled") signal.throwIfAborted();
+      let fast: FastTurnResult | null = null;
+      if (routed.outcome === "accept") {
+        const plan = routed.plan;
+        if (config.templateFast && !plan.explanation) {
+          // The zero-model variant, off by default: the server reads the source itself and
+          // writes the words from a template. Two orders of magnitude faster, and the
+          // words never vary — no web check, no judgement, no room to improvise.
+          fast = await runFastTurn(plan, {
+            traced, workflow, locale, signal,
+            probe: (sourceId, kind, from, to) => probeSource(sourceId, kind, from, to),
+          });
+          if (fast.published) jevRoute = fast.route;
+        } else {
+          // ⚠️ The default. Jev chose the tool, the chart and the window, so the model no
+          // longer spends steps deciding those — but it still does the work: it reads, it
+          // may check an external fact on the web, and it writes the answer. Its tool
+          // surface is narrowed to what this request actually needs, which is where both
+          // the step count and the schema payload go down.
+          guidedOutput = true;
+          jevRoute = plan.explanation ? "assisted" : "fast";
+          resolved = withTurnRange(resolved, { from: plan.window.from, to: plan.window.to });
+          ctx.dayKey = resolved.dayKey;
+          ctx.from = resolved.from;
+          ctx.to = resolved.to;
+          workflow = createTurnWorkflow(
+            // Reading and verifying an external fact stay open; nothing else does.
+            [READ_TOOL, FIND_TOOL, WEB_SEARCH].filter((name) => name in traced),
+            // The chosen chart, plus the text frame for a window that turns out empty.
+            [RENDER_TOOL, TEXT_RENDER_TOOL].filter((name) => name in traced),
+            [],
+            "read",
+            false,
+            // The window is already resolved, so the chart needs no `workflow.ready` step.
+            true,
+          );
+          // The render tool's description is the whole TYPE → SOURCES catalogue, 3.3k
+          // characters re-sent on every step so the model can choose. It has nothing left
+          // to choose, so it is handed the one line that still applies.
+          const chosen = traced[RENDER_TOOL];
+          if (chosen) {
+            traced[RENDER_TOOL] = {
+              ...chosen,
+              description:
+                `Draw the chart the server already chose: type="${plan.binding.type}", source="${plan.binding.source}". Send those two exactly; write title and sentence from what you read.`,
+            };
+          }
+          // Server-authored, appended to the server's own user message: the model is told
+          // what was decided rather than asked to decide it again. The render tool still
+          // refuses a source its chart does not declare, so this is guidance over a gate,
+          // never instead of one.
+          const readHint = (DATA_METRICS as readonly string[]).includes(plan.metric)
+            ? `The read metric is "${plan.metric}". Call ${READ_TOOL} directly with metric="${plan.metric}", from="${plan.window.from}", to="${plan.window.to}"; no catalogue lookup is needed for this known metric.`
+            : "";
+          const decided = [
+            `<routing>`,
+            `The server already resolved this request. Draw ${RENDER_TOOL} with type="${plan.binding.type}" and source="${plan.binding.source}" for ${plan.window.from}..${plan.window.to}.`,
+            readHint,
+            `Read what you need to write the words, then render exactly that chart and source.`,
+            `Use ${TEXT_RENDER_TOOL} only if the source has no data.`,
+            `Complete this request through a render tool, never plain prose. If a frame is rejected, fix the objection and render again. This is read-only: describe intake or measurements; never claim you logged or saved anything (including 已记录).`,
+            `</routing>`,
+          ].join("\n");
+          const first = messages[0];
+          if (first && typeof first.content === "string") {
+            messages[0] = { role: "user", content: `${first.content}\n\n${decided}` };
+          }
+        }
+      }
+      console.log("JEV_ROUTE", JSON.stringify({
+        route: jevRoute,
+        outcome: routed.outcome,
+        reason: routed.outcome === "accept" ? undefined : (routed as { reason?: string }).reason,
+        detail: (routed as { detail?: string }).detail,
+        binding: routed.outcome === "accept" ? routed.plan.binding.id : undefined,
+        fast_failure: fast && !fast.published ? fast.reason : undefined,
+        version: routed.outcome === "accept" ? routed.version : undefined,
+        calls: routed.attempts.map((a) => ({
+          ms: a.latencyMs, failure: a.failure, cost_unknown: a.costUnknown,
+          input_tokens: a.usage?.promptTokens ?? null, request_id: a.requestId,
+        })),
+      }));
+    }
+
     try {
+      // A provider attempt whose cost could not be recorded stops paid work: the frame
+      // below says the request did not complete rather than spending more on it.
+      if (paidFallbackBlocked && !envelope) throw new Error("AI_ACCOUNTING_UNAVAILABLE");
       while (!envelope && !pending && workflow.completedSteps < MAX_TURN_STEPS) {
         await runStep();
       }
@@ -977,18 +1203,22 @@ export async function handleTurn(
       const draft = mealDraft as MealEstimateDraft;
       parsed.data.data = { ...parsed.data.data, draft_id: draft.draft_id,
         confidence: draft.confidence, model_version: draft.model_version,
-        source: draft.source, is_estimate: true, requires_confirmation: true };
+        source: draft.source, is_estimate: true,
+        requires_confirmation: draft.requires_confirmation,
+        committed: draft.logged, items: draft.items, meal_ids: draft.meal_ids,
+        rows: draft.items.map((item) => ({ label: item.portion ? `${item.name} · ${item.portion}` : item.name, value: String(item.kcal) })) };
     }
     const canonical = await save(parsed.data, trace, Date.now() - started);
     send("screen.render", { envelope: canonical });
     send("done", {});
     } finally {
       if (leaseTick) clearInterval(leaseTick);
+      clearTimeout(mealDeadline);
       // Ending this request may leave another phone tool pending. Only durable
       // terminal completion retires the snapshot; release never owns that decision.
       await db.rpc("release_ai_turn", {p_turn:turnId,p_lease:leaseId});
     }
-  }, fallback, { detached: isPlan || isChat, heartbeatMs: deps.heartbeatMs });
+  }, fallback, { detached: isPlan || isChat || body.intent === "meal" || looksLikeMealPrompt(text, image), heartbeatMs: deps.heartbeatMs });
   } catch (error) {
     // Pre-stream work owns the lease too: a failed state read or prefetch must not
     // strand it or turn an unavailable suspension into a newly admitted operation.
@@ -1145,7 +1375,12 @@ function sse(run: (send: (event: string, data: unknown) => void) => void | Promi
       const send = (event: string, data: unknown) => write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       beat = setInterval(() => write(": ping\n\n"), options.heartbeatMs ?? HEARTBEAT_MS);
       const work = (async () => {
-        try { await run(send); } catch { send("error", { code: "TURN_UNAVAILABLE", ...(onFailure ? {fallback_frame:await onFailure()} : {}) }); }
+        try { await run(send); } catch (error) {
+          // Swallowed until 2026-09-20: a stream that died here reported TURN_UNAVAILABLE
+          // with no trace of why, on the phone and in the logs alike.
+          console.error("turn stream failed:", error instanceof Error ? (error.stack ?? error.message) : error);
+          send("error", { code: "TURN_UNAVAILABLE", ...(onFailure ? {fallback_frame:await onFailure()} : {}) });
+        }
         finally { clearInterval(beat); open = false; try { controller.close(); } catch { /* already cancelled by the reader */ } }
       })();
       if (options.detached) {

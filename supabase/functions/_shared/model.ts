@@ -23,12 +23,41 @@ export function modelVersion(id = primaryModelId()): string {
 
 export const MODEL_VERSION = modelVersion();
 
+/// 2026-09-19 · grok reasoned without a cap: ~1040 output tokens a step, 76 s median
+/// turn. The DashScope thinking_budget in turn/index.ts never reached this provider.
+/// GROK_REASONING_EFFORT="" (or "off") sends no field at all.
+export function grokReasoningEffort(): string | undefined {
+  const value = (Deno.env.get("GROK_REASONING_EFFORT") ?? "low").trim().toLowerCase();
+  return value && value !== "off" ? value : undefined;
+}
+
+/// Written into the request body here rather than through providerOptions: 0.2.14 spreads
+/// the provider's options into the body verbatim and then overwrites reasoning_effort
+/// from `reasoningEffort`, so neither spelling arrives alone.
+export function withReasoningEffort(effort: string | undefined): typeof fetch | undefined {
+  if (!effort) return undefined;
+  // Resolved per call so a swapped globalThis.fetch (tests, instrumentation) still applies.
+  const base: typeof fetch = (input, init) => globalThis.fetch(input, init);
+  return (input, init) => {
+    const raw = (init as { body?: unknown } | undefined)?.body;
+    if (typeof raw !== "string") return base(input, init);
+    try {
+      const body = JSON.parse(raw);
+      if (body && typeof body === "object" && !("reasoning_effort" in body)) {
+        return base(input, { ...init, body: JSON.stringify({ ...body, reasoning_effort: effort }) });
+      }
+    } catch { /* not JSON: send as is */ }
+    return base(input, init);
+  };
+}
+
 function compatibleModel(id: string, provider: string, baseURL: string, apiKey: string) {
   // 0.2.x's provider factory drops includeUsage; the exported model config
   // supports it and requests the terminal usage chunk for streamed calls.
   return new OpenAICompatibleChatLanguageModel(id, {}, {
     provider: `${provider}.chat`,
     includeUsage: true,
+    ...(provider === "grok" ? { fetch: withReasoningEffort(grokReasoningEffort()) } : {}),
     headers: () => ({ Authorization: `Bearer ${apiKey}` }),
     url: ({ path }) => {
       if (provider === "grok" && (!baseURL || !apiKey)) throw new ModelConfigurationError();

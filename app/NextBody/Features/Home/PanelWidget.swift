@@ -487,7 +487,7 @@ struct PanelWidgetView: View {
                 .offset(x: Slot.safeX, y: 104)
             // ⚠️ No kcal unless a tool returned one: S3, and 07's own rule that an absent
             // number is a long dash rather than a guess.
-            Text(plate.kcal.map { "\(Int($0)) kcal" } ?? Fmt.dash)
+            Text(plate.kcal.map { "\(Fmt.nutrient($0)) kcal" } ?? Fmt.dash)
                 .font(NBFont.dot(700, 62))
                 .foregroundStyle(NB.white.opacity(0.45))
                 .lineLimit(1).minimumScaleFactor(0.6)
@@ -508,7 +508,7 @@ struct PanelWidgetView: View {
                             .font(NBFont.dot(600, 10)).tracking(0.14 * 10)
                             .foregroundStyle(row.2)
                         Spacer(minLength: 0)
-                        Text("\(Int(row.1!)) g")
+                        Text("\(Fmt.nutrient(row.1)) g")
                             .font(NBFont.dot(600, 10.5))
                             .foregroundStyle(NB.white.opacity(0.60))
                     }

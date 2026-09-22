@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// A confirmed meal is durable before it becomes visible. Manual entries, accepted
 /// estimates and later changes share identity, dependency order and acknowledgment.
@@ -30,12 +31,18 @@ public final class MealPublication {
         public let slot: String
         public let name: String
         public let kcal: Double
-        public let protein: Int
-        public let carb: Int
-        public let fat: Int
+        public let protein: Double
+        public let carb: Double
+        public let fat: Double
         public let confirmed: Bool
         public let source: String?
         public let revisions: Int?
+        public let groupID: String?
+        public let portion: String?
+        public let photoPath: String?
+        public let fiber: Double?
+        public let sugar: Double?
+        public let sodium: Double?
     }
     public struct Projection {
         public let meals: [VisibleMeal]
@@ -60,7 +67,7 @@ public final class MealPublication {
     }
 
     public func createManual(id: UUID = UUID(), day: String, slot: String, name: String,
-                             kcal: Int, at: Date) throws -> Submitted {
+                             kcal: Double, at: Date) throws -> Submitted {
         try create(id: id, fields: ["draft_id": id.uuidString.lowercased(), "user_day": day,
             "slot": slot, "name": name.trimmingCharacters(in: .whitespacesAndNewlines),
             "kcal": kcal, "protein_g": 0, "carb_g": 0, "fat_g": 0,
@@ -157,22 +164,34 @@ public final class MealPublication {
             entries.removeAll { $0.id == id }
             entries.append(VisibleMeal(id: id, day: day, at: at, slot: slot, name: fields["name"] as? String ?? "",
                 kcal: (fields["kcal"] as? NSNumber)?.doubleValue ?? 0,
-                protein: (fields["protein_g"] as? NSNumber)?.intValue ?? 0,
-                carb: (fields["carb_g"] as? NSNumber)?.intValue ?? 0,
-                fat: (fields["fat_g"] as? NSNumber)?.intValue ?? 0,
+                protein: (fields["protein_g"] as? NSNumber)?.doubleValue ?? 0,
+                carb: (fields["carb_g"] as? NSNumber)?.doubleValue ?? 0,
+                fat: (fields["fat_g"] as? NSNumber)?.doubleValue ?? 0,
                 confirmed: kind != "estimate" && envelope["rejection"] == nil,
-                source: envelope["source"] as? String, revisions: envelope["revisions"] as? Int))
+                source: envelope["source"] as? String, revisions: envelope["revisions"] as? Int,
+                groupID: fields["meal_group_id"] as? String,
+                portion: fields["portion"] as? String,
+                photoPath: fields["photo_path"] as? String,
+                fiber: (fields["fiber_g"] as? NSNumber)?.doubleValue,
+                sugar: (fields["sugar_g"] as? NSNumber)?.doubleValue,
+                sodium: (fields["sodium_mg"] as? NSNumber)?.doubleValue))
         }
         return Projection(meals: entries, removedIDs: removed)
     }
 
     private func validate(_ fields: [String: Any]) throws {
+        func validNutrient(_ raw: Any?) -> Bool {
+            guard let n = raw as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return false }
+            return n.doubleValue.isFinite && (0...100000).contains(n.doubleValue)
+        }
         guard let name = fields["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               name.count <= 8000, let day = fields["user_day"] as? String,
               let slot = fields["slot"] as? String, ["BREAKFAST", "LUNCH", "DINNER", "SNACK"].contains(slot),
-              let kcal = fields["kcal"] as? Int, (1...100000).contains(kcal),
+              validNutrient(fields["kcal"]),
               ["protein_g", "carb_g", "fat_g"].allSatisfy({ key in
-                  guard let n = fields[key] as? Int else { return false }; return (0...100000).contains(n)
+                  validNutrient(fields[key])
+              }), ["fiber_g", "sugar_g", "sodium_mg"].allSatisfy({ key in
+                  fields[key] == nil || validNutrient(fields[key])
               }) else { throw Failure.invalidMeal }
         let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX")
         date.timeZone = TimeZone(secondsFromGMT: 0); date.dateFormat = "yyyy-MM-dd"; date.isLenient = false

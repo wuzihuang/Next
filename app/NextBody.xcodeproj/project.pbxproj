@@ -28,6 +28,8 @@
 		FE0000000000000000000403 /* WidgetFaceMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000402 /* WidgetFaceMath.swift */; };
 		FE0000000000000000000405 /* FuelCardMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000404 /* FuelCardMath.swift */; };
 		FE0000000000000000000407 /* WidgetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000406 /* WidgetBridge.swift */; };
+		FEC000000000000000000001 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = FEC000000000000000000003 /* RevenueCat */; };
+		FEC000000000000000000002 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = FEC000000000000000000004 /* RevenueCatUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -117,6 +119,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				FE0000000000000000000300 /* GoogleSignIn in Frameworks */,
+				FEC000000000000000000001 /* RevenueCat in Frameworks */,
+				FEC000000000000000000002 /* RevenueCatUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -229,6 +233,8 @@
 			name = NextBody;
 			packageProductDependencies = (
 				FE0000000000000000000301 /* GoogleSignIn */,
+				FEC000000000000000000003 /* RevenueCat */,
+				FEC000000000000000000004 /* RevenueCatUI */,
 			);
 			productName = NextBody;
 			productReference = FE0000000000000000000001 /* NextBody.app */;
@@ -305,6 +311,7 @@
 			mainGroup = FE0000000000000000000030;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				FEC000000000000000000005 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 				FE0000000000000000000302 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -441,6 +448,7 @@
 		};
 		FE0000000000000000000071 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = FE0000000000000000000003 /* Local.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -462,123 +470,123 @@
 			name = Release;
 		};
 		FE0000000000000000000072 /* Debug */ = {
-	buildSettings = {
-		"ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES" = YES;
-		"ASSETCATALOG_COMPILER_APPICON_NAME" = AppIcon;
-		"ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME" = AccentColor;
-		"CLANG_ENABLE_MODULES" = YES;
-		"CODE_SIGN_ENTITLEMENTS" = "NextBody/NextBody.entitlements";
-		"CODE_SIGN_STYLE" = Automatic;
-		"CURRENT_PROJECT_VERSION" = 5;
-		"DEVELOPMENT_ASSET_PATHS" = "";
-		"DEVELOPMENT_TEAM" = BP7F7PYU33;
-		"ENABLE_PREVIEWS" = YES;
-		"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
-			"$(inherited)",
-			"$(PROJECT_DIR)/Frameworks",
-		);
-		"GCC_WARN_INHIBIT_ALL_WARNINGS" = NO;
-		"GENERATE_INFOPLIST_FILE" = NO;
-		"HEADER_SEARCH_PATHS" = (
-			"$(inherited)",
-			"$(PROJECT_DIR)/Vendor/FMDB/src/fmdb",
-			"$(PROJECT_DIR)/Vendor/MJExtension/MJExtension",
-		);
-		"INFOPLIST_FILE" = "NextBody-Info.plist";
-		"LD_RUNPATH_SEARCH_PATHS" = (
-			"$(inherited)",
-			"@executable_path/Frameworks",
-		);
-		"MARKETING_VERSION" = "1.0";
-		"OTHER_LDFLAGS" = (
-			"$(inherited)",
-			"-lsqlite3",
-		);
-		"OTHER_LDFLAGS[sdk=iphoneos*]" = (
-			"$(inherited)",
-			"-ObjC",
-			"-framework",
-			VeepooBleSDK,
-			"-framework",
-			ABParTool,
-			"-framework",
-			DFUnits,
-			"-framework",
-			GRDFUSDK,
-			"-framework",
-			JLDialUnit,
-			"-framework",
-			"JL_BLEKit",
-			"-framework",
-			ZipZap,
-		);
-		"PRODUCT_BUNDLE_IDENTIFIER" = "com.nextbody.hoop";
-		"PRODUCT_NAME" = "$(TARGET_NAME)";
-		"SWIFT_EMIT_LOC_STRINGS" = YES;
-		"TARGETED_DEVICE_FAMILY" = 1;
-	};
-	isa = XCBuildConfiguration;
-	name = Debug;
-};
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = NextBody/NextBody.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = BP7F7PYU33;
+				ENABLE_PREVIEWS = YES;
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
+				GCC_WARN_INHIBIT_ALL_WARNINGS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/FMDB/src/fmdb",
+					"$(PROJECT_DIR)/Vendor/MJExtension/MJExtension",
+				);
+				INFOPLIST_FILE = "NextBody-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-ObjC",
+					"-framework",
+					VeepooBleSDK,
+					"-framework",
+					ABParTool,
+					"-framework",
+					DFUnits,
+					"-framework",
+					GRDFUSDK,
+					"-framework",
+					JLDialUnit,
+					"-framework",
+					JL_BLEKit,
+					"-framework",
+					ZipZap,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nextbody.hoop;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		FE0000000000000000000073 /* Release */ = {
-	buildSettings = {
-		"ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES" = YES;
-		"ASSETCATALOG_COMPILER_APPICON_NAME" = AppIcon;
-		"ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME" = AccentColor;
-		"CLANG_ENABLE_MODULES" = YES;
-		"CODE_SIGN_ENTITLEMENTS" = "NextBody/NextBody.Release.entitlements";
-		"CODE_SIGN_STYLE" = Automatic;
-		"CURRENT_PROJECT_VERSION" = 5;
-		"DEVELOPMENT_ASSET_PATHS" = "";
-		"DEVELOPMENT_TEAM" = BP7F7PYU33;
-		"ENABLE_PREVIEWS" = YES;
-		"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
-			"$(inherited)",
-			"$(PROJECT_DIR)/Frameworks",
-		);
-		"GCC_WARN_INHIBIT_ALL_WARNINGS" = NO;
-		"GENERATE_INFOPLIST_FILE" = NO;
-		"HEADER_SEARCH_PATHS" = (
-			"$(inherited)",
-			"$(PROJECT_DIR)/Vendor/FMDB/src/fmdb",
-			"$(PROJECT_DIR)/Vendor/MJExtension/MJExtension",
-		);
-		"INFOPLIST_FILE" = "NextBody-Info.plist";
-		"LD_RUNPATH_SEARCH_PATHS" = (
-			"$(inherited)",
-			"@executable_path/Frameworks",
-		);
-		"MARKETING_VERSION" = "1.0";
-		"OTHER_LDFLAGS" = (
-			"$(inherited)",
-			"-lsqlite3",
-		);
-		"OTHER_LDFLAGS[sdk=iphoneos*]" = (
-			"$(inherited)",
-			"-ObjC",
-			"-framework",
-			VeepooBleSDK,
-			"-framework",
-			ABParTool,
-			"-framework",
-			DFUnits,
-			"-framework",
-			GRDFUSDK,
-			"-framework",
-			JLDialUnit,
-			"-framework",
-			"JL_BLEKit",
-			"-framework",
-			ZipZap,
-		);
-		"PRODUCT_BUNDLE_IDENTIFIER" = "com.nextbody.hoop";
-		"PRODUCT_NAME" = "$(TARGET_NAME)";
-		"SWIFT_EMIT_LOC_STRINGS" = YES;
-		"TARGETED_DEVICE_FAMILY" = 1;
-	};
-	isa = XCBuildConfiguration;
-	name = Release;
-};
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = NextBody/NextBody.Release.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = BP7F7PYU33;
+				ENABLE_PREVIEWS = YES;
+				"FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Frameworks",
+				);
+				GCC_WARN_INHIBIT_ALL_WARNINGS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/FMDB/src/fmdb",
+					"$(PROJECT_DIR)/Vendor/MJExtension/MJExtension",
+				);
+				INFOPLIST_FILE = "NextBody-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-ObjC",
+					"-framework",
+					VeepooBleSDK,
+					"-framework",
+					ABParTool,
+					"-framework",
+					DFUnits,
+					"-framework",
+					GRDFUSDK,
+					"-framework",
+					JLDialUnit,
+					"-framework",
+					JL_BLEKit,
+					"-framework",
+					ZipZap,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nextbody.hoop;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		FE0000000000000000000172 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -610,55 +618,55 @@
 			name = Release;
 		};
 		FE0000000000000000000272 /* Debug */ = {
-	buildSettings = {
-		"CODE_SIGN_ENTITLEMENTS" = "NextBodyLiveActivity/NextBodyLiveActivity.entitlements";
-		"CODE_SIGN_STYLE" = Automatic;
-		"CURRENT_PROJECT_VERSION" = 5;
-		"DEVELOPMENT_TEAM" = BP7F7PYU33;
-		"ENABLE_PREVIEWS" = YES;
-		"GENERATE_INFOPLIST_FILE" = NO;
-		"INFOPLIST_FILE" = "NextBodyLiveActivity-Info.plist";
-		"IPHONEOS_DEPLOYMENT_TARGET" = "17.0";
-		"LD_RUNPATH_SEARCH_PATHS" = (
-			"$(inherited)",
-			"@executable_path/Frameworks",
-			"@executable_path/../../Frameworks",
-		);
-		"MARKETING_VERSION" = "1.0";
-		"PRODUCT_BUNDLE_IDENTIFIER" = "com.nextbody.hoop.LiveActivity";
-		"PRODUCT_NAME" = "$(TARGET_NAME)";
-		"SKIP_INSTALL" = YES;
-		"SWIFT_EMIT_LOC_STRINGS" = YES;
-		"TARGETED_DEVICE_FAMILY" = 1;
-	};
-	isa = XCBuildConfiguration;
-	name = Debug;
-};
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NextBodyLiveActivity/NextBodyLiveActivity.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = BP7F7PYU33;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "NextBodyLiveActivity-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nextbody.hoop.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		FE0000000000000000000273 /* Release */ = {
-	buildSettings = {
-		"CODE_SIGN_ENTITLEMENTS" = "NextBodyLiveActivity/NextBodyLiveActivity.entitlements";
-		"CODE_SIGN_STYLE" = Automatic;
-		"CURRENT_PROJECT_VERSION" = 5;
-		"DEVELOPMENT_TEAM" = BP7F7PYU33;
-		"ENABLE_PREVIEWS" = YES;
-		"GENERATE_INFOPLIST_FILE" = NO;
-		"INFOPLIST_FILE" = "NextBodyLiveActivity-Info.plist";
-		"IPHONEOS_DEPLOYMENT_TARGET" = "17.0";
-		"LD_RUNPATH_SEARCH_PATHS" = (
-			"$(inherited)",
-			"@executable_path/Frameworks",
-			"@executable_path/../../Frameworks",
-		);
-		"MARKETING_VERSION" = "1.0";
-		"PRODUCT_BUNDLE_IDENTIFIER" = "com.nextbody.hoop.LiveActivity";
-		"PRODUCT_NAME" = "$(TARGET_NAME)";
-		"SKIP_INSTALL" = YES;
-		"SWIFT_EMIT_LOC_STRINGS" = YES;
-		"TARGETED_DEVICE_FAMILY" = 1;
-	};
-	isa = XCBuildConfiguration;
-	name = Release;
-};
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NextBodyLiveActivity/NextBodyLiveActivity.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = BP7F7PYU33;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "NextBodyLiveActivity-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nextbody.hoop.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -709,6 +717,14 @@
 				minimumVersion = 10.0.0;
 			};
 		};
+		FEC000000000000000000005 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
+			requirement = {
+				kind = exactVersion;
+				version = 5.89.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -716,6 +732,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FE0000000000000000000302 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignIn;
+		};
+		FEC000000000000000000003 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FEC000000000000000000005 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
+		};
+		FEC000000000000000000004 /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FEC000000000000000000005 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCatUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

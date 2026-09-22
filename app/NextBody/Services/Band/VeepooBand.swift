@@ -233,23 +233,38 @@ final class VeepooBand: BandService, @unchecked Sendable {
     /// Every peripheral command goes to the SDK on the main thread — its timers and
     /// callbacks live there — and answers exactly once, or throws after `seconds`. A command
     /// the band never answers is a STOPPED edge on screen, never a bar frozen at 100 %.
-    private func sdk<T>(_ name: String, seconds: Double = 12,
+    private func sdk<T>(_ name: String, seconds: Double = 12, progressDeadline: BandSyncDeadline? = nil,
                         _ body: @escaping (@escaping (Result<T, Error>) -> Void) -> Void) async throws -> T {
         let once = Once()
         let commandID = UUID().uuidString
         NightDiagnostics.shared.record("sdk.command_start", fields: ["command": name, "commandID": commandID])
         Self.log.notice("\(name, privacy: .public) →")
         return try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
-            Task {
-                try? await Task.sleep(for: .seconds(seconds))
+            let watchdog = Task {
+                if let progressDeadline {
+                    while !progressDeadline.expired() {
+                        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    }
+                } else {
+                    do { try await Task.sleep(for: .seconds(seconds)) } catch { return }
+                }
                 guard once.claim() else { return }
-                Self.log.error("\(name, privacy: .public): no answer in \(seconds) s")
+                if progressDeadline != nil {
+                    // The SDK has no history cancel API. End the link before allowing
+                    // another queued native command to touch a possibly busy device.
+                    await MainActor.run {
+                        self.central.veepooSDKDisconnectDevice()
+                        self.state = .disconnected
+                    }
+                }
+                Self.log.error("\(name, privacy: .public): command deadline exceeded")
                 NightDiagnostics.shared.record("sdk.command_end", fields: ["command": name, "commandID": commandID, "outcome": "timeout"])
                 c.resume(throwing: BandError.timeout(name))
             }
             DispatchQueue.main.async {
                 body { result in
                     guard once.claim() else { return }
+                    watchdog.cancel()
                     switch result {
                     case .success: Self.log.notice("\(name, privacy: .public) ← ok")
                     case .failure(let e): Self.log.error("\(name, privacy: .public) ← \(String(describing: e), privacy: .public)")
@@ -798,10 +813,14 @@ final class VeepooBand: BandService, @unchecked Sendable {
         // Seven days at the band's pace can take a few minutes; the read of a single fresh
         // day is seconds. The timeout is the ceiling, not the expectation.
         let startedAt = Date()
-        try await sdk("readAllData", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
+        let deadline = BandSyncDeadline()
+        try await sdk("readAllData", seconds: 300, progressDeadline: deadline) { (done: @escaping (Result<Void, Error>) -> Void) in
             var lastProgressKey = ""
             let readID = UUID().uuidString
             peripheral.veepooSdkStartReadDeviceAllData { state, totalDay, day, progress in
+                guard self.state == .connected, self.historyReadScope == scope,
+                      self.historyReads.generation(scope: scope) == generation else { return }
+                deadline.advance("\(state.rawValue):\(day):\(Int(progress))")
                 let key = "\(state.rawValue):\(day):\(Int(progress) / 10)"
                 if key != lastProgressKey {
                     lastProgressKey = key
@@ -951,8 +970,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
             var oxygenStatus: BandDomainReadStatus = cachedOxygen ?? (model.oxygenType == 0 ? .unsupported : .complete)
             let opticalStatus: BandDomainReadStatus = model.bloodGlucoseType == 0 ? .unsupported : .complete
             if model.hrvType != 0 && cachedHRV == nil {
-                do { try await self.sdk("readHRV", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
+                guard self.state == .connected else { throw BandError.notConnected }
+                let deadline = BandSyncDeadline()
+                do { try await self.sdk("readHRV", seconds: 300, progressDeadline: deadline) { (done: @escaping (Result<Void, Error>) -> Void) in
                     peripheral.veepooSdkStartReadDeviceHrvData { state, totalDay, day, progress in
+                        guard self.state == .connected, self.historyReadScope == scope,
+                              self.historyReads.generation(scope: scope) == generation else { return }
+                        deadline.advance("\(state.rawValue):\(day):\(Int(progress))")
                         switch state {
                         case .start, .reading:
                             self.noteHistoryRead(day: Int(day), of: Int(totalDay), percent: Int(progress))
@@ -966,12 +990,18 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     if let error = error as? BandError, case .unsupported = error { hrvStatus = .unsupported }
                     else { hrvStatus = .failed }
                     BandLog.shared.record("readHRV", error: error)
+                    if self.state != .connected { throw error }
                 }
                 self.historyReads.record(hrvStatus, for: .hrv, generation: generation)
             }
             if [2, 4].contains(model.temperatureType) && cachedTemperature == nil {
-                do { try await self.sdk("readTemperature", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
+                guard self.state == .connected else { throw BandError.notConnected }
+                let deadline = BandSyncDeadline()
+                do { try await self.sdk("readTemperature", seconds: 300, progressDeadline: deadline) { (done: @escaping (Result<Void, Error>) -> Void) in
                     peripheral.veepooSdkStartReadDeviceTemperatureData { state, totalDay, day, progress in
+                        guard self.state == .connected, self.historyReadScope == scope,
+                              self.historyReads.generation(scope: scope) == generation else { return }
+                        deadline.advance("\(state.rawValue):\(day):\(Int(progress))")
                         switch state {
                         case .start, .reading:
                             self.noteHistoryRead(day: Int(day), of: Int(totalDay), percent: Int(progress))
@@ -985,12 +1015,18 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     if let error = error as? BandError, case .unsupported = error { temperatureStatus = .unsupported }
                     else { temperatureStatus = .failed }
                     BandLog.shared.record("readTemperature", error: error)
+                    if self.state != .connected { throw error }
                 }
                 self.historyReads.record(temperatureStatus, for: .temperature, generation: generation)
             }
             if model.oxygenType != 0 && cachedOxygen == nil {
-                do { try await self.sdk("readOxygen", seconds: 300) { (done: @escaping (Result<Void, Error>) -> Void) in
+                guard self.state == .connected else { throw BandError.notConnected }
+                let deadline = BandSyncDeadline()
+                do { try await self.sdk("readOxygen", seconds: 300, progressDeadline: deadline) { (done: @escaping (Result<Void, Error>) -> Void) in
                     peripheral.veepooSdkStartReadDeviceOxygenData { state, totalDay, day, progress in
+                        guard self.state == .connected, self.historyReadScope == scope,
+                              self.historyReads.generation(scope: scope) == generation else { return }
+                        deadline.advance("\(state.rawValue):\(day):\(Int(progress))")
                         switch state {
                         case .start, .reading:
                             self.noteHistoryRead(day: Int(day), of: Int(totalDay), percent: Int(progress))
@@ -1004,6 +1040,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     if let error = error as? BandError, case .unsupported = error { oxygenStatus = .unsupported }
                     else { oxygenStatus = .failed }
                     BandLog.shared.record("readOxygen", error: error)
+                    if self.state != .connected { throw error }
                 }
                 self.historyReads.record(oxygenStatus, for: .oxygen, generation: generation)
             }
@@ -2736,8 +2773,8 @@ final class VeepooBand: BandService, @unchecked Sendable {
                                 peripheral.veepooSDK_readDeviceSportState()
                             }
                         }
-                        do { try await Task.sleep(for: .seconds(2)) } catch { return }
-                        if Date().timeIntervalSince(self.sportLastReceipt) > 2.5 {
+                        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                        if Date().timeIntervalSince(self.sportLastReceipt) > 1.5 {
                             misses += 1
                             if misses >= 3 {
                                 Self.log.notice("sport info no answer to three reads")

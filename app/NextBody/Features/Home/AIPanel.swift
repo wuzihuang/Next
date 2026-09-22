@@ -135,14 +135,12 @@ struct AIPanel: View {
         // it saw as though it were still true.
         let reserve = m.bodyBatteryForDisplay()
         ZStack {
-            HalftoneScreen {
-                StandbyArt(
-                    plate: plateLock?.plate ?? 1,
-                    charge: reserve.map { Double($0) / 100 } ?? 0,
-                    chargeKnown: reserve != nil,
-                    animate: idleAnimationActive
-                )
-            }
+            StandbyArt(
+                plate: plateLock?.plate ?? 1,
+                charge: reserve.map { Double($0) / 100 } ?? 0,
+                chargeKnown: reserve != nil,
+                animate: idleAnimationActive
+            )
             if !consent.granted {
                 // 补屏 edge 1 / 2 · NOT COLLECTING. 「—— 是沉默」 at its limit.
                 VStack(spacing: 0) {
@@ -424,6 +422,7 @@ struct AIPanel: View {
     /// said while the band is actually answering — never as a label for a stored number.
     private var headerLine: String {
         if syncActivity.showsProgress { return syncActivity.progressLine }
+        if let failure = syncActivity.failureLine { return failure }
         let phase: String
         switch live.phase {
         case .live: phase = live.liveHR == nil ? "reaching" : "live"
@@ -438,6 +437,7 @@ struct AIPanel: View {
 
     private var headerTint: Color {
         if syncActivity.showsProgress { return NB.lime1 }
+        if syncActivity.failureLine != nil { return NB.ember1 }
         guard band.connected else { return NB.white.opacity(0.55) }
         switch live.phase {
         case .live where live.liveHR != nil, .stress: return NB.lime1
@@ -557,9 +557,11 @@ struct ThinkingStage: View {
                         .padding(.horizontal, 22)
                         .padding(.top, 26)
                 }
-                // Below THINKING and the ASR echo, above the thought stream.
-                // The halo feathers this slot — it does not sit under the words.
-                GlitterWrapStage(paused: reduceMotion)
+                // Below THINKING and the ASR echo, above the thought stream. The same
+                // grain mass the membership screens turn behind the paywall, centred here;
+                // the halo feathers this slot — it does not sit under the words.
+                GrainMassBackground(composition: .thinking)
+                    .mask { GlitterWrapHaloMask() }
                     .frame(maxHeight: .infinity)
                     .allowsHitTesting(false)
                     .padding(.top, 10)

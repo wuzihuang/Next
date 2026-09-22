@@ -5,6 +5,7 @@ import type { ReadContext as Ctx } from "./read-context.ts";
 
 export const METRICS = [
   "trainingLoad",
+  "trainingTarget",
   "bodyBattery",
   "intakeKcal",
   "burnKcal",
@@ -82,6 +83,18 @@ export const definitions: Record<DataMetric, MetricDefinition> = {
     grain: "day",
     checksStale: true,
     maxDays: MAX_DAY_SPAN,
+  },
+  trainingTarget: {
+    table: "daily_results",
+    column: "evidence",
+    nested: "daily_training",
+    unit: "load",
+    origin: "derived",
+    grain: "day",
+    checksStale: true,
+    maxDays: MAX_DAY_SPAN,
+    says:
+      "Current suggested total training load: the sleep/recovery base target limited by recent body battery. It can decrease with fatigue and recover toward the base target. Completed load does not decrease; this is not an exercise quota.",
   },
   bodyBattery: {
     table: "daily_results",
@@ -224,7 +237,8 @@ export const definitions: Record<DataMetric, MetricDefinition> = {
     grain: "day",
     measuredAtColumn: "computed_at",
     maxDays: MAX_DAY_SPAN,
-    says: "ADR 0008 · the settled sleep score, 0–100, from duration, architecture, recovery and regularity. Derived, not a measurement.",
+    says:
+      "ADR 0008 · the settled sleep score, 0–100, from duration, architecture, recovery and regularity. Derived, not a measurement.",
   },
   bloodOxygen: {
     table: "oxygen_samples",
@@ -237,7 +251,8 @@ export const definitions: Record<DataMetric, MetricDefinition> = {
     measuredAtColumn: "ts",
     clipToSleep: true,
     maxDays: MAX_DAY_SPAN,
-    says: "Overnight automatic SpO2. Not a daytime reading and not an apnea grade.",
+    says:
+      "Overnight automatic SpO2. Not a daytime reading and not an apnea grade.",
   },
   bloodPressure: {
     table: "unsupported",
@@ -264,7 +279,8 @@ export const definitions: Record<DataMetric, MetricDefinition> = {
     grain: "day",
     checksStale: true,
     maxDays: MAX_DAY_SPAN,
-    says: "Minutes where movement reached moderate intensity. Not training load.",
+    says:
+      "Minutes where movement reached moderate intensity. Not training load.",
   },
   dayDistance: {
     table: "daily_results",
@@ -423,7 +439,9 @@ async function clipSleepWindows(
       .order("user_day")
       .range(offset, offset + 999)
   )).flatMap((row) => {
-    if (typeof row.sleep_start !== "string" || typeof row.wake_at !== "string") {
+    if (
+      typeof row.sleep_start !== "string" || typeof row.wake_at !== "string"
+    ) {
       return [];
     }
     return [{ start: row.sleep_start, end: row.wake_at }];
@@ -441,7 +459,8 @@ async function clipSleepWindows(
         return nights.some((night) => {
           const lo = Date.parse(night.start);
           const hi = Date.parse(night.end);
-          return Number.isFinite(lo) && Number.isFinite(hi) && ts >= lo && ts < hi;
+          return Number.isFinite(lo) && Number.isFinite(hi) && ts >= lo &&
+            ts < hi;
         });
       }),
     );
@@ -510,7 +529,9 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
           : def.nested
           ? one(r[def.nested])
           : r;
-        const v = parent[def.column];
+        const v = metric === "trainingTarget"
+          ? one(one(parent.evidence).target).target
+          : parent[def.column];
         const n = typeof v === "number" && Number.isFinite(v) ? v : null;
         if (n === 0 && def.absentZero) return null;
         return n;
@@ -529,9 +550,7 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
         value: number | null;
         resultRevision?: string;
         computedAt?: string;
-      }[] = def.unsupported
-        ? []
-        : def.timestamp
+      }[] = def.unsupported ? [] : def.timestamp
         ? rows.map((r) => ({
           dayKey: String(r[stampColumn(def)] ?? r.measured_at),
           value: value(r),
@@ -581,8 +600,15 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
         ).sort().at(-1) ?? null;
       const derived = def.origin === "derived";
       const partial = !def.timestamp && present.length < days.length;
-      const stale = Boolean(def.checksStale) &&
-        before.some((r: Row) => r.pending === true);
+      const stale = (Boolean(def.checksStale) && before.some((r: Row) =>
+        r.pending === true
+      )) ||
+        (metric === "trainingTarget" &&
+          rows.some((r) =>
+            r.user_day === ctx.dayKey &&
+            one(one(one(r.daily_training).evidence).target).reserve_fresh ===
+              false
+          ));
       // The evidence revision identifies the exact queried values, metric, unit and interval.
       const signature = JSON.stringify({
         metric,

@@ -49,7 +49,7 @@ is waiting: one in-app primer — *"Every morning HOOP tells you how last night 
 only thing it will ever notify you about."* — with exactly two buttons **Not now / Turn on**.
 Not now ≠ refusal (ask again next morning); the system dialog, once refused, is never shown again.
 
-**年龄门 · 18**: judged on 03/02 「Looks right」, not live on the birthday wheel.
+**年龄门 · 16**: judged on 03/02 「Looks right」, not live on the birthday wheel.
 
 ## Sec 05 · State & federal — 三份文档，四处界面
 
@@ -105,7 +105,7 @@ Failure copy fixed: **"Couldn't finish. Nothing was deleted."** 删除边界到�
 
 C1 Used to Track You all NO · C2 HealthKit four read types only · C3 MHMDA consent is its own
 screen: one checkbox, one Continue · C4 notification dialog once, only after the 13 primer's
-Turn on · C5 age gate 18+ at Looks right · C6 SDK whitelist (HR, HRV, steps/cal/dist/MET, body
+Turn on · C5 age gate 16+ at Looks right · C6 SDK whitelist (HR, HRV, steps/cal/dist/MET, body
 composition, overnight automatic SpO2, wrist optical meal response as RESPONSE, battery/firmware, six writable settings) · C7 every AI English sentence passes the
 §06 list first, hit ⇒ discard, E_CLAIM, never sent back for rewrite; the list lives in DB,
 cached 5 min · C8 delete = single-transaction hard delete, 30 s, fixed failure copy · C9 two

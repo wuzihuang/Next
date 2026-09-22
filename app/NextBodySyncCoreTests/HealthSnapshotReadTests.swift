@@ -41,6 +41,7 @@ final class HealthSnapshotReadTests: XCTestCase {
                     return .init(metrics)
                 },
                 missingCapability: { error, capability in
+                    if capability == "meal_fields" { return HealthSnapshotRead.isMissingMealFields(error) }
                     if case let Failure.missing(name) = error { return name == capability }
                     return false
                 }
@@ -49,6 +50,88 @@ final class HealthSnapshotReadTests: XCTestCase {
         func formal(_ name: String, value: Any, revision: String = "r1") -> [String: Any] {
             ["metric": name, "points": [["dayKey": day.key, "value": value, "resultRevision": revision]]]
         }
+    }
+
+    @MainActor
+    func testMissingPlateColumnsStillPublishesTodaysTrainingStepsAndCanonicalMeals() async throws {
+        for response in [
+            #"{"code":"42703","message":"column meals.meal_group_id does not exist"}"#,
+            #"{"code":"PGRST204","message":"Could not find the 'sodium_mg' column of 'meals' in the schema cache"}"#,
+        ] {
+            let f = Fixture(); f.daily = [f.row()]; f.status = f.daily
+            f.daily[0]["training_load"] = 8.4
+            f.daily[0]["reserve_score"] = 20
+            f.tables["reserve_daily"] = [["result_id": "result-1", "current_value": 20,
+                "drain_drivers": ["observed_at": "2026-09-08T11:55:00Z"]]]
+            f.tables["daily_training"] = [["result_id": "result-1", "recorded_steps": 4200,
+                "evidence": ["target": ["version": "target-1.0", "target": 12.4, "lower": 10.9, "upper": 13.9]]]]
+            f.tables["raw_samples"] = [["ts": ISO8601DateFormatter().string(from: f.day.start.addingTimeInterval(300)), "step": 120]]
+            let mealID = "11111111-1111-4111-8111-111111111111"
+            f.selectOverride = { table, query in
+                guard table == "meals" else { return nil }
+                if query.first(where: { $0.name == "select" })?.value?.contains("meal_group_id") == true {
+                    throw SupabaseFailure.http(400, response)
+                }
+                return [["id": mealID, "user_day": f.day.key, "slot": "LUNCH", "kcal": 200, "text_input": "Rice"]]
+            }
+            let loaded = try await f.reader().detail(days: 0, endingAt: f.day)
+            let result = try XCTUnwrap(loaded)
+            XCTAssertTrue(result.publish { snapshot in
+                XCTAssertEqual(snapshot.rows.first?["training_load"] as? Double, 8.4)
+                XCTAssertEqual(snapshot.rows.first?["reserve_score"] as? Int, 20)
+                XCTAssertEqual(snapshot.reserve.first?["current_value"] as? Int, 20)
+                XCTAssertEqual(snapshot.training.first?["recorded_steps"] as? Int, 4200)
+                XCTAssertEqual(snapshot.vitals(for: f.day, local: []).first?.steps, 120)
+                XCTAssertEqual(snapshot.meals.first?["id"] as? String, mealID)
+                XCTAssertNil(snapshot.meals.first?["meal_group_id"])
+                XCTAssertNil(snapshot.meals.first?["fiber_g"])
+            })
+            let reads = f.calls.filter { $0.0 == "meals" }.map(\.1)
+            XCTAssertEqual(reads.count, 2)
+            XCTAssertEqual(reads[0].filter { $0.name != "select" }, reads[1].filter { $0.name != "select" })
+            XCTAssertEqual(reads[1].first { $0.name == "select" }?.value,
+                "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g")
+        }
+    }
+
+    @MainActor
+    func testMealReadOnlyFallsBackForExplicitMissingNewColumnsAndNeverHidesRetryFailure() async throws {
+        let missing = #"{"code":"42703","message":"column meals.meal_group_id does not exist"}"#
+        let errors: [Error] = [
+            SupabaseFailure.http(401, missing), SupabaseFailure.http(403, missing),
+            SupabaseFailure.http(503, missing), SupabaseFailure.http(400, "meal_group_id unavailable"),
+            SupabaseFailure.http(400, #"{"code":"42501","message":"permission denied for column meal_group_id"}"#),
+            SupabaseFailure.http(400, #"{"code":"42703","message":"column meals.kcal does not exist"}"#),
+            SupabaseFailure.http(400, #"{"code":"PGRST204","message":"Could not find the 'photo_path' column of 'profiles' in the schema cache"}"#),
+            URLError(.notConnectedToInternet), CancellationError(),
+        ]
+        for error in errors {
+            let f = Fixture()
+            f.selectOverride = { table, _ in
+                guard table == "meals" else { return nil }
+                throw error
+            }
+            do {
+                _ = try await f.reader().detail(days: 0, endingAt: f.day)
+                XCTFail("An arbitrary meal read failure must not publish a snapshot")
+            } catch { }
+            XCTAssertEqual(f.calls.filter { $0.0 == "meals" }.count, 1)
+        }
+        let f = Fixture()
+        var attempts = 0
+        f.selectOverride = { table, _ in
+            guard table == "meals" else { return nil }
+            attempts += 1
+            throw SupabaseFailure.http(attempts == 1 ? 400 : 403, attempts == 1 ? missing : "denied")
+        }
+        do {
+            _ = try await f.reader().detail(days: 0, endingAt: f.day)
+            XCTFail("The legacy retry cannot swallow its own authorization failure")
+        } catch {
+            guard case let SupabaseFailure.http(status, _) = error else { return XCTFail("Lost HTTP failure") }
+            XCTAssertEqual(status, 403)
+        }
+        XCTAssertEqual(attempts, 2)
     }
 
     @MainActor
@@ -184,6 +267,69 @@ final class HealthSnapshotReadTests: XCTestCase {
             cachedDays: [f.day.key], didPublish: { known = $0 })
         XCTAssertNil(unchanged)
         XCTAssertEqual(callsBefore, f.calls.count)
+    }
+
+    @MainActor
+    func testDetailAndHistoricalSummariesReadTheSamePublishedTrainingTarget() async throws {
+        let f = Fixture()
+        var yesterday = f.row()
+        yesterday["id"] = "result-yesterday"
+        yesterday["user_day"] = f.day.adding(days: -1).key
+        f.daily = [yesterday, f.row()]
+        f.status = f.daily
+        f.tables["daily_training"] = [
+            ["result_id": "result-1", "evidence": ["target": [
+                "version": "target-1.0", "target": 12.4, "lower": 10.9, "upper": 13.9]]],
+            ["result_id": "result-yesterday", "evidence": ["target": [
+                "version": "target-1.0", "target": NSNull()]]],
+        ]
+        let detail = try await f.reader().detail(days: 1, endingAt: f.day)
+        f.calls = []
+        let summary = try await f.reader().summaries(days: 30, endingAt: f.day,
+            known: [:], cachedDays: [], didPublish: { _ in })
+        let detailRows = try XCTUnwrap(detail).training
+        let summaryRows = try XCTUnwrap(summary).training
+        for id in ["result-1", "result-yesterday"] {
+            let detailed = TrainingSettlement(evidence: detailRows.first { $0["result_id"] as? String == id }?["evidence"] as? [String: Any])
+            let summarized = TrainingSettlement(evidence: summaryRows.first { $0["result_id"] as? String == id }?["evidence"] as? [String: Any])
+            XCTAssertEqual(detailed, summarized)
+            XCTAssertNotNil(summarized.target)
+            if id == "result-yesterday" {
+                XCTAssertNil(summarized.recommendation(legacyTarget: 18, legacyZone: 16...20).target)
+            }
+        }
+        let trainingColumns = f.calls.filter { $0.0 == "daily_training" }
+            .compactMap { $0.1.first { $0.name == "select" }?.value }
+        XCTAssertEqual(trainingColumns, ["result_id,recorded_steps,evidence"])
+        XCTAssertFalse(trainingColumns.contains { $0.contains("curve") })
+    }
+
+    @MainActor
+    func testTrainingEvidenceFailureIsNotMistakenForAnOlderTargetAlgorithm() async throws {
+        let f = Fixture(); f.daily = [f.row()]; f.status = f.daily
+        f.selectOverride = { table, query in
+            if table == "daily_training", query.contains(where: { $0.value?.contains("evidence") == true }) {
+                throw Fixture.Failure.unavailable
+            }
+            return nil
+        }
+        do {
+            _ = try await f.reader().detail(days: 0, endingAt: f.day)
+            XCTFail("A failed authoritative read must retain the previous snapshot")
+        } catch { XCTAssertTrue(error is Fixture.Failure) }
+        do {
+            _ = try await f.reader().summaries(days: 30, endingAt: f.day,
+                known: [:], cachedDays: [], didPublish: { _ in })
+            XCTFail("Summaries cannot replace an unavailable target with the legacy target")
+        } catch { XCTAssertTrue(error is Fixture.Failure) }
+        f.selectOverride = { table, query in
+            if table == "daily_training", query.contains(where: { $0.value?.contains("evidence") == true }) {
+                throw Fixture.Failure.missing("training_evidence")
+            }
+            return nil
+        }
+        let legacy = try await f.reader().detail(days: 0, endingAt: f.day)
+        XCTAssertNotNil(legacy)
     }
 
     @MainActor

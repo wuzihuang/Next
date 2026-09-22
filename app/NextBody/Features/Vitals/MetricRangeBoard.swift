@@ -115,7 +115,7 @@ struct MetricDayBars: View {
                                         .stroke(style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
                                         .foregroundStyle(NB.hairline)
                                         .opacity(slot.total == nil ? 1 : 0)
-                                    if let total = slot.total {
+                                    if let total = slot.total, total > 0 {
                                         RoundedRectangle(cornerRadius: radius, style: .continuous)
                                             .fill(tint)
                                             .frame(height: max(2, height * CGFloat(fraction(total))))

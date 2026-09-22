@@ -259,7 +259,9 @@ extension VitalsReadout {
         let deepEpisodes = night.line.filter { $0.stage == 0 }.count
 
         var bands: [VitalsSplit.Band] = []
-        if night.line.isEmpty {
+        if night.unstagedMinutes > 0, night.line.isEmpty {
+            bands = []
+        } else if night.line.isEmpty {
             // A row stored before the line was kept: the two totals it does have, and no
             // invented REM band.
             bands = [
@@ -293,6 +295,13 @@ extension VitalsReadout {
             }
         }
 
+        if night.unstagedMinutes > 0 {
+            bands.removeAll { $0.share <= 0 }
+            bands.append(.init(name: L("Unstaged"), tint: NB.white.opacity(0.18),
+                               share: Double(night.unstagedMinutes),
+                               detail: Fmt.duration(night.unstagedMinutes)))
+        }
+
         let window: String
         if let start = night.sleepStart, let wake = night.wakeAt, wake > start {
             window = L("BED %@ · WAKE %@", Fmt.clock(start), Fmt.clock(wake))
@@ -306,7 +315,8 @@ extension VitalsReadout {
             dial: nil,
             footLeft: window,
             footRight: deepEpisodes > 0 ? L("%d DEEP EPISODES", deepEpisodes) : nil,
-            chartNote: night.line.isEmpty ? L("TOTALS ONLY") : L("AWAKE · REM · LIGHT · DEEP"),
+            chartNote: night.unstagedMinutes > 0 ? L("PARTIAL STAGE COVERAGE")
+                : night.line.isEmpty ? L("TOTALS ONLY") : L("AWAKE · REM · LIGHT · DEEP"),
             splitTitle: L("STAGE PROPORTIONS"),
             splitTrailing: L("TOTAL %@", Fmt.duration(total)),
             bands: bands,
@@ -319,9 +329,10 @@ extension VitalsReadout {
                              foot: spo2.map { L("MIN %d%% · %d READINGS", $0.min, spo2Percents.count) }
                                  ?? L("NO OVERNIGHT OXYGEN"),
                              tint: NB.cyan1))
-        out.extraRight = .init(label: L("WAKE EVENTS"), value: String(night.wakeCount),
+        out.extraRight = .init(label: L("WAKE EVENTS"), value: night.unstagedMinutes > 0 ? nil : String(night.wakeCount),
                                unit: night.wakeCount == 1 ? L("WAKE") : L("WAKES"),
-                               foot: night.awakeMinutes > 0 ? L("%@ AWAKE", Fmt.duration(night.awakeMinutes))
+                               foot: night.unstagedMinutes > 0 ? L("STAGES NOT MEASURED")
+                               : night.awakeMinutes > 0 ? L("%@ AWAKE", Fmt.duration(night.awakeMinutes))
                                                             : L("NONE STAGED AWAKE"),
                                tint: nil)
         let respiration = (night.respiration ?? []).filter {
@@ -342,7 +353,7 @@ extension VitalsReadout {
         // The night's floor, not a resting estimate: the lowest tick the band actually filed
         // inside the recorded window. `m.vitalsCurve` is already clipped to that window on
         // this page, and the stage check keeps a gap between two sleep intervals out of it.
-        let sleepHeart = m.vitalsCurve.filter { night.containsSleepTimestamp($0.ts) }
+        let sleepHeart = (night.heartRate ?? m.vitalsCurve).filter { night.containsSleepTimestamp($0.ts) }
             .compactMap(\.hr).filter { $0 > 0 }
         out.heartLow = .init(label: L("SLEEP LOW HR"),
                              value: sleepHeart.min().map(String.init),
@@ -752,7 +763,6 @@ extension VitalsReadout {
             ticks: ticks, sportWindows: windows)
         let peak = ActiveEnergyMath.peakHour(hours)
         let bands: [VitalsSplit.Band] = [
-            (L("RESTING"), NB.white.opacity(0.45), split.resting),
             (L("SPORT"), NB.lime1, split.sport),
             (L("STEPS"), NB.lime1.opacity(0.75), split.steps),
             (L("INCIDENTAL"), NB.lime1.opacity(0.55), split.incidental),
@@ -761,11 +771,11 @@ extension VitalsReadout {
             return .init(name: name, tint: tint, share: value, detail: Fmt.kcal(value))
         }
 
-        let week = history.suffix(8).dropLast().compactMap { $0.eOutNow ?? sum([$0.bmr, $0.eActive, $0.eTrain]) }
+        let week = history.suffix(8).dropLast().compactMap(dayActiveEnergy)
         return VitalsReadout(
-            value: split.out.map { Fmt.kcal($0) },
+            value: split.active.map { Fmt.kcal($0) },
             unit: "KCAL",
-            dial: split.out.flatMap { today in
+            dial: split.active.flatMap { today in
                 VitalsDialMath.weekCuts(today: today, week: week).map {
                     dial(scale: $0.scale, cuts: $0.cuts, value: today,
                          names: [L("WELL BELOW"), L("YOUR USUAL RANGE"), L("ABOVE")],
@@ -778,7 +788,7 @@ extension VitalsReadout {
             footRight: split.bmrFull.map { L("FULL DAY BASELINE %@", Fmt.kcal($0)) },
             chartNote: L("TODAY · PER HOUR"),
             splitTitle: L("WHERE THE BURN CAME FROM"),
-            splitTrailing: split.out.map { L("%@ KCAL", Fmt.kcal($0)) },
+            splitTrailing: split.active.map { L("%@ KCAL", Fmt.kcal($0)) },
             bands: bands,
             statLeft: .init(label: L("PEAK BURN HOUR"),
                             value: peak.map { Fmt.kcal($0.kcal) },

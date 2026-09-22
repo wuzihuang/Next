@@ -6,9 +6,8 @@ import Foundation
 /// plus one of four words.
 enum BodyBattery {
 
-    /// 13 · Sec 04 — nine bands, no interpolation inside a band.
-    /// The target is fixed at wake and does not move as the battery drains through the day;
-    /// a target that slid every five minutes would read as a live number and people would chase it.
+    /// Legacy morning bands for older server payloads. Current training guidance is
+    /// published by the server from sleep/recovery with a dynamic reserve limit.
     struct Band {
         let range: ClosedRange<Int>
         let target: Double

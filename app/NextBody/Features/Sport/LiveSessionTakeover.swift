@@ -85,6 +85,15 @@ struct LiveSessionTakeover: View {
             }
             #endif
         }
+        #if DEBUG
+        .onChange(of: store.hrAt) { _, receipt in
+            guard let receipt else { return }
+            NightDiagnostics.shared.record("sport.heart_rendered", fields: [
+                "receiptToRenderMs": String(max(0, Date().timeIntervalSince(receipt) * 1000)),
+                "deviceSampleClock": "unavailable"
+            ])
+        }
+        #endif
         // The band said no. The screen folds back the way it came, with the reason.
         .onChange(of: store.refusal) { _, line in
             guard let line, !closing, let s = store.session else { return }
@@ -198,7 +207,7 @@ struct LiveSessionTakeover: View {
     private var stats: some View {
         HStack(spacing: 0) {
             readout(value: store.liveHR.map(String.init) ?? Fmt.dash, unit: "BPM",
-                    label: L("HEART RATE"), lit: store.liveHR != nil)
+                    label: L("HEART RATE"), lit: store.heartFreshness == .live)
                 .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("session-heart-rate")
                 .accessibilityLabel(L("HEART RATE"))
@@ -291,6 +300,7 @@ struct LiveSessionTakeover: View {
         if closing { return L("SAVED · FOLDING BACK") }
         if store.stopping { return L("CLOSING THE MODE ON THE BAND") }
         if store.opening { return L("OPENING %@ ON THE BAND", (mode?.name ?? "").uppercased()) }
+        if let note = store.delayedHeartNote { return note }
         if store.session?.joined == true, store.wrist == .live { return L("JOINED THE SESSION ALREADY ON THE BAND · LIVE") }
         if let e = store.errorLine { return e.uppercased() }
         if hint { return L("HOLD THE KEY TO STOP") }
@@ -309,6 +319,7 @@ struct LiveSessionTakeover: View {
         if closing || store.stopping || store.opening { return NB.lime1.opacity(0.85) }
         if store.errorLine != nil { return NB.ember2 }
         if hint { return NB.white.opacity(0.55) }
+        if store.delayedHeartNote != nil { return NB.white.opacity(0.55) }
         switch store.wrist {
         case .live:      return NB.lime1
         case .reaching:  return NB.lime1.opacity(0.85)

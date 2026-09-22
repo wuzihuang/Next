@@ -133,7 +133,7 @@ extension LocalDataTests {
         XCTAssertEqual(body["protein_g"] as? Int, 30)
         for key in ["protein_g", "carb_g", "fat_g"] {
             XCTAssertThrowsError(try MealOutboxPolicy.promotedEstimate(operation, output: output.filter { $0.key != key }))
-            for bad in [NSNumber(value: -1), NSNumber(value: 1.5), NSNumber(value: true)] {
+            for bad in [NSNumber(value: -1), NSNumber(value: 100000.1), NSNumber(value: true)] {
                 XCTAssertThrowsError(try MealOutboxPolicy.promotedEstimate(operation,
                     output: output.merging([key: bad]) { _, value in value }))
             }

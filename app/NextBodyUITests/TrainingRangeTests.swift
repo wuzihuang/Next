@@ -10,14 +10,15 @@ final class TrainingRangeTests: XCTestCase {
 
     func testDayIsTheLandingRange() {
         let app = launchTraining()
-        XCTAssertTrue(app.staticTexts["THROUGH THE DAY"].waitForExistence(timeout: 30),
-                      "training should open on today's cumulative curve")
+        XCTAssertTrue(app.buttons["range.DAY"].waitForExistence(timeout: 30),
+                      "training should open on today's load")
         XCTAssertTrue(app.buttons["range.DAY"].exists)
         XCTAssertTrue(app.buttons["range.WEEK"].exists)
         XCTAssertTrue(app.buttons["range.MONTH"].exists)
         XCTAssertFalse(app.staticTexts["LAST 7 DAYS"].exists)
         XCTAssertFalse(app.staticTexts["A typical finished day. Not a 30-day sum."].exists)
-        reveal(app.staticTexts["ESTIMATE BASIS"], in: app)
+        reveal(app.staticTexts["TARGET BASIS"], in: app)
+        reveal(app.staticTexts["THROUGH THE DAY"], in: app)
         reveal(app.staticTexts["INGREDIENTS"], in: app)
         reveal(app.staticTexts["STEPS AND BURN"], in: app)
         reveal(app.buttons["START A SESSION"], in: app)
@@ -60,7 +61,7 @@ final class TrainingRangeTests: XCTestCase {
 
     func testMissingTargetStillShowsRecordedActivity() {
         let app = launchTraining(fixture: "no-target")
-        XCTAssertTrue(app.staticTexts["NO TARGET YET"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["NO TARGET YET"].firstMatch.waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["No suggested range yet. Recorded activity is still shown below."].exists)
         reveal(app.staticTexts["THROUGH THE DAY"], in: app)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "LATEST LOAD SAMPLE")).firstMatch.exists)
@@ -75,7 +76,7 @@ final class TrainingRangeTests: XCTestCase {
 
     func testEmptyCurveShowsNoInventedSamples() {
         let app = launchTraining(fixture: "empty-curve")
-        XCTAssertTrue(app.staticTexts["ESTIMATE BASIS"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["range.DAY"].waitForExistence(timeout: 30))
         reveal(app.staticTexts["NO LOAD SAMPLES"], in: app)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "LATEST LOAD SAMPLE")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts["TARGET 16.0"].exists, "a horizontal target reference may remain without samples")
@@ -83,14 +84,15 @@ final class TrainingRangeTests: XCTestCase {
 
     func testChineseEvidenceExplainsBaselineAndCoverage() {
         let app = launchTraining(fixture: "baseline", language: "zh-Hans")
-        XCTAssertTrue(app.staticTexts["估算依据"].waitForExistence(timeout: 30))
-        reveal(app.staticTexts["估算依据"], in: app)
+        XCTAssertTrue(app.buttons["range.DAY"].waitForExistence(timeout: 30))
+        reveal(app.staticTexts["目标依据"], in: app)
         XCTAssertTrue(app.otherElements["training.evidence"].staticTexts["基线建立中"].isHittable)
-        XCTAssertTrue(app.staticTexts["HRV 基线夜数"].exists)
-        XCTAssertTrue(app.staticTexts["静息心率基线夜数"].exists)
+        XCTAssertTrue(app.staticTexts["睡眠分数"].exists)
+        XCTAssertTrue(app.staticTexts["恢复"].exists)
+        XCTAssertTrue(app.staticTexts["近期负荷"].exists)
         // Check in reading order: revealing coverage can scroll the baseline note out
         // of SwiftUI's accessibility tree on a compact phone.
-        reveal(app.staticTexts["基线不足五夜，建议范围仍是初步估算。"], in: app)
+        reveal(app.staticTexts["今天的区间以睡眠与恢复为主，记录更多天后会更贴近你的状态。"], in: app)
         reveal(app.staticTexts["有效心率"], in: app)
         XCTAssertTrue(app.staticTexts["有记录时长"].exists)
         reveal(app.staticTexts["覆盖率按有效记录时长与已过去时长计算，不是佩戴时长。"], in: app)
@@ -98,6 +100,43 @@ final class TrainingRangeTests: XCTestCase {
         screenshot.name = "Training Chinese calculation evidence"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+    }
+
+    func testSessionShowsItsSettledContributionWithoutAHeartRateSummary() {
+        let app = launchTraining(fixture: "sessions")
+        XCTAssertTrue(app.buttons["range.DAY"].waitForExistence(timeout: 30))
+        reveal(app.otherElements["training.contributions"], in: app)
+        XCTAssertTrue(app.staticTexts["Weightlifting"].exists)
+        XCTAssertTrue(app.staticTexts["+1.7"].exists)
+        XCTAssertFalse(app.staticTexts["RECORDED SESSION"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Training settled session contribution"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testCurrentReserveExplainsWhyTheSleepTargetWasLowered() {
+        let app = launchTraining(fixture: "reserve-adjusted", language: "zh-Hans")
+        XCTAssertTrue(app.buttons["range.DAY"].waitForExistence(timeout: 30))
+        reveal(app.staticTexts["目标依据"], in: app)
+        XCTAssertTrue(app.staticTexts["当前电量"].exists)
+        XCTAssertTrue(app.staticTexts["睡眠分数"].exists)
+        XCTAssertTrue(app.staticTexts["恢复"].exists)
+        XCTAssertTrue(app.staticTexts["身体电量"].exists)
+        reveal(app.staticTexts["结合当前身体电量，今天的目标从 16.0 调低到 8.0。"], in: app)
+    }
+
+    func testOlderBatteryLimitKeepsItsTimeAndIsNotCalledCurrent() {
+        let app = launchTraining(fixture: "reserve-stale", language: "zh-Hans")
+        XCTAssertTrue(app.buttons["range.DAY"].waitForExistence(timeout: 30))
+        reveal(app.staticTexts["目标依据"], in: app)
+        XCTAssertTrue(app.staticTexts["上次记录电量"].exists)
+        XCTAssertTrue(app.staticTexts["睡眠分数"].exists)
+        XCTAssertFalse(app.staticTexts["当前电量"].exists)
+        reveal(app.staticTexts["当前目标仍受上次身体电量的限制，同步后可获得最新建议。"], in: app)
+        reveal(app.staticTexts["结合上次记录的身体电量，今天的目标从 16.0 调低到 8.0。"], in: app)
+        XCTAssertTrue(app.staticTexts["电量观测"].exists)
+        XCTAssertFalse(app.staticTexts["结合当前身体电量，今天的目标从 16.0 调低到 8.0。"].exists)
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,

@@ -629,7 +629,7 @@ struct MeasureTakeover: View {
                         weightKg: Int((data.today.weightKg ?? 70).rounded()),
                         birthYear: Calendar.current.component(.year, from: data.profile.birthdate),
                         sexIsMale: data.profile.sexIsMale,
-                        targetStep: 8000))
+                        targetStep: data.profile.stepGoal))
                     try checkPhoneExecution()
                     let stream = Band.live.measureBodyComposition()
                     for try await step in stream {

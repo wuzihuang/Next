@@ -80,6 +80,12 @@ final class HealthSnapshotRead {
             return VitalSample.merging(remote, with: local.filter { $0.ts >= day.start && $0.ts < day.end })
         }
 
+        /// Sleep windows can cross the activity-day boundary or be extended by the user.
+        /// Keep all fetched observations available before each night's exact window filter.
+        func sleepVitals(local: [VitalSample]) -> [VitalSample] {
+            VitalSample.merging(remoteVitals, with: local)
+        }
+
         /// No await occurs between this final eligibility check and updating the store,
         /// pending-write overlay and durable snapshot. A late read cannot partially paint.
         @discardableResult
@@ -147,8 +153,7 @@ final class HealthSnapshotRead {
         // apart from the fuel row for the same reason active_minutes is: naming a column
         // the project does not have yet is a 400 for the whole select.
         async let fuelBasisRows = selectFuelBasis(ids: resultIds)
-        async let trainingEvidenceRows = try? selectByResultId(
-            "daily_training", columns: "result_id,recorded_steps,evidence", ids: resultIds)
+        async let trainingEvidenceRows = selectTrainingEvidence(ids: resultIds)
         async let weighInRows = select("weigh_ins", query: [
             .init(name: "select", value: "id,measured_at,weight_kg,source"),
             .init(name: "order", value: "measured_at.desc"),
@@ -156,8 +161,8 @@ final class HealthSnapshotRead {
         ])
         // 12 · WEEK needs the week's meals, not just today's. Today's used to be a ninth
         // request for a strict subset of these same rows; it is now filtered out of them.
-        async let weekMealRows = select("meals", query: [
-            .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g"),
+        async let weekMealRows = selectMealsCompat(query: [
+            .init(name: "select", value: "id,user_day,slot,logged_at,text_input,kcal,protein_g,carb_g,fat_g,meal_group_id,portion,photo_path,fiber_g,sugar_g,sodium_mg"),
             .init(name: "deleted_at", value: "is.null"),
             // Dev seeds carry model_version = seed; they must not populate 09 or the dock.
             .init(name: "model_version", value: "neq.seed"),
@@ -253,7 +258,7 @@ final class HealthSnapshotRead {
                 var r = row; r["active_minutes"] = e["active_minutes"]; r["distance_m"] = e["distance_m"]; return r
             }
         }
-        if let evidenceRows = await trainingEvidenceRows?.values {
+        if let evidenceRows = try await trainingEvidenceRows?.values {
             let by = Dictionary(uniqueKeysWithValues: evidenceRows.compactMap { row in
                 (row["result_id"] as? String).map { ($0, row) }
             })
@@ -323,15 +328,19 @@ final class HealthSnapshotRead {
             .init(name: "order", value: "user_day.asc"),
         ] + range)
         let rows = selection.rows
+        let ids = rows.compactMap { $0["id"] as? String }
+        async let trainingRows = selectTrainingEvidence(ids: ids)
         let fuel = try await selectByResultId("day_fuel",
             columns: "result_id,kcal_in,kcal_out,protein_in_g,carb_in_g,fat_in_g,weight_kg,intake_state,slot_states",
-            ids: rows.compactMap { $0["id"] as? String }).values
+            ids: ids).values
+        let training = try await trainingRows?.values ?? []
         if status != nil {
             try await verify(rows: rows, versioned: selection.versioned, formalMetrics: nil,
                              from: from, to: day.key, statusRequired: true)
         }
         try checkCurrent()
         var snapshot = Snapshot(rows: rows, fuel: fuel)
+        snapshot.training = training
         snapshot.accepts = accepts
         snapshot.didPublish = {
             let revisions = rows.reduce(into: known) { result, row in
@@ -373,6 +382,47 @@ final class HealthSnapshotRead {
             ]).values
         }
         return Rows(rows)
+    }
+
+    private static let optionalMealColumns: Set<String> = [
+        "meal_group_id", "portion", "photo_path", "fiber_g", "sugar_g", "sodium_mg",
+    ]
+
+    /// The plate migration is additive and may follow an app update. Only an explicit
+    /// missing-column response permits this read-only fallback; other failures keep the
+    /// previous coherent snapshot rather than publishing an apparently successful read.
+    static func isMissingMealFields(_ error: Error) -> Bool {
+        guard case let SupabaseFailure.http(status, body) = error,
+              status == 400 || status == 404,
+              let data = body.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = payload["code"] as? String,
+              let message = payload["message"] as? String else { return false }
+        let columns = optionalMealColumns.sorted().joined(separator: "|")
+        let pattern: String
+        switch code {
+        case "42703":
+            pattern = #"^column\s+(?:"?meals"?\.)?"?(?:"# + columns + #")"?\s+does not exist$"#
+        case "PGRST204":
+            pattern = #"^Could not find the '(?:"# + columns + #")' column of 'meals' in the schema cache$"#
+        default: return false
+        }
+        return message.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func selectMealsCompat(query: [URLQueryItem]) async throws -> Rows {
+        do { return try await select("meals", query: query) }
+        catch {
+            guard transport.missingCapability(error, "meal_fields") else { throw error }
+            let legacy = query.map { item in
+                item.name == "select" ? URLQueryItem(name: item.name, value:
+                    item.value?.split(separator: ",").filter { !Self.optionalMealColumns.contains(String($0)) }
+                        .joined(separator: ",")) : item
+            }
+            // Exactly one retry, with identical IDs, window, ordering and privacy filters.
+            // The absent optional fields remain absent; no replacement meal is invented.
+            return try await select("meals", query: legacy)
+        }
     }
 
     private func selectDailyResultsCompat(query: [URLQueryItem]) async throws -> (rows: [Row], versioned: Bool) {
@@ -455,6 +505,18 @@ final class HealthSnapshotRead {
 
     private func selectTrainingExtras(ids: [String]) async -> Rows? {
         try? await selectByResultId("daily_training", columns: "result_id,active_minutes,distance_m", ids: ids)
+    }
+
+    private func selectTrainingEvidence(ids: [String]) async throws -> Rows? {
+        do {
+            return try await selectByResultId("daily_training",
+                columns: "result_id,recorded_steps,evidence", ids: ids)
+        } catch {
+            // A failed read must not turn an authoritative unavailable target into
+            // the older Body Battery recommendation.
+            if transport.missingCapability(error, "training_evidence") { return nil }
+            throw error
+        }
     }
 
     private func selectFuelBasis(ids: [String]) async -> Rows? {

@@ -25,6 +25,18 @@ Deno.test("advice compares completed load against prior days, excluding today an
   assertEquals(adviceEvidence(days.slice(-3), [], [], today, now)[0].comparison, undefined);
 });
 
+Deno.test("training advice receives the same sleep target and recorded session contributions as the app", () => {
+  const target = { target: 9.5, lower: 7.5, upper: 11.5, sleep_minutes: 330, recovery_score: 62 };
+  const session = { session_id: "session-1", load_delta: 2.7, displayed_delta: 2.7, observed_seconds: 1800 };
+  const rows = [{ user_day: today, training_load: 10, daily_training: { evidence: { target, sessions: [session] } } }];
+  const load = adviceEvidence(rows, [], [], today, now)[0];
+  assertEquals(load.context?.suggested_target, 9.5);
+  assertEquals(load.context?.remaining_to_target, 0);
+  assertEquals(load.context?.target_basis, target);
+  assertEquals(load.context?.recorded_sessions, [session]);
+  assertEquals(adviceEvidence([{ user_day: today, training_load: 10 }], [], [], today, now)[0].context?.remaining_to_target, null);
+});
+
 Deno.test("advice excludes missing, future and zero sleep and does not infer protein from unlogged food", () => {
   assertEquals(adviceEvidence([], [], [], today, now), []);
   assertEquals(adviceEvidence([], [{ ...sleeps[0], wake_at: "2026-09-08T13:00:00Z" }], [], today, now), []);

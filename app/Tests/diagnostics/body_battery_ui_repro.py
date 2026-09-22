@@ -64,11 +64,11 @@ checks = {
         and all("bodyBatteryWakeAt" in source for source in [detail, profile, morning])
     ),
     "day attribution and whole-night charge use separate windows": (
-        'L("Recovery since 04:00")' in detail
+        "recovery: d.chargeForDay" in detail and "Fmt.clock(m.day.start)" in detail
         and all(".nightCharge" in source for source in [detail, profile, morning, panel])
     ),
     "missing mornings are not labelled as nonwear": (
-        'L("DASH · NO MORNING")' in detail
+        'L("NO MORNING READING")' in detail
         and "DASH · NOT WORN" not in detail
         and "%d MORNINGS · %d MISSING" in detail
     ),
@@ -91,7 +91,7 @@ models = "\n".join(declaration(metrics, marker) for marker in [
 ])
 metric_methods = "\n".join(declaration(metrics, marker) for marker in [
     "var bodyBatteryObservedAt:", "var bodyBatteryWakeAt:", "var bodyBatteryConfidence:",
-    "func bodyBatteryFreshness(", "func bodyBatteryForDisplay(",
+    "func bodyBatteryFreshness(", "func bodyBatteryReadout(", "func bodyBatteryForDisplay(",
 ])
 refresh_method = declaration(detail, "private func refreshBattery(").replace("private func", "func", 1)
 morning_frame = declaration(morning, "static func frame(")
@@ -116,7 +116,14 @@ final class Band { static let live = Band(); var state = LinkState.connected }
 final class Router { enum Takeover { case consent }; var takeover: Takeover? }
 enum OriginDataSync {
     static var calls = 0
-    static func refreshNow(into: DataStore, minimumInterval: TimeInterval) async { calls += 1 }
+    enum Request { case latest }
+    enum Status { case success, partial, failed }
+    struct Result { let status: Status }
+    static var status = Status.success
+    static func refreshNow(into: DataStore, request: Request) async -> Result {
+        calls += 1
+        return Result(status: status)
+    }
 }
 enum NB { static let lime1 = 1 }
 struct PanelWidget {
@@ -181,6 +188,18 @@ main = r'''
         check(OriginDataSync.calls == 1 && data.today.bodyBattery == 45 && data.today.bbWake == 70
               && data.today.targetLoad == 14.5 && data.today.reserveCurve.last?.value == 45,
               "refresh requests real evidence without overwriting 45 with wake 70 or altering its target")
+        OriginDataSync.status = .partial
+        await refresh.refreshBattery()
+        check(refresh.refreshMessage != nil && !refresh.isRefreshing,
+              "connected partial sync explains why battery did not update")
+        OriginDataSync.status = .failed
+        await refresh.refreshBattery()
+        check(refresh.refreshMessage != nil && !refresh.isRefreshing,
+              "connected failed sync offers a retry instead of silently leaving dashes")
+        OriginDataSync.status = .success
+        await refresh.refreshBattery()
+        check(refresh.refreshMessage == nil, "successful retry clears prior failure")
+        OriginDataSync.calls = 1
         ConsentStore.shared.granted = false
         await refresh.refreshBattery()
         check(OriginDataSync.calls == 1 && refresh.router.takeover == .consent,
@@ -255,7 +274,7 @@ main = r'''
         let gapped = [changing[0], ReserveSample(ts: instant.addingTimeInterval(3600), value: 80)]
         check(BodyBatteryCurveMath.segments(gapped).isEmpty, "an hour without observations stays a curve gap")
         check(BodyBatteryCurveMath.fraction(day.end, in: day) == 1,
-              "the next 04:00 boundary is the chart's right edge")
+              "the next midnight boundary is the chart's right edge")
 
         let facts = day.rollingBack(30).map {
             BodyBatteryDayFacts(day: $0, wake: 70, now: 60, nightCharge: 30, worn: true, isOpen: false)
@@ -272,13 +291,13 @@ main = r'''
               "missing morning is excluded from averages even when wrist was worn")
 
         NSTimeZone.default = TimeZone(identifier: "America/New_York")!
-        for (iso, expectedHours) in [("2026-03-07T12:00:00Z", 23.0), ("2026-10-31T12:00:00Z", 25.0)] {
+        for (iso, expectedHours) in [("2026-03-08T12:00:00Z", 23.0), ("2026-11-01T12:00:00Z", 25.0)] {
             let date = ISO8601DateFormatter().date(from: iso)!
             let dstDay = UserDay.containing(date)
-            check(Calendar.current.component(.hour, from: dstDay.end) == 4
+            check(Calendar.current.component(.hour, from: dstDay.end) == 0
                   && dstDay.end.timeIntervalSince(dstDay.start) == expectedHours * 3600
                   && BodyBatteryCurveMath.fraction(dstDay.end, in: dstDay) == 1,
-                  "\(Int(expectedHours))-hour DST day ends at local 04:00 and spans exactly one chart")
+                  "\(Int(expectedHours))-hour DST day ends at local midnight and spans exactly one chart")
         }
         exit(failures == 0 ? 0 : 1)
     }
@@ -290,6 +309,8 @@ with tempfile.TemporaryDirectory(prefix="nextbody-battery-ui-") as directory:
     source = (
         stubs + models + "\n" + battery
         + read("NextBody/Services/Band/UserDay.swift")
+        + read("NextBody/Services/Band/VitalsTimelinePolicy.swift")
+        + read("NextBody/Services/Band/VitalSample.swift")
         + read("NextBody/Services/Band/BodyBatteryWindowMath.swift")
         + harness + main
     )

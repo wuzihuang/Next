@@ -42,7 +42,7 @@ struct ActiveEnergyModel {
         let weekDays: [(Date, Double?)] = (0..<7).map { offset in
             let day = m.day.adding(days: -(6 - offset))
             let row = day == m.day ? m : history.first { $0.day == day }
-            return (day.start, row.flatMap(VitalsReadout.dayTotalBurn))
+            return (day.start, row.flatMap { ActiveEnergyMath.totals(bmr: $0.bmr, eActive: $0.eActive, eTrain: $0.eTrain, eOutNow: $0.eOutNow).active })
         }
         let week = ActiveEnergyMath.week(days: weekDays, todayStart: m.day.start)
         return ActiveEnergyModel(
@@ -81,11 +81,11 @@ struct ActiveEnergyHero: View {
                 .foregroundStyle(NB.text3Prod)
                 .lineLimit(1)
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(Fmt.kcal(model.split.out))
+                Text(Fmt.kcal(model.split.active))
                     .font(NBFont.dot(700, 56)).tracking(-0.04 * 56)
-                    .foregroundStyle(model.split.out == nil ? NB.text3Prod : NB.lime1)
+                    .foregroundStyle(model.split.active == nil ? NB.text3Prod : NB.lime1)
                     .lineLimit(1).minimumScaleFactor(0.6)
-                Text(L("KCAL OUT"))
+                Text(L("KCAL ACTIVE"))
                     .font(NBFont.ui(500, 13)).tracking(0.1 * 13)
                     .foregroundStyle(NB.text3Prod)
                     .lineLimit(1)
@@ -104,7 +104,7 @@ struct ActiveEnergyHero: View {
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("vitals.hero")
         .accessibilityLabel(sensor)
-        .accessibilityValue(model.split.out.map { "\($0) KCAL OUT" } ?? "no reading")
+        .accessibilityValue(model.split.active.map { "\($0) KCAL ACTIVE" } ?? "no reading")
     }
 }
 
@@ -168,11 +168,15 @@ struct ActiveEnergyBoard: View {
                                                                 minute: $0.index * 60),
                                                Fmt.kcal($0.kcal)) }) {
             VStack(alignment: .leading, spacing: 8) {
-                LivedHourBars(hours: model.hours, tint: NB.lime1, height: 84)
+                if model.hours.isEmpty {
+                    VitalsChartEmpty(line: L("HOURLY ENERGY NOT AVAILABLE"),
+                                     sub: L("WAITING FOR VERIFIED ENERGY"), height: 84)
+                } else {
+                    LivedHourBars(hours: model.hours, tint: NB.lime1, height: 84)
+                }
                 VitalsAxis(labels: FuelWindowMath.clockLabels(dayStart: model.dayStart),
                            highlightsLast: false, tint: NB.lime1)
-                Text(L("BMR floor %@/h · faded = not lived yet",
-                       Fmt.kcal(model.split.bmrFull.map { $0 / (FuelWindowMath.dayEnd(dayStart: model.dayStart).timeIntervalSince(model.dayStart) / 3600) })))
+                Text(L("Activity only · resting energy is excluded"))
                     .font(NBFont.ui(400, 11))
                     .foregroundStyle(NB.text3Prod)
                     .lineLimit(1).minimumScaleFactor(0.8)
@@ -430,6 +434,7 @@ struct LivedHourBars: View {
             let top = hours.map(\.kcal).max() ?? 0
             guard top > 0 else { return }
             for (i, hour) in hours.enumerated() {
+                guard hour.kcal > 0 else { continue }
                 let h = max(0.8, size.height * hour.kcal / top)
                 let rect = CGRect(x: CGFloat(i) * (w + gap), y: size.height - h, width: w, height: h)
                 ctx.fill(Path(rect), with: .color(tint.opacity(hour.lived ? 1 : 0.18)))
@@ -449,7 +454,7 @@ struct ActiveEnergyWeekBars: View {
             let n = max(1, bars.count)
             let gap: CGFloat = 11
             let w = (size.width - gap * CGFloat(n - 1)) / CGFloat(n)
-            let top = max(bars.compactMap(\.out).max() ?? 0, average ?? 0, 1)
+            let top = max(bars.compactMap(\.active).max() ?? 0, average ?? 0, 1)
             if let average {
                 var line = Path()
                 let y = size.height * (1 - average / top)
@@ -459,8 +464,8 @@ struct ActiveEnergyWeekBars: View {
                            style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
             }
             for (i, bar) in bars.enumerated() {
-                guard let out = bar.out else { continue }
-                let h = max(3, size.height * out / top)
+                guard let active = bar.active, active > 0 else { continue }
+                let h = size.height * active / top
                 let rect = CGRect(x: CGFloat(i) * (w + gap), y: size.height - h, width: w, height: h)
                 ctx.fill(Path(roundedRect: rect, cornerRadius: 3),
                          with: .color(bar.isToday ? NB.lime1 : NB.white.opacity(0.2)))

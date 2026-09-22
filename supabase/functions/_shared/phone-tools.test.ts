@@ -93,6 +93,7 @@ Deno.test("clean arguments reach the phone in the shape the band needs", () => {
   const meal = normalizePhoneArgs("write", { entity: "meal", op: "create", fields: "{}" });
   assert(meal.ok);
   assertEquals(meal.args.fields, {});
+  assertEquals(meal.confirm, false);
 });
 
 // docs/plans/2026-09-09-ai-tool-surface.md · "删除我今天吃的猪脚饭" is one call with a match.
@@ -156,4 +157,41 @@ Deno.test("a corrected night is one confirmed write of two clock times", () => {
   assert(!half.ok);
   const same = normalizePhoneArgs("write", { entity: "sleep_night", op: "update", fields: { day: "today", start: "07:00", end: "7" } }, "2026-09-10");
   assert(!same.ok);
+});
+
+Deno.test("backfilled sleep and sport are confirmed writes, not live band commands", () => {
+  const sleep = normalizePhoneArgs("write", {
+    entity: "sleep_night", op: "create", fields: { day: "今天", start: "23:30", end: "7" },
+  }, "2026-09-20");
+  assert(sleep.ok && sleep.confirm);
+  assertEquals(sleep.args.fields, { day: "2026-09-20", start: "23:30", end: "07:00" });
+  const sport = normalizePhoneArgs("write", {
+    entity: "sport_session", op: "log", fields: { day: "昨天", from: "17", to: "18", sport: "骑车", hr: 140, load: 15 },
+  }, "2026-09-20");
+  assert(sport.ok && sport.confirm);
+  assertEquals(sport.args, { entity: "sport_session", op: "create",
+    fields: { day: "2026-09-19", start: "17:00", end: "18:00", mode: "Outdoor cycle" } });
+  const crossMidnight = normalizePhoneArgs("write", {
+    entity: "sport_session", op: "create", fields: { day: "昨天", start: "23:30", end: "00:30" },
+  }, "2026-09-20");
+  assert(crossMidnight.ok);
+  assertEquals((crossMidnight.args.fields as Record<string, unknown>).mode, "Common");
+});
+
+Deno.test("backfills reject invalid dates, unsupported changes, and incomplete windows before dispatch", () => {
+  for (const entity of ["sport_session", "sleep_night"]) {
+    for (const fields of [
+      { start: "17:00", end: "18:00" },
+      { day: "today", start: "17:00" },
+      { day: "today", start: "17:00", end: "17:00" },
+      { day: "2026-09-21", start: "17:00", end: "18:00" },
+      { day: "2026-08-01", start: "17:00", end: "18:00" },
+      { day: "2026-09-00", start: "17:00", end: "18:00" },
+      { day: "2026-02-30", start: "17:00", end: "18:00" },
+    ]) {
+      assert(!normalizePhoneArgs("write", { entity, op: "create", fields }, "2026-09-20").ok);
+    }
+  }
+  assert(!normalizePhoneArgs("write", { entity: "sleep_night", op: "create", fields: { day: "today", clear: true } }).ok);
+  assert(!normalizePhoneArgs("write", { entity: "sport_session", op: "update", id: "some-id", fields: {} }).ok);
 });

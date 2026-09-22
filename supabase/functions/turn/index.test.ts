@@ -24,6 +24,7 @@ type PersistenceBehavior = {
   rows?: Record<string, unknown[]>;
   store?: TurnStorage;
   fail?: string[];
+  mealWriteDenied?: boolean;
   beforeClear?: () => Promise<void>;
   preflightReplay?: { text: string; conversationId?: string | null };
 };
@@ -152,6 +153,21 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, store
         storage.frame = structuredClone(args!.p_envelope);
         return { data: { frame_id: "frame" }, error: null };
       }
+      if (name === "apply_meal_plate") {
+        if (persistence.mealWriteDenied) return { data: null, error: { code: "42501" } };
+        return { data: { meal_ids: (args?.p_items as unknown[]).map((_, i) =>
+          `33333333-3333-4333-8333-${String(i + 1).padStart(12, "0")}`) }, error: null };
+      }
+      if (name === "apply_meal_operation") {
+        return {
+          data: {
+            operation_id: args?.p_operation_id,
+            client_op_id: args?.p_operation_id,
+            meal_id: args?.p_meal_id,
+          },
+          error: null,
+        };
+      }
       return { data: [], error: null };
     },
   };
@@ -201,6 +217,10 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, store
       events.push("quota");
       return Promise.resolve({ allowed: true, remaining: 9 });
     },
+    entitlement: () => {
+      events.push("entitlement");
+      return Promise.resolve({ allowed: true as const, introClaimed: false });
+    },
     spend: () => {
       events.push("spend");
       return Promise.resolve(true);
@@ -223,6 +243,7 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, store
       events.push("usage");
       return Promise.resolve();
     },
+    recordProviderAttempt: () => Promise.resolve(),
     ...overrides,
   };
   return { deps, saved, usages, activeTools, prompts, events, upserts, states, storage, rpcCalls, tables, webQueries };
@@ -233,6 +254,26 @@ function assertSuccess(body: string) {
   assert(body.includes("event: done"), body);
   assertEquals(body.includes("event: error"), false, body);
 }
+
+Deno.test("a missing Pro entitlement never consumes quota or calls a model", async () => {
+  const h = harness([], {
+    entitlement: () => Promise.resolve({
+      allowed: false as const,
+      introClaimed: false,
+      reason: "missing",
+    }),
+    quota: () => {
+      throw new Error("quota must not run without Pro");
+    },
+  });
+  const response = await handleTurn(request(), h.deps);
+  assertEquals(response.status, 402);
+  const body = await response.json();
+  assertEquals(body.error, "SUBSCRIPTION_REQUIRED");
+  assertEquals(body.intro_claimed, false);
+  assertEquals(h.activeTools.length, 0);
+  assertEquals(h.usages.length, 0);
+});
 
 Deno.test("count and amount admission denials never call any model", async () => {
   for (const reason of ["count", "spend"] as const) {
@@ -277,7 +318,7 @@ Deno.test("real SDK reads and declares ready then renders in two steps with comp
     "workflow.ready",
     render.name,
   ]);
-  assertEquals(h.events.slice(0, 3), ["quota", "spend", "model"]);
+  assertEquals(h.events.slice(0, 4), ["entitlement", "quota", "spend", "model"]);
   assertEquals(body.includes("event: coach.handoff"), false);
 });
 
@@ -380,11 +421,7 @@ Deno.test("meal generation runs only after model-selected meal.estimate", async 
       generated++;
       return Promise.resolve({
         object: {
-          name: "Rice",
-          kcal: 200,
-          protein_g: 4,
-          carb_g: 42,
-          fat_g: 1,
+          items: [{ name: "Rice", portion: "1 bowl", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1 }],
           confidence: "MEDIUM",
         },
         usage: { promptTokens: 5, completionTokens: 6 },
@@ -590,7 +627,7 @@ Deno.test("food output uses the selected tool draft rather than model-supplied n
     { calls: [{ name: "meal.estimate", args: { reference_query: "rice nutrition" } }, ready] },
     { calls: [{ name: "screen.render.food", args: { title: "MEAL DRAFT", sentence: "Review this estimate", name: "Fake", kcal: 9999, protein_g: 9999, carb_g: 9999, fat_g: 9999 } }] },
   ], {
-    generateObject: (() => Promise.resolve({ object: { name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, confidence: "MEDIUM" }, usage: { promptTokens: 5, completionTokens: 6 } })) as unknown as TurnDependencies["generateObject"],
+    generateObject: (() => Promise.resolve({ object: { items: [{ name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, portion: "1 bowl" }], confidence: "MEDIUM" }, usage: { promptTokens: 5, completionTokens: 6 } })) as unknown as TurnDependencies["generateObject"],
   });
   assertSuccess(await (await handleTurn(request({text:"Record this rice"}),h.deps)).text());
   const frame = h.saved[0].p_envelope as { data: Record<string, unknown>; action:string };
@@ -598,8 +635,9 @@ Deno.test("food output uses the selected tool draft rather than model-supplied n
   assertEquals(frame.data.kcal,200);
   assertEquals(frame.data.macros,{p:4,c:42,f:1});
   assertEquals(frame.data.draft_id,operationId);
-  assertEquals(frame.data.requires_confirmation,true);
-  assertEquals(frame.action,"CONFIRM");
+  assertEquals(frame.data.requires_confirmation,false);
+  assertEquals(frame.data.committed,true);
+  assertEquals(frame.action,"OPEN FUEL");
 });
 
 Deno.test("food draft references from production render directly after estimation", async () => {
@@ -615,7 +653,7 @@ Deno.test("food draft references from production render directly after estimatio
       { calls: [foodReference] },
     ], {
       generateObject: (() => Promise.resolve({
-        object: { name: "Rice rolls", kcal: 600, protein_g: 20, carb_g: 90, fat_g: 18, confidence: "LOW" },
+        object: { items: [{ name: "Rice rolls", kcal: 600, protein_g: 20, carb_g: 90, fat_g: 18, portion: "1 bowl" }], confidence: "LOW" },
         usage: { promptTokens: 5, completionTokens: 6 },
       })) as unknown as TurnDependencies["generateObject"],
     });
@@ -634,8 +672,9 @@ Deno.test("food draft references from production render directly after estimatio
     assertEquals(frame.data.kcal, 600);
     assertEquals(frame.data.macros, { p: 20, c: 90, f: 18 });
     assertEquals(frame.data.draft_id, operationId);
-    assertEquals(frame.data.requires_confirmation, true);
-    assertEquals(frame.action, locale === "zh-CN" ? "确认记录" : "CONFIRM");
+    assertEquals(frame.data.requires_confirmation, false);
+    assertEquals(frame.data.committed, true);
+    assertEquals(frame.action, locale === "zh-CN" ? "打开热量" : "OPEN FUEL");
     assertEquals(h.states.length, 0, "A draft render never dispatches a meal write");
   }
 });
@@ -1045,7 +1084,7 @@ Deno.test("a failed web check still produces a meal draft, with no source claims
     { calls: [{ name: "screen.render.food", args: { title: "RICE", sentence: "About 200 kcal.", name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, action: "CONFIRM" } }] }], {
       searchWeb: () => Promise.resolve({ ok: false, error: "SEARCH_NOT_VERIFIED", say: "No sources." }),
       generateObject: (() => Promise.resolve({
-        object: { name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, confidence: "MEDIUM" },
+        object: { items: [{ name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, portion: "1 bowl" }], confidence: "MEDIUM" },
         usage: { promptTokens: 5, completionTokens: 6 },
       })) as unknown as TurnDependencies["generateObject"],
     });
@@ -1059,7 +1098,7 @@ Deno.test("a common dish is estimated without any web search", async () => {
     { calls: [{ name: "screen.render.food", args: { title: "RICE", sentence: "About 200 kcal.", name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, action: "CONFIRM" } }] }], {
       searchWeb: () => { throw new Error("a common dish must not wait on the web"); },
       generateObject: (() => Promise.resolve({
-        object: { name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, confidence: "MEDIUM" },
+        object: { items: [{ name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, portion: "1 bowl" }], confidence: "MEDIUM" },
         usage: { promptTokens: 5, completionTokens: 6 },
       })) as unknown as TurnDependencies["generateObject"],
     });
@@ -1241,7 +1280,7 @@ Deno.test("a food frame that cites the draft as a claim renders in one step", as
   } };
   const h = harness([{ calls: [{ name: "meal.estimate", args: {} }] }, { calls: [cited] }], {
     generateObject: (() => Promise.resolve({
-      object: { name: "Latte", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, confidence: "MEDIUM" },
+      object: { items: [{ name: "Latte", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, portion: "1 bowl" }], confidence: "MEDIUM" },
       usage: { promptTokens: 5, completionTokens: 6 },
     })) as unknown as TurnDependencies["generateObject"],
   });
@@ -1255,7 +1294,7 @@ Deno.test("a food frame that cites the draft as a claim renders in one step", as
 Deno.test("a completed meal draft still renders when the model step dies afterwards", async () => {
   const h = harness([]);
   h.deps.generateObject = (() => Promise.resolve({
-    object: { name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, confidence: "MEDIUM" },
+    object: { items: [{ name: "Rice", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, portion: "1 bowl" }], confidence: "MEDIUM" },
     usage: { promptTokens: 5, completionTokens: 6 },
   })) as unknown as TurnDependencies["generateObject"];
   h.deps.streamText = (options) =>
@@ -1298,7 +1337,7 @@ Deno.test("a meal search that times out still leaves the model its own estimate"
     { calls: [{ name: "screen.render.food", args: { title: "LATTE", sentence: "About 200 kcal.", name: "Latte", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, action: "CONFIRM" } }] }], {
       searchWeb: () => Promise.reject(new DOMException("Signal timed out.", "TimeoutError")),
       generateObject: (() => Promise.resolve({
-        object: { name: "Latte", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, confidence: "MEDIUM" },
+        object: { items: [{ name: "Latte", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1, portion: "1 bowl" }], confidence: "MEDIUM" },
         usage: { promptTokens: 5, completionTokens: 6 },
       })) as unknown as TurnDependencies["generateObject"],
     });
@@ -1329,4 +1368,74 @@ Deno.test("the advice surface carries no phone tools, before or after a reread",
   assertEquals(body.includes("event: tool.request"), false);
   assertEquals(h.states.length, 0);
   assertEquals(h.upserts[0].table, "daily_plans");
+});
+
+Deno.test("a subscription expiring during phone suspension prevents resumed model work", async () => {
+  const first = harness([{ calls: [alarm] }]);
+  await (await handleTurn(request({ text: "set an alarm at 7" }), first.deps)).text();
+  const stored = first.states[0] as { pending: { call_id: string } };
+  const h = harness([], {
+    entitlement: () => Promise.resolve({allowed: false, introClaimed: true, reason: "expired"}),
+    quota: () => { throw new Error("must not consume quota"); },
+  }, stored);
+  const response = await handleTurn(request({text: "set an alarm at 7", tool_result: {
+    call_id: stored.pending.call_id, ok: true, code: "OK", data: {},
+  }}), h.deps);
+  assertEquals(response.status, 402);
+  assertEquals(await response.json(), {error: "SUBSCRIPTION_REQUIRED", intro_claimed: true});
+  assertEquals(h.activeTools.length, 0);
+});
+
+Deno.test("an explicitly submitted typed meal survives disconnect and uses detached runtime work", async () => {
+  const h = harness([{ calls: [{ name: "meal.estimate", args: {} }] }], {
+    generateObject: (() => Promise.resolve({
+      object: { items: [{ name: "Rice", portion: "1 bowl", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1 }], confidence: "MEDIUM" },
+      usage: { promptTokens: 5, completionTokens: 6 },
+    })) as unknown as TurnDependencies["generateObject"],
+  });
+  const runtime = globalThis as typeof globalThis & { EdgeRuntime?: { waitUntil(work: Promise<unknown>): void } };
+  const previous = runtime.EdgeRuntime;
+  const detached: Promise<unknown>[] = [];
+  runtime.EdgeRuntime = { waitUntil: (work) => { detached.push(work); } };
+  try {
+    const abort = new AbortController();
+    const req = new Request(request({ text: "I ate rice", intent: "meal" }), { signal: abort.signal });
+    const response = await handleTurn(req, h.deps);
+    abort.abort();
+    await response.body!.cancel();
+    await Promise.all(detached);
+    assertEquals(detached.length, 1);
+    assert(h.rpcCalls.includes("apply_meal_plate"));
+    const frame = h.saved[0].p_envelope as { type: string; data: { committed: boolean } };
+    assertEquals(frame.type, "food");
+    assertEquals(frame.data.committed, true);
+  } finally { runtime.EdgeRuntime = previous; }
+});
+
+Deno.test("a stalled meal has a bounded explicit failure instead of permanent THINKING", async () => {
+  const h = harness([{ calls: [{ name: "meal.estimate", args: {} }] }], {
+    mealTimeoutMs: 5,
+    generateObject: ((options: { abortSignal: AbortSignal }) => new Promise((_, reject) => {
+      if (options.abortSignal.aborted) reject(options.abortSignal.reason);
+      else options.abortSignal.addEventListener("abort", () => reject(options.abortSignal.reason), { once: true });
+    })) as unknown as TurnDependencies["generateObject"],
+  });
+  const response = await (await handleTurn(request({ text: "I ate rice", intent: "meal" }), h.deps)).text();
+  assert(response.includes("event: error"));
+  assert(response.includes("event: done"));
+  assert(!h.rpcCalls.includes("apply_meal_plate"));
+});
+
+Deno.test("withdrawn cloud-write permission is a visible failure, never a confirmation", async () => {
+  const h = harness([{ calls: [{ name: "meal.estimate", args: {} }] }], {
+    generateObject: (() => Promise.resolve({
+      object: { items: [{ name: "Rice", portion: "1 bowl", kcal: 200, protein_g: 4, carb_g: 42, fat_g: 1 }], confidence: "MEDIUM" },
+      usage: { promptTokens: 5, completionTokens: 6 },
+    })) as unknown as TurnDependencies["generateObject"],
+  }, undefined, { mealWriteDenied: true });
+  const response = await (await handleTurn(request({ text: "I ate rice", intent: "meal" }), h.deps)).text();
+  assert(response.includes("event: error"));
+  assert(response.includes("data collection consent"));
+  assert(!response.includes('"committed":true'));
+  assert(!response.includes("CONFIRM"));
 });

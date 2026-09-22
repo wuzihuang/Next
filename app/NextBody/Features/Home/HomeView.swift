@@ -8,6 +8,7 @@ struct HomeView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var billing: BillingStore
 
     @StateObject private var ai = AIService.shared
     @StateObject private var adviceAI = AIService()
@@ -277,7 +278,7 @@ struct HomeView: View {
                 .zIndex(3)
             PlusMenuSheet(inline: true, onClose: { closePlus() },
                           onCamera: { openCamera(afterMenu: true) },
-                          onLibrary: { showPicker = true })
+                          onLibrary: { if billing.allowAI() { showPicker = true } })
                 .padding(.horizontal, NB.Layout.gutter - 8)
                 .padding(.top, 10)
                 .padding(.bottom, safe.bottom + 10)
@@ -314,7 +315,9 @@ struct HomeView: View {
                 panelFrame: CGRect(x: NB.Layout.gutter, y: panelTop, width: columnWidth, height: panelHeight),
                 screen: screen,
                 onFolded: { summary in
+                    let recap = summary?.type == .workout ? liveSession.lastRecap : nil
                     liveSession.end()
+                    completedSport = recap
                     if let summary {
                         withAnimation(.spring(response: 0.50, dampingFraction: 0.80)) { widget = summary }
                     }
@@ -323,8 +326,13 @@ struct HomeView: View {
         }
     }
 
+    @State private var completedSport: SportSessionRecap?
+
     var body: some View {
         homeLifecycle
+            .sheet(item: $completedSport) { recap in
+                SportRecapView(recap: recap).environmentObject(data)
+            }
     }
 
     private var homeGestured: some View {
@@ -372,6 +380,11 @@ struct HomeView: View {
             }
             guard phase != .active else { return }
             cancelInterruptedDrag()
+            // The same rule for the microphone as for the page drag: a take the app is no
+            // longer in front of is over. Left alone the chamber came back with the app,
+            // lit over a recorder iOS had already interrupted, and only a deliberate
+            // hold-and-release could put it away.
+            if dockMode == .listening { cancelListening() }
             readoutHold?.cancel()
             readoutHold = nil
             readoutHeldOnPageTwo = false
@@ -456,6 +469,7 @@ struct HomeView: View {
         .onDisappear { BandLiveLifecycle.shared.setForegroundWanted(false) }
         .background { NightHomeDiagnosticObserver(metrics: data.today) }
         .task {
+            billing.considerWelcome()
             // DEBUG · 05 edges on a simulator with no microphone story of its own.
             switch DebugEdge.name {
             case "micdenied":   note(DockNote(line: L("MICROPHONE OFF"), text: L("Typing still works.\nTurn the mic on in Settings."), action: L("Open Settings")))
@@ -765,6 +779,15 @@ struct HomeView: View {
                                 .transition(.scale(scale: 0.94).combined(with: .opacity))
                         }
                     }
+                    // The receipt for a meal just written stands above the dock, on the same
+                    // lane as the dock note and never at the same time as one.
+                    .overlay(alignment: .top) {
+                        if data.mealReceipt != nil, dockNote == nil, attachment == nil {
+                            MealReceiptBar()
+                                .offset(y: -76)
+                                .animation(.spring(response: 0.34, dampingFraction: 0.86), value: data.mealReceipt)
+                        }
+                    }
                     // 05 edges · the sentence and its one key sit above the dock; the slots never move.
                     .overlay(alignment: .top) {
                         if let dockNote {
@@ -971,6 +994,7 @@ struct HomeView: View {
     /// REFRESH: the only way to regenerate within the day.
     private func refreshPlan() {
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
+        guard billing.allowAI(surface: "plan") else { return }
         planStore.refresh(day: data.today.day, store: data, ai: adviceAI)
     }
 
@@ -1055,6 +1079,7 @@ struct HomeView: View {
     /// the recorder will not start, the dock stays idle rather than animating over nothing —
     /// which is what it did before there was a recorder at all.
     private func beginListening() {
+        guard billing.allowAI(surface: "asr") else { return }
         let operationID = UUID()
         voiceOperationID = operationID
         Task {
@@ -1097,6 +1122,7 @@ struct HomeView: View {
     /// Simulator / no camera → say so, rather than silently opening the library.
     /// `afterMenu` waits for the plus sheet's dismiss (0.22 s) so the camera cover is not fighting it.
     private func openCamera(afterMenu: Bool = false) {
+        guard billing.allowAI() else { return }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             note(DockNote(line: L("CAMERA UNAVAILABLE"), text: L("Use Photo library from the plus menu.")), clearAfter: 4)
             return
@@ -1152,6 +1178,7 @@ struct HomeView: View {
 
     /// Shutter → prepare → send. No caption step: photographing the meal is the send.
     private func sendFoodPhoto(_ raw: UIImage) async {
+        guard billing.allowAI() else { return }
         withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { dockNote = nil }
         do {
             guard let payload = AIImagePayload.prepare(raw) else { throw CocoaError(.fileWriteUnknown) }
@@ -1207,6 +1234,7 @@ struct HomeView: View {
     private func beginPanelRequest() -> UUID {
         let requestID = UUID()
         panelRequestID = requestID
+        ai.prepareForNewRequest()
         return requestID
     }
 
@@ -1283,7 +1311,13 @@ struct HomeView: View {
     }
 
     private func endListening() {
-        guard let operationID = voiceOperationID else { return }
+        guard let operationID = voiceOperationID else {
+            // A release with nothing in flight. If the chamber is still up it was opened by a
+            // press whose take never started — closing it is the only honest answer, and
+            // leaving it open is the bug that has no way out.
+            if dockMode == .listening { cancelListening() }
+            return
+        }
         voiceOperationID = nil
         // 05M · B·05 · RELEASE 0.22S · EASE-OUT-BACK · the chamber collapses into the capsule.
         withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) { dockMode = .idle }
@@ -1349,6 +1383,7 @@ struct HomeView: View {
         // this side does not ask. The panel is already NOT COLLECTING, and the way back is the
         // consent screen, not a turn.
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
+        guard billing.allowAI() else { return }
         // 05 edge 5 · OFFLINE. The message never leaves the dock: the draft is put back and the
         // capsule says when to try.
         if !reachability.isOnline || DebugEdge.on("offline") {
@@ -1370,6 +1405,9 @@ struct HomeView: View {
         let sentImage: String?
         if let a = attachment, a.progress >= 1, !a.failed {
             sentImage = a.dataURL
+            // Held until the turn says where the server stored it; see AIService.
+            ai.pendingPlatePhoto = a.image
+            ai.beginReadingPlate(caption: text, image: a.image)
             withAnimation(.spring(response: 0.26, dampingFraction: 0.74)) { attachment = nil }
             photoItem = nil
         } else { sentImage = nil }
@@ -1377,6 +1415,7 @@ struct HomeView: View {
         Task {
             // ADR 0011 · every dock sentence is one turn. The model picks meal.estimate
             // when the plate is a log; the client does not classify food or medicine.
+            guard panelRequestID == requestID else { return }
             var handoffScope: ChatTurnScope?
             let frame = await ai.turn(text, day: day, store: data, imageDataURL: sentImage,
                                       conversationID: conversationID, turnID: operationID) {
@@ -1392,6 +1431,7 @@ struct HomeView: View {
                     router.open(.chat(sessionID: conversationID.uuidString), from: .home)
                 }
             }
+            ai.endReadingPlate()
             if let handoffScope {
                 ChatStore.shared.finishPanelHandoff(handoffScope, widget: frame, error: ai.lastError)
             }
@@ -1405,7 +1445,11 @@ struct HomeView: View {
                     widget = frame ?? PanelWidget(type: .text, title: L("OFFLINE"), tag: .fuel,
                                                   sentence: L("Could not read that plate. Your words are kept; send it again."),
                                                   footer: String(text.prefix(42)), action: nil, data: .none)
-                } else { widget = frame ?? .thinking(text) }
+                } else {
+                    widget = frame ?? PanelWidget(type: .text, title: L("COULDN'T COMPLETE"), tag: .fuel,
+                                                  sentence: ai.lastError ?? L("Could not complete that request. Please try again."),
+                                                  footer: String(text.prefix(42)), action: nil, data: .none)
+                }
             }
         }
     }

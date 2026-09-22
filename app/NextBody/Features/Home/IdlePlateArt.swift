@@ -147,7 +147,7 @@ enum IdlePlateArt {
         let ca = cos(deg), sa = sin(deg)
         let cy = band.1
         let alpha = band.2
-        for i in 0..<36 {
+        for i in 0..<52 {
             let n = Double(i + plate * 17 + 1)
             let u = (hash(n, 12.9898) - 0.5) * 560
             let v = (hash(n, 78.233) - 0.5) * 110
@@ -216,7 +216,7 @@ enum IdlePlateArt {
         glow(&ctx, at: c, rx: 92 * s, ry: 80 * s, rgb: 0x6B5B3A, a: 0.28 * pose.glow)
         riderMoon(&ctx, o: moon, front: false, cx: 179, cy: 188, occlude: 82,
                   s: s, sx: sx, sy: sy, r: 3.5)
-        fineRings(&ctx, c: c, deg: -14, s: s, back: true, bands: [
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: true, bands: [
             (136, 34, 14, 0.16, 0xD9C69A),
             (150, 38, 1.6, 0.34, 0xE8D9B0),
             (158, 40, 1.2, 0.22, 0xD9C69A),
@@ -226,16 +226,18 @@ enum IdlePlateArt {
                stops: [(0, 0xFFF8EC), (0.14, 0xF7EFDD), (0.32, 0xE8D9B0),
                        (0.50, 0xDCCBA6), (0.66, 0x8A7A58), (0.82, 0x3A3224),
                        (1, 0x1E1A12)],
-               air: 0xC9B68C, airA: 0.18, speckle: 0.10, specA: 0.10, nightA: 0.28,
+               air: 0xC9B68C, airA: 0.18, speckle: 0.14, specA: 0.10, nightA: 0.28,
                limbA: 0)
         ringShadow(&ctx, c: c, r: 82 * s, rx: 150 * s, ry: 38 * s,
-                   deg: -14, rgb: 0x050403, a: 0.18)
-        fineRings(&ctx, c: c, deg: -14, s: s, back: false, bands: [
+                   deg: pose.ringDeg, rgb: 0x050403, a: 0.18)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: false, bands: [
             (136, 34, 12, 0.24, 0xE8D9B0),
             (150, 38, 1.7, 0.90, 0xF5EBCD),
             (158, 40, 1.25, 0.55, 0xF5EBCD),
             (167, 42.3, 1.0, 0.32, 0xF5EBCD),
         ])
+        ansaGlow(&ctx, c: c, rx: 150 * s, ry: 38 * s, deg: pose.ringDeg,
+                 pose: pose, s: s, rgb: 0xFFF6D6)
         riderMoon(&ctx, o: moon, front: true, cx: 179, cy: 188, occlude: 82,
                   s: s, sx: sx, sy: sy, r: 3.5)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
@@ -252,50 +254,69 @@ enum IdlePlateArt {
         ], flares: [(78, 88, 5.2, 0xFFFCF0, 0.92), (312, 118, 4.0, 0xCFE4FF, 0.70)])
     }
 
-    /// Paper `222S-1` · 320px moon at 19/40, night ramp to ~0x222220, right limb.
+    /// Moon in the field, not a 320px balloon on the glass. Soft night
+    /// ramp, walking terminator, dust ring, and a shepherd.
     private static func plate02(_ ctx: inout GraphicsContext, pose: IdlePlatePose,
                                 s: CGFloat, sx: CGFloat, sy: CGFloat) {
-        let cx = pose.bodyX, cy = 200.0
+        let cx = pose.bodyX, cy = pose.bodyY
         let c = CGPoint(x: cx * sx, y: cy * sy)
-        let pr = 160 * s
-        haloRing(&ctx, at: c, r: 220 * s, rgb: 0xD6E4FF,
-                 stops: [(0.70, 0), (0.77, 0.14),
-                         (0.86, 0.05), (1, 0)])
-        softBall(&ctx, c: c, r: pr, hx: c.x, hy: c.y - 18 * sy, stops: [
-            (0, 0xC8C8C0, 0.24),
-            (0.38, 0x8A8A84, 0.16),
-            (0.68, 0x4A4A48, 0.07),
+        let pr = 92 * s
+        let moon = ride(pose, cx: cx, cy: cy, restX: 292, restY: 168, flatten: 0.30)
+        let hx = (cx - 34 + pose.lightX * 26) * sx
+        let hy = (cy - 30 - pose.moonPitch * 3) * sy
+        haloRing(&ctx, at: c, r: 148 * s, rgb: 0xD6E4FF,
+                 stops: [(0.70, 0), (0.78, 0.10),
+                         (0.88, 0.04), (1, 0)])
+        orbitGuide(&ctx, cx: cx, cy: cy, restX: 292, restY: 168,
+                   flatten: 0.30, s: s, sx: sx, sy: sy, rgb: 0xD8E0EC, a: 0.16)
+        riderMoon(&ctx, o: moon, front: false, cx: cx, cy: cy, occlude: 92,
+                  s: s, sx: sx, sy: sy, r: 4.2, rgb: 0xE8E4D8)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: true, bands: [
+            (128, 34, 16, 0.08, 0xC8D0DC),
+            (142, 38, 1.4, 0.20, 0xD8E0EC),
+            (150, 40, 1.0, 0.12, 0xC8D0DC),
+        ])
+        softBall(&ctx, c: c, r: pr, hx: c.x, hy: c.y - 12 * sy, stops: [
+            (0, 0xC8C8C0, 0.28),
+            (0.38, 0x8A8A84, 0.18),
+            (0.68, 0x4A4A48, 0.08),
             (1, 0x070709, 0),
         ])
-        softBall(&ctx, c: c, r: pr * 0.88, hx: 108.6 * sx, hy: 116.8 * sy, stops: [
-            (0, 0xE8E8E0, 0.26),
-            (0.36, 0xB0B0A8, 0.12),
-            (0.70, 0x6A6A68, 0.04),
+        softBall(&ctx, c: c, r: pr * 0.86, hx: hx, hy: hy, stops: [
+            (0, 0xF0F0E8, 0.30),
+            (0.34, 0xB8B8B0, 0.14),
+            (0.70, 0x6A6A68, 0.05),
             (1, 0x070709, 0),
         ])
-        paperCraters(&ctx, origin: CGPoint(x: 19 * sx, y: 40 * sy),
+        paperCraters(&ctx, origin: CGPoint(x: (cx - 92) * sx, y: (cy - 92) * sy),
                      disc: c, r: pr, s: s, sx: sx, sy: sy,
-                     shiftX: 0, shiftY: 0,
-                     mares: [(28, 58, 132, 96, 0.05), (118, 172, 112, 82, 0.04)],
-                     pits: [(85, 80, 40, 0.05), (180, 105, 30, 0.04),
-                            (50, 180, 48, 0.04), (140, 215, 34, 0.03),
-                            (222, 50, 24, 0.05), (25, 115, 26, 0.03),
-                            (95, 145, 18, 0.03), (205, 170, 16, 0.03)])
-        svgArc(&ctx, s: s, sx: sx, sy: sy,
-               x1: 210, y1: 47, rx: 160, ry: 160, deg: 0,
-               large: false, sweep: true, x2: 330, y2: 260,
-               width: 7, rgb: 0xFFFFFF, a: 0.18)
-        svgArc(&ctx, s: s, sx: sx, sy: sy,
-               x1: 220.4, y1: 45.4, rx: 160, ry: 160, deg: 0,
-               large: false, sweep: true, x2: 310.1, y2: 291.8,
-               width: 2.2, rgb: 0xFFFFFF, a: 0.40)
+                     shiftX: pose.moonYaw * 1.2 * sx, shiftY: -pose.moonPitch * 0.8 * sy,
+                     mares: [(28, 48, 78, 56, 0.12), (70, 96, 64, 46, 0.10)],
+                     pits: [(48, 42, 22, 0.11), (102, 58, 16, 0.09),
+                            (36, 98, 26, 0.10), (86, 118, 18, 0.08),
+                            (124, 36, 14, 0.09), (18, 68, 14, 0.08),
+                            (60, 80, 10, 0.07), (110, 92, 9, 0.06)])
+        featherRim(&ctx, c: c, r: pr, rgb: 0x070709, inner: 0.78, pad: 1.0)
+        ringShadow(&ctx, c: c, r: pr, rx: 142 * s, ry: 38 * s,
+                   deg: pose.ringDeg, rgb: 0x050508, a: 0.16)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: false, bands: [
+            (128, 34, 14, 0.14, 0xE4EAF2),
+            (142, 38, 1.55, 0.62, 0xF2F6FC),
+            (150, 40, 1.1, 0.32, 0xE4EAF2),
+        ])
+        ansaGlow(&ctx, c: c, rx: 142 * s, ry: 38 * s, deg: pose.ringDeg,
+                 pose: pose, s: s, rgb: 0xF6F8FF)
+        riderMoon(&ctx, o: moon, front: true, cx: cx, cy: cy, occlude: 92,
+                  s: s, sx: sx, sy: sy, r: 4.2, rgb: 0xE8E4D8)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (40, 30, 1.3, 0xFFFCF0, 0.75), (320, 24, 1.0, 0xFFFCF0, 0.55),
-            (344, 150, 1.2, 0xFFFCF0, 0.60), (14, 180, 1.0, 0xFFFCF0, 0.40),
-            (70, 380, 1.0, 0xFFFCF0, 0.35), (330, 420, 1.1, 0xFFFCF0, 0.40),
+            (344, 150, 1.2, 0xCFE4FF, 0.60), (14, 180, 1.0, 0xFFFCF0, 0.40),
+            (70, 380, 1.0, 0xFFFCF0, 0.35), (330, 420, 1.1, 0xCFE4FF, 0.40),
             (296, 392, 0.8, 0xFFFCF0, 0.30), (24, 90, 0.9, 0xFFFCF0, 0.38),
-            (150, 18, 0.8, 0xFFFCF0, 0.45), (250, 430, 0.8, 0xFFFCF0, 0.28),
-        ], flares: [(58, 96, 5.0, 0xFFFCF0, 0.90), (328, 84, 4.0, 0xFFFCF0, 0.60)])
+            (150, 18, 0.8, 0xFFFCF0, 0.45), (250, 430, 0.8, 0xCFE4FF, 0.28),
+            (88, 48, 0.7, 0xFFE9C9, 0.36), (268, 56, 0.75, 0xFFFCF0, 0.34),
+            (312, 280, 0.7, 0xCFE4FF, 0.26), (48, 310, 0.65, 0xFFFCF0, 0.24),
+        ], flares: [(58, 96, 5.0, 0xFFFCF0, 0.90), (328, 84, 4.0, 0xCFE4FF, 0.60)])
     }
 
     /// Paper `223M-1` · 156px ice ball at 101/50, rings −3°.
@@ -309,7 +330,7 @@ enum IdlePlateArt {
              rx: 110 * s, ry: 90 * s, rgb: 0xF4F8FA, a: 0.10 * pose.glow)
         riderMoon(&ctx, o: moon, front: false, cx: 179, cy: 128, occlude: 78,
                   s: s, sx: sx, sy: sy, r: 3.2, rgb: 0xE8F0F4)
-        fineRings(&ctx, c: c, deg: -3, s: s, back: true, bands: [
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: true, bands: [
             (140, 17, 10, 0.14, 0xC9D6DC),
             (155, 19, 1.5, 0.32, 0xC9D6DC),
             (163, 20, 1.15, 0.20, 0xC9D6DC),
@@ -318,17 +339,19 @@ enum IdlePlateArt {
         sphere(&ctx, c: c, r: 78 * s, hx: 151 * sx, hy: 91 * sy,
                stops: [(0, 0xF8FBFC), (0.16, 0xF0F4F6), (0.38, 0xCFD8DC),
                        (0.60, 0x85939C), (0.80, 0x3D4A52), (1, 0x101418)],
-               air: 0x3E5462, airA: 0.22, speckle: 0.08, specA: 0.28, nightA: 0.58)
+               air: 0x3E5462, airA: 0.22, speckle: 0.12, specA: 0.28, nightA: 0.58)
         paperHighlight(&ctx, at: CGPoint(x: 150 * sx, y: 82 * sy),
                        rx: 18 * s, ry: 10 * s, deg: -22, a: 0.22)
         ringShadow(&ctx, c: c, r: 78 * s, rx: 155 * s, ry: 19 * s,
-                   deg: -3, rgb: 0x05080A, a: 0.16)
-        fineRings(&ctx, c: c, deg: -3, s: s, back: false, bands: [
+                   deg: pose.ringDeg, rgb: 0x05080A, a: 0.16)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: false, bands: [
             (140, 17, 9, 0.20, 0xE8F0F4),
             (155, 19, 1.6, 0.88, 0xE8F0F4),
             (163, 20, 1.2, 0.50, 0xE8F0F4),
             (171, 21, 1.0, 0.28, 0xE8F0F4),
         ])
+        ansaGlow(&ctx, c: c, rx: 155 * s, ry: 19 * s, deg: pose.ringDeg,
+                 pose: pose, s: s, rgb: 0xF4FBFF)
         riderMoon(&ctx, o: moon, front: true, cx: 179, cy: 128, occlude: 78,
                   s: s, sx: sx, sy: sy, r: 3.2, rgb: 0xE8F0F4)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
@@ -345,6 +368,8 @@ enum IdlePlateArt {
              rx: 120 * s, ry: 120 * s, rgb: 0xF0F0F5, a: 0.10 * pose.glow)
         glow(&ctx, at: CGPoint(x: 179 * sx, y: 248 * sy),
              rx: 22 * s, ry: 16 * s, rgb: 0x5E7A92, a: 0.08 * pose.glow)
+        orbitGuide(&ctx, cx: 179, cy: 248, restX: 268.9, restY: 171.4,
+                   flatten: 0.42, s: s, sx: sx, sy: sy, rgb: 0xEBEBF0, a: 0.14)
         let pip = ride(pose, cx: 179, cy: 248, restX: 268.9, restY: 171.4, flatten: 0.42)
         riderPip(&ctx, o: pip, front: false, cx: 179, cy: 248, occlude: 0,
                  s: s, sx: sx, sy: sy, r: 1.7, rgb: 0xF5F5FA)
@@ -404,7 +429,7 @@ enum IdlePlateArt {
             crescent(&ctx, at: CGPoint(x: moon.x * sx, y: moon.y * sy), r: 13 * s,
                      off: CGSize(width: 4.5 * s, height: -2.2 * s), rgb: 0xE8E2D0, a: 0.45)
         }
-        fineRings(&ctx, c: c, deg: -22, s: s, back: true, bands: [
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: true, bands: [
             (118, 31, 12, 0.12, 0xB0A892),
             (130, 34, 1.5, 0.30, 0xB0A892),
             (138, 36.1, 1.15, 0.18, 0xB0A892),
@@ -413,17 +438,19 @@ enum IdlePlateArt {
         sphere(&ctx, c: c, r: 68 * s, hx: 152 * sx, hy: 148 * sy,
                stops: [(0, 0xD0C8B0), (0.22, 0x9D9686), (0.48, 0x645E50),
                        (0.72, 0x3F3A30), (1, 0x0B0A08)],
-               air: 0x3A3423, airA: 0.20, speckle: 0.08, specA: 0.26, nightA: 0.62)
+               air: 0x3A3423, airA: 0.20, speckle: 0.12, specA: 0.26, nightA: 0.62)
         paperHighlight(&ctx, at: CGPoint(x: 152 * sx, y: 136 * sy),
                        rx: 14 * s, ry: 8 * s, deg: -22, a: 0.20)
         ringShadow(&ctx, c: c, r: 68 * s, rx: 130 * s, ry: 34 * s,
-                   deg: -22, rgb: 0x080604, a: 0.20)
-        fineRings(&ctx, c: c, deg: -22, s: s, back: false, bands: [
+                   deg: pose.ringDeg, rgb: 0x080604, a: 0.20)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: false, bands: [
             (118, 31, 10, 0.18, 0xD0C8B0),
             (130, 34, 1.6, 0.78, 0xD0C8B0),
             (138, 36.1, 1.2, 0.46, 0xD0C8B0),
             (146, 38.2, 1.0, 0.26, 0xD0C8B0),
         ])
+        ansaGlow(&ctx, c: c, rx: 130 * s, ry: 34 * s, deg: pose.ringDeg,
+                 pose: pose, s: s, rgb: 0xE8E2D0)
         if moon.front {
             glow(&ctx, at: CGPoint(x: moon.x * sx, y: moon.y * sy),
                  rx: 13 * s, ry: 13 * s, rgb: 0xE8E2D0, a: 0.22)
@@ -457,10 +484,10 @@ enum IdlePlateArt {
                         rgb: 0xE1E1E8, a: 0.55, dash: [2 * s, 6 * s], phase: crawl)
         paperDashCircle(&ctx, c: c, r: 62 * s, width: 1.0 * s,
                         rgb: 0xE1E1E8, a: 0.18, dash: [1.5 * s, 7 * s], phase: crawl)
-        paperDashEllipse(&ctx, c: c, rx: 190 * s, ry: 52 * s, deg: -28,
+        paperDashEllipse(&ctx, c: c, rx: 190 * s, ry: 52 * s, deg: pose.ringDeg,
                          width: 1.2 * s, rgb: 0xDCDCE4, a: 0.35,
                          dash: [2 * s, 6 * s], phase: crawl)
-        paperDashEllipse(&ctx, c: c, rx: 170 * s, ry: 60 * s, deg: 24,
+        paperDashEllipse(&ctx, c: c, rx: 170 * s, ry: 60 * s, deg: pose.ringDeg + 52,
                          width: 1.1 * s, rgb: 0xDCDCE4, a: 0.25,
                          dash: [2 * s, 6 * s], phase: -crawl)
         let pip = ride(pose, cx: 180, cy: 195, restX: 320, restY: 170, flatten: 0.27)
@@ -483,7 +510,7 @@ enum IdlePlateArt {
         glow(&ctx, at: c, rx: 100 * s, ry: 100 * s, rgb: 0xA9C4DC, a: 0.20 * pose.glow)
         riderMoon(&ctx, o: moon, front: false, cx: 179, cy: 178, occlude: 72,
                   s: s, sx: sx, sy: sy, r: 3.2, rgb: 0xC3D9EC)
-        fineRings(&ctx, c: c, deg: -24, s: s, back: true, bands: [
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: true, bands: [
             (126, 27, 12, 0.12, 0xA9C4DC),
             (138, 30, 1.5, 0.32, 0xA9C4DC),
             (146, 31.7, 1.15, 0.18, 0xA9C4DC),
@@ -492,17 +519,19 @@ enum IdlePlateArt {
         sphere(&ctx, c: c, r: 72 * s, hx: 150 * sx, hy: 146 * sy,
                stops: [(0, 0xF2F8FC), (0.16, 0xDBE8F2), (0.40, 0xA7BFD0),
                        (0.64, 0x62809A), (0.88, 0x30485C), (1, 0x0C1420)],
-               air: 0x2E465C, airA: 0.22, speckle: 0.08, specA: 0.28, nightA: 0.58)
+               air: 0x2E465C, airA: 0.22, speckle: 0.12, specA: 0.28, nightA: 0.58)
         paperHighlight(&ctx, at: CGPoint(x: 152 * sx, y: 133 * sy),
                        rx: 16 * s, ry: 9 * s, deg: -24, a: 0.22)
         ringShadow(&ctx, c: c, r: 72 * s, rx: 138 * s, ry: 30 * s,
-                   deg: -24, rgb: 0x060C14, a: 0.18)
-        fineRings(&ctx, c: c, deg: -24, s: s, back: false, bands: [
+                   deg: pose.ringDeg, rgb: 0x060C14, a: 0.18)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: false, bands: [
             (126, 27, 10, 0.20, 0xC3D9EC),
             (138, 30, 1.6, 0.86, 0xC3D9EC),
             (146, 31.7, 1.2, 0.50, 0xC3D9EC),
             (154, 33.5, 1.0, 0.28, 0xC3D9EC),
         ])
+        ansaGlow(&ctx, c: c, rx: 138 * s, ry: 30 * s, deg: pose.ringDeg,
+                 pose: pose, s: s, rgb: 0xD6ECF8)
         riderMoon(&ctx, o: moon, front: true, cx: 179, cy: 178, occlude: 72,
                   s: s, sx: sx, sy: sy, r: 3.2, rgb: 0xC3D9EC)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
@@ -539,6 +568,13 @@ enum IdlePlateArt {
                        rx: 13 * s, ry: 7.5 * s, deg: -22, a: 0.03)
         paperLine(&ctx, s: s, sx: sx, sy: sy,
                   from: (-30, 333), to: (388, 81), width: 2.2, rgb: 0xE4E8F0, a: 0.14)
+        orbitGuide(&ctx, cx: pose.bodyX, cy: pose.bodyY, restX: 232, restY: 152,
+                   flatten: 0.34, s: s, sx: sx, sy: sy, rgb: 0xE4E0D0, a: 0.18)
+        let moon = ride(pose, cx: pose.bodyX, cy: pose.bodyY, restX: 232, restY: 152, flatten: 0.34)
+        riderMoon(&ctx, o: moon, front: false, cx: pose.bodyX, cy: pose.bodyY, occlude: 45,
+                  s: s, sx: sx, sy: sy, r: 3.0, rgb: 0xE4E0D0)
+        riderMoon(&ctx, o: moon, front: true, cx: pose.bodyX, cy: pose.bodyY, occlude: 45,
+                  s: s, sx: sx, sy: sy, r: 3.0, rgb: 0xE4E0D0)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (42, 64, 1.3, 0xF0F2F6, 0.60), (312, 46, 1.0, 0xF0F2F6, 0.45),
             (336, 230, 1.1, 0xF0F2F6, 0.40), (28, 150, 1.0, 0xF0F2F6, 0.38),
@@ -585,6 +621,13 @@ enum IdlePlateArt {
             paperLine(&ctx, s: s, sx: sx, sy: sy,
                       from: seg.0, to: seg.1, width: 1.5, rgb: 0xC0C8D4, a: seg.2)
         }
+        orbitGuide(&ctx, cx: 179, cy: 190, restX: 286, restY: 148,
+                   flatten: 0.36, s: s, sx: sx, sy: sy, rgb: 0xC0C8D4, a: 0.16)
+        let pip = ride(pose, cx: 179, cy: 190, restX: 286, restY: 148, flatten: 0.36)
+        riderPip(&ctx, o: pip, front: false, cx: 179, cy: 190, occlude: 75,
+                 s: s, sx: sx, sy: sy, r: 2.4, rgb: 0xE8ECF2)
+        riderPip(&ctx, o: pip, front: true, cx: 179, cy: 190, occlude: 75,
+                 s: s, sx: sx, sy: sy, r: 2.4, rgb: 0xE8ECF2)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (40, 58, 1.2, 0xF0F2F6, 0.50), (318, 44, 1.0, 0xF0F2F6, 0.40),
             (338, 260, 1.0, 0xF0F2F6, 0.35), (24, 330, 1.0, 0xF0F2F6, 0.30),
@@ -618,14 +661,20 @@ enum IdlePlateArt {
                           from: seg.0, to: seg.1, width: 1.6, rgb: 0x96BAFF, a: seg.2,
                           dash: [2, 5], phase: pose.dash * 7)
         }
-        let star = CGPoint(x: 14 * sx, y: 94 * sy)
+        orbitGuide(&ctx, cx: 179, cy: 200, restX: 14, restY: 94,
+                   flatten: 0.20, s: s, sx: sx, sy: sy, rgb: 0x96BAFF, a: 0.20)
+        let body = ride(pose, cx: 179, cy: 200, restX: 14, restY: 94, flatten: 0.20)
+        let star = CGPoint(x: body.x * sx, y: body.y * sy)
         bloom(&ctx, at: star, rx: 16 * s, ry: 16 * s, rgb: 0x96BAFF, a: 0.28 * pose.glow)
         glow(&ctx, at: star, rx: 6 * s, ry: 6 * s, rgb: 0xF4F8FF, a: 0.70 * pose.glow)
         flare(&ctx, at: star, r: 7 * s, rgb: 0xEBF2FF, a: 0.92 * pose.glow)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (300, 40, 1.0, 0xE6EEFF, 0.40), (110, 30, 1.0, 0xE6EEFF, 0.32),
             (340, 180, 1.0, 0xE6EEFF, 0.30), (230, 22, 1.1, 0xE6EEFF, 0.36),
-        ], flares: [])
+            (48, 360, 0.8, 0xE6EEFF, 0.28), (168, 18, 0.75, 0xFFFCF0, 0.34),
+            (318, 88, 0.7, 0xCFE4FF, 0.26), (86, 48, 0.7, 0xE6EEFF, 0.30),
+            (250, 420, 0.8, 0xE6EEFF, 0.22), (20, 220, 0.65, 0xFFFCF0, 0.24),
+        ], flares: [(328, 52, 3.4, 0xEBF2FF, 0.42)])
     }
 
     /// Paper `22BE-1` · bright diagonal + dashed ellipse 210×110 at −32°. No moon.
@@ -638,7 +687,7 @@ enum IdlePlateArt {
                       from: (-20, 460), to: (378, 50), width: 14, rgb: 0xF0F3F8,
                       a: 0.28 * pose.glow)
         paperDashEllipse(&ctx, c: CGPoint(x: 180 * sx, y: 235 * sy),
-                         rx: 210 * s, ry: 110 * s, deg: -32,
+                         rx: 210 * s, ry: 110 * s, deg: pose.ringDeg,
                          width: 1.5 * s, rgb: 0xE4E8EE, a: 0.50,
                          dash: [2 * s, 6 * s], phase: pose.dash * 8 * s)
         let pip = ride(pose, cx: 180, cy: 235, restX: 320, restY: 180, flatten: 0.52)
@@ -711,11 +760,20 @@ enum IdlePlateArt {
                large: true, sweep: true, x2: 110, y2: 197.7,
                width: 2, rgb: 0xBAE6FD, a: 0.55,
                marks: [2, 5], markPhase: pose.dash * 7)
+        orbitGuide(&ctx, cx: 210, cy: 140, restX: 302, restY: 88,
+                   flatten: 0.30, s: s, sx: sx, sy: sy, rgb: 0xBAE6FD, a: 0.22)
+        let moon = ride(pose, cx: 210, cy: 140, restX: 302, restY: 88, flatten: 0.30)
+        riderMoon(&ctx, o: moon, front: false, cx: 210, cy: 140, occlude: 0,
+                  s: s, sx: sx, sy: sy, r: 3.6, rgb: 0xE2F4FF)
+        riderMoon(&ctx, o: moon, front: true, cx: 210, cy: 140, occlude: 0,
+                  s: s, sx: sx, sy: sy, r: 3.6, rgb: 0xE2F4FF)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (60, 90, 1.2, 0xE2F4FF, 0.60), (290, 60, 1.0, 0xE2F4FF, 0.45),
             (330, 170, 1.1, 0xE2F4FF, 0.40), (200, 120, 1.0, 0xE2F4FF, 0.50),
             (140, 42, 1.2, 0xE2F4FF, 0.40), (36, 270, 1.0, 0xE2F4FF, 0.35),
-        ], flares: [])
+            (88, 18, 0.75, 0xFFFCF0, 0.36), (248, 28, 0.7, 0xE2F4FF, 0.30),
+            (318, 88, 0.7, 0xCFE4FF, 0.26), (22, 140, 0.65, 0xE2F4FF, 0.28),
+        ], flares: [(48, 52, 3.2, 0xE2F4FF, 0.40)])
     }
 
     /// Paper `22EI-1` · violet bloom + 128×96 ellipse at 18° + pip (294, 210).
@@ -730,7 +788,7 @@ enum IdlePlateArt {
         bloom(&ctx, at: CGPoint(x: 185 * sx, y: 280 * sy),
               rx: 45 * s, ry: 35 * s, rgb: 0xFFF4E0, a: 0.16)
         paperDashEllipse(&ctx, c: CGPoint(x: 182 * sx, y: 238 * sy),
-                         rx: 128 * s, ry: 96 * s, deg: 18,
+                         rx: 128 * s, ry: 96 * s, deg: pose.ringDeg + 30,
                          width: 1.2 * s, rgb: 0xC4B5FD, a: 0.38,
                          dash: [], phase: 0)
         paperLine(&ctx, s: s, sx: sx, sy: sy,
@@ -855,7 +913,9 @@ enum IdlePlateArt {
             (60, 70, 1.2, 0xFFFFFF, 0.50), (130, 40, 1.0, 0xFFFFFF, 0.38),
             (40, 210, 1.1, 0xFFFFFF, 0.40), (90, 330, 1.0, 0xFFFFFF, 0.30),
             (260, 420, 1.1, 0xFFFFFF, 0.32), (320, 380, 1.0, 0xFFFFFF, 0.30),
-        ], flares: [])
+            (22, 48, 0.75, 0xCFFAFE, 0.34), (168, 22, 0.7, 0xFFFFFF, 0.28),
+            (300, 60, 0.7, 0x38BDF8, 0.26), (48, 160, 0.65, 0xFFFFFF, 0.24),
+        ], flares: [(88, 52, 3.4, 0xCFFAFE, 0.40)])
     }
 
     /// Paper `229U-1` · 860px limb from the right, diagonal lines, no rings.
@@ -875,6 +935,11 @@ enum IdlePlateArt {
                   from: (-30, 345), to: (140, 226), width: 1.2, rgb: 0xC8CDD7, a: 0.02)
         paperLine(&ctx, s: s, sx: sx, sy: sy,
                   from: (-30, 327), to: (135, 211), width: 2.0, rgb: 0xDCE1E9, a: 0.18)
+        orbitGuide(&ctx, cx: 90, cy: 180, restX: 210, restY: 70,
+                   flatten: 0.40, s: s, sx: sx, sy: sy, rgb: 0xC8CDD7, a: 0.16)
+        let pip = ride(pose, cx: 90, cy: 180, restX: 210, restY: 70, flatten: 0.40)
+        riderPip(&ctx, o: pip, front: true, cx: 90, cy: 180, occlude: 0,
+                 s: s, sx: sx, sy: sy, r: 2.6, rgb: 0xE8ECF2)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (40, 60, 1.3, 0xF0F2F6, 0.55), (120, 34, 1.0, 0xF0F2F6, 0.40),
             (30, 200, 1.0, 0xF0F2F6, 0.35), (90, 120, 1.1, 0xF0F2F6, 0.42),
@@ -891,7 +956,7 @@ enum IdlePlateArt {
              rx: 110 * s, ry: 110 * s, rgb: 0x50505A, a: 0.10 * pose.glow)
         riderMoon(&ctx, o: moon, front: false, cx: 179, cy: 188, occlude: 85,
                   s: s, sx: sx, sy: sy, r: 3.0, rgb: 0x9696A0)
-        fineRings(&ctx, c: c, deg: -2, s: s, back: true, bands: [
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: true, bands: [
             (152, 22, 10, 0.10, 0x55555E),
             (165, 24, 1.5, 0.28, 0x55555E),
             (173, 25.2, 1.15, 0.16, 0x55555E),
@@ -900,15 +965,17 @@ enum IdlePlateArt {
         sphere(&ctx, c: c, r: 85 * s, hx: 142 * sx, hy: 154 * sy,
                stops: [(0, 0x7A7A86), (0.24, 0x4A4A54), (0.50, 0x2C2C32),
                        (0.74, 0x18181C), (1, 0x0A0A0C)],
-               air: 0x1E1E24, airA: 0.28, speckle: 0.06)
+               air: 0x1E1E24, airA: 0.28, speckle: 0.10)
         ringShadow(&ctx, c: c, r: 85 * s, rx: 165 * s, ry: 24 * s,
-                   deg: -2, rgb: 0x000000, a: 0.22)
-        fineRings(&ctx, c: c, deg: -2, s: s, back: false, bands: [
+                   deg: pose.ringDeg, rgb: 0x000000, a: 0.22)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: false, bands: [
             (152, 22, 8, 0.16, 0x787882),
             (165, 24, 1.6, 0.72, 0x9696A0),
             (173, 25.2, 1.2, 0.42, 0x9696A0),
             (181, 26.3, 1.0, 0.24, 0x9696A0),
         ])
+        ansaGlow(&ctx, c: c, rx: 165 * s, ry: 24 * s, deg: pose.ringDeg,
+                 pose: pose, s: s, rgb: 0xC8C8D0)
         riderMoon(&ctx, o: moon, front: true, cx: 179, cy: 188, occlude: 85,
                   s: s, sx: sx, sy: sy, r: 3.0, rgb: 0x9696A0)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
@@ -945,6 +1012,13 @@ enum IdlePlateArt {
         ])
         flare(&ctx, at: CGPoint(x: 104 * sx, y: 132 * sy),
               r: 5.2 * s, rgb: 0xF0F8FF, a: 0.70 * pose.twinkle)
+        orbitGuide(&ctx, cx: pose.bodyX, cy: pose.bodyY, restX: 168, restY: 118,
+                   flatten: 0.42, s: s, sx: sx, sy: sy, rgb: 0xBAE6FD, a: 0.18)
+        let pip = ride(pose, cx: pose.bodyX, cy: pose.bodyY, restX: 168, restY: 118, flatten: 0.42)
+        riderPip(&ctx, o: pip, front: false, cx: pose.bodyX, cy: pose.bodyY, occlude: 92,
+                 s: s, sx: sx, sy: sy, r: 2.8, rgb: 0xE0F2FF)
+        riderPip(&ctx, o: pip, front: true, cx: pose.bodyX, cy: pose.bodyY, occlude: 92,
+                 s: s, sx: sx, sy: sy, r: 2.8, rgb: 0xE0F2FF)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (52, 66, 1.3, 0xFFFFFF, 0.62), (120, 40, 1.0, 0xFFFFFF, 0.40),
             (30, 180, 1.1, 0xFFFFFF, 0.45), (90, 330, 1.2, 0xFFFFFF, 0.35),
@@ -991,7 +1065,7 @@ enum IdlePlateArt {
         glow(&ctx, at: c, rx: 120 * s, ry: 120 * s, rgb: 0xCFC5A2, a: 0.16 * pose.glow)
         riderMoon(&ctx, o: moon, front: false, cx: 179, cy: 186, occlude: 68,
                   s: s, sx: sx, sy: sy, r: 3.0, rgb: 0xE2D8B4)
-        fineRings(&ctx, c: c, deg: -2, s: s, back: true, bands: [
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: true, bands: [
             (132, 14.5, 8, 0.12, 0xCFC5A2),
             (145, 16, 1.5, 0.32, 0xCFC5A2),
             (152, 16.8, 1.15, 0.18, 0xCFC5A2),
@@ -1000,15 +1074,17 @@ enum IdlePlateArt {
         sphere(&ctx, c: c, r: 68 * s, hx: 152 * sx, hy: 156 * sy,
                stops: [(0, 0xF3EFD6), (0.16, 0xE4DCC0), (0.42, 0xB3A882),
                        (0.66, 0x5F5640), (0.90, 0x2A2418), (1, 0x100E08)],
-               air: 0x3E3823, airA: 0.18, speckle: 0.08)
+               air: 0x3E3823, airA: 0.18, speckle: 0.12)
         ringShadow(&ctx, c: c, r: 68 * s, rx: 145 * s, ry: 16 * s,
-                   deg: -2, rgb: 0x0A0804, a: 0.16)
-        fineRings(&ctx, c: c, deg: -2, s: s, back: false, bands: [
+                   deg: pose.ringDeg, rgb: 0x0A0804, a: 0.16)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: false, bands: [
             (132, 14.5, 7, 0.18, 0xE2D8B4),
             (145, 16, 1.6, 0.86, 0xE2D8B4),
             (152, 16.8, 1.2, 0.50, 0xE2D8B4),
             (159, 17.5, 1.0, 0.28, 0xE2D8B4),
         ])
+        ansaGlow(&ctx, c: c, rx: 145 * s, ry: 16 * s, deg: pose.ringDeg,
+                 pose: pose, s: s, rgb: 0xFFF6D6)
         riderMoon(&ctx, o: moon, front: true, cx: 179, cy: 186, occlude: 68,
                   s: s, sx: sx, sy: sy, r: 3.0, rgb: 0xE2D8B4)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
@@ -1059,6 +1135,13 @@ enum IdlePlateArt {
              rx: 94 * s, ry: 94 * s, rgb: 0xA78BFA, a: 0.08)
         paperHighlight(&ctx, at: CGPoint(x: 199 * sx, y: 188 * sy),
                        rx: 14 * s, ry: 8 * s, deg: 24, a: 0.10)
+        orbitGuide(&ctx, cx: pose.bodyX, cy: pose.bodyY, restX: 318, restY: 168,
+                   flatten: 0.28, s: s, sx: sx, sy: sy, rgb: 0xC4B5FD, a: 0.16)
+        let moon = ride(pose, cx: pose.bodyX, cy: pose.bodyY, restX: 318, restY: 168, flatten: 0.28)
+        riderMoon(&ctx, o: moon, front: false, cx: pose.bodyX, cy: pose.bodyY, occlude: 80,
+                  s: s, sx: sx, sy: sy, r: 3.2, rgb: 0xE6DEFF)
+        riderMoon(&ctx, o: moon, front: true, cx: pose.bodyX, cy: pose.bodyY, occlude: 80,
+                  s: s, sx: sx, sy: sy, r: 3.2, rgb: 0xE6DEFF)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (42, 66, 1.3, 0xEBE6FF, 0.65), (96, 34, 1.0, 0xEBE6FF, 0.45),
             (160, 80, 1.2, 0xEBE6FF, 0.50), (236, 40, 1.0, 0xEBE6FF, 0.55),
@@ -1114,6 +1197,11 @@ enum IdlePlateArt {
         featherRim(&ctx, c: c15, r: 135 * s, rgb: 0x070709, inner: 0.64, pad: 1.0)
         strokeCircle(&ctx, c: CGPoint(x: 650 * sx, y: 458 * sy), r: 685 * s,
                      width: 1.5 * s, rgb: 0xFFEED6, a: 0.30)
+        orbitGuide(&ctx, cx: 160, cy: 90, restX: 286, restY: 72,
+                   flatten: 0.38, s: s, sx: sx, sy: sy, rgb: 0xFFE9C9, a: 0.18)
+        let moon = ride(pose, cx: 160, cy: 90, restX: 286, restY: 72, flatten: 0.38)
+        riderMoon(&ctx, o: moon, front: true, cx: 160, cy: 90, occlude: 0,
+                  s: s, sx: sx, sy: sy, r: 3.4, rgb: 0xFFE9C9)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (52, 66, 1.3, 0xFFF4E0, 0.65), (300, 48, 1.1, 0xFFF4E0, 0.50),
             (332, 180, 1.0, 0xFFF4E0, 0.40), (238, 96, 1.2, 0xFFF4E0, 0.45),
@@ -1132,11 +1220,16 @@ enum IdlePlateArt {
         let oy = -pose.moonPitch * 1.8 * sy
         glow(&ctx, at: CGPoint(x: (cx - 40) * sx, y: (cy - 80) * sy),
              rx: 200 * s, ry: 180 * s, rgb: 0x3A3C48, a: 0.10 * pose.glow)
+        orbitGuide(&ctx, cx: 179, cy: 38, restX: 300, restY: 42,
+                   flatten: 0.22, s: s, sx: sx, sy: sy, rgb: 0xFFF8E8, a: 0.16)
+        let pip = ride(pose, cx: 179, cy: 38, restX: 300, restY: 42, flatten: 0.22)
+        riderPip(&ctx, o: pip, front: false, cx: 179, cy: 38, occlude: 0,
+                 s: s, sx: sx, sy: sy, r: 2.4, rgb: 0xFFF8E8)
         sphere(&ctx, c: c, r: pr,
-               hx: 47 * sx, hy: 82 * sy,
+               hx: (47 + pose.moonYaw * 10) * sx, hy: (82 - pose.moonPitch * 4) * sy,
                stops: [(0, 0xF2F0E6), (0.14, 0xC8C6BE), (0.36, 0x8A8880),
                        (0.62, 0x54524C), (0.88, 0x1A1814), (1, 0x080809)],
-               air: 0xC0C4D0, airA: 0.03 * pose.glow, speckle: 0.03, seed: 223,
+               air: 0xC0C4D0, airA: 0.03 * pose.glow, speckle: 0.05, seed: 223,
                specA: 0, nightA: 0, limbA: 0)
         discWash(&ctx, c: c, r: pr, deg: 142, stops: [
             (0, Color.white.opacity(0.08)),
@@ -1167,10 +1260,13 @@ enum IdlePlateArt {
                     ]),
                     startPoint: CGPoint(x: 179 * sx, y: 0),
                     endPoint: CGPoint(x: 179 * sx, y: 470 * sy)))
+        riderPip(&ctx, o: pip, front: true, cx: 179, cy: 38, occlude: 0,
+                 s: s, sx: sx, sy: sy, r: 2.4, rgb: 0xFFF8E8)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (40, 36, 1.1, 0xFFFCF0, 0.40), (300, 28, 0.9, 0xCFE4FF, 0.36),
             (330, 70, 1.0, 0xFFFCF0, 0.32), (18, 90, 0.8, 0xFFE9C9, 0.28),
             (250, 48, 0.85, 0xFFFCF0, 0.30), (88, 22, 0.75, 0xCFE4FF, 0.26),
+            (168, 16, 0.7, 0xFFFCF0, 0.28), (318, 110, 0.7, 0xCFE4FF, 0.24),
         ], flares: [(58, 54, 3.6, 0xFFFCF0, 0.55)])
     }
 
@@ -1180,7 +1276,10 @@ enum IdlePlateArt {
         let c = CGPoint(x: 179 * sx, y: 188 * sy)
         bloom(&ctx, at: CGPoint(x: 180 * sx, y: 203 * sy),
               rx: 160 * s, ry: 95 * s, rgb: 0x67E8F9, a: 0.14)
-        fineRings(&ctx, c: c, deg: 0, s: s, back: true, bands: [
+        let moon = ride(pose, cx: 179, cy: 188, restX: 338, restY: 188, flatten: 0.04)
+        riderMoon(&ctx, o: moon, front: false, cx: 179, cy: 188, occlude: 80,
+                  s: s, sx: sx, sy: sy, r: 3.0, rgb: 0xEAF2F8)
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: true, bands: [
             (162, 5, 1.6, 0.22, 0xC9D8E4),
             (166, 6.5, 1.2, 0.14, 0xC9D8E4),
             (170, 9, 1.0, 0.08, 0xC9D8E4),
@@ -1202,11 +1301,15 @@ enum IdlePlateArt {
             glow(&inner, at: CGPoint(x: c.x, y: c.y + 1 * s),
                  rx: 72 * s, ry: 7 * s, rgb: 0xEAF2F8, a: 0.32)
         }
-        fineRings(&ctx, c: c, deg: 0, s: s, back: false, bands: [
+        fineRings(&ctx, c: c, deg: pose.ringDeg, s: s, back: false, bands: [
             (162, 5, 1.7, 0.90, 0xEAF2F8),
             (166, 6.5, 1.25, 0.50, 0xEAF2F8),
             (170, 9, 1.0, 0.28, 0xEAF2F8),
         ])
+        ansaGlow(&ctx, c: c, rx: 166 * s, ry: 6.5 * s, deg: pose.ringDeg,
+                 pose: pose, s: s, rgb: 0xF4FBFF)
+        riderMoon(&ctx, o: moon, front: true, cx: 179, cy: 188, occlude: 80,
+                  s: s, sx: sx, sy: sy, r: 3.0, rgb: 0xEAF2F8)
         paperStars(&ctx, pose: pose, s: s, sx: sx, sy: sy, dots: [
             (44, 62, 1.3, 0xE2F0FF, 0.60), (110, 36, 1.0, 0xE2F0FF, 0.42),
             (180, 74, 1.2, 0xE2F0FF, 0.50), (268, 42, 1.0, 0xE2F0FF, 0.55),
@@ -1222,6 +1325,25 @@ enum IdlePlateArt {
         IdlePlateMotion.around(cx: cx, cy: cy,
                                restX: restX, restY: restY,
                                flatten: flatten, u: pose.satellite)
+    }
+
+    /// The closed ellipse `ride` traces, so a shepherd reads as orbit not a blink.
+    private static func orbitGuide(_ ctx: inout GraphicsContext,
+                                   cx: Double, cy: Double,
+                                   restX: Double, restY: Double,
+                                   flatten: Double,
+                                   s: CGFloat, sx: CGFloat, sy: CGFloat,
+                                   rgb: UInt32 = 0xD8DCE8, a: Double = 0.16) {
+        var path = Path()
+        for i in 0...48 {
+            let o = IdlePlateMotion.around(cx: cx, cy: cy, restX: restX, restY: restY,
+                                           flatten: flatten, u: Double(i) / 48)
+            let p = CGPoint(x: o.x * sx, y: o.y * sy)
+            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        ctx.stroke(path, with: .color(Color(hex: rgb, opacity: a)),
+                   style: StrokeStyle(lineWidth: max(0.65, 0.8 * s),
+                                      dash: [1.5 * s, 5.2 * s]))
     }
 
     private static func occulted(_ o: IdleOrbit, cx: Double, cy: Double, r: Double) -> Bool {
@@ -1355,7 +1477,7 @@ enum IdlePlateArt {
         ctx.drawLayer { inner in
             inner.clip(to: Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r,
                                                   width: r * 2, height: r * 2)))
-            let n = amount > 0.4 ? 48 : 28
+            let n = amount > 0.4 ? 56 : 36
             for i in 0..<n {
                 let k = Double(seed * 13 + i + 1)
                 let ang = hash(k, 12.9898) * .pi * 2
@@ -1376,12 +1498,26 @@ enum IdlePlateArt {
         }
     }
 
+    private static func ansaGlow(_ ctx: inout GraphicsContext, c: CGPoint,
+                                 rx: CGFloat, ry: CGFloat, deg: Double,
+                                 pose: IdlePlatePose, s: CGFloat, rgb: UInt32) {
+        let tau = pose.satellite * .pi * 2
+        let a = deg * .pi / 180
+        let ca = cos(a), sa = sin(a)
+        let x = c.x + rx * CGFloat(cos(tau)) * ca - ry * CGFloat(sin(tau)) * sa
+        let y = c.y + rx * CGFloat(cos(tau)) * sa + ry * CGFloat(sin(tau)) * ca
+        let front = sin(tau) >= 0
+        let k = front ? 1.0 : 0.42
+        glow(&ctx, at: CGPoint(x: x, y: y),
+             rx: 7 * s, ry: 4.2 * s, rgb: rgb, a: 0.34 * k)
+        fillDot(&ctx, at: CGPoint(x: x, y: y), r: 1.6 * s, rgb: rgb, a: 0.72 * k)
+    }
+
     private static func rings(_ ctx: inout GraphicsContext, c: CGPoint,
                               rx: CGFloat, ry: CGFloat, deg: Double,
                               pose: IdlePlatePose, rgb: UInt32, dust: UInt32,
                               gap: CGFloat, wide: CGFloat, dim: Bool,
                               back: Bool? = nil) {
-        _ = pose
         let a = deg * .pi / 180
         let halves: [Bool] = back.map { [$0] } ?? [true, false]
         for isBack in halves {
@@ -1403,6 +1539,8 @@ enum IdlePlateArt {
             if !isBack, !dim {
                 strokeEllipse(&ctx, c: c, rx: rx + 4, ry: ry + 1, rot: a, back: false,
                               width: 7, rgb: rgb, a: 0.08)
+                ansaGlow(&ctx, c: c, rx: rx, ry: ry, deg: deg,
+                         pose: pose, s: max(rx / 150, 0.7), rgb: rgb)
             }
         }
     }

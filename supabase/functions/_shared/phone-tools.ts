@@ -55,7 +55,7 @@ export const PHONE_TOOLS: PhoneToolDef[] = [
       fields: z.any().optional().describe("the entity's fields for this op"),
     }),
     confirm: false, // decided per (entity, op) in confirmFor()
-    codes: ["NOT_FOUND", "AMBIGUOUS", "BAD_ARGS", "UNSUPPORTED", "EDIT_WINDOW_CLOSED", "FASTED_DAY", "ALARM_SLOTS_FULL", ...BAND_CODES],
+    codes: ["NOT_FOUND", "AMBIGUOUS", "BAD_ARGS", "UNSUPPORTED", "EDIT_WINDOW_CLOSED", "FASTED_DAY", "ALARM_SLOTS_FULL", "SLEEP_NIGHT_EXISTS", "FUTURE_SLEEP_WINDOW", "CORRECTION_TOO_OLD", "SPORT_WINDOW_OVERLAP", "SPORT_IN_FUTURE", "SPORT_TOO_OLD", "INVALID_SPORT_WINDOW", "SPORT_OPERATION_CONFLICT", ...BAND_CODES],
   },
   {
     name: DO_TOOL,

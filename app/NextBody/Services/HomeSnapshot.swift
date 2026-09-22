@@ -41,6 +41,7 @@ enum HomeSnapshot {
             m.sleep = HomeSnapshot.sleepForDay(sleep, day: m.day)
             m.bmrFull = bmrFull; m.proteinIn = proteinIn; m.carbIn = carbIn
             m.fatIn = fatIn; m.serverCall = serverCall
+            if let settlement = m.trainingSettlement { m.applyTrainingSettlement(settlement) }
             return m
         }
     }
@@ -180,18 +181,34 @@ enum HomeSnapshot {
         if stored.isCorrected && !fresh.isCorrected {
             var carried = fresh
             if let anchor = fresh.sleepStart, let start = stored.sleepStart, let end = stored.wakeAt {
-                carried.line = SleepWindowCorrection
-                    .clip(fresh.line.map { ($0.stage, $0.minutes, $0.offsetMinutes) },
-                          bandStart: anchor, start: start, end: end)
-                    .map { SleepStageRun(stage: $0.stage, minutes: $0.minutes, offsetMinutes: $0.offsetMinutes) }
+                let restored = SleepWindowCorrection.restoreReportedWindow(
+                    totalMinutes: stored.totalMinutes,
+                    deviceRuns: fresh.line.map { ($0.stage, $0.minutes, $0.offsetMinutes) },
+                    bandStart: anchor, start: start, end: end,
+                    recordedIntervals: (fresh.intervals ?? []).map { ($0.start, $0.end) })
+                carried.line = restored.line.map {
+                    SleepStageRun(stage: $0.stage, minutes: $0.minutes, offsetMinutes: $0.offsetMinutes)
+                }
+                carried.totalMinutes = restored.totalMinutes
+                // Fresh totals belong to the band's unedited window. Only the clipped
+                // runs can update stage totals inside the person's saved window.
+                if !carried.line.isEmpty {
+                    carried.deepMinutes = carried.line.filter { $0.stage == 0 }.reduce(0) { $0 + $1.minutes }
+                    carried.lightMinutes = carried.line.filter { $0.stage == 1 }.reduce(0) { $0 + $1.minutes }
+                } else {
+                    carried.deepMinutes = stored.deepMinutes
+                    carried.lightMinutes = stored.lightMinutes
+                }
             }
             carried.sleepStart = stored.sleepStart
             carried.wakeAt = stored.wakeAt
             carried.correctedAt = stored.correctedAt
+            carried.source = stored.source
             carried.bandStart = fresh.sleepStart ?? stored.bandStart
             carried.bandEnd = fresh.wakeAt ?? stored.bandEnd
-            carried.totalMinutes = carried.line.isEmpty ? stored.totalMinutes
-                : carried.line.filter { $0.stage != 4 }.reduce(0) { $0 + $1.minutes }
+            carried.totalMinutes = stored.totalMinutes
+            carried.wakeCount = stored.wakeCount
+            carried.heartRate = stored.heartRate
             return mergedSleep(stored, with: carried)
         }
         let sameWindow = stored.sleepStart == fresh.sleepStart && stored.wakeAt == fresh.wakeAt
@@ -402,6 +419,9 @@ enum HomeSnapshot {
 
         func restored(_ m: DailyMetrics) -> DailyMetrics {
             var result = payload.details?.last(where: { $0.dayKey == m.day.key })?.restore(m) ?? m
+            // Targets and sessions live in the Codable metrics for the whole history,
+            // including days outside the smaller cached chart-detail window.
+            if let settlement = result.trainingSettlement { result.applyTrainingSettlement(settlement) }
             result.sleep = sleepForDay(result.sleep, day: result.day)
             return result
         }

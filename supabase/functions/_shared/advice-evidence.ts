@@ -37,7 +37,14 @@ export function adviceEvidence(days: EvidenceRow[], sleeps: EvidenceRow[], ticks
     const history = days.filter(r => String(r.user_day) < String(row.user_day));
     const prior = (key: string) => history.flatMap(r => number(r[key]) === null ? [] : [r[key] as number]);
     const completedDay = String(row.user_day) < today;
-    add("training_load", row, row.training_load, "0–21", completedDay ? prior("training_load") : [], { completed_day: completedDay });
+    const training = one(one(row.daily_training).evidence), target = one(training.target);
+    const load = number(row.training_load), suggested = number(target.target);
+    add("training_load", row, load, "0–21", completedDay ? prior("training_load") : [], {
+      completed_day: completedDay, suggested_target: suggested,
+      remaining_to_target: suggested !== null && load !== null ? round(Math.max(0, suggested - load)) : null,
+      target_basis: Object.keys(target).length ? target : null,
+      recorded_sessions: Array.isArray(training.sessions) ? training.sessions : [],
+    });
     const reserve = one(row.reserve_daily), night = one(reserve.night_inputs), fuel = one(row.day_fuel);
     const drivers = one(reserve.drain_drivers);
     const observed = typeof drivers.observed_at === "string" ? Date.parse(drivers.observed_at) : NaN;

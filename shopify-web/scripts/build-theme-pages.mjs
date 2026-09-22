@@ -63,3 +63,89 @@ if (check) {
   writeFileSync(target, next);
   console.log(`shop.js: wrote ${pages.length} pages`);
 }
+
+// Native Shopify Pages render legal and support text without a JavaScript route.
+// Publish each Page with the matching handle and templateSuffix in Shopify Admin.
+const nativePages = [
+  {
+    handle: 'app-privacy',
+    page: POLICIES.find((p) => p.handle === 'privacy-policy'),
+  },
+  {
+    handle: 'app-terms',
+    page: POLICIES.find((p) => p.handle === 'user-agreement'),
+  },
+  {
+    handle: 'app-support',
+    page: SITE_PAGES.find((p) => p.handle === 'app-support'),
+  },
+];
+const escapeHTML = (value) =>
+  value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char],
+  );
+const paragraphHTML = (value) =>
+  escapeHTML(value)
+    .replace(/(shop|privacy)@nextbody\.ai/g, '<a href="mailto:$&">$&</a>')
+    .replace(
+      /reportaproblem\.apple\.com/g,
+      '<a href="https://reportaproblem.apple.com">reportaproblem.apple.com</a>',
+    );
+for (const {handle, page} of nativePages) {
+  if (!page) throw new Error(`Missing source for ${handle}`);
+  const markup = `{% doc %}
+  Public NextBody app information, generated from the storefront policy and support sources.
+{% enddoc %}
+<style>
+.nb-document{max-width:780px;margin:0 auto;padding:48px 24px 80px;color:#efefef;font:16px/1.75 system-ui,sans-serif;overflow-wrap:anywhere}
+.nb-document a{color:#b4e7ca;text-decoration:underline;text-underline-offset:3px}
+.nb-document nav{display:flex;flex-wrap:wrap;gap:12px 24px;margin-bottom:40px}
+.nb-document h1{font-size:36px;line-height:1.2;margin:24px 0}
+.nb-document h2{font-size:22px;line-height:1.4;margin:36px 0 12px}
+.nb-document article+article{border-top:1px solid #444;margin-top:64px;padding-top:32px}
+.nb-document p{margin:0 0 16px}
+</style>
+<main class="nb-document">
+<nav aria-label="NextBody app information"><a href="{{ routes.root_url }}">NextBody</a><a href="{{ routes.all_products_collection_url }}?view=app-privacy">Privacy / 隐私</a><a href="{{ routes.all_products_collection_url }}?view=app-terms">Terms / 条款</a><a href="{{ routes.all_products_collection_url }}?view=app-support">Support / 支持</a><a href="#english">English</a><a href="#chinese">中文</a></nav>
+${['en', 'zh']
+  .map(
+    (
+      locale,
+    ) => `<article lang="${locale === 'zh' ? 'zh-Hans' : 'en'}" id="${locale === 'zh' ? 'chinese' : 'english'}">
+<${locale === 'en' ? 'h1' : 'h2'}>${escapeHTML(page.title[locale])}</${locale === 'en' ? 'h1' : 'h2'}>
+<p>${escapeHTML(page.lede[locale])}</p>
+${page.updated ? `<p>${locale === 'zh' ? '最后更新' : 'Last updated'}: ${escapeHTML(page.updated)}</p>` : ''}
+${page.sections.map((section) => `<section><h2>${escapeHTML(section.heading[locale])}</h2>\n${section.body[locale].map((p) => `<p>${paragraphHTML(p)}</p>`).join('\n')}</section>`).join('\n')}
+</article>`,
+  )
+  .join('\n')}
+</main>
+`;
+  const files = [
+    {name: `snippets/${handle}.liquid`, content: markup},
+    ...['page', 'collection'].map((type) => ({
+      name: `templates/${type}.${handle}.liquid`,
+      content: `{% render '${handle}' %}\n`,
+    })),
+  ];
+  for (const {name, content} of files) {
+    const path = resolve(here, `../../shopify-theme/${name}`);
+    if (check) {
+      if (readFileSync(path, 'utf8') !== content)
+        throw new Error(
+          `${name} is out of date. Run npm run build:theme-pages`,
+        );
+    } else {
+      writeFileSync(path, content);
+    }
+  }
+}
+console.log('Native app privacy, terms and support templates are current.');

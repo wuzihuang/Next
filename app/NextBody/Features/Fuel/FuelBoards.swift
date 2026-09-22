@@ -349,6 +349,9 @@ struct FuelLedgerRow: Identifiable {
 struct FuelFoodTable: View {
     let meals: [MealEntry]
     let trailing: String
+    /// A plate that is being read right now. Shown only on today's table — a past day is
+    /// closed, and nothing in flight belongs to it.
+    var reading: AIService.ReadingPlate? = nil
     var onSelect: (MealEntry) -> Void
 
     var body: some View {
@@ -371,9 +374,14 @@ struct FuelFoodTable: View {
                 Button { onSelect(meal) } label: { foodRow(meal) }
                     .buttonStyle(.plain)
             }
+            if let reading {
+                Hairline()
+                readingRow(reading)
+            }
             if !meals.isEmpty {
                 Hairline()
                 totals
+                micros
             }
         }
         .padding(16)
@@ -394,19 +402,98 @@ struct FuelFoodTable: View {
         .padding(.bottom, 6)
     }
 
+    /// Fibre, sugar and sodium for the day, when every row could say. One silent row and the
+    /// line says how many — a part-day sum printed as a day would be the same lie as a
+    /// 0 kcal plate.
+    @ViewBuilder private var micros: some View {
+        let fiber = meals.map(\.fiber)
+        let sugar = meals.map(\.sugar)
+        let sodium = meals.map(\.sodium)
+        if MealMicroTotals.anyKnown(fiber) || MealMicroTotals.anyKnown(sugar) || MealMicroTotals.anyKnown(sodium) {
+            HStack(spacing: 0) {
+                microCell(L("FIBER"), MealMicroTotals.total(fiber), unit: L("G"), missing: MealMicroTotals.unknownCount(fiber))
+                microCell(L("SUGAR"), MealMicroTotals.total(sugar), unit: L("G"), missing: MealMicroTotals.unknownCount(sugar))
+                microCell(L("SODIUM"), MealMicroTotals.total(sodium), unit: L("MG"), missing: MealMicroTotals.unknownCount(sodium))
+            }
+            .padding(.top, 10)
+        }
+    }
+
+    private func microCell(_ label: String, _ value: Double?, unit: String, missing: Int) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(NBFont.ui(500, 10)).tracking(0.12 * 10)
+                .foregroundStyle(NB.text3Prod)
+            Text(value.map { "\(Fmt.nutrient($0)) \(unit)" } ?? Fmt.dash)
+                .font(NBFont.dot(700, 13)).tracking(0.02 * 13)
+                .foregroundStyle(value == nil ? NB.white.opacity(0.32) : NB.text1)
+            if value == nil, missing > 0 {
+                Text(L("%d rows unknown", missing))
+                    .font(NBFont.ui(400, 9.5))
+                    .foregroundStyle(NB.white.opacity(0.28))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// ⚠️ The numbers column says READING, not 0 and not a spinner's worth of guessed kcal.
+    /// The row exists so the table admits the plate is on its way; it claims nothing about it.
+    private func readingRow(_ plate: AIService.ReadingPlate) -> some View {
+        HStack(spacing: 0) {
+            col(Fmt.clock(plate.at), width: 46, align: .leading, tint: NB.text3Prod, size: 12)
+            HStack(spacing: 7) {
+                if let image = plate.image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 22, height: 22)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .opacity(0.55)
+                }
+                Text(plate.caption.isEmpty ? L("THE PLATE") : plate.caption)
+                    .font(NBFont.ui(600, 14))
+                    .foregroundStyle(NB.white.opacity(0.52))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(L("READING"))
+                .font(NBFont.dot(600, 11)).tracking(0.12 * 11)
+                .foregroundStyle(NB.ember1.opacity(0.8))
+                .frame(width: 176, alignment: .trailing)
+        }
+        .frame(height: 38)
+        .accessibilityIdentifier("fuel.food.reading")
+    }
+
     private func foodRow(_ meal: MealEntry) -> some View {
         HStack(spacing: 0) {
             col(clock(meal), width: 46, align: .leading, tint: NB.text3Prod, size: 12)
-            Text(meal.text.isEmpty ? L(meal.slot.rawValue) : meal.text)
-                .font(NBFont.ui(600, 14))
-                .foregroundStyle(NB.text1)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            col(Fmt.kcal(meal.kcal), width: 56, align: .trailing, tint: NB.ember1, size: 14, weight: 600)
-            col("\(meal.protein)", width: 40, align: .trailing, tint: NB.violet1, size: 13, weight: 600)
-            col("\(meal.carb)", width: 40, align: .trailing, tint: NB.optimal2, size: 13, weight: 600)
-            col("\(meal.fat)", width: 40, align: .trailing, tint: NB.run1, size: 13, weight: 600)
+            // The columns stay fixed-width and unwrapped; the plate's own evidence rides
+            // inside the one flexible cell — a thumbnail when this row was photographed, and
+            // the portion the estimate gave it, dim, after the name.
+            HStack(spacing: 7) {
+                if meal.photoPath != nil {
+                    MealThumbnail(path: meal.photoPath, side: 22, radius: 6)
+                }
+                Text(meal.text.isEmpty ? L(meal.slot.rawValue) : meal.text)
+                    .font(NBFont.ui(600, 14))
+                    .foregroundStyle(NB.text1)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                if let portion = meal.portion, !portion.isEmpty {
+                    Text(portion)
+                        .font(NBFont.ui(400, 11.5))
+                        .foregroundStyle(NB.white.opacity(0.36))
+                        .lineLimit(1)
+                        .layoutPriority(-1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            col(Fmt.nutrient(meal.kcal), width: 56, align: .trailing, tint: NB.ember1, size: 14, weight: 600)
+            col(Fmt.nutrient(meal.protein), width: 40, align: .trailing, tint: NB.violet1, size: 13, weight: 600)
+            col(Fmt.nutrient(meal.carb), width: 40, align: .trailing, tint: NB.optimal2, size: 13, weight: 600)
+            col(Fmt.nutrient(meal.fat), width: 40, align: .trailing, tint: NB.run1, size: 13, weight: 600)
         }
         .padding(.vertical, 10)
     }
@@ -418,10 +505,10 @@ struct FuelFoodTable: View {
                 .foregroundStyle(NB.text2)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            col(Fmt.kcal(meals.reduce(0) { $0 + $1.kcal }), width: 56, align: .trailing, tint: NB.text1, size: 14, weight: 600)
-            col("\(meals.reduce(0) { $0 + $1.protein })", width: 40, align: .trailing, tint: NB.violet1, size: 13, weight: 600)
-            col("\(meals.reduce(0) { $0 + $1.carb })", width: 40, align: .trailing, tint: NB.optimal2, size: 13, weight: 600)
-            col("\(meals.reduce(0) { $0 + $1.fat })", width: 40, align: .trailing, tint: NB.run1, size: 13, weight: 600)
+            col(Fmt.nutrient(meals.reduce(0) { $0 + $1.kcal }), width: 56, align: .trailing, tint: NB.text1, size: 14, weight: 600)
+            col(Fmt.nutrient(meals.reduce(0) { $0 + $1.protein }), width: 40, align: .trailing, tint: NB.violet1, size: 13, weight: 600)
+            col(Fmt.nutrient(meals.reduce(0) { $0 + $1.carb }), width: 40, align: .trailing, tint: NB.optimal2, size: 13, weight: 600)
+            col(Fmt.nutrient(meals.reduce(0) { $0 + $1.fat }), width: 40, align: .trailing, tint: NB.run1, size: 13, weight: 600)
         }
         .padding(.top, 10)
     }

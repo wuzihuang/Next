@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 import Combine
 import os
+import CryptoKit
 
 /// ADR 0018 · phone tools. The model calls them inside a turn; the server suspends the turn
 /// and hands the call here; this runs it on the band or in the app and answers with
@@ -241,6 +242,8 @@ final class PhoneToolRunner: ObservableObject {
         case ("write", "alarm", "create", _):  return L("Set this alarm on the band?")
         case ("write", "alarm", "update", _):  return L("Change this alarm?")
         case ("write", "alarm", "delete", _):  return L("Delete this alarm?")
+        case ("write", "sport_session", "create", _): return L("Log this past session?")
+        case ("write", "sleep_night", "create", _): return L("Log this night's sleep?")
         case ("write", "sleep_night", _, _):
             return (r.args["fields"] as? [String: Any])?["clear"] as? Bool == true
                 ? L("Undo the sleep correction?") : L("Correct this night's sleep times?")
@@ -289,6 +292,9 @@ final class PhoneToolRunner: ObservableObject {
             return "\(time) · \(when)"
         case ("weigh_in", _):
             return "\(fields["weight_kg"] ?? "?") KG"
+        case ("sport_session", _):
+            let mode = Self.sportMode(named: fields["mode"] as? String).displayName
+            return "\(fields["day"] as? String ?? "") · \(mode)\n\(fields["start"] as? String ?? "--:--") → \(fields["end"] as? String ?? "--:--")\n\(L("Uses recorded measurements; missing measurements stay unavailable."))"
         case ("sleep_night", _):
             let day = fields["day"] as? String ?? ""
             if fields["clear"] as? Bool == true { return day }
@@ -366,7 +372,8 @@ final class PhoneToolRunner: ObservableObject {
         case "meal":         return await writeMeal(op, id: id, fields: fields, draft: args["draft"] as? [String: Any], store: store, permit: permit)
         case "day":          return await markFasted(store: store, permit: permit)
         case "weigh_in":     return await writeWeighIn(op, id: id, fields: fields, store: store, permit: permit)
-        case "sleep_night":  return await writeSleepNight(fields, store: store, permit: permit)
+        case "sleep_night":  return await writeSleepNight(op, fields: fields, store: store, permit: permit)
+        case "sport_session": return await writePastSport(op, fields: fields, store: store, permit: permit)
         case "alarm":        return await writeAlarm(op, id: id, match: args["match"] as? [String: Any] ?? [:], fields: fields, permit: permit)
         case "band_setting": return await writeBandSetting(fields, permit: permit)
         case "hr_alarm":     return await writeHeartRateAlarm(fields, permit: permit)
@@ -419,7 +426,7 @@ final class PhoneToolRunner: ObservableObject {
                 guard let name = fields["name"] as? String, let kcal = fields["kcal"] as? Double ?? (fields["kcal"] as? Int).map(Double.init) else {
                     return .fail("ESTIMATE_REQUIRED")
                 }
-                output = ["name": name, "kcal": Int(kcal), "protein_g": fields["protein_g"] ?? 0, "carb_g": fields["carb_g"] ?? 0,
+                output = ["name": name, "kcal": kcal, "protein_g": fields["protein_g"] ?? 0, "carb_g": fields["carb_g"] ?? 0,
                           "fat_g": fields["fat_g"] ?? 0, "confidence": "HIGH", "model_version": "voice-entry-v1", "source": "typed"]
             }
             do {
@@ -441,9 +448,9 @@ final class PhoneToolRunner: ObservableObject {
             let before = entry
             let text = fields["name"] as? String ?? entry.text
             let kcal = (fields["kcal"] as? Double) ?? (fields["kcal"] as? Int).map(Double.init) ?? entry.kcal
-            let protein = fields["protein_g"] as? Int ?? entry.protein
-            let carb = fields["carb_g"] as? Int ?? entry.carb
-            let fat = fields["fat_g"] as? Int ?? entry.fat
+            let protein = (fields["protein_g"] as? NSNumber)?.doubleValue ?? entry.protein
+            let carb = (fields["carb_g"] as? NSNumber)?.doubleValue ?? entry.carb
+            let fat = (fields["fat_g"] as? NSNumber)?.doubleValue ?? entry.fat
             let slot = (fields["slot"] as? String).flatMap(MealEntry.Slot.init(rawValue:)) ?? entry.slot
             let at = Self.clock(fields["at"], on: entry.day, fallback: entry.at)
             guard let owner = SupabaseClient.currentUserIdSnapshot() else { return .fail("SESSION_CHANGED") }
@@ -451,7 +458,7 @@ final class PhoneToolRunner: ObservableObject {
             let stamp = ISO8601DateFormatter(); stamp.formatOptions = [.withInternetDateTime]
             let replacementBody: [String: Any] = [
                 "id": replacementID.uuidString.lowercased(), "user_day": entry.day.key, "slot": slot.rawValue, "name": text,
-                "kcal": Int(kcal), "protein_g": protein, "carb_g": carb, "fat_g": fat,
+                "kcal": kcal, "protein_g": protein, "carb_g": carb, "fat_g": fat,
                 "logged_at": stamp.string(from: entry.day.pinningClock(at)), "confidence": "HIGH", "model_version": "voice-amendment-v1",
             ]
             do { try MealQueue.shared.enqueueAmend(mealID: entry.id, replacement: replacementBody, source: entry.source, revisions: entry.revisions + 1, ownerUserId: owner) }
@@ -474,7 +481,7 @@ final class PhoneToolRunner: ObservableObject {
             if let rejected = await settleMealOutbox(owner: owner) { return .fail(Self.rejectionCode(rejected), rejected) }
             if let entry {
                 pushUndo(L("meal delete")) { _, store in
-                    let output: [String: Any] = ["name": entry.text, "kcal": Int(entry.kcal), "protein_g": entry.protein, "carb_g": entry.carb,
+                    let output: [String: Any] = ["name": entry.text, "kcal": entry.kcal, "protein_g": entry.protein, "carb_g": entry.carb,
                                                  "fat_g": entry.fat, "confidence": "HIGH", "model_version": "voice-restore-v1"]
                     do {
                         let logged = try AIService.shared.logMealDraft(output, slot: entry.slot, day: entry.day, into: store)
@@ -583,9 +590,12 @@ final class PhoneToolRunner: ObservableObject {
     /// entry the sleep page saves through — so this hands it two clock times and reports
     /// back whatever it says. The override is not an edit of the band's record: the window
     /// the band filed stays beside it, and `clear` gives it back.
-    private func writeSleepNight(_ fields: [String: Any], store: DataStore,
+    private func writeSleepNight(_ op: String, fields: [String: Any], store: DataStore,
                                  permit: PhoneToolExecution.Execution) async -> Result {
         do { try permit.check() } catch { return .fail(Self.code(error)) }
+        guard op == "create" || op == "update", op != "create" || fields["clear"] as? Bool != true else {
+            return .fail("BAD_ARGS")
+        }
         guard let dayKey = fields["day"] as? String else {
             return .fail("BAD_ARGS", L("Name the night by the day it was woken on."))
         }
@@ -599,22 +609,24 @@ final class PhoneToolRunner: ObservableObject {
             return .fail("BAD_ARGS", L("A corrected night needs a start and an end."))
         }
         do {
+            try await permit.perform { await Repository.shared.flushPendingEvidence(afterCurrent: true) }
             let receipt = try await permit.perform { () async throws -> Any in
                 if clearing {
                     return try await SupabaseClient.shared.rpc(
                         "clear_sleep_correction", args: ["p_user_day": dayKey], expectedOwner: owner)
                 }
                 return try await SupabaseClient.shared.rpc(
-                    "correct_sleep_window",
+                    op == "create" ? "create_sleep_window" : "correct_sleep_window",
                     args: ["p_user_day": dayKey, "p_start": start ?? "", "p_end": end ?? ""],
                     expectedOwner: owner)
             }
-            await SleepCorrection.republish(day: dayKey, into: store)
+            let settled = await SleepCorrection.republish(day: dayKey, into: store, expectedOwner: owner)
+            try permit.check()
             // The times that were written, not the ones that were asked for: a confirm the
             // thumb moved must not leave the turn saying 23:30 when it saved 00:10.
             var record = (receipt as? [String: Any]) ?? ["user_day": dayKey]
             if !clearing { record["start"] = start; record["end"] = end }
-            return .succeed(["record": record])
+            return .succeed(["record": record, "calculation_pending": !settled])
         } catch {
             let code = SleepCorrection.code(error)
             return .fail(code, SleepCorrection.message(code))
@@ -1028,6 +1040,44 @@ final class PhoneToolRunner: ObservableObject {
     }
 
     // MARK: sport
+
+    /// Past sessions use stored evidence and never open the band's live sport mode.
+    /// The call's identity survives a resumed turn, so a lost receipt cannot create a duplicate.
+    private func writePastSport(_ op: String, fields: [String: Any], store: DataStore,
+                                permit: PhoneToolExecution.Execution) async -> Result {
+        guard op == "create", let day = fields["day"] as? String,
+              let start = fields["start"] as? String, let end = fields["end"] as? String else {
+            return .fail("BAD_ARGS")
+        }
+        guard let owner = permit.scope.session.owner else { return .fail("SESSION_CHANGED") }
+        let mode = Self.sportMode(named: fields["mode"] as? String)
+        let key = "\(owner)/\(permit.scope.turnID.uuidString)/\(permit.callID)/sport_session"
+        var bytes = Array(SHA256.hash(data: Data(key.utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x80
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        let requestID = UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                                    bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        do {
+            try await permit.perform { await Repository.shared.flushPendingEvidence(afterCurrent: true) }
+            let receipt = try await permit.perform {
+                try await SupabaseClient.shared.rpc("log_sport_session", args: [
+                    "p_user_day": day, "p_start": start, "p_end": end,
+                    "p_mode": mode.rawValue, "p_request_id": requestID.uuidString,
+                ], expectedOwner: owner)
+            }
+            let settled = await SleepCorrection.republish(day: day, into: store, expectedOwner: owner)
+            try permit.check()
+            return .succeed(["record": receipt, "mode": mode.name, "calculation_pending": !settled])
+        } catch {
+            if let failure = error as? SupabaseFailure, case .http(_, let body) = failure {
+                for code in ["SPORT_WINDOW_OVERLAP", "SPORT_TOO_OLD", "SPORT_IN_FUTURE", "INVALID_SPORT_WINDOW",
+                             "SPORT_OPERATION_CONFLICT", "RATE_LIMITED"] where body.contains(code) {
+                    return .fail(code, L("Couldn't log that session. Check its date and times, and whether it is already recorded."))
+                }
+            }
+            return .fail(Self.code(error), Self.message(error))
+        }
+    }
 
     private static func sportMode(named raw: String?) -> SportModeOption {
         let name = (raw ?? "").trimmingCharacters(in: .whitespaces).lowercased()

@@ -232,7 +232,7 @@ extension VitalsReadout {
             ]
 
         case .active:
-            var resting = 0.0, sport = 0.0, walk = 0.0, incidental = 0.0
+            var sport = 0.0, walk = 0.0, incidental = 0.0
             let now = VitalsClock.now
             for day in days {
                 let end = min(day.day.end, day.asOf ?? now)
@@ -242,13 +242,11 @@ extension VitalsReadout {
                     eActive: day.eActive, eTrain: day.eTrain, eOutNow: day.eOutNow,
                     ticks: day.vitalsCurve,
                     sportWindows: ActiveEnergyModel.sportWindows(day))
-                resting += split.resting ?? 0
                 sport += split.sport ?? 0
                 walk += split.steps ?? 0
                 incidental += split.incidental ?? 0
             }
             let parts: [(String, Color, Double)] = [
-                (L("RESTING"), NB.white.opacity(0.45), resting),
                 (L("SPORT"), NB.lime1, sport),
                 (L("STEPS"), NB.lime1.opacity(0.75), walk),
                 (L("INCIDENTAL"), NB.lime1.opacity(0.55), incidental),
@@ -262,10 +260,9 @@ extension VitalsReadout {
         }
     }
 
-    /// The whole burn for one day — the number the ACTIVE page's hero already prints, named
-    /// once so the day page and the window page cannot settle it differently.
-    static func dayTotalBurn(_ m: DailyMetrics) -> Double? {
+    /// Recorded activity only, shared by the day and rolling-window heroes.
+    static func dayActiveEnergy(_ m: DailyMetrics) -> Double? {
         ActiveEnergyMath.totals(bmr: m.bmr, eActive: m.eActive,
-                                eTrain: m.eTrain, eOutNow: m.eOutNow).out
+                                eTrain: m.eTrain, eOutNow: m.eOutNow).active
     }
 }

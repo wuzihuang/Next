@@ -85,6 +85,29 @@ Deno.test("weight read and chart share midnight records, the historical window a
   assertEquals(reads.get("weigh_ins"), 1, "reading then drawing reuses one formal snapshot");
 });
 
+Deno.test("load remaining follows the published recovery target, while the arc retains its 21 scale", async () => {
+  const { ctx } = fixture({ daily_results: [{
+    user_id: "u", user_day: "2026-09-03", training_load: 6.2,
+    daily_training: { evidence: { target: { target: 10.5, lower: 8.5, upper: 12.5 } } },
+  }] }, { dayKey: "2026-09-03", from: "2026-09-03", to: "2026-09-03" });
+  const chart = await fetchAs("load.today", "arc", ctx);
+  assertEquals(chart?.agg.target, 10.5);
+  assertEquals(chart?.agg.left, 4.3);
+  assertEquals(chart?.agg.scaleLeft, 14.8);
+  assertEquals(chart?.data, { kind: "arc", value: 6.2, goal: 21, unit: "" });
+});
+
+Deno.test("missing recovery target does not turn scale headroom into a training recommendation", async () => {
+  const { ctx } = fixture({ daily_results: [{
+    user_id: "u", user_day: "2026-09-03", training_load: 6.2,
+    daily_training: { evidence: { target: { target: null, lower: null, upper: null } } },
+  }] }, { dayKey: "2026-09-03", from: "2026-09-03", to: "2026-09-03" });
+  const chart = await fetchAs("load.today", "arc", ctx);
+  assertEquals(chart?.agg.target, null);
+  assertEquals(chart?.agg.left, null);
+  assertEquals(chart?.agg.value, 6.2);
+});
+
 Deno.test("daily chart preserves missing days and calendar-half statistics from the formal read", async () => {
   const { ctx } = fixture({ daily_results: [
     { user_id: "u", user_day: "2026-09-01", reserve_score: 40, result_revision: "r1" },

@@ -86,6 +86,10 @@ enum SheetRoute: Hashable, Identifiable {
     case weighIn
     // 11 · profile
     case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, deleteAccount, signOut
+    /// The two home-screen faces and how to put one there. It is also the only place the app
+    /// ever explains that a background sync is scheduled for a widget to read — without one
+    /// installed there is no reader, so the radio stays off (ADR 0026).
+    case widgets
     /// Profile › REPORT A PROBLEM · title, words, screenshots → one GitHub issue.
     case feedback
     /// ADR 0010 · 一条测量记录的全部字段。两个详情页之间没有路，所以清单里的行点开是盖在

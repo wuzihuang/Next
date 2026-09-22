@@ -55,6 +55,84 @@ function context(
     tz: "UTC",
   };
 }
+Deno.test("training target reads the published dynamic recommendation and preserves zero and missing", async () => {
+  const ctx = context({
+    daily_results: [
+      {
+        user_id: "u",
+        user_day: "2026-09-01",
+        daily_training: {
+          evidence: { target: { target: 8.2, base_target: 13 } },
+        },
+      },
+      {
+        user_id: "u",
+        user_day: "2026-09-02",
+        daily_training: [{
+          evidence: { target: { target: 0, base_target: 13 } },
+        }],
+      },
+      {
+        user_id: "u",
+        user_day: "2026-09-03",
+        daily_training: {
+          evidence: { target: { target: null, base_target: 13 } },
+        },
+      },
+      {
+        user_id: "someone-else",
+        user_day: "2026-09-04",
+        daily_training: { evidence: { target: { target: 20 } } },
+      },
+    ],
+  });
+  const result = await queryMetrics(ctx, {
+    metrics: ["trainingTarget"],
+    from: "2026-09-01",
+    to: "2026-09-04",
+  });
+  assertEquals(result.ok, true);
+  if (!result.ok) throw Error("failed");
+  assertEquals(result.data[0].points.map((p) => p.value), [8.2, 0, null, null]);
+});
+Deno.test("training target marks a retained old reserve limit stale only for today's guidance", async () => {
+  const ctx = context({
+    daily_results: [
+      {
+        user_id: "u",
+        user_day: "2026-09-03",
+        daily_training: {
+          evidence: { target: { target: 7.6, reserve_fresh: false } },
+        },
+      },
+      {
+        user_id: "u",
+        user_day: "2026-09-04",
+        daily_training: [{
+          evidence: {
+            target: { target: 9.1, base_target: 15.1, reserve_fresh: false },
+          },
+        }],
+      },
+    ],
+  });
+  for (const day of ["2026-09-03", "2026-09-04"]) {
+    const result = await queryMetrics(ctx, {
+      metrics: ["trainingTarget"],
+      from: day,
+      to: day,
+    });
+    if (!result.ok) throw Error("failed");
+    assertEquals(
+      result.data[0].evidence.status,
+      day === ctx.dayKey ? "stale" : "complete",
+    );
+    assertEquals(
+      result.data[0].points[0].value,
+      day === ctx.dayKey ? 9.1 : 7.6,
+    );
+  }
+});
 Deno.test("metric read distinguishes intake from balance, aligns missing days and binds evidence", async () => {
   const ctx = context({
     daily_results: [{
@@ -207,17 +285,20 @@ Deno.test("read metadata distinguishes partial, stale, absent and unsupported wi
   assertEquals(stale.data[0].evidence.status, "stale");
 });
 Deno.test("overnight oxygen is collected as measured samples rather than an unsupported hole", async () => {
-  const result = await queryMetrics(context({
-    oxygen_samples: [{
-      user_id: "u",
-      ts: "2026-09-04T22:00:00.000Z",
-      spo2: 97,
-    }],
-  }), {
-    metrics: ["bloodOxygen"],
-    from: "2026-09-04",
-    to: "2026-09-04",
-  });
+  const result = await queryMetrics(
+    context({
+      oxygen_samples: [{
+        user_id: "u",
+        ts: "2026-09-04T22:00:00.000Z",
+        spo2: 97,
+      }],
+    }),
+    {
+      metrics: ["bloodOxygen"],
+      from: "2026-09-04",
+      to: "2026-09-04",
+    },
+  );
   if (!result.ok) throw Error("expected overnight oxygen");
   assertEquals(result.data[0].stats.latest, 97);
   assertEquals(result.data[0].evidence.status, "complete");

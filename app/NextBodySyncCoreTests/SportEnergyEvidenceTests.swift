@@ -4,6 +4,20 @@ import XCTest
 final class SportEnergyEvidenceTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_000)
 
+    func testEnergyAndHeartRateUseOneSessionIdentityWithIndependentContinuity() {
+        let id = UUID()
+        var heart = SportHeartRateEvidenceStream(sessionID: id)
+        var energy = SportEnergyEvidenceStream(sessionID: id)
+        let beat = heart.accept(at: start, heartRate: 120, runState: 1, sportMode: 25, timeZone: "UTC")
+        let receipt = energy.accept(at: start, runState: 1, sportMode: 25, timeZone: "UTC")
+        XCTAssertEqual(beat?.sessionID, receipt?.sessionID)
+        XCTAssertEqual(beat?.sessionID, id)
+        XCTAssertNotEqual(beat?.continuityID, receipt?.continuityID)
+        heart.interrupted()
+        XCTAssertEqual(heart.accept(at: start.addingTimeInterval(5), heartRate: 120,
+            runState: 1, sportMode: 25, timeZone: "UTC")?.sessionID, id)
+    }
+
     func testRunningStrengthReportsPersistWithoutHeartRate() {
         var stream = SportEnergyEvidenceStream()
         let first = stream.accept(at: start, runState: 1, sportMode: 25, timeZone: "UTC")

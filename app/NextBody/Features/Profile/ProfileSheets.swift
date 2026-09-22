@@ -20,65 +20,210 @@ struct ProfileSheet: View {
             case .language:      LanguageSheet()
             case .appleHealth:   AppleHealthSheet()
             case .feedback:      FeedbackSheet()
-            case .privacy:       LegalSheet(title: L("Privacy policy"), body: L(Self.privacyText))
-            case .about:         LegalSheet(title: L("Terms of service"), body: L(Self.termsText))
+            case .privacy:       LegalSheet(.privacy)
+            case .about:         LegalSheet(.terms)
             case .deleteAccount: DeleteAccountSheet()
             case .signOut:       SignOutSheet()
+            case .widgets:       WidgetsSheet()
             default:             EmptyView()
             }
         }
         .background(NB.carbon2)
     }
-
-    static let privacyText = """
-    We store what you log and what your band measures, and nothing else. \
-    Your food descriptions are sent to our model to be turned into numbers; \
-    they are not used to train anything.
-
-    Deleting your account removes it all. There is no undo.
-    """
-
-    static let termsText = """
-    NEXTBODY is free, forever. There is no subscription, no in-app purchase and no \
-    paywall — the band is the product.
-
-    NEXTBODY is not a medical device. Nothing it shows is a diagnosis, and nothing it \
-    says is medical advice. If something about your body worries you, see a doctor.
-    """
 }
 
-/// 03 · three fields, an explicit Save. The VERIFIED badge sits after the email;
-/// changing it needs re-verification, which is why Save is not automatic here.
+/// Body inputs remain editable without Health. Profile writes must succeed before closing;
+/// manual weights use the durable weigh-in queue and the existing server settlement.
 struct PersonalInfoSheet: View {
     @EnvironmentObject private var data: DataStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
     @State private var email = ""
-    @State private var phone = "+1 415 ••• 0192"
+    @State private var birthdate = Date()
+    @State private var sexIsMale = true
+    @State private var saving = false
+    @State private var saveError = false
+    @State private var originalWeightText = ""
+    @State private var heightCm: Double = 170
+    @State private var weightText = ""
+    @State private var stepGoalText = ""
+    @State private var heightSheet = false
+    @State private var heightError = false
+    @State private var weightError = false
+    @State private var stepGoalError = false
+
+    private var metric: Bool { data.profile.usesMetric }
 
     var body: some View {
         SheetFrame(title: L("Your details")) {
-            VStack(spacing: 10) {
-                FieldBox(label: L("Name"), text: $name)
-                FieldBox(label: L("Email"), text: $email, badge: L("VERIFIED"))
-                FieldBox(label: L("Phone"), text: $phone)
+            ScrollView {
+                VStack(spacing: 10) {
+                    FieldBox(label: L("Name"), text: $name)
+                    FieldBox(label: L("Email"), text: $email, badge: L("VERIFIED"))
+                        .disabled(true)
+                    DatePicker(L("Birthday"), selection: $birthdate,
+                               in: ...Date(), displayedComponents: .date)
+                        .tint(NB.lime1)
+                        .accessibilityIdentifier("profile.birthday")
+                    Picker(L("Sex"), selection: $sexIsMale) {
+                        Text(L("Female")).tag(false)
+                        Text(L("Male")).tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("profile.sex")
+                    Button { heightSheet = true } label: {
+                        HStack(alignment: .center) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(L("Height"))
+                                    .font(NBFont.ui(400, 11)).tracking(0.06 * 11)
+                                    .foregroundStyle(NB.white.opacity(0.38))
+                                Text(heightLabel)
+                                    .font(NBFont.ui(400, 16))
+                                    .foregroundStyle(NB.text1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(height: 66)
+                        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: NB.R.chip, style: .continuous)
+                            .stroke(NB.hairline, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("profile.height")
+                    FieldBox(label: L("Weight") + (metric ? " · KG" : " · LB"), text: $weightText, keyboard: .decimalPad)
+                        .accessibilityIdentifier("profile.weight")
+                    // The band's own daily step ring. It is pushed to the firmware, so this is
+                    // the one number on this sheet the wrist reads back to you.
+                    FieldBox(label: L("Daily step goal"), text: $stepGoalText, keyboard: .numberPad)
+                        .accessibilityIdentifier("profile.stepGoal")
+                }
             }
-            Text(L("Tap any field to change it"))
-                .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
-                .foregroundStyle(NB.white.opacity(0.38))
-                .frame(maxWidth: .infinity)
-                .padding(.top, 6)
+            if saveError {
+                Text(L("Could not save your details. Please try again."))
+                    .font(NBFont.ui(400, 12))
+                    .foregroundStyle(NB.ember1)
+                    .accessibilityIdentifier("profile.saveError")
+            } else if heightError {
+                Text(L("Height is out of range."))
+                    .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                    .foregroundStyle(NB.ember1.opacity(0.85))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+            } else if stepGoalError {
+                Text(L("Step goal is out of range."))
+                    .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                    .foregroundStyle(NB.ember1.opacity(0.85))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+            } else if weightError {
+                Text(L("Weight is out of range."))
+                    .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                    .foregroundStyle(NB.ember1.opacity(0.85))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+            } else {
+                Text(L("Tap any field to change it"))
+                    .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
+                    .foregroundStyle(NB.white.opacity(0.38))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+            }
         } footer: {
-            LimePillButton(title: L("Save")) {
-                data.profile.name = name
-                data.profile.email = email
-                let saved = data.profile
-                Task { await Repository.shared.saveProfile(saved, editedFields: ["display_name"]) }
-                dismiss()
+            LimePillButton(title: saving ? L("Saving…") : L("Save")) { save() }
+                .disabled(saving)
+                .accessibilityIdentifier("profile.save")
+        }
+        .interactiveDismissDisabled(saving)
+        .onAppear {
+            name = data.profile.name
+            email = data.profile.email
+            birthdate = data.profile.birthdate
+            sexIsMale = data.profile.sexIsMale
+            heightCm = data.profile.heightCm
+            stepGoalText = String(data.profile.stepGoal)
+            if let kg = data.today.weightKg {
+                weightText = metric ? String(format: "%.1f", kg)
+                    : String(format: "%.1f", kg * 2.2046226)
+            }
+            originalWeightText = weightText
+        }
+        .sheet(isPresented: $heightSheet) {
+            HeightRulerSheet(value: $heightCm) {
+                heightError = !(120...220).contains(heightCm)
+                if !heightError { heightSheet = false }
             }
         }
-        .onAppear { name = data.profile.name; email = data.profile.email }
+    }
+
+    private var heightLabel: String {
+        if metric { return "\(Int(heightCm.rounded())) cm" }
+        let inches = heightCm / 2.54
+        return "\(Int(inches) / 12)'\(Int(inches) % 12)\""
+    }
+
+    private func save() {
+        guard !saving else { return }
+        heightError = !(120...220).contains(heightCm)
+        let kg = parsedKg
+        weightError = kg == nil && !weightText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let steps = Int(stepGoalText.trimmingCharacters(in: .whitespacesAndNewlines))
+        stepGoalError = steps == nil || !(1_000...60_000).contains(steps!)
+        if heightError || weightError || stepGoalError { return }
+        let owner = SupabaseClient.currentUserIdSnapshot()
+        var saved = data.profile
+        saved.name = name
+        saved.heightCm = heightCm
+        saved.birthdate = birthdate
+        saved.sexIsMale = sexIsMale
+        saved.stepGoal = steps!
+        var edited = ["display_name"]
+        if data.profile.heightCm != heightCm { edited.append("height_cm") }
+        if data.profile.birthdate != birthdate { edited.append("birth_date") }
+        if data.profile.sexIsMale != sexIsMale { edited.append("sex") }
+        let weightChanged = weightText != originalWeightText && kg != nil
+        if weightChanged { edited.append("weight_kg") }
+        saving = true
+        saveError = false
+        Task { @MainActor in
+            defer { saving = false }
+            guard await Repository.shared.saveProfile(saved, editedFields: edited),
+                  owner == SupabaseClient.currentUserIdSnapshot() else {
+                saveError = true
+                return
+            }
+            data.profile = saved
+            if weightChanged, let kg {
+                guard data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: kg,
+                    bodyFatPercent: nil, source: .measured, origin: .manual)) else {
+                    saveError = true
+                    return
+                }
+            }
+            // Use the same publication and settlement path as a completed measurement.
+            // Pending manual weights remain durable if connectivity drops after saving.
+            await Repository.shared.flushPendingEvidence(afterCurrent: true)
+            guard owner == SupabaseClient.currentUserIdSnapshot() else { return }
+            if let kg = kg ?? data.today.weightKg {
+                let info = PersonalInfo(heightCm: Int(saved.heightCm.rounded()),
+                    weightKg: Int(kg.rounded()),
+                    birthYear: Calendar.current.component(.year, from: saved.birthdate),
+                    sexIsMale: saved.sexIsMale, targetStep: saved.stepGoal)
+                Task { try? await Band.live.syncPersonalInfo(info) }
+            }
+            dismiss()
+        }
+    }
+
+    private var parsedKg: Double? {
+        var raw = weightText.trimmingCharacters(in: .whitespacesAndNewlines)
+        raw = raw.replacingOccurrences(of: "。", with: ".")
+            .replacingOccurrences(of: "．", with: ".")
+            .replacingOccurrences(of: ",", with: ".")
+        guard !raw.isEmpty, let v = Double(raw) else { return nil }
+        let kg = metric ? v : v / 2.2046226
+        return (20...300).contains(kg) ? kg : nil
     }
 }
 
@@ -405,19 +550,36 @@ struct AppleHealthSheet: View {
     }
 }
 
+/// Terms or Privacy, in the app's language. The text lives in `LegalText`.
 struct LegalSheet: View {
-    let title: String
-    let body_: String
-    init(title: String, body: String) { self.title = title; self.body_ = body }
+    let kind: LegalText.Kind
+    init(_ kind: LegalText.Kind) { self.kind = kind }
 
     var body: some View {
-        SheetFrame(title: title) {
+        let doc = LegalText.document(kind)
+        SheetFrame(title: doc.title) {
             ScrollView(showsIndicators: false) {
-                Text(body_)
-                    .font(NBFont.brand(400, 14))
-                    .lineSpacing(8)
-                    .foregroundStyle(NB.text2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 22) {
+                    Text(doc.updated)
+                        .font(NBFont.ui(400, 12)).tracking(0.02 * 12)
+                        .foregroundStyle(NB.text3Prod)
+                    ForEach(Array(doc.sections.enumerated()), id: \.offset) { _, section in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(section.heading)
+                                .font(NBFont.ui(500, 15))
+                                .foregroundStyle(NB.text1)
+                            ForEach(Array(section.paragraphs.enumerated()), id: \.offset) { _, paragraph in
+                                Text(paragraph)
+                                    .font(NBFont.brand(400, 14))
+                                    .lineSpacing(7)
+                                    .foregroundStyle(NB.text2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 24)
             }
         } footer: { EmptyView() }
     }

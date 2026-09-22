@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os
 
 /// Thin REST/Edge-Function client. Everything server-side lives in Supabase (see supabase/).
 struct SupabaseConfig {
@@ -429,6 +430,26 @@ actor SupabaseClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
+    /// One object out of a private bucket, with this session's own token. The bucket policy
+    /// is the whole of the access control — the first path segment is the owner — so there
+    /// is no signed URL to mint and nothing for the phone to decide.
+    func storageObject(bucket: String, path: String) async throws -> Data {
+        let url = SupabaseConfig.url
+            .appendingPathComponent("storage/v1/object")
+            .appendingPathComponent(bucket)
+            .appendingPathComponent(path)
+        var r = URLRequest(url: url)
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)",
+                   forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await authenticatedData(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+        return data
+    }
+
     /// ⚠️ `returning` is not a convenience. Asking for the row back makes PostgREST add a
     /// RETURNING clause, and RETURNING has to pass a *select* policy — so on a table that is
     /// deliberately write-only, like analytics_events, a perfectly legal insert comes back as
@@ -633,6 +654,17 @@ actor SupabaseClient {
             ? SupabaseConfig.functionsBase
             : SupabaseConfig.url.appendingPathComponent("rest/v1")
         var r = URLRequest(url: base.appendingPathComponent(path))
+        // 2026-09-21: Tokyo regressed to 7–13 s after release; Singapore's realtime
+        // path returned complete Chinese/English clips in ~1–4 s (docs/STATUS.md).
+        // Apply the same route to the live socket and its multipart fallback.
+        if isFunction, path == "asr", base.host?.hasSuffix(".supabase.co") == true {
+            var components = URLComponents(url: r.url!, resolvingAgainstBaseURL: false)!
+            components.queryItems = (components.queryItems ?? []) + [
+                URLQueryItem(name: "forceFunctionRegion", value: "ap-southeast-1")
+            ]
+            r.url = components.url
+            r.setValue("ap-southeast-1", forHTTPHeaderField: "x-region")
+        }
         r.httpMethod = method
         r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
         r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)", forHTTPHeaderField: "Authorization")
@@ -698,9 +730,19 @@ actor SupabaseClient {
         let data = try JSONSerialization.data(withJSONObject: payload)
         let base = try request(name, method: "POST", body: data, isFunction: true, expectedOwner: expectedOwner)
         let identified = SessionBoundTransport.identifying(base, requestID: requestID)
+        #if DEBUG
+        let acceptedStarted = Date()
+        #endif
         let (bytes, response) = try await SessionBoundTransport.perform(identified, session: pinned,
             current: { await self.requestSession }, send: { [streamSession] in try await streamSession.bytes(for: $0) },
             refresh: { await self.refreshedToken(for: pinned) })
+        #if DEBUG
+        if name == "turn" {
+            // Includes upload and server admission; inference/render are logged separately.
+            os.Logger(subsystem: "com.nextbody.hoop", category: "latency")
+                .notice("NB latency · turn request_accepted ms=\(Int(Date().timeIntervalSince(acceptedStarted) * 1_000), privacy: .public) bytes=\(data.count, privacy: .public)")
+        }
+        #endif
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             var errorBody = Data()

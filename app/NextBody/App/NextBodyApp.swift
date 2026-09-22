@@ -10,6 +10,7 @@ struct NextBodyApp: App {
     @StateObject private var router = Router()
     @StateObject private var data = DataStore.shared
     @StateObject private var language = AppLanguage.shared
+    @StateObject private var billing = BillingStore.shared
     @Environment(\.scenePhase) private var phase
 
     init() {
@@ -25,6 +26,7 @@ struct NextBodyApp: App {
                 .environmentObject(router)
                 .environmentObject(data)
                 .environmentObject(language)
+                .environmentObject(billing)
                 .environment(\.locale, language.swiftLocale)
                 .id(language.locale.rawValue)
                 .preferredColorScheme(.dark)
@@ -49,10 +51,19 @@ struct NextBodyApp: App {
                     BandLiveLifecycle.shared.setPhase(phase)
                     SessionActivity.clearOrphans()
                     // Restoring the local account gates BLE, not cloud homepage hydration.
-                    if await session.ensureSession() { requestForegroundRefresh(reason: "launch") }
+                    billing.configure()
+                    if await session.ensureSession() {
+                        if let userId = await SupabaseClient.shared.currentUserId {
+                            await billing.identify(userId: userId)
+                        }
+                        requestForegroundRefresh(reason: "launch")
+                    }
                     await session.resolveLaunch()
                     WidgetGlancePublisher.publish(from: data)
                     BandLiveLifecycle.shared.refreshEligibility()
+                    #if DEBUG
+                    if session.stage == .root { await DebugBandValidation.run(into: data) }
+                    #endif
                 }
                 .onChange(of: phase) { _, new in
                     NightDiagnostics.shared.record("app.scene", fields: ["phase": String(describing: new)])
@@ -83,6 +94,7 @@ struct NextBodyApp: App {
                     // Issue #20 · someone reading this screen is awake, whatever the wrist
                     // says. The mark is what SleepWakeClamp cuts the recorded night at.
                     AwakeEvidence.record()
+                    Task { await billing.refresh() }
                     requestForegroundRefresh(reason: "foreground")
                     // ADR 0018 · idle sessions fold into memory the next time the app is in front.
                     AISession.shared.settleIfDue()

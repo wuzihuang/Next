@@ -23,6 +23,13 @@ export const HEALTH_PREPARE = "health.prepare";
 // and the model spent two render steps finding that out before falling back to text.
 const DIRECT_OUTPUTS = new Set(["screen.render.text", "screen.render.food", "screen.render.metric"]);
 
+/// ⚠️ ADR 0031 · a guided turn has no range left to choose: the server resolved it before
+/// the model ran, and the chart was chosen for it. `workflow.ready` exists to let the model
+/// settle the chart's window, so making it walk through the gate anyway costs a whole model
+/// step to confirm a decision nobody is waiting on — measured as four wasted steps before
+/// the frame appeared. Such a workflow marks its render tools as direct output instead.
+/// The evidence rules do not move: the ledger, the claims and the audit are unchanged.
+
 export function isRenderTool(name: string): boolean {
   return name.startsWith("screen.render") || name === "plan.render";
 }
@@ -31,6 +38,8 @@ export type TurnPhase = "read" | "act" | "render" | "done";
 
 export type TurnWorkflow = {
   phase: TurnPhase;
+  /// Render tools usable without passing through `workflow.ready` first.
+  outputReady: boolean;
   completedSteps: number;
   readSteps: number;
   rereadUsed: boolean;
@@ -53,11 +62,16 @@ function refreshActiveTools(state: TurnWorkflow): void {
   if (state.completedSteps < MAX_TURN_STEPS) {
     const rereadFits = !state.rereadUsed && state.readTools.length > 0 &&
       MAX_TURN_STEPS - state.completedSteps >= 3;
+    const direct = (name: string) => state.outputReady || DIRECT_OUTPUTS.has(name);
+    // ⚠️ A guided turn is not offered `workflow.ready` at all: its only power is to set the
+    // chart's window, and the server already resolved that one. Offering it would let the
+    // model quietly widen or move the range a decision was made against.
+    const ready = state.outputReady ? [] : [WORKFLOW_READY];
     if (state.phase === "read") {
-      names = [...state.readTools, ...state.phoneTools, ...state.renderTools.filter(n => DIRECT_OUTPUTS.has(n)), WORKFLOW_READY];
+      names = [...state.readTools, ...state.phoneTools, ...state.renderTools.filter(direct), ...ready];
       if (state.coachAllowed && !state.coachHandoff && MAX_TURN_STEPS - state.completedSteps >= 2) names.push(WORKFLOW_COACH);
     } else if (state.phase === "act") {
-      names = [...state.phoneTools, ...state.renderTools.filter(n => DIRECT_OUTPUTS.has(n)), WORKFLOW_READY];
+      names = [...state.phoneTools, ...state.renderTools.filter(direct), ...ready];
       if (rereadFits) names.push(WORKFLOW_REREAD);
     } else if (state.phase === "render") {
       names = [...state.renderTools];
@@ -73,9 +87,11 @@ export function createTurnWorkflow(
   phoneTools: string[] = [],
   start: TurnPhase = readTools.length > 0 ? "read" : "render",
   coachAllowed = false,
+  outputReady = false,
 ): TurnWorkflow {
   const state: TurnWorkflow = {
     phase: start,
+    outputReady,
     completedSteps: 0,
     readSteps: 0,
     rereadUsed: false,
@@ -98,7 +114,7 @@ export function createTurnWorkflow(
 /// A suspended turn stores the workflow as plain JSON and rebuilds it here.
 export function restoreTurnWorkflow(raw: unknown): TurnWorkflow {
   const r = raw as Partial<TurnWorkflow>;
-  const state = createTurnWorkflow(r.readTools ?? [], r.renderTools ?? [], r.phoneTools ?? [], r.phase === "done" ? "render" : (r.phase ?? "read"), r.coachAllowed ?? false);
+  const state = createTurnWorkflow(r.readTools ?? [], r.renderTools ?? [], r.phoneTools ?? [], r.phase === "done" ? "render" : (r.phase ?? "read"), r.coachAllowed ?? false, r.outputReady ?? false);
   state.completedSteps = r.completedSteps ?? 0;
   state.readSteps = r.readSteps ?? 0;
   state.rereadUsed = r.rereadUsed ?? false;
@@ -113,6 +129,7 @@ export function serializeTurnWorkflow(state: TurnWorkflow): Record<string, unkno
     rereadUsed: state.rereadUsed, readTools: state.readTools, phoneTools: state.phoneTools,
     renderTools: state.renderTools,
     coachAllowed: state.coachAllowed, coachHandoff: state.coachHandoff,
+    outputReady: state.outputReady,
   };
 }
 

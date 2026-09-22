@@ -268,6 +268,12 @@ final class SportSessionStressTests: XCTestCase {
         let result = XCTWaiter.wait(for: [gone], timeout: 30)
         XCTAssertEqual(result, .completed, "\(marker): session did not stop")
         guard result == .completed else { throw Failure.missing("stop") }
+        let recap = app.descendants(matching: .any)["sport.recap"].firstMatch
+        if recap.waitForExistence(timeout: 5) {
+            let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["DONE", "完成"])).firstMatch
+            try require(done, name: "Close session recap")
+            done.tap()
+        }
         try home()
     }
 

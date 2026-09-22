@@ -54,6 +54,7 @@ struct CompositionDetailView: View {
                 SegmentedPills(options: RollingPills.words,
                                selection: $rangeRaw)
                 windowCard
+                sinceBaselineCard
                 if range == .day {
                     dayRows
                 } else if range == .week {
@@ -87,6 +88,56 @@ struct CompositionDetailView: View {
                 "SCANS": windowScans.count,
                 "HAS_CURRENT": reading != nil,
             ])
+        }
+    }
+
+    /// Am I changing, and when is the next scan worth taking.
+    ///
+    /// Everything else on this page is a window — today against the last scan, a week, a
+    /// month. This card is the only one that answers the question a person actually opened
+    /// the app with, which is about the whole distance from where they started.
+    ///
+    /// The cadence line is a measurement suggestion, never a streak: a week is simply the
+    /// shortest gap where two wrist BIA readings differ because of the body rather than
+    /// because of breakfast. Missing it costs nothing and is never counted.
+    @ViewBuilder private var sinceBaselineCard: some View {
+        let ordered = scans.sorted { $0.at < $1.at }
+        if let first = ordered.first, let latest = ordered.last,
+           let change = BodyScanCadence.change(
+            firstAt: first.at, firstFat: first.bodyFatPercent, firstLean: first.leanMassKg,
+            latestAt: latest.at, latestFat: latest.bodyFatPercent, latestLean: latest.leanMassKg) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(L("SINCE YOUR FIRST SCAN"))
+                        .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
+                        .foregroundStyle(NB.text3Prod)
+                    Spacer(minLength: 0)
+                    Text(L("%d DAYS", change.days))
+                        .font(NBFont.dot(600, 11)).tracking(0.08 * 11)
+                        .foregroundStyle(NB.lime1)
+                }
+                HStack(spacing: 0) {
+                    CompositionFact(label: L("BODY FAT"),
+                                    value: change.bodyFatPoints.map { Fmt.signedKg($0, decimals: 1) } ?? Fmt.dash,
+                                    unit: change.bodyFatPoints == nil ? nil : "PT",
+                                    valueTint: change.bodyFatPoints == nil ? NB.text1 : NB.lime1)
+                    Rectangle().fill(NB.hairline).frame(width: 1)
+                    CompositionFact(label: L("LEAN"),
+                                    value: change.leanKg.map { Fmt.signedKg($0, decimals: 1) } ?? Fmt.dash,
+                                    unit: change.leanKg == nil ? nil : "KG",
+                                    valueTint: change.leanKg == nil ? NB.text1 : NB.lime1)
+                    Rectangle().fill(NB.hairline).frame(width: 1)
+                    CompositionFact(label: L("NEXT SCAN"),
+                                    value: BodyScanCadence.isDue(since: latest.at)
+                                        ? L("DUE") : "\(BodyScanCadence.daysLeft(since: latest.at))",
+                                    unit: BodyScanCadence.isDue(since: latest.at) ? nil : L("D"),
+                                    valueTint: BodyScanCadence.isDue(since: latest.at) ? NB.ember1 : NB.text1)
+                }
+            }
+            .padding(16)
+            .frame(width: NB.Layout.contentWidth, alignment: .leading)
+            .cardSkin()
+            .accessibilityIdentifier("composition.sinceBaseline")
         }
     }
 

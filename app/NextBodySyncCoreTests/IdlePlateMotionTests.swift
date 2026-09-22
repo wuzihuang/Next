@@ -122,12 +122,123 @@ final class IdlePlateMotionTests: XCTestCase {
     }
 
     func testPlate23LibratesThenSeams() {
+        // yaw once a loop, pitch twice: a figure eight through the rest seat, not a rock along
+        // one line and not the old pitch that only ever nodded one way (0...2).
+        let eighth = IdlePlateMotion.pose(
+            plate: 23, clock: IdlePlateMotion.loopSeconds / 8, moving: true)
+        XCTAssertEqual(eighth.moonYaw, sin(.pi / 4), accuracy: 1e-9)
+        XCTAssertEqual(eighth.moonPitch, 1, accuracy: 1e-9)
         let mid = IdlePlateMotion.pose(plate: 23, clock: IdlePlateMotion.loopSeconds / 2, moving: true)
         XCTAssertEqual(mid.moonYaw, 0, accuracy: 1e-9)
-        XCTAssertEqual(mid.moonPitch, 2, accuracy: 1e-9)
+        XCTAssertEqual(mid.moonPitch, 0, accuracy: 1e-9)
         XCTAssertEqual(
             IdlePlateMotion.pose(plate: 23, clock: 0, moving: true),
             IdlePlateMotion.pose(plate: 23, clock: IdlePlateMotion.loopSeconds, moving: true))
+    }
+
+    func testPlate02SitsInTheField() {
+        let p = IdlePlateMotion.pose(plate: 2, clock: 0, moving: false)
+        XCTAssertEqual(p.bodyX, 179, accuracy: 1e-9)
+        XCTAssertEqual(p.bodyY, 196, accuracy: 1e-9)
+        let moon = IdlePlateMotion.around(
+            cx: 179, cy: 196, restX: 292, restY: 168, flatten: 0.30, u: 0)
+        XCTAssertEqual(moon.x, 292, accuracy: 1e-9)
+        XCTAssertEqual(moon.y, 168, accuracy: 1e-9)
+        let far = IdlePlateMotion.around(
+            cx: 179, cy: 196, restX: 292, restY: 168, flatten: 0.30, u: 0.5)
+        XCTAssertGreaterThan(abs(far.x - moon.x), 80)
+    }
+
+    func testPlate10TravelerSeatsOnTheTrail() {
+        let rest = IdlePlateMotion.around(
+            cx: 179, cy: 200, restX: 14, restY: 94, flatten: 0.20, u: 0)
+        let far = IdlePlateMotion.around(
+            cx: 179, cy: 200, restX: 14, restY: 94, flatten: 0.20, u: 0.5)
+        XCTAssertEqual(rest.x, 14, accuracy: 1e-9)
+        XCTAssertEqual(rest.y, 94, accuracy: 1e-9)
+        XCTAssertEqual(far.x, 179 - (14 - 179), accuracy: 1e-9)
+        XCTAssertGreaterThan(abs(far.x - rest.x), 200)
+        XCTAssertEqual(
+            IdlePlateMotion.pose(plate: 10, clock: 0, moving: true).satellite, 0, accuracy: 1e-9)
+        XCTAssertEqual(
+            IdlePlateMotion.pose(plate: 10, clock: 4, moving: true).satellite, 0.5, accuracy: 1e-9)
+    }
+
+    func testPlate23SkyPipStaysOnTheBoard() {
+        for k in 0...16 {
+            let o = IdlePlateMotion.around(
+                cx: 179, cy: 38, restX: 300, restY: 42, flatten: 0.22, u: Double(k) / 16)
+            XCTAssertGreaterThan(o.x, 8, "plate 23 pip left the board at u=\(k)/16")
+            XCTAssertLessThan(o.x, 350, "plate 23 pip left the board at u=\(k)/16")
+            XCTAssertGreaterThan(o.y, 4, "plate 23 pip left the sky at u=\(k)/16")
+            XCTAssertLessThan(o.y, 90, "plate 23 pip dropped into the disc at u=\(k)/16")
+        }
+    }
+
+    func testPlate16MoonRidesAClosedOrbit() {
+        let rest = IdlePlateMotion.around(
+            cx: 210, cy: 140, restX: 302, restY: 88, flatten: 0.30, u: 0)
+        let far = IdlePlateMotion.around(
+            cx: 210, cy: 140, restX: 302, restY: 88, flatten: 0.30, u: 0.5)
+        XCTAssertEqual(rest.x, 302, accuracy: 1e-9)
+        XCTAssertEqual(rest.y, 88, accuracy: 1e-9)
+        XCTAssertGreaterThan(abs(far.x - rest.x), 80)
+    }
+
+    /// A ring's tilt is set by the planet's spin axis. It held a full 360 deg revolution per
+    /// loop until 2026-09-15, which is what made the whole set read as clockwork.
+    func testRingsHoldTheirTiltAllLoop() {
+        for plate in IdlePlateLock.dayPool + [11, 20, 25] {
+            let rest = IdlePlateMotion.pose(plate: plate, clock: 0, moving: true).ringDeg
+            for k in 1...16 {
+                let deg = IdlePlateMotion.pose(
+                    plate: plate,
+                    clock: IdlePlateMotion.loopSeconds * Double(k) / 16,
+                    moving: true).ringDeg
+                XCTAssertEqual(deg, rest, accuracy: 1e-9, "plate \(plate) ring spun")
+            }
+        }
+        let hold = IdlePlateMotion.pose(plate: 7, clock: 3, moving: false)
+        XCTAssertEqual(hold.ringDeg, -24, accuracy: 1e-9)
+    }
+
+    /// Dashes on an orbit track are tick marks on a path, not a conveyor belt.
+    func testOrbitTicksNeverCrawl() {
+        for plate in IdlePlateLock.dayPool + [11, 20, 25] {
+            for k in 0...8 {
+                let p = IdlePlateMotion.pose(
+                    plate: plate,
+                    clock: IdlePlateMotion.loopSeconds * Double(k) / 8,
+                    moving: true)
+                XCTAssertEqual(p.dash, 0, accuracy: 1e-9, "plate \(plate) dash crawled")
+            }
+        }
+    }
+
+    /// Kepler's second law: the body sweeps equal areas in equal times, so its progress along
+    /// the orbit is not the clock. It still passes the rest seat at 0 and the far side at 1/2.
+    func testOrbitProgressIsKeplerNotLinear() {
+        XCTAssertEqual(IdlePlateMotion.orbitProgress(0), 0, accuracy: 1e-9)
+        XCTAssertEqual(IdlePlateMotion.orbitProgress(0.5), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(IdlePlateMotion.orbitProgress(1), 1, accuracy: 1e-9)
+        let quarter = IdlePlateMotion.orbitProgress(0.25)
+        XCTAssertLessThan(quarter, 0.22, "quarter of the clock is a quarter of the orbit")
+        XCTAssertGreaterThan(quarter, 0.10)
+        var last = 0.0
+        for k in 1...64 {
+            let u = IdlePlateMotion.orbitProgress(Double(k) / 64)
+            XCTAssertGreaterThan(u, last, "orbit reversed at \(k)/64")
+            last = u
+        }
+    }
+
+    /// Light is never a single sine, and it is exactly 1 at the Paper rest seat.
+    func testFlickerSeatsAtRestAndSeams() {
+        XCTAssertEqual(IdlePlateMotion.flicker(0, 3), 0, accuracy: 1e-9)
+        XCTAssertEqual(IdlePlateMotion.flicker(1, 3), 0, accuracy: 1e-12)
+        let a = IdlePlateMotion.pose(plate: 1, clock: 2, moving: true)
+        let b = IdlePlateMotion.pose(plate: 1, clock: 6, moving: true)
+        XCTAssertNotEqual(a.glow, b.glow, "glow is a plain sine")
     }
 
     func testPlate21PipStaysOnTheDashedArc() {

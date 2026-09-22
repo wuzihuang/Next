@@ -20,12 +20,13 @@ import {
   quotaDeniedResponse,
   recordAiUsage,
 } from "../_shared/ai-quota.ts";
+import { requireProEntitlement, subscriptionRequiredResponse } from "../_shared/billing.ts";
 import { type TokenUsage, usageFromProvider } from "../_shared/cost.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_SECONDS = 60;
-/// The floor under that net: the quiet a stream must hold before it settles on the
-/// words it already has, when the provider's own rhythm has been steady.
+/// Fallback only for completed sentences when the provider omits session.finished.
+/// This is not a deadline for the first word or an unfinished sentence.
 export const ASR_QUIET_MS = 1_600;
 /// Idle only. Partials, completed sentences and PCM reset this clock. A wall
 /// ceiling used to kill a stream that was still speaking (5 s) and the client
@@ -47,7 +48,15 @@ export type AsrDependencies = {
       reason: "count" | "spend" | "unavailable";
     }
   >;
+  entitlement: (db: SupabaseClient) => Promise<
+    { allowed: true; introClaimed: boolean } | {
+      allowed: false;
+      introClaimed: boolean;
+      reason: "missing" | "expired" | "unavailable";
+    }
+  >;
   transcribe: (bytes: Uint8Array, mime: string) => Promise<AsrTranscript>;
+  connectRealtime?: (key: string) => NodeWebSocket;
   recordUsage: (
     db: SupabaseClient,
     usage: TokenUsage,
@@ -99,6 +108,7 @@ const defaults: AsrDependencies = {
   client: userClient,
   budget: (db) => enforceRequestBudget(db, "asr"),
   quota: (db, operationId) => consumeAiQuota(db, "asr", operationId),
+  entitlement: (db) => requireProEntitlement(db),
   transcribe: providerTranscribe,
   recordUsage: (db, usage, modelId) =>
     recordAiUsage(db, { endpoint: "asr", modelId, usage }),
@@ -117,6 +127,8 @@ export async function handleAsr(
     const userId = await deps.authenticate(req);
     if (!userId) return json({ error: "UNAUTHENTICATED" }, 401);
     const db = deps.client(req);
+    const entitlement = await deps.entitlement(db);
+    if (!entitlement.allowed) return subscriptionRequiredResponse(entitlement);
     const limited = await deps.budget(db);
     if (limited) return limited;
     const quota = await deps.quota(db, operationId);
@@ -154,6 +166,8 @@ export async function handleAsr(
     completionTokens: 0,
   };
   try {
+    const entitlement = await deps.entitlement(db);
+    if (!entitlement.allowed) return subscriptionRequiredResponse(entitlement);
     const limited = await deps.budget(db);
     if (limited) return limited;
     const quota = await deps.quota(db, operationId);
@@ -286,6 +300,7 @@ function streamTranscription(
     })();
   };
   const fail = (message: string) => {
+    if (closed) return;
     // The reason used to reach the client and nowhere else, so a stream that
     // always fell back to the slow path could not be diagnosed from the logs.
     console.error("ASR_STREAM_FAILED", message);
@@ -312,6 +327,7 @@ function streamTranscription(
     if (!finishRequested || !upstreamReady || finishSent || closed) return;
     finishSent = true;
     for (const event of finishEvents()) upstream?.send(event);
+    console.log("ASR_STREAM_COMMIT_SENT", since());
     // ⚠️ 2026-09-06 · the provider accepts the audio and then answers the commit
     // with nothing at all — the client sat out its whole 8 s patience and
     // re-uploaded the same clip as a file, thirteen seconds to transcribe four.
@@ -335,6 +351,10 @@ function streamTranscription(
   const settleWhenQuiet = () => {
     if (closed || !finishSent) return;
     clearTimeout(grace);
+    // Production: the old timer closed at 4.92 s; the first word arrived at 5.90 s.
+    // A short pause can settle existing complete text, never declare a live decoder
+    // failed. New partials also cancel a timer left by the preceding sentence.
+    if (lastPartial.trim() || !segments.join("").trim()) return;
     grace = setTimeout(
       () => settle("QUIET"),
       Math.max(ASR_QUIET_MS, widestGap + ASR_QUIET_MS / 2),
@@ -350,8 +370,8 @@ function streamTranscription(
     // seconds and then finishes the line. Settling on those words shipped «…was
     // one hundred and» as though she had stopped talking there, and the model
     // answered the half. Only whole sentences — the ones the provider has closed
-    // with `completed` — leave on a timer. Anything else hands the take back to
-    // the file path, which still holds the clip and returns the sentence whole.
+    // with `completed` — leave on a timer. Unfinished text keeps its stream until
+    // the provider finishes or the idle watchdog expires; file ASR races alongside.
     const partialPending = lastPartial.trim().length > 0;
     console.log(
       "ASR_STREAM_SETTLED",
@@ -386,7 +406,7 @@ function streamTranscription(
   // (1878 ms measured on 2026-09-06 before the first increment could arrive).
   // It starts now, in parallel with the client's own upgrade, instead of after.
   const openUpstream = () => {
-    upstream = new NodeWebSocket(realtimeURL(), {
+    upstream = deps.connectRealtime?.(key) ?? new NodeWebSocket(realtimeURL(), {
       headers: {
         Authorization: `Bearer ${key}`,
         "OpenAI-Beta": "realtime=v1",
@@ -394,7 +414,20 @@ function streamTranscription(
     });
     upstream.on("open", () => upstream?.send(sessionUpdate()));
     upstream.on("message", (raw) => {
-      const event = parseProviderEvent(raw.toString());
+      if (closed) return;
+      const providerMessage = raw.toString();
+      try {
+        const metadata = JSON.parse(providerMessage);
+        if (metadata.type === "session.updated") {
+          console.log("ASR_PROVIDER_SESSION", JSON.stringify({
+            ms: since(), model: metadata.session?.model,
+            turnDetection: metadata.session?.turn_detection,
+          }));
+        } else if (metadata.type === "input_audio_buffer.committed") {
+          console.log("ASR_PROVIDER_COMMITTED", since());
+        }
+      } catch { /* parseProviderEvent returns the protocol failure below. */ }
+      const event = parseProviderEvent(providerMessage);
       switch (event.kind) {
         case "ready":
           upstreamReady = true;
@@ -461,6 +494,7 @@ function streamTranscription(
         return;
       }
       if (type === "finish") {
+        console.log("ASR_STREAM_INPUT_ENDED", since());
         finishRequested = true;
         bump();
         finishProvider();

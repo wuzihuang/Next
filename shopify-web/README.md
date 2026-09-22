@@ -33,6 +33,12 @@ npm run build:theme-pages
 ```
 
 `npm run check:theme-pages` detects drift and runs before the Hydrogen build.
+The same generator creates server-rendered app privacy, terms and support snippets,
+with both collection and page templates. Existing collection routes work without
+creating a Shopify Page: `/collections/all?view=app-privacy`, `?view=app-terms`,
+and `?view=app-support`. The optional `/pages/app-privacy`, `/pages/app-terms`,
+and `/pages/app-support` routes require published Shopify Pages with corresponding
+handles and template suffixes. Theme deployment is separate from generation.
 
 The Liquid landing page is a static snapshot of the Hydrogen one. Regenerate it
 with the dev server running — it rewrites the Hydrogen routes into the theme's

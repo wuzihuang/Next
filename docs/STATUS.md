@@ -1,5 +1,31 @@
 # NEXTBODY · build status
 
+## Recurrent sync failure · 2026-09-21
+
+Production traces confirmed that slow settlement held the calculation-work lock,
+causing band ingestion to time out in `invalidate_calculation`; concurrent domain
+uploads also timed out waiting for the account advisory lock. Foreground evidence
+publication could settle while the shared band refresh was uploading. The refresh
+now waits for an existing foreground publication, and foreground settlement defers
+to an active band refresh. The regression fails without that guard and passes with it.
+
+Deployed only `20260921161858_settlement_expression_materialization`: recursive
+reserve intermediates and training scores are evaluated once, and fine training
+sample ownership uses a bucket join with the same observation/UUID precedence.
+Real historical/current-day outputs compare exactly. A rollback-only authenticated
+8-second-budget probe changed from timeout to 5.115 seconds for the affected day.
+All three deployed function definitions match the reviewed candidate; private
+execution grants are unchanged.
+
+Validation: 64 relevant Swift tests, 102 SQL assertions, the complete migration
+rebuild/function roundtrip, and signed device build passed. The app was installed
+on the connected iPhone 17 Pro Max. After deployment, two complete daily refreshes
+returned success in 34.847 and 34.747 seconds, with all 28 domain acknowledgments
+confirmed and no settlement failures. These are two observations, not latency
+percentiles. The historical dirty frontier was subsequently empty. The original
+diagnostic lease was restored byte-for-byte and the app relaunched normally.
+Metadata, release guards and receipts are at `/tmp/next-sync-recurrence/manifest.json`.
+
 Source of truth: the Paper file **NEXTBODY-HOOP · 新版设计**
 (`app.paper.design/file/01M0SW066YG64X1X6TQA07024T/N-0`).
 Every screen below was built from that board's own JSX and computed styles — never from a
@@ -50,8 +76,9 @@ frame so the dots' crossfade can be screenshotted.
 
 ### iOS app · `app/`
 
-Plain SwiftUI, no third-party packages. `NextBody.xcodeproj` uses a synchronized root group,
-so adding a file to `app/NextBody/` is all it takes — there is no file list to maintain.
+Plain SwiftUI. SPM brings in Google Sign-In and RevenueCat (`purchases-ios-spm`).
+`NextBody.xcodeproj` uses a synchronized root group, so adding a file to `app/NextBody/`
+is all it takes — there is no file list to maintain.
 
 | Board | Screen | State |
 |---|---|---|
@@ -59,7 +86,7 @@ so adding a file to `app/NextBody/` is all it takes — there is no file list to
 | 01M · 02M | the 2.6s pixel-fall wordmark | built, all five beats |
 | 01M · 05 | the 7.40s first run, eleven beats and four fallbacks | built, walked on device |
 | 02 | Connect · 5 screens | built, walked on device |
-| 03 | Onboarding · 6 screens + 3 sheets + the 18+ gate | built, walked on device |
+| 03 | Onboarding · 6 screens + 3 sheets + the 16+ gate + membership card (Paper A-0; Offer A/B) | built · `NB_DEBUG_ONB_STEP=membership` / `NB_DEBUG_PRO=offerA\|offerB` |
 | 04 + 07 | Home · panel, strip, dock | built, walked on device |
 | 07 | the render contract · 27 types, 10 renderers, 8 slots | built |
 | 05 | Dock · idle / typing / listening | built, walked on device |
@@ -577,7 +604,7 @@ there is no enum to correct. It becomes real when the update flow is built.
 | 05 每日方向与判定不共用颜色 | held · 11's legend is the three directions plus two greys |
 | 06 没有 target 的 widget 不许上屏 | **was wrong, fixed** |
 | 07 V1 只有 iOS | held |
-| 08 没有收费入口 | held · no purchase, subscription or upgrade copy |
+| 08 AI 走 PRO | **open** · ADR 0030；手环仍一次买断，AI 走 `hoop_pro_monthly` |
 | 09 BIA 与秤都是 MEASURED，推算值 DERIVED | held · the evidence card tags every field |
 | 10 屏是版式的事实源 | held |
 
@@ -2260,3 +2287,378 @@ updating results, 100%/button agreement), and signed Debug compilation passed. A
 visual check confirmed the 92% updating-results layout. The Debug app was installed on
 the connected iPhone; a full real-band sync and rebind still need a user walk. No server
 migration or Edge Function deployment is required.
+
+
+## 2026-09-15 — NextBody Pro / RevenueCat integration
+
+Latest decision (2026-09-19): native SwiftUI matching the Paper paywall, with
+RevenueCat handling products, purchases, restores, `next_pro`, and Customer Center.
+Apple decides introductory eligibility.
+See [ADR 0030](adr/0030-ai-is-nextbody-pro.md),
+[SwiftUI implementation guide](ops/revenuecat-swiftui.md), and
+[verified catalog/deployment status](ops/pro-store-catalog.md).
+
+Membership schema, billing endpoints, and minimal production turn/asr gates are deployed.
+A dedicated Test Store purchase granted the server entitlement; Customer Center and
+cold-start Pro status passed within its active period. No-entitlement and expired-account
+turn/ASR POST requests return 402 without spending AI quota. Public ASR WebSocket
+validation remains blocked by an empty Cloudflare 502 response; local gate tests pass.
+Apple sandbox test notification delivery is confirmed, but actual Apple purchasing is
+unverified: the user deferred USB testing. ASC is ready to submit, not submitted.
+Native Paper visual comparison, real-product loading, and all five AI entry points passed. No unrelated migrations or function
+source were deployed.
+
+
+## Health record backfill backend release · 2026-09-20
+
+Production `gkgzwcxivnffsecshvfs` now has the reviewed migrations
+`20260915080448_training_recovery_and_session_contributions`,
+`20260920100000_manual_sport_sessions`, and `20260920110000_sleep_backfill`.
+The first is the required shared training-ledger dependency and marks existing training
+results for ordered recomputation. Adaptive Body Battery (`20260915080239`), current-reserve
+training targets (`20260915081432`), and JEV routing were excluded from this release.
+The resulting calculation version is `tl-3.0/bb-2.2/fuel-2.0/call-1.2/energy-1.2/calc-1`.
+
+`turn` v101 is ACTIVE with JWT verification enabled; `asr` remains v40.
+The function was built from downloaded production v100 plus only health-backfill changes
+in `entities.ts`, `phone-tools.ts`, `tools.ts`, and `prompt.ts`, preserving the existing
+production meal and model behavior. Downloaded deployed sources matched all
+37 runtime modules in the reviewed release package.
+
+Validation: 162 SQL assertions against this exact migration combination, five focused
+AI command/read tests and entrypoint type checking passed. Production synthetic RPC smoke
+verified real-observation workout attribution, idempotency, sleep creation/correction and
+missing-stage provenance under the authenticated role. The smoke transaction rolled back
+all fixtures. New sport storage has RLS, anonymous RPC execution is denied, and anonymous
+`turn` requests return HTTP 401.
+
+The user explicitly requested backend only: no App build was uploaded, installed or
+submitted. Full voice-create interaction and the new missing-data display require the
+prepared App changes in a later client release. Pre-release sources/SQL definitions,
+deployment receipts, readback and hashes are retained in the local release artifact folder
+`/var/folders/sn/kx7wl0q93v32921b9h1bn8080000gn/T/next-backfill-release-20260920-ozcc9u8d` (`release-manifest.json`).
+
+
+## ASR latency release · 2026-09-20
+
+Production `gkgzwcxivnffsecshvfs/asr` v45 is ACTIVE with JWT verification enabled.
+The release was built from downloaded v40 plus the ASR lifecycle fix and timing logs;
+all seven shared runtime modules remain identical to production. Downloaded v45 matched
+its reviewed source (`b6ed268cd8f40eaea510d43d50385d6f68f2a69883c4956f055791c977530a9e`).
+No model, provider secret, subscription policy, or database migration changed.
+
+The short quiet timer no longer kills a stream before its first word or while a sentence
+is unfinished. Completed output remains eligible for fallback; the real idle watchdog
+still bounds a stalled provider. Closed streams ignore late provider events. Release and
+commit timing logs contain no transcript or audio.
+
+Repeated public-endpoint tests identified a second bottleneck: the automatic route from
+this machine to DashScope could take 9–17 seconds after release for a long clip, while
+Tokyo returned the same complete text in about one second. The App now routes both ASR
+WebSocket and multipart fallback through `ap-northeast-1`, using `x-region` and
+`forceFunctionRegion` per [Supabase regional invocation](https://supabase.com/docs/guides/functions/regional-invocation).
+This routing requires the updated client. Newer-model, VAD and silence-padding experiments
+did not show consistent improvement and were discarded; the temporary test function was deleted.
+
+Validation: 22 local ASR/parser/stream tests and 12 tests against the exact production
+candidate passed, including delayed first text, pauses, queued audio, duplicate finish,
+late events, empty input and accounting. Anonymous production requests returned 401;
+missing operation IDs and invalid audio returned 422. The eight panel reentry diagnostic
+checks and both Simulator/device Debug builds passed. The signed Debug App was installed
+on the connected iPhone 17 Pro Max and launched successfully (`com.nextbody.hoop`); this
+includes the ASR routing change and the panel reentry fix.
+
+Live checks used synthesized 16 kHz PCM clips paced at the App's 120 ms cadence against
+the deployed endpoint. A macOS harness compiled the App's actual Swift WebSocket class,
+request builder and first-transcript race; it is not a physical microphone test. Measured
+from recording release until the complete result reached Swift:
+
+| Clip | Audio length | Measured release-to-result |
+|---|---:|---:|
+| Chinese short request | 2.48 s | first request 5.727 s; later 1.145 / 2.445 s |
+| Chinese long request, including distance and heart rate | 7.43 s | 0.995 / 0.888 s |
+| English long request, including “one hundred and twenty” | 4.52 s | 1.065 s |
+| Silence | 1.00 s | 2.266 s, correctly `NO_SPEECH` |
+
+All spoken samples returned complete content. These seven checks do not establish a
+latency percentile or guarantee cold-start speed; the first short request still takes
+several seconds. No losing fallback delayed the returned result.
+
+Separate existing deployment drift: downloaded v40 did not contain the working tree's
+Pro entitlement gate in ASR POST or WebSocket admission. v45 preserves that baseline;
+JWT, request budgets and quota checks remain. Subscription enforcement for these two
+ASR entry paths needs a separate reconciliation with the earlier membership release record.
+
+
+## JEV production integration · 2026-09-20
+
+`turn` **v104 ACTIVE**, JWT verification enabled. Production v103 runtime was downloaded
+and JEV changes applied in isolation; no unrelated workspace changes were included.
+Migration `20260920140000_jev_routing_accounting` is applied. Enabled only evaluated
+`fast.single_read` in guided mode (`jev-1.13.0`, question `2026-09-20.3`): JEV chooses,
+Grok reads and writes the answer. Assisted/template remain disabled; ASR still uses Qwen.
+
+Frozen 108-case holdout: 59/59 accepted correct, no wrong admissions, 59/60 eligible routed.
+Candidate typecheck, 108 focused tests, 81 database assertions, and repository lint pass.
+All 43 downloaded runtime files match the deployed candidate. Live final endpoint checks:
+calories 10.950 s, protein 22.957 s, seven-day trend 13.936 s; values and completion verified.
+JEV itself took 163–285 ms. Protein needed a render correction; this is not a claim that
+all queries or overall p95 improved. Replay returned in 1.426 s with no new provider charge;
+anonymous 401 and expired Pro 402 verified. Temporary test resources were removed.
+
+Full comparison, remaining latency limits and rollback:
+[release record](plans/2026-09-20-jev-tool-routing.md).
+
+
+## Training recovery targets and contributions · production release · 2026-09-20
+
+Production `gkgzwcxivnffsecshvfs` now includes
+`20260915080239_adaptive_body_battery` and
+`20260915081432_training_target_follows_current_reserve`. The previously published
+`20260915080448_training_recovery_and_session_contributions` remains in place, together
+with the later sport and sleep backfill migrations. The current calculation revision is
+`tl-3.0/bb-3.0/fuel-2.0/call-1.2/energy-1.2/target-1.1/calc-1`. Existing derived days are invalidated for the normal ordered
+replay on synchronization.
+
+`turn` v105 and `metric-read` v14 are ACTIVE with JWT verification enabled. The turn
+release extends downloaded production v104 with the five training target/contribution
+read modules. The metric endpoint extends its own v13 baseline with the target field,
+published value and stale-reserve status. AI remaining-load guidance now uses the
+published recommendation, and recorded workouts expose their individual contributions.
+
+Validation: 306 SQL assertions passed against the current production function definitions
+plus these two migrations; 80 turn tests and seven metric-endpoint tests passed, with
+entrypoint type checks and changed-module lint. All 43 turn runtime files, seven metric
+runtime files and nine changed database definitions matched the validated release on
+readback. A production transaction verified a 30-minute strength session without optical
+HR, duplicate-upload idempotency, composed target publication, recovery sensitivity and
+private-function grants, then rolled back its fixtures. Anonymous requests to both
+updated endpoints return HTTP 401.
+
+This release updates the backend. The prepared client target display, per-session `+X`
+rows and sport-end refresh changes still require an App update; no iOS build was uploaded
+or installed in this deployment. The immutable local release package, pre-release source,
+SQL/readback receipts and hashes are recorded in `/var/folders/sn/kx7wl0q93v32921b9h1bn8080000gn/T/next-training-release-20260920-3f0rjcsr` (`release-manifest.json`).
+
+## Open issue repair pass · 2026-09-21 · local verification
+
+Reviewed all nine open issues (#31–#38, #40; #39 is not open) against their acceptance
+criteria, preserving the existing uncommitted app/backend work. This is a local repair
+record, not a production release or a claim that all nine issues are closed.
+
+- **#31:** Home, activity detail and week/month activity values and bars use active
+  energy. Zero draws no filled bar; absent evidence stays unknown. Resting calories
+  remain separately identified on total-energy surfaces.
+- **#32:** Body Metrics opens editable height, weight, birthday and sex. Invalid input
+  and failed saves stay visible. Publication waits for durable weigh-in uploads.
+  The new profile-weight migration makes the next settlement use the latest weight
+  at its calculation instant, including edits inside the current minute, and publishes
+  that same input weight. Historical days and body-scan source priority are retained.
+- **#33 / #35:** Recognition requests individual food names and portions; unidentified
+  food fails explicitly. A whole plate commits in one transaction with stable identities:
+  failed rows roll back all items, retries cannot duplicate the plate, and zero-kcal
+  foods are retained. Confirmed UI rows require real server IDs. Explicit typed-meal
+  requests now share the detached server continuation used by photo meals. Consent
+  withdrawal refuses the write. Editing remains an append/soft-delete operation.
+  The meal-photo lifecycle migration serializes uploads with consent changes and
+  account deletion, protects both authenticated and service-role writes, guards the
+  legacy account-delete RPC, and includes account-owned favorites in data exports.
+- **#34:** Photo storage overlaps recognition, optional photo attachment waits are
+  bounded, and meal recognition has a 45-second failure deadline. DEBUG measurements
+  distinguish request acceptance, model, photo storage, commit and rendering. No
+  representative photo dataset or before/after latency baseline was available; the
+  issue's P50/P95 or 50% reduction criterion remains unverified.
+- **#36:** A callback publishes immediately; the view and Dynamic Island independently
+  age the last reading (delayed after 3 seconds, absent after 10). DEBUG timings report
+  callback receipt to publication/rendering. The SDK has no device sample timestamp,
+  so these are not device-to-screen latency measurements. The existing one-second
+  sport poll was already present; no firmware cadence improvement is claimed.
+- **#37 / #38:** Completed sessions gain an account-scoped durable recap outbox and
+  immutable cloud records, a full recap after stopping and Training history reentry.
+  Curves retain timestamps and continuity breaks and are bounded to 4,000 drawing
+  points. Zones use the Training HRR thresholds (or explicitly labeled age-maximum
+  fallback); missing HR/energy is not zero. Cross-midnight contributions are shown
+  per settled day. Upload/settlement failures have a retry surface, and a rejected
+  recap cannot block other records. Production load still comes only from the server.
+- **#40:** A shared refresh replays the pending band outbox once. Daily sync and
+  history backfill have separate labels; a native history read fails after 45 seconds
+  without progress, with a 300-second absolute ceiling and connection retirement
+  before releasing the command. Only overall success advances the sync timestamp;
+  settlement failure remains partial and visible. Independent domain uploads now overlap
+  in batches of at most three, preserving the single in-flight BLE command, durable
+  acknowledgments, account/consent checks and settlement ordering. Hardware timing is
+  recorded separately below.
+
+New migrations, in order: `20260921100000_atomic_meal_plates`,
+`20260921135414_sport_session_recaps`,
+`20260921135755_profile_weight_applies_on_next_settlement`,
+`20260921143250_meal_photo_lifecycle`. The existing, uncommitted
+meal groups/photos/micros migration is a dependency of the atomic-plate migration.
+The disposable schema harness now supplies the GoTrue platform's `auth.jwt()` and
+`auth.users.is_anonymous`; production application migrations are unchanged by that fixture.
+
+Validation: the final full Swift suite passes (969 tests), including bounded network
+publication and legacy-meal-column read compatibility; the full Deno suite passes (457 tests)
+and lint passes.
+The combined database rebuild, function export/recompile and seven relevant suites
+pass 198 assertions (recaps, meal fields, atomic plates, manual profiles, training
+contributions/evidence and manual workouts). Additional profile/Fuel/revision/newest-
+sample checks pass 59 assertions. Both Simulator and generic-device Debug builds pass;
+Profile editing/invalid input and recap missing-data/restart-reentry UI checks pass
+(four UI cases). A clean iPhone 16 Pro simulator also passed meal name editing with the
+keyboard visible, reachable Save, a bounded sheet top and the saved name in the ledger.
+Its test helper dismisses the notification primer before interacting with the editor.
+
+The isolated meal release candidate is recorded at
+`/tmp/next-meal-release-20260921-jx0vhvuy/release-manifest.json` (manifest SHA256
+`c66bb0e0cd579786cb2d63f75095c24b69c4506b6da6c056efb4fa89c07e082c`). Its downloaded
+baselines are turn v106, meal-operation v17, meal-commit v20 and account-delete v18;
+versions were rechecked after download. It preserves the production billing/TypeSafe
+and ordinary-chat lifecycle behavior, selecting only the meal changes. Each endpoint
+has its own candidate directory and hashed source inventory. Its migration chain is
+meal groups/photos/micros → atomic plates → meal-photo lifecycle. Sport recap,
+profile-weight and the other session's settlement migration are separate releases.
+The candidate passed 42 SQL assertions (18 new photo-lifecycle checks and 24 existing
+regressions), three additional committed concurrency scenarios, 80 turn/meal-estimate
+tests, seven shared adapter cases against each meal endpoint snapshot, all four
+endpoint type checks and changed-module lint. It is not deployed; any release must
+recheck live versions and migration anchors and coordinate the other active session.
+Real Storage HTTP behavior and representative photo inference remain unverified.
+
+A production-schema compatibility failure found on the phone is repaired: when the
+server specifically reports absent new optional meal columns, the health snapshot
+retries the legacy meal projection once, preserving actual IDs. Authentication,
+network and unrelated schema errors still propagate. This is read compatibility,
+not an alternative write path for the new atomic meal RPC.
+
+The user subsequently connected an iPhone 17 Pro Max wirelessly; signed builds were
+installed successfully. The native XCTest runner could not establish its DTX driver
+connection (exit 74; no tests executed), so physical measurements use an explicit
+DEBUG-only launch entry through the real sync/session coordinators. It does not
+inject samples or bypass account, consent or device binding. The diagnostic session
+uses local event exports; raw health logs are not release artifacts.
+
+Two independent serial-upload daily refresh attempts took 61.974 and 63.724 seconds,
+both partial. A third interrupted attempt is excluded. Diagnostic metadata in the
+parallel candidate confirms all seven domains for yesterday and today were acknowledged;
+the terminal partial status is caused by `settle_now(p_days: 1)` returning HTTP 500 /
+PostgreSQL 57014 (statement timeout). These failed attempts are not successful-sync
+latency acceptance. The server timeout must be fixed before #40/#37 acceptance.
+The user confirmed another session is implementing the server optimization; its
+changes are preserved and not deployed by this issue-repair session. An independent
+local check of its `20260921142757_reserve_baseline_sleep_lookup` candidate cleared
+all calculation memos and used the authenticated 8-second statement budget against
+29 nights of native HRV plus fragmented sleep and sport evidence. `settle_now(1)`
+completed two days in 2.068 seconds (five assertions passed). This is local evidence;
+production verification remains with that other session.
+
+A real Common-mode session stopped with a successful device acknowledgment and no
+reported stop error. It produced 40 HR publications and 40 SwiftUI update hooks:
+callback-to-publication median 0.341 ms / P95 0.540 ms; callback-to-view-update median
+14.081 ms / P95 18.231 ms (maximum 24.808 ms). These hooks do not measure physical
+screen presentation or the missing device sample clock. Valid-HR callback intervals were
+median 0.898 s / P95 3.465 s / maximum 3.916 s. The first valid HR arrived 43.02 s
+after the start acknowledgment. The first sport report arrived 90 ms after start;
+41 reports before the first valid HR contained no publishable heart rate (median
+interval 1.012 s, maximum 2.385 s). This rules out a 43-second app callback stall,
+but does not establish the sensor-side cause.
+#36 is therefore not certified against its sample-to-screen target.
+
+The bounded-upload candidate's independent latest refresh took 51.236 seconds and
+again failed settlement with 57014. Compared with the two serial attempts' median
+62.849 seconds, this is an 18.5% reduction across a very small, unsuccessful sample;
+it meets neither #40's latency target nor its 50% alternative. A preceding warmup
+completed successfully in 63.144 seconds, but is excluded from the daily comparison.
+Further repeated failed runs were stopped pending the other session's cloud fix.
+Read-only inspection of the app's SQLite plus WAL confirmed one durable recap whose
+end matches the successful stop, and one still-pending recap upload. This establishes
+local persistence, not successful cloud publication or a 60-second post-sport
+settlement. The original diagnostic lease was restored byte-for-byte, and the app
+was launched normally without validation flags after testing. The metadata-only
+hardware report is `/tmp/next-issues-device-validation/acceptance-summary.md`; private
+raw exports and SQLite copies have user-only filesystem permissions.
+
+Successful daily sync P50/P95, real-session
+60-second training refresh, hosted background/reinstall behavior and representative
+photo accuracy/latency remain external acceptance work. No production migrations or
+functions were deployed, no release build was uploaded, and GitHub issues were not
+closed. Deployment must reconcile the existing working-tree/production differences
+recorded above instead of publishing the entire unrelated workspace.
+
+## Body Battery loading and sync latency repair · 2026-09-21
+
+The connected iPhone's recorded refreshes took 70.2 and 87.8 seconds and ended
+partial. Today's BLE read was about 0.6 seconds; uploads and settlement/readback
+accounted for most of the wait. Production lacks the new optional meal columns;
+the prepared health-snapshot compatibility read prevents that missing-column
+response from rejecting the entire health snapshot. The updated Debug app was
+built, installed and launched on the iPhone 17 Pro Max. Its local snapshot was
+verified to contain today's Body Battery 20 and 237 curve points. Body Battery's
+manual refresh now also exposes partial/failed synchronization while BLE remains
+connected, and clears that message on a successful retry.
+
+Production `gkgzwcxivnffsecshvfs` now includes only the two targeted migrations
+`20260921142757_reserve_baseline_sleep_lookup` and
+`20260921143750_reserve_replay_bounded_precision` from this repair. Function
+readback matched the reviewed definitions and private execution grants were
+preserved. No other pending migrations or Edge Functions were deployed.
+
+The first removes repeated sleep-minute scans and repeated canonical-night JSON
+conversion. A real-account transaction measured baseline computation at 4.365
+seconds before and 1.421 seconds after, with equal JSON results. The second fixes
+numeric precision growth in replay cache output: an actual 223-point day reached
+10,850 fractional digits and 3.6 MB of JSON text. Only returned/cache values are
+truncated to 24 fractional digits; recursive arithmetic is unchanged. Regression
+checks preserve scores, stored curve, integer attribution, 12-place close and
+published training recommendations; the two raw target inputs differ by less
+than 1e-22. This is bounded output precision, not exact equality of unrounded
+internal numerics.
+
+Before the precision fix, the real authenticated settlement RPC exceeded its
+8-second budget. A rollback-only forced historical replay with the final candidate
+completed a day in 3.893 seconds under that same budget; replay-wrapper self time
+was 12.5 ms. These are scoped measurements, not full-sync latency percentiles.
+Validation includes 15 health-snapshot tests, 41 battery presentation checks,
+8 baseline and 11 precision SQL assertions, and the related adaptive battery,
+training-target, sleep-backfill/correction and settlement regression suites.
+The device Debug build passed. Release guards, before definitions, readback,
+measurements and receipts are retained at `/tmp/next-connection-release`.
+
+Final readback: the affected account's September 19–21 calculation statuses all
+report `pending=false`; today's `calculation_as_of` is 14:42 UTC. The phone snapshot
+saved at 14:42 UTC contains Body Battery 20 and 238 curve points. The diagnostic
+lease did not capture a complete post-precision device refresh, so no post-fix
+end-to-end synchronization duration is claimed.
+
+
+## ASR route regression · 2026-09-21
+
+A production iPhone request at 15:03 UTC submitted 3.33 seconds of audio; its
+multipart request took 9.988 seconds at the edge. The realtime provider returned
+partials but no complete result before the client closed it. Both requests used
+Tokyo. Downloaded production v47 has identical function source to the reviewed
+v45 snapshot; no source rollback or lost region override was found. This does not
+establish whether provider infrastructure or configuration changed.
+
+Replaying the September 20 synthetic fixtures through Tokyo reproduced release-to-result
+latencies of 7.326 / 12.349 / 12.889 / 9.296 seconds, all won by multipart.
+Seoul was inconsistent (1.047–20.814 seconds in four samples). Singapore returned
+complete realtime transcripts in all five comparison samples, in 1.412–3.871 seconds.
+The client now routes both ASR paths to Singapore (`ap-southeast-1`). This is a
+measured routing mitigation, not a claim that the upstream cause is repaired or
+that this small sample establishes latency percentiles.
+
+The actual Swift request builder, WebSocket class and transcript race, compiled into
+a macOS fixture harness, returned Chinese short/long and English long transcripts
+in 1.753 / 1.542 / 2.084 seconds after release. Silence returned correctly in
+4.158 seconds. The controlled race check passed in both directions (52 / 33 ms,
+without waiting for the three-second losing path). The signed device Debug build
+passed. These fixtures do not exercise the physical microphone; a real phone
+recording remains the end-to-end acceptance check. No backend function, model,
+secret or quota policy changed. Build and downloaded source evidence is retained
+in `/tmp/next-asr-sep21`; comparison measurements are appended to the existing
+`/tmp/next-asr-release/measurements.jsonl` fixture record.
+
+The signed Debug App was installed successfully on the connected iPhone 17 Pro Max
+with the Singapore route. Launch was refused because the phone was locked; the user
+must unlock and open it. Physical microphone latency remains unmeasured in this session.

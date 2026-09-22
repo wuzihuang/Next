@@ -85,8 +85,10 @@ extension Repository {
     /// server — which reads timezone, birth_date, sex and height_cm off this row before it
     /// computes anything — computed nothing for as long as the account existed. It is an
     /// upsert on user_id now, and it carries every column the computation reads.
-    func saveProfile(_ profile: Profile, editedFields: [String]) async {
-        guard let userId = await db.currentUserId else { return }
+    @discardableResult
+    func saveProfile(_ profile: Profile, editedFields: [String]) async -> Bool {
+        guard !Band.allowsSeed else { return true }
+        guard let userId = await db.currentUserId else { return false }
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         var row: [String: Any] = [
             "user_id": userId,
@@ -98,18 +100,32 @@ extension Repository {
             "birth_date": f.string(from: profile.birthdate),
         ]
         if !profile.name.isEmpty { row["display_name"] = profile.name }
-        if !editedFields.isEmpty {
-            var sources: [String: String] = [:]
-            for e in editedFields { sources[e] = "edit" }
-            row["field_sources"] = sources
+        do {
+            if !editedFields.isEmpty {
+                var sources: [String: String] = [:]
+                if let existing = try await db.select("profiles", query: [
+                    .init(name: "select", value: "field_sources"),
+                    .init(name: "limit", value: "1"),
+                ]).first?["field_sources"] as? [String: Any] {
+                    for (key, value) in existing {
+                        if let source = value as? String { sources[key] = source }
+                    }
+                }
+                for e in editedFields { sources[e] = "edit" }
+                row["field_sources"] = sources
+            }
+            guard userId == SupabaseClient.currentUserIdSnapshot() else { return false }
+            _ = try await db.upsert("profiles", row: row, onConflict: "user_id")
         }
-        do { _ = try await db.upsert("profiles", row: row, onConflict: "user_id") }
         catch {
             #if DEBUG
             NSLog("Repository.saveProfile failed: %@", "\(error)")
             #endif
+            return false
         }
+        guard userId == SupabaseClient.currentUserIdSnapshot() else { return false }
         await Analytics.shared.track("PROFILE_EDITED", ["FIELDS": editedFields])
+        return true
     }
 
     /// Just the name, for the one caller that has a name and nothing else to say: the first

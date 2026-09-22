@@ -114,6 +114,7 @@ final class PlanStore: ObservableObject {
         guard dayKey == store.today.day.key else { return }
         prepare(dayKey: dayKey)
         guard driver == nil, ConsentStore.shared.granted, let owner = Self.owner() else { return }
+        guard BillingStore.shared.allowAI(surface: "plan") else { return }
         if !Reachability.shared.isOnline || DebugEdge.on("offline") {
             showOffline(dayKey: dayKey)
             return
@@ -183,9 +184,11 @@ final class PlanStore: ObservableObject {
                 guard !Task.isCancelled, accepts(owner: owner, dayKey: dayKey, store: store) else { return }
                 continue
             case .attach(let run):
+                if !BillingStore.shared.isPro { generating = false; return }
                 await perform(run, day: day, owner: owner, store: store, ai: ai, prepareFreshness: false)
                 return
             case .start(let attempt):
+                if !BillingStore.shared.isPro { generating = false; return }
                 let run = AdviceDayRun(ownerUserId: owner, dayKey: dayKey, kind: .automatic, attempt: attempt,
                                        turnID: AdviceDayPolicy.automaticTurnID(owner: owner, dayKey: dayKey, attempt: attempt),
                                        startedAt: Date(), outcome: nil)
@@ -264,6 +267,12 @@ final class PlanStore: ObservableObject {
         }
         switch ai.lastErrorCode {
         case "TURN_IN_PROGRESS": return .inProgress(ai.lastRetryAfter)
+        case "SUBSCRIPTION_REQUIRED":
+            if run.kind == .refresh {
+                BillingStore.shared.presentation = .ai
+                return .failed(ai.lastError)
+            }
+            return .failed(nil)
         case nil: return .interrupted(nil)
         default: return .interrupted(ai.lastError)
         }

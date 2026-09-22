@@ -195,7 +195,10 @@ struct HeightRulerSheet: View {
     var body: some View {
         SheetShell(title: L("Height"),
                    trailing: AnyView(UnitToggle(options: ["CM", "FT"], selection: $unit)),
-                   saveTitle: "Save", onSave: { value = draft; onSave() }) {
+                   saveTitle: "Save", onSave: {
+                       value = min(220, max(120, draft))
+                       onSave()
+                   }) {
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 14) {
                     Button { typing = true } label: {
@@ -229,7 +232,9 @@ struct HeightRulerSheet: View {
         .onAppear { draft = value }
         .alert(L("Height"), isPresented: $typing) {
             TextField("cm", text: $typed).keyboardType(.numberPad)
-            Button(L("Set")) { if let d = Double(typed) { draft = d } }
+            Button(L("Set")) {
+                if let d = Double(typed), (120...220).contains(d) { draft = d }
+            }
             Button(L("Cancel"), role: .cancel) {}
         }
     }

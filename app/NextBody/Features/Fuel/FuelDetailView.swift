@@ -8,6 +8,7 @@ struct FuelDetailView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
     @ObservedObject private var mealQueue = MealQueue.shared
+    @ObservedObject private var ai = AIService.shared
 
     @State private var plate: FuelPlate?
     /// Paper 09H · DAY / WEEK / MONTH. Default lands on the clock.
@@ -44,9 +45,9 @@ struct FuelDetailView: View {
         #endif
         // History rows carry what went in as totals; the macro slots are filled from them so
         // the same card reads the same way on a past day.
-        row.protein = row.protein.map { MacroSlot(target: $0.target, eaten: row.proteinIn ?? dayMeals.reduce(0) { $0 + $1.protein }) }
-        row.carb    = row.carb.map    { MacroSlot(target: $0.target, eaten: row.carbIn    ?? dayMeals.reduce(0) { $0 + $1.carb }) }
-        row.fat     = row.fat.map     { MacroSlot(target: $0.target, eaten: row.fatIn     ?? dayMeals.reduce(0) { $0 + $1.fat }) }
+        row.protein = row.protein.map { MacroSlot(target: $0.target, eaten: row.proteinIn ?? Int(dayMeals.reduce(0.0) { $0 + $1.protein }.rounded())) }
+        row.carb    = row.carb.map    { MacroSlot(target: $0.target, eaten: row.carbIn    ?? Int(dayMeals.reduce(0.0) { $0 + $1.carb }.rounded())) }
+        row.fat     = row.fat.map     { MacroSlot(target: $0.target, eaten: row.fatIn     ?? Int(dayMeals.reduce(0.0) { $0 + $1.fat }.rounded())) }
         let fasted = row.fuelState == .fasted
         row.eIn = FuelCardMath.eaten(mealKcals: dayMeals.map(\.kcal), server: row.eIn, fasted: fasted)
         return row
@@ -95,7 +96,12 @@ struct FuelDetailView: View {
             if noTarget { NoTargetFuel() } else { platedPage }
         }
         .safeAreaInset(edge: .bottom) {
-            if !mealQueue.rejected.isEmpty { rejectedMeals }
+            if data.mealReceipt != nil {
+                MealReceiptBar()
+                    .padding(.bottom, 8)
+                    .animation(.spring(response: 0.34, dampingFraction: 0.86), value: data.mealReceipt)
+            }
+            else if !mealQueue.rejected.isEmpty { rejectedMeals }
             else if mealQueue.pendingCount > 0, mealQueue.lastError != nil {
                 Text(L("Meal changes are saved on this device and waiting to sync."))
                     .font(NBFont.ui(400, 12)).padding(12).background(NB.carbon4)
@@ -114,8 +120,13 @@ struct FuelDetailView: View {
             }
             #endif
             #if DEBUG
-            if ProcessInfo.processInfo.environment["NB_DEBUG_FUEL_PLATE"] == "1" {
+            // `NB_DEBUG_FUEL_PLATE=1` opens LOG A MEAL; `=edit` opens the edit plate on the
+            // day's first meal, which no harness can reach by tapping a seeded row.
+            let plateHook = ProcessInfo.processInfo.environment["NB_DEBUG_FUEL_PLATE"] ?? ""
+            if plateHook == "1" {
                 withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) { plate = .log }
+            } else if plateHook == "edit", let first = dayMeals.first {
+                withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) { plate = .edit(first) }
             }
             #endif
             guard !Band.allowsSeed else { return }
@@ -165,6 +176,9 @@ struct FuelDetailView: View {
                 FuelPlateLayer(plate: plate, day: day) { self.plate = nil }
             }
         }
+        // The plate does its own keyboard maths; without this the pressed-down page behind it
+        // slides up too, and the card shifts under the dim every time a field is tapped.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .animation(.spring(response: 0.36, dampingFraction: 0.86), value: plate != nil)
     }
 
@@ -296,6 +310,7 @@ struct FuelDetailView: View {
                             .lineLimit(1).minimumScaleFactor(0.7)
                     }
                 }
+                weekSoFar
                 Text(L("Solid already happened. Dashed is the usual rhythm."))
                     .font(NBFont.ui(400, 11)).tracking(0.02 * 11)
                     .foregroundStyle(NB.text3Prod)
@@ -304,11 +319,36 @@ struct FuelDetailView: View {
             .frame(width: NB.Layout.contentWidth, alignment: .leading)
             .cardSkin()
 
-            FuelFoodTable(meals: dayMeals, trailing: Fmt.kcal(m.eIn)) { meal in
+            FuelFoodTable(meals: dayMeals, trailing: Fmt.kcal(m.eIn),
+                          reading: isPast ? nil : ai.readingPlate) { meal in
                 if data.canEdit(meal) {
                     withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) { plate = .edit(meal) }
                 }
             }
+        }
+    }
+
+    /// One day is not the account.
+    ///
+    /// Cal AI answers this with rollover: up to 200 unspent calories move to tomorrow, so a
+    /// bad day is forgiven by moving the line. This product does not move the line — TARGET
+    /// is resting plus measured activity plus the goal, computed fresh每天 (ADR 0025) — so
+    /// the same reassurance is told the true way instead: here is the running total you are
+    /// actually eating against. The number is the week's own DIFF, not a second budget.
+    @ViewBuilder private var weekSoFar: some View {
+        if !isPast, let week = FuelWindowMath.sum(weekFacts), week.pairedDays >= 2 {
+            HStack(spacing: 8) {
+                Text(L("WEEK SO FAR"))
+                    .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
+                    .foregroundStyle(NB.white.opacity(0.34))
+                Text(Fmt.signedKcal(week.gap))
+                    .font(NBFont.dot(700, 12)).tracking(0.02 * 12)
+                    .foregroundStyle(gapTint(week.gap))
+                Text(L("· %d DAYS", week.pairedDays))
+                    .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
+                    .foregroundStyle(NB.white.opacity(0.34))
+            }
+            .accessibilityIdentifier("fuel.day.weekSoFar")
         }
     }
 
@@ -622,9 +662,16 @@ struct BalanceAxis: View {
 
 
 
+private struct EditFormHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 /// F0 right column · "改一笔／删一笔". Same plate chrome as Profile / Log a meal.
 struct EditMealSheet: View {
     let entry: MealEntry
+    /// How much of the screen the keyboard is covering, read once by the plate layer.
+    var keyboard: CGFloat = 0
     var onClose: () -> Void
     @EnvironmentObject private var data: DataStore
 
@@ -633,12 +680,21 @@ struct EditMealSheet: View {
     @State private var protein = ""
     @State private var carb = ""
     @State private var fat = ""
+    @State private var portion = ""
+    @State private var fiber: Double?
+    @State private var sugar: Double?
+    @State private var sodium: Double?
     @State private var eatenAt = Date()
     @State private var slot = MealEntry.Slot.snack
+    @State private var formContent: CGFloat = 0
 
+    /// ⚠️ Saving used to require all four numbers to parse — name, kcal, protein, carb, fat —
+    /// so fixing a name meant retyping an estimate the model had already made. The row keeps
+    /// whatever this sheet leaves blank, and the four numbers have a servings row above them
+    /// for the correction people actually make: "that was half of that".
     private var canSave: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (Double(kcal) ?? 0) > 0
+            && number(kcal) != nil
             && grams(protein) != nil
             && grams(carb) != nil
             && grams(fat) != nil
@@ -648,39 +704,92 @@ struct EditMealSheet: View {
         SheetFrame(title: L("Edit this meal"), fillsHeight: false) {
             ScrollView {
                 VStack(spacing: 10) {
+                    if entry.photoPath != nil {
+                        HStack(spacing: 12) {
+                            MealThumbnail(path: entry.photoPath, side: 64, radius: 14)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(L("THE PLATE YOU SHOT"))
+                                    .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
+                                    .foregroundStyle(NB.white.opacity(0.42))
+                                Text(portion.isEmpty ? L("Portion unknown") : portion)
+                                    .font(NBFont.ui(400, 14))
+                                    .foregroundStyle(NB.text1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     slotRow
                     TimeFieldBox(label: L("Eaten at"), date: $eatenAt)
                         .accessibilityIdentifier("fuel.edit.time")
                     FieldBox(label: L("What you ate"), text: $text)
-                    FieldBox(label: L("KCAL"), text: $kcal, keyboard: .numberPad)
+                        .accessibilityIdentifier("fuel.edit.name")
+                    servingsRow
+                    FieldBox(label: L("PORTION"), text: $portion)
+                    FieldBox(label: L("KCAL"), text: $kcal, keyboard: .decimalPad)
+                        .accessibilityIdentifier("fuel.edit.kcal")
                     HStack(spacing: 10) {
-                        FieldBox(label: L("PROTEIN"), text: $protein, keyboard: .numberPad)
-                        FieldBox(label: L("CARB"), text: $carb, keyboard: .numberPad)
-                        FieldBox(label: L("FAT"), text: $fat, keyboard: .numberPad)
+                        FieldBox(label: L("PROTEIN"), text: $protein, keyboard: .decimalPad)
+                        FieldBox(label: L("CARB"), text: $carb, keyboard: .decimalPad)
+                        FieldBox(label: L("FAT"), text: $fat, keyboard: .decimalPad)
                     }
+                    microRow
                     Text(L("This recomputes the user day. Range is the last 7 days."))
                         .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                         .foregroundStyle(NB.white.opacity(0.38))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 6)
                 }
+                .background(GeometryReader { g in
+                    Color.clear.preference(key: EditFormHeightKey.self, value: g.size.height)
+                })
             }
+            .onPreferenceChange(EditFormHeightKey.self) { formContent = $0 }
             .scrollDismissesKeyboard(.interactively)
-            .frame(maxHeight: 420)
+            .frame(maxHeight: formHeight)
+            // A row cut clean in half under the title reads as a bug; the fade says "this
+            // scrolls". Only while it actually does — at rest on a tall phone it all fits.
+            .mask {
+                if formContent > formHeight + 1 {
+                    LinearGradient(stops: [.init(color: .clear, location: 0),
+                                           .init(color: .black, location: 0.05),
+                                           .init(color: .black, location: 0.95),
+                                           .init(color: .clear, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                } else {
+                    Rectangle()
+                }
+            }
         } footer: {
             VStack(spacing: 14) {
                 LimePillButton(title: L("Save"), enabled: canSave) {
+                    let trimmed = portion.trimmingCharacters(in: .whitespacesAndNewlines)
                     data.amendMeal(
                         entry.id,
                         text: text,
-                        kcal: Double(kcal) ?? entry.kcal,
+                        kcal: number(kcal) ?? entry.kcal,
                         protein: grams(protein) ?? entry.protein,
                         carb: grams(carb) ?? entry.carb,
                         fat: grams(fat) ?? entry.fat,
                         at: entry.day.pinningClock(eatenAt),
-                        slot: slot)
+                        slot: slot,
+                        portion: trimmed.isEmpty ? nil : trimmed,
+                        fiber: .some(fiber), sugar: .some(sugar), sodium: .some(sodium))
                     onClose()
                 }
+                .accessibilityIdentifier("fuel.edit.save")
+                Button {
+                    Task { await MealFavorites.shared.save(entry, from: data.recentMeals) }
+                    onClose()
+                } label: {
+                    Text(entry.groupID == nil ? L("Keep as a regular")
+                                              : L("Keep this plate as a regular"))
+                        .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
+                        .foregroundStyle(NB.ember1)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("fuel.edit.keep")
                 Button {
                     data.deleteMeal(entry.id)
                     onClose()
@@ -693,16 +802,29 @@ struct EditMealSheet: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.bottom, max(8, Chrome.homeIndicatorBlock - 8))
+        .padding(.bottom, keyboard > 0 ? 8 : max(8, Chrome.homeIndicatorBlock - 8))
+        .animation(.easeOut(duration: 0.25), value: keyboard)
         .onAppear {
             text = entry.text
-            kcal = String(Int(entry.kcal))
+            kcal = String(entry.kcal)
             protein = String(entry.protein)
             carb = String(entry.carb)
             fat = String(entry.fat)
+            portion = entry.portion ?? ""
+            fiber = entry.fiber; sugar = entry.sugar; sodium = entry.sodium
             eatenAt = entry.at
             slot = entry.slot
         }
+    }
+
+    /// 420 with the keys down. With them up the plate rides above the keyboard, so the form
+    /// takes whatever is left between the status bar and the top of the keys — the footer is
+    /// outside the scroll, so SAVE and DELETE stay reachable either way.
+    private var formHeight: CGFloat {
+        let chrome: CGFloat = 244   // handle + title + footer + the plate's own padding
+        let floor = max(keyboard, ScreenMetrics.safeArea.bottom)
+        let room = ScreenMetrics.size.height - floor - ScreenMetrics.safeArea.top - 12 - chrome
+        return max(44, min(420, room))
     }
 
     private var slotRow: some View {
@@ -726,10 +848,76 @@ struct EditMealSheet: View {
         }
     }
 
-    private func grams(_ raw: String) -> Int? {
+    /// Four multipliers and no keyboard. Scaling reads whatever is in the fields right now,
+    /// so two taps compose — ×0.5 then ×0.5 is a quarter — and ×1 is how a mis-tap is undone
+    /// without retyping anything.
+    private var servingsRow: some View {
+        HStack(spacing: 6) {
+            Text(L("SERVINGS"))
+                .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
+                .foregroundStyle(NB.white.opacity(0.42))
+                .frame(width: 66, alignment: .leading)
+            ForEach(PortionMath.factors, id: \.self) { factor in
+                Button { apply(factor) } label: {
+                    Text(factor == 1 ? "×1" : "×\(PortionMath.label(factor))")
+                        .font(NBFont.dot(600, 11))
+                        .foregroundStyle(factor == 1 ? NB.text2 : NB.ember1)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .background(NB.carbon4, in: Capsule())
+                        .overlay(Capsule().stroke(NB.hairline, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("fuel.edit.servings.\(PortionMath.label(factor))")
+            }
+        }
+    }
+
+    /// Read-only, because nothing on this phone measured them. They come from the estimate or
+    /// they are ——; a text field here would invite a number nobody has.
+    @ViewBuilder private var microRow: some View {
+        if fiber != nil || sugar != nil || sodium != nil {
+            HStack(spacing: 0) {
+                ForEach([(L("FIBER"), fiber.map { "\(Fmt.nutrient($0)) G" }),
+                         (L("SUGAR"), sugar.map { "\(Fmt.nutrient($0)) G" }),
+                         (L("SODIUM"), sodium.map { "\(Fmt.nutrient($0)) MG" })], id: \.0) { label, value in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(label)
+                            .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
+                            .foregroundStyle(NB.white.opacity(0.42))
+                        Text(value ?? "——")
+                            .font(NBFont.dot(600, 13))
+                            .foregroundStyle(value == nil ? NB.white.opacity(0.32) : NB.text1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private func apply(_ factor: Double) {
+        guard factor != 1 else { return }
+        if let current = number(kcal) { kcal = String(PortionMath.scale(current, by: factor)) }
+        if let current = grams(protein) { protein = String(PortionMath.scale(current, by: factor)) }
+        if let current = grams(carb) { carb = String(PortionMath.scale(current, by: factor)) }
+        if let current = grams(fat) { fat = String(PortionMath.scale(current, by: factor)) }
+        fiber = fiber.map { PortionMath.scale($0, by: factor) }
+        sugar = sugar.map { PortionMath.scale($0, by: factor) }
+        sodium = sodium.map { PortionMath.scale($0, by: factor) }
+        portion = PortionMath.scale(portion.isEmpty ? nil : portion, by: factor) ?? ""
+    }
+
+    private func number(_ raw: String) -> Double? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Double(trimmed.replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")), value.isFinite, value >= 0, value <= 100_000 else { return nil }
+        return value
+    }
+
+    private func grams(_ raw: String) -> Double? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return 0 }
-        guard let value = Int(trimmed), (0...100_000).contains(value) else { return nil }
+        guard let value = number(trimmed), value.isFinite, (0...100_000).contains(value) else { return nil }
         return value
     }
 }

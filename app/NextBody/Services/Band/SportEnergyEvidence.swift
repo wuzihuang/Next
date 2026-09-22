@@ -15,9 +15,11 @@ struct SportEnergyEvidence: Codable, Equatable, Sendable {
 /// Pauses, invalid/ambiguous modes, clock reversal and gaps break continuity.
 struct SportEnergyEvidenceStream {
     static let maximumGap: TimeInterval = SportMetricAccumulator.liveWindow
-    let sessionID = UUID()
+    let sessionID: UUID
     private var continuityID = UUID()
     private var lastObservedAt: Date?
+
+    init(sessionID: UUID = UUID()) { self.sessionID = sessionID }
 
     mutating func interrupted() {
         continuityID = UUID()

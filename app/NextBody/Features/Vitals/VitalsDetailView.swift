@@ -171,7 +171,7 @@ struct VitalsDetailView: View {
         switch metric {
         case .steps:    VitalsReadout.daySteps(day)
         case .distance: VitalsReadout.dayMetres(day)
-        default:        VitalsReadout.dayTotalBurn(day)
+        default:        VitalsReadout.dayActiveEnergy(day)
         }
     }
 
@@ -246,7 +246,7 @@ struct VitalsDetailView: View {
         case .temp:     nightSkinMedian(day, ticks: (ticks[day.day.adding(days: -1)] ?? []) + (ticks[day.day] ?? []))
         case .steps:    VitalsReadout.daySteps(day)
         case .distance: VitalsReadout.dayMetres(day)
-        case .active:   VitalsReadout.dayTotalBurn(day)
+        case .active:   VitalsReadout.dayActiveEnergy(day)
         case .sleep:    data.sleepScores[day.day.key].map { Double($0.score) }
         case .hrv, .response: nil
         }
@@ -673,12 +673,18 @@ struct VitalsDetailView: View {
                 VitalsChartEmpty(line: L("NO NIGHT ON RECORD"), sub: L("WEAR IT TONIGHT"))
             }
         }
-        // #28 · the window the rest of this page is counted over, and the way to say it is
-        // wrong. A night with no record has nothing to correct, so it offers nothing.
+        // Existing and missing nights use the same time wheels and evidence refresh.
         if let night = m.sleep, night.sleepStart != nil, night.wakeAt != nil {
             SleepWindowCard(night: night,
                             editable: SleepCorrection.canCorrect(day: m.day),
                             edit: { correctingNight = true })
+        } else if m.sleep == nil, SleepCorrection.canCorrect(day: m.day) {
+            CardBlock(title: L("SLEEP WINDOW")) {
+                Button(L("ADD SLEEP")) { correctingNight = true }
+                    .font(NBFont.dot(600, 11)).foregroundStyle(NB.lime1)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("sleep.addNight")
+            }
         }
 
         // ---- STRUCTURE · how the night was spent, and how broken it was
@@ -689,7 +695,8 @@ struct VitalsDetailView: View {
                                 windowMinutes: window.span / 60,
                                 probeClock: window.clock(atFraction:))
             } else {
-                VitalsChartEmpty(line: m.sleep == nil ? L("NO NIGHT ON RECORD") : L("TOTALS ONLY"),
+                VitalsChartEmpty(line: m.sleep == nil ? L("NO NIGHT ON RECORD")
+                                 : (m.sleep?.unstagedMinutes ?? 0) > 0 ? L("STAGES NOT MEASURED") : L("TOTALS ONLY"),
                                  sub: m.sleep == nil ? L("WEAR IT TONIGHT")
                                                      : L("THE BAND FILED NO STAGE LINE"))
             }
@@ -702,7 +709,7 @@ struct VitalsDetailView: View {
         if let wakes = r.extraRight {
             VitalsStatPair(left: wakes, right: .init(
                 label: L("DEEP EPISODES"),
-                value: m.sleep.map { String($0.line.filter { $0.stage == 0 }.count) },
+                value: m.sleep.flatMap { $0.line.isEmpty ? nil : String($0.line.filter { $0.stage == 0 }.count) },
                 unit: nil, foot: L("RUNS OF DEEP SLEEP"), tint: nil))
         }
 
@@ -1172,12 +1179,13 @@ struct VitalsDetailView: View {
     /// bottom of it — after the score, not before. Both open the same wheels.
     @ViewBuilder
     private var correctNightLine: some View {
-        if metric == .sleep, let night = m.sleep, night.sleepStart != nil, night.wakeAt != nil,
-           SleepCorrection.canCorrect(day: m.day) {
+        if metric == .sleep, SleepCorrection.canCorrect(day: m.day),
+           m.sleep == nil || (m.sleep?.sleepStart != nil && m.sleep?.wakeAt != nil) {
             Button { correctingNight = true } label: {
                 // A multi-night window is not looking at one night, so the line says which
                 // one it would change.
-                Text(range == .day ? L("CHANGE TIMES") : L("CHANGE TIMES · %@", m.day.key))
+                Text(m.sleep == nil ? L("ADD SLEEP")
+                     : range == .day ? L("CHANGE TIMES") : L("CHANGE TIMES · %@", m.day.key))
                     .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
                     .foregroundStyle(NB.lime1.opacity(0.85))
                     // Centred: the page's last line is an offer, not another footnote in
@@ -1249,12 +1257,16 @@ final class VitalsDetailMemo {
         let last: Date?
         let oxygen: Int
         let sleepWake: Date?
+        let sleepStart: Date?
+        let sleepRevision: Int?
         init(_ d: DailyMetrics) {
             day = d.day
             curve = d.vitalsCurve.count
             last = d.vitalsCurve.last?.ts
             oxygen = d.sleep?.spo2.count ?? 0
             sleepWake = d.sleep?.wakeAt
+            sleepStart = d.sleep?.sleepStart
+            sleepRevision = d.sleep?.hashValue
         }
     }
 

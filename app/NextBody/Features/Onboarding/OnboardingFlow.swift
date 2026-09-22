@@ -6,10 +6,11 @@ import SwiftUI
 struct OnboardingFlow: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var data: DataStore
+    @State private var didEnter = false
 
     // 补屏 A · 六屏变七屏. Consent comes first: before HealthKit's dialog, before the first
     // band read. An account that has already answered this version skips straight past it.
-    enum Step: String, Hashable { case consent, healthSync, confirm, goal, fingersOn, scanning, baseline }
+    enum Step: String, Hashable { case consent, healthSync, confirm, goal, fingersOn, scanning, baseline, membership }
     /// 03 edge 3 · after the band dropped mid-scan and Connect ran again, the profile is on
     /// record and the run resumes at BASELINE 01, not at the first question.
     @State private var step: Step = {
@@ -23,6 +24,7 @@ struct OnboardingFlow: View {
             case "fingersOn": return .fingersOn
             case "scanning": return .scanning
             case "baseline": return .baseline
+            case "membership": return .membership
             default: break
             }
         }
@@ -63,7 +65,7 @@ struct OnboardingFlow: View {
                      weightKg: Int(weightKg.rounded()),
                      birthYear: born.year ?? 1990,
                      sexIsMale: sex == "Male",
-                     targetStep: 8000)
+                     targetStep: data.profile.stepGoal)
     }
 
     /// 06 rule 09 · the baseline is stored like any other scan — a weigh-in that re-anchors
@@ -98,13 +100,13 @@ struct OnboardingFlow: View {
                               onBack: { step = .healthSync },
                               onEdit: { sheet = $0 },
                               // F5 C5 · 「judged on 03/02 Looks right, not live on the birthday wheel」.
-                              onNext: { if age(from: born) < 18 { underage = true } else { step = .goal } })
+                              onNext: { if age(from: born) < 16 { underage = true } else { step = .goal } })
             case .goal:
                 GoalScreen(goal: $goal, onBack: { step = .confirm }, onNext: { step = .fingersOn })
             case .fingersOn:
                 FingersOn(onBack: { step = .goal }, onStart: { step = .scanning }, onSkip: {
                     Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "USER"]) }
-                    enter()
+                    finishTowardHome()
                 })
             case .scanning:
                 ScanningScreen(info: personalInfo, onDone: { r in
@@ -113,17 +115,19 @@ struct OnboardingFlow: View {
                     step = .baseline
                 }, onSkip: {
                     Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "FAILED"]) }
-                    enter()
+                    finishTowardHome()
                 }, onReconnect: {
                     // 03 edge 3 · reuse the whole pairing chain, then come back to BASELINE 01.
                     UserDefaults.standard.set(true, forKey: "nb.onboarding.resumeAtBaseline")
                     session.stage = .gateConnect
                 })
             case .baseline:
-                BaselineScreen(reading: baseline, onEnter: enter)
+                BaselineScreen(reading: baseline, onEnter: finishTowardHome)
+            case .membership:
+                MembershipCardHost(billing: BillingStore.shared, source: .welcome, onFinished: enter)
             }
 
-            // F5 · D08 — the 18 gate is caught on the birthday screen, not buried in the terms.
+            // F5 · D08 — the 16 gate is caught on the birthday screen, not buried in the terms.
             if underage { AgeGate { underage = false } }
         }
         .carbonPage()
@@ -174,7 +178,20 @@ struct OnboardingFlow: View {
         step = .confirm
     }
 
+    private func finishTowardHome() {
+        if BillingStore.shared.isPro {
+            BillingStore.shared.markWelcomeSeen()
+            enter()
+        } else {
+            BillingStore.shared.presentation = .welcome
+            step = .membership
+        }
+    }
+
     private func enter() {
+        // Closing during a store request and its later success share this exit.
+        guard !didEnter else { return }
+        didEnter = true
         Task { await Analytics.shared.track("ONBOARD_DONE", [:]) }
         data.profile.heightCm = heightCm
         data.profile.goal = goal
@@ -1110,17 +1127,17 @@ private struct BaselineTile: View {
     }
 }
 
-/// F5 · D08 — the 18 threshold is enforced on the birthday screen itself.
+/// F5 · D08 — the 16 threshold is enforced on the birthday screen itself.
 private struct AgeGate: View {
     let onBack: () -> Void
     var body: some View {
         ZStack {
             NB.carbon.opacity(0.94).ignoresSafeArea()
             VStack(spacing: 18) {
-                Text(L("NEXTBODY IS 18+"))
+                Text(L("NEXTBODY IS 16+"))
                     .font(NBFont.dot(700, 13)).tracking(0.3 * 13)
                     .foregroundStyle(NB.alert2)
-                Text(L("We can't create an account for someone under 18."))
+                Text(L("We can't create an account for someone under 16."))
                     .font(NBFont.ui(400, 17)).tracking(0.01 * 17)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(NB.text1)

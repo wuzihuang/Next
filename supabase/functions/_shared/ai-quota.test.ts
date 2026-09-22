@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { checkAiSpend, consumeAiQuota, recordAiUsage } from "./ai-quota.ts";
+import { checkAiSpend, consumeAiQuota, recordAiUsage, recordProviderAttempt, UNKNOWN_ATTEMPT_PROMPT_TOKENS } from "./ai-quota.ts";
 
 const owner = "aaaaaaaa-1111-1111-1111-111111111111";
 const operation = "bbbbbbbb-1111-1111-1111-111111111111";
@@ -64,6 +64,8 @@ Deno.test("recording sends tokens and audio seconds without caller-selected amou
         p_owner: owner, p_endpoint: "asr", p_model: "qwen3-asr-flash",
         p_prompt: 80, p_cached: 10, p_completion: 4, p_audio_seconds: 12.5,
         p_turn: null, p_latency: null,
+        // A call with no attempt identity keeps the old behaviour: one row, always written.
+        p_logical_call: null, p_attempt: null, p_cost_state: "reported",
       },
       authorization: "Bearer test-service-key",
     }]);
@@ -97,4 +99,76 @@ Deno.test("unverified user cannot trigger a service admission or accounting writ
     }), Error, "AI_USAGE_UNAUTHENTICATED");
     assertEquals(requests.length, 0);
   });
+});
+
+Deno.test("a provider attempt is billed from its own usage, with its attempt id", async () => {
+  await withTrustedRpc(null, async (requests) => {
+    await recordProviderAttempt(userDb, {
+      attemptId: "cccccccc-1111-1111-1111-111111111111",
+      logicalCallId: "jev:route:1",
+      model: "jev-1.13.0",
+      requestId: "req_1",
+      latencyMs: 1032,
+      usage: { promptTokens: 1304, cachedTokens: 0, completionTokens: 354 },
+      costUnknown: false,
+    }, "dddddddd-1111-1111-1111-111111111111");
+    assertEquals(requests.length, 1);
+    assertEquals(requests[0].path, "/rest/v1/rpc/record_ai_usage_trusted");
+    assertEquals(requests[0].args.p_model, "jev-1.13.0");
+    assertEquals(requests[0].args.p_prompt, 1304);
+    assertEquals(requests[0].args.p_completion, 354);
+    assertEquals(requests[0].args.p_cost_state, "reported");
+    assertEquals(requests[0].args.p_attempt, "cccccccc-1111-1111-1111-111111111111");
+    assertEquals(requests[0].args.p_logical_call, "jev:route:1");
+    assertEquals(requests[0].args.p_latency, 1032);
+  });
+});
+
+Deno.test("an attempt that may have been billed is booked as an unknown upper bound, never as free", async () => {
+  await withTrustedRpc(null, async (requests) => {
+    await recordProviderAttempt(userDb, {
+      attemptId: "cccccccc-2222-1111-1111-111111111111",
+      logicalCallId: "jev:route:2",
+      model: "jev-1.13.0",
+      requestId: null,
+      latencyMs: 1500,
+      usage: null,
+      costUnknown: true,
+    });
+    assertEquals(requests.length, 1);
+    assertEquals(requests[0].args.p_cost_state, "unknown");
+    assertEquals(requests[0].args.p_prompt, UNKNOWN_ATTEMPT_PROMPT_TOKENS);
+  });
+});
+
+Deno.test("an attempt that never reached the provider costs nothing", async () => {
+  await withTrustedRpc(null, async (requests) => {
+    await recordProviderAttempt(userDb, {
+      attemptId: "cccccccc-3333-1111-1111-111111111111",
+      logicalCallId: "jev:route:3",
+      model: "jev-1.13.0",
+      requestId: null,
+      latencyMs: 2,
+      usage: null,
+      costUnknown: false,
+    });
+    assertEquals(requests.length, 0);
+  });
+});
+
+Deno.test("the background memory settle bills, but never spends a person's daily count", async () => {
+  // The nightly job records what it cost. Nobody asked for it, so it takes no admission —
+  // and consume_ai_quota_trusted rejects 'memory' in SQL, which is why the type above no
+  // longer lets a caller try.
+  await withTrustedRpc(null, async (requests) => {
+    await recordAiUsage(userDb, {
+      endpoint: "memory", modelId: "qwen3.8-flash",
+      usage: { promptTokens: 800, cachedTokens: 0, completionTokens: 1700 },
+    });
+    assertEquals(requests.length, 1);
+    assertEquals(requests[0].path, "/rest/v1/rpc/record_ai_usage_trusted");
+    assertEquals(requests[0].args.p_endpoint, "memory");
+  });
+  // @ts-expect-error 'memory' is not an admission endpoint; the database refuses it too.
+  await consumeAiQuota(userDb, "memory", operation).catch(() => {});
 });

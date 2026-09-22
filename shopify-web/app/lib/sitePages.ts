@@ -6,7 +6,10 @@ export type SitePage = {
   kicker: {en: string; zh: string};
   lede: {en: string; zh: string};
   image?: string;
-  sections: Array<{heading: {en: string; zh: string}; body: {en: string[]; zh: string[]}}>;
+  sections: Array<{
+    heading: {en: string; zh: string};
+    body: {en: string[]; zh: string[]};
+  }>;
 };
 
 export type JournalArticle = {
@@ -19,6 +22,103 @@ export type JournalArticle = {
 };
 
 export const SITE_PAGES: SitePage[] = [
+  {
+    handle: 'app-support',
+    title: {
+      en: 'NextBody App Support',
+      zh: 'NextBody App 支持',
+    },
+    kicker: {
+      en: 'SUPPORT',
+      zh: '支持',
+    },
+    lede: {
+      en: 'Help with your NextBody account, HOOP band and NextBody Pro subscription.',
+      zh: '关于 NextBody 账户、HOOP 手环及 NextBody Pro 订阅的帮助。',
+    },
+    sections: [
+      {
+        heading: {
+          en: 'Contact us',
+          zh: '联系我们',
+        },
+        body: {
+          en: [
+            'Email shop@nextbody.ai for app, account, band or subscription help. For privacy and data requests, email privacy@nextbody.ai.',
+            'Include your app version, iPhone model, a description of the problem and the approximate time it occurred. You can also use Report a problem in the app. Do not send passwords, verification codes, card numbers or unnecessary health data.',
+          ],
+          zh: [
+            'App、账户、手环及订阅问题请写信至 shop@nextbody.ai。隐私及数据请求请写信至 privacy@nextbody.ai。',
+            '请注明 App 版本、iPhone 型号、问题描述及大致发生时间，也可以使用 App 内的「反馈问题」。请勿发送密码、验证码、银行卡号或不必要的健康数据。',
+          ],
+        },
+      },
+      {
+        heading: {
+          en: 'Restore NextBody Pro',
+          zh: '恢复 NextBody Pro',
+        },
+        body: {
+          en: [
+            'Sign in to the same NextBody account you used to buy Pro and use the Apple Account that made the purchase. Open the Pro membership screen and choose Restore purchases.',
+            'If Apple shows an active subscription but Pro is unavailable, contact support with the product name and purchase date. Do not purchase it again just to troubleshoot.',
+          ],
+          zh: [
+            '登录购买 Pro 时使用的 NextBody 账户，并使用原来购买时的 Apple 账户。在 Pro 会员页面选择「恢复购买」。',
+            '若 Apple 显示订阅有效但 Pro 不可用，请提供产品名称及购买日期联系我们，不必为排查问题重复购买。',
+          ],
+        },
+      },
+      {
+        heading: {
+          en: 'Cancel, renewals and refunds',
+          zh: '取消、续期与退款',
+        },
+        body: {
+          en: [
+            'Manage or cancel an App Store subscription in iPhone Settings › your name › Subscriptions › NextBody. Cancellation stops future renewals; access normally continues until the paid period ends. Deleting the app or NextBody account does not cancel the subscription.',
+            'Apple handles App Store payment and refund requests. Visit reportaproblem.apple.com to request a refund. Your local App Store purchase sheet shows the price, billing period and any eligible introductory offer before purchase.',
+          ],
+          zh: [
+            '在 iPhone「设置 › 你的姓名 › 订阅 › NextBody」中管理或取消 App Store 订阅。取消将停止后续续费；已付费期间通常可继续使用至到期。删除 App 或注销 NextBody 账户不会取消订阅。',
+            'App Store 付款及退款请求由 Apple 处理，可前往 reportaproblem.apple.com 申请退款。购买前的本地 App Store 付款页面会显示价格、计费周期及符合资格时可享受的优惠。',
+          ],
+        },
+      },
+      {
+        heading: {
+          en: 'Account and data',
+          zh: '账户与数据',
+        },
+        body: {
+          en: [
+            'To delete your account, open Profile › Data & Legal › Delete account and follow the confirmation steps. For a data copy, a correction or help when you cannot sign in, email privacy@nextbody.ai from the account email. We may verify your identity before acting.',
+            'Health data collection can be disabled in Profile. Apple Health, Bluetooth, motion, microphone and camera permissions can be changed in iOS Settings. Some features need those permissions. See the Privacy Policy for retention and records held separately by support or providers.',
+          ],
+          zh: [
+            '如需注销账户，请打开「个人资料 › 数据与法律 › 删除账户」并完成确认步骤。索取数据副本、更正信息或无法登录时，请使用账户邮箱写信至 privacy@nextbody.ai。处理前我们可能核实身份。',
+            '你可以在个人资料中停止健康数据采集，也可在 iOS 设置中管理 Apple 健康、蓝牙、运动、麦克风及相机权限。部分功能依赖这些权限。保留期限及支持系统或服务商单独持有的记录详见《隐私政策》。',
+          ],
+        },
+      },
+      {
+        heading: {
+          en: 'Band connection and wellness information',
+          zh: '手环连接与健康信息',
+        },
+        body: {
+          en: [
+            'Keep the band charged and near your iPhone, enable Bluetooth and reopen the app to retry syncing. Send support the band model and firmware version if the issue continues.',
+            'NextBody is a general wellness product, not a medical device. Its estimates and AI responses are not a diagnosis or professional advice. Do not use support or the app for emergencies; contact local emergency services.',
+          ],
+          zh: [
+            '请保持手环有电并靠近 iPhone，开启蓝牙后重新打开 App 重试同步。如仍有问题，请向支持人员提供手环型号和固件版本。',
+            'NextBody 是一般健康产品，不是医疗器械。估算数据和 AI 回答不构成诊断或专业建议。请勿通过客服或 App 处理紧急情况；紧急情况请联系当地急救服务。',
+          ],
+        },
+      },
+    ],
+  },
   {
     handle: 'science',
     title: {en: 'Science', zh: '科学依据'},
@@ -72,11 +172,11 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'What it is not', zh: '它不是什么'},
         body: {
           en: [
-            'HOOP is not a medical device. It does not diagnose. It is for people 18 and over.',
+            'HOOP is not a medical device. It does not diagnose.',
             'The numbers are for managing a body you already know — when to train, how much to eat, whether last night was enough.',
           ],
           zh: [
-            'HOOP 不是医疗器械。它不做诊断。面向 18 岁及以上。',
+            'HOOP 不是医疗器械。它不做诊断。',
             '这些数字是为了管你已经认识的那副身体 — 什么时候练、吃多少、昨晚够不够。',
           ],
         },
@@ -98,11 +198,11 @@ export const SITE_PAGES: SitePage[] = [
         body: {
           en: [
             '$99 once. Black or white. The knit nylon strap and the sport strap are both in the box, along with the charger.',
-            'There is no subscription for the app that reads the band. Memberships in this category start at $239 a year; we decided not to be a club.',
+            'The app that reads the band comes with the band. App AI is NextBody Pro: one free month if this health account has not claimed it, then $6 / month.',
           ],
           zh: [
             '$99 一次付清。黑色或白色。编织尼龙表带和运动表带都在盒里，充电器也在。',
-            '读取手环的 App 没有订阅费。同类产品的会员费一年从 $239 起；我们决定不做会所。',
+            '读取手环的 App 随手环。App 里的 AI 是 NextBody Pro：这个健康账号还没领过则首月免费，之后每月 $6。',
           ],
         },
       },
@@ -185,7 +285,10 @@ export const SITE_PAGES: SitePage[] = [
         },
       },
       {
-        heading: {en: 'What does the coach actually see?', zh: 'AI 教练到底看到什么？'},
+        heading: {
+          en: 'What does the coach actually see?',
+          zh: 'AI 教练到底看到什么？',
+        },
         body: {
           en: [
             'Your night, your HRV, your training load, your meals and your battery — the same numbers you can open yourself. It says what it read before it says what it thinks.',
@@ -201,11 +304,11 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'Who owns my data?', zh: '数据归谁？'},
         body: {
           en: [
-            'You do. Export it whenever you want, delete it whenever you want, and closing the account deletes the lot within 30 days.',
+            'You can request a copy of your data and delete your account in the app. The Privacy Policy explains deletion and retention, including support records held separately.',
             'It is never sold and never used for advertising. The Privacy Policy says exactly who touches it and for how long.',
           ],
           zh: [
-            '归你。随时导出，随时删除；注销账户会在 30 天内删光。',
+            '你可以申请数据副本，并在 App 内注销账户。《隐私政策》说明删除和保留方式，包括独立保存的支持记录。',
             '永不出售，永不用于广告。《隐私政策》里写明了谁会碰到它、碰多久。',
           ],
         },
@@ -214,11 +317,11 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'Does it track my location?', zh: '它会记录我的位置吗？'},
         body: {
           en: [
-            'The band has no GPS of its own. If a workout needs a route, it comes from the phone, and only while that workout is running.',
+            'The band has no GPS of its own. The current NextBody app does not collect your precise location.',
             'There is no microphone and no camera on the band.',
           ],
           zh: [
-            '手环没有自己的 GPS。若某次训练需要轨迹，轨迹来自手机，而且只在那次训练进行时。',
+            '手环没有自己的 GPS。当前 NextBody App 不收集你的精确位置。',
             '手环上没有麦克风，也没有摄像头。',
           ],
         },
@@ -330,11 +433,11 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'What it is not', zh: '它不是什么'},
         body: {
           en: [
-            'Not a medical device, not a diagnosis, not a doctor. No ECG, no blood pressure, no promise about a condition. For people 18 and over.',
+            'Not a medical device, not a diagnosis, not a doctor. No ECG, no blood pressure, no promise about a condition.',
             'It is an instrument for managing a body you already live in.',
           ],
           zh: [
-            '不是医疗器械，不是诊断，不是医生。不做心电图，不测血压，不对任何病症做承诺。面向 18 岁及以上人群。',
+            '不是医疗器械，不是诊断，不是医生。不做心电图，不测血压，不对任何病症做承诺。',
             '它是一件仪器，用来管理你已经住在里面的那副身体。',
           ],
         },
@@ -476,21 +579,21 @@ export const JOURNAL: JournalArticle[] = [
   },
   {
     handle: 'no-subscription',
-    title: {en: 'No subscription. Ever.', zh: '永不订阅。'},
+    title: {en: 'The band is $99 once.', zh: '手环 $99，一次付清。'},
     lede: {
-      en: 'The band is $99. The app that reads it does not rent you back your own night.',
-      zh: '手环 $99。读取它的 App 不会把你自己的夜晚再租给你。',
+      en: 'The band and the readings are yours with HOOP. App AI is NextBody Pro.',
+      zh: '手环和读数随 HOOP。App 里的 AI 是 NextBody Pro。',
     },
     date: '2026-06-04',
     image: '/landing/finishes.png',
     body: {
       en: [
-        'Memberships in this category start at $239 a year. That is a second product.',
-        'HOOP is the band and the reading. You buy it once.',
+        'HOOP is the band and the reading. You buy the band once.',
+        'App AI — the panel, coach, suggestions and voice — is NextBody Pro at $6 / month, with one free month if this health account has not claimed it.',
       ],
       zh: [
-        '同类产品的会员费一年从 $239 起。那是另一件产品。',
-        'HOOP 是手环和读数。你买一次。',
+        'HOOP 是手环和读数。手环买一次。',
+        'App 里的 AI——面板、教练、建议和语音——是 NextBody Pro，每月 $6；这个健康账号还没领过则首月免费。',
       ],
     },
   },

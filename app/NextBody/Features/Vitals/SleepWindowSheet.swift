@@ -16,7 +16,7 @@ struct SleepWindowCard: View {
 
     var body: some View {
         CardBlock(title: L("SLEEP WINDOW"),
-                  trailing: night.isCorrected ? L("CORRECTED") : nil,
+                  trailing: night.isUserReported ? L("ADDED BY YOU") : night.isCorrected ? L("CORRECTED") : nil,
                   trailingTint: night.isCorrected ? NB.lime1 : nil) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -37,12 +37,19 @@ struct SleepWindowCard: View {
                 }
                 // Both windows are printed when they differ, because a corrected night is
                 // not a measurement and must not read as one.
-                Text(night.isCorrected
+                Text(night.isUserReported
+                     ? L("TIMES REPORTED BY YOU")
+                     : night.isCorrected
                      ? L("BAND RECORDED %@ → %@", Self.clock(night.bandStart), Self.clock(night.bandEnd))
                      : (editable ? L("FROM THE BAND · EDIT IF IT IS WRONG") : L("FROM THE BAND")))
                     .font(NBFont.ui(300, 12)).tracking(0.02 * 12)
                     .foregroundStyle(NB.white.opacity(0.38))
                     .fixedSize(horizontal: false, vertical: true)
+                if night.unstagedMinutes > 0 {
+                    Text(L("%@ WITHOUT STAGE READINGS", Fmt.duration(night.unstagedMinutes)))
+                        .font(NBFont.ui(300, 12)).foregroundStyle(NB.text3Prod)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -129,51 +136,70 @@ struct SleepWindowSheet: View {
     @State private var start = Date()
     @State private var end = Date()
     @State private var saving = false
+    @State private var savedPending = false
     @State private var failure: String?
 
     var body: some View {
-        SheetFrame(title: L("Sleep times")) {
+        SheetFrame(title: night == nil ? L("Add sleep") : L("Sleep times")) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(L("The night filed under %@. Times are your own clock; a start after the end belongs to the evening before.", day.key))
                     .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                     .foregroundStyle(NB.white.opacity(0.38))
                     .fixedSize(horizontal: false, vertical: true)
+                Text(L("Available measurements are filled from these times. Missing sleep stages and HRV remain unmeasured."))
+                    .font(NBFont.ui(300, 12.5)).foregroundStyle(NB.text3Prod)
+                    .fixedSize(horizontal: false, vertical: true)
                 SleepWindowWheels(start: $start, end: $end)
+                    .disabled(saving || savedPending)
                 if let failure {
                     Text(failure)
                         .font(NBFont.ui(400, 12.5)).tracking(0.02 * 12.5)
-                        .foregroundStyle(NB.ember1)
+                        .foregroundStyle(savedPending ? NB.text3Prod : NB.ember1)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if night?.isCorrected == true {
+                if night?.isCorrected == true, night?.isUserReported != true,
+                   night?.bandStart != nil, night?.bandEnd != nil {
                     Button(L("Use the band's times")) { run { try await SleepCorrection.clear(day: day, into: data) } }
                         .font(NBFont.ui(400, 13)).foregroundStyle(NB.text3Prod)
                         .buttonStyle(.plain)
-                        .disabled(saving)
+                        .disabled(saving || savedPending)
                 }
             }
         } footer: {
-            LimePillButton(title: saving ? L("Saving…") : L("Save"), enabled: !saving) {
-                run { try await SleepCorrection.save(day: day, start: SleepWindowWheels.hhmm(start),
-                                                     end: SleepWindowWheels.hhmm(end), into: data) }
+            LimePillButton(title: savedPending ? L("Done") : saving ? L("Saving…") : L("Save"), enabled: !saving) {
+                if savedPending { dismiss(); return }
+                run {
+                    if night == nil {
+                        return try await SleepCorrection.create(day: day, start: SleepWindowWheels.hhmm(start),
+                                                         end: SleepWindowWheels.hhmm(end), into: data)
+                    } else {
+                        return try await SleepCorrection.save(day: day, start: SleepWindowWheels.hhmm(start),
+                                                       end: SleepWindowWheels.hhmm(end), into: data)
+                    }
+                }
             }
         }
         .background(NB.carbon2)
         .onAppear {
-            start = night?.sleepStart ?? day.start
-            end = night?.wakeAt ?? day.start
+            start = night?.sleepStart ?? SleepWindowWheels.date("23:00", fallback: day.start)
+            end = night?.wakeAt ?? SleepWindowWheels.date("07:00", fallback: day.start)
         }
     }
 
-    private func run(_ work: @escaping () async throws -> Void) {
+    private func run(_ work: @escaping () async throws -> Bool) {
         guard !saving else { return }
         saving = true
         failure = nil
         Task {
             do {
-                try await work()
+                let settled = try await work()
                 saving = false
-                dismiss()
+                if settled {
+                    dismiss()
+                } else {
+                    savedPending = true
+                    failure = L("Saved. Your metrics will refresh after the next sync.")
+                }
             } catch {
                 failure = SleepCorrection.message(SleepCorrection.code(error))
                 saving = false

@@ -41,6 +41,9 @@ struct BandSyncProgress: Equatable, Sendable {
     private(set) var stage: Stage = .searching
     private(set) var fraction: Double = 0
     private(set) var active = false
+    private(set) var isHistory = false
+    var modeLabel: String { isHistory ? "BACKFILLING HISTORY" : "DAILY SYNC" }
+    mutating func beginHistory() { if active { isHistory = true } }
     private var filed = 0
     private var expected = 2
 
@@ -83,5 +86,28 @@ struct BandSyncProgress: Equatable, Sendable {
         active = false
         stage = success ? .complete : .stopped
         if success { fraction = 1 }
+    }
+}
+
+/// Native history has no stop command. A stalled read must disconnect before its queue
+/// slot is released; continuing progress gets a longer absolute ceiling for backfills.
+final class BandSyncDeadline: @unchecked Sendable {
+    private let lock = NSLock()
+    private let startedAt: TimeInterval
+    private var advancedAt: TimeInterval
+    private var lastKey: String?
+    init(startedAt: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        self.startedAt = startedAt
+        advancedAt = startedAt
+    }
+    func advance(_ key: String, at now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        lock.lock(); defer { lock.unlock() }
+        guard key != lastKey else { return }
+        lastKey = key
+        advancedAt = now
+    }
+    func expired(at now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return now - advancedAt >= 45 || now - startedAt >= 300
     }
 }

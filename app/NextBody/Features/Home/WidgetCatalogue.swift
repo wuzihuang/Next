@@ -180,17 +180,15 @@ struct WidgetCatalogue: View {
                      .cells(rows: 7, cols: 12,
                             values: (0..<84).map { ($0 * 7) % 4 }, levels: 4))
         case .food:
-            // 07 · 20 · the plate: name, kcal as the hero, three macro rows.
-            var f = w(type, "LOGGED · 12:42", "Good pick — 48 g protein still to place",
-                      .rows([.init(label: L("CHICKEN SALAD"), value: "420")]))
-            f.plate = PlateBlock(name: L("Chicken salad"), portion: L("1 bowl"), kcal: 420,
+            // 07 · 20 · the plate: one row per food, already on the record (#33 / #35A).
+            var f = w(type, "LOGGED · 12:42", "This meal is on the record.",
+                      .rows([.init(label: L("CHICKEN"), value: "220"),
+                             .init(label: L("RICE"), value: "160"),
+                             .init(label: L("GREENS"), value: "40")]))
+            f.plate = PlateBlock(name: L("Chicken, rice, greens"), portion: L("1 bowl"), kcal: 420,
                                  protein: 32, carb: 18, fat: 22, pctOfBudget: 31)
             f.footer = L("660 KCAL LEFT · KITCHEN CLOSES 21:00")
-            // ⚠️ A real food frame always carries one: `screen.render.food` is a draft the
-            // screen submits, and turn/index.ts forces its action to 「确认记录」 / CONFIRM.
-            // The sample had none, so the catalogue showed a plate that looked finished —
-            // which is how the missing confirm (issue #22) stayed invisible in review too.
-            f.action = L("CONFIRM")
+            f.action = L("OPEN FUEL")
             return f
         case .plan:
             // ADR 0018 · the plan face's frame: the tasks are rows, the summary is the sentence.

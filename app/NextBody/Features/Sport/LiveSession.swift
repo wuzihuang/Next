@@ -20,7 +20,12 @@ final class LiveSessionStore: ObservableObject {
     static let shared = LiveSessionStore()
     private static let log = Logger(subsystem: "com.nextbody.hoop", category: "session")
 
+    private init() {
+        lastRecap = Self.restoreSeedRecap()
+    }
+
     struct Session: Equatable {
+        let id: UUID
         let mode: SportModeOption
         /// The tap — or, once the band has said how long it has been running, the band's own
         /// start: its clock is the record and the screen's clock follows it.
@@ -51,8 +56,13 @@ final class LiveSessionStore: ObservableObject {
     @Published private(set) var kcal: Double = 0
     @Published private(set) var stopping = false
     @Published private(set) var errorLine: String?
+    @Published private(set) var lastRecap: SessionRecap?
+
+    typealias SessionRecap = SportSessionRecap
 
     private var metrics = SportMetricAccumulator(weightKg: nil, age: nil, male: false)
+    private var recapBeats: [SportRecapMath.Beat] = []
+    private var recapSegment = 0
     private var heartEvidence = SportHeartRateEvidenceStream()
     private var energyEvidence = SportEnergyEvidenceStream()
     var caloriesAreEstimated: Bool { metrics.calorieSource == .estimate }
@@ -80,9 +90,20 @@ final class LiveSessionStore: ObservableObject {
     /// A heart rate older than this is not the wrist now. Same window as the panel's.
     static let liveWindow = SportMetricAccumulator.liveWindow
 
+    var heartFreshness: SportHeartFreshness.State {
+        guard session != nil, wrist == .live else { return .missing }
+        return SportHeartFreshness.state(receivedAt: hrAt, now: Date())
+    }
     var liveHR: Int? {
-        guard session != nil else { return nil }
-        return metrics.liveHR(at: Date())
+        heartFreshness == .missing ? nil : hr
+    }
+    var delayedHeartNote: String? {
+        guard wrist == .live else { return nil }
+        switch heartFreshness {
+        case .live: return nil
+        case .stale: return L("HEART RATE DELAYED")
+        case .missing: return L("WAITING FOR A NEW HEART RATE")
+        }
     }
     var averageHR: Int? { metrics.averageHR }
     var peakHR: Int? { metrics.peakHR }
@@ -103,8 +124,11 @@ final class LiveSessionStore: ObservableObject {
         self.hrMax = profile.hrMax
         metrics = SportMetricAccumulator(weightKg: weightKg, age: profile.age,
                                          male: profile.sexIsMale, sportMode: mode.rawValue)
-        heartEvidence = SportHeartRateEvidenceStream()
-        energyEvidence = SportEnergyEvidenceStream()
+        recapBeats = []
+        recapSegment = 0
+        let sessionID = UUID()
+        heartEvidence = SportHeartRateEvidenceStream(sessionID: sessionID)
+        energyEvidence = SportEnergyEvidenceStream(sessionID: sessionID)
         kcal = 0
         hr = nil; hrAt = nil
         seekBeganAt = nil
@@ -116,7 +140,7 @@ final class LiveSessionStore: ObservableObject {
         lifetime = owner
         startDisposition = .notIssued
         opening = !Self.debugFakeWrist
-        session = Session(mode: mode, startedAt: Date())
+        session = Session(id: sessionID, mode: mode, startedAt: Date())
         BandLiveLifecycle.shared.refreshEligibility()
         // A workout screen that goes dark half-way through a set is a screen nobody can read.
         UIApplication.shared.isIdleTimerDisabled = true
@@ -153,7 +177,7 @@ final class LiveSessionStore: ObservableObject {
                         try await Band.live.syncPersonalInfo(PersonalInfo(
                             heightCm: Int(profile.heightCm.rounded()), weightKg: Int(weightKg.rounded()),
                             birthYear: Calendar.current.component(.year, from: profile.birthdate),
-                            sexIsMale: profile.sexIsMale, targetStep: 8000))
+                            sexIsMale: profile.sexIsMale, targetStep: profile.stepGoal))
                     } catch { return Open.refused(error) }
                     guard (self.accepts(owner) && authorized()) else { return Open.refused(CancellationError()) }
                 }
@@ -316,7 +340,15 @@ final class LiveSessionStore: ObservableObject {
         let average = averageHR ?? 0
         let calories = Int(kcal.rounded())
         let didClose = closed
-        if !Self.debugFakeWrist { Task { await Repository.shared.flushPendingEvidence() } }
+        rememberRecap(session, seconds: sec)
+        if !Self.debugFakeWrist {
+            let generation = Repository.shared.sessionGeneration
+            Task {
+                guard stoppingOwner.account == SupabaseClient.currentUserIdSnapshot(),
+                      generation == Repository.shared.sessionGeneration else { return }
+                await Repository.shared.settleAfterSport()
+            }
+        }
         Task { await Analytics.shared.track("SESSION_END", [
             "MODE": session.mode.rawValue, "SEC": sec,
             "AVG_HR": average, "KCAL": calories,
@@ -337,6 +369,7 @@ final class LiveSessionStore: ObservableObject {
         SessionActivity.end(islandState())
         let endingMode = session?.mode
         let endingOwner = lifetime
+        let endingGeneration = Repository.shared.sessionGeneration
         lifetime = nil
         heartEvidence.interrupted()
         energyEvidence.interrupted()
@@ -362,7 +395,11 @@ final class LiveSessionStore: ObservableObject {
             }
             self?.cleanupTask = nil
             BandLiveLifecycle.shared.refreshEligibility()
-            if !Self.debugFakeWrist { await Repository.shared.flushPendingEvidence() }
+            if !Self.debugFakeWrist,
+               endingOwner?.account == SupabaseClient.currentUserIdSnapshot(),
+               endingGeneration == Repository.shared.sessionGeneration {
+                await Repository.shared.settleAfterSport()
+            }
         }
         session = nil
         stopping = false
@@ -382,6 +419,20 @@ final class LiveSessionStore: ObservableObject {
     /// report is tried again. Cancelling ends whichever is open (F1 rule 05).
     private func runWrist(owner: SportSessionLifetime) async {
         guard accepts(owner) else { return }
+        // Receipt-driven updates render every new beat immediately. This clock only
+        // ages a silent stream, including the island when no callback arrives at all.
+        let freshnessClock = Task { @MainActor [weak self] in
+            var previous: SportHeartFreshness.State?
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard let self, self.accepts(owner) else { return }
+                self.objectWillChange.send()
+                let freshness = self.heartFreshness
+                self.pushIsland(force: previous != freshness)
+                previous = freshness
+            }
+        }
+        defer { freshnessClock.cancel() }
         var reconnectFailures = 0
         while accepts(owner) {
             if Self.debugFakeWrist { await fakeWrist(); continue }
@@ -514,9 +565,22 @@ final class LiveSessionStore: ObservableObject {
         metrics = metrics.accepting(timestamp: now, heartRate: info.heartRate,
                                     caloriesKcal: info.caloriesKcal, runState: info.runState)
         hr = metrics.heartRate
-        hrAt = metrics.heartRateAt
+        hrAt = metrics.heartRate == nil ? nil : info.receivedAt
+        #if DEBUG
+        NightDiagnostics.shared.record("sport.heart_published", fields: [
+            "receiptToPublishMs": String(max(0, now.timeIntervalSince(info.receivedAt) * 1000)),
+            "deviceSampleClock": "unavailable",
+            "hasHeart": String(hr != nil)
+        ])
+        #endif
         kcal = metrics.kcal
         if hr != nil { lastHeartAt = now }
+        if let beat = info.heartRate, (1...250).contains(beat),
+           info.runState == nil || info.runState == 1 {
+            recapBeats.append(SportRecapMath.Beat(at: info.receivedAt, bpm: beat, segment: recapSegment))
+        } else {
+            recapSegment += 1
+        }
         if metrics.calorieCorrection != nil {
             Self.log.notice("session energy corrected by cumulative device report")
         }
@@ -542,6 +606,7 @@ final class LiveSessionStore: ObservableObject {
     }
 
     private func interruptMetrics() {
+        recapSegment += 1
         heartEvidence.interrupted()
         energyEvidence.interrupted()
         metrics = metrics.interrupted()
@@ -566,7 +631,7 @@ final class LiveSessionStore: ObservableObject {
             heartRate: liveHR,
             kcal: Int(kcal.rounded()),
             startedAt: session?.startedAt ?? Date(),
-            live: wrist == .live && liveHR != nil,
+            live: heartFreshness == .live && liveHR != nil,
             effort: effort,
             note: islandNote,
             energyEstimated: caloriesAreEstimated,
@@ -577,6 +642,7 @@ final class LiveSessionStore: ObservableObject {
     /// numbers or for a sentence, never both, so silence is the good state.
     private var islandNote: String? {
         if opening { return L("OPENING ON THE BAND") }
+        if let delayedHeartNote { return delayedHeartNote }
         switch wrist {
         case .live:      return session?.joined == true && caloriesAreEstimated ? L("ESTIMATE SINCE JOIN") : nil
         case .reaching:  return L("READING HEART RATE")
@@ -606,25 +672,74 @@ final class LiveSessionStore: ObservableObject {
         let hero = seconds >= 3600
             ? String(format: "%dH%02dM", seconds / 3600, (seconds % 3600) / 60)
             : "\(minutes) MIN"
-        let avg = averageHR.map { "\($0)" } ?? Fmt.dash
+        let recap = lastRecap
+        let avg = recap?.avgHR.map { "\($0)" } ?? (averageHR.map { "\($0)" } ?? Fmt.dash)
+        let peak = recap?.peakHR.map { "\($0)" } ?? (peakHR.map { "\($0)" } ?? Fmt.dash)
         let burned = hasCalories ? "\(caloriesAreEstimated ? "≈" : "")\(Int(kcal.rounded()))" : Fmt.dash
+        let conclusion = recap.map { L($0.conclusion) } ?? L("No heart-rate record.")
         let sentence = L("%d min · avg %@ bpm · %@ kcal", minutes, avg, burned)
         var w = PanelWidget(
             type: .workout,
             title: L("SESSION · %@", s.mode.displayName),
             tag: .move,
-            sentence: s.joined && caloriesAreEstimated ? sentence + " · " + L("ESTIMATE SINCE JOIN") : sentence,
+            sentence: conclusion + " · " + (s.joined && caloriesAreEstimated
+                ? sentence + " · " + L("ESTIMATE SINCE JOIN") : sentence),
             footer: closed ? L("SAVED ON THE BAND · %@ → %@", Fmt.clock(s.startedAt), Fmt.clock(Date()))
                            : L("BAND DID NOT CLOSE IT · CHECK THE WRIST"),
             action: nil,
             hero: hero,
             data: .rows([
-                .init(label: L("AVG HR"), value: avg),
-                .init(label: L("PEAK"), value: peakHR.map { "\($0)" } ?? Fmt.dash),
+                .init(label: L("AVG HR"), value: avg, spark: recap.flatMap { $0.curve.count > 1 ? $0.curve : nil }),
+                .init(label: L("PEAK"), value: peak),
                 .init(label: energyLabel, value: "\(burned) KCAL"),
+                .init(label: L("AEROBIC"), value: recap.flatMap { $0.hasZones ? "\($0.aerobicMinutes) MIN" : nil } ?? Fmt.dash),
+                .init(label: L("ANAEROBIC"), value: recap.flatMap { $0.hasZones ? "\($0.anaerobicMinutes) MIN" : nil } ?? Fmt.dash),
             ]))
         if !closed { w.accentOverride = NB.ember1 }
         return w
+    }
+
+    private func rememberRecap(_ s: Session, seconds: Int) {
+        let rest = DataStore.shared.today.nightInputs?.rhr.map { Int($0.rounded()) }
+        let math = SportRecapMath.recap(beats: recapBeats, restHR: rest, maxHR: hrMax, seconds: seconds)
+        let loadBefore = Band.allowsSeed ? DataStore.shared.today.trainingLoad : nil
+        if Band.allowsSeed {
+            DataStore.shared.applySeedSessionLoad(delta: math.loadDelta, zones: math.zoneMinutes)
+        }
+        let recap = SessionRecap(
+            title: s.mode.displayName,
+            startedAt: s.startedAt,
+            endedAt: Date(),
+            seconds: seconds,
+            avgHR: math.avgHR,
+            peakHR: math.peakHR,
+            kcal: kcal,
+            caloriesEstimated: caloriesAreEstimated,
+            curve: math.curve,
+            zoneMinutes: math.zoneMinutes,
+            aerobicMinutes: math.aerobicMinutes,
+            anaerobicMinutes: math.anaerobicMinutes,
+            conclusion: math.conclusion.rawValue,
+            sessionID: s.id,
+            ownerUserID: lifetime?.account,
+            loadBefore: loadBefore,
+            loadAfter: Band.allowsSeed ? DataStore.shared.today.trainingLoad : nil,
+            curvePoints: math.curvePoints, observedSeconds: math.observedSeconds,
+            hasCalories: hasCalories, restHR: rest, maxHR: hrMax)
+        lastRecap = recap
+        guard Band.allowsSeed else {
+            SportRecapStore.shared.record(recap)
+            return
+        }
+        if let data = try? JSONEncoder().encode(recap) {
+            UserDefaults.standard.set(data, forKey: "nb.lastSportRecap")
+        }
+    }
+
+    private static func restoreSeedRecap() -> SessionRecap? {
+        guard Band.allowsSeed,
+              let data = UserDefaults.standard.data(forKey: "nb.lastSportRecap") else { return nil }
+        return try? JSONDecoder().decode(SessionRecap.self, from: data)
     }
 
     // MARK: DEBUG · a session on a simulator

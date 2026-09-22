@@ -1,14 +1,7 @@
 import Foundation
 
-/// #28 · one owner for "the user says this night ran from here to here".
-///
-/// Two entries reach the same server call: the sleep page's own save, and a confirmed voice
-/// or text request through `write{entity:"sleep_night"}`. `correct_sleep_window` decides
-/// what a legal night is — it must already exist, its end still has to date it, and its new
-/// window has to hold sleep the band actually recorded — so neither entry re-implements
-/// that rule. What lives here is the trip afterwards: settle the day again, then read the
-/// night, the score and the charge back so the card, the detail page and the AI are looking
-/// at the same night before the person's thumb has left the screen.
+/// Shared mutation and refresh path for a reported night or an edited device window.
+/// Both the button and a confirmed AI request publish the same server-side evidence.
 enum SleepCorrection {
     /// How far back a night may be corrected. The server holds the same bound; replay is
     /// chronological, so an older correction would recompute every day after it.
@@ -19,40 +12,93 @@ enum SleepCorrection {
     }
 
     @MainActor
-    static func save(day: UserDay, start: String, end: String, into store: DataStore) async throws {
+    @discardableResult
+    static func save(day: UserDay, start: String, end: String, into store: DataStore) async throws -> Bool {
+        let session = SupabaseClient.currentRequestSessionSnapshot()
         guard let owner = SupabaseClient.currentUserIdSnapshot() else { throw CancellationError() }
+        await Repository.shared.flushPendingEvidence(afterCurrent: true)
+        guard session == SupabaseClient.currentRequestSessionSnapshot(), !Task.isCancelled else {
+            throw CancellationError()
+        }
         _ = try await SupabaseClient.shared.rpc(
             "correct_sleep_window",
             args: ["p_user_day": day.key, "p_start": start, "p_end": end], expectedOwner: owner)
-        await republish(day: day.key, into: store)
+        guard session == SupabaseClient.currentRequestSessionSnapshot() else { throw CancellationError() }
+        return await republish(day: day.key, into: store, expectedOwner: owner)
     }
 
     @MainActor
-    static func clear(day: UserDay, into store: DataStore) async throws {
+    @discardableResult
+    static func create(day: UserDay, start: String, end: String, into store: DataStore) async throws -> Bool {
+        let session = SupabaseClient.currentRequestSessionSnapshot()
         guard let owner = SupabaseClient.currentUserIdSnapshot() else { throw CancellationError() }
+        await Repository.shared.flushPendingEvidence(afterCurrent: true)
+        guard session == SupabaseClient.currentRequestSessionSnapshot(), !Task.isCancelled else {
+            throw CancellationError()
+        }
+        _ = try await SupabaseClient.shared.rpc(
+            "create_sleep_window",
+            args: ["p_user_day": day.key, "p_start": start, "p_end": end], expectedOwner: owner)
+        guard session == SupabaseClient.currentRequestSessionSnapshot() else { throw CancellationError() }
+        return await republish(day: day.key, into: store, expectedOwner: owner)
+    }
+
+    @MainActor
+    @discardableResult
+    static func clear(day: UserDay, into store: DataStore) async throws -> Bool {
+        let session = SupabaseClient.currentRequestSessionSnapshot()
+        guard let owner = SupabaseClient.currentUserIdSnapshot() else { throw CancellationError() }
+        await Repository.shared.flushPendingEvidence(afterCurrent: true)
+        guard session == SupabaseClient.currentRequestSessionSnapshot(), !Task.isCancelled else {
+            throw CancellationError()
+        }
         _ = try await SupabaseClient.shared.rpc(
             "clear_sleep_correction", args: ["p_user_day": day.key], expectedOwner: owner)
-        await republish(day: day.key, into: store)
+        guard session == SupabaseClient.currentRequestSessionSnapshot() else { throw CancellationError() }
+        return await republish(day: day.key, into: store, expectedOwner: owner)
     }
 
     /// The night moved, so the night's score and the charge it fed moved with it. Settling
     /// covers the corrected day and the one before it, because a night that crosses midnight
     /// is spent on both — the same day-1 the server's own invalidation reaches for.
     @MainActor
-    static func republish(day: String, into store: DataStore) async {
+    @discardableResult
+    static func republish(day: String, into store: DataStore, expectedOwner: String? = nil) async -> Bool {
+        let session = SupabaseClient.currentRequestSessionSnapshot()
+        guard let owner = expectedOwner ?? SupabaseClient.currentUserIdSnapshot(),
+              owner == SupabaseClient.currentUserIdSnapshot() else { return false }
+        func current() -> Bool { session == SupabaseClient.currentRequestSessionSnapshot() && !Task.isCancelled }
         let today = UserDay.containing(Date())
         let corrected = Self.day(fromKey: day) ?? today
-        let back = max(1, Calendar.current.dateComponents([.day], from: corrected.start, to: today.start).day ?? 1)
-        await Repository.shared.settleNow(days: back + 1)
-        await Repository.shared.load(days: back + 1, endingAt: today, into: store)
-        await Repository.shared.loadSleepScores(days: back + 1, endingAt: today, into: store)
+        let back = max(0, Calendar.current.dateComponents([.day], from: corrected.start, to: today.start).day ?? 0)
+        let windowDays = back + 2
+        var settled = true
+        do {
+            _ = try await SupabaseClient.shared.rpc("settle_now", args: ["p_days": windowDays - 1], expectedOwner: owner)
+        } catch { settled = false }
+        guard current() else { return false }
+        await Repository.shared.load(days: windowDays - 1, endingAt: today, into: store)
+        guard current() else { return false }
+        await Repository.shared.loadSleepScores(days: windowDays, endingAt: today, into: store)
+        guard current(), !store.isOffline else { return false }
+        if case .failed = store.sleepScoreLoadState { return false }
+        do {
+            guard let rows = try await SupabaseClient.shared.rpc("calculation_status",
+                args: ["p_from": corrected.adding(days: -1).key, "p_to": today.key],
+                expectedOwner: owner) as? [[String: Any]], !rows.isEmpty else { return false }
+            return current() && settled && rows.allSatisfy { $0["pending"] as? Bool == false }
+        } catch { return false }
     }
 
     static func day(fromKey key: String) -> UserDay? {
         let f = DateFormatter()
         f.calendar = Calendar(identifier: .gregorian)
         f.dateFormat = "yyyy-MM-dd"
-        return f.date(from: key).map { UserDay.containing($0) }
+        f.isLenient = false
+        guard let date = f.date(from: key), f.string(from: date) == key,
+              let start = Calendar.current.date(bySettingHour: UserDay.boundaryHour,
+                                                minute: 0, second: 0, of: date) else { return nil }
+        return UserDay(date: start)
     }
 
     /// The RPC raises its refusals by name. They arrive as an HTTP body, and the name inside
@@ -61,7 +107,7 @@ enum SleepCorrection {
         guard case SupabaseFailure.http(_, let body)? = error as? SupabaseFailure else {
             return error is CancellationError ? "CANCELLED" : "WRITE_FAILED"
         }
-        for name in ["NO_SLEEP_NIGHT", "WINDOW_HAS_NO_SLEEP", "NO_STAGE_LINE", "END_BEFORE_START",
+        for name in ["SLEEP_NIGHT_EXISTS", "FUTURE_SLEEP_WINDOW", "NO_RECORDED_SLEEP", "NO_SLEEP_NIGHT", "WINDOW_HAS_NO_SLEEP", "NO_STAGE_LINE", "END_BEFORE_START",
                      "WAKE_LEAVES_THE_DAY", "CORRECTION_TOO_OLD", "NO_CORRECTION", "BAD_TIME",
                      "RATE_LIMITED", "CONSENT_WITHDRAWN", "ACCOUNT_DELETING", "UNAUTHENTICATED"]
         where body.contains(name) {
@@ -72,6 +118,9 @@ enum SleepCorrection {
 
     static func message(_ code: String) -> String {
         switch code {
+        case "SLEEP_NIGHT_EXISTS":   L("A night already exists on this day. Change its times instead.")
+        case "FUTURE_SLEEP_WINDOW":  L("Sleep can only be recorded after you wake up.")
+        case "NO_RECORDED_SLEEP":    L("This night was added by you and has no band times to restore.")
         case "NO_SLEEP_NIGHT":      L("There is no recorded night on that day to correct.")
         case "WINDOW_HAS_NO_SLEEP": L("The band recorded no sleep inside those times.")
         case "NO_STAGE_LINE":       L("This night has totals only, so its times cannot be re-counted.")

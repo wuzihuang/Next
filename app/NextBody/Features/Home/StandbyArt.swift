@@ -597,10 +597,11 @@ struct OrbitField {
     }
 }
 
-/// 04 · idle 场。FirstRun 仍画 OrbitField；日常 idle 画当天锁住的那张板
-///（Paper V-1 / IdlePlateArt），钟只在这块场可见时加，Reduce Motion 停在姿势上。
+/// The day's deep-space scene. Its clock advances only while the panel is visible;
+/// Reduce Motion and navigation hold the current pose instead of resetting the scene.
 struct StandbyArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     /// Day-pool / event plate from `IdlePlateLock`. Ceremony does not pass this.
     var plate: Int = 1
     /// 0…1 — kept so the charge cluster and any future lime band share one number.
@@ -608,38 +609,42 @@ struct StandbyArt: View {
     var chargeKnown = true
     var animate = true
 
-    /// Mid-loop so the held pose is a composed one rather than the zero frame.
+    /// Start just inside the scene's drift; pausing preserves this accumulated time.
     @State private var clock: Double = 0.45
     @State private var lastTick: Date?
+    @State private var visible = false
+    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
 
     var body: some View {
-        // F5 C11 · decorative. Under Reduce Motion it holds its pose, and nothing ticks.
-        if animate && !reduceMotion {
-            TimelineView(.animation) { tl in
-                canvas
-                    .onChange(of: tl.date) { _, now in
-                        let previous = lastTick ?? now
-                        lastTick = now
-                        // Elapsed on-screen time, capped so a stall does not jump the field.
-                        clock += min(now.timeIntervalSince(previous), 1.0 / 20)
-                    }
-            }
-        } else {
-            canvas
+        TimelineView(.animation(minimumInterval: lowPower ? 1.0 / 15 : 1.0 / 30,
+                                paused: !moving)) { timeline in
+            DeepSpacePlate(plate: plate, clock: clock)
+                .onChange(of: timeline.date) { _, now in
+                    guard moving else { return }
+                    let previous = lastTick ?? now
+                    lastTick = now
+                    // A stalled frame cannot turn into a camera jump on the next draw.
+                    clock += min(max(0, now.timeIntervalSince(previous)), 0.1)
+                }
         }
+        .onAppear {
+            lastTick = nil
+            visible = true
+            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
+        .onDisappear {
+            visible = false
+            lastTick = nil
+        }
+        .onChange(of: moving) { _, _ in lastTick = nil }
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in
+            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
-    private var moving: Bool { animate && !reduceMotion }
-
-    private var canvas: some View {
-        Canvas { ctx, size in
-            IdlePlateArt.draw(
-                plate: plate,
-                pose: IdlePlateMotion.pose(plate: plate, clock: clock, moving: moving),
-                charge: charge,
-                chargeKnown: chargeKnown,
-                in: &ctx,
-                size: size)
-        }
+    private var moving: Bool {
+        visible && animate && !reduceMotion && scenePhase == .active
     }
 }

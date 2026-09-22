@@ -5,6 +5,9 @@ import SwiftUI
 struct TrainingDetailView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
+    @ObservedObject private var liveSession = LiveSessionStore.shared
+    @ObservedObject private var sportRecords = SportRecapStore.shared
+    @State private var selectedSport: SportSessionRecap?
 
     @State private var rangeRaw = RollingPills.day.rawValue
     private var range: RollingPills { .parse(rangeRaw) }
@@ -37,9 +40,7 @@ struct TrainingDetailView: View {
         default: return false
         }
     }
-    private var baselineBuilding: Bool {
-        (m.nightInputs?.hrvNights ?? 0) < 5 || (m.nightInputs?.rhrNights ?? 0) < 5
-    }
+    private var targetEvidence: TrainingTargetEvidence? { m.trainingSettlement?.target }
 
     private var curvePoints: [LoadPoint] {
         #if DEBUG && targetEnvironment(simulator)
@@ -87,6 +88,10 @@ struct TrainingDetailView: View {
             rangeRaw = request.rawValue
             router.windowRequest = nil
         }
+        .sheet(item: $selectedSport) { recap in
+            SportRecapView(recap: recap).environmentObject(data)
+        }
+        .task { await sportRecords.load() }
         .task {
             #if DEBUG
             if let override = DetailWindow.debugRange(for: .training) {
@@ -123,12 +128,129 @@ struct TrainingDetailView: View {
     private var dayBoard: some View {
         VStack(alignment: .leading, spacing: 14) {
             ringCard(load: m.trainingLoad, caption: "OF 21", foot: dayRingFoot)
+            lastSessionCard
+            sessionHistoryCard
+            todayBuildCard
             evidenceCard
             throughTheDayCard
             dayIngredients
             timeInZoneCard
             dayMoveCard
         }
+    }
+
+    @ViewBuilder private var lastSessionCard: some View {
+        if let recap = ([liveSession.lastRecap].compactMap { $0 } + sportRecords.recaps).first(where: {
+            (Band.allowsSeed || ($0.ownerUserID != nil && $0.ownerUserID == SupabaseClient.currentUserIdSnapshot()))
+                && TrainingSessionContribution.overlaps(startedAt: $0.startedAt, endedAt: $0.endedAt, day: m.day)
+        }) {
+            let kcal = recap.hasEnergy ? (recap.caloriesEstimated
+                ? "≈\(Int(recap.kcal.rounded()))" : "\(Int(recap.kcal.rounded()))") : Fmt.dash
+            let loadLine: String = {
+                if let contribution = m.trainingSettlement?.session(recap.sessionID, on: m.day) {
+                    return contribution.deltaText
+                }
+                if Band.allowsSeed, let before = recap.loadBefore, let after = recap.loadAfter {
+                    return TrainingSessionContribution.deltaText(max(0, after - before))
+                }
+                return L("LOAD PENDING")
+            }()
+            CardBlock(title: L("LAST SESSION"), trailing: recap.title, trailingIsDot: true) {
+                HStack {
+                    moveStat(L("AVG HR"), recap.avgHR.map { "\($0)" } ?? Fmt.dash, NB.lime1)
+                    moveStat(L("PEAK"), recap.peakHR.map { "\($0)" } ?? Fmt.dash, NB.lime1)
+                    moveStat(L("KCAL EST"), "\(kcal)", NB.macroValue)
+                }
+                HStack {
+                    moveStat(L("AEROBIC"), recap.hasZones ? L("%dm", recap.aerobicMinutes) : Fmt.dash, NB.lime1)
+                    moveStat(L("ANAEROBIC"), recap.hasZones ? L("%dm", recap.anaerobicMinutes) : Fmt.dash, NB.ember1)
+                    moveStat(L("LOAD"), loadLine, NB.macroValue)
+                }
+                Text(L(recap.conclusion))
+                    .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                    .fixedSize(horizontal: false, vertical: true)
+                if m.trainingSettlement?.session(recap.sessionID, on: m.day) == nil, !Band.allowsSeed {
+                    Text(L("Session recorded. Its load will appear after sync."))
+                        .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .onTapGesture { selectedSport = recap }
+            .accessibilityIdentifier("training.lastSession")
+        }
+    }
+
+    @ViewBuilder private var sessionHistoryCard: some View {
+        if !sportRecords.recaps.isEmpty || sportRecords.errorLine != nil || sportRecords.trainingError != nil {
+            CardBlock(title: L("SESSION HISTORY"), trailing: "") {
+                SportPublicationStatus()
+                ForEach(sportRecords.recaps) { recap in
+                    Button { selectedSport = recap } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(recap.title).foregroundStyle(NB.text1)
+                                Text(recap.startedAt.formatted(date: .abbreviated, time: .shortened))
+                                    .foregroundStyle(NB.text3Prod)
+                            }
+                            Spacer()
+                            Text(Fmt.duration(recap.seconds / 60)).foregroundStyle(NB.lime1)
+                        }.font(NBFont.ui(400, 12)).padding(.vertical, 6)
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var todayBuildCard: some View {
+        let sessions = m.trainingSettlement?.sessions ?? []
+        let unmeasured = m.trainingSettlement?.unmeasuredSessions ?? []
+        let segments = m.segments.filter { $0.name != "RECORDED SESSION" }
+        if !sessions.isEmpty || !unmeasured.isEmpty || !segments.isEmpty {
+            CardBlock(title: L("TODAY'S BUILD"), trailing: L("LOAD ADDED"), trailingIsDot: true) {
+                ForEach(sessions) { session in
+                    let title = SportModeCatalog.modes.first { $0.rawValue == session.sportMode }?.displayName
+                        ?? L("SESSION")
+                    VStack(alignment: .leading, spacing: 4) {
+                        contributionRow(title, detail: L("%@ → %@ · %@ recorded",
+                            Fmt.clock(session.startedAt), Fmt.clock(session.endedAt),
+                            Fmt.duration(Int((session.observedSeconds / 60).rounded()))),
+                            delta: session.deltaText)
+                        if session.reachesScaleLimit {
+                            Text(L("Load has reached the scale limit. This session is still recorded."))
+                                .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                ForEach(unmeasured) { session in
+                    let title = SportModeCatalog.modes.first { $0.rawValue == session.sportMode }?.displayName
+                        ?? L("SESSION")
+                    contributionRow(title,
+                        detail: "\(Fmt.clock(session.startedAt)) → \(Fmt.clock(session.endedAt)) · \(L("ADDED BY YOU · NO MEASUREMENTS"))",
+                        delta: Fmt.dash)
+                }
+                ForEach(segments) { segment in
+                    contributionRow(L(segment.name),
+                        detail: segment.allDay ? L("ALL DAY") : Fmt.clock(segment.at),
+                        delta: TrainingSessionContribution.deltaText(segment.delta))
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("training.contributions")
+        }
+    }
+
+    private func contributionRow(_ title: String, detail: String, delta: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(NBFont.ui(500, 13)).foregroundStyle(NB.text1)
+                Text(detail).font(NBFont.ui(400, 10)).foregroundStyle(NB.text3Prod)
+            }
+            Spacer(minLength: 8)
+            Text(delta).font(NBFont.dot(700, 20)).foregroundStyle(NB.lime1)
+        }
+        .padding(.vertical, 4)
     }
 
     private var dayRingFoot: String {
@@ -139,21 +261,66 @@ struct TrainingDetailView: View {
     }
 
     private var evidenceCard: some View {
-        CardBlock(title: L("ESTIMATE BASIS"),
-                  trailing: m.nightInputs == nil ? L("BASELINE UNKNOWN")
-                    : baselineBuilding ? L("BASELINE BUILDING") : L("RULE ESTIMATE")) {
+        TimelineView(.periodic(from: .now, by: 60)) { clock in
+            evidenceCard(at: clock.date)
+        }
+    }
+
+    @ViewBuilder private func evidenceCard(at now: Date) -> some View {
+        let currentReserve = targetEvidence?.followsCurrentReserve(at: now) == true
+        CardBlock(title: L("TARGET BASIS"),
+                  trailing: m.targetLoad == nil ? L("NO TARGET YET")
+                    : currentReserve ? L("CURRENT RESERVE")
+                    : targetEvidence?.hasReserveLimit == true ? L("LAST RECORDED RESERVE")
+                    : targetEvidence == nil ? L("RULE ESTIMATE")
+                    : targetEvidence?.limited == true ? L("BASELINE BUILDING") : L("SLEEP & RECOVERY")) {
             HStack {
-                moveStat(L("HRV NIGHTS"), m.nightInputs.map { "\($0.hrvNights)" } ?? Fmt.dash, NB.lime1)
-                moveStat(L("RHR NIGHTS"), m.nightInputs.map { "\($0.rhrNights)" } ?? Fmt.dash, NB.lime1)
-                moveStat(L("LAST SYNC"), lastSyncClock, NB.macroValue)
+                moveStat(L("SLEEP SCORE"), targetEvidence?.sleepScore.map { String(format: "%.0f", $0) } ?? Fmt.dash, NB.lime1)
+                moveStat(L("RECOVERY"), targetEvidence?.recoveryScore.map { String(format: "%.0f", $0) } ?? Fmt.dash, NB.lime1)
+                moveStat(L("RECENT LOAD"), Fmt.load(targetEvidence?.recentLoad), NB.macroValue)
             }
-            Text(m.nightInputs == nil
-                 ? L("No night baseline yet. The range is a rule estimate.")
-                 : baselineBuilding
-                 ? L("Fewer than five baseline nights. The range is an early estimate.")
-                 : L("The range is a rule estimate, not a personal training dose."))
+            Text(m.targetLoad == nil
+                 ? L("Sleep and recovery are needed before suggesting a range. Today's activity still counts.")
+                 : targetEvidence == nil || targetEvidence?.limited == true
+                 ? L("Sleep and recovery guide today's range. More recorded days will refine it.")
+                 : L("Last night's sleep and recovery set today's range. Recent load helps adjust it to you."))
                 .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
                 .fixedSize(horizontal: false, vertical: true)
+            if targetEvidence?.hasReserveLimit == true {
+                HStack {
+                    moveStat(L("BASE TARGET"), Fmt.load(targetEvidence?.baseTarget), NB.lime1)
+                    moveStat(L("BODY BATTERY"), targetEvidence?.currentReserve.map { String(format: "%.0f", $0) } ?? Fmt.dash, NB.lime1)
+                    moveStat(L("REMAINING LOAD"), Fmt.load(targetEvidence?.remaining), NB.macroValue)
+                }
+                if !currentReserve {
+                    Text(L("The last battery reading still limits this target. Sync for current guidance."))
+                        .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if currentReserve,
+                   m.targetLoad != nil, (targetEvidence?.reserveAdjustment ?? 0) >= -0.05 {
+                    Text(L("Current body battery can lower the sleep and recovery target. Rest can raise it back toward the base target. Completed load stays recorded."))
+                        .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let target = targetEvidence {
+                HStack {
+                    moveStat(L("SLEEP"), target.sleepMinutes.map { Fmt.duration(Int($0.rounded())) } ?? Fmt.dash, NB.lime1)
+                    moveStat(L("RECORDED DAYS"), "\(target.historyDays)", NB.lime1)
+                    moveStat(L(target.hasReserveLimit ? "BATTERY READING" : "LAST SYNC"),
+                             target.hasReserveLimit ? target.observedAt.map(Fmt.clock) ?? Fmt.dash : lastSyncClock, NB.macroValue)
+                }
+                if target.hasReserveLimit, let adjustment = target.reserveAdjustment, adjustment < -0.05,
+                   let base = target.baseTarget, let adjusted = target.target {
+                    Text(L(currentReserve
+                           ? "Current body battery has lowered today's target from %@ to %@."
+                           : "The last recorded body battery has lowered today's target from %@ to %@.",
+                           Fmt.load(base), Fmt.load(adjusted)))
+                        .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Hairline()
             if let evidence = m.trainingEvidence {
                 HStack {

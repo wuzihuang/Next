@@ -43,6 +43,61 @@ final class MealPublicationTests: XCTestCase {
         }
     }
 
+    @MainActor func testFractionalNutrientsSurviveDiskProjectionAndReplay() async throws {
+        let f = try Fixture(); defer { f.close() }
+        let id = UUID()
+        _ = try f.publisher().create(id: id, fields: [
+            "draft_id": id.uuidString.lowercased(),
+            "user_day": "2026-09-08", "slot": "LUNCH", "name": "Yoghurt",
+            "kcal": 123.4, "protein_g": 23.6, "carb_g": 8.2, "fat_g": 2.5,
+            "fiber_g": 1.3, "sodium_mg": 45.7,
+        ], source: "TYPED")
+        try f.reopen()
+        let meal = try XCTUnwrap(f.publisher().projection().meals.first)
+        XCTAssertEqual(meal.kcal, 123.4)
+        XCTAssertEqual(meal.protein, 23.6)
+        XCTAssertEqual(meal.fiber, 1.3)
+        XCTAssertNil(meal.sugar)
+        let result = try await f.publisher().replay()
+        XCTAssertEqual(result.acknowledged, 1)
+        XCTAssertEqual((f.sent.last?["protein_g"] as? NSNumber)?.doubleValue, 23.6)
+        XCTAssertEqual((f.sent.last?["sodium_mg"] as? NSNumber)?.doubleValue, 45.7)
+    }
+
+    @MainActor func testFractionalDraftPromotesWithoutDroppingMicronutrients() throws {
+        let f = try Fixture(); defer { f.close() }
+        let submitted = try f.publisher().confirmDraft(day: "2026-09-08", slot: "LUNCH", output: [
+            "draft_id": UUID().uuidString.lowercased(), "name": "Soup", "kcal": 123.4,
+            "macros": ["p": 23.6, "c": 8.2, "f": 2.5], "micros": ["fiber": 1.3, "sodium": 45.7],
+        ], at: f.at)
+        XCTAssertEqual((submitted.fields["protein_g"] as? NSNumber)?.doubleValue, 23.6)
+        XCTAssertEqual((submitted.fields["fiber_g"] as? NSNumber)?.doubleValue, 1.3)
+        XCTAssertNil(submitted.fields["sugar_g"])
+    }
+
+    @MainActor func testNutrientsRejectBooleanAndNonfiniteValuesBeforeQueueing() throws {
+        let f = try Fixture(); defer { f.close() }
+        for bad in [true as Any, Double.nan, Double.infinity, -0.1, 100000.1] {
+            XCTAssertThrowsError(try f.publisher().create(id: UUID(), fields: [
+                "draft_id": UUID().uuidString.lowercased(), "user_day": "2026-09-08",
+                "slot": "LUNCH", "name": "Soup", "kcal": 123.4,
+                "protein_g": bad, "carb_g": 8.2, "fat_g": 2.5,
+            ]))
+        }
+        XCTAssertTrue(try f.pending().isEmpty)
+    }
+
+    @MainActor func testExplicitZeroCalorieFoodSurvivesProjectionAndReplay() async throws {
+        let f = try Fixture(); defer { f.close() }
+        let publisher = f.publisher()
+        _ = try publisher.createManual(day: "2026-09-08", slot: "LUNCH", name: "Water", kcal: 0, at: f.at)
+        XCTAssertEqual(try publisher.projection().meals.first?.kcal, 0)
+        try f.reopen()
+        let result = try await f.publisher().replay()
+        XCTAssertEqual(result.acknowledged, 1)
+        XCTAssertEqual(f.sent.last?["kcal"] as? Int, 0)
+    }
+
     @MainActor func testManualMealIsDurableBeforeNetworkAndReplaysAfterReopen() async throws {
         let f = try Fixture(); defer { f.close() }
         let meal = try f.manual()

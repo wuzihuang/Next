@@ -10,13 +10,22 @@ const Fields = z.object({
   user_day: Day,
   slot: z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"]),
   name: z.string().min(1).max(8000),
-  kcal: z.number().int().positive().max(100000),
-  protein_g: z.number().int().min(0).max(100000).default(0),
-  carb_g: z.number().int().min(0).max(100000).default(0),
-  fat_g: z.number().int().min(0).max(100000).default(0),
+  kcal: z.number().finite().min(0).max(100000),
+  protein_g: z.number().finite().min(0).max(100000).default(0),
+  carb_g: z.number().finite().min(0).max(100000).default(0),
+  fat_g: z.number().finite().min(0).max(100000).default(0),
   logged_at: z.string().min(10).max(64).refine((value) => Number.isFinite(Date.parse(value))).optional(),
   confidence: z.enum(["LOW", "MEDIUM", "HIGH"]).default("MEDIUM"),
   model_version: z.string().max(256).default(""),
+  // One estimate is one plate: its rows share a group, a portion phrase and a photo.
+  // Optional everywhere — a typed meal has none of them, and an amendment carries over
+  // whatever the row it replaces had.
+  meal_group_id: UUID.optional(),
+  portion: z.string().min(1).max(64).optional(),
+  photo_path: z.string().min(1).max(512).optional(),
+  fiber_g: z.number().finite().min(0).max(100000).optional(),
+  sugar_g: z.number().finite().min(0).max(100000).optional(),
+  sodium_mg: z.number().finite().min(0).max(100000).optional(),
 });
 export const MealCommit = Fields.extend({ draft_id: UUID, id: UUID.optional() });
 export const MealOperation = z.discriminatedUnion("kind", [

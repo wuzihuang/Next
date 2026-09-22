@@ -30,7 +30,7 @@ Deno.test("Grok uses the documented chat endpoint and the only fallback is DashS
   const vars = ["GROK_BASE_URL", "GROK_API_KEY", "GROK_MODEL", "DASHSCOPE_MODEL", "DASHSCOPE_FALLBACK_MODELS", "AI_GATEWAY_API_KEY"];
   const previous = vars.map(key => Deno.env.get(key));
   const originalFetch = globalThis.fetch;
-  const requests: { url: string; model: string; auth: string | null }[] = [];
+  const requests: { url: string; model: string; auth: string | null; effort?: string }[] = [];
   try {
     Deno.env.set("GROK_BASE_URL", "https://grok.invalid/v1/");
     Deno.env.set("GROK_API_KEY", "test-only");
@@ -41,7 +41,7 @@ Deno.test("Grok uses the documented chat endpoint and the only fallback is DashS
     assertEquals(modelChain(), ["grok-4.6", "qwen3.8-flash"]);
     globalThis.fetch = (url, init) => {
       const body = JSON.parse(String(init?.body));
-      requests.push({ url: String(url), model: body.model, auth: new Headers(init?.headers).get("Authorization") });
+      requests.push({ url: String(url), model: body.model, auth: new Headers(init?.headers).get("Authorization"), effort: body.reasoning_effort });
       if (requests.length === 1) return Promise.resolve(Response.json({ error: { message: "unavailable" } }, { status: 503 }));
       return Promise.resolve(Response.json({ choices: [{ message: { content: "connected" }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 2 } }));
     };
@@ -53,6 +53,8 @@ Deno.test("Grok uses the documented chat endpoint and the only fallback is DashS
     assertEquals(out.result.text, "connected");
     assertEquals(requests.map(r => r.url), ["https://grok.invalid/v1/chat/completions", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"]);
     assertEquals(requests[0].auth, "Bearer test-only");
+    // Grok reasons on "low" by default; DashScope keeps its own thinking_budget.
+    assertEquals(requests.map(r => r.effort), ["low", undefined]);
   } finally {
     globalThis.fetch = originalFetch;
     vars.forEach((key, i) => previous[i] === undefined ? Deno.env.delete(key) : Deno.env.set(key, previous[i]!));
@@ -73,4 +75,29 @@ Deno.test("cancellation and accounting failures never trigger another model", as
     return Promise.reject(new Error("AI_USAGE_UNAVAILABLE"));
   }));
   assertEquals(calls, 2);
+});
+
+Deno.test("GROK_REASONING_EFFORT sets or removes the field", async () => {
+  const previous = ["GROK_BASE_URL", "GROK_API_KEY", "GROK_REASONING_EFFORT"].map(key => Deno.env.get(key));
+  const originalFetch = globalThis.fetch;
+  const efforts: unknown[] = [];
+  try {
+    Deno.env.set("GROK_BASE_URL", "https://grok.invalid/v1");
+    Deno.env.set("GROK_API_KEY", "test-only");
+    globalThis.fetch = (_url, init) => {
+      const body = JSON.parse(String((init as { body?: unknown })?.body));
+      efforts.push("reasoning_effort" in body ? body.reasoning_effort : "absent");
+      return Promise.resolve(Response.json({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+    };
+    for (const value of ["medium", "off"]) {
+      Deno.env.set("GROK_REASONING_EFFORT", value);
+      await model().doGenerate({ inputFormat: "prompt", mode: { type: "regular" },
+        prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }] });
+    }
+    assertEquals(efforts, ["medium", "absent"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    ["GROK_BASE_URL", "GROK_API_KEY", "GROK_REASONING_EFFORT"].forEach((key, i) =>
+      previous[i] === undefined ? Deno.env.delete(key) : Deno.env.set(key, previous[i]!));
+  }
 });

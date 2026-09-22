@@ -151,6 +151,14 @@ enum BandSyncPolicy {
         }
     }
 
+    /// Wrist facts only. Server settlement writes derived scores later and cannot
+    /// turn a complete reading into a failed one; doing so left SYNC as partial,
+    /// forced the next pull to re-read the week, and showed
+    /// "Some readings could not sync" after every successful upload.
+    static func dayStatus(pagesReturned: Int, wanted: Int, auxiliaryUploaded: Bool) -> BandRefreshResult.Status {
+        pagesReturned == wanted && auxiliaryUploaded ? .success : .partial
+    }
+
     static func header(activity: String, connected: Bool, live: String) -> String {
         if activity == "connecting" { return "CONNECTING" }
         if activity == "syncing" { return "SYNCING…" }
@@ -245,7 +253,11 @@ extension HomeLaunchPolicy {
     static let foregroundSettleInterval: TimeInterval = 300
 
     static func shouldSettleOnForeground(pending: [Bool?]?, lastSettledAt: Date?,
+                                         bandRefreshActive: Bool = false,
                                          now: Date = Date()) -> Bool {
+        // The refresh settles its uploaded window itself. A second settlement here
+        // would hold calculation_work while the refresh is still publishing facts.
+        guard !bandRefreshActive else { return false }
         if needsEvidenceSettlement(pending: pending) { return true }
         guard let lastSettledAt else { return true }
         return now.timeIntervalSince(lastSettledAt) >= foregroundSettleInterval

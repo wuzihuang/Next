@@ -88,6 +88,30 @@ final class BandEvidencePublication {
                 repairStart: confirmed ? nil : domain.start, repairEnd: confirmed ? nil : domain.end))
     }
 
+    /// Independent domains overlap only their network waits. All local transactions
+    /// remain MainActor-isolated; the server serializes account mutations itself.
+    /// Keep input order even when replies arrive out of order, and never let one
+    /// rejected domain cancel another domain's durable publication.
+    func publish(_ domains: [Domain]) async -> [Result<Publication, Error>] {
+        var results = domains.map { _ in Result<Publication, Error>.failure(CancellationError()) }
+        for start in stride(from: 0, to: domains.count, by: 3) {
+            guard !Task.isCancelled, authorized() else { break }
+            let end = min(start + 3, domains.count)
+            let tasks = (start..<end).map { index in
+                Task { @MainActor in
+                    do { results[index] = .success(try await self.publish(domains[index])) }
+                    catch { results[index] = .failure(error) }
+                }
+            }
+            await withTaskCancellationHandler {
+                for task in tasks { await task.value }
+            } onCancel: {
+                for task in tasks { task.cancel() }
+            }
+        }
+        return results
+    }
+
     func publishSleep(_ row: [String: Any]) async throws {
         try requireAuthorization()
         guard row["user_id"] as? String == account else { throw Failure.invalidOwner }

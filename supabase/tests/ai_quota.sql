@@ -44,7 +44,9 @@ select is((select spent_fen from nb.ai_quotas where user_id='dddddddd-1111-1111-
 select is((select min(user_day) from nb.ai_model_calls where user_id='dddddddd-1111-1111-1111-111111111111'),nb.user_day('dddddddd-1111-1111-1111-111111111111'),'recording shares the quota user-day');
 select is((select count(*)::int from nb.ai_model_calls where user_id='dddddddd-1111-1111-1111-111111111111'),2,'each provider call is recorded');
 select ok(not has_function_privilege('authenticated','public.consume_ai_quota_trusted(uuid,text,uuid)','execute'),'clients cannot grant their own quota');
-select ok(not has_function_privilege('authenticated','public.record_ai_usage_trusted(uuid,text,text,integer,integer,integer,uuid,integer,numeric)','execute'),'clients cannot fabricate their own costs');
+-- 20260920140000 replaced the nine-argument form with one that also carries the attempt
+-- identity and the cost state; the grant is still service_role only.
+select ok(not has_function_privilege('authenticated','public.record_ai_usage_trusted(uuid,text,text,integer,integer,integer,uuid,integer,numeric,text,uuid,text)','execute'),'clients cannot fabricate their own costs');
 set local role service_role;
 select throws_ok($$select public.consume_ai_quota_trusted('dddddddd-1111-1111-1111-111111111111','export',gen_random_uuid())$$,'22023','UNKNOWN_ENDPOINT','unknown endpoints fail closed');
 select throws_ok($$select public.record_ai_usage_trusted('dddddddd-1111-1111-1111-111111111111','turn','qwen3.8-flash',-1,0,0,null,null)$$,'22023','INVALID_USAGE','negative provider usage is rejected');

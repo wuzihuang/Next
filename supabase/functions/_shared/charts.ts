@@ -17,7 +17,7 @@ import { TARGETS, type Envelope } from "./contract.ts";
 import { fetchAs, sourceList, SOURCE_IDS, type ChartData, type Ctx, type Kind, type SourceResult } from "./sources.ts";
 import type { NumberLedger } from "./ledger.ts";
 
-const FAMILY_KIND: Record<ChartSkill["family"], Kind> = {
+export const FAMILY_KIND: Record<ChartSkill["family"], Kind> = {
   number: "rows", curve: "curve", pair: "pair", column: "column", arc: "arc",
   gauge: "gauge", stack: "stack", grid: "grid", strip: "strip", rows: "rows",
   // 2026-09-06 gap audit · four shapes the first ten families could not hold.
@@ -125,8 +125,11 @@ export function buildChartTools(ctx: Ctx, ledger: NumberLedger, onRender: (env: 
           data = literalData(skill, args);
         }
         const claims = normalizeClaims(args.claims);
-        if (claims.some((claim)=>!ledger.hasClaim(claim))) {
-          return {rendered:false,error:"INVALID_EVIDENCE",say:"A measured claim does not match the cited current metric, unit, interval, revision or value. Read the correct evidence and retry."};
+        const mismatch = claims.map((claim)=>ledger.claimMismatch(claim)).find((why)=>why !== null);
+        if (mismatch) {
+          // Name the field and the scope that was read: a bare "read again" cost a reread
+          // and two more reads when fixing the claim in this render retry was enough.
+          return {rendered:false,error:"INVALID_EVIDENCE",say:`${mismatch} Fix the claims and call this render tool again; reread only if the evidence you need was never read.`};
         }
 
         if (hero) data.hero = hero;

@@ -3,9 +3,11 @@ import Foundation
 /// DEBUG only · `SIMCTL_CHILD_NB_DEBUG_EDGE=stale` (or autohr · notworn · over · outunknown ·
 /// frozen · outlier · measured · clamped · busy · otaunverified · otarunning · levelonly ·
 /// charging · charged · empty · exporting · uploadfailed · tooshort · nospeech · interrupted ·
-/// imperial · fromhealthlb · alarmedit · autoswitch · autoempty · autonone · autorefuse)
+/// imperial · fromhealthlb · alarmedit · autoswitch · autoempty · autonone · autorefuse ·
+/// restonly)
 /// forces one board edge state
 /// on a simulator whose data would never produce it, so each can be walked 1:1.
+/// `restonly` is #31: a full day of sitting, so activity bars have no height.
 enum DebugEdge {
     static var name: String? {
         #if DEBUG && targetEnvironment(simulator)

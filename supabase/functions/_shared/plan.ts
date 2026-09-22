@@ -35,7 +35,7 @@ export async function planContext(db: SupabaseClient, userId: string, dayKey: st
   try { before = await readSnapshot(ctx, from, dayKey); } catch { failed.push("calculation_status"); }
   const end = new Date(Math.min(now.getTime(), dayBounds(dayKey, tz).end.getTime()));
   const [results, sleeps, ticks, recent] = await Promise.all([
-    db.from("daily_results").select("user_day,training_load,reserve_score,calculation_as_of,day_fuel(intake_state,protein_in_g,protein_g),reserve_daily(current_value,wake_value,night_inputs,drain_drivers)")
+    db.from("daily_results").select("user_day,training_load,reserve_score,calculation_as_of,daily_training(evidence),day_fuel(intake_state,protein_in_g,protein_g),reserve_daily(current_value,wake_value,night_inputs,drain_drivers)")
       .eq("user_id", userId).gte("user_day", from).lte("user_day", dayKey).order("user_day"),
     db.from("sleep_nights").select("user_day,total_minutes,sleep_start,wake_at")
       .eq("user_id", userId).gte("user_day", from).lte("user_day", dayKey).order("user_day"),

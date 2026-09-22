@@ -123,6 +123,14 @@ final class BandSyncPolicyTests: XCTestCase {
     }
 
 
+    func testCompleteReadingStaysSuccessfulWhenSettlementIsMissing() {
+        XCTAssertEqual(BandSyncPolicy.dayStatus(pagesReturned: 2, wanted: 2, auxiliaryUploaded: true), .success)
+        XCTAssertEqual(BandSyncPolicy.dayStatus(pagesReturned: 1, wanted: 2, auxiliaryUploaded: true), .partial)
+        XCTAssertEqual(BandSyncPolicy.dayStatus(pagesReturned: 2, wanted: 2, auxiliaryUploaded: false), .partial)
+        XCTAssertFalse(needsAudit(confirmedHistory(), outcome: .success),
+                       "a later settlement timeout must not force another history pull")
+    }
+
     func testWholeDayFailureCannotInheritSuccessfulDomainReceipts() {
         XCTAssertTrue(needsAudit(confirmedHistory(), outcome: .partial),
                       "respiration/archive or local persistence may fail outside the published domain receipts")

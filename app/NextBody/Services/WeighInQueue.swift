@@ -24,6 +24,7 @@ final class WeighInQueue: ObservableObject {
     private let key = "nb.weighins.pending"
     private var reach: AnyCancellable?
     private var flushing = false
+    private var flushWaiters: [CheckedContinuation<Void, Never>] = []
     @Published private(set) var persistenceError: String?
     private func durable() throws -> DurableQueue<Pending> {
         DurableQueue(kind: "weigh-in", store: try LocalDataStore.shared())
@@ -76,15 +77,27 @@ final class WeighInQueue: ObservableObject {
 
     /// One row at a time, oldest first. A refusal that means "already there" (the unique
     /// client_op index) clears the row too; anything else keeps it for the next try.
-    func flush() async {
-        guard !flushing, !pending.isEmpty else { return }
-        guard Reachability.shared.isOnline, !DebugEdge.on("offline") else { return }
-        guard let userId = await SupabaseClient.shared.userId else { return }
-        flushing = true; defer { flushing = false }
+    @discardableResult
+    func flush() async -> Bool {
+        if flushing {
+            await withCheckedContinuation { flushWaiters.append($0) }
+            // Another edit may have been queued during the upload we just awaited.
+            return await flush()
+        }
+        guard !pending.isEmpty else { return true }
+        guard Reachability.shared.isOnline, !DebugEdge.on("offline") else { return false }
+        flushing = true
+        defer {
+            flushing = false
+            let waiters = flushWaiters
+            flushWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+        guard let userId = await SupabaseClient.shared.userId else { return false }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         for row in pending where row.ownerUserId == userId {
-            guard await SupabaseClient.shared.userId == userId else { return }
+            guard await SupabaseClient.shared.userId == userId else { return false }
             do {
                 _ = try await SupabaseClient.shared.insert("weigh_ins", rows: [[
                     "user_id": userId,
@@ -95,7 +108,7 @@ final class WeighInQueue: ObservableObject {
                     "health_uuid": row.healthUUID as Any,
                     "client_op_id": row.id.uuidString.lowercased(),
                 ]], returning: false)
-                guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return }
+                guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return false }
                 try durable().acknowledge(id: row.id.uuidString, account: userId)
                 pending = pending.filter { $0.id != row.id }
                 await Analytics.shared.track("WEIGHIN_SYNCED", ["SOURCE": row.source])
@@ -111,8 +124,8 @@ final class WeighInQueue: ObservableObject {
                           fact["source"] as? String == row.source,
                           let stamp = fact["measured_at"] as? String,
                           let date = iso.date(from: stamp), abs(date.timeIntervalSince(row.measuredAt)) < 0.001 else { break }
-                    guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return }
-                try durable().acknowledge(id: row.id.uuidString, account: userId)
+                    guard SupabaseClient.currentUserIdSnapshot() == userId, !Task.isCancelled else { return false }
+                    try durable().acknowledge(id: row.id.uuidString, account: userId)
                     pending = pending.filter { $0.id != row.id }
                 } catch { persistenceError = error.localizedDescription; break }
             } catch {
@@ -122,5 +135,6 @@ final class WeighInQueue: ObservableObject {
                 break
             }
         }
+        return !pending.contains { $0.ownerUserId == userId }
     }
 }

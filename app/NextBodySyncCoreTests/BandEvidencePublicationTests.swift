@@ -431,4 +431,133 @@ final class BandEvidencePublicationTests: XCTestCase {
         XCTAssertEqual(f.sent.compactMap { ($0["p_samples"] as? [[String: Any]])?.first?["heart"] as? Int }, [61, 65])
         XCTAssertTrue(try f.pending().isEmpty)
     }
+
+    @MainActor private final class PublicationGate {
+        private var replies: [String: CheckedContinuation<Void, Never>] = [:]
+        private var arrivals: [(Int, CheckedContinuation<Void, Never>)] = []
+        private(set) var started: [String] = []
+        private(set) var active = 0
+        private(set) var peak = 0
+
+        func hold(_ name: String) async {
+            started.append(name)
+            active += 1
+            peak = max(peak, active)
+            await withCheckedContinuation { continuation in
+                replies[name] = continuation
+                let ready = arrivals.filter { $0.0 <= started.count }
+                arrivals.removeAll { $0.0 <= started.count }
+                for (_, waiter) in ready { waiter.resume() }
+            }
+            active -= 1
+        }
+        func waitForStarts(_ count: Int) async {
+            guard started.count < count else { return }
+            await withCheckedContinuation { arrivals.append((count, $0)) }
+        }
+        func release(_ name: String) { replies.removeValue(forKey: name)?.resume() }
+    }
+
+    @MainActor func testConcurrentPublicationBoundsNetworkAndReturnsInputOrderDespiteReorderedReplies() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let gate = PublicationGate()
+        let names = ["origin", "hrv", "temperature", "rr", "sleep", "oxygen", "response"]
+        f.ingest = { args in
+            let name = try XCTUnwrap(args["p_domain"] as? String)
+            await gate.hold(name)
+            return .init(inserted: 1, completed: 0, unchanged: 0, rejected: 0, affectedDays: [])
+        }
+        let publisher = f.publisher()
+        let domains = names.map { f.domain(f.samples(1), name: $0) }
+        let task = Task { @MainActor in await publisher.publish(domains) }
+        await gate.waitForStarts(3)
+        XCTAssertEqual(Set(gate.started), Set(names.prefix(3)))
+        XCTAssertEqual(gate.active, 3)
+        for name in names.prefix(3).reversed() { gate.release(name) }
+        await gate.waitForStarts(6)
+        XCTAssertEqual(gate.active, 3)
+        for name in names.dropFirst(3).prefix(3).reversed() { gate.release(name) }
+        await gate.waitForStarts(7)
+        gate.release(names[6])
+        let results = await task.value
+        XCTAssertEqual(try results.map { try $0.get().state.domain }, names)
+        XCTAssertEqual(try results.map { try $0.get().changedCount }, Array(repeating: 1, count: 7))
+        XCTAssertEqual(gate.peak, 3)
+        XCTAssertEqual(gate.active, 0, "return only after all in-flight tasks finish")
+        XCTAssertTrue(try f.pending().isEmpty)
+    }
+
+    @MainActor func testConcurrentPublicationKeepsPartialAndFailedDomainsWhileOtherDomainsFinish() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let names = ["origin", "hrv", "temperature", "rr", "oxygen", "response"]
+        f.ingest = { args in
+            switch args["p_domain"] as? String {
+            case "hrv":
+                return .init(inserted: 0, completed: 0, unchanged: 0, rejected: 1, affectedDays: [])
+            case "temperature": throw Fixture.Failure.lostReply
+            default: return .init(inserted: 1, completed: 0, unchanged: 0, rejected: 0, affectedDays: [])
+            }
+        }
+        let results = await f.publisher().publish(names.map { f.domain(f.samples(1), name: $0) })
+        XCTAssertEqual(f.sent.count, 6)
+        XCTAssertEqual(try results[1].get().state.status, .partial)
+        XCTAssertFalse(try results[1].get().confirmed)
+        XCTAssertThrowsError(try results[2].get())
+        for index in [0, 3, 4, 5] { XCTAssertTrue(try results[index].get().confirmed) }
+        let pendingNames = try f.pending().map { operation in
+            (try JSONSerialization.jsonObject(with: operation.payload) as? [String: Any])?["p_domain"] as? String
+        }
+        XCTAssertEqual(Set(pendingNames.compactMap { $0 }), ["hrv", "temperature"])
+    }
+
+    @MainActor func testConcurrentPublicationRevocationStopsNewWavesAndCannotAcknowledgeInflightEvidence() async throws {
+        for revokeAccount in [false, true] {
+            let f = try Fixture(); defer { f.remove() }
+            let gate = PublicationGate()
+            let names = ["origin", "hrv", "temperature", "rr", "oxygen"]
+            let publisher = f.publisher()
+            let domains = names.map { f.domain(f.samples(1), name: $0) }
+            for domain in domains { try publisher.stage(domain) }
+            f.ingest = { args in
+                await gate.hold(try XCTUnwrap(args["p_domain"] as? String))
+                return .init(inserted: 1, completed: 0, unchanged: 0, rejected: 0, affectedDays: [])
+            }
+            let task = Task { @MainActor in await publisher.publish(domains) }
+            await gate.waitForStarts(3)
+            if revokeAccount { f.owner = "bob" } else { f.consent = false }
+            for name in names.prefix(3) { gate.release(name) }
+            let results = await task.value
+            XCTAssertEqual(f.sent.count, 3, "authorization loss must not start the next wave")
+            XCTAssertEqual(try f.pending().count, 5, "no in-flight reply authorizes retiring evidence")
+            for result in results {
+                XCTAssertThrowsError(try result.get()) { XCTAssertTrue($0 is CancellationError) }
+            }
+        }
+    }
+
+    @MainActor func testConcurrentPublicationParentCancellationCancelsInflightTasksBeforeAcknowledgment() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let gate = PublicationGate()
+        let names = ["origin", "hrv", "temperature", "rr", "oxygen"]
+        let publisher = f.publisher()
+        let domains = names.map { f.domain(f.samples(1), name: $0) }
+        for domain in domains { try publisher.stage(domain) }
+        f.ingest = { args in
+            // Simulate a transport that still delivers a response after cancellation.
+            await gate.hold(try XCTUnwrap(args["p_domain"] as? String))
+            return .init(inserted: 1, completed: 0, unchanged: 0, rejected: 0, affectedDays: [])
+        }
+        let task = Task { @MainActor in await publisher.publish(domains) }
+        await gate.waitForStarts(3)
+        task.cancel()
+        for name in names.prefix(3) { gate.release(name) }
+        let results = await task.value
+        XCTAssertEqual(f.sent.count, 3)
+        XCTAssertEqual(gate.active, 0)
+        XCTAssertEqual(try f.pending().count, 5)
+        for result in results {
+            XCTAssertThrowsError(try result.get()) { XCTAssertTrue($0 is CancellationError) }
+        }
+    }
+
 }

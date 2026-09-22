@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'">
+<title>Grain Mass background</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0d1114}
+canvas{display:block;width:100%;height:100%}
+/* A local fallback remains visible if WebGL cannot start or loses its context. */
+body{background:radial-gradient(ellipse at 62% 63%,#343340 0%,#1c1837 16%,#0d1114 42%)}
+</style>
+</head>
+<body aria-hidden="true"><canvas></canvas>
+<script>
+'use strict';
+// Grain Mass — Originkit. Adapted from the user-supplied component for a local
+// native background. Same simulation, lighting, palette, bloom, and mobile count.
+// Paywall composition: scale 120, center (62%, 63%), faster entrance.
+// Original material preset: density 9, fray 9, tilt 45, grainSize 1.5, glow 10,
+// rotateSpeed 10, boil 10, recover 1.3, lifecycle false. Touch was excluded upstream.
+// A host may inject `window.grainMassConfig` before this runs to recompose the same
+// mass elsewhere (THINKING centres it on a transparent ground). Only framing changes:
+// the simulation, palette, lighting and bloom are shared, so both read as one object.
+const CONFIG = Object.assign({scale: 120, offset: [0.24, -0.26], transparent: false},
+                             window.grainMassConfig || {});
+const MASS_SCALE = CONFIG.scale;
+const BOOT_SECONDS = 2.0;
+const VS_QUAD = `#version 300 es
+void main() {
+    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+const NOISE = `
+float hash13(vec3 p3) {
+    p3 = fract(p3 * 0.1031);
+    p3 += dot(p3, p3.zyx + 31.32);
+    return fract((p3.x + p3.y) * p3.z);
+}
+vec4 vnoised(vec3 x) {
+    vec3 i = floor(x);
+    vec3 w = fract(x);
+    vec3 u = w * w * w * (w * (w * 6.0 - 15.0) + 10.0);
+    vec3 du = 30.0 * w * w * (w * (w - 2.0) + 1.0);
+    float a = hash13(i + vec3(0.0, 0.0, 0.0));
+    float b = hash13(i + vec3(1.0, 0.0, 0.0));
+    float c = hash13(i + vec3(0.0, 1.0, 0.0));
+    float d = hash13(i + vec3(1.0, 1.0, 0.0));
+    float e = hash13(i + vec3(0.0, 0.0, 1.0));
+    float f = hash13(i + vec3(1.0, 0.0, 1.0));
+    float g = hash13(i + vec3(0.0, 1.0, 1.0));
+    float h = hash13(i + vec3(1.0, 1.0, 1.0));
+    float k0 = a, k1 = b - a, k2 = c - a, k3 = e - a;
+    float k4 = a - b - c + d;
+    float k5 = a - c - e + g;
+    float k6 = a - b - e + f;
+    float k7 = -a + b + c - d + e - f - g + h;
+    float v = k0 + k1 * u.x + k2 * u.y + k3 * u.z
+            + k4 * u.x * u.y + k5 * u.y * u.z + k6 * u.z * u.x
+            + k7 * u.x * u.y * u.z;
+    vec3 dv = du * vec3(
+        k1 + k4 * u.y + k6 * u.z + k7 * u.y * u.z,
+        k2 + k5 * u.z + k4 * u.x + k7 * u.z * u.x,
+        k3 + k6 * u.x + k5 * u.y + k7 * u.x * u.y);
+    return vec4(v, dv);
+}
+float vnoise(vec3 x) { return vnoised(x).x; }
+vec3 curlNoise(vec3 p) {
+    vec4 n1 = vnoised(p);
+    vec4 n2 = vnoised(p + vec3(31.416, 47.853, 12.793));
+    vec4 n3 = vnoised(p + vec3(-8.271, 63.147, 91.428));
+    return vec3(n3.z - n2.w, n1.w - n3.y, n2.y - n1.z);
+}
+float shapeLump(vec3 dir) {
+    float n = vnoised(dir * 0.75 + 11.3).x;
+    n += 0.55 * vnoised(dir * 1.90 + 47.9).x;
+    return 0.42 + 1.20 * (n / 1.55);
+}`;
+const FS_SIM = `#version 300 es
+precision highp float;
+uniform sampler2D uPos, uVel, uSeed;
+uniform float uDt, uTime, uReset, uSpring, uDamp;
+layout(location = 0) out vec4 oPos;
+layout(location = 1) out vec4 oVel;
+${NOISE}
+void main() {
+    ivec2 tc = ivec2(gl_FragCoord.xy);
+    vec4 seed = texelFetch(uSeed, tc, 0);
+    vec3 sdir = normalize(seed.xyz + vec3(1e-5));
+    float out0 = smoothstep(0.93, 1.0, seed.w);
+    float loose = out0 * 0.9;
+    vec3 base = seed.xyz * shapeLump(sdir) * (1.0 + loose * 0.65);
+    if (uReset > 0.5) {
+        // Reduced Motion starts at the settled shape, with no burst or rotation.
+        // Start half formed so repeat visits reveal the mass immediately.
+        oPos = vec4(uReset > 1.5 ? base : base * 0.55, 0.0);
+        oVel = vec4(uReset > 1.5 ? vec3(0.0) : sdir * 2.0 * (0.5 + 0.9 * seed.w), 0.0);
+        return;
+    }
+    vec3 p = texelFetch(uPos, tc, 0).xyz;
+    vec3 v = texelFetch(uVel, tc, 0).xyz;
+    float k = uSpring * (1.0 - 0.55 * out0);
+    v += (base - p) * k * uDt;
+    vec3 c = curlNoise(p * 1.35 + vec3(0.0, uTime * 0.11, 0.0));
+    c += 0.48 * curlNoise(p * 1.35 * 2.35 + vec3(19.7, 3.1, -7.4));
+    v += c * 0.12 * k * (1.0 + loose * 0.8) * uDt;
+    v *= pow(uDamp, uDt * 60.0);
+    p += v * uDt;
+    oPos = vec4(p, 0.0);
+    oVel = vec4(v, 0.0);
+}`;
+const VS_POINTS = `#version 300 es
+precision highp float;
+uniform sampler2D uPos, uSeed;
+uniform int uTexSize;
+uniform mat3 uRot;
+uniform mat4 uViewProj;
+uniform float uPointScale;
+uniform vec3 uColors[4];
+uniform float uGlows[4];
+out vec3 vColor;
+out float vGlow, vForm, vAO;
+${NOISE}
+const vec3 L = normalize(vec3(-0.55, 0.62, 0.52));
+void main() {
+    int id = gl_VertexID;
+    ivec2 tc = ivec2(id % uTexSize, id / uTexSize);
+    vec3 p = texelFetch(uPos, tc, 0).xyz;
+    vec4 seed = texelFetch(uSeed, tc, 0);
+    gl_Position = uViewProj * vec4(uRot * p, 1.0);
+    // Paywall: fill the right half, lifting the mass clear of the CTA.
+    gl_Position.xy += vec2(${CONFIG.offset[0].toFixed(4)}, ${CONFIG.offset[1].toFixed(4)}) * gl_Position.w;
+    float sizeJitter = 0.70 + 0.62 * seed.w;
+    gl_PointSize = clamp(uPointScale * sizeJitter / max(gl_Position.w, 0.01), 1.0, 48.0);
+    float m = 0.66 * vnoise(seed.xyz * 1.75 + 7.31)
+            + 0.34 * vnoise(seed.xyz * 1.75 * 2.1 + 7.31 * 1.7 + 5.0);
+    m = smoothstep(0.30, 0.70, m);
+    int idx = int(clamp(floor(m * 4.0), 0.0, 3.0));
+    vColor = uColors[idx];
+    vGlow = uGlows[idx];
+    vec3 macroN = normalize(uRot * normalize(p + vec3(1e-5)));
+    float key = clamp((dot(macroN, L) + 0.35) / 1.35, 0.0, 1.0);
+    float fill = max(0.0, macroN.z);
+    vForm = 0.10 + 0.62 * key + 0.28 * fill;
+    vAO = smoothstep(0.50, 1.15, shapeLump(normalize(seed.xyz + vec3(1e-5))));
+}`;
+const FS_POINTS = `#version 300 es
+precision highp float;
+in vec3 vColor;
+in float vGlow, vForm, vAO;
+uniform vec3 uBounce, uBg;
+uniform float uFade, uFlare;
+out vec4 fragColor;
+const vec3 L = normalize(vec3(-0.55, 0.62, 0.52));
+void main() {
+    vec2 uv = gl_PointCoord * 2.0 - 1.0;
+    uv.y = -uv.y;
+    float r2 = dot(uv, uv);
+    if (r2 > 1.0) discard;
+    vec3 n = vec3(uv, sqrt(max(0.0, 1.0 - r2)));
+    float micro = max(0.0, (dot(n, L) + 0.35) / 1.35);
+    float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 34.0);
+    float shade = vForm * (0.55 + 0.45 * micro);
+    float ao = 0.35 + 0.65 * vAO;
+    float dim = 1.0 - clamp(max(max(vColor.r, vColor.g), vColor.b), 0.0, 1.0);
+    vec3 body = vColor * mix(vec3(0.34, 0.2, 0.09), vec3(1.0), smoothstep(0.05, 0.60, shade));
+    vec3 col = body * (0.10 + 1.75 * shade) * ao
+             + vColor * dim * (0.30 + 0.55 * shade) * ao
+             + vec3(1.0, 0.95, 0.84) * spec * (1.60 + 1.00 * dim) * (0.35 + 0.65 * vForm)
+             + uBounce * 0.34 * dim * shade * ao;
+    col *= uFlare;
+    col = mix(uBg, col, uFade);
+    fragColor = vec4(col, vGlow * uFade);
+}`;
+const FS_BRIGHT = `#version 300 es
+precision highp float;
+uniform sampler2D uScene;
+uniform vec2 uRes;
+out vec4 fragColor;
+void main() {
+    vec4 t = texture(uScene, gl_FragCoord.xy / uRes);
+    float l = max(max(t.r, t.g), t.b);
+    float k = max(l - 0.45, 0.0) / max(l, 1e-4);
+    fragColor = vec4(t.rgb * k * t.a, 1.0);
+}`;
+const FS_BLUR = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2 uRes, uDir;
+out vec4 fragColor;
+void main() {
+    vec2 uv = gl_FragCoord.xy / uRes;
+    vec2 t = uDir / uRes;
+    vec3 c = texture(uSrc, uv).rgb * 0.227027;
+    c += (texture(uSrc, uv + t * 1.384615).rgb + texture(uSrc, uv - t * 1.384615).rgb) * 0.316216;
+    c += (texture(uSrc, uv + t * 3.230769).rgb + texture(uSrc, uv - t * 3.230769).rgb) * 0.070270;
+    fragColor = vec4(c, 1.0);
+}`;
+const FS_COMPOSITE = `#version 300 es
+precision highp float;
+uniform sampler2D uScene, uBloom;
+uniform vec2 uRes;
+uniform float uTime, uClear;
+out vec4 fragColor;
+void main() {
+    vec2 uv = gl_FragCoord.xy / uRes;
+    vec3 c = texture(uScene, uv).rgb;
+    c += texture(uBloom, uv).rgb * 1.6;
+    c = c / (1.0 + max(max(c.r, c.g), c.b) * 0.55);
+    if (uClear > 0.5) {
+        // On a transparent ground the mass is light over whatever panel is under it:
+        // premultiplied, with coverage following brightness. The host feathers the edge,
+        // so there is no vignette, and no grain to speckle the empty ground.
+        fragColor = vec4(c, clamp(max(max(c.r, c.g), c.b) * 1.35, 0.0, 1.0));
+        return;
+    }
+    vec2 q = uv - 0.5;
+    q.x *= uRes.x / max(uRes.y, 1.0);
+    c *= 1.0 - 0.40 * smoothstep(0.35, 1.00, length(q));
+    float g = fract(sin(dot(gl_FragCoord.xy + uTime * 60.0, vec2(12.9898, 78.233))) * 43758.5453);
+    c += (g - 0.5) * 0.018;
+    fragColor = vec4(c, 1.0);
+}`;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+function smoothstep(a, b, x) { const t = clamp((x-a)/(b-a), 0, 1); return t*t*(3-2*t); }
+function orientation(tilt, yaw, wobble) {
+    const cz = Math.cos(tilt), sz = Math.sin(tilt), cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const cx = Math.cos(wobble), sx = Math.sin(wobble);
+    return new Float32Array([cz*cy,sz*cy,-sy,cz*sy*sx-sz*cx,sz*sy*sx+cz*cx,cy*sx,
+        cz*sy*cx+sz*sx,sz*sy*cx-cz*sx,cy*cx]);
+}
+function projection(aspect, dist) {
+    const f = 1 / Math.tan(42*Math.PI/360), nf = 1/(0.1-100);
+    return new Float32Array([f/aspect,0,0,0,0,f,0,0,0,0,100.1*nf,-1,
+        0,0,100.1*nf*-dist+20*nf,dist]);
+}
+function seedData(size) {
+    const n = size*size, out = new Float32Array(n*4), golden = Math.PI*(3-Math.sqrt(5));
+    const jitter = 2/Math.sqrt(n)*0.33;
+    for (let i=0; i<n; i++) {
+        const z = 1-2*(i+0.5)/n, rxy = Math.sqrt(Math.max(0,1-z*z)), phi = golden*i;
+        const x = Math.cos(phi)*rxy+(Math.random()*2-1)*jitter;
+        const y = Math.sin(phi)*rxy+(Math.random()*2-1)*jitter;
+        const zz = z+(Math.random()*2-1)*jitter, len = Math.hypot(x,y,zz)||1;
+        const r = Math.cbrt(0.35+0.65*Math.random());
+        out.set([x/len*r,y/len*r,zz/len*r,Math.random()],i*4);
+    }
+    return out;
+}
+const canvas = document.querySelector('canvas');
+if (CONFIG.transparent) {
+    // No dark plate and no gradient fallback: an unstarted renderer shows the panel.
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
+}
+let renderer = null, active = false, reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let disposed = false, raf = 0, last = 0;
+function stop() { cancelAnimationFrame(raf); raf = 0; }
+function fail(error) {
+    stop();
+    renderer?.dispose(); renderer = null;
+    canvas.style.visibility = 'hidden';
+    document.body.dataset.renderer = 'fallback';
+    console.warn('[GrainMass]', error);
+}
+function makeRenderer() {
+    const gl = canvas.getContext('webgl2', {alpha:CONFIG.transparent,antialias:false,depth:true,
+                                           premultipliedAlpha:CONFIG.transparent});
+    if (!gl || gl.isContextLost()) throw Error('WebGL2 unavailable');
+    const resources = [];
+    const own = (kind, resource) => {
+        if (!resource) throw Error('Cannot allocate '+kind);
+        resources.push([kind,resource]); return resource;
+    };
+    const drop = () => { for (const [kind, resource] of resources.splice(0)) gl['delete'+kind](resource); };
+    const extFloat = gl.getExtension('EXT_color_buffer_float');
+    const extHalf = gl.getExtension('EXT_color_buffer_half_float');
+    if (!extFloat && !extHalf) throw Error('Float render targets unavailable');
+    try {
+        function program(vsSource, fsSource) {
+            const p = own('Program',gl.createProgram());
+            for (const [type, source] of [[gl.VERTEX_SHADER,vsSource],[gl.FRAGMENT_SHADER,fsSource]]) {
+                const s = own('Shader',gl.createShader(type));
+                gl.shaderSource(s,source); gl.compileShader(s);
+                if (!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw Error(gl.getShaderInfoLog(s));
+                gl.attachShader(p,s);
+            }
+            gl.linkProgram(p);
+            if (!gl.getProgramParameter(p,gl.LINK_STATUS)) throw Error(gl.getProgramInfoLog(p));
+            const cache = new Map();
+            return {p, u(name) { if (!cache.has(name)) cache.set(name,gl.getUniformLocation(p,name)); return cache.get(name); }};
+        }
+        const sim = program(VS_QUAD,FS_SIM), points = program(VS_POINTS,FS_POINTS);
+        const bright = program(VS_QUAD,FS_BRIGHT), blur = program(VS_QUAD,FS_BLUR);
+        const composite = program(VS_QUAD,FS_COMPOSITE);
+        gl.bindVertexArray(own('VertexArray',gl.createVertexArray()));
+        function texture(w,h,internal,type,data,nearest=false) {
+            const t = own('Texture',gl.createTexture());
+            gl.bindTexture(gl.TEXTURE_2D,t);
+            gl.texImage2D(gl.TEXTURE_2D,0,internal,w,h,0,gl.RGBA,type,data);
+            gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,nearest?gl.NEAREST:gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,nearest?gl.NEAREST:gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+            return t;
+        }
+        function framebuffer(textures,depth=null) {
+            const f = own('Framebuffer',gl.createFramebuffer());
+            gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+            textures.forEach((t,i)=>gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0+i,gl.TEXTURE_2D,t,0));
+            gl.drawBuffers(textures.map((_,i)=>gl.COLOR_ATTACHMENT0+i));
+            if (depth) gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,depth);
+            if (gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE) throw Error('Incomplete framebuffer');
+            return f;
+        }
+        const size = matchMedia('(max-width: 820px)').matches ? 256 : 480;
+        const internal = extFloat ? gl.RGBA32F : gl.RGBA16F, type = extFloat ? gl.FLOAT : gl.HALF_FLOAT;
+        const seed = texture(size,size,gl.RGBA32F,gl.FLOAT,seedData(size),true);
+        const pos = [0,1].map(()=>texture(size,size,internal,type,null,true));
+        const vel = [0,1].map(()=>texture(size,size,internal,type,null,true));
+        const simFbo = [0,1].map(i=>framebuffer([pos[i],vel[i]]));
+        const targetStart = resources.length;
+        let w=0,h=0,bw=1,bh=1,dpr=1,scene,sceneFbo,bloom,bloomFbo;
+        let clock=0,yaw=0,src=0,reset=1,frame=0;
+        function resize() {
+            const cssW = Math.max(1,innerWidth), cssH = Math.max(1,innerHeight);
+            dpr = Math.max(0.75,Math.min(devicePixelRatio||1,2,Math.sqrt(2400000/(cssW*cssH))));
+            const nw=Math.max(1,Math.round(cssW*dpr)), nh=Math.max(1,Math.round(cssH*dpr));
+            if (nw===w && nh===h) return;
+            for (const [kind,resource] of resources.splice(targetStart)) gl['delete'+kind](resource);
+            w=nw; h=nh; canvas.width=w; canvas.height=h; bw=Math.max(1,w>>2); bh=Math.max(1,h>>2);
+            scene=texture(w,h,gl.RGBA16F,gl.HALF_FLOAT,null);
+            const depth=own('Renderbuffer',gl.createRenderbuffer());
+            gl.bindRenderbuffer(gl.RENDERBUFFER,depth);
+            gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,w,h);
+            sceneFbo=framebuffer([scene],depth);
+            bloom=[0,1].map(()=>texture(bw,bh,gl.RGBA16F,gl.HALF_FLOAT,null));
+            bloomFbo=bloom.map(t=>framebuffer([t]));
+        }
+        function bind(unit,t,p,name) {
+            gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,t); gl.uniform1i(p.u(name),unit);
+        }
+        function pass(fbo,width,height,p) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER,fbo); gl.viewport(0,0,width,height); gl.useProgram(p.p);
+        }
+        const bg=CONFIG.transparent?[0,0,0]:[13/255,17/255,20/255];
+        const colors=new Float32Array([239/255,246/255,90/255,170/255,0,1,67/255,0,1,99/255,186/255,1]);
+        const bounce=[0,1,2].map(i=>(colors[i]+colors[i+3]+colors[i+6]+colors[i+9])/4);
+        const spring=5+Math.pow(1.3/10,1.5)*65;
+        function draw(dt,still) {
+            resize();
+            if (gl.isContextLost()) return;
+            clock+=dt; if (!still) yaw+=0.5*dt;
+            const phase=still?0.42:Math.min(clock/BOOT_SECONDS,1)*0.42;
+            const fade=smoothstep(0,0.055,phase), flare=1+1.15*(1-smoothstep(0,0.1,phase));
+            const aspect=w/h, minHalf=1.4*100/MASS_SCALE, tanHalf=Math.tan(42*Math.PI/360);
+            const dist=aspect>=1?minHalf/tanHalf:minHalf/(aspect*tanHalf);
+            const rot=orientation(Math.PI/4,yaw,Math.sin(clock*0.13)*0.08);
+            const viewProj=projection(aspect,dist);
+            gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+            if (!still || reset) {
+                const dst=1-src;
+                pass(simFbo[dst],size,size,sim);
+                bind(0,pos[src],sim,'uPos'); bind(1,vel[src],sim,'uVel'); bind(2,seed,sim,'uSeed');
+                gl.uniform1f(sim.u('uDt'),dt); gl.uniform1f(sim.u('uTime'),clock);
+                gl.uniform1f(sim.u('uReset'),reset?(still?2:1):0);
+                gl.uniform1f(sim.u('uSpring'),spring);
+                gl.uniform1f(sim.u('uDamp'),Math.exp(-1.7*Math.sqrt(spring)/60));
+                gl.drawArrays(gl.TRIANGLES,0,3); src=dst; reset=0;
+            }
+            pass(sceneFbo,w,h,points);
+            gl.clearColor(...bg,0); gl.clearDepth(1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+            gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS);
+            bind(0,pos[src],points,'uPos'); bind(1,seed,points,'uSeed');
+            gl.uniform1i(points.u('uTexSize'),size);
+            gl.uniformMatrix3fv(points.u('uRot'),false,rot); gl.uniformMatrix4fv(points.u('uViewProj'),false,viewProj);
+            gl.uniform1f(points.u('uPointScale'),1.5*dpr*dist);
+            gl.uniform3fv(points.u('uColors[0]'),colors); gl.uniform1fv(points.u('uGlows[0]'),new Float32Array([1.24,2,2,2]));
+            gl.uniform3fv(points.u('uBounce'),bounce); gl.uniform3fv(points.u('uBg'),bg);
+            gl.uniform1f(points.u('uFade'),fade); gl.uniform1f(points.u('uFlare'),flare);
+            gl.drawArrays(gl.POINTS,0,size*size);
+            gl.disable(gl.DEPTH_TEST);
+            pass(bloomFbo[0],bw,bh,bright); bind(0,scene,bright,'uScene');
+            gl.uniform2f(bright.u('uRes'),bw,bh); gl.drawArrays(gl.TRIANGLES,0,3);
+            gl.useProgram(blur.p); gl.uniform2f(blur.u('uRes'),bw,bh);
+            for (const radius of [1,2,3]) {
+                gl.bindFramebuffer(gl.FRAMEBUFFER,bloomFbo[1]); bind(0,bloom[0],blur,'uSrc');
+                gl.uniform2f(blur.u('uDir'),radius,0); gl.drawArrays(gl.TRIANGLES,0,3);
+                gl.bindFramebuffer(gl.FRAMEBUFFER,bloomFbo[0]); bind(0,bloom[1],blur,'uSrc');
+                gl.uniform2f(blur.u('uDir'),0,radius); gl.drawArrays(gl.TRIANGLES,0,3);
+            }
+            pass(null,w,h,composite); bind(0,scene,composite,'uScene'); bind(1,bloom[0],composite,'uBloom');
+            gl.uniform2f(composite.u('uRes'),w,h); gl.uniform1f(composite.u('uTime'),clock);
+            gl.uniform1f(composite.u('uClear'),CONFIG.transparent?1:0);
+            gl.drawArrays(gl.TRIANGLES,0,3);
+            if (frame++===0) {
+                const error=gl.getError(); if (error!==gl.NO_ERROR) throw Error('WebGL draw error '+error);
+                canvas.style.visibility='visible'; document.body.dataset.renderer='ready';
+            }
+        }
+        return {draw,dispose:drop};
+    } catch (error) { drop(); throw error; }
+}
+function tick(now) {
+    raf=0;
+    if (!active || disposed || document.hidden || !renderer) return;
+    try { renderer.draw(clamp((now-last)/1000,0,1/30),reduced); }
+    catch (error) { fail(error); return; }
+    last=now;
+    if (!reduced) raf=requestAnimationFrame(tick);
+}
+function resume() {
+    stop();
+    if (!active || disposed || document.hidden) return;
+    try { if (!renderer) renderer=makeRenderer(); }
+    catch (error) { fail(error); return; }
+    last=performance.now(); raf=requestAnimationFrame(tick);
+}
+function visibility() { document.hidden?stop():resume(); }
+function lost(event) { event.preventDefault(); stop(); canvas.style.visibility='hidden'; document.body.dataset.renderer='lost'; }
+function restored() { renderer?.dispose(); renderer=null; resume(); }
+function resized() { resume(); }
+canvas.addEventListener('webglcontextlost',lost);
+canvas.addEventListener('webglcontextrestored',restored);
+document.addEventListener('visibilitychange',visibility);
+window.addEventListener('resize',resized);
+window.grainMass={
+    setState(isActive,isReduced) {
+        active=isActive; reduced=isReduced; resume();
+    },
+    dispose() {
+        disposed=true; stop(); renderer?.dispose(); renderer=null;
+        canvas.removeEventListener('webglcontextlost',lost);
+        canvas.removeEventListener('webglcontextrestored',restored);
+        document.removeEventListener('visibilitychange',visibility);
+        window.removeEventListener('resize',resized);
+    }
+};
+// The native host supplies activity and accessibility state after loading.
+</script>
+</body></html>

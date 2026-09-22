@@ -203,6 +203,7 @@ final class BandSyncActivity: ObservableObject {
     /// speed, but where the read has got to. Zero total means nothing is being counted.
     @Published private(set) var progress = BandSyncPolicy.ReadProgress()
     @Published private(set) var workflow = BandSyncProgress()
+    @Published private(set) var failureLine: String?
 
     var done: Int { progress.done }
     var total: Int { progress.total }
@@ -215,7 +216,7 @@ final class BandSyncActivity: ObservableObject {
     /// Home's display and Device render this exact line, including the same rounding
     /// and day counter. Neither surface owns another sync state or percentage.
     var progressLine: String {
-        let prefix = "\(Int(fraction * 100))% · "
+        let prefix = L(workflow.modeLabel) + " · \(Int(fraction * 100))% · "
         if workflow.stage == .reading, total > 0 {
             return prefix + L("READING DAY") + " \(min(done + 1, total)) " + L("OF") + " \(total)"
         }
@@ -223,11 +224,27 @@ final class BandSyncActivity: ObservableObject {
     }
 
     func show(_ stage: BandSyncProgress.Stage) { workflow.show(stage) }
+    func beginHistory() { workflow.beginHistory() }
+    func failed(_ error: Error) {
+        if case BandError.timeout = error { failureLine = L("SYNC TIMED OUT · RETRY") }
+        else if case BandError.busy = error {
+            failureLine = L("Finish the current measurement or device operation, then sync again.")
+        } else if case BandError.notConnected = error {
+            failureLine = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
+        } else if failureLine == nil {
+            failureLine = L("Some readings could not sync. Tap Sync to try again.")
+        }
+    }
     func updatingResults() { workflow.updatingResults() }
     func resultsLoaded() { workflow.resultsLoaded() }
-    func complete(success: Bool) { workflow.finish(success: success); phase = "idle" }
+    func complete(success: Bool) {
+        workflow.finish(success: success)
+        if success { failureLine = nil }
+        else if failureLine == nil { failureLine = L("Sync did not complete. Tap Sync to try again.") }
+        phase = "idle"
+    }
 
-    func beginCounting() { progress.begin(); workflow.begin() }
+    func beginCounting() { progress.begin(); workflow.begin(); failureLine = nil }
     /// The backfill knows how many retained days it will walk once it has asked the band.
     func expect(total value: Int) {
         var next = progress

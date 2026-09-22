@@ -1,0 +1,1194 @@
+{
+  "version": "2026-09-20.release.1",
+  "note": "Fresh release holdout, frozen before provider run. Tests only fast.single_read; explanation, writes and ambiguous requests must fall back. Do not tune this set after observing its results.",
+  "samples": [
+    {
+      "id": "r001",
+      "split": "test",
+      "lang": "zh",
+      "text": "请显示我今天已记录的摄入热量",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:kcal.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r002",
+      "split": "test",
+      "lang": "zh",
+      "text": "今天累计吃进了几卡",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:kcal.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r003",
+      "split": "test",
+      "lang": "en",
+      "text": "Display my recorded calorie intake for today",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:kcal.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r004",
+      "split": "test",
+      "lang": "en",
+      "text": "Show today’s food calories against my target",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:kcal.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r005",
+      "split": "test",
+      "lang": "zh",
+      "text": "今天记录的蛋白质一共几克",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:protein.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r006",
+      "split": "test",
+      "lang": "zh",
+      "text": "展示今日蛋白质摄入量",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:protein.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r007",
+      "split": "test",
+      "lang": "en",
+      "text": "Display today’s protein intake in grams",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:protein.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r008",
+      "split": "test",
+      "lang": "en",
+      "text": "Show my protein target progress today",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:protein.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r009",
+      "split": "test",
+      "lang": "zh",
+      "text": "把今天走的步数显示出来",
+      "expect": {
+        "route": "fast",
+        "binding": "bars:steps.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r010",
+      "split": "test",
+      "lang": "zh",
+      "text": "今日步数累计是多少",
+      "expect": {
+        "route": "fast",
+        "binding": "bars:steps.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r011",
+      "split": "test",
+      "lang": "en",
+      "text": "Display the number of steps recorded today",
+      "expect": {
+        "route": "fast",
+        "binding": "bars:steps.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r012",
+      "split": "test",
+      "lang": "en",
+      "text": "Show my step count for today",
+      "expect": {
+        "route": "fast",
+        "binding": "bars:steps.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r013",
+      "split": "test",
+      "lang": "zh",
+      "text": "画出今天的心率变化",
+      "expect": {
+        "route": "fast",
+        "binding": "line:heart.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r014",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示今日心率折线图",
+      "expect": {
+        "route": "fast",
+        "binding": "line:heart.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r015",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot my heart rate throughout today",
+      "expect": {
+        "route": "fast",
+        "binding": "line:heart.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r016",
+      "split": "test",
+      "lang": "en",
+      "text": "Display today’s heart-rate curve",
+      "expect": {
+        "route": "fast",
+        "binding": "line:heart.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r017",
+      "split": "test",
+      "lang": "zh",
+      "text": "我现在的身体电量是多少",
+      "expect": {
+        "route": "fast",
+        "binding": "battery:battery.now",
+        "reason": null
+      }
+    },
+    {
+      "id": "r018",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示当前 Body Battery 数值",
+      "expect": {
+        "route": "fast",
+        "binding": "battery:battery.now",
+        "reason": null
+      }
+    },
+    {
+      "id": "r019",
+      "split": "test",
+      "lang": "en",
+      "text": "Display my current Body Battery level",
+      "expect": {
+        "route": "fast",
+        "binding": "battery:battery.now",
+        "reason": null
+      }
+    },
+    {
+      "id": "r020",
+      "split": "test",
+      "lang": "en",
+      "text": "What is my Body Battery value right now",
+      "expect": {
+        "route": "fast",
+        "binding": "battery:battery.now",
+        "reason": null
+      }
+    },
+    {
+      "id": "r021",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示身体电量今天的变化曲线",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r022",
+      "split": "test",
+      "lang": "zh",
+      "text": "把今日身体电量画成趋势图",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r023",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot the Body Battery curve for today",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r024",
+      "split": "test",
+      "lang": "en",
+      "text": "Show how my Body Battery changed today",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r025",
+      "split": "test",
+      "lang": "zh",
+      "text": "今天的训练负荷分数是几分",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:load.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r026",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示今日训练负荷数值",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:load.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r027",
+      "split": "test",
+      "lang": "en",
+      "text": "Display today’s training load score",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:load.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r028",
+      "split": "test",
+      "lang": "en",
+      "text": "What is my recorded training load today",
+      "expect": {
+        "route": "fast",
+        "binding": "ring:load.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r029",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示昨晚的睡眠评分",
+      "expect": {
+        "route": "fast",
+        "binding": "score:sleep.score.night",
+        "reason": null
+      }
+    },
+    {
+      "id": "r030",
+      "split": "test",
+      "lang": "zh",
+      "text": "昨夜睡眠得分是多少",
+      "expect": {
+        "route": "fast",
+        "binding": "score:sleep.score.night",
+        "reason": null
+      }
+    },
+    {
+      "id": "r031",
+      "split": "test",
+      "lang": "en",
+      "text": "Display the sleep score from last night",
+      "expect": {
+        "route": "fast",
+        "binding": "score:sleep.score.night",
+        "reason": null
+      }
+    },
+    {
+      "id": "r032",
+      "split": "test",
+      "lang": "en",
+      "text": "What score did I get for last night’s sleep",
+      "expect": {
+        "route": "fast",
+        "binding": "score:sleep.score.night",
+        "reason": null
+      }
+    },
+    {
+      "id": "r033",
+      "split": "test",
+      "lang": "zh",
+      "text": "列出今天已经记下的餐食",
+      "expect": {
+        "route": "fast",
+        "binding": "meal:meals.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r034",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示今日已记录餐食清单",
+      "expect": {
+        "route": "fast",
+        "binding": "meal:meals.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r035",
+      "split": "test",
+      "lang": "en",
+      "text": "List the meals I have logged today",
+      "expect": {
+        "route": "fast",
+        "binding": "meal:meals.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r036",
+      "split": "test",
+      "lang": "en",
+      "text": "Display my recorded meals for today",
+      "expect": {
+        "route": "fast",
+        "binding": "meal:meals.today",
+        "reason": null
+      }
+    },
+    {
+      "id": "r037",
+      "split": "test",
+      "lang": "zh",
+      "text": "画出最近七天摄入热量的趋势",
+      "expect": {
+        "route": "fast",
+        "binding": "line:intakeKcal.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r038",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示近7天饮食热量曲线",
+      "expect": {
+        "route": "fast",
+        "binding": "line:intakeKcal.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r039",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot food calorie intake over the last seven days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:intakeKcal.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r040",
+      "split": "test",
+      "lang": "en",
+      "text": "Display my calorie intake trend for the past 7 days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:intakeKcal.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r041",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示近30天摄入热量折线图",
+      "expect": {
+        "route": "fast",
+        "binding": "line:intakeKcal.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r042",
+      "split": "test",
+      "lang": "zh",
+      "text": "画出最近三十天饮食热量趋势",
+      "expect": {
+        "route": "fast",
+        "binding": "line:intakeKcal.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r043",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot calorie intake over the past thirty days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:intakeKcal.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r044",
+      "split": "test",
+      "lang": "en",
+      "text": "Show a line chart of food calories for the last 30 days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:intakeKcal.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r045",
+      "split": "test",
+      "lang": "zh",
+      "text": "画出近七天训练负荷趋势",
+      "expect": {
+        "route": "fast",
+        "binding": "line:trainingLoad.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r046",
+      "split": "test",
+      "lang": "zh",
+      "text": "展示最近7天训练负荷曲线",
+      "expect": {
+        "route": "fast",
+        "binding": "line:trainingLoad.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r047",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot training load over the last seven days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:trainingLoad.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r048",
+      "split": "test",
+      "lang": "en",
+      "text": "Display a training load trend for the past 7 days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:trainingLoad.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r049",
+      "split": "test",
+      "lang": "zh",
+      "text": "画出近七天身体电量曲线",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r050",
+      "split": "test",
+      "lang": "zh",
+      "text": "最近7天的身体电量趋势图",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r051",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot Body Battery over the past seven days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r052",
+      "split": "test",
+      "lang": "en",
+      "text": "Display the Body Battery trend for the last 7 days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.7d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r053",
+      "split": "test",
+      "lang": "zh",
+      "text": "画出近30天训练负荷曲线",
+      "expect": {
+        "route": "fast",
+        "binding": "line:trainingLoad.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r054",
+      "split": "test",
+      "lang": "zh",
+      "text": "最近三十天的训练负荷趋势图",
+      "expect": {
+        "route": "fast",
+        "binding": "line:trainingLoad.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r055",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot training load over the past thirty days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:trainingLoad.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r056",
+      "split": "test",
+      "lang": "en",
+      "text": "Show training load as a line for the last 30 days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:trainingLoad.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r057",
+      "split": "test",
+      "lang": "zh",
+      "text": "画出近30天身体电量趋势",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r058",
+      "split": "test",
+      "lang": "zh",
+      "text": "展示最近三十天身体电量曲线",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r059",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot Body Battery over the last thirty days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r060",
+      "split": "test",
+      "lang": "en",
+      "text": "Show a Body Battery line chart for the past 30 days",
+      "expect": {
+        "route": "fast",
+        "binding": "line:bodyBattery.30d",
+        "reason": null
+      }
+    },
+    {
+      "id": "r061",
+      "split": "test",
+      "lang": "zh",
+      "text": "我并非不想知道今天的步数",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r062",
+      "split": "test",
+      "lang": "zh",
+      "text": "不要给我显示今日心率",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r063",
+      "split": "test",
+      "lang": "zh",
+      "text": "我没有不想查今天的蛋白质",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r064",
+      "split": "test",
+      "lang": "zh",
+      "text": "别查昨夜睡眠分数",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r065",
+      "split": "test",
+      "lang": "en",
+      "text": "I do not want today’s calories displayed",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r066",
+      "split": "test",
+      "lang": "en",
+      "text": "Never show my sleep score",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r067",
+      "split": "test",
+      "lang": "en",
+      "text": "Don’t display the Body Battery chart",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r068",
+      "split": "test",
+      "lang": "en",
+      "text": "I cannot say I want today’s steps",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r069",
+      "split": "test",
+      "lang": "zh",
+      "text": "请记录午餐吃了三个鸡蛋",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r070",
+      "split": "test",
+      "lang": "zh",
+      "text": "把今天的体重改成六十公斤",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r071",
+      "split": "test",
+      "lang": "zh",
+      "text": "删除昨天的跑步记录",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r072",
+      "split": "test",
+      "lang": "zh",
+      "text": "设一个明早七点半的闹钟",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r073",
+      "split": "test",
+      "lang": "en",
+      "text": "Log oatmeal for my breakfast",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r074",
+      "split": "test",
+      "lang": "en",
+      "text": "Change my target to 1800 calories",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r075",
+      "split": "test",
+      "lang": "en",
+      "text": "Delete yesterday’s sleep entry",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r076",
+      "split": "test",
+      "lang": "en",
+      "text": "Start a running workout",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r077",
+      "split": "test",
+      "lang": "zh",
+      "text": "今天的步数和摄入热量分别是多少",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r078",
+      "split": "test",
+      "lang": "zh",
+      "text": "先显示心率再设置闹钟",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r079",
+      "split": "test",
+      "lang": "zh",
+      "text": "比较睡眠与训练负荷的关系",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r080",
+      "split": "test",
+      "lang": "zh",
+      "text": "我胸口疼而且心率高怎么办",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r081",
+      "split": "test",
+      "lang": "en",
+      "text": "Show my steps and protein intake together",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r082",
+      "split": "test",
+      "lang": "en",
+      "text": "Show sleep first and then log breakfast",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r083",
+      "split": "test",
+      "lang": "en",
+      "text": "Compare my heart rate with my sleep",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r084",
+      "split": "test",
+      "lang": "en",
+      "text": "My chest hurts, should I exercise",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r085",
+      "split": "test",
+      "lang": "zh",
+      "text": "看看上周的训练负荷",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r086",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示本月的摄入热量",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r087",
+      "split": "test",
+      "lang": "zh",
+      "text": "展示九月十五日的身体电量",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r088",
+      "split": "test",
+      "lang": "zh",
+      "text": "查看最近七天体重",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r089",
+      "split": "test",
+      "lang": "en",
+      "text": "Show training load for the previous calendar week",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r090",
+      "split": "test",
+      "lang": "en",
+      "text": "Display food calories for this calendar month",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r091",
+      "split": "test",
+      "lang": "en",
+      "text": "Show Body Battery on September 15",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r092",
+      "split": "test",
+      "lang": "en",
+      "text": "Plot weight for the last seven days",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r093",
+      "split": "test",
+      "lang": "zh",
+      "text": "为什么昨夜的睡眠分数变低",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r094",
+      "split": "test",
+      "lang": "zh",
+      "text": "今天的训练负荷适合我吗",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r095",
+      "split": "test",
+      "lang": "zh",
+      "text": "帮我制定改善睡眠的计划",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r096",
+      "split": "test",
+      "lang": "zh",
+      "text": "刚才那张图换成一个月",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r097",
+      "split": "test",
+      "lang": "en",
+      "text": "Why is my sleep score lower",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r098",
+      "split": "test",
+      "lang": "en",
+      "text": "Is my current training load appropriate",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r099",
+      "split": "test",
+      "lang": "en",
+      "text": "Make a plan to improve my sleep",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r100",
+      "split": "test",
+      "lang": "en",
+      "text": "Show that same chart for a month",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r101",
+      "split": "test",
+      "lang": "zh",
+      "text": "今天走了多少公里",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r102",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示今天消耗的热量",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r103",
+      "split": "test",
+      "lang": "zh",
+      "text": "昨夜血氧最低是多少",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r104",
+      "split": "test",
+      "lang": "zh",
+      "text": "显示我当前的压力分数",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r105",
+      "split": "test",
+      "lang": "en",
+      "text": "How many kilometres have I walked today",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r106",
+      "split": "test",
+      "lang": "en",
+      "text": "Display today’s calories burned",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r107",
+      "split": "test",
+      "lang": "en",
+      "text": "What was my lowest oxygen last night",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "r108",
+      "split": "test",
+      "lang": "en",
+      "text": "Show my current stress score",
+      "expect": {
+        "route": "legacy",
+        "binding": null,
+        "reason": null
+      }
+    }
+  ]
+}

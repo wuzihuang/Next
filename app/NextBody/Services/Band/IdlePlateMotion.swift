@@ -38,6 +38,51 @@ public enum IdlePlateMotion: Sendable {
     /// One closed revolution. Long enough to read as orbit, short enough to see.
     public static let loopSeconds: Double = 8
 
+    // MARK: - Motion grammar
+    //
+    // Same three rules the source art obeys (output/fx/render_loops.py, written up in
+    // output/fx/PLATES.md):
+    //   1. Nothing turns at a constant rate. A constant rate is a clock, and there is no clock
+    //      in the sky: anything going round obeys Kepler's second law and visibly crawls at
+    //      apoapsis, whips through periapsis.
+    //   2. A ring does not rotate. Its tilt is fixed by the planet's spin axis, and its
+    //      particles are on independent orbits, so it cannot turn as one rigid hoop. Dashes on
+    //      an orbit track are tick marks, not a conveyor belt: they hold still.
+    //   3. What changes in eight seconds of sky is light, not position -- and light is never a
+    //      single sine.
+    // Every term below is zero (or 1, for a multiplier) at t == 0, so the hold pose under
+    // Reduce Motion is still exactly the Paper rest seat.
+
+    /// Where a body sits along its orbit, 0..<1, Kepler-paced: apoapsis is the Paper rest seat,
+    /// so a moon lingers near where the plate was composed and sweeps quickly round the far
+    /// side. Newton on M = E - e sinE. progress(0) == 0, progress(0.5) == 0.5, progress(1) == 1.
+    public static func orbitProgress(_ t: Double, ecc: Double = orbitEccentricity) -> Double {
+        let tau = Double.pi * 2
+        let m = tau * t + .pi
+        var e = m + ecc * sin(m)
+        for _ in 0..<8 {
+            e -= (e - ecc * sin(e) - m) / (1 - ecc * cos(e))
+        }
+        return (e - .pi) / tau
+    }
+
+    /// Eccentricity of the idle orbits. One number for the whole set: the pose carries a single
+    /// `satellite` channel, and this is the value where the speed-up is legible at 8 s without
+    /// the body looking flung.
+    public static let orbitEccentricity: Double = 0.45
+
+    /// Brightness wobble: three harmonics with unrelated phases, so a glow reads as something
+    /// seen through air instead of a metronome. Zero at t == 0 and at the seam.
+    public static func flicker(_ t: Double, _ seed: Double) -> Double {
+        let tau = Double.pi * 2
+        var v = 0.0
+        for (i, wk) in [(0.58, 1.0), (0.29, 2.0), (0.13, 3.0)].enumerated() {
+            let ph = (seed * 1.7 + Double(i) * 2.39).truncatingRemainder(dividingBy: tau)
+            v += wk.0 * (sin(tau * wk.1 * t + ph) - sin(ph))
+        }
+        return v
+    }
+
     /// Pose of `plate` at `clock` on-screen seconds. `t` is the loop phase
     /// (0..<1). `moving: false` (Reduce Motion) freezes the hold pose so two
     /// clocks compare equal.
@@ -135,18 +180,27 @@ public enum IdlePlateMotion: Sendable {
     }
 
     private static func look(_ plate: Int, _ t: Double) -> IdlePlatePose {
+        // dash 0: the ticks on an orbit track never move. satellite/comet are Kepler-paced,
+        // not linear ramps. glow/breathe were hard 1 -- every ring plate's only animation used
+        // to be the ring turning -- and now carry the plate's light.
         var p = IdlePlatePose(
-            phase: t, breathe: 1, ringDeg: 0, dash: t,
-            bodyX: 179, bodyY: 188, lightX: 0, satellite: t,
-            moonYaw: 0, moonPitch: 0, comet: t, glow: 1, twinkle: 0)
-        p.twinkle = 0.5 + 0.5 * sin(Double.pi * 2 * t)
+            phase: t, breathe: 1 + 0.12 * flicker(t, Double(plate) + 40), ringDeg: 0, dash: 0,
+            bodyX: 179, bodyY: 188, lightX: 0, satellite: orbitProgress(t),
+            moonYaw: 0, moonPitch: 0, comet: orbitProgress(t, ecc: 0.8),
+            glow: 1 + 0.16 * flicker(t, Double(plate)), twinkle: 0)
+        p.twinkle = min(max(0.5 + 0.5 * flicker(t, Double(plate) + 80), 0), 1)
         switch plate {
         case 1:
             p.ringDeg = -14
             p.bodyY = 188
         case 2:
             p.bodyX = 179
-            p.bodyY = 200
+            p.bodyY = 196
+            p.ringDeg = -18
+            // lightX used to swing the highlight across the disc once a loop. A light source an
+            // astronomical unit away does not swing in eight seconds; the libration carries it.
+            p.moonYaw = sin(.pi * 2 * t)
+            p.moonPitch = sin(.pi * 4 * t)
         case 3:
             p.ringDeg = -3
             p.bodyY = 128
@@ -156,15 +210,17 @@ public enum IdlePlateMotion: Sendable {
             p.ringDeg = -22
             p.bodyY = 178
         case 6:
-            break
+            p.ringDeg = -28
         case 7:
             p.ringDeg = -24
             p.bodyY = 178
         case 8:
             p.bodyX = 140
             p.bodyY = 190
+            p.ringDeg = -22
         case 9:
             p.bodyY = 190
+            p.ringDeg = 18
         case 10:
             break
         case 11:
@@ -179,9 +235,9 @@ public enum IdlePlateMotion: Sendable {
             p.bodyX = 179
             p.bodyY = 195
         case 15:
-            break
+            p.ringDeg = -6
         case 16:
-            break
+            p.ringDeg = -8
         case 17:
             p.ringDeg = -12
         case 18:
@@ -191,6 +247,7 @@ public enum IdlePlateMotion: Sendable {
         case 20:
             p.bodyX = 298
             p.bodyY = 195
+            p.ringDeg = -12
         case 21:
             p.bodyX = -60
             p.bodyY = 240
@@ -200,15 +257,20 @@ public enum IdlePlateMotion: Sendable {
         case 23:
             p.bodyX = 179
             p.bodyY = 250
+            p.ringDeg = -16
+            // libration: yaw once a loop, pitch twice, both zero at the rest seat. The pair
+            // traces a figure eight, which is the path a real libration draws -- not a rock
+            // along one line, and not the old 0...2 pitch that only ever nodded one way.
             p.moonYaw = sin(.pi * 2 * t)
-            p.moonPitch = 1 - cos(.pi * 2 * t)
+            p.moonPitch = sin(.pi * 4 * t)
         case 24:
             break
         case 25:
-            break
+            p.ringDeg = -4
         case 26:
             p.bodyX = 250
             p.bodyY = 230
+            p.ringDeg = -18
         case 27:
             break
         case 28:
@@ -218,4 +280,5 @@ public enum IdlePlateMotion: Sendable {
         }
         return p
     }
+
 }

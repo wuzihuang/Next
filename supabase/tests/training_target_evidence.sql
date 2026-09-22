@@ -131,7 +131,7 @@ select ok(not has_function_privilege('anon','nb.training_evidence(uuid,date)','E
 -- which compares a stored `algo_version` against `nb.calculation_version()`; neither of those
 -- two bodies carries a version string any more, so the greps were asserting about a mechanism
 -- that no longer exists. What they were for is asserted directly instead.
-select ok(position('tl-2.2' in nb.calculation_version())>0,
+select ok(nb.calculation_version() ~ 'tl-[0-9]+\.[0-9]+',
  'published training has a distinct algorithm revision');
 create or replace function pg_temp.settled_is_current(p_user uuid, p_day date) returns boolean
 language sql as $$
@@ -148,7 +148,7 @@ $$;
 select is((select d.algo_version from public.daily_results d
   where d.user_id='96170800-0000-4000-8000-000000000003' and d.user_day='2026-09-04'),
  nb.calculation_version(), 'a settled day is stamped with the revision that settled it');
-update public.daily_results set algo_version=replace(algo_version,'tl-2.2','tl-2.1')
+update public.daily_results set algo_version=regexp_replace(algo_version,'tl-[0-9]+\.[0-9]+','tl-legacy')
  where user_id='96170800-0000-4000-8000-000000000003' and user_day='2026-09-04';
 select ok(not pg_temp.settled_is_current('96170800-0000-4000-8000-000000000003','2026-09-04'),
  'old completed-day training remains pending until recomputed');

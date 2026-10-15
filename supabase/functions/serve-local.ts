@@ -35,8 +35,6 @@ for (const [name, path] of [
   ["asr", "./asr/index.ts"],
   ["screen-current", "./screen-current/index.ts"],
   ["export", "./export/index.ts"],
-  ["billing-sync", "./billing-sync/index.ts"],
-  ["revenuecat-webhook", "./revenuecat-webhook/index.ts"],
 ] as const) {
   try { await load(name, path); console.log("loaded", name); }
   catch (e) { console.error("FAILED", name, e instanceof Error ? e.message : e); }
@@ -50,8 +48,6 @@ const keys = [
   "SUPABASE_ANON_KEY",
   "DASHSCOPE_API_KEY",
   "AI_GATEWAY_API_KEY",
-  "REVENUECAT_SECRET_API_KEY",
-  "REVENUECAT_WEBHOOK_SECRET",
 ]
   .map((k) => `${k}=${Deno.env.get(k) ? "set" : "MISSING"}`).join("  ");
 console.log("env:", keys);

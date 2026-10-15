@@ -99,7 +99,6 @@ struct LogMealSheet: View {
     let day: UserDay
     var onClose: () -> Void
     @EnvironmentObject private var data: DataStore
-    @StateObject private var billing = BillingStore.shared
 
     @StateObject private var favorites = MealFavorites.shared
     @State private var text = ""
@@ -190,7 +189,6 @@ struct LogMealSheet: View {
             onClose()
             return
         }
-        guard billing.allowAI() else { return }
         working = true
         let sentence = typed
         AIService.shared.beginReadingPlate(caption: sentence, image: nil)
@@ -207,7 +205,6 @@ struct LogMealSheet: View {
     /// than a second menu two taps away. The shutter closes this plate on the way out: the
     /// receipt is where the answer lands.
     private func shoot() {
-        guard billing.allowAI() else { return }
         failure = nil
         CameraGate.present(onCapture: { image in
             guard let payload = AIImagePayload.prepare(image) else {

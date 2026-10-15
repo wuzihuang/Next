@@ -217,10 +217,6 @@ function harness(steps: Step[], overrides: Partial<TurnDependencies> = {}, store
       events.push("quota");
       return Promise.resolve({ allowed: true, remaining: 9 });
     },
-    entitlement: () => {
-      events.push("entitlement");
-      return Promise.resolve({ allowed: true as const, introClaimed: false });
-    },
     spend: () => {
       events.push("spend");
       return Promise.resolve(true);
@@ -255,24 +251,11 @@ function assertSuccess(body: string) {
   assertEquals(body.includes("event: error"), false, body);
 }
 
-Deno.test("a missing Pro entitlement never consumes quota or calls a model", async () => {
-  const h = harness([], {
-    entitlement: () => Promise.resolve({
-      allowed: false as const,
-      introClaimed: false,
-      reason: "missing",
-    }),
-    quota: () => {
-      throw new Error("quota must not run without Pro");
-    },
-  });
-  const response = await handleTurn(request(), h.deps);
-  assertEquals(response.status, 402);
-  const body = await response.json();
-  assertEquals(body.error, "SUBSCRIPTION_REQUIRED");
-  assertEquals(body.intro_claimed, false);
-  assertEquals(h.activeTools.length, 0);
-  assertEquals(h.usages.length, 0);
+Deno.test("an authenticated turn reaches AI without a subscription check", async () => {
+  const h = harness([{ calls: [ready] }, { calls: [render] }]);
+  const body = await (await handleTurn(request(), h.deps)).text();
+  assertSuccess(body);
+  assertEquals(h.events.slice(0, 3), ["quota", "spend", "model"]);
 });
 
 Deno.test("count and amount admission denials never call any model", async () => {
@@ -318,7 +301,7 @@ Deno.test("real SDK reads and declares ready then renders in two steps with comp
     "workflow.ready",
     render.name,
   ]);
-  assertEquals(h.events.slice(0, 4), ["entitlement", "quota", "spend", "model"]);
+  assertEquals(h.events.slice(0, 3), ["quota", "spend", "model"]);
   assertEquals(body.includes("event: coach.handoff"), false);
 });
 
@@ -1368,22 +1351,6 @@ Deno.test("the advice surface carries no phone tools, before or after a reread",
   assertEquals(body.includes("event: tool.request"), false);
   assertEquals(h.states.length, 0);
   assertEquals(h.upserts[0].table, "daily_plans");
-});
-
-Deno.test("a subscription expiring during phone suspension prevents resumed model work", async () => {
-  const first = harness([{ calls: [alarm] }]);
-  await (await handleTurn(request({ text: "set an alarm at 7" }), first.deps)).text();
-  const stored = first.states[0] as { pending: { call_id: string } };
-  const h = harness([], {
-    entitlement: () => Promise.resolve({allowed: false, introClaimed: true, reason: "expired"}),
-    quota: () => { throw new Error("must not consume quota"); },
-  }, stored);
-  const response = await handleTurn(request({text: "set an alarm at 7", tool_result: {
-    call_id: stored.pending.call_id, ok: true, code: "OK", data: {},
-  }}), h.deps);
-  assertEquals(response.status, 402);
-  assertEquals(await response.json(), {error: "SUBSCRIPTION_REQUIRED", intro_claimed: true});
-  assertEquals(h.activeTools.length, 0);
 });
 
 Deno.test("an explicitly submitted typed meal survives disconnect and uses detached runtime work", async () => {

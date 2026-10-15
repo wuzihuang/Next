@@ -28,7 +28,6 @@ import { buildRenderTools, RENDER_TOOL } from "../_shared/charts.ts";
 import { userClient, currentUserId, cors, json, userDayKey } from "../_shared/db.ts";
 import { enforceRequestBudget } from "../_shared/rate-limit.ts";
 import { consumeAiQuota, checkAiSpend, quotaDeniedResponse, recordAiUsage, recordProviderAttempt } from "../_shared/ai-quota.ts";
-import { requireProEntitlement, subscriptionRequiredResponse } from "../_shared/billing.ts";
 import { usageFromProvider, type TokenUsage } from "../_shared/cost.ts";
 import {
   MAX_TURN_STEPS, MAX_RESUMES, createTurnWorkflow, finishTurnStep, gateTurnTool, restoreTurnWorkflow,
@@ -90,13 +89,6 @@ export type TurnDependencies = {
   quota: (db: SupabaseClient, operationId: string) => Promise<
     { allowed: true; remaining?: number } | { allowed: false; reason: "count" | "spend" | "unavailable" }
   >;
-  entitlement: (db: SupabaseClient) => Promise<
-    { allowed: true; introClaimed: boolean } | {
-      allowed: false;
-      introClaimed: boolean;
-      reason: "missing" | "expired" | "unavailable";
-    }
-  >;
   spend: (db: SupabaseClient) => Promise<boolean>;
   streamText: typeof streamText;
   generateObject: typeof generateObject;
@@ -123,7 +115,6 @@ const defaults: TurnDependencies = {
   client: userClient,
   budget: (db) => enforceRequestBudget(db, "turn"),
   quota: (db, operationId) => consumeAiQuota(db, "turn", operationId),
-  entitlement: (db) => requireProEntitlement(db),
   spend: async (db) => (await checkAiSpend(db)).allowed,
   streamText,
   generateObject,
@@ -251,11 +242,6 @@ export async function handleTurn(
   // publish the confirmation card instead of 「这次回复没有完成」.
   let recoveredMeal: MealEstimateDraft | null = null;
   let mealWriteForbidden = false;
-
-  // Recheck on every request, including phone-tool resumes and saved replays.
-  // A suspended turn may outlive the subscription that admitted it.
-  const entitlement = await deps.entitlement(db);
-  if (!entitlement.allowed) return subscriptionRequiredResponse(entitlement);
 
   // Replaying the same Idempotency-Key returns the same frames, so a dropped connection
   // never costs a second model call.

@@ -255,9 +255,9 @@ _Avoid_: 日报, 晚报, 把计划总结当通知
 下一顿主餐仍未确认。通知边沿还要求这次同步里人动了，且近七个用户日有过餐。
 _Avoid_: 12:30 午饭闹钟, 进食窗口
 
-**NextBody PRO**:
-健康账号上的 App AI 会员（ADR 0030）。App Store 商品 `hoop_pro_monthly`，$6 / month；首月优惠资格由 App Store 判定。原生 SwiftUI 付费页按 Paper 原稿还原，RevenueCat 负责购买、恢复及 `next_pro` 权益，Test Store 商品为 `monthly`；服务端可信同步到本地 `pro` 账本。没有有效权益时，面板 / 教练 / 当日建议 / ASR 全部拒绝（`SUBSCRIPTION_REQUIRED`）。手环、生命体征、测量不收订阅。跳过付费墙不送试用；已有订阅可在 Profile 进入 Customer Center。
-_Avoid_: 永远免费, 客户端空发一个月, 自己收银行卡号, 把 Shopify 手环卖成订阅
+**App AI**:
+面板、教练、当日建议和语音是 App 功能，无需另买 App 会员或订阅。HOOP 手环仍是一次购买；AI 仍有公平使用额度。
+_Avoid_: NextBody Pro, 付费墙, 把手环购买与 App AI 权益混为一谈
 
 **盘 (plate)**:
 一次估算写下的那一组 meal 行。它们共享 `meals.meal_group_id`，共享一张照片（`photo_path`，私有桶 `meal-photos`，路径第一段是本人 id），每一行各带自己的 `portion`。它是「这一次拍的这顿」的落点——整体回看、整体调份量、整体存成常吃都按它走。它不是餐次分组：日档食物表仍然按时间列行，不分早午晚。

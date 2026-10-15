@@ -20,7 +20,6 @@ import {
   quotaDeniedResponse,
   recordAiUsage,
 } from "../_shared/ai-quota.ts";
-import { requireProEntitlement, subscriptionRequiredResponse } from "../_shared/billing.ts";
 import { type TokenUsage, usageFromProvider } from "../_shared/cost.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -46,13 +45,6 @@ export type AsrDependencies = {
     { allowed: true } | {
       allowed: false;
       reason: "count" | "spend" | "unavailable";
-    }
-  >;
-  entitlement: (db: SupabaseClient) => Promise<
-    { allowed: true; introClaimed: boolean } | {
-      allowed: false;
-      introClaimed: boolean;
-      reason: "missing" | "expired" | "unavailable";
     }
   >;
   transcribe: (bytes: Uint8Array, mime: string) => Promise<AsrTranscript>;
@@ -108,7 +100,6 @@ const defaults: AsrDependencies = {
   client: userClient,
   budget: (db) => enforceRequestBudget(db, "asr"),
   quota: (db, operationId) => consumeAiQuota(db, "asr", operationId),
-  entitlement: (db) => requireProEntitlement(db),
   transcribe: providerTranscribe,
   recordUsage: (db, usage, modelId) =>
     recordAiUsage(db, { endpoint: "asr", modelId, usage }),
@@ -127,8 +118,6 @@ export async function handleAsr(
     const userId = await deps.authenticate(req);
     if (!userId) return json({ error: "UNAUTHENTICATED" }, 401);
     const db = deps.client(req);
-    const entitlement = await deps.entitlement(db);
-    if (!entitlement.allowed) return subscriptionRequiredResponse(entitlement);
     const limited = await deps.budget(db);
     if (limited) return limited;
     const quota = await deps.quota(db, operationId);
@@ -166,8 +155,6 @@ export async function handleAsr(
     completionTokens: 0,
   };
   try {
-    const entitlement = await deps.entitlement(db);
-    if (!entitlement.allowed) return subscriptionRequiredResponse(entitlement);
     const limited = await deps.budget(db);
     if (limited) return limited;
     const quota = await deps.quota(db, operationId);

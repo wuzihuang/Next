@@ -558,9 +558,9 @@ struct ThinkingStage: View {
                         .padding(.top, 26)
                 }
                 // Below THINKING and the ASR echo, above the thought stream. The same
-                // grain mass the membership screens turn behind the paywall, centred here;
+                // Keep the local grain mass centred behind the thinking state.
                 // the halo feathers this slot — it does not sit under the words.
-                GrainMassBackground(composition: .thinking)
+                GrainMassBackground()
                     .mask { GlitterWrapHaloMask() }
                     .frame(maxHeight: .infinity)
                     .allowsHitTesting(false)

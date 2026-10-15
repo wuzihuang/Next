@@ -163,7 +163,7 @@ const en: LandingCopy = {
   htmlLang: 'en',
   title: 'NEXTBODY · HOOP — The screenless band',
   description:
-    'A band with no screen. It reads your heart, sleep, and training all day, and says it plainly in the NextBody app. $99 once for the band. App AI is NextBody Pro.',
+    'A band with no screen. It reads your heart, sleep, and training all day, and says it plainly in the NextBody app. $99 once for the band. App AI is included.',
   nav: {
     band: 'THE BAND',
     app: 'THE APP',
@@ -345,10 +345,10 @@ const en: LandingCopy = {
     kicker: 'TWO FINISHES',
     price: '$99',
     title: 'The band is once.',
-    lede: 'HOOP is $99 once — black or white. The app that reads the band is included. App AI is NextBody Pro: one free month if this health account has not claimed it, then $6 / month.',
+    lede: 'HOOP is $99 once — black or white. The app, readings and AI features are included.',
     facts: [
       {value: '$99', label: 'BAND'},
-      {value: '$6', label: 'PRO / MONTH'},
+      {value: 'AI', label: 'INCLUDED'},
       {value: '2', label: 'FINISHES'},
     ],
     white: 'WHITE',
@@ -407,7 +407,7 @@ const zh: LandingCopy = {
   htmlLang: 'zh-Hans',
   title: 'NEXTBODY · HOOP — 无屏手环',
   description:
-    '一条没有屏幕的手环。它整天读你的心率、睡眠和训练，然后在 NextBody App 里把话说清楚。手环 $99 一次付清。App 里的 AI 是 NextBody Pro。',
+    '一条没有屏幕的手环。它整天读你的心率、睡眠和训练，然后在 NextBody App 里把话说清楚。手环 $99 一次付清。App 里的 AI 已包含。',
   nav: {
     band: '手环',
     app: 'App',
@@ -585,10 +585,10 @@ const zh: LandingCopy = {
     kicker: '两种配色',
     price: '$99',
     title: '手环一次付清。',
-    lede: 'HOOP $99，一次付清——黑色或白色。读取手环的 App 随手环。App 里的 AI 是 NextBody Pro：这个健康账号还没领过则首月免费，之后每月 $6。',
+    lede: 'HOOP $99，一次付清——黑色或白色。App、读数和 AI 功能均已包含。',
     facts: [
       {value: '$99', label: '手环'},
-      {value: '$6', label: 'PRO / 月'},
+      {value: 'AI', label: '已包含'},
       {value: '2', label: '种配色'},
     ],
     white: 'WHITE',

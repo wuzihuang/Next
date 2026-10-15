@@ -1,14 +1,14 @@
 import Foundation
 
-/// The two legal documents the app shows: Profile › DATA & LEGAL, the membership card's ⋯ menu,
+/// The two legal documents the app shows: Profile › DATA & LEGAL,
 /// and the sign-in line. Both languages live here rather than in `zh-Hans.json`: a document is
 /// read as a whole, and a clause that is translated in one place and not another is worse than
 /// no translation at all.
 ///
 /// ⚠️ Every factual claim below is a claim about the code. When a retention window, a processor,
 /// or a data type changes, this file changes in the same commit, and `updated` moves with it.
-/// Checked against the tree on 2026-09-22: Supabase (AWS us-west-1) · xAI Grok primary, Alibaba
-/// Cloud Model Studio (Qwen) fallback, speech and web search · RevenueCat · GitHub (private repo)
+/// Checked against the tree on 2026-10-15: Supabase (AWS us-west-1) · xAI Grok primary, Alibaba
+/// Cloud Model Studio (Qwen) fallback, speech and web search · GitHub (private repo)
 /// for REPORT A PROBLEM · photos 30 days · voice never stored · analytics 180 days · AI screen
 /// frames 90 days · overnight oxygen and meal response samples 400 days · account eligibility is separate from content ratings.
 /// The consent screen (`ConsentCopy`) is a separate, versioned text and is not folded in here.
@@ -26,8 +26,8 @@ enum LegalText {
 
     enum Kind { case terms, privacy }
 
-    static let updatedEN = "Last updated September 22, 2026"
-    static let updatedZH = "最后更新：2026 年 9 月 22 日"
+    static let updatedEN = "Last updated October 15, 2026"
+    static let updatedZH = "最后更新：2026 年 10 月 15 日"
 
     static func document(_ kind: Kind, locale: AppLocale = AppLanguage.shared.locale) -> Document {
         switch (kind, locale) {
@@ -42,7 +42,7 @@ enum LegalText {
 
     static let termsEN: [Section] = [
         Section(heading: "1. These terms", paragraphs: [
-            "These Terms of Service (\"Terms\") are a binding agreement between you and NextBody (\"NextBody\", \"we\", \"us\") for the NextBody app, your account, NextBody Pro, and any HOOP band you pair with the app (together, the \"Service\"). Our Privacy Policy explains how we handle your data and forms part of these Terms.",
+            "These Terms of Service (\"Terms\") are a binding agreement between you and NextBody (\"NextBody\", \"we\", \"us\") for the NextBody app, your account, and any HOOP band you pair with the app (together, the \"Service\"). Our Privacy Policy explains how we handle your data and forms part of these Terms.",
             "By creating an account, signing in, or using the Service, you confirm that you have read and accept these Terms. If you do not accept them, do not use the Service.",
             "PLEASE READ SECTIONS 4, 5, 13, 14 AND 17 CAREFULLY. THEY LIMIT OUR LIABILITY, DESCRIBE THE RISKS YOU ACCEPT, AND EXPLAIN HOW DISPUTES ARE RESOLVED.",
         ]),
@@ -65,7 +65,7 @@ enum LegalText {
             "To the fullest extent permitted by law, you assume all risks arising from your physical activity and from your decisions about food, weight and sleep, whether or not they were prompted by the Service.",
         ]),
         Section(heading: "6. AI features", paragraphs: [
-            "NextBody Pro uses artificial intelligence, including large language models run by third-party providers, to answer questions, write plans and daily suggestions, estimate meals from words or photos, transcribe your voice, remember things you tell it, and search the web. AI output is generated automatically and is not reviewed by a person before you see it.",
+            "NextBody uses artificial intelligence, including large language models run by third-party providers, to answer questions, write plans and daily suggestions, estimate meals from words or photos, transcribe your voice, remember things you tell it, and search the web. AI output is generated automatically and is not reviewed by a person before you see it.",
             "AI output can be inaccurate, incomplete, out of date, inconsistent, or inappropriate, and may state wrong things with confidence. Meal and calorie estimates from photos or descriptions are approximate. Web search results come from third-party websites that we do not control or endorse.",
             "AI output is for general information only. It is not medical, nutritional, dietetic, psychological, fitness-coaching, legal or other professional advice, and it does not create any professional relationship. You are solely responsible for checking it and for any decision you make based on it.",
             "Do not ask the AI for, or rely on it in, an emergency. Do not submit other people's personal information, or anything unlawful. AI features are subject to fair-use limits, including daily allowances, and may be slowed, limited or unavailable at any time.",
@@ -75,11 +75,9 @@ enum LegalText {
             "Readings depend on fit, skin, movement, battery, Bluetooth, the phone's operating system and the band's firmware. We do not promise that every reading will be captured, synced, or kept, and readings not yet synced from the band can be lost.",
             "Follow the band's safety and charging instructions. Stop wearing it if your skin becomes irritated. Remove it before MRI scans and anywhere metal or electronics are not allowed.",
         ]),
-        Section(heading: "8. NextBody Pro subscription", paragraphs: [
-            "The band's core readings work without a subscription. NextBody Pro, which unlocks the AI features, is an auto-renewing subscription sold and billed by Apple through the App Store. The price, billing period and any free trial are shown to you in the App Store before you confirm the purchase, and may differ by country.",
-            "Your subscription renews automatically at the end of each period unless you turn off auto-renew at least 24 hours before the period ends, in your Apple ID's subscription settings. Deleting the app or your account does not cancel an App Store subscription. If you are offered a free trial, eligibility is decided by Apple, and any unused part of a trial ends when you buy a subscription.",
-            "All payments, cancellations and refunds are handled by Apple under Apple's terms. We do not process your payment, cannot see your card details, and cannot issue refunds for App Store purchases. To the extent permitted by law, fees paid are non-refundable, including for partial periods or unused features.",
-            "We may change what Pro includes, its limits, or its price. Price changes follow App Store rules, and Apple will tell you before a higher price applies.",
+        Section(heading: "8. App access", paragraphs: [
+            "The app, band readings and AI features are available without an app subscription. Fair-use limits still apply to AI features.",
+            "If you previously subscribed through the App Store, cancel renewal in your Apple Account settings. Deleting the app or your account does not cancel an existing subscription. Contact Apple for past App Store charges and refunds.",
         ]),
         Section(heading: "9. Acceptable use", paragraphs: [
             "You agree not to: use the Service for anyone but yourself; resell or share access; copy, scrape, reverse engineer, decompile or interfere with the app, the band's firmware or our servers, except where the law expressly allows it; overload or probe the Service or bypass its limits, rate limits or security; use the AI to produce unlawful, harmful, harassing or infringing content; use the Service to give medical, nutritional or training advice to others as a professional service; or break any law.",
@@ -101,14 +99,14 @@ enum LegalText {
         ]),
         Section(heading: "14. Limitation of liability", paragraphs: [
             "TO THE FULLEST EXTENT PERMITTED BY LAW, NEXTBODY AND ITS AFFILIATES, OFFICERS, EMPLOYEES, CONTRACTORS, SUPPLIERS AND LICENSORS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL OR HEALTH OUTCOME, OR COST OF SUBSTITUTE SERVICES, ARISING OUT OF OR RELATING TO THE SERVICE OR THESE TERMS, WHETHER IN CONTRACT, TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY OR ANY OTHER THEORY, EVEN IF WE WERE TOLD SUCH DAMAGES WERE POSSIBLE.",
-            "TO THE FULLEST EXTENT PERMITTED BY LAW, OUR TOTAL LIABILITY FOR ALL CLAIMS ARISING OUT OF OR RELATING TO THE SERVICE OR THESE TERMS IS LIMITED TO THE GREATER OF (A) THE AMOUNT YOU PAID FOR NEXTBODY PRO IN THE 12 MONTHS BEFORE THE EVENT GIVING RISE TO THE CLAIM, AND (B) USD 50. A HOOP BAND YOU BOUGHT IS SUBJECT TO THE LIMITS IN THE SHOP'S TERMS.",
+            "TO THE FULLEST EXTENT PERMITTED BY LAW, OUR TOTAL LIABILITY FOR ALL CLAIMS ARISING OUT OF OR RELATING TO THE SERVICE OR THESE TERMS IS LIMITED TO USD 50. A HOOP BAND YOU BOUGHT IS SUBJECT TO THE LIMITS IN THE SHOP'S TERMS.",
             "Some places do not allow certain warranties to be excluded or liability to be limited. Nothing in these Terms excludes or limits liability for death or personal injury caused by our negligence, for fraud, for intentional misconduct or gross negligence, or any other liability or consumer right that cannot be excluded or limited by law. In those places, our liability is limited to the smallest extent the law permits.",
         ]),
         Section(heading: "15. Indemnity", paragraphs: [
             "To the extent permitted by law, you will defend, indemnify and hold harmless NextBody and its affiliates, officers, employees and contractors from any claim, loss, liability, damage, cost or expense (including reasonable legal fees) arising from your breach of these Terms, your misuse of the Service, Your Content, or your violation of any law or anyone else's rights.",
         ]),
         Section(heading: "16. Ending this agreement", paragraphs: [
-            "You can stop using the Service at any time and delete your account in Profile › Data & Legal › Delete account. Remember to cancel NextBody Pro in the App Store separately.",
+            "You can stop using the Service at any time and delete your account in Profile › Data & Legal › Delete account. If you previously subscribed in the App Store, cancel it separately.",
             "We may suspend or end your access at any time if you break these Terms, if we must by law, or if we stop offering the Service or part of it. If we discontinue the Service entirely, we will try to give reasonable notice. Sections 4, 5, 6, 10 and 12 to 19 survive the end of this agreement.",
         ]),
         Section(heading: "17. Disputes", paragraphs: [
@@ -135,7 +133,7 @@ enum LegalText {
 
     static let termsZH: [Section] = [
         Section(heading: "1. 关于本条款", paragraphs: [
-            "本《服务条款》（「本条款」）是你与 NextBody（「NextBody」「我们」）之间就 NextBody App、你的账户、NextBody Pro 以及你与 App 配对的 HOOP 手环（合称「本服务」）订立的具有约束力的协议。《隐私政策》说明我们如何处理你的数据，是本条款的组成部分。",
+            "本《服务条款》（「本条款」）是你与 NextBody（「NextBody」「我们」）之间就 NextBody App、你的账户及你与 App 配对的 HOOP 手环（合称「本服务」）订立的具有约束力的协议。《隐私政策》说明我们如何处理你的数据，是本条款的组成部分。",
             "你创建账户、登录或使用本服务，即表示你已阅读并接受本条款。如不接受，请不要使用本服务。",
             "请特别注意第 4、5、13、14、17 条。这些条款限制了我们的责任，说明了你自行承担的风险以及争议的解决方式。",
         ]),
@@ -158,7 +156,7 @@ enum LegalText {
             "在法律允许的最大范围内，你因身体活动以及就饮食、体重和睡眠所作决定而产生的一切风险，无论是否受本服务提示，均由你自行承担。",
         ]),
         Section(heading: "6. AI 功能", paragraphs: [
-            "NextBody Pro 使用人工智能（包括由第三方服务商运行的大语言模型）来回答问题、制定计划和每日建议、根据文字或照片估算餐食、将你的语音转成文字、记住你告诉它的事情以及进行网络搜索。AI 输出由系统自动生成，在你看到之前不经过人工审核。",
+            "NextBody 使用人工智能（包括由第三方服务商运行的大语言模型）来回答问题、制定计划和每日建议、根据文字或照片估算餐食、将你的语音转成文字、记住你告诉它的事情以及进行网络搜索。AI 输出由系统自动生成，在你看到之前不经过人工审核。",
             "AI 输出可能不准确、不完整、过时、前后不一致或不恰当，也可能以肯定的语气给出错误内容。根据照片或文字得出的餐食和热量估算只是近似值。网络搜索结果来自我们无法控制、也不为其背书的第三方网站。",
             "AI 输出仅供一般参考，不构成医疗、营养、膳食、心理、健身指导、法律或其他任何专业意见，也不在你与任何人之间建立专业服务关系。核实 AI 输出以及据此作出的任何决定，均由你自行负责。",
             "紧急情况下不要向 AI 求助或依赖 AI。不要提交他人的个人信息或任何违法内容。AI 功能设有合理使用限制（包括每日额度），可能随时被降速、限制或暂停。",
@@ -168,11 +166,9 @@ enum LegalText {
             "读数受佩戴松紧、皮肤、动作、电量、蓝牙、手机操作系统和手环固件等因素影响。我们不保证每一条读数都会被采集、同步或保存；尚未从手环同步的数据可能丢失。",
             "请遵守手环的安全和充电说明。如皮肤出现不适，请停止佩戴。进行核磁共振检查前，以及在禁止携带金属或电子设备的场所，请取下手环。",
         ]),
-        Section(heading: "8. NextBody Pro 订阅", paragraphs: [
-            "手环的核心读数无需订阅即可使用。NextBody Pro 用于开启 AI 功能，是由 Apple 通过 App Store 销售和收费的自动续期订阅。价格、计费周期以及可能提供的免费试用，会在你确认购买前显示在 App Store 中，不同国家或地区可能不同。",
-            "除非你在当期结束前至少 24 小时在 Apple ID 的订阅设置中关闭自动续期，订阅将在每期结束时自动续订。删除 App 或注销账户不会取消 App Store 订阅。免费试用的资格由 Apple 决定；购买订阅后，试用期中未使用的部分即告结束。",
-            "所有付款、取消和退款均由 Apple 按其条款处理。我们不处理你的付款，看不到你的银行卡信息，也无法为 App Store 购买办理退款。在法律允许的范围内，已支付的费用不予退还，包括未满一期或未使用的功能。",
-            "我们可能调整 Pro 包含的内容、使用限制或价格。价格调整遵守 App Store 规则，涨价生效前 Apple 会通知你。",
+        Section(heading: "8. App 使用", paragraphs: [
+            "App、手环读数及 AI 功能无需 App 订阅即可使用。AI 功能仍受合理使用限制。",
+            "如果你曾通过 App Store 订阅，请在 Apple 账户设置中取消自动续费。删除 App 或注销账户不会取消现有订阅。此前的 App Store 费用与退款请联系 Apple。",
         ]),
         Section(heading: "9. 使用规范", paragraphs: [
             "你同意不会：将本服务用于你本人以外的任何人；转售或共享访问权限；复制、抓取、反向工程、反编译或干扰 App、手环固件或我们的服务器（法律明确允许的除外）；使本服务过载、对其进行探测，或绕过其限制、频率限制或安全措施；利用 AI 生成违法、有害、骚扰或侵权内容；利用本服务以专业服务的名义向他人提供医疗、营养或训练建议；或违反任何法律。",
@@ -194,14 +190,14 @@ enum LegalText {
         ]),
         Section(heading: "14. 责任限制", paragraphs: [
             "在法律允许的最大范围内，对于因本服务或本条款引起或与之相关的任何间接、附带、特殊、后果性、惩戒性或惩罚性损害，或任何利润、收入、数据、商誉、健康结果的损失或替代服务的费用，无论基于合同、侵权（包括过失）、产品责任或其他任何理由，即使我们已被告知可能发生此类损害，NextBody 及其关联方、管理人员、员工、承包商、供应商和许可方均不承担责任。",
-            "在法律允许的最大范围内，我们因本服务或本条款引起或与之相关的全部索赔所承担的责任总额，以下列两者中较高者为限：（一）引起索赔的事件发生前 12 个月内你为 NextBody Pro 支付的金额；（二）50 美元。你购买的 HOOP 手环适用商店条款中的责任限制。",
+            "在法律允许的最大范围内，我们因本服务或本条款引起或与之相关的全部索赔所承担的责任总额不超过 50 美元。你购买的 HOOP 手环适用商店条款中的责任限制。",
             "部分国家或地区不允许排除某些保证或限制责任。本条款不排除或限制我们对因我们的过失造成的人身伤亡、欺诈、故意或重大过失造成的财产损失所应承担的责任，也不排除或限制法律规定不得排除或限制的任何其他责任或消费者权利。在这些地区，我们的责任在法律允许的范围内予以最大限度的限制。",
         ]),
         Section(heading: "15. 赔偿", paragraphs: [
             "在法律允许的范围内，对于因你违反本条款、滥用本服务、你的内容，或你违反任何法律或侵犯他人权利而引起的任何索赔、损失、责任、损害、费用或开支（包括合理的律师费），你应为 NextBody 及其关联方、管理人员、员工和承包商进行抗辩、作出赔偿并使其免受损害。",
         ]),
         Section(heading: "16. 协议终止", paragraphs: [
-            "你可以随时停止使用本服务，并在「个人资料 › 数据与法律 › 删除账户」中注销账户。请记得另行在 App Store 中取消 NextBody Pro 订阅。",
+            "你可以随时停止使用本服务，并在「个人资料 › 数据与法律 › 删除账户」中注销账户。如果你此前曾在 App Store 订阅，请另行取消。",
             "如你违反本条款、法律要求我们这样做，或我们停止提供本服务或其中部分功能，我们可以随时暂停或终止你的使用。如我们完全停止本服务，会尽量提前合理通知。第 4、5、6、10 条以及第 12 至 19 条在本协议终止后继续有效。",
         ]),
         Section(heading: "17. 争议解决", paragraphs: [
@@ -228,7 +224,7 @@ enum LegalText {
 
     static let privacyEN: [Section] = [
         Section(heading: "1. Who we are", paragraphs: [
-            "This Privacy Policy explains how NextBody (\"we\", \"us\") collects, uses, shares and protects personal information when you use the NextBody app, your account, NextBody Pro and a paired HOOP band. NextBody is the controller of that information. It also serves as our consumer health data privacy notice. Questions: privacy@nextbody.ai.",
+            "This Privacy Policy explains how NextBody (\"we\", \"us\") collects, uses, shares and protects personal information when you use the NextBody app, your account and a paired HOOP band. NextBody is the controller of that information. It also serves as our consumer health data privacy notice. Questions: privacy@nextbody.ai.",
             "Before the app reads any health data, it shows you a separate consent screen listing exactly what it collects. You can change that decision at any time in Profile › Data & Legal › Collecting health data.",
         ]),
         Section(heading: "2. What we collect", paragraphs: [
@@ -240,7 +236,6 @@ enum LegalText {
             "Voice: when you speak to the app, the audio is streamed to a speech recognition provider to turn it into text. We do not store the recording; we keep the resulting text as part of the conversation or meal.",
             "AI conversations: your messages, the AI's replies, the plans and screens it produces, and facts it remembers about you to personalise later answers, such as preferences or injuries you mention.",
             "Phone motion: step counts from your iPhone's motion sensors, used when the band is out of range, if you allow it.",
-            "Subscription: whether you have NextBody Pro, the product, and its renewal and expiry dates, from Apple via RevenueCat. We never receive your payment card details.",
             "Device and usage: phone model, operating system and app version, band model, firmware version and battery level, a Bluetooth identifier for each paired band, which screens you open, what fails, timings and error reports.",
             "Support: what you send through Report a problem or by email, including screenshots and the app state attached to the report.",
             "Consent records: each consent decision, the version and a fingerprint of the text you saw, the time and the language.",
@@ -248,14 +243,14 @@ enum LegalText {
         ]),
         Section(heading: "3. How we use it", paragraphs: [
             "To provide the Service: sync and store your readings, compute your day, show your history, estimate meals, and run the AI features you use.",
-            "To run subscriptions and daily AI allowances, keep the Service secure, prevent abuse and fraud, and enforce our Terms.",
+            "To run daily AI allowances, keep the Service secure, prevent abuse and fraud, and enforce our Terms.",
             "To support you, fix bugs and improve reliability and features, using usage data and error reports.",
             "To comply with law, respond to lawful requests, and establish or defend legal claims.",
             "We may create aggregated or de-identified information that can no longer reasonably identify you, and use it for any lawful purpose.",
             "We do not sell your personal information, do not use your health data for advertising, do not share it with data brokers, and do not use it to make decisions with legal or similarly significant effects about you.",
         ]),
         Section(heading: "4. Legal bases", paragraphs: [
-            "Where the GDPR, UK GDPR, China's Personal Information Protection Law or similar laws apply, we rely on: your explicit, separate consent for health and other sensitive personal information; the performance of our contract with you to run your account and subscription; our legitimate interests in securing, fixing and improving the Service, which we balance against your rights; and legal obligations.",
+            "Where the GDPR, UK GDPR, China's Personal Information Protection Law or similar laws apply, we rely on: your explicit, separate consent for health and other sensitive personal information; the performance of our contract with you to run your account; our legitimate interests in securing, fixing and improving the Service, which we balance against your rights; and legal obligations.",
             "Where processing is based on consent, you can withdraw it at any time. Withdrawal does not affect processing that already took place.",
         ]),
         Section(heading: "5. Who we share it with", paragraphs: [
@@ -263,8 +258,7 @@ enum LegalText {
             "Supabase: hosting, database, sign-in and file storage, on Amazon Web Services servers in the United States (US West).",
             "AI model providers: xAI (Grok), our primary model, and Alibaba Cloud Model Studio (Qwen), used as a fallback model and for speech recognition and web search. When you use an AI feature, the text of your request, relevant readings, meal photos or audio are sent to them to produce the result. These providers may keep inputs for a limited time under their own terms, for example for abuse monitoring. Web search queries are also passed to the search engines those providers use.",
             "TypeSafe (Jev): when enabled for an AI feature, relevant request text and application context are sent to TypeSafe to select actions or interpret requests. This decision service is separate from the model that writes the answer.",
-            "RevenueCat: purchase and subscription status, linked to your NextBody account identifier so access can be restored across your devices. This identifier is pseudonymous, not anonymous.",
-            "Apple and Google: when you sign in with them, and Apple for App Store purchases and Apple Health.",
+            "Apple and Google: when you sign in with them, and Apple for Apple Health.",
             "GitHub: problem reports you send are filed in our private issue tracker; attached screenshots are stored under an unlisted link.",
             "The HOOP band's software kit runs inside the app on your phone to talk to the band over Bluetooth.",
             "We may also disclose information when required by law or legal process, to protect the rights, property or safety of our users, the public or us, in connection with a merger, acquisition, financing or sale of assets (subject to this Policy), or with your direction or consent.",
@@ -301,7 +295,7 @@ enum LegalText {
 
     static let privacyZH: [Section] = [
         Section(heading: "1. 我们是谁", paragraphs: [
-            "本《隐私政策》说明你使用 NextBody App、你的账户、NextBody Pro 以及已配对的 HOOP 手环时，NextBody（「我们」）如何收集、使用、共享和保护你的个人信息。NextBody 是这些信息的处理者（控制者）。本政策同时作为我们的消费者健康数据隐私声明。如有问题，请写信至 privacy@nextbody.ai。",
+            "本《隐私政策》说明你使用 NextBody App、你的账户及已配对的 HOOP 手环时，NextBody（「我们」）如何收集、使用、共享和保护你的个人信息。NextBody 是这些信息的处理者（控制者）。本政策同时作为我们的消费者健康数据隐私声明。如有问题，请写信至 privacy@nextbody.ai。",
             "在 App 读取任何健康数据之前，会先向你展示一个单独的同意页面，完整列出将收集的内容。你可以随时在「个人资料 › 数据与法律 › 正在采集健康数据」中更改这一决定。",
         ]),
         Section(heading: "2. 我们收集什么", paragraphs: [
@@ -313,7 +307,6 @@ enum LegalText {
             "语音：你对 App 说话时，音频会实时传给语音识别服务商转成文字。我们不保存录音，只保留转写后的文字，作为对话或餐食记录的一部分。",
             "AI 对话：你发送的消息、AI 的回复、AI 生成的计划和页面，以及 AI 为让之后的回答更贴合你而记住的信息（例如你提到的偏好或伤病）。",
             "手机运动数据：经你允许，在手环不在身边时使用 iPhone 运动传感器统计的步数。",
-            "订阅信息：你是否拥有 NextBody Pro、订阅的产品及续期和到期时间，由 Apple 经 RevenueCat 提供给我们。我们从不接触你的银行卡信息。",
             "设备与使用信息：手机型号、操作系统和 App 版本，手环型号、固件版本和电量，每个已配对手环的蓝牙标识符，你打开了哪些页面、哪里出错、耗时和错误报告。",
             "支持信息：你通过「反馈问题」或邮件发送的内容，包括截图和随报告附带的 App 状态信息。",
             "同意记录：你每一次的同意决定、你所看到文本的版本和指纹、时间和语言。",
@@ -321,14 +314,14 @@ enum LegalText {
         ]),
         Section(heading: "3. 我们如何使用", paragraphs: [
             "提供本服务：同步和保存读数、计算你的一天、展示历史记录、估算餐食，以及运行你所使用的 AI 功能。",
-            "管理订阅和每日 AI 额度，保障本服务安全，防范滥用和欺诈，执行我们的条款。",
+            "管理每日 AI 额度，保障本服务安全，防范滥用和欺诈，执行我们的条款。",
             "利用使用数据和错误报告为你提供支持、修复缺陷、改进稳定性和功能。",
             "遵守法律，回应合法要求，以及确立或抗辩法律主张。",
             "我们可能生成汇总或去标识化后无法再合理识别到你的信息，并将其用于任何合法目的。",
             "我们不出售你的个人信息，不将你的健康数据用于广告，不与数据经纪商共享，也不利用它对你作出具有法律效力或类似重大影响的决定。",
         ]),
         Section(heading: "4. 处理依据", paragraphs: [
-            "在适用 GDPR、英国 GDPR、中国《个人信息保护法》或类似法律的情况下，我们的处理依据是：就健康信息及其他敏感个人信息取得你的明示单独同意；为履行与你之间的合同而运行你的账户和订阅；为保障、修复和改进本服务的正当利益（我们会与你的权利进行权衡）；以及履行法定义务。",
+            "在适用 GDPR、英国 GDPR、中国《个人信息保护法》或类似法律的情况下，我们的处理依据是：就健康信息及其他敏感个人信息取得你的明示单独同意；为履行与你之间的合同而运行你的账户；为保障、修复和改进本服务的正当利益（我们会与你的权利进行权衡）；以及履行法定义务。",
             "基于同意的处理，你可以随时撤回同意。撤回不影响撤回前已进行的处理。",
         ]),
         Section(heading: "5. 我们与谁共享", paragraphs: [
@@ -336,8 +329,7 @@ enum LegalText {
             "Supabase：托管、数据库、登录和文件存储，服务器位于美国（美国西部）的亚马逊云服务（AWS）上。",
             "AI 模型服务商：主要模型 xAI（Grok），以及阿里云百炼（通义千问），后者用作备用模型并提供语音识别和网络搜索。你使用 AI 功能时，请求内容、相关读数、餐食照片或音频会发送给这些服务商以生成结果。服务商可能按其自身条款在有限时间内保留输入内容，例如用于滥用监测。网络搜索的查询内容也会传给这些服务商所使用的搜索引擎。",
             "TypeSafe（Jev）：在 AI 功能启用此服务时，相关请求文字及应用上下文会发送给 TypeSafe，用于选择操作或理解请求。它与撰写回答的模型是不同的服务。",
-            "RevenueCat：购买与订阅状态，关联到你的 NextBody 账户标识符，以便在你的设备间恢复使用权限。该标识符是假名化标识，而非不可识别的匿名数据。",
-            "Apple 和 Google：当你通过它们登录时；以及 Apple 用于 App Store 购买和 Apple 健康。",
+            "Apple 和 Google：当你通过它们登录时；以及 Apple 用于 Apple 健康。",
             "GitHub：你提交的问题反馈会记录在我们的私有问题跟踪系统中；附带的截图存储在不公开列出的链接下。",
             "HOOP 手环的软件开发包在你手机上的 App 内运行，用于通过蓝牙与手环通信。",
             "此外，在法律或法律程序要求时，为保护用户、公众或我们的权利、财产或安全时，在合并、收购、融资或资产出售时（仍受本政策约束），或经你指示或同意时，我们也可能披露信息。",

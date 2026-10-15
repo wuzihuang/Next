@@ -8,7 +8,6 @@ struct HomeView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
     @EnvironmentObject private var session: SessionStore
-    @EnvironmentObject private var billing: BillingStore
 
     @StateObject private var ai = AIService.shared
     @StateObject private var adviceAI = AIService()
@@ -278,7 +277,7 @@ struct HomeView: View {
                 .zIndex(3)
             PlusMenuSheet(inline: true, onClose: { closePlus() },
                           onCamera: { openCamera(afterMenu: true) },
-                          onLibrary: { if billing.allowAI() { showPicker = true } })
+                          onLibrary: { showPicker = true })
                 .padding(.horizontal, NB.Layout.gutter - 8)
                 .padding(.top, 10)
                 .padding(.bottom, safe.bottom + 10)
@@ -469,7 +468,6 @@ struct HomeView: View {
         .onDisappear { BandLiveLifecycle.shared.setForegroundWanted(false) }
         .background { NightHomeDiagnosticObserver(metrics: data.today) }
         .task {
-            billing.considerWelcome()
             // DEBUG · 05 edges on a simulator with no microphone story of its own.
             switch DebugEdge.name {
             case "micdenied":   note(DockNote(line: L("MICROPHONE OFF"), text: L("Typing still works.\nTurn the mic on in Settings."), action: L("Open Settings")))
@@ -994,7 +992,6 @@ struct HomeView: View {
     /// REFRESH: the only way to regenerate within the day.
     private func refreshPlan() {
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
-        guard billing.allowAI(surface: "plan") else { return }
         planStore.refresh(day: data.today.day, store: data, ai: adviceAI)
     }
 
@@ -1079,7 +1076,6 @@ struct HomeView: View {
     /// the recorder will not start, the dock stays idle rather than animating over nothing —
     /// which is what it did before there was a recorder at all.
     private func beginListening() {
-        guard billing.allowAI(surface: "asr") else { return }
         let operationID = UUID()
         voiceOperationID = operationID
         Task {
@@ -1122,7 +1118,6 @@ struct HomeView: View {
     /// Simulator / no camera → say so, rather than silently opening the library.
     /// `afterMenu` waits for the plus sheet's dismiss (0.22 s) so the camera cover is not fighting it.
     private func openCamera(afterMenu: Bool = false) {
-        guard billing.allowAI() else { return }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             note(DockNote(line: L("CAMERA UNAVAILABLE"), text: L("Use Photo library from the plus menu.")), clearAfter: 4)
             return
@@ -1178,7 +1173,6 @@ struct HomeView: View {
 
     /// Shutter → prepare → send. No caption step: photographing the meal is the send.
     private func sendFoodPhoto(_ raw: UIImage) async {
-        guard billing.allowAI() else { return }
         withAnimation(.spring(response: 0.24, dampingFraction: 0.72)) { dockNote = nil }
         do {
             guard let payload = AIImagePayload.prepare(raw) else { throw CocoaError(.fileWriteUnknown) }
@@ -1383,7 +1377,6 @@ struct HomeView: View {
         // this side does not ask. The panel is already NOT COLLECTING, and the way back is the
         // consent screen, not a turn.
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
-        guard billing.allowAI() else { return }
         // 05 edge 5 · OFFLINE. The message never leaves the dock: the draft is put back and the
         // capsule says when to try.
         if !reachability.isOnline || DebugEdge.on("offline") {

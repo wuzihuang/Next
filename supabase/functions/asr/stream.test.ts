@@ -52,7 +52,6 @@ async function stream(audioBytes = 32_000, readyBeforeFinish = true) {
     }), {
       authenticate: () => Promise.resolve("test-user"),
       client: () => ({} as never),
-      entitlement: () => Promise.resolve({ allowed: true, introClaimed: false }),
       budget: () => Promise.resolve(null),
       quota: () => Promise.resolve({ allowed: true }),
       transcribe: () => Promise.reject(new Error("file provider must not run")),

@@ -5,6 +5,11 @@
 NextBody-Hoop is a SwiftUI iOS app backed by Supabase Edge Functions and Postgres. The app
 captures health data from a HOOP band, renders one AI-controlled panel on Home, and keeps
 model credentials and tool execution server-side.
+As of 2026-10-15, App AI is available without a Pro subscription: the iOS paywall,
+RevenueCat client, billing Edge Functions and `/turn`/`/asr` entitlement checks were
+removed locally. Authentication, consent and AI quotas remain. Historical billing
+migrations/records are preserved; existing App Store renewals require cancellation
+outside the codebase. The physical HOOP shop is not part of this removal.
 
 ## Architecture
 

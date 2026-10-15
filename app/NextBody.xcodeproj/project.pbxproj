@@ -28,8 +28,6 @@
 		FE0000000000000000000403 /* WidgetFaceMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000402 /* WidgetFaceMath.swift */; };
 		FE0000000000000000000405 /* FuelCardMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000404 /* FuelCardMath.swift */; };
 		FE0000000000000000000407 /* WidgetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000406 /* WidgetBridge.swift */; };
-		FEC000000000000000000001 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = FEC000000000000000000003 /* RevenueCat */; };
-		FEC000000000000000000002 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = FEC000000000000000000004 /* RevenueCatUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -119,8 +117,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				FE0000000000000000000300 /* GoogleSignIn in Frameworks */,
-				FEC000000000000000000001 /* RevenueCat in Frameworks */,
-				FEC000000000000000000002 /* RevenueCatUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -233,8 +229,6 @@
 			name = NextBody;
 			packageProductDependencies = (
 				FE0000000000000000000301 /* GoogleSignIn */,
-				FEC000000000000000000003 /* RevenueCat */,
-				FEC000000000000000000004 /* RevenueCatUI */,
 			);
 			productName = NextBody;
 			productReference = FE0000000000000000000001 /* NextBody.app */;
@@ -311,7 +305,6 @@
 			mainGroup = FE0000000000000000000030;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				FEC000000000000000000005 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 				FE0000000000000000000302 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -717,14 +710,6 @@
 				minimumVersion = 10.0.0;
 			};
 		};
-		FEC000000000000000000005 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
-			requirement = {
-				kind = exactVersion;
-				version = 5.89.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -732,16 +717,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FE0000000000000000000302 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignIn;
-		};
-		FEC000000000000000000003 /* RevenueCat */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = FEC000000000000000000005 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
-			productName = RevenueCat;
-		};
-		FEC000000000000000000004 /* RevenueCatUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = FEC000000000000000000005 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
-			productName = RevenueCatUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

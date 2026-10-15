@@ -1,12 +1,12 @@
 # App Store Connect App Privacy 填写草稿
 
-核验日期：2026-09-22。依据当前 Release 路径代码与 Apple、RevenueCat 官方说明；这是供 ASC 界面填写的草稿，**未在 ASC 保存或发布**。不把不明确的 CLI 枚举伪装成可直接导入的 JSON。上线包行为改变时须同步更新。
+草稿更新：2026-10-15。依据当前本地代码，订阅与 RevenueCat 客户端已移除；这份草稿**未在 ASC 保存或发布**。已上架版本及历史购买数据可能仍需申报，上线前须按实际发布包和第三方保留情况重新核验。
 
 ## 总体回答
 
-- 是否收集数据：**是**，包括 Supabase、AI 服务、RevenueCat 和反馈服务处理的数据。
+- 是否收集数据：**是**，包括 Supabase、AI 服务和反馈服务处理的数据。
 - 下表确定收集的类型均选择 **与用户身份关联：是**：记录使用账号 UUID，无法按匿名数据申报。
-- 跟踪：当前代码未发现跨公司广告定向、广告归因、数据经纪商或 IDFA 使用，草稿均为 **否**。上线前仍需核实 RevenueCat 控制台外部集成，没有代码并不能证明控制台未配置集成。
+- 跟踪：当前代码未发现跨公司广告定向、广告归因、数据经纪商或 IDFA 使用，草稿均为 **否**。上线前仍需核实第三方控制台设置；没有代码不等于没有外部数据处理。
 - 不选择第三方广告、开发者广告/营销、其他用途；目的按各行填写。
 
 ## 可逐项填写的分类
@@ -20,10 +20,9 @@
 | User Content → Photos or Videos / 照片或视频 | App Functionality | 餐食照片保存在私有 `meal-photos`，用户提交的反馈截图保存在 `feedback-images` 并用于 GitHub 工单；`Services/MealPhotoStore.swift`、迁移 `20260921143250_meal_photo_lifecycle.sql`、`functions/feedback/index.ts`。没有视频功能也应选择此合并类别。 |
 | User Content → Customer Support / 客户支持 | App Functionality | 用户反馈标题、正文、截图和设备环境；`Services/FeedbackReport.swift`、`functions/_shared/feedback.ts`。未证明满足 Apple 全部自愿披露豁免条件，按收集申报。 |
 | User Content → Other User Content / 其他用户内容 | App Functionality、Product Personalization | AI 聊天文字、语音转写后提交的文字、用户记忆和偏好、餐食描述；`conversation_messages.content`、`ai_turns.user_text`、`user_memory`、`meals.text_input`。自由文本按本项，不因用户可能自行提及敏感内容就声明所有敏感类别。 |
-| Identifiers → User ID / 用户 ID | App Functionality、Product Personalization、Analytics | Supabase 账号 UUID 关联业务、个性化和分析记录，传给 `Purchases.shared.logIn(userId)`；`Services/AuditTrails.swift`、`Services/Billing/BillingStore.swift`。 |
-| Identifiers → Device ID / 设备 ID | App Functionality | 账号绑定手环的 BLE UUID/设备标识及 APNs token；`devices`、`push_tokens`、`Services/NotificationReach.swift`。这是本产品设备功能所需，不是 RevenueCat 自动要求的 IDFA 声明。 |
-| Purchases → Purchase History / 购买历史记录 | App Functionality、Analytics | RevenueCat 收据验证、产品、订阅有效期与权益、服务端会员快照及仪表板分析；`Services/Billing/BillingStore.swift`、`functions/_shared/billing.ts`。RevenueCat 官方明确要求这两种用途。 |
-| Usage Data → Product Interaction / 产品交互 | Analytics、App Functionality | 页面打开、点击、配对、登录、同意、付费与通知事件；`Services/AuditTrails.swift` 的 `Analytics` 将事件按账号上传 `analytics_events`，业务审计/问题排查也使用操作记录。 |
+| Identifiers → User ID / 用户 ID | App Functionality、Product Personalization、Analytics | Supabase 账号 UUID 关联业务、个性化和分析记录；`Services/AuditTrails.swift`。 |
+| Identifiers → Device ID / 设备 ID | App Functionality | 账号绑定手环的 BLE UUID/设备标识及 APNs token；`devices`、`push_tokens`、`Services/NotificationReach.swift`。 |
+| Usage Data → Product Interaction / 产品交互 | Analytics、App Functionality | 页面打开、点击、配对、登录、同意与通知事件；`Services/AuditTrails.swift` 的 `Analytics` 将事件按账号上传 `analytics_events`，业务审计/问题排查也使用操作记录。 |
 | Diagnostics → Performance Data / 性能数据 | App Functionality、Analytics | AI/界面耗时、配对和扫描耗时、同步耗时；`ai_turns.latency_ms`、`screen_frames.latency_ms`、`sync_runs`、`SCAN_DONE`/`DEV_OTA_END` 事件的 `MS`。 |
 | Diagnostics → Other Diagnostic Data / 其他诊断数据 | App Functionality、Analytics | 同步错误、固件/能力、型号/系统/版本、AI 执行 outcome 与工具调用轨迹；`sync_runs`、`device_capabilities`、`ai_turns`、反馈上下文及失败分析事件。 |
 | Other Data → Other Data Types / 其他数据类型 | App Functionality、Product Personalization | 出生日期、生理性别、时区、语言/单位偏好用于个人档案与建议；`profiles`、`Services/AuditTrails.swift`。健康来源字段同时已在 Health 描述中涵盖。 |
@@ -47,13 +46,12 @@ Apple 的收集定义包括第三方在完成实时请求之后仍可访问的�
 ## 最后核实项
 
 1. DashScope 原始语音的留存/日志设置，按上文确定 Audio Data。
-2. RevenueCat 控制台启用的分析/归因/营销集成及客户属性：若另行发送邮箱、广告 ID 或营销数据，调整用途和跟踪回答。
+2. 核实历史 RevenueCat 记录及已上架版本的购买历史申报；移除本地代码不等于删除既有用户数据或取消 App Store 续费。
 3. 自有 required-reason 清单已补到 `app/NextBody/PrivacyInfo.xcprivacy` 和 `app/NextBodyLiveActivity/PrivacyInfo.xcprivacy`：两者均声明 UserDefaults `CA92.1`（本应用状态）和 `1C8F.1`（WidgetBridge 的 App Group 共享状态）；主应用另声明 SystemBootTime `35F9.1`（同步超时、触觉/长按等应用内计时）。仅声明已证实 API 用途，未用空 CollectedData 数组表示不收集数据。仍需在重新归档后核实两个 bundle 均携带清单，检查 SDK 自带清单和聚合报告；本草稿不替代这些检查。
 4. 反馈图片代码使用公开 bucket URL，GitHub issue 包含账号 UUID；实际仓库可见性及已有图片访问控制需核实，政策应准确披露。不要把这些截图称作只有用户本人可访问，或声称数据库删号自动删除 GitHub 工单。
 
 ## 官方依据
 
 - [Apple App privacy details](https://developer.apple.com/app-store/app-privacy-details/)：披露范围涵盖第三方；实时处理后不保留与仅本机处理适用不同事实前提；关联账号的数据不能按匿名申报；普通自由文本有单独类别。
-- [RevenueCat Apple App Privacy](https://www.revenuecat.com/docs/platform-resources/apple-platform-resources/apple-app-privacy)：购买历史必须申报 App Functionality 和 Analytics；本项目自定义账号 ID 可关联身份；RevenueCat 本身不等于广告跟踪。
 
 文档仅记录类别与代码证据，没有保存用户健康值、账号令牌或服务密钥。

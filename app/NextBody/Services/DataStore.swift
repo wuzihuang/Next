@@ -1399,9 +1399,7 @@ final class SessionStore: ObservableObject {
         // The Keychain copy of the session goes too, or the next launch would restore it
         // straight past the gate.
         Task {
-            async let billingLogout: Void = BillingStore.shared.logOut()
             await SupabaseClient.shared.signOut()
-            await billingLogout
         }
     }
 
@@ -1428,7 +1426,6 @@ final class SessionStore: ObservableObject {
         PlanCheckQueue.shared.purge()
         PlanStore.shared.reset()
         PlanStore.purge(owner: SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId)
-        Task { await BillingStore.shared.logOut() }
         ConsentStore.shared.purge()
         Task { await Analytics.shared.purge() }
 

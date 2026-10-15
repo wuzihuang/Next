@@ -1,5 +1,16 @@
 # NEXTBODY · build status
 
+## 2026-10-15 — Remove app subscription (local code only)
+
+App paywall, RevenueCat integration, purchase/restore UI and billing Edge Functions
+were removed locally. `turn` and `asr` still require authentication, consent and
+their request/AI quotas, but no longer require Pro. Storefront pricing and public
+copy now describe AI as included; support retains instructions for existing App
+Store subscribers to cancel renewal. The physical HOOP shop remains unchanged.
+Applied database migrations and existing subscription records remain untouched.
+This code has not been deployed; App Store subscription products and existing
+renewals are not cancelled by removing source code.
+
 ## AI Coach voice · production release · 2026-09-22
 
 Production `gkgzwcxivnffsecshvfs` now runs `turn` **v107 ACTIVE**, with JWT

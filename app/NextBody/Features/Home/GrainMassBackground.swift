@@ -1,26 +1,8 @@
 import SwiftUI
 import WebKit
 
-/// Originkit's supplied WebGL2 renderer runs locally behind the native paywall.
-/// No remote content, React runtime, account data, or purchase bridge enters this view.
+/// Originkit's WebGL2 renderer runs locally behind the panel's THINKING slot.
 struct GrainMassBackground: UIViewRepresentable {
-    /// Where the mass sits. Framing only — every composition is the same simulation,
-    /// palette and bloom, which is the point of reusing one renderer for both.
-    enum Composition {
-        /// Right half of an opaque dark page, clear of the CTA.
-        case paywall
-        /// Centred, on a transparent ground, for the THINKING slot on the panel.
-        case thinking
-
-        fileprivate var script: String? {
-            switch self {
-            case .paywall: return nil
-            case .thinking: return "window.grainMassConfig={scale:104,offset:[0,0],transparent:true};"
-            }
-        }
-    }
-
-    var composition: Composition = .paywall
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -29,14 +11,9 @@ struct GrainMassBackground: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        if let script = composition.script {
-            configuration.userContentController.addUserScript(
-                WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
-        webView.backgroundColor = composition == .paywall
-            ? UIColor(red: 13 / 255, green: 17 / 255, blue: 20 / 255, alpha: 1) : .clear
+        webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = webView.backgroundColor
         webView.scrollView.isScrollEnabled = false
         webView.isUserInteractionEnabled = false

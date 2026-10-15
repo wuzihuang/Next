@@ -122,7 +122,6 @@ function harness(rows: Record<string, unknown[]> = FUEL_ROWS, overrides: Partial
     client: () => db as never,
     budget: () => Promise.resolve(null),
     quota: () => Promise.resolve({ allowed: true, remaining: 9 }),
-    entitlement: () => Promise.resolve({ allowed: true as const, introClaimed: false }),
     spend: () => Promise.resolve(true),
     streamText: () => { throw new Error("the fast route must not call a general model"); },
     generateObject: () => { throw new Error("the fast route must not call a general model"); },

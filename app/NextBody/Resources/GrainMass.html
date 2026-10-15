@@ -17,14 +17,10 @@ body{background:radial-gradient(ellipse at 62% 63%,#343340 0%,#1c1837 16%,#0d111
 'use strict';
 // Grain Mass — Originkit. Adapted from the user-supplied component for a local
 // native background. Same simulation, lighting, palette, bloom, and mobile count.
-// Paywall composition: scale 120, center (62%, 63%), faster entrance.
 // Original material preset: density 9, fray 9, tilt 45, grainSize 1.5, glow 10,
 // rotateSpeed 10, boil 10, recover 1.3, lifecycle false. Touch was excluded upstream.
-// A host may inject `window.grainMassConfig` before this runs to recompose the same
-// mass elsewhere (THINKING centres it on a transparent ground). Only framing changes:
-// the simulation, palette, lighting and bloom are shared, so both read as one object.
-const CONFIG = Object.assign({scale: 120, offset: [0.24, -0.26], transparent: false},
-                             window.grainMassConfig || {});
+// Centred on a transparent ground behind the panel's THINKING state.
+const CONFIG = {scale: 104, offset: [0, 0], transparent: true};
 const MASS_SCALE = CONFIG.scale;
 const BOOT_SECONDS = 2.0;
 const VS_QUAD = `#version 300 es
@@ -129,7 +125,7 @@ void main() {
     vec3 p = texelFetch(uPos, tc, 0).xyz;
     vec4 seed = texelFetch(uSeed, tc, 0);
     gl_Position = uViewProj * vec4(uRot * p, 1.0);
-    // Paywall: fill the right half, lifting the mass clear of the CTA.
+    // Keep the mass centred in the panel.
     gl_Position.xy += vec2(${CONFIG.offset[0].toFixed(4)}, ${CONFIG.offset[1].toFixed(4)}) * gl_Position.w;
     float sizeJitter = 0.70 + 0.62 * seed.w;
     gl_PointSize = clamp(uPointScale * sizeJitter / max(gl_Position.w, 0.01), 1.0, 48.0);

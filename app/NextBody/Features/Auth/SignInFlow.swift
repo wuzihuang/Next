@@ -360,13 +360,7 @@ struct SignInFlow: View {
     private func finish() {
         session.email = email
         session.isSignedIn = true
-        Task {
-            if let userId = await SupabaseClient.shared.currentUserId {
-                await BillingStore.shared.identify(userId: userId)
-                guard SupabaseClient.currentUserIdSnapshot() == userId else { return }
-            }
-            session.stage = nextStage
-        }
+        session.stage = nextStage
     }
 }
 

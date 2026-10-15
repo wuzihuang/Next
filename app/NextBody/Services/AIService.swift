@@ -501,14 +501,6 @@ final class AIService: ObservableObject {
                    let raw = fields?["tool_request"] as? [String: Any], let request = PhoneToolRunner.Request(raw) {
                     return .suspended(request)
                 }
-                if status == 402 || lastErrorCode == "SUBSCRIPTION_REQUIRED" {
-                    guard SupabaseClient.currentUserIdSnapshot() == requestOwner else { return .failed(nil) }
-                    lastErrorCode = "SUBSCRIPTION_REQUIRED"
-                    lastError = L("NextBody Pro is required for AI.")
-                    BillingStore.shared.handleServerDenial(introClaimed: fields?["intro_claimed"] as? Bool,
-                        presentCard: surface != "plan", surface: surface)
-                    return .failed(nil)
-                }
                 if status == 429 {
                     lastErrorCode = "RATE_LIMITED"
                     lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
@@ -650,11 +642,6 @@ final class AIService: ObservableObject {
         case .text(let text): return .text(text)
         case .silence: return .silence
         case .failed(let reason):
-            if reason == "SUBSCRIPTION_REQUIRED" {
-                lastErrorCode = reason
-                lastError = L("NextBody Pro is required for AI.")
-                BillingStore.shared.handleServerDenial(introClaimed: nil, presentCard: true, surface: "asr")
-            }
             return .failed(reason)
         }
     }
@@ -690,12 +677,7 @@ final class AIService: ObservableObject {
             guard SupabaseClient.currentUserIdSnapshot() == requestOwner else { return .failed("CANCELLED") }
             if case SupabaseClient.Failure.http(let status, let body) = error {
                 let fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
-                if status == 402 || fields?["error"] as? String == "SUBSCRIPTION_REQUIRED" {
-                    lastErrorCode = "SUBSCRIPTION_REQUIRED"
-                    lastError = L("NextBody Pro is required for AI.")
-                    BillingStore.shared.handleServerDenial(introClaimed: fields?["intro_claimed"] as? Bool,
-                        presentCard: true, surface: "asr")
-                } else if status == 429 {
+                if status == 429 {
                     lastErrorCode = "RATE_LIMITED"
                     lastError = (fields?["fallback_frame"] as? [String: Any])?["sentence"] as? String
                         ?? L("Your AI allowance is unavailable. Please try again later.")

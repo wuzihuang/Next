@@ -79,6 +79,8 @@ final class BackgroundRefresh {
         // The system gives a few seconds' notice. Cancel the pull so the BLE and upload
         // awaits unwind, and close the task ourselves rather than wait for them to.
         task.expirationHandler = {
+            let stage = BandSyncDiagnostics.currentStage()
+            NightDiagnostics.shared.record("background.expired", fields: ["stage": stage])
             work.cancel()
             completion.finish(success: false)
         }
@@ -94,7 +96,10 @@ final class BackgroundRefresh {
             log.notice("background refresh · no session")
             return false
         }
-        let result = await OriginDataSync.refreshNow(into: store, request: .background)
+        let result = await OriginDataSync.refreshNow(into: store, request: .background, onTodayReady: {
+            WidgetGlancePublisher.publish(from: store)
+            HomeSnapshot.save(from: store)
+        })
         log.notice("background pull status=\(result.status.rawValue, privacy: .public) points=\(result.points)")
         guard !Task.isCancelled else { return false }
         await Repository.shared.flushPendingEvidence()

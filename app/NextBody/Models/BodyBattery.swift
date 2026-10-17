@@ -42,15 +42,22 @@ enum BodyBattery {
         bands.first { $0.range.contains(max(0, min(100, wake))) } ?? bands[0]
     }
 
-    /// Descriptive bands for points gained overnight, shared by every entry.
-    /// These are absolute amounts, not personal baselines or claims of a full battery.
-    static func chargeWord(_ delta: Int) -> String {
-        switch delta {
-        case ..<20:  return "LIGHT CHARGE"
-        case ..<32:  return "MODERATE CHARGE"
-        case ..<45:  return "STRONG CHARGE"
-        default:     return "VERY STRONG CHARGE"
+    /// Morning and current readiness. Lime stays the colour for every tier.
+    static func tierWord(_ value: Int) -> String {
+        switch value {
+        case 80...: return "READY"
+        case 65...: return "STEADY"
+        case 50...: return "MODERATE"
+        default:    return "RECOVER"
         }
+    }
+
+    static func standbyLine(current: Int, morning: Int) -> String {
+        L("\(tierWord(current)) · MORNING %d", morning)
+    }
+
+    static func overnightLine(delta: Double, morning: Int) -> String {
+        L("OVERNIGHT %@ · \(tierWord(morning))", Fmt.signed(delta))
     }
 
 }

@@ -12,7 +12,7 @@ import Foundation
 enum MetricNames {
     /// Was "Recovery" until F0 §02 renamed it. 08's card reads BODY BATTERY DECIDES IT because
     /// of that rename, and nothing may reintroduce the old word.
-    static var bodyBattery: String { L("BODY BATTERY") }
+    static var bodyBattery: String { L("READINESS") }
 
     /// Was "Strain". The full name is the metric; `training` is the short form board 04 prints
     /// on the 174 × 136 card, where the long one does not fit. Two spellings of one concept,

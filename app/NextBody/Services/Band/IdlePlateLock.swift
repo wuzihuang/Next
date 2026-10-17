@@ -141,7 +141,7 @@ public enum IdlePlateLock: Sendable {
         _ = reaching
         _ = noContact
         _ = bpm
-        if let r = reserve, r <= 25, let wake = wakeReserve, r < wake {
+        if let r = reserve, r <= 35, let wake = wakeReserve, wake - r >= 15 {
             return .lowReserve
         }
         if let p = bandPercent, p <= 15, !charging {

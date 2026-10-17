@@ -79,11 +79,11 @@ export function batteryFallback(level: number | null, locale = "en-US"): Envelop
   const en = locale.startsWith("en");
   return {
     type: "battery",
-    title: "BODY BATTERY",
+    title: en ? "READINESS" : "准备度",
     sentence: level === null
       ? (en ? "No night on record yet." : "还没有可用的夜间数据。")
       : (en ? `${level} right now.` : `现在 ${level}。`),
-    data: { level, unit: "%" },
+    data: { level, unit: "" },
     ttl_min: 20,
     priority: "normal",
     locale: en ? "en-US" : "zh-CN",

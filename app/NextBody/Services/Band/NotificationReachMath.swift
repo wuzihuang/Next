@@ -163,7 +163,8 @@ enum NotificationReachMath: Sendable {
     static let away: TimeInterval = 4 * 3600
     static let morningRequestId = NotifyKind.morning.requestId
     static let budget = 4
-    static let reserveLine = 25
+    static let reserveLine = 35
+    static let reserveBelowMorning = 15
     static let bandPercentLine = 15
     static let bandBarsLine = 1
     static let trainingReserveFraction = 0.6
@@ -264,13 +265,12 @@ enum NotificationReachMath: Sendable {
             }
         }
 
-        if s.energyOn, !s.delivered.contains(.reserve), s.reserveFresh, let nowR = s.reserveNow {
-            let wake = s.bbWake ?? s.dayHighReserve
-            if let wake, nowR <= reserveLine, nowR < wake {
-                let high = max(s.dayHighReserve ?? nowR, s.prevReserve ?? nowR, wake)
-                if high > reserveLine {
-                    cands.append(Cand(kind: .reserve, at: s.now, mealSlot: nil, weekly: false))
-                }
+        if s.energyOn, !s.delivered.contains(.reserve), s.reserveFresh, let nowR = s.reserveNow,
+           let wake = s.bbWake, nowR <= reserveLine, wake - nowR >= reserveBelowMorning {
+            let prev = s.prevReserve
+            let already = prev != nil && prev! <= reserveLine && wake - prev! >= reserveBelowMorning
+            if !already {
+                cands.append(Cand(kind: .reserve, at: s.now, mealSlot: nil, weekly: false))
             }
         }
 

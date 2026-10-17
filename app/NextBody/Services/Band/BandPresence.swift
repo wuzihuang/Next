@@ -223,7 +223,10 @@ final class BandSyncActivity: ObservableObject {
         return prefix + L(workflow.stage.label)
     }
 
-    func show(_ stage: BandSyncProgress.Stage) { workflow.show(stage) }
+    func show(_ stage: BandSyncProgress.Stage) {
+        workflow.show(stage)
+        BandSyncDiagnostics.setStage(workflow.stage.rawValue)
+    }
     func beginHistory() { workflow.beginHistory() }
     func failed(_ error: Error) {
         if case BandError.timeout = error { failureLine = L("SYNC TIMED OUT · RETRY") }
@@ -239,6 +242,7 @@ final class BandSyncActivity: ObservableObject {
     func resultsLoaded() { workflow.resultsLoaded() }
     func complete(success: Bool) {
         workflow.finish(success: success)
+        BandSyncDiagnostics.setStage(workflow.stage.rawValue)
         if success { failureLine = nil }
         else if failureLine == nil { failureLine = L("Sync did not complete. Tap Sync to try again.") }
         phase = "idle"

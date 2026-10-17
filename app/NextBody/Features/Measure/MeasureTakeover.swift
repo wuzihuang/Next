@@ -1027,9 +1027,9 @@ struct MeasureTakeover: View {
             let bb = data.bodyBatteryNow ?? data.today.bbWake ?? 0
             let yesterday = data.history.last(where: { $0.day < data.today.day })?.bbWake
             var w = PanelWidget(
-                type: .wave, title: L("BODY BATTERY"), tag: .recover,
+                type: .wave, title: MetricNames.bodyBattery, tag: .recover,
                 sentence: bb < 60 ? L("You're still carrying yesterday. Keep it easy today.")
-                                  : L("Charged and steady. Today can take the session."),
+                                  : L("Steady enough. Today can take the session."),
                 footer: L("HR %d · HRV %@ · STRESS %@",
                           hr,
                           hrv.map { "\($0) MS" } ?? "——",
@@ -1038,11 +1038,11 @@ struct MeasureTakeover: View {
                 data: .trace(samples: Self.ecgTrace(hr: hr), hz: 50))
             w.hero = "\(bb)"
             w.heroLarge = true
-            w.heroSub = yesterday.map { L("BODY BATTERY · WAS %d YESTERDAY", $0) } ?? L("BODY BATTERY")
+            w.heroSub = yesterday.map { L("READINESS · WAS %d YESTERDAY", $0) } ?? MetricNames.bodyBattery
             w.accentOverride = NB.lime1     // 06 · 16 · lime, not the ECG warning red
             // 06 · 17 · the tap turns the reading into a question for her.
             w.replyPrompt = L("Just measured: HR %d, HRV %@ ms, stress %@", hr, hrv.map(String.init) ?? "——", stress.map(String.init) ?? "——")
-                + (yesterday.map { L(", battery %d yesterday", $0) } ?? "")
+                + (yesterday.map { L(", readiness %d yesterday", $0) } ?? "")
                 + L(". What should today look like?")
             return w
         case .pulseStudy(let study):

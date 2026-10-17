@@ -384,8 +384,8 @@ enum NotificationReach {
             content.title = weekly ? L("THIS WEEK") : L("TODAY")
             content.body = wrapBody(today: m)
         case .reserve:
-            content.title = L("BODY BATTERY")
-            content.body = L("Reserve is low.")
+            content.title = L("READINESS")
+            content.body = L("Readiness is low.")
         case .bandBattery:
             content.title = L("HOOP")
             content.body = L("Charge HOOP.")

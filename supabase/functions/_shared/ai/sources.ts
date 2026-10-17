@@ -189,7 +189,7 @@ export const SOURCES: Source[] = [
     fetch: intraday("stress", ""),
   },
   {
-    id: "bodyBattery.today", kind: "curve", says: "今天的 BODY BATTERY 曲线：夜里充、白天放（0–100）",
+    id: "bodyBattery.today", kind: "curve", says: "今天的准备度曲线，0–100，不是百分比",
     async fetch(ctx) {
       const { start, end } = dayBounds(ctx.dayKey, ctx.tz);
       const { data, error } = await ctx.db.from("reserve_samples").select("ts, value")
@@ -251,7 +251,7 @@ export const SOURCES: Source[] = [
     },
   },
   ...dailySeries("trainingLoad", "TRAINING LOAD", "", [7, 30]),
-  ...dailySeries("bodyBattery", "BODY BATTERY", "%", [7, 30]),
+  ...dailySeries("bodyBattery", "READINESS", "", [7, 30]),
   ...dailySeries("intakeKcal", "EATEN", "kcal", [7, 30]),
   {
     id: "deltaKcal.7d", kind: "column", says: "最近 7 天每天吃进减消耗（kcal，有正有负）",
@@ -386,13 +386,13 @@ export const SOURCES: Source[] = [
     },
   },
   {
-    id: "battery.now", kind: "arc", says: "此刻的 BODY BATTERY，0–100",
+    id: "battery.now", kind: "arc", says: "此刻的准备度，0–100，不要百分号",
     async fetch(ctx) {
       const rows = await dayRows(ctx, ctx.dayKey, ctx.dayKey);
       const rd = one(rows?.[0]?.reserve_daily);
       const v = rd?.current_value ?? rows?.[0]?.reserve_score ?? null;
       if (v == null) return null;
-      return { data: { kind: "arc", value: v, goal: 100, unit: "%" }, agg: { value: v, goal: 100, left: r1(100 - v), wake: rd?.wake_value ?? null, min: rd?.min_value ?? null, sinceWake: rd?.wake_value != null ? v - rd.wake_value : null }, hero: `${v}`, unit: "%", window: "NOW" };
+      return { data: { kind: "arc", value: v, goal: 100, unit: "" }, agg: { value: v, goal: 100, left: r1(100 - v), wake: rd?.wake_value ?? null, min: rd?.min_value ?? null, sinceWake: rd?.wake_value != null ? v - rd.wake_value : null }, hero: `${v}`, unit: "", window: "NOW" };
     },
   },
   {

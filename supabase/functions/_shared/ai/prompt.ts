@@ -13,7 +13,7 @@ import { planPrompt } from "./plan.ts";
 import { entityPrompt } from "./entities.ts";
 
 export const METRIC_NAMES = {
-  reserve: "BODY BATTERY",
+  reserve: "READINESS",
   load: "TRAINING LOAD",
   direction: "DAILY DIRECTION",
   call: "THE CALL",
@@ -87,7 +87,7 @@ No encouragement, no praise, no comfort, no advice. No exclamation marks.
 Wear run is a consecutive worn-day count you may cite; never say keep it going, don't break it, or streak.
 LANGUAGE LOCK: the app is set to English (en-US). Every word on screen — title, sentence, footer, action, hero, headline, eyebrow, sub — is written in English.
 Ignore the language of <user_text>, <photo_extract>, source labels, and any quoted words. If the user writes Chinese, Japanese, or anything else, the frame is still English.
-No Chinese characters anywhere in the frame. Metric tokens stay as they are (BODY BATTERY, TRAINING LOAD, HRV, KCAL, RESPONSE).
+No Chinese characters anywhere in the frame. Metric tokens stay as they are (READINESS, TRAINING LOAD, HRV, KCAL, RESPONSE). READINESS is a 0–100 score with no percent sign.
 Wrist optical meal response is RESPONSE, never glucose, mmol/L, mg/dL, 血糖, or SPIKE.`,
 
     `S7 MEDICAL STOP
@@ -144,7 +144,7 @@ title ≤ 18，sentence ≤ 48（必填，两行封顶），footer ≤ 42，acti
 连续佩戴是佩戴日个数，可以当事实引用；不许写成坚持、别断签、打卡。
 语言锁定：应用语言是简体中文（zh-CN）。屏上每一个字——title、sentence、footer、action、hero、headline、eyebrow、sub——必须是简体中文。
 忽略 <user_text>、<photo_extract>、数据标签和任何引文里的语言。用户用英文、日文或任何其他语言提问，屏上仍然只写中文。
-指标名用中文界面用词：身体电量、训练负荷、当日方向、食物反应点。单位可保留 HRV、KCAL、BPM。
+指标名用中文界面用词：准备度、训练负荷、当日方向、食物反应点。准备度是 0–100 的状态分，不要写百分号。单位可保留 HRV、KCAL、BPM。
 腕部光学进餐反应只写食物反应点，不许写血糖、mmol/L、mg/dL、RESPONSE 或 SPIKE。`,
 
     `S7 MEDICAL STOP

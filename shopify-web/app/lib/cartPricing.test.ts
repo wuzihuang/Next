@@ -23,6 +23,7 @@ function loadServerModule(url: URL): any {
     compilerOptions: {allowJs: true, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020},
   }).outputText;
   const require = (specifier: string) => {
+    if (specifier === 'react-router') return {data: (value: any, options: any) => ({value, ...options}), redirect: (url: string, options: any) => ({url, ...options})};
     assert.ok(specifier.startsWith('.'), `Unexpected external dependency ${specifier}`);
     return loadServerModule(new URL(/\.[jt]s$/.test(specifier) ? specifier : `${specifier}.ts`, url));
   };
@@ -89,15 +90,15 @@ function themeFixture(cart: pricing.CartState, checkout = false) {
 }
 
 const fixtures = [
-  {name: '$99 HOOP with TEST10 retains cents and qualifies for free shipping',
+  {name: 'discounts are pending Shopify verification and shipping estimate retains existing rules',
     cart: {lines: [{variantId: 'hoop-black', quantity: 1}], discountCode: ' test10 '},
-    expected: {quantity: 1, subtotal: 99, discount: 9.9, shipping: 0, total: 89.1}},
+    expected: {quantity: 1, subtotal: 99, discount: 0, shipping: 0, total: 99}},
   {name: 'smaller carts pay the flat shipping rate',
     cart: {lines: [{variantId: 'small-black', quantity: 1}]},
     expected: {quantity: 1, subtotal: 19, discount: 0, shipping: 8, total: 27}},
-  {name: 'fractional prices round the complete discount to a cent',
+  {name: 'fractional prices retain cents without claiming unverified discounts',
     cart: {lines: [{variantId: 'fraction-black', quantity: 1}], discountCode: 'TEST10'},
-    expected: {quantity: 1, subtotal: 19.95, discount: 2, shipping: 8, total: 25.95}},
+    expected: {quantity: 1, subtotal: 19.95, discount: 0, shipping: 8, total: 27.95}},
   {name: 'unknown codes do not reduce the quote',
     cart: {lines: [{variantId: 'hoop-black', quantity: 1}], discountCode: 'NOPE'},
     expected: {quantity: 1, subtotal: 99, discount: 0, shipping: 0, total: 99}},
@@ -145,15 +146,46 @@ for (const runtime of ['source', 'theme asset']) {
   });
 }
 
-test('both persisted test orders use the same confirmed cart quote', () => {
-  const cart = fixtures[0].cart;
-  const theme = themeFixture(cart, true);
-  theme.submit();
-  const order = theme.bag().orders[0];
-  const hydrogen = server.createOrder({account: {email: 'test@example.com', name: 'Test'}, cart, cardLast4: '4242'});
-  assert.equal(order.total, 89.1);
-  assert.equal(order.total, hydrogen.totals.total);
-  assert.equal(order.last4, hydrogen.cardLast4);
-  assert.equal(theme.bag().lines.length, 0);
-  assert.match(theme.redirect(), /^\/cart\?complete=1&order=NB-/);
+test('checkout never accepts card details or fabricates a local payment confirmation', () => {
+  const theme = themeFixture({lines: [{variantId: 'hoop-black', quantity: 1}]}, true);
+  assert.ok(!theme.html().includes('name="card"'));
+  assert.ok(theme.html().includes('Shopify'));
+  assert.equal(theme.bag().orders.length, 0);
+});
+
+test('server checkout validates Shopify catalog and cart before a 303 redirect', async () => {
+  const actions = loadServerModule(new URL('shopActions.server.ts', lib));
+  const stored = {lines: [{variantId: 'hoop-black', quantity: 2}], discountCode: 'SAVE10'};
+  const session = {get: (key: string) => key === 'nb_cart' ? JSON.stringify(stored) : undefined, isPending: false};
+  const request = new Request('https://nextbody.ai/checkout', {method: 'POST'});
+  const validCatalog = {shop: {primaryDomain: {url: 'https://nextbody.ai'}}, product: {variants: {nodes: [{id: 'gid://shopify/ProductVariant/123', title: 'Black', availableForSale: true, price: {amount: '99.00', currencyCode: 'USD'}}]}}};
+  const validResult = {cartCreate: {cart: {checkoutUrl: 'https://nextbody.ai/checkouts/abc', lines: {nodes: [{quantity: 2, merchandise: {id: 'gid://shopify/ProductVariant/123'}}]}}, userErrors: [], warnings: []}};
+  let input: any;
+  const context = (catalog = validCatalog, result = validResult) => ({session, env: {PUBLIC_STORE_DOMAIN: 'nextbody.myshopify.com'}, storefront: {
+    CacheNone: () => ({mode: 'no-store'}), query: async () => catalog,
+    mutate: async (_query: any, options: any) => {input = options.variables.input; return result;},
+  }});
+  const success = await actions.handleCheckoutAction(request, context());
+  assert.equal(success.url, 'https://nextbody.ai/checkouts/abc');
+  assert.equal(success.status, 303);
+  assert.equal(success.headers.get('Cache-Control'), 'no-store');
+  assert.deepEqual(input.lines, [{merchandiseId: 'gid://shopify/ProductVariant/123', quantity: 2}]);
+  assert.deepEqual(input.discountCodes, ['SAVE10']);
+  for (const catalog of [{}, {product: null}, {product: {variants: {nodes: [null]}}}, {product: {variants: {nodes: [{title: 'Black', availableForSale: false}]}}}]) {
+    assert.equal((await actions.handleCheckoutAction(request, context(catalog as any))).status, 503);
+  }
+  for (const result of [{}, {cartCreate: {cart: null, userErrors: []}}, {cartCreate: {cart: validResult.cartCreate.cart, userErrors: [{message: 'Unavailable'}]}}, {cartCreate: {...validResult.cartCreate, cart: {...validResult.cartCreate.cart, checkoutUrl: 'https://evil.com/checkout'}}}, {cartCreate: {...validResult.cartCreate, warnings: [{code: 'MERCHANDISE_NOT_ENOUGH_STOCK'}]}}, {cartCreate: {...validResult.cartCreate, cart: {...validResult.cartCreate.cart, lines: {nodes: []}}}}]) {
+    assert.equal((await actions.handleCheckoutAction(request, context(validCatalog, result as any))).status, 503);
+  }
+  for (const method of ['query', 'mutate']) {
+    const broken = context();
+    broken.storefront[method] = async () => {throw new Error('Shopify unavailable');};
+    assert.equal((await actions.handleCheckoutAction(request, broken)).status, 503);
+  }
+  assert.equal((await actions.handleCheckoutAction(request, {session, env: {}})).status, 503);
+  assert.equal(JSON.parse(session.get('nb_cart')!).lines[0].quantity, 2);
+});
+
+test('legacy browser and server test orders are never exposed as real orders', () => {
+  assert.deepEqual(server.readOrders({get: () => JSON.stringify([{id: 'old', status: 'paid_test'}])}), []);
 });

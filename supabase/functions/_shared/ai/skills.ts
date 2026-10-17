@@ -36,7 +36,7 @@ export const CHART_SKILLS: ChartSkill[] = [
   {
     type: "metric", family: "number", shape: "ANY SCALAR",
     use: "用户问的是此刻的一个数（心率现在多少、体重多少、今天吃了多少、手环还剩多少电）。",
-    avoid: "这个数有满值或目标时用 ring；问的是「怎么变」时用 line；身体电量用 battery。",
+    avoid: "这个数有满值或目标时用 ring；问的是「怎么变」时用 line；准备度用 battery。",
     sources: [],
     copy: "value 只写数字与单位，来自本轮读到的值；label 写指标名；ref 写参照（+4 VS RHR 52）。手环电量：value 取 availability.device.battery_percent，unit 写 %，label 写手环电量，ref 写充电中 / 未充电；只陈述，不写偏低 / 该充了。",
     target: "profile",
@@ -51,7 +51,7 @@ export const CHART_SKILLS: ChartSkill[] = [
   },
   {
     type: "line", family: "curve", shape: "TIME SERIES",
-    use: "问的是一天之内或一段日子里某个指标怎么变：心率、压力、BODY BATTERY 曲线、体重走势、负荷/电量/摄入的 7–30 天趋势。",
+    use: "问的是一天之内或一段日子里某个指标怎么变：心率、压力、准备度曲线、体重走势、负荷或摄入的 7–30 天趋势。",
     avoid: "只有一个数时用 metric；一周里逐天比较用 days；两条线对照用 dual。",
     sources: ["heart.today", "stress.today", "bodyBattery.today", "trainingLoad.7d", "trainingLoad.30d", "bodyBattery.7d", "bodyBattery.30d", "intakeKcal.7d", "intakeKcal.30d", "weight.30d", "weight.90d", "hrv.7d"],
     copy: "title 写「指标 · 窗口」；sentence 说形状（一个高峰、平了、往下走），footer 放 min/max/mean。",
@@ -116,7 +116,7 @@ export const CHART_SKILLS: ChartSkill[] = [
   {
     type: "ring", family: "arc", shape: "GOAL PROGRESS",
     use: "一个数对它的满值或目标：TRAINING LOAD 对 21、蛋白质对目标、热量对目标。",
-    avoid: "没有目标的数用 metric；BODY BATTERY 用 battery。",
+    avoid: "没有目标的数用 metric；准备度用 battery。",
     sources: ["load.today", "protein.today", "kcal.today"],
     copy: "sentence 写「X 的 Y」或还差多少；footer 写目标从哪来。",
     target: "training",
@@ -130,11 +130,11 @@ export const CHART_SKILLS: ChartSkill[] = [
     target: "bodyBattery",
   },
   {
-    type: "battery", family: "arc", shape: "BODY BATTERY",
-    use: "问的是 BODY BATTERY 此刻多少、或者没有更好的判断时的回落帧。",
+    type: "battery", family: "arc", shape: "READINESS",
+    use: "问的是准备度此刻多少、或者没有更好的判断时的回落帧。不要写百分号。",
     avoid: "问一天怎么充放用 line + bodyBattery.today。",
     sources: ["battery.now"],
-    copy: "title 固定「身体电量」；sentence 写「现在 N」；footer 写醒来时的值。",
+    copy: "title 固定「准备度」；sentence 写「现在 N」；footer 写晨间准备度。不要写百分号。",
     target: "bodyBattery",
   },
   {
@@ -315,7 +315,7 @@ export function chartChoicePrompt(en = true): string {
     ? [
       "S11 CHART CHOICE",
       "Series charts are drawn with screen.render {type, source}; text, food and metric have their own tools (screen.render.text / food / metric). Read the numbers first, then pick a chart that matches the question's shape:",
-      "· one number now → metric (the band's own battery % from availability.device too); a number against a target → ring; 0–100 with zones → gauge; BODY BATTERY now → battery",
+      "· one number now → metric (the band's own battery % from availability.device too); a number against a target → ring; 0–100 with zones → gauge; READINESS now → battery, with no percent sign",
       "· change inside a day or across tens of days → line; day-by-day for a week → days; amounts by hour → bars",
       "· daily high and low → band; week × hour pattern → heat; signed changes → delta; two trends → dual",
       "· training: zone minutes → zones; today's load makeup → workout / table; what happened today → events",
@@ -330,7 +330,7 @@ export function chartChoicePrompt(en = true): string {
     : [
       "S11 CHART CHOICE",
       "序列图用 screen.render {type, source} 画；text、food、metric 各有自己的工具（screen.render.text / food / metric）。先用读工具拿到数字，再按问题的形状选图：",
-      "· 此刻一个数 → metric（手环自己的电量也是，取 availability.device）；一个数对满值/目标 → ring；0–100 带分区 → gauge；身体电量此刻 → battery",
+      "· 此刻一个数 → metric（手环自己的电量也是，取 availability.device）；一个数对满值/目标 → ring；0–100 带分区 → gauge；准备度此刻 → battery，不要写百分号",
       "· 一天之内或几十天里怎么变 → line；一周逐天比较 → days；一天里分时段的量 → bars",
       "· 每天高低两条边 → band；一周×时段的规律 → heat；有正有负的逐次变化 → delta；两条趋势对照 → dual",
       "· 训练：区间分钟 → zones；今天负荷的构成 → workout / table；今天发生了什么 → events",

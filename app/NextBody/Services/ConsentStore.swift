@@ -140,7 +140,7 @@ enum ConsentCopy {
                  why: "Staging, duration, night HRV and overnight automatic oxygen from the night the band recorded. From these HOOP settles one sleep score for the night, out of four parts \u{2014} how long you slept, the structure of it, how your body recovered, and how close to your usual hour you went to bed. The score is computed on our server and can be recomputed; it is not a medical assessment."),
             Item(name: "Body composition — 14 measures from the band's bioimpedance sensor",
                  why: "Body fat, muscle, water, bone, protein, metabolic rate and more. Only when you start a measurement yourself. Never in the background."),
-            Item(name: "Skin temperature", why: "One hidden input to Body Battery. It is never shown as a number."),
+            Item(name: "Skin temperature", why: "One hidden input to readiness. It is never shown as a number."),
             Item(name: "Wrist optical meal response",
                  why: "Shown as RESPONSE, a unitless index versus your own daytime median. It is not a blood test."),
         ]),

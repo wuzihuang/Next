@@ -117,11 +117,11 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'Twelve signals', zh: '十二种数据'},
         body: {
           en: [
-            'Body battery, training load, and sleep run the day. Heart, blood oxygen, stress, temperature, calories, steps, distance, and active energy sit on the instruments. Composition is a scan you start yourself.',
+            'Readiness, training load, and sleep run the day. Heart, blood oxygen, stress, temperature, calories, steps, distance, and active energy sit on the instruments. Composition is a scan you start yourself.',
             'Night HRV lives on Sleep. There is no blood pressure. There is no ECG.',
           ],
           zh: [
-            '身体电量、训练负荷和睡眠管住一天。心率、血氧、压力、温度、热量、步数、距离和活动能量在仪表上。身体成分是一次由你发起的扫描。',
+            '准备度、训练负荷和睡眠管住一天。心率、血氧、压力、温度、热量、步数、距离和活动能量在仪表上。身体成分是一次由你发起的扫描。',
             '夜间 HRV 归在睡眠里。不测血压。不做心电图。',
           ],
         },
@@ -143,11 +143,11 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'What the numbers are for', zh: '这些数字用来做什么'},
         body: {
           en: [
-            'Body battery is a budget: what the night put in, what the day has taken out. Training load is what you already spent. Sleep is the night scored on its own terms, not against a stranger.',
+            'Readiness is how much load your body can take right now. Training load is what you already spent. Sleep is the night scored on its own terms, not against a stranger.',
             'Each of them is compared to your own baseline. Two weeks of wear is what it takes before the app stops hedging and starts saying things plainly.',
           ],
           zh: [
-            '身体电量是一本预算：夜里存进多少，白天花掉多少。训练负荷是你已经花掉的部分。睡眠按它自己的标准打分，不拿陌生人来比。',
+            '准备度回答此刻身体能承受多大负荷。训练负荷是你已经花掉的部分。睡眠按它自己的标准打分，不拿陌生人来比。',
             '每一项都只跟你自己的基线比。戴满两周，App 才会停止打太极，开始把话说直。',
           ],
         },
@@ -338,12 +338,12 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'Is this checkout real?', zh: '这里的结算是真的吗？'},
         body: {
           en: [
-            'No. This storefront closes the path with a test card so you can add to cart, pay, and see an order. You will not be charged, and nothing ships.',
-            'When the live checkout opens, the prices on these pages are the prices.',
+            'You continue to Shopify checkout to enter payment and delivery details. Shopify confirms payment and creates the order; this storefront does not collect card details.',
+            'Final availability, discounts, shipping, taxes and total are confirmed at Shopify checkout.',
           ],
           zh: [
-            '不是。本店用测试卡把路径走完，让你能加购、付款并看到订单。不会扣款，也不会发货。',
-            '正式结算打开时，这些页面上的价格就是价格。',
+            '你会前往 Shopify 结算页填写支付与配送信息。Shopify 确认支付并创建订单；本店面不收集银行卡信息。',
+            '最终库存、折扣、运费、税费和总额以 Shopify 结算页为准。',
           ],
         },
       },
@@ -430,12 +430,12 @@ export const SITE_PAGES: SitePage[] = [
         heading: {en: 'Where this shop stands', zh: '这家店现在的状态'},
         body: {
           en: [
-            'This storefront is a working test: real pages, real cart, real order path, a closed test checkout at the end. Nothing is charged and nothing ships yet.',
-            'Write to shop@nextbody.ai if you want to know when it opens for real.',
+            'This storefront hands your cart to Shopify for checkout. Successful payment, order status and shipment are confirmed by Shopify.',
+            'Contact shop@nextbody.ai if checkout is unavailable or you need help with an order.',
           ],
           zh: [
-            '这个店面是一次可运行的测试：真实的页面、真实的购物车、真实的下单路径，末端是闭环测试结算。不扣款，暂不发货。',
-            '想知道什么时候正式开卖，写 shop@nextbody.ai。',
+            '本店面将购物车交给 Shopify 结算。支付成功、订单状态和发货信息以 Shopify 确认为准。',
+            '无法结算或需要订单帮助时，请联系 shop@nextbody.ai。',
           ],
         },
       },
@@ -545,18 +545,18 @@ export const JOURNAL: JournalArticle[] = [
     handle: 'three-numbers',
     title: {en: 'Three numbers that run the day', zh: '管住一天的三个数'},
     lede: {
-      en: 'Battery. Load. Calories. The rest of the instruments wait on page two.',
-      zh: '电量。负荷。热量。其余仪表在第二页。',
+      en: 'Readiness. Load. Calories. The rest of the instruments wait on page two.',
+      zh: '准备度。负荷。热量。其余仪表在第二页。',
     },
     date: '2026-07-28',
     image: '/landing/phone-home.png',
     body: {
       en: [
-        'Body battery says how much you have left. Training says how much you already spent. Calories say what the day still wants to eat.',
+        'Readiness says how much load you can take. Training says how much you already spent. Calories say what the day still wants to eat.',
         'That is enough to move. The eight instruments are there when you want the why.',
       ],
       zh: [
-        '身体电量说你还剩多少。训练说你已经花了多少。热量说今天还该吃到多少。',
+        '准备度说你此刻还能承受多少。训练说你已经花了多少。热量说今天还该吃到多少。',
         '这些就够你动起来。想知道为什么时，八个仪表在。',
       ],
     },

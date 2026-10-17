@@ -236,12 +236,11 @@ struct ProfileView: View {
         let currentValue = m.bodyBatteryForDisplay(at: now)
         let dim = m.bodyBatteryFreshness(at: now) != .fresh
         let observed = m.bodyBatteryObservedAt.map { L("SYNCED %@", Fmt.clock($0)) } ?? L("NO TICK")
-        let word = night.map { BodyBattery.chargeWord(Int($0.rounded())) }
         let chargeLine: String = {
-            if let word, let night {
-                return L("%@ · %@", L(word), Fmt.signed(night))
+            if let peakValue, let peakClock {
+                return L("MORNING %d · %@", peakValue, peakClock)
             }
-            return m.bbWake == nil ? L("FROM WRIST DATA") : L("NIGHT CHARGE UNAVAILABLE")
+            return m.bbWake == nil ? L("FROM WRIST DATA") : L("OVERNIGHT RECOVERY UNAVAILABLE")
         }()
         return Button {
             router.open(.bodyBattery, from: .profile)

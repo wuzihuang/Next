@@ -26,7 +26,7 @@ final class BodyBatteryRangeTests: XCTestCase {
         XCTAssertTrue(week.staticTexts["LAST 7 DAYS"].waitForExistence(timeout: 30),
                       "WEEK should open the last 7 user days")
         XCTAssertTrue(week.staticTexts["SEVEN DAYS"].waitForExistence(timeout: 6))
-        XCTAssertTrue(week.staticTexts["WAKE PEAKS"].exists)
+        XCTAssertTrue(week.staticTexts["MORNING READINESS"].exists)
         capture(week, name: "body-battery-week")
         XCTAssertFalse(week.staticTexts["LAST NIGHT'S INPUTS"].exists)
         XCTAssertFalse(week.staticTexts["A typical morning peak. Not a 30-day sum."].exists)

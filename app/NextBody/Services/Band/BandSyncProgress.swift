@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Fixed workflow segments, not an estimate of remaining time. SDK dump completion is
 /// only one segment; only the shared refresh's terminal success can publish 100%.
@@ -87,6 +88,14 @@ struct BandSyncProgress: Equatable, Sendable {
         stage = success ? .complete : .stopped
         if success { fraction = 1 }
     }
+}
+
+/// The background task's expiration handler is not on the main actor. The stage is copied
+/// here whenever the sync moves, so that handler can say where the pull was cut.
+enum BandSyncDiagnostics {
+    private static let stage = OSAllocatedUnfairLock(initialState: "idle")
+    static func setStage(_ value: String) { stage.withLock { $0 = value } }
+    static func currentStage() -> String { stage.withLock { $0 } }
 }
 
 /// Native history has no stop command. A stalled read must disconnect before its queue

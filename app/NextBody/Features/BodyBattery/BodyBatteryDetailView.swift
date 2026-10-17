@@ -41,6 +41,12 @@ struct BodyBatteryDetailView: View {
 
     /// Wake time comes from the recorded night, never from the day's highest score.
     private var wakeTime: String? { m.bodyBatteryWakeAt.map(Fmt.clock) }
+    private var wakeLine: String {
+        if let wakeTime, let morning = m.bbWake {
+            return L("WAKE %@ · MORNING %d", wakeTime, morning)
+        }
+        return hasNight ? L("MORNING READING") : L("LIVE ESTIMATE")
+    }
 
     private var weekFacts: [BodyBatteryDayFacts] { facts(count: DetailWindow(.bodyBattery, .week).days) }
     private var monthFacts: [BodyBatteryDayFacts] { facts(count: DetailWindow(.bodyBattery, .month).days) }
@@ -86,29 +92,29 @@ struct BodyBatteryDetailView: View {
             if !Band.allowsSeed {
                 await Repository.shared.hydrate(detail, endingAt: today, into: data)
             }
-            await Analytics.shared.track("BB_DETAIL_OPEN", [
+            await Analytics.shared.track("READINESS_DETAIL_OPEN", [
                 "ENTRY": router.entry == .profile ? "profile" : (router.homePage == 1 ? "page2" : "panel"),
                 "RANGE": range.rawValue,
             ])
             if range != .day { return }
             if let bb = m.bodyBattery {
-                await Analytics.shared.track("BB_CONFIDENCE_SHOWN",
+                await Analytics.shared.track("READINESS_CONFIDENCE_SHOWN",
                                              ["LEVEL": m.bodyBatteryConfidence.rawValue, "SCORE": bb])
             } else {
-                await Analytics.shared.track("BB_NO_SCORE",
-                                             ["REASON": hasNight ? "NOT_SYNCED" : "SHORT_NIGHT"])
+                await Analytics.shared.track("READINESS_NO_SCORE",
+                                             ["REASON": hasNight ? "NOT_SYNCED" : "NO_NIGHT"])
             }
             if hasNight && m.reserveDrivers == nil {
                 await Analytics.shared.track("BB_ATTRIBUTION_MISMATCH",
                                              ["TICKS": m.reserveCurve.count])
             }
             if let reserve = m.bodyBattery, let target = m.targetLoad, let zone = m.optimalZone {
-                await Analytics.shared.track("BB_TARGET_SET",
-                                             ["BB": reserve, "TARGET": target,
+                await Analytics.shared.track("READINESS_TARGET_SET",
+                                             ["READINESS": reserve, "TARGET": target,
                                               "LO": zone.lowerBound, "HI": zone.upperBound])
             }
             if m.bodyBatteryFreshness(at: Date()) == .stale, let at = m.bodyBatteryObservedAt {
-                await Analytics.shared.track("BB_STALE_SHOWN",
+                await Analytics.shared.track("READINESS_STALE_SHOWN",
                                              ["MIN": Int(Date().timeIntervalSince(at) / 60)])
             }
         }
@@ -160,11 +166,11 @@ struct BodyBatteryDetailView: View {
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(wakeTime.map { L("WAKE %@", $0) } ?? (hasNight ? L("MORNING READING") : L("LIVE ESTIMATE")))
+                    Text(wakeLine)
                         .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
                         .foregroundStyle(NB.white.opacity(0.42))
-                    Text(drivers?.nightCharge.map { L("%@ LAST NIGHT", Fmt.signed($0)) }
-                         ?? (hasNight ? L("NIGHT CHARGE UNAVAILABLE") : L("FROM WRIST DATA")))
+                    Text(drivers?.nightCharge.map { L("%@ OVERNIGHT", Fmt.signed($0)) }
+                         ?? (hasNight ? L("OVERNIGHT RECOVERY UNAVAILABLE") : L("FROM WRIST DATA")))
                         .font(NBFont.dot(700, 12)).tracking(0.12 * 12)
                         .foregroundStyle(NB.lime1)
                 }
@@ -215,13 +221,13 @@ struct BodyBatteryDetailView: View {
                 Hairline()
                 LedgerEdge(label: nowClock.map { L("NOW %@", $0) } ?? L("NOW"), value: now,
                            note: nil, tint: NB.lime1)
-                Text(L("Sleep and sustained quiet rest can recharge your battery. Activity and physiological strain use it; high strain can limit recovery even during sleep."))
+                Text(L("Sleep and sustained quiet rest can raise readiness. Training and physiological strain lower it; high strain can limit recovery even during sleep."))
                     .font(NBFont.brand(400, 13))
                     .lineSpacing(6)
                     .foregroundStyle(NB.white.opacity(0.62))
                     .fixedSize(horizontal: false, vertical: true)
                 if d.assumedAnchor {
-                    Text(L("Starting battery estimated — earlier readings were missing."))
+                    Text(L("Starting readiness estimated — earlier readings were missing."))
                         .font(NBFont.brand(400, 13))
                         .lineSpacing(6)
                         .foregroundStyle(NB.white.opacity(0.62))
@@ -234,9 +240,9 @@ struct BodyBatteryDetailView: View {
 
     private func ledgerName(_ term: BodyBatteryLedgerRow.Term) -> String {
         switch term {
-        case .recovery: L("Recovery")
-        case .awake:    L("Just being awake")
-        case .movement: L("Moving around")
+        case .recovery: L("Sleep & rest")
+        case .awake:    L("Awake fatigue")
+        case .movement: L("Training & effort")
         case .stress:   L("Physiological strain")
         }
     }
@@ -249,18 +255,23 @@ struct BodyBatteryDetailView: View {
         case .awake:
             if let minutes = BodyBatteryLedgerMath.awakeMinutes(
                 wakeAt: m.bodyBatteryWakeAt, dayStart: m.day.start, observedAt: m.bodyBatteryObservedAt) {
-                return L("Base drain for %@ awake · faster after a short night", Fmt.duration(minutes))
+                return L("Awake for %@", Fmt.duration(minutes))
             }
-            return L("Base drain while awake · faster after a short night")
+            return L("Awake fatigue while up")
         case .movement:
-            if let steps = m.recordedSteps {
-                return L("Heart-rate zones, effort and steps · %d steps", steps)
+            if abs(d.movement) < 0.5 {
+                return L("Light daily movement stays neutral")
             }
-            return L("Heart-rate zones, effort and steps")
+            let sessions = m.trainingSettlement?.sessions ?? []
+            if !sessions.isEmpty {
+                let minutes = sessions.reduce(0) { $0 + max(0, Int($1.endedAt.timeIntervalSince($1.startedAt) / 60)) }
+                return L("Training sessions · %@", Fmt.duration(minutes))
+            }
+            return L("Elevated effort above daily movement")
         case .stress:
             if let minutes = BodyBatteryLedgerMath.stressedMinutes(m.vitalsCurve) {
                 return minutes > 0
-                    ? L("Stress above 40 for %@ · heart rate and HRV also considered", Fmt.duration(minutes))
+                    ? L("Stress above 45 for %@ · heart rate and HRV versus your baseline", Fmt.duration(minutes))
                     : L("Heart rate and HRV relative to your own baseline")
             }
             return L("Heart rate, HRV and stress; sustained temperature and oxygen changes can limit recovery")
@@ -284,7 +295,7 @@ struct BodyBatteryDetailView: View {
                          base: baselineNote(n.rhr, n.rhrBase))
                 Hairline()
                 HStack(spacing: 8) {
-                    Text(L("Charge multiplier"))
+                    Text(L("Recovery pace"))
                         .font(NBFont.brand(400, 13))
                         .foregroundStyle(NB.text2)
                     Spacer(minLength: 0)
@@ -514,10 +525,10 @@ struct BodyBatteryDetailView: View {
                     .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
                     .foregroundStyle(NB.white.opacity(0.30))
             }
-            Text(L("NO RECENT BATTERY READING"))
+            Text(L("NO RECENT READINESS READING"))
                 .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
                 .foregroundStyle(NB.ember1)
-            Text(L("Sync recent wrist readings to estimate your battery."))
+            Text(L("Sync recent wrist readings to estimate readiness. A recorded night also establishes your morning reading."))
                 .font(NBFont.brand(400, 16))
                 .lineSpacing(8)
                 .foregroundStyle(NB.text1)
@@ -553,7 +564,7 @@ struct BodyBatteryDetailView: View {
             // The week leads with its shape, not a number: the line is the seven mornings
             // and the row under it says the average once, beside how it moved.
             CardBlock(title: L("SEVEN DAYS"),
-                      trailing: L("MORNING PEAKS · ROLLING"),
+                      trailing: L("MORNING READINESS · ROLLING"),
                       trailingIsDot: true) {
                 BodyBatteryDayLine(values: days.map(\.wake), average: avg,
                                    todayIndex: days.indices.last)
@@ -572,14 +583,14 @@ struct BodyBatteryDetailView: View {
                 windowSummary(headline: avg, delta: delta,
                               recorded: days.filter(\.hasWake).count, of: days.count)
             }
-            CardBlock(title: L("WAKE PEAKS"), trailing: L("TYPICAL DAY"), trailingIsDot: true) {
+            CardBlock(title: L("MORNING READINESS"), trailing: L("TYPICAL DAY"), trailingIsDot: true) {
                 weekStat(L("AVERAGE"), Fmt.int(avg.map { Int($0.rounded()) }), NB.lime1)
                 Hairline()
                 weekStat(L("HIGHEST"),
                          peak.flatMap { p in p.wake.map { L("%d · %@", $0, Fmt.weekday(p.day.date)) } } ?? Fmt.dash,
                          NB.lime1)
                 Hairline()
-                weekStat(L("NIGHT CHARGE"),
+                weekStat(L("OVERNIGHT RECOVERY"),
                          night.map { L("%@ / DAY", Fmt.signed($0)) } ?? Fmt.dash,
                          NB.macroValue)
                 Hairline()
@@ -612,7 +623,7 @@ struct BodyBatteryDetailView: View {
                         .font(NBFont.dot(700, 10))
                         .foregroundStyle(NB.lime1)
                 }
-                Text(L("One point per morning peak · a dashed gap is a morning with no reading."))
+                Text(L("One point per morning readiness · a dashed gap is a morning with no reading."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
                 // Thirty mornings have no sixty behind them to compare with, so the row
@@ -645,7 +656,7 @@ struct BodyBatteryDetailView: View {
                 Hairline()
                 weekStat(L("TYPICAL MORNING"), Fmt.int(typical.map { Int($0.rounded()) }), NB.lime1)
                 Hairline()
-                weekStat(L("NIGHT CHARGE"),
+                weekStat(L("OVERNIGHT RECOVERY"),
                          night.map { L("%@ / DAY", Fmt.signed($0)) } ?? Fmt.dash,
                          NB.macroValue)
                 Text(L("Two days, then four weeks."))

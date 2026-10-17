@@ -119,24 +119,24 @@ final class TrainingRangeTests: XCTestCase {
         let app = launchTraining(fixture: "reserve-adjusted", language: "zh-Hans")
         XCTAssertTrue(app.buttons["range.DAY"].waitForExistence(timeout: 30))
         reveal(app.staticTexts["目标依据"], in: app)
-        XCTAssertTrue(app.staticTexts["当前电量"].exists)
+        XCTAssertTrue(app.staticTexts["当前准备度"].exists)
         XCTAssertTrue(app.staticTexts["睡眠分数"].exists)
         XCTAssertTrue(app.staticTexts["恢复"].exists)
-        XCTAssertTrue(app.staticTexts["身体电量"].exists)
-        reveal(app.staticTexts["结合当前身体电量，今天的目标从 16.0 调低到 8.0。"], in: app)
+        XCTAssertTrue(app.staticTexts["准备度"].exists)
+        reveal(app.staticTexts["当前准备度已将今日目标从 16.0 下调至 8.0。"], in: app)
     }
 
     func testOlderBatteryLimitKeepsItsTimeAndIsNotCalledCurrent() {
         let app = launchTraining(fixture: "reserve-stale", language: "zh-Hans")
         XCTAssertTrue(app.buttons["range.DAY"].waitForExistence(timeout: 30))
         reveal(app.staticTexts["目标依据"], in: app)
-        XCTAssertTrue(app.staticTexts["上次记录电量"].exists)
+        XCTAssertTrue(app.staticTexts["上次记录的准备度"].exists)
         XCTAssertTrue(app.staticTexts["睡眠分数"].exists)
-        XCTAssertFalse(app.staticTexts["当前电量"].exists)
-        reveal(app.staticTexts["当前目标仍受上次身体电量的限制，同步后可获得最新建议。"], in: app)
-        reveal(app.staticTexts["结合上次记录的身体电量，今天的目标从 16.0 调低到 8.0。"], in: app)
-        XCTAssertTrue(app.staticTexts["电量观测"].exists)
-        XCTAssertFalse(app.staticTexts["结合当前身体电量，今天的目标从 16.0 调低到 8.0。"].exists)
+        XCTAssertFalse(app.staticTexts["当前准备度"].exists)
+        reveal(app.staticTexts["当前目标仍受上次准备度的限制，同步后可获得最新建议。"], in: app)
+        reveal(app.staticTexts["上次记录的准备度已将今日目标从 16.0 下调至 8.0。"], in: app)
+        XCTAssertTrue(app.staticTexts["准备度读数"].exists)
+        XCTAssertFalse(app.staticTexts["当前准备度已将今日目标从 16.0 下调至 8.0。"].exists)
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,

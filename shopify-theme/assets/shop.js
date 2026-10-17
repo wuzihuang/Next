@@ -47,7 +47,7 @@ function bootShop() {
       return {
         lines,
         discountCode: raw.discountCode || '',
-        orders: Array.isArray(raw.orders) ? raw.orders : [],
+        orders: [],
         account: raw.account || null,
       };
     } catch {
@@ -467,7 +467,7 @@ function bootShop() {
       copy.cart.codeHint +
       '"><button class="lp-pill" type="submit">' +
       copy.cart.apply +
-      '</button></div></label></form><dl><div><dt>' +
+      '</button></div></label></form><p class="shop-hint">' + (locale === 'zh' ? '预估金额；最终折扣、运费和税费以 Shopify 结算为准。' : 'Estimate; Shopify confirms final discounts, shipping and tax.') + '</p><dl><div><dt>' +
       copy.cart.subtotal +
       '</dt><dd>' +
       money(math.subtotal) +
@@ -524,162 +524,22 @@ function bootShop() {
     );
   }
 
-  function accountDefaults(bag) {
-    return (
-      bag.account || {
-        email: 'test@nextbody.ai',
-        name: 'Test Buyer',
-        address1: '100 Market Street',
-        city: 'San Francisco',
-        region: 'CA',
-        zip: '94105',
-        country: 'US',
-        card: '4242 4242 4242 4242',
-        expiry: '12 / 29',
-        cvc: '123',
-      }
-    );
-  }
-
   function renderCheckout() {
     const bag = readBag();
     const math = totals(bag);
     if (!math.rows.length) {
       return renderCart();
     }
-    const account = accountDefaults(bag);
-    const mini = math.rows
-      .map((row) => {
-        return (
-          '<li><div class="shop-mini-media"><img alt="" src="' +
-          row.variant.image +
-          '"></div><div><strong>' +
-          pick(row.product.title) +
-          '</strong><span>× ' +
-          row.line.qty +
-          '</span></div><b>' +
-          money(row.product.price * row.line.qty) +
-          '</b></li>'
-        );
-      })
-      .join('');
-    return (
-      '<div class="shop-page shop-checkout"><h1>' +
-      copy.checkout.title +
-      '</h1><p class="shop-banner">' +
-      copy.checkout.testBanner +
-      '</p><div class="shop-checkout-grid"><form class="shop-checkout-form" id="checkout-form">' +
-      '<fieldset><legend>' +
-      copy.checkout.contact +
-      '</legend><label>' +
-      copy.checkout.email +
-      '<input name="email" type="email" required value="' +
-      account.email +
-      '"></label><label>' +
-      copy.checkout.name +
-      '<input name="name" required value="' +
-      account.name +
-      '"></label></fieldset><fieldset><legend>' +
-      copy.checkout.shipping +
-      '</legend><label>' +
-      copy.checkout.address +
-      '<input name="address1" required value="' +
-      account.address1 +
-      '"></label><div class="shop-split"><label>' +
-      copy.checkout.city +
-      '<input name="city" required value="' +
-      account.city +
-      '"></label><label>' +
-      copy.checkout.region +
-      '<input name="region" required value="' +
-      account.region +
-      '"></label></div><div class="shop-split"><label>' +
-      copy.checkout.zip +
-      '<input name="zip" required value="' +
-      account.zip +
-      '"></label><label>' +
-      copy.checkout.country +
-      '<input name="country" required value="' +
-      account.country +
-      '"></label></div></fieldset><fieldset><legend>' +
-      copy.checkout.card +
-      '</legend><label>' +
-      copy.checkout.cardNumber +
-      '<input name="card" required value="' +
-      account.card +
-      '" placeholder="4242 4242 4242 4242"></label><p class="shop-hint">' +
-      copy.checkout.cardHint +
-      '</p><div class="shop-split"><label>' +
-      copy.checkout.expiry +
-      '<input name="expiry" required value="' +
-      account.expiry +
-      '"></label><label>CVC<input name="cvc" required value="' +
-      account.cvc +
-      '"></label></div></fieldset><button class="lp-pill lp-pill-lime shop-place" type="submit">' +
-      copy.checkout.place +
-      ' · ' +
-      money(math.total) +
-      '</button></form>' +
-      summary(bag, math, '<ul class="shop-mini-lines">' + mini + '</ul>') +
-      '</div></div>'
-    );
+    return '<div class="shop-page shop-checkout"><h1>' + copy.checkout.title +
+      '</h1><p class="shop-banner">' + (locale === 'zh'
+        ? '地址和支付信息将在 Shopify 安全结算页填写。最终折扣、运费、税费和总额以该页面为准。'
+        : 'Enter your address and payment details on Shopify’s secure checkout. Final discounts, shipping, tax and total are confirmed there.') +
+      '</p><form id="checkout-form"><button class="lp-pill lp-pill-lime" type="submit">' +
+      (locale === 'zh' ? '继续到 Shopify 结算' : 'Continue to Shopify checkout') + '</button><p id="checkout-error" role="alert"></p></form></div>';
   }
 
-  function renderComplete(orderId) {
-    const bag = readBag();
-    const order = bag.orders.find((item) => item.id === orderId) || bag.orders[0];
-    if (!order) {
-      return renderCart();
-    }
-    const items = order.lines
-      .map((line) => {
-        const product = findProduct(line.handle);
-        const image =
-          line.image ||
-          (product && product.variants[0] && product.variants[0].image) ||
-          '';
-        return (
-          '<li>' +
-          (image
-            ? '<div class="shop-mini-media"><img alt="" src="' + image + '"></div>'
-            : '<div class="shop-mini-media"></div>') +
-          '<div><strong>' +
-          (product ? pick(product.title) : line.handle) +
-          '</strong><span>× ' +
-          line.qty +
-          '</span></div><b>' +
-          money(line.price * line.qty) +
-          '</b></li>'
-        );
-      })
-      .join('');
-    return (
-      '<div class="shop-page shop-complete"><p class="shop-kicker">' +
-      copy.complete.kicker +
-      '</p><h1>' +
-      copy.complete.title +
-      '</h1><p class="shop-lede">' +
-      copy.complete.lede +
-      '</p><p class="shop-order-id">' +
-      copy.complete.order +
-      ' ' +
-      order.id +
-      '</p><p>' +
-      copy.complete.card +
-      ' ··· ' +
-      order.last4 +
-      '</p><ul class="shop-mini-lines">' +
-      items +
-      '</ul><p class="shop-complete-total"><span>' +
-      copy.cart.total +
-      '</span><b>' +
-      money(order.total) +
-      '</b></p><div class="pdp-actions"><a class="lp-pill" href="' +
-      shopLink('/collections/all') +
-      '">' +
-      copy.complete.back +
-      '</a></div></div>'
-    );
+  function renderComplete() {
+    return renderCart();
   }
 
   function renderPage(handle) {
@@ -752,39 +612,16 @@ function bootShop() {
     );
   }
 
-  function placeOrder(form) {
-    const bag = readBag();
-    const math = totals(bag);
-    const card = String(form.card.value || '').replace(/\D/g, '');
-    if (card.length < 13 || card.length > 19) {
-      window.alert(copy.checkout.cardBad);
-      return;
+  function placeOrder() {
+    try {
+      const url = pricing.hostedCheckoutUrl(cartInput(readBag()), catalog.shopifyVariants || [], catalog.currency, catalog.shopDomain);
+      location.assign(url);
+    } catch (error) {
+      const message = root.querySelector('#checkout-error');
+      if (message) message.textContent = locale === 'zh'
+        ? '暂时无法结算：商品缺货、价格变动或商店配置不可用。请联系 shop@nextbody.ai。'
+        : error.message;
     }
-    const order = {
-      id: 'NB-' + Math.random().toString(36).slice(2, 8).toUpperCase(),
-      total: math.total,
-      last4: card.slice(-4),
-      lines: math.rows.map((row) => ({
-        handle: row.product.handle,
-        variant: row.variant.id,
-        image: row.variant.image,
-        qty: row.line.qty,
-        price: row.product.price,
-      })),
-    };
-    bag.account = {
-      email: form.email.value,
-      name: form.name.value,
-      address1: form.address1.value,
-      city: form.city.value,
-      region: form.region.value,
-      zip: form.zip.value,
-      country: form.country.value,
-    };
-    bag.orders = [order].concat(bag.orders).slice(0, 12);
-    bag.lines = [];
-    writeBag(bag);
-    location.assign(shopLink('/cart', 'complete=1&order=' + order.id));
   }
 
   function bind() {
@@ -927,35 +764,9 @@ const EN = {
     remove: 'Remove',
     code: 'Discount code',
     apply: 'Apply',
-    codeHint: 'Try TEST10 on this test shop.',
+    codeHint: 'Discounts are verified by Shopify at checkout.',
   },
-  checkout: {
-    title: 'Checkout',
-    testBanner: 'Test checkout — you will not be charged. No card is sent to a processor.',
-    contact: 'Contact',
-    email: 'Email',
-    name: 'Name',
-    shipping: 'Shipping',
-    address: 'Address',
-    city: 'City',
-    region: 'State',
-    zip: 'ZIP',
-    country: 'Country',
-    card: 'Test card',
-    cardNumber: 'Card number',
-    cardHint: 'Use 4242 4242 4242 4242, or any 13–19 digit test number.',
-    cardBad: 'Enter a 13–19 digit test card number.',
-    expiry: 'MM / YY',
-    place: 'Place test order',
-  },
-  complete: {
-    kicker: 'TEST ORDER',
-    title: 'HOOP is on its way — in this test.',
-    lede: 'No charge. This path only closes the buy flow.',
-    order: 'Order',
-    card: 'Test card stored',
-    back: 'Back to shop',
-  },
+  checkout: {title: 'Checkout'},
   search: {title: 'Search', placeholder: 'HOOP…', submit: 'Search'},
   pages: {back: 'Back'},
 };
@@ -1016,35 +827,9 @@ const ZH = {
     remove: '移除',
     code: '优惠码',
     apply: '使用',
-    codeHint: '测试店可用 TEST10。',
+    codeHint: '优惠码会在 Shopify 结算时验证。',
   },
-  checkout: {
-    title: '结算',
-    testBanner: '测试结算 — 不会扣款。卡号不会发给任何支付机构。',
-    contact: '联系方式',
-    email: '邮箱',
-    name: '姓名',
-    shipping: '收货地址',
-    address: '地址',
-    city: '城市',
-    region: '省 / 州',
-    zip: '邮编',
-    country: '国家 / 地区',
-    card: '测试卡',
-    cardNumber: '卡号',
-    cardHint: '可用 4242 4242 4242 4242，或任意 13–19 位测试卡号。',
-    cardBad: '请输入 13–19 位测试卡号。',
-    expiry: '月 / 年',
-    place: '提交测试订单',
-  },
-  complete: {
-    kicker: '测试订单',
-    title: 'HOOP 已下单 — 在这次测试里。',
-    lede: '没有扣款。这条路径只是为了把购买流程走完。',
-    order: '订单',
-    card: '测试卡已记',
-    back: '回到商店',
-  },
+  checkout: {title: '结算'},
   search: {title: '搜索', placeholder: 'HOOP、表带…', submit: '搜索'},
   pages: {back: '返回'},
 };
@@ -1090,7 +875,7 @@ const PAGES = [
           "en": [
             "Account: your email address, your name if you provide it, and the identifier issued by Sign in with Apple or Google. If you use Apple's Hide My Email, we see only the relay address.",
             "Profile: sex, date of birth, height and weight, entered by you or read from Apple Health with your permission, plus your goal, units, language and settings. We only read from Apple Health; we never write to it.",
-            "Band readings, only after you consent: heart rate, heart rate variability including raw beat-to-beat intervals, steps, distance, calories and movement intensity, sleep signals (staging, duration, night HRV and overnight automatic blood oxygen), skin temperature, wrist optical meal response, and the body composition scans you start yourself. From these we compute scores such as sleep score, Body Battery, training load and energy targets.",
+            "Band readings, only after you consent: heart rate, heart rate variability including raw beat-to-beat intervals, steps, distance, calories and movement intensity, sleep signals (staging, duration, night HRV and overnight automatic blood oxygen), skin temperature, wrist optical meal response, and the body composition scans you start yourself. From these we compute scores such as sleep score, readiness, training load and energy targets.",
             "What the band can do but we never switch on: blood pressure, ECG, and daytime or on-demand blood oxygen. We do not enable, store or show them.",
             "Meals: the words, voice and photos you use to log food, and the estimates made from them. Location metadata is removed from photos on upload.",
             "Voice: when you speak to the app, the audio is streamed to a speech recognition provider to turn it into text. We do not store the recording; we keep the resulting text as part of the conversation or meal.",
@@ -1104,7 +889,7 @@ const PAGES = [
           "zh": [
             "账户信息：你的邮箱地址、你提供的姓名，以及通过 Apple 或 Google 登录时对方分配的标识符。如你使用 Apple 的「隐藏邮件地址」，我们只能看到中转地址。",
             "个人资料：性别、出生日期、身高和体重，由你填写，或经你授权从 Apple 健康读取；以及你的目标、单位、语言和各项设置。我们只从 Apple 健康读取，从不写入。",
-            "手环读数（仅在你同意后）：心率、心率变异性（含原始逐拍间期）、步数、距离、热量和活动强度、睡眠信号（分期、时长、夜间 HRV 和夜间自动血氧）、皮肤温度、腕部光学餐后反应，以及由你亲自发起的身体成分测量。我们据此计算睡眠评分、身体电量、训练负荷和能量目标等指标。",
+            "手环读数（仅在你同意后）：心率、心率变异性（含原始逐拍间期）、步数、距离、热量和活动强度、睡眠信号（分期、时长、夜间 HRV 和夜间自动血氧）、皮肤温度、腕部光学餐后反应，以及由你亲自发起的身体成分测量。我们据此计算睡眠评分、准备度、训练负荷和能量目标等指标。",
             "手环具备但我们从不开启的功能：血压、心电图，以及白天或手动触发的血氧测量。我们不开启、不存储、也不显示这些数据。",
             "餐食：你用来记录饮食的文字、语音和照片，以及据此得出的估算结果。照片上传时会去除位置信息。",
             "语音：你对 App 说话时，音频会实时传给语音识别服务商转成文字。我们不保存录音，只保留转写后的文字，作为对话或餐食记录的一部分。",
@@ -1300,11 +1085,11 @@ const PAGES = [
         },
         "body": {
           "en": [
-            "The nextbody.ai storefront is hosted by Shopify. Hosting requests include technical information such as your IP address and browser details; Shopify may set cookies needed to operate its services. The website loads fonts from Google Fonts, which receives technical request information such as your IP address. Our current test storefront stores cart, language, test-account and test-order state in your browser. It does not process a real payment or share the iOS health account. Clearing site data removes that local state.",
+            "The nextbody.ai storefront is hosted by Shopify. Hosting requests include technical information such as your IP address and browser details; Shopify may set cookies needed to operate its services. The website loads fonts from Google Fonts, which receives technical request information such as your IP address. The storefront stores cart, language and local contact preferences in your browser or session cookie. Checkout is hosted by Shopify, which processes payment, shipping and order information under its privacy policy. Website purchases do not share the iOS health account. Clearing site data removes local preferences, but does not delete Shopify orders.",
             "If you contact us about an order or support request, we process the contact details and content you provide to respond. Do not include payment card numbers, passwords or unnecessary health information."
           ],
           "zh": [
-            "nextbody.ai 商店由 Shopify 托管。访问请求包含 IP 地址、浏览器信息等技术信息；Shopify 可能设置运营其服务所需的 Cookie。网站从 Google Fonts 加载字体，该服务会收到 IP 地址等技术请求信息。当前测试商店在浏览器中保存购物车、语言、测试账户和测试订单状态，不处理真实付款，也不与 iOS 健康账户共用账户数据。清除网站数据会移除这些本地状态。",
+            "nextbody.ai 商店由 Shopify 托管。访问请求包含 IP 地址、浏览器信息等技术信息；Shopify 可能设置运营其服务所需的 Cookie。网站从 Google Fonts 加载字体，该服务会收到 IP 地址等技术请求信息。商店在浏览器或会话 Cookie 中保存购物车、语言和本地联系方式设置。结算由 Shopify 托管，支付、配送和订单信息按 Shopify 隐私政策处理。网站购买不与 iOS 健康账户共用账户数据。清除网站数据会移除本地设置，但不会删除 Shopify 订单。",
             "你就订单或支持请求联系我们时，我们会处理你提供的联系方式及内容以作答复。请勿发送银行卡号、密码或不必要的健康信息。"
           ]
         }
@@ -1384,13 +1169,13 @@ const PAGES = [
         "body": {
           "en": [
             "The Service is a general wellness and fitness product. It is not a medical device, and it has not been evaluated, cleared or approved by the FDA, the NMPA, or any other health authority. It is not intended to diagnose, treat, cure, monitor, mitigate or prevent any disease or medical condition.",
-            "Every number the Service shows is an estimate. This includes heart rate, heart rate variability, sleep stages and sleep score, overnight blood oxygen, skin temperature, Body Battery, training load, calories burned and eaten, energy targets, body composition, and the wrist optical meal response. These estimates come from consumer sensors and algorithms, can be wrong, incomplete or delayed, and must not be used in place of a measurement by a qualified professional or a medical-grade instrument. Meal response is a unitless index; it is not a blood glucose reading.",
+            "Every number the Service shows is an estimate. This includes heart rate, heart rate variability, sleep stages and sleep score, overnight blood oxygen, skin temperature, readiness, training load, calories burned and eaten, energy targets, body composition, and the wrist optical meal response. These estimates come from consumer sensors and algorithms, can be wrong, incomplete or delayed, and must not be used in place of a measurement by a qualified professional or a medical-grade instrument. Meal response is a unitless index; it is not a blood glucose reading.",
             "Talk to a doctor before you start or change any exercise, diet, fasting, weight-loss or sleep programme, and before you act on anything the Service shows or says, especially if you are pregnant, have a heart, blood pressure, metabolic or sleep condition, an eating disorder or a history of one, a pacemaker or other implanted device, or take medication.",
             "Never ignore or delay professional medical advice because of the Service. It does not watch you, send alerts to anyone, or detect emergencies. If you think you may have a medical emergency, call your local emergency number immediately."
           ],
           "zh": [
             "本服务是一般性的健康与健身产品，不是医疗器械，未经美国 FDA、中国国家药品监督管理局或任何其他卫生主管部门的评估、注册或批准，不用于诊断、治疗、治愈、监测、缓解或预防任何疾病或健康状况。",
-            "本服务显示的所有数字都是估算值，包括心率、心率变异性、睡眠分期与睡眠评分、夜间血氧、皮肤温度、身体电量、训练负荷、消耗与摄入热量、能量目标、身体成分以及腕部光学餐后反应。这些估算来自消费级传感器和算法，可能不准确、不完整或有延迟，不得替代专业人员或医用级仪器的测量。餐后反应是一个无单位指数，不是血糖读数。",
+            "本服务显示的所有数字都是估算值，包括心率、心率变异性、睡眠分期与睡眠评分、夜间血氧、皮肤温度、准备度、训练负荷、消耗与摄入热量、能量目标、身体成分以及腕部光学餐后反应。这些估算来自消费级传感器和算法，可能不准确、不完整或有延迟，不得替代专业人员或医用级仪器的测量。餐后反应是一个无单位指数，不是血糖读数。",
             "开始或调整任何运动、饮食、断食、减重或睡眠方案之前，以及依据本服务显示或给出的任何内容采取行动之前，请先咨询医生。如你怀孕，患有心脏、血压、代谢或睡眠方面的疾病，患有或曾患进食障碍，装有心脏起搏器或其他植入设备，或正在服药，尤其应当如此。",
             "切勿因本服务而忽视或延误专业医疗意见。本服务不会看护你，不会向任何人发出警报，也不会识别紧急情况。如你认为自己可能遇到医疗紧急情况，请立即拨打当地急救电话。"
           ]
@@ -1679,8 +1464,8 @@ const PAGES = [
       "zh": "服务条款"
     },
     "lede": {
-      "en": "The rules for buying on nextbody.ai — orders, price, warranty, and the test checkout. Updated 2026-09-22.",
-      "zh": "在 nextbody.ai 购买的规则 —— 订单、价格、保修，以及测试结算。 更新于 2026-09-22。"
+      "en": "The rules for buying on nextbody.ai — orders, price, warranty, and Shopify checkout. Updated 2026-10-15.",
+      "zh": "在 nextbody.ai 购买的规则 —— 订单、价格、保修，以及 Shopify 结算。 更新于 2026-10-15。"
     },
     "sections": [
       {
@@ -1753,17 +1538,17 @@ const PAGES = [
       },
       {
         "heading": {
-          "en": "This checkout is a test",
-          "zh": "本店结算是测试"
+          "en": "Shopify checkout",
+          "zh": "Shopify 结算"
         },
         "body": {
           "en": [
-            "Right now this storefront runs a closed test checkout. It accepts a card number so you can walk the whole path and see an order, but it does not charge the card, it does not reach a payment processor, and it does not create a shipment.",
-            "Until a live checkout is switched on, the pages here are a description of the product, not an offer to sell."
+            "Checkout redirects to Shopify. Enter your shipping and payment details there; this storefront does not collect card numbers. A redirect alone is not proof of payment or shipment.",
+            "Shopify confirms availability, final discounts, shipping, taxes and payment status. Refer to the Shopify order confirmation for your purchase."
           ],
           "zh": [
-            "目前本店运行的是闭环测试结算。它接受卡号，只为让你把整条路径走完并看到订单，但不会扣款、不会到达支付机构，也不会产生发货。",
-            "在正式结算打开之前，这里的页面是对产品的描述，不构成销售要约。"
+            "结算会跳转至 Shopify。在该页面填写配送和支付信息；本店面不收集银行卡号。跳转本身不代表已付款或已发货。",
+            "Shopify 会确认库存、最终折扣、运费、税费和支付状态。购买情况以 Shopify 订单确认页面为准。"
           ]
         }
       },
@@ -1790,7 +1575,7 @@ const PAGES = [
         },
         "body": {
           "en": [
-            "The shop account holds your orders and addresses. It is separate from the health account in the app; the shop never sees your readings.",
+            "The website stores local contact preferences. Shopify maintains actual order and shipping records. Website purchases are separate from the health account in the app; the shop never sees your readings.",
             "Keep the password to yourself. Tell us if it leaks and we will lock the account."
           ],
           "zh": [
@@ -1878,8 +1663,8 @@ const PAGES = [
       "zh": "退款政策"
     },
     "lede": {
-      "en": "Thirty days to change your mind. Twelve months if it is our fault. Updated 2026-09-22.",
-      "zh": "三十天可以反悔。如果是我们的错，十二个月都算。 更新于 2026-09-22。"
+      "en": "Thirty days to change your mind. Twelve months if it is our fault. Updated 2026-10-15.",
+      "zh": "三十天可以反悔。如果是我们的错，十二个月都算。 更新于 2026-10-15。"
     },
     "sections": [
       {
@@ -1994,15 +1779,15 @@ const PAGES = [
       },
       {
         "heading": {
-          "en": "On this test shop",
-          "zh": "在本测试店"
+          "en": "Payment and order records",
+          "zh": "支付与订单记录"
         },
         "body": {
           "en": [
-            "Orders placed here are test orders. No payment is taken, so there is nothing to refund and no parcel to send back. The confirmation page is the end of the path."
+            "Shopify maintains the payment and order record. Contact shop@nextbody.ai with your Shopify order number for returns, refunds or delivery questions. A refund is complete only when confirmed by Shopify or your payment provider."
           ],
           "zh": [
-            "这里下的都是测试订单。没有扣款，因此没有可退的钱，也没有要寄回的包裹。确认页就是这条路径的终点。"
+            "Shopify 保存支付与订单记录。退货、退款或配送问题，请带上 Shopify 订单号联系 shop@nextbody.ai。退款完成以 Shopify 或支付机构的确认信息为准。"
           ]
         }
       }
@@ -2019,8 +1804,8 @@ const PAGES = [
       "zh": "配送政策"
     },
     "lede": {
-      "en": "Where it goes, what it costs, how long it takes, and what happens when it goes wrong. Updated 2026-09-22.",
-      "zh": "送到哪里、多少钱、多久到，以及出问题时怎么办。 更新于 2026-09-22。"
+      "en": "Where it goes, what it costs, how long it takes, and what happens when it goes wrong. Updated 2026-10-15.",
+      "zh": "送到哪里、多少钱、多久到，以及出问题时怎么办。 更新于 2026-10-15。"
     },
     "sections": [
       {
@@ -2121,8 +1906,8 @@ const PAGES = [
       },
       {
         "heading": {
-          "en": "On this test shop",
-          "zh": "在本测试店"
+          "en": "Payment and order records",
+          "zh": "支付与订单记录"
         },
         "body": {
           "en": [
@@ -2242,7 +2027,7 @@ const PAGES = [
             "Night HRV lives on Sleep. There is no blood pressure. There is no ECG."
           ],
           "zh": [
-            "身体电量、训练负荷和睡眠管住一天。心率、血氧、压力、温度、热量、步数、距离和活动能量在仪表上。身体成分是一次由你发起的扫描。",
+            "准备度、训练负荷和睡眠管住一天。心率、血氧、压力、温度、热量、步数、距离和活动能量在仪表上。身体成分是一次由你发起的扫描。",
             "夜间 HRV 归在睡眠里。不测血压。不做心电图。"
           ]
         }
@@ -2274,7 +2059,7 @@ const PAGES = [
             "Each of them is compared to your own baseline. Two weeks of wear is what it takes before the app stops hedging and starts saying things plainly."
           ],
           "zh": [
-            "身体电量是一本预算：夜里存进多少，白天花掉多少。训练负荷是你已经花掉的部分。睡眠按它自己的标准打分，不拿陌生人来比。",
+            "准备度回答此刻身体能承受多大负荷。训练负荷是你已经花掉的部分。睡眠按它自己的标准打分，不拿陌生人来比。",
             "每一项都只跟你自己的基线比。戴满两周，App 才会停止打太极，开始把话说直。"
           ]
         }
@@ -2509,12 +2294,12 @@ const PAGES = [
         },
         "body": {
           "en": [
-            "No. This storefront closes the path with a test card so you can add to cart, pay, and see an order. You will not be charged, and nothing ships.",
-            "When the live checkout opens, the prices on these pages are the prices."
+            "You continue to Shopify checkout to enter payment and delivery details. Shopify confirms payment and creates the order; this storefront does not collect card details.",
+            "Final availability, discounts, shipping, taxes and total are confirmed at Shopify checkout."
           ],
           "zh": [
-            "不是。本店用测试卡把路径走完，让你能加购、付款并看到订单。不会扣款，也不会发货。",
-            "正式结算打开时，这些页面上的价格就是价格。"
+            "你会前往 Shopify 结算页填写支付与配送信息。Shopify 确认支付并创建订单；本店面不收集银行卡信息。",
+            "最终库存、折扣、运费、税费和总额以 Shopify 结算页为准。"
           ]
         }
       }
@@ -2624,12 +2409,12 @@ const PAGES = [
         },
         "body": {
           "en": [
-            "This storefront is a working test: real pages, real cart, real order path, a closed test checkout at the end. Nothing is charged and nothing ships yet.",
-            "Write to shop@nextbody.ai if you want to know when it opens for real."
+            "This storefront hands your cart to Shopify for checkout. Successful payment, order status and shipment are confirmed by Shopify.",
+            "Contact shop@nextbody.ai if checkout is unavailable or you need help with an order."
           ],
           "zh": [
-            "这个店面是一次可运行的测试：真实的页面、真实的购物车、真实的下单路径，末端是闭环测试结算。不扣款，暂不发货。",
-            "想知道什么时候正式开卖，写 shop@nextbody.ai。"
+            "本店面将购物车交给 Shopify 结算。支付成功、订单状态和发货信息以 Shopify 确认为准。",
+            "无法结算或需要订单帮助时，请联系 shop@nextbody.ai。"
           ]
         }
       }

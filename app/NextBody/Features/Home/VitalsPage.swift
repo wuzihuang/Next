@@ -185,14 +185,13 @@ struct VitalsPage: View {
             : nil
         let foot: String
         if empty {
-            foot = L("NO RECENT BATTERY READING")
+            foot = L("NO RECENT READINESS READING")
         } else if value == nil, let at = m.bodyBatteryObservedAt {
-            // #25 · the card is already showing ——. Say why, so it cannot be read as 0%.
-            foot = L("NOT WORN SINCE %@", Fmt.clock(at))
+            foot = L("NOT WORN SINCE %@ · NO CURRENT READING", Fmt.clock(at))
         } else if stale, let at = m.bodyBatteryObservedAt {
             foot = L("SYNCED %@", Fmt.clock(at))
-        } else if let charge = m.reserveDrivers?.nightCharge {
-            foot = L("%@ · %@", L(BodyBattery.chargeWord(Int(charge.rounded()))), Fmt.signed(charge))
+        } else if let morning = m.bbWake {
+            foot = L("MORNING %d", morning)
         } else {
             foot = L("FROM WRIST DATA")
         }

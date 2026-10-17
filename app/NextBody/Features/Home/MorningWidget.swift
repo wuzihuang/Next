@@ -42,18 +42,16 @@ enum MorningWidget {
             else { return suppress("PAST_WINDOW") }
         }
 
-        let charge = Int(nightCharge.rounded())
-        let tier = L(BodyBattery.chargeWord(charge))
         let title: String
         let sentence: String
         if drivers.assumedAnchor {
             title = L("ESTIMATED START")
-            sentence = L("The starting battery was estimated because earlier readings were missing. Later readings still carry that uncertainty.")
+            sentence = L("The starting readiness was estimated because earlier readings were missing. Later readings still carry that uncertainty.")
         } else {
-            title = L("LAST NIGHT · %@", Fmt.clock(wakeAt))
-            sentence = L("%d charged overnight.", charge)
+            title = L("MORNING READINESS · %@", Fmt.clock(wakeAt))
+            sentence = L("%@ recovered overnight.", Fmt.signed(nightCharge))
         }
-        let footer = L("CHARGED +%d · %@", charge, tier)
+        let footer = BodyBattery.overnightLine(delta: nightCharge, morning: wake)
         return PanelWidget(
             type: .line, title: title, tag: .recover, sentence: sentence,
             footer: footer, action: L("TAP TO SEE WHY"), hero: "\(wake)",
@@ -69,9 +67,9 @@ enum MorningWidget {
         let iso = ISO8601DateFormatter().string(from: Date())
         _ = try? await SupabaseClient.shared.patchWhere(
             "daily_results", column: "user_day", equals: day.key, row: ["bb_morning_shown_at": iso])
-        await Analytics.shared.track("BB_MORNING_SHOWN", [
+        await Analytics.shared.track("READINESS_MORNING_SHOWN", [
             "SCORE": w.hero ?? "", "DELTA": w.footer ?? "",
-            "BAND": w.footer?.split(separator: "·").dropFirst().first.map { $0.trimmingCharacters(in: .whitespaces) } ?? "",
+            "TIER": BodyBattery.tierWord(Int(w.hero ?? "") ?? 0),
         ])
     }
 

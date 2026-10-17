@@ -1,5 +1,4 @@
 import type {ShopLocale} from './locale';
-import {TEST_DISCOUNT_CODE} from './shopMath';
 
 export type ShopCopy = {
   nav: {
@@ -73,44 +72,7 @@ export type ShopCopy = {
     codeBad: string;
     qty: string;
   };
-  checkout: {
-    title: string;
-    testBanner: string;
-    contact: string;
-    email: string;
-    name: string;
-    shipping: string;
-    address1: string;
-    address2: string;
-    city: string;
-    region: string;
-    postal: string;
-    country: string;
-    phone: string;
-    payment: string;
-    card: string;
-    expiry: string;
-    cvc: string;
-    cardHint: string;
-    place: string;
-    placing: string;
-    empty: string;
-    errorRequired: string;
-    errorEmail: string;
-    errorCard: string;
-    errorExpiry: string;
-    errorCvc: string;
-    countries: Array<{id: string; label: string}>;
-  };
-  complete: {
-    kicker: string;
-    title: string;
-    lede: string;
-    order: string;
-    test: string;
-    continue: string;
-    account: string;
-  };
+  checkout: {title: string; empty: string; errorEmail: string; address1: string; city: string; region: string; postal: string; country: string};
   account: {
     title: string;
     lede: string;
@@ -126,7 +88,6 @@ export type ShopCopy = {
     saved: string;
     signOut: string;
     testNote: string;
-    orderPaid: string;
   };
   search: {
     title: string;
@@ -213,76 +174,27 @@ const en: ShopCopy = {
     remove: 'Remove',
     code: 'Discount code',
     apply: 'Apply',
-    codeHint: `Try ${TEST_DISCOUNT_CODE} on this test shop.`,
-    codeOk: 'Test discount applied.',
-    codeBad: 'That code is not on this test shop.',
+    codeHint: `Discounts are verified by Shopify at checkout.`,
+    codeOk: 'Code saved for Shopify checkout.',
+    codeBad: 'Code saved; Shopify will verify it at checkout.',
     qty: 'Qty',
   },
-  checkout: {
-    title: 'Checkout',
-    testBanner: 'Test checkout — you will not be charged. No card is sent to a processor.',
-    contact: 'Contact',
-    email: 'Email',
-    name: 'Full name',
-    shipping: 'Shipping',
-    address1: 'Address',
-    address2: 'Apartment, suite (optional)',
-    city: 'City',
-    region: 'State / region',
-    postal: 'Postal code',
-    country: 'Country',
-    phone: 'Phone (optional)',
-    payment: 'Payment',
-    card: 'Card number',
-    expiry: 'MM / YY',
-    cvc: 'CVC',
-    cardHint: 'Use 4242 4242 4242 4242 or any 13–19 digit test number.',
-    place: 'Place test order',
-    placing: 'Placing…',
-    empty: 'Add HOOP to the cart before checkout.',
-    errorRequired: 'Fill in every required field.',
-    errorEmail: 'Enter a valid email.',
-    errorCard: 'Enter a test card number.',
-    errorExpiry: 'Enter a future expiry as MM / YY.',
-    errorCvc: 'Enter a 3 or 4 digit CVC.',
-    countries: [
-      {id: 'US', label: 'United States'},
-      {id: 'CN', label: 'China'},
-      {id: 'HK', label: 'Hong Kong'},
-      {id: 'TW', label: 'Taiwan'},
-      {id: 'JP', label: 'Japan'},
-      {id: 'GB', label: 'United Kingdom'},
-      {id: 'CA', label: 'Canada'},
-      {id: 'AU', label: 'Australia'},
-      {id: 'SG', label: 'Singapore'},
-      {id: 'DE', label: 'Germany'},
-    ],
-  },
-  complete: {
-    kicker: 'TEST ORDER',
-    title: 'HOOP is on its way — in this test.',
-    lede: 'No payment was taken. This closes the buy flow so you can walk the site.',
-    order: 'Order',
-    test: 'Paid with test card',
-    continue: 'Back to shop',
-    account: 'View in account',
-  },
+  checkout: {title: 'Checkout', empty: 'Add HOOP to the cart before checkout.', errorEmail: 'Enter a valid email address.', address1: 'Address', city: 'City', region: 'State', postal: 'Postal code', country: 'Country'},
   account: {
     title: 'Account',
-    lede: 'A test sign-in. Email only — no password, no Shopify login.',
+    lede: 'Save contact preferences on this browser. This does not sign you into Shopify.',
     email: 'Email',
     name: 'Name',
     enter: 'Enter',
     welcome: 'Welcome',
     orders: 'Orders',
-    noOrders: 'No test orders yet.',
+    noOrders: 'See your Shopify order confirmation for payment, shipping and order details.',
     profile: 'Profile',
     addresses: 'Address',
     save: 'Save',
     saved: 'Saved.',
     signOut: 'Sign out',
-    testNote: 'Test account. Orders stay in this browser session.',
-    orderPaid: 'Test paid',
+    testNote: 'Local contact preferences. Refer to Shopify for orders.',
   },
   search: {
     title: 'Search',
@@ -369,76 +281,27 @@ const zh: ShopCopy = {
     remove: '移除',
     code: '优惠码',
     apply: '使用',
-    codeHint: `测试店可用 ${TEST_DISCOUNT_CODE}。`,
-    codeOk: '测试优惠已使用。',
-    codeBad: '这个测试店没有这个码。',
+    codeHint: `优惠码会在 Shopify 结算时验证。`,
+    codeOk: '优惠码已保存，结算时确认。',
+    codeBad: '优惠码已保存，Shopify 将在结算时验证。',
     qty: '数量',
   },
-  checkout: {
-    title: '结算',
-    testBanner: '测试结算 — 不会扣款。卡号不会发给任何支付机构。',
-    contact: '联系方式',
-    email: '邮箱',
-    name: '姓名',
-    shipping: '收货地址',
-    address1: '地址',
-    address2: '公寓、门牌（选填）',
-    city: '城市',
-    region: '省 / 州',
-    postal: '邮编',
-    country: '国家 / 地区',
-    phone: '电话（选填）',
-    payment: '付款',
-    card: '卡号',
-    expiry: '月 / 年',
-    cvc: 'CVC',
-    cardHint: '可用 4242 4242 4242 4242，或任意 13–19 位测试卡号。',
-    place: '提交测试订单',
-    placing: '提交中…',
-    empty: '请先把 HOOP 加入购物车。',
-    errorRequired: '请填完必填项。',
-    errorEmail: '请输入有效邮箱。',
-    errorCard: '请输入测试卡号。',
-    errorExpiry: '请输入未过期的月 / 年。',
-    errorCvc: '请输入 3 或 4 位 CVC。',
-    countries: [
-      {id: 'CN', label: '中国大陆'},
-      {id: 'HK', label: '中国香港'},
-      {id: 'TW', label: '中国台湾'},
-      {id: 'US', label: '美国'},
-      {id: 'JP', label: '日本'},
-      {id: 'SG', label: '新加坡'},
-      {id: 'GB', label: '英国'},
-      {id: 'CA', label: '加拿大'},
-      {id: 'AU', label: '澳大利亚'},
-      {id: 'DE', label: '德国'},
-    ],
-  },
-  complete: {
-    kicker: '测试订单',
-    title: 'HOOP 已下单 — 在这次测试里。',
-    lede: '没有扣款。这条路径只是为了把购买流程走完。',
-    order: '订单',
-    test: '测试卡已记',
-    continue: '回到商店',
-    account: '在账户里查看',
-  },
+  checkout: {title: '结算', empty: '请先将 HOOP 加入购物车。', errorEmail: '请输入有效邮箱。', address1: '地址', city: '城市', region: '省/州', postal: '邮编', country: '国家'},
   account: {
     title: '账户',
-    lede: '测试登录。只需要邮箱 — 没有密码，也不走 Shopify。',
+    lede: '在此浏览器保存联系方式设置。这不会登录 Shopify 账户。',
     email: '邮箱',
     name: '姓名',
     enter: '进入',
     welcome: '你好',
     orders: '订单',
-    noOrders: '还没有测试订单。',
+    noOrders: '支付、配送和订单详情请查看 Shopify 订单确认页面。',
     profile: '资料',
     addresses: '地址',
     save: '保存',
     saved: '已保存。',
     signOut: '退出',
-    testNote: '测试账户。订单只存在这个浏览器会话里。',
-    orderPaid: '测试已付',
+    testNote: '本地联系方式设置。真实订单请查看 Shopify 的订单确认页面。',
   },
   search: {
     title: '搜索',

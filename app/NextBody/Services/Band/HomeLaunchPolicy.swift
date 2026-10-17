@@ -135,20 +135,68 @@ enum BandSyncPolicy {
     /// Daily historical verification is per account/device/day through its persisted
     /// domain receipts. Missing domains and failed uploads remain repair work even after
     /// other dates passed their daily audit. Oxygen owns its recorded overnight window.
+    /// `requireAcknowledgedToday` is the full sync's once-a-day audit. A daily repair
+    /// leaves a complete acknowledgement in place until it fails or loses coverage.
     static func needsHistorySync(states: [BandDomainSyncState], outcome: BandRefreshResult.Status?,
-                                 start: Date, end: Date, now: Date, calendar: Calendar = .current) -> Bool {
+                                 start: Date, end: Date, now: Date, calendar: Calendar = .current,
+                                 requireAcknowledgedToday: Bool = true) -> Bool {
         guard outcome == .success, start < end, end <= now else { return true }
         let expected = ["origin", "hrv", "temperature", "rr", "sleep", "oxygen", "response"]
         return expected.contains { domain in
             guard let state = states.first(where: { $0.domain == domain }),
                   state.status == .complete || state.status == .notCollected || state.status == .unsupported,
                   state.repairStart == nil, state.repairEnd == nil,
-                  state.attemptedAt <= now, calendar.isDate(state.attemptedAt, inSameDayAs: now),
+                  state.attemptedAt <= now,
+                  !requireAcknowledgedToday || calendar.isDate(state.attemptedAt, inSameDayAs: now),
                   let acknowledgedStart = state.acknowledgedStart,
                   let acknowledgedEnd = state.acknowledgedEnd,
                   acknowledgedStart < acknowledgedEnd else { return true }
             return domain != "oxygen" && (acknowledgedStart > start || acknowledgedEnd < end)
         }
+    }
+
+    /// Today is always first. Light reads yesterday only while the night may still be open,
+    /// or when yesterday has not been confirmed.
+    static func refreshIncludesYesterday(tier: BandRefreshTier, now: Date,
+                                         yesterdayConfirmed: Bool,
+                                         calendar: Calendar = .current) -> Bool {
+        switch tier {
+        case .daily, .full: return true
+        case .light:
+            if !yesterdayConfirmed { return true }
+            return calendar.component(.hour, from: now) < 4
+        }
+    }
+
+    static func refreshDayOffsets(tier: BandRefreshTier, includesYesterday: Bool) -> [Int] {
+        switch tier {
+        case .light: return includesYesterday ? [0, 1] : [0]
+        case .daily, .full: return [0, 1]
+        }
+    }
+
+    /// HRV, oxygen and temperature dumps walk every day the band still holds.
+    /// A full sync always runs them. Any other sync runs one when that night is still
+    /// unconfirmed, or when this connection has not finished the command in the last half hour.
+    static let auxiliaryReuse: TimeInterval = 30 * 60
+
+    static func needsAuxiliaryDump(nightConfirmed: Bool, lastCompletedAt: Date?, now: Date,
+                                   tier: BandRefreshTier, reuse: TimeInterval = auxiliaryReuse) -> Bool {
+        if tier == .full || !nightConfirmed { return true }
+        guard let lastCompletedAt, lastCompletedAt <= now else { return true }
+        return now.timeIntervalSince(lastCompletedAt) >= reuse
+    }
+
+    /// A domain skipped this refresh keeps the acknowledgement it already has.
+    /// Publishing an empty read would mark it not collected.
+    static func keepingSkippedDomains(_ published: [BandDomainSyncState],
+                                      previous: [BandDomainSyncState],
+                                      skipped: Set<String>) -> [BandDomainSyncState] {
+        var result = published
+        for name in skipped.sorted() where !result.contains(where: { $0.domain == name }) {
+            if let old = previous.first(where: { $0.domain == name }) { result.append(old) }
+        }
+        return result
     }
 
     /// Wrist facts only. Server settlement writes derived scores later and cannot

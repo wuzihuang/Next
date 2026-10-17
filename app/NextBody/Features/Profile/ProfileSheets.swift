@@ -333,7 +333,7 @@ struct NotificationsSheet: View {
                     SwitchRow(title: L("Training nudge"), detail: L("UNDER TARGET · RESERVE DROPS"), isOn: $training)
                     SwitchRow(title: L("Meals"), detail: L("NEXT SLOT EMPTY · YOU MOVED"), isOn: $meals)
                     SwitchRow(title: L("Daily wrap"), detail: L("WHEN THE DAY FILLS IN"), isOn: $wrap)
-                    SwitchRow(title: L("Energy"), detail: L("RESERVE CROSSES 25"), isOn: $energy)
+                    SwitchRow(title: L("Energy"), detail: L("READINESS AT OR BELOW 35"), isOn: $energy)
                     SwitchRow(title: L("Band"), detail: L("AWAY 4 H / CHARGE 15"), isOn: $band)
                     SwitchRow(title: L("Quiet hours"), detail: L("22:30 → 07:00"), isOn: $quiet, last: true)
                 }

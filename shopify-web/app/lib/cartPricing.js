@@ -127,7 +127,7 @@ export function quoteCart(cart, products) {
     (sum, {line, product}) => sum + Math.round(product.price * 100) * line.quantity,
     0,
   );
-  const discountCents = isKnownDiscount(normalized.discountCode || '') ? Math.round(subtotalCents / 10) : 0;
+  const discountCents = 0; // Shopify validates discounts at checkout.
   const shippingCents = subtotalCents > 0 && subtotalCents < SHIPPING_THRESHOLD_CENTS ? SHIPPING_FLAT_CENTS : 0;
   return {
     lines,
@@ -143,4 +143,34 @@ export function quoteCart(cart, products) {
 export function formatMoney(amount) {
   const rounded = Math.round(amount * 100) / 100;
   return Number.isInteger(rounded) ? `$${rounded}` : `$${rounded.toFixed(2)}`;
+}
+
+/** Shopify owns the final price, discount, tax, shipping and payment status.
+ * Reject missing/ambiguous catalog mappings instead of inventing variant IDs.
+ * @param {CartState} cart
+ * @param {{id: number|string, title: string, available: boolean, price: number}[]} variants
+ * @param {string} currency
+ * @param {string} domain
+ */
+export function hostedCheckoutUrl(cart, variants, currency, domain) {
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(domain || '') || currency !== 'USD') {
+    throw new Error('Checkout configuration is unavailable. Please contact shop@nextbody.ai.');
+  }
+  const normalized = normalizeCart(cart);
+  if (!normalized.lines.length) throw new Error('Your cart is empty.');
+  const pairs = normalized.lines.map((line) => {
+    const color = {'hoop-black': ['black', '黑色'], 'hoop-white': ['white', '白色']}[line.variantId];
+    const matches = variants.filter((variant) => color?.includes(variant.title.trim().toLowerCase()));
+    const variant = matches[0];
+    if (matches.length !== 1 || !variant.available || !/^[1-9]\d*$/.test(String(variant.id)) || variant.price !== 9900) {
+      throw new Error('This item is unavailable or its price has changed. Please contact shop@nextbody.ai.');
+    }
+    return `${variant.id}:${line.quantity}`;
+  });
+  const url = new URL(`https://${domain}/cart/${pairs.join(',')}`);
+  if (normalized.discountCode) {
+    if (normalized.discountCode.includes(',')) throw new Error('Enter one discount code at a time.');
+    url.searchParams.set('discount', normalized.discountCode);
+  }
+  return url.toString();
 }

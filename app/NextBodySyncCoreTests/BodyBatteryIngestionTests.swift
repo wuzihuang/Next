@@ -77,7 +77,7 @@ final class BodyBatteryIngestionTests: XCTestCase {
     func testSmallHoursRefreshReadsTodayUsingNaturalDayOffsets() throws {
         let calendar = easternCalendar
         let now = try date("2026-09-06 02:00", calendar: calendar)
-        // refreshNow first closes the previous user day, then refreshes the current one.
+        // A refresh reads today before the previous user day.
         let today = UserDay.containing(now, calendar: calendar)
         let previous = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: today.start))
         // A midnight user day never straddles two calendar days, so one page answers it.

@@ -53,11 +53,9 @@ export function HomeScreen({className}: ScreenProps) {
           <span className="nb-planet-ring nb-planet-ring-blue" />
         </div>
         <div className="nb-panel-hero">
-          <p className="nb-eyebrow">BODY BATTERY</p>
-          <p className="nb-hero-num">
-            61<span className="nb-hero-unit">%</span>
-          </p>
-          <p className="nb-hero-sub">CHARGED +38 OVERNIGHT</p>
+          <p className="nb-eyebrow">READINESS</p>
+          <p className="nb-hero-num">61</p>
+          <p className="nb-hero-sub">READY · MORNING 82</p>
         </div>
         <div className="nb-panel-vitals">
           <div className="nb-vital">
@@ -222,7 +220,7 @@ export function BodyBatteryScreen({className}: ScreenProps) {
     <div className={['nb-screen', className].filter(Boolean).join(' ')}>
       <div className="nb-detail-nav">
         <span className="nb-back">‹</span>
-        <span className="nb-detail-title">BODY BATTERY</span>
+        <span className="nb-detail-title">READINESS</span>
         <span className="nb-detail-status nb-lime">TODAY</span>
       </div>
       <div className="nb-pills">
@@ -231,9 +229,9 @@ export function BodyBatteryScreen({className}: ScreenProps) {
         <span className="nb-pill">MONTH</span>
       </div>
       <div className="nb-detail-hero">
-        <p className="nb-eyebrow">BODY BATTERY</p>
+        <p className="nb-eyebrow">READINESS</p>
         <p className="nb-hero-num nb-lime">
-          61<span className="nb-hero-unit">%</span>
+          61<span className="nb-hero-unit"> OF 100</span>
         </p>
         <p className="nb-hero-sub">SYNCED 11:27 · WAKE 07:12</p>
       </div>
@@ -247,7 +245,7 @@ export function BodyBatteryScreen({className}: ScreenProps) {
           <span className="nb-bb-dot" />
         </div>
         <div className="nb-chart-foot">
-          <span>CHARGED +38 · NIGHT 22:40–07:12</span>
+          <span>OVERNIGHT +38 · READY</span>
           <span>NOW 61</span>
         </div>
       </div>

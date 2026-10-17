@@ -350,16 +350,9 @@ struct AIPanel: View {
                 Text(MetricNames.bodyBattery)
                     .font(NBFont.dot(600, 11)).tracking(0.34 * 11)
                     .foregroundStyle(NB.white.opacity(0.55))
-                HStack(alignment: .lastTextBaseline, spacing: 2) {
-                    Text(Fmt.int(value))
-                        .font(NBFont.dot(700, 64)).tracking(-0.045 * 64)
-                        .foregroundStyle(dim ? NB.text3Prod : NB.lime1)
-                    if value != nil {
-                        Text(L("%"))
-                            .font(NBFont.dot(700, 24))
-                            .foregroundStyle(NB.lime1.opacity(0.7))
-                    }
-                }
+                Text(Fmt.int(value))
+                    .font(NBFont.dot(700, 64)).tracking(-0.045 * 64)
+                    .foregroundStyle(dim ? NB.text3Prod : NB.lime1)
                 .padding(.top, 4)
                 Text(chargeLine(at: now))
                     .font(NBFont.dot(500, 11)).tracking(0.1 * 11)
@@ -466,12 +459,12 @@ struct AIPanel: View {
 
     /// State and timestamps describe this battery result, independently of live vitals.
     private func chargeLine(at now: Date) -> String {
-        guard m.bodyBatteryForDisplay(at: now) != nil else { return L("NO RECENT BATTERY READING") }
+        guard let current = m.bodyBatteryForDisplay(at: now) else { return L("NO RECENT READINESS READING") }
         if m.bodyBatteryFreshness(at: now) != .fresh, let at = m.bodyBatteryObservedAt {
             return L("SYNCED %@", Fmt.clock(at))
         }
-        guard let charge = m.reserveDrivers?.nightCharge else { return L("FROM WRIST DATA") }
-        return L("%@ · %@", L(BodyBattery.chargeWord(Int(charge.rounded()))), Fmt.signed(charge))
+        guard let morning = m.bbWake else { return L("FROM WRIST DATA") }
+        return BodyBattery.standbyLine(current: current, morning: morning)
     }
 
     private var agoText: String {

@@ -1,8 +1,23 @@
 import Foundation
 
 /// Requests describe different work, not the screen that happened to ask for it.
+/// How much of a refresh this request is allowed to do.
+/// Light keeps a widget or a timer inside the background budget. Daily repairs
+/// today and yesterday. Full is the manual sync and the first pull after binding.
+enum BandRefreshTier: String, Equatable, Sendable {
+    case light, daily, full
+}
+
 enum BandRefreshRequest: Equatable, Sendable {
     case automatic, foreground, resume, background, fullHistory, latest, phoneTool
+
+    var tier: BandRefreshTier {
+        switch self {
+        case .background, .foreground: .light
+        case .automatic, .resume, .phoneTool, .latest: .daily
+        case .fullHistory: .full
+        }
+    }
 
     fileprivate func minimumInterval(cadence: TimeInterval) -> TimeInterval {
         switch self {
@@ -83,6 +98,8 @@ final class BandRefreshCoordinator {
         let prepare: @MainActor (_ reuseRecentLiveReceipt: Bool) async -> Bool
         let day: @MainActor (_ daysAgo: Int) async -> BandRefreshResult
         let history: @MainActor (_ recentDays: [Int: BandRefreshResult]) async -> HistoryResult
+        /// Offsets to read, today first. The caller decides whether yesterday is in the list.
+        var days: @MainActor () -> [Int] = { [0, 1] }
         var checkHistory: @MainActor () -> Bool = { false }
         var finish: @MainActor () async -> Void = {}
         var completed: @MainActor (BandRefreshResult) async -> Void = { _ in }
@@ -183,7 +200,7 @@ final class BandRefreshCoordinator {
         if let rejected = state().rejection(expected: scope) { return .init(status: rejected) }
         guard ready else { return .init(status: state().connected ? .failed : .disconnected) }
         var recentDays: [Int: BandRefreshResult] = [:]
-        for offset in [1, 0] {
+        for offset in work.days() {
             if let rejected = state().rejection(expected: scope) {
                 return .init(status: rejected, points: recentDays.values.reduce(0) { $0 + $1.points })
             }

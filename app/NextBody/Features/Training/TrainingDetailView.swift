@@ -270,8 +270,8 @@ struct TrainingDetailView: View {
         let currentReserve = targetEvidence?.followsCurrentReserve(at: now) == true
         CardBlock(title: L("TARGET BASIS"),
                   trailing: m.targetLoad == nil ? L("NO TARGET YET")
-                    : currentReserve ? L("CURRENT RESERVE")
-                    : targetEvidence?.hasReserveLimit == true ? L("LAST RECORDED RESERVE")
+                    : currentReserve ? L("CURRENT READINESS")
+                    : targetEvidence?.hasReserveLimit == true ? L("LAST RECORDED READINESS")
                     : targetEvidence == nil ? L("RULE ESTIMATE")
                     : targetEvidence?.limited == true ? L("BASELINE BUILDING") : L("SLEEP & RECOVERY")) {
             HStack {
@@ -289,17 +289,17 @@ struct TrainingDetailView: View {
             if targetEvidence?.hasReserveLimit == true {
                 HStack {
                     moveStat(L("BASE TARGET"), Fmt.load(targetEvidence?.baseTarget), NB.lime1)
-                    moveStat(L("BODY BATTERY"), targetEvidence?.currentReserve.map { String(format: "%.0f", $0) } ?? Fmt.dash, NB.lime1)
+                    moveStat(MetricNames.bodyBattery, targetEvidence?.currentReserve.map { String(format: "%.0f", $0) } ?? Fmt.dash, NB.lime1)
                     moveStat(L("REMAINING LOAD"), Fmt.load(targetEvidence?.remaining), NB.macroValue)
                 }
                 if !currentReserve {
-                    Text(L("The last battery reading still limits this target. Sync for current guidance."))
+                    Text(L("The last readiness reading still limits this target. Sync for current guidance."))
                         .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if currentReserve,
                    m.targetLoad != nil, (targetEvidence?.reserveAdjustment ?? 0) >= -0.05 {
-                    Text(L("Current body battery can lower the sleep and recovery target. Rest can raise it back toward the base target. Completed load stays recorded."))
+                    Text(L("Current readiness can lower the sleep and recovery target. Rest can raise it back toward the base target. Completed load stays recorded."))
                         .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -308,14 +308,14 @@ struct TrainingDetailView: View {
                 HStack {
                     moveStat(L("SLEEP"), target.sleepMinutes.map { Fmt.duration(Int($0.rounded())) } ?? Fmt.dash, NB.lime1)
                     moveStat(L("RECORDED DAYS"), "\(target.historyDays)", NB.lime1)
-                    moveStat(L(target.hasReserveLimit ? "BATTERY READING" : "LAST SYNC"),
+                    moveStat(L(target.hasReserveLimit ? "READINESS READING" : "LAST SYNC"),
                              target.hasReserveLimit ? target.observedAt.map(Fmt.clock) ?? Fmt.dash : lastSyncClock, NB.macroValue)
                 }
                 if target.hasReserveLimit, let adjustment = target.reserveAdjustment, adjustment < -0.05,
                    let base = target.baseTarget, let adjusted = target.target {
                     Text(L(currentReserve
-                           ? "Current body battery has lowered today's target from %@ to %@."
-                           : "The last recorded body battery has lowered today's target from %@ to %@.",
+                           ? "Current readiness has lowered today's target from %@ to %@."
+                           : "The last recorded readiness has lowered today's target from %@ to %@.",
                            Fmt.load(base), Fmt.load(adjusted)))
                         .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
                         .fixedSize(horizontal: false, vertical: true)

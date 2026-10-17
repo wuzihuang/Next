@@ -42,7 +42,7 @@ export const ENTITIES: Record<string, EntityDef> = {
     where: "phone", match: ["day", "slot", "query"],
   },
   day: {
-    find: "one user day: training load, body battery, fuel in/out/target/remaining, open and logged slots, direction, the call. find key: day.",
+    find: "one user day: training load, readiness, fuel in/out/target/remaining, open and logged slots, direction, the call. find key: day.",
     ops: { update: "fasted: true — marks today fasted and clears its meals" },
     where: "phone",
   },
@@ -526,7 +526,7 @@ const PAGE_ALIASES: Record<string, string> = {
   battery: "bodyBattery", body_battery: "bodyBattery", bodybattery: "bodyBattery", calories: "fuel", food: "fuel", meals: "fuel",
   settings: "profile", me: "profile", memory: "aiMemory", coach: "chat", advice: "plan", suggestions: "plan",
   band: "device", hoop: "device", vitals: "home.vitals", page2: "home.vitals", alarms: "sheet:bandAlarms", weigh: "sheet:weighIn",
-  首页: "home", 训练: "training", 饮食: "fuel", 身体电量: "bodyBattery", 体成分: "composition", 我的: "profile", 设备: "device", 手环: "device", 建议: "plan", 记忆: "aiMemory", 聊天: "chat", 睡眠: "vitals.sleep", 心率: "vitals.heart", 压力: "vitals.stress",
+  首页: "home", 训练: "training", 饮食: "fuel", 准备度: "bodyBattery", 体成分: "composition", 我的: "profile", 设备: "device", 手环: "device", 建议: "plan", 记忆: "aiMemory", 聊天: "chat", 睡眠: "vitals.sleep", 心率: "vitals.heart", 压力: "vitals.stress",
 };
 
 export const ACTIONS: Record<string, { params: string; confirm: boolean; codes: string[] }> = {

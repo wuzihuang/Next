@@ -1,8 +1,10 @@
 import Foundation
 
-/// Deterministic reference for bb-3.0. The server publishes the complete replay;
-/// this model is used for scenario tests, never to replace a settled UI value.
+/// Deterministic reference for readiness-1.0. The server publishes the complete replay
+/// from `nb.compute_reserve`; this model is for scenario tests only.
 enum BodyBatteryEngine {
+    /// One hour of zone 3–4 effort lands near 14–22 points. Light daily movement is gated off first.
+    static let effortScale = 0.38
     struct Baseline: Equatable {
         var restingHeartRate: Double
         var maximumHeartRate: Double
@@ -20,7 +22,7 @@ enum BodyBatteryEngine {
              hrvMS: Double?, recoveryMultiplier: Double, sleepDebt: Double = 1,
              sleepHRVMS: Double? = nil, daytimeHeartRate: Double? = nil,
              daytimeTemperature: Double? = nil, sleepingTemperature: Double? = nil,
-             temperatureScale: Double = 0.5) {
+             temperatureScale: Double = 0.5, morningReadiness: Double? = nil) {
             self.restingHeartRate = restingHeartRate.isFinite ? min(120, max(30, restingHeartRate)) : 55
             self.maximumHeartRate = maximumHeartRate.isFinite
                 ? max(self.restingHeartRate + 1, maximumHeartRate) : 190
@@ -32,7 +34,13 @@ enum BodyBatteryEngine {
             self.daytimeTemperature = valid(daytimeTemperature, in: 10...50)
             self.sleepingTemperature = valid(sleepingTemperature, in: 10...50)
             self.temperatureScale = temperatureScale.isFinite ? max(0.5, temperatureScale) : 0.5
+            self.morningReadiness = valid(morningReadiness, in: 0...100)
         }
+
+        /// Quiet rest rises toward this morning's readiness, and never above 90.
+        var restCeiling: Double { min(90, morningReadiness ?? 90) }
+
+        var morningReadiness: Double?
     }
 
     static func sleepDebt(sleptMinutes: Double?, wornThroughTheNight: Bool = false) -> Double {
@@ -52,10 +60,13 @@ enum BodyBatteryEngine {
         var temperature: Double?
         /// Automatic, timestamp-matched night oxygen. No daytime carry-forward.
         var oxygen: Double?
+        /// A recorded sport session. Strength work can cost readiness without a high heart rate.
+        var inSession: Bool
 
         init(durationMinutes: Double = 5, heartRate: Int? = nil, hrvMS: Double? = nil,
              stress: Int? = nil, steps: Int? = nil, met: Double? = nil,
-             sleepStage: Int? = nil, temperature: Double? = nil, oxygen: Double? = nil) {
+             sleepStage: Int? = nil, temperature: Double? = nil, oxygen: Double? = nil,
+             inSession: Bool = false) {
             self.durationMinutes = durationMinutes.isFinite ? max(0, durationMinutes) : 0
             self.heartRate = heartRate.flatMap { (30...250).contains($0) ? $0 : nil }
             self.hrvMS = valid(hrvMS, in: 1...300)
@@ -65,6 +76,7 @@ enum BodyBatteryEngine {
             self.sleepStage = sleepStage.flatMap { (0...4).contains($0) ? $0 : nil }
             self.temperature = valid(temperature, in: 10...50)
             self.oxygen = valid(oxygen, in: 50...100)
+            self.inSession = inSession
         }
     }
 
@@ -87,6 +99,7 @@ enum BodyBatteryEngine {
         var drivers = Drivers()
         var wornMinutes = 0.0
         var quietMinutes = 0.0
+        var awakeMinutes = 0.0
         var temperatureRisks: [(value: Double, minutes: Double)] = []
         var oxygenRisks: [(value: Double, minutes: Double)] = []
         var wasSleeping = false
@@ -102,7 +115,12 @@ enum BodyBatteryEngine {
         let sleeping = tick.sleepStage.map { $0 != 4 } ?? false
         let worn = tick.sleepStage != nil || tick.heartRate != nil || tick.hrvMS != nil
             || tick.stress != nil || (tick.steps ?? 0) > 0 || (tick.met ?? 1) > 1.05
+        if sleeping {
+            state.awakeMinutes = 0
+            state.quietMinutes = 0
+        }
         guard tick.durationMinutes > 0, worn else {
+            if !sleeping { state.awakeMinutes += tick.durationMinutes }
             state.quietMinutes = 0
             state.temperatureRisks = []
             state.oxygenRisks = []
@@ -124,25 +142,30 @@ enum BodyBatteryEngine {
                             sustained(oxygenRisk, minutes: tick.durationMinutes, history: &state.oxygenRisks))
         let hrvBase = sleeping ? baseline.sleepHRVMS : baseline.hrvMS
         let normalizedSteps = tick.steps.map { Double($0) * 5 / max(0.01, tick.durationMinutes) }
-        let rates = rates(heart: tick.heartRate.map(Double.init), hrv: tick.hrvMS,
+        let heart = tick.heartRate.map(Double.init)
+        let rates = rates(heart: heart, hrv: tick.hrvMS,
                           stress: tick.stress.map(Double.init), steps: normalizedSteps, met: tick.met,
                           resting: baseline.restingHeartRate, maximum: baseline.maximumHeartRate,
                           referenceHeart: sleeping ? baseline.restingHeartRate : baseline.daytimeHeartRate,
                           referenceHRV: hrvBase, auxiliary: auxiliary)
-        let rawAwake = sleeping ? 0 : 0.15 * baseline.sleepDebt * (1 - 0.75 * rates.rest) * scale
-        let rawMovement = sleeping ? 0 : rates.movement * scale
+        let hrr = heart.map { unit(($0 - baseline.restingHeartRate) / max(1, baseline.maximumHeartRate - baseline.restingHeartRate)) } ?? 0
+        let lightDaily = hrr < 0.30 && (tick.met ?? 1) < 2 && !tick.inSession
+        let previousQuiet = state.quietMinutes
+        state.quietMinutes = !sleeping && rates.rest > 0 ? previousQuiet + tick.durationMinutes : 0
+        let quietRest = !sleeping && state.quietMinutes > 20 && rates.rest > 0
+        let awakeHours = state.awakeMinutes / 60
+        let rawAwake = sleeping || quietRest ? 0 : awakeRate(awakeHours: awakeHours, sleepDebt: baseline.sleepDebt) * scale
+        let rawMovement = sleeping || lightDaily ? 0 : rates.movement * effortScale * scale
         let rawStrain = rates.strain * (sleeping ? 0.75 : 1) * scale
         let requested = rawAwake + rawMovement + rawStrain
         // Integrate the reserve-dependent drain: one five-minute observation and
         // five one-minute intervals have the same price when the evidence is constant.
         let integrated = requested > 0 ? -expm1(-0.0065 * requested) / (0.0065 * requested) : 1
         let soften = (0.35 + 0.65 * state.value / 100) * integrated
-        let previousQuiet = state.quietMinutes
-        state.quietMinutes = !sleeping && rates.rest > 0 ? previousQuiet + tick.durationMinutes : 0
         // Only minutes after the sustained-evidence window earn credit; no retroactive gain.
         let credited = max(0, state.quietMinutes - max(20, previousQuiet))
         let ramp = unit((state.quietMinutes - 20) / 20)
-        let rest = sleeping ? 0 : max(0, 90 - state.value)
+        let rest = sleeping ? 0 : max(0, baseline.restCeiling - state.value)
             * (1 - exp(-0.006 * rates.rest * ramp * credited / 5))
         let sleepGain = sleeping ? max(0, 95 - state.value)
             * (1 - exp(-0.011 * sleepQuality(tick.sleepStage!) * baseline.recoveryMultiplier
@@ -159,6 +182,20 @@ enum BodyBatteryEngine {
         state.drivers.awake += awake * effective
         state.drivers.movement += movement * effective
         state.drivers.stress += strain * effective
+        if !sleeping { state.awakeMinutes += tick.durationMinutes }
+    }
+
+    /// Phased awake drift. A full night's first ten hours is 0.02 per five minutes.
+    /// A short night adds 0.04–0.08. Past fourteen hours the slope rises to 0.10–0.15.
+    static func awakeRate(awakeHours: Double, sleepDebt: Double) -> Double {
+        let debt = unit((sleepDebt - 1) / 0.6)
+        let short = sleepDebt > 1.001
+        let early = short ? (0.04 + 0.04 * debt) : 0.02
+        let late = 0.10 + 0.05 * debt
+        if awakeHours <= 10 { return early }
+        if awakeHours >= 14 { return late }
+        let t = (awakeHours - 10) / 4
+        return early + (late - early) * t
     }
 
     /// SQL counterpart: nb.reserve_rates. Correlated autonomic channels use their
@@ -174,7 +211,7 @@ enum BodyBatteryEngine {
         let activityShare = movementKnown ? max(unit(((met ?? 1) - 1.2) / 0.3), unit((steps ?? 0) / 25)) : 1
         let movement = max(heartCost * activityShare, min(6.4, 0.12 * max(0, (met ?? 1) - 1)),
                            min(6.4, (steps ?? 0) / 800 * 0.60))
-        let signals = [stress.map { unit(($0 - 40) / 50) },
+        let signals = [stress.map { unit(($0 - 45) / 45) },
                        heart.map { unit(($0 - referenceHeart - 5) / 30) },
                        hrv.flatMap { h in referenceHRV.map { unit((0.90 - h / $0) / 0.50) } }]
             .compactMap { $0 }.sorted(by: >)

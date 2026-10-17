@@ -6,5 +6,16 @@
     "theme_author": "NEXTBODY",
     "theme_documentation_url": "https://admin.shopify.com",
     "theme_support_url": "https://admin.shopify.com"
+  },
+  {
+    "name": "Checkout product",
+    "settings": [
+      {
+        "type": "product",
+        "id": "hoop_product",
+        "label": "HOOP product",
+        "info": "Choose the published HOOP product with Black and White variants at $99 USD."
+      }
+    ]
   }
 ]

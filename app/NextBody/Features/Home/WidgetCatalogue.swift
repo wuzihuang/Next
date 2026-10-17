@@ -88,7 +88,7 @@ struct WidgetCatalogue: View {
         let series: [Double] = [58, 60, 58, 64, 63, 62, 66, 64, 69, 71, 68, 72]
         switch type {
         case .battery:
-            return w(type, MetricNames.bodyBattery, "64 right now.", .ring(value: 64, goal: 100, unit: "%"))
+            return w(type, MetricNames.bodyBattery, "64 right now.", .ring(value: 64, goal: 100, unit: ""))
         case .metric:
             var m = w(type, "HEART RATE", "Calm pulse — right where it should be", .none)
             m.hero = "68 bpm"

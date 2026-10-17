@@ -94,12 +94,12 @@ export const definitions: Record<DataMetric, MetricDefinition> = {
     checksStale: true,
     maxDays: MAX_DAY_SPAN,
     says:
-      "Current suggested total training load: the sleep/recovery base target limited by recent body battery. It can decrease with fatigue and recover toward the base target. Completed load does not decrease; this is not an exercise quota.",
+      "Current suggested total training load: the sleep/recovery base target. Current readiness lowers it only after a real drop, and rest can raise it back toward the base. Completed load does not decrease; this is not an exercise quota.",
   },
   bodyBattery: {
     table: "daily_results",
     column: "reserve_score",
-    unit: "%",
+    unit: "",
     origin: "derived",
     grain: "day",
     checksStale: true,

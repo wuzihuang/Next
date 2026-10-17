@@ -1,16 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  cardLast4, isExpiryValid, isTestCardNumber, isCvcValid, makeOrderId,
-} from './shopMath.ts';
+import {hostedCheckoutUrl} from './cartPricing.js';
 
-test('test checkout accepts the walkthrough card and rejects expired cards', () => {
-  assert.equal(isTestCardNumber('4242 4242 4242 4242'), true);
-  assert.equal(isTestCardNumber('1234'), false);
-  assert.equal(cardLast4('4242 4242 4242 4242'), '4242');
-  assert.equal(isExpiryValid('12 / 29', new Date('2026-09-07')), true);
-  assert.equal(isExpiryValid('01 / 20', new Date('2026-09-07')), false);
-  assert.equal(isCvcValid('123'), true);
-  assert.equal(isCvcValid('12'), false);
-  assert.match(makeOrderId(1_725_000_000_000), /^NB-[A-Z0-9]+$/);
+const cart = {lines: [{variantId: 'hoop-black-knit', quantity: 2}, {variantId: 'hoop-white', quantity: 1}], discountCode: 'SAVE10'};
+const variants = [
+  {id: '123', title: 'Black', available: true, price: 9900},
+  {id: '456', title: 'White', available: true, price: 9900},
+];
+test('real Shopify variant IDs preserve colors, quantities and pending discount', () => {
+  assert.equal(hostedCheckoutUrl(cart, variants, 'USD', 'nextbody.myshopify.com'), 'https://nextbody.myshopify.com/cart/123:2,456:1?discount=SAVE10');
+});
+test('missing, unavailable, ambiguous and mismatched prices fail closed', () => {
+  for (const catalog of [[], [...variants, variants[0]], variants.map(v => ({...v, available: false})), variants.map(v => ({...v, price: 10000}))]) {
+    assert.throws(() => hostedCheckoutUrl(cart, catalog, 'USD', 'nextbody.myshopify.com'));
+  }
+});
+test('checkout rejects unknown variants, wrong currency and untrusted domains', () => {
+  for (const domain of ['', 'evil.com', 'nextbody.myshopify.com@evil.com', 'nextbody.myshopify.com/path']) {
+    assert.throws(() => hostedCheckoutUrl(cart, variants, 'USD', domain));
+  }
+  assert.throws(() => hostedCheckoutUrl(cart, variants, 'CAD', 'nextbody.myshopify.com'));
+  assert.throws(() => hostedCheckoutUrl({lines:[{variantId:'unknown',quantity:1}]}, variants, 'USD', 'nextbody.myshopify.com'));
+  assert.throws(() => hostedCheckoutUrl({lines:[]}, variants, 'USD', 'nextbody.myshopify.com'));
 });

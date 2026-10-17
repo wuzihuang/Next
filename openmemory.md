@@ -161,7 +161,7 @@ opening either AI folder without the owner's permission.
   Outdoor Run on every Home launch — unset it before language / Chinese
   Home shots. `launch()` now also deletes those keys from `os.environ`.
   After a simulator reboot, language sheet pins 简体中文 selected
-  (`语言` / yellow dot) and Home paints 身体电量 72% in zh-Hans.
+  (`语言` / yellow dot) and Home paints 准备度 as a 0–100 score with no percent sign.
   Vitals MONTH strip pins Stress / Temp / Steps / Distance / Active
   LAST 30 DAYS (`NB_DEBUG_METRIC_RANGE=MONTH`).
   `NB_DEBUG_SCROLL_TO=bb-why` centres that card. Lock capture is
@@ -289,9 +289,13 @@ opening either AI folder without the owner's permission.
   the pip lands, then the second line types. Ready cuts. Reduce Motion
   shows the last frame. Harness skips the cover.
 - **Dedicated Chat & Cyber Telemetry** — `app/NextBody/Features/Chat/`: Full-screen Cyber Telemetry terminal from the Dock keyboard key. Assistant and user text go through `ChatMarkdown` (headings, lists, emphasis, fenced code) via `ChatMarkdownView`. Entering the page jumps to the latest line (`ChatScrollTarget` + `ScrollViewReader`). Header and dock are lifted `ledOff` plates with a lime inner hairline and a drop shadow so they do not sit on the same carbon as the thread. DEBUG `NB_DEBUG_CHAT_FIXTURE=markdown|long` seeds UI tests without touching the archive.
-- **BodyBatteryEngine** — Pure five-minute reserve model. Fuses HR/HRV/stress/steps/MET,
-  saturates sleep recovery toward 95, allows bounded verified rest recovery, and holds
-  off-wrist ticks.
+- **BodyBatteryEngine** — Deterministic reference for readiness-1.0, not a phone-side publisher.
+  Sleep still approaches 95. Quiet rest approaches the morning score, capped at 90.
+  Light daily movement (HRR < 0.30, MET < 2, no session) costs 0. Awake fatigue is 0.02
+  per five minutes for the first 10 hours after a night of at least 6.5h, and 0 during
+  sustained quiet rest. Server settlement is `nb.compute_reserve` at `readiness-1.0`;
+  training composition is `target-1.2` (no target cut unless readiness falls more than
+  8 from morning or the current score is under 60). Tables stay `reserve_*`.
 - **G70 capability sweep** — DEBUG `NB_DEBUG_PROBE=capsweep` (or Device → Capability sweep)
   dumps `VPPeripheralModel` types, reads female mode 2, listens 6s GSensor + 3s ADC, then
   `readFuncAssessment`. Results persist to `Documents/capsweep.txt`. 2026-09-06 wrist:
@@ -577,14 +581,25 @@ opening either AI folder without the owner's permission.
   `didEnterBackground` and after every run, only when
   `WidgetCenter.getCurrentConfigurations` shows ≥1 of our widgets, a session is on
   the phone and a band is bound; `earliestBeginDate` is the last `store.lastSync` +
-  30 min (never in the past). A run: `Repository.openSession` →
+  30 min (never in the past).   A run: `Repository.openSession` →
   `OriginDataSync.refreshNow(.background)` (floor `min(300, cadence)`, no live-receipt
   reuse) → `flushPendingEvidence` (settle today + reload even when the band was out of
   reach) → `WidgetGlancePublisher.publish` + `HomeSnapshot.save` → reschedule.
-  Expiration cancels the Task; `BackgroundTaskCompletion` locks `setTaskCompleted` to
-  once. Returning to the app uses `BandRefreshRequest.resume` (floor `min(60, cadence)`,
-  reuses the live receipt) so the device-page cadence no longer throttles a foreground
-  entry; the HomeView 30 s timer keeps `.foreground` (floor = cadence). Body Battery
+  As of 2026-10-17 the pull is tiered (`docs/plans/2026-10-17-fast-band-sync.md`):
+  `.background` and the Home 30 s `.foreground` timer are light (today only, yesterday
+  before 04:00 or when unconfirmed, no week audit, sleep scores for 2 days). `.resume`,
+  `.automatic` and `.phoneTool` are daily (today then yesterday, repair missing days only).
+  `.fullHistory`, consent and the first pull (`lastSync == nil` on a daily request) stay
+  full. Today is settled and, in the background task, written to the glance before yesterday.
+  HRV, oxygen and temperature dumps are reused for 30 minutes on the same link unless the
+  tier is full or that night is unconfirmed; a skipped domain keeps its old acknowledgement.
+  The origin dump still runs every refresh. BLE reading no longer waits for the previous
+  upload; the upload is awaited before this refresh publishes. Expiration records
+  `background.expired` with the current stage and cancels the Task; `BackgroundTaskCompletion`
+  locks `setTaskCompleted` to once. The glance is also written when today finishes, so a
+  later cancel can still leave today's number on the widget. Returning to the app uses
+  `BandRefreshRequest.resume` (floor `min(60, cadence)`, reuses the live receipt) so the
+  device-page cadence no longer throttles a foreground entry. Body Battery
   "empty" = server `observed_at` (last observed tick + 5 min) older than
   `BodyBatteryReadoutPolicy.goneAfter` (6 h) or no `reserve_daily` row yet; the phone
   never computes the reserve. Pure rules in `Services/Band/BackgroundRefreshPolicy.swift`
@@ -911,7 +926,7 @@ opening either AI folder without the owner's permission.
   `打造你的下一副身体`. Not PingFang. The only motion is a typewriter
   (28ms per character, same beat as FirstRun): word, pip, second line.
   Ready cuts even mid-type. Sign-in / pair film stays the pixel-fall.
-- On-screen metric names follow the language (`BODY BATTERY` → `身体电量`). Units and brands (KCAL, HRV, HOOP, NEXTBODY) may stay Latin. Permission `InfoPlist.strings` follow the phone language, not `AppLanguage`.
+- On-screen metric names follow the language (`READINESS` → `准备度`). The score is 0–100 with no percent sign; `%` stays on band battery, SpO2, and body fat. Units and brands (KCAL, HRV, HOOP, NEXTBODY) may stay Latin. Permission `InfoPlist.strings` follow the phone language, not `AppLanguage`. Low-readiness notification fires the first time the day reaches ≤ 35 and at least 15 below morning readiness. Tier words: READY / STEADY / MODERATE / RECOVER, all lime.
 - Chinese charge-idle copy is **未充电**, never 未插电. Device page uses `L("Not charging")` → 未充电. Old `Unplugged` / `UNPLUGGED` keys stay mapped to 未充电 so a stale lookup cannot bring 未插电 back.
 - Chinese UI/brand type uses Fusion Pixel 12px proportional zh_hans, cascaded behind Doto/Jost/Inter Tight so numbers stay pixel-dot and CJK stays pixel.
 - AI turns carry `AppLanguage.serverLocale`. The system prompt, meal vision prompt, and chart slot descriptions are written in the selected language and lock the frame to that language regardless of user input.

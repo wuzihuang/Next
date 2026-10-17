@@ -56,7 +56,7 @@ struct WidgetsSheet: View {
     private var todayFace: some View {
         face(title: L("TODAY")) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(L("BODY BATTERY"))
+                Text(MetricNames.bodyBattery)
                     .font(NBFont.dot(600, 7)).tracking(0.18 * 7)
                     .foregroundStyle(NB.white.opacity(0.4))
                 Text("72")

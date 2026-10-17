@@ -122,7 +122,7 @@ struct TodayWidgetFace: View {
     private var small: some View {
         VStack(spacing: 8) {
             WidgetRing(progress: readout.batteryProgress, value: readout.batteryText,
-                       label: "BODY BATTERY", tint: Island.lime, valueSize: 28,
+                       label: "READINESS", tint: Island.lime, valueSize: 28,
                        diameter: 112, stroke: 9, labelSize: 8, dim: readout.batteryDim)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -215,7 +215,7 @@ struct TodayWidgetFace: View {
                 if centred { Spacer(minLength: 0) }
                 HStack(spacing: 0) {
                     WidgetRing(progress: readout.batteryProgress, value: readout.batteryText,
-                               label: "BATTERY", tint: Island.lime, valueSize: valueSize.0,
+                               label: "READINESS", tint: Island.lime, valueSize: valueSize.0,
                                diameter: d, stroke: stroke, labelSize: 8,
                                dim: readout.batteryDim)
                     Spacer(minLength: minGap)

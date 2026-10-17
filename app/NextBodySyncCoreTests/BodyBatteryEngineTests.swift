@@ -34,7 +34,8 @@ final class BodyBatteryAdaptiveTests: XCTestCase {
     func testSustainedSevereStrainCanReachLowReserveWithoutExercise() {
         let result = replay(.init(heartRate: 90, hrvMS: 20, stress: 90, steps: 0, met: 1),
                             count: 144, anchor: 85)
-        XCTAssertLessThan(result.value, 20)
+        XCTAssertLessThan(result.value, 25, "Twelve hours of severe strain still reaches a low readiness.")
+        XCTAssertGreaterThan(85 - result.value, 60)
     }
 
     func testSleepWithSevereStrainDoesNotChargeLikeRestorativeSleep() {
@@ -209,17 +210,17 @@ final class BodyBatteryDrainCalibrationTests: XCTestCase {
                        "A wrist that sat through the night without sleeping did not sleep.")
     }
 
-    func testAShortNightAndAWorkingDayEndsNearThirty() {
-        let close = close(sleptMinutes: 240, workout: false)
-        XCTAssertGreaterThan(close, 25)
-        XCTAssertLessThan(close, 45, "A full day of work used to land near 60 whatever the night was.")
+    func testAShortNightWorkingDayDoesNotEmptyTheDay() {
+        let shortNight = close(sleptMinutes: 240, workout: false)
+        let fullNight = close(sleptMinutes: 480, workout: false)
+        XCTAssertGreaterThan(shortNight, 55, "Ordinary work is not a mechanical drain to the floor.")
+        XCTAssertLessThan(shortNight, fullNight)
     }
 
-    func testAddingOneSessionCostsAnotherTwentyPoints() {
-        let plain = close(sleptMinutes: 240, workout: false)
-        let trained = close(sleptMinutes: 240, workout: true)
-        XCTAssertLessThan(trained, plain - 15)
-        XCTAssertLessThan(trained, 25)
+    func testAddingOneSessionCostsMoreThanTheOfficeDay() {
+        let plain = close(sleptMinutes: 450, workout: false)
+        let trained = close(sleptMinutes: 450, workout: true)
+        XCTAssertLessThan(trained, plain - 10)
     }
 
     func testAShortNightDrainsFasterThanAFullOne() {
@@ -227,17 +228,47 @@ final class BodyBatteryDrainCalibrationTests: XCTestCase {
                           close(sleptMinutes: 480, workout: false) - 5)
     }
 
-    func testASecondDayWithoutSleepReachesZero() {
-        let first = close(sleptMinutes: 240, workout: false)
-        XCTAssertEqual(
-            close(sleptMinutes: nil, workout: false, from: first, wornThroughTheNight: true), 0,
-            "A day that truly never slept is allowed to reach empty.")
+    func testASleeplessNightDrainsFasterWithoutReachingEmptyByItself() {
         let morning = Array(workingDay(withWorkout: false).prefix(72))
-        let unknown = BodyBatteryEngine.replay(anchor: first, ticks: morning, baseline: baseline(sleptMinutes: nil))
-        let sleepless = BodyBatteryEngine.replay(anchor: first, ticks: morning,
+        let unknown = BodyBatteryEngine.replay(anchor: 70, ticks: morning, baseline: baseline(sleptMinutes: nil))
+        let sleepless = BodyBatteryEngine.replay(anchor: 70, ticks: morning,
             baseline: baseline(sleptMinutes: nil, wornThroughTheNight: true))
-        XCTAssertGreaterThan(unknown.value, sleepless.value,
-                             "Before either reaches zero, an unobserved night incurs no sleep-debt penalty.")
+        XCTAssertGreaterThan(unknown.value, sleepless.value)
+        XCTAssertGreaterThan(sleepless.value, 0)
+    }
+
+    func testQuietOfficeKeepsMorningReadinessAndDoesNotCutTheTrainingTarget() {
+        let slept = 7.5 * 60
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: 52, maximumHeartRate: 190, hrvMS: 48, recoveryMultiplier: 1,
+            sleepDebt: BodyBatteryEngine.sleepDebt(sleptMinutes: slept), morningReadiness: 82)
+        let office = BodyBatteryEngine.Tick(heartRate: 58, hrvMS: 48, stress: 25, steps: 40, met: 1.5)
+        let result = BodyBatteryEngine.replay(
+            anchor: 82, ticks: Array(repeating: office, count: 120), baseline: baseline)
+        XCTAssertGreaterThanOrEqual(result.value, 78, "Ten quiet office hours must stay near the morning 82.")
+        XCTAssertLessThanOrEqual(result.drivers.awake, 3, "Well-rested awake fatigue over ten hours stays under 3.")
+        XCTAssertEqual(result.drivers.movement, 0, accuracy: 0.05)
+        let d = result.drivers
+        XCTAssertEqual(result.value - 82,
+                       d.recovery + d.restorativeRest - d.awake - d.movement - d.stress,
+                       accuracy: 1e-6)
+        let drop = 82 - result.value
+        XCTAssertLessThanOrEqual(drop, 8, "A drop of 8 or less leaves the morning training target in place.")
+        XCTAssertGreaterThanOrEqual(result.value, 60)
+    }
+
+    func testOneHourOfZoneThreeOrFourCostsFourteenToTwentyTwo() {
+        let heart = Int((55 + 0.75 * (190 - 55)).rounded())
+        let tick = BodyBatteryEngine.Tick(
+            heartRate: heart, hrvMS: 30, stress: 60, steps: 800, met: 8, inSession: true)
+        let baseline = BodyBatteryEngine.Baseline(
+            restingHeartRate: 55, maximumHeartRate: 190, hrvMS: 50, recoveryMultiplier: 1,
+            morningReadiness: 82)
+        let result = BodyBatteryEngine.replay(
+            anchor: 82, ticks: Array(repeating: tick, count: 12), baseline: baseline)
+        let drop = 82 - result.value
+        XCTAssertGreaterThanOrEqual(drop, 14)
+        XCTAssertLessThanOrEqual(drop, 22)
     }
 
     func testAQuietRestDayStillEndsHigh() {

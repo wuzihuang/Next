@@ -1,7 +1,6 @@
 import type {HydrogenSession} from '@shopify/hydrogen';
 import {
   emptyCart,
-  makeOrderId,
   type CartState,
 } from './shopMath';
 import {
@@ -14,7 +13,6 @@ import type {ShopLocale} from './locale';
 
 const CART_KEY = 'nb_cart';
 const ACCOUNT_KEY = 'nb_account';
-const ORDERS_KEY = 'nb_orders';
 const LOCALE_KEY = 'nb_locale';
 
 export type ShopAccount = {
@@ -29,34 +27,13 @@ export type ShopAccount = {
   country?: string;
 };
 
-export type ShopOrder = {
-  id: string;
-  email: string;
-  name: string;
-  createdAt: string;
-  lines: HydratedLine[];
-  totals: CartTotals;
-  discountCode?: string;
-  shipping: {
-    address1: string;
-    address2?: string;
-    city: string;
-    region: string;
-    postal: string;
-    country: string;
-    phone?: string;
-  };
-  cardLast4: string;
-  status: 'paid_test';
-};
-
 export type ShopState = {
   locale: ShopLocale;
   cart: CartState;
   lines: HydratedLine[];
   totals: CartTotals;
   account: ShopAccount | null;
-  orders: ShopOrder[];
+  orders: never[];
 };
 
 function readJson<T>(session: HydrogenSession, key: string, fallback: T): T {
@@ -98,13 +75,9 @@ export function writeAccount(session: HydrogenSession, account: ShopAccount | nu
   session.set(ACCOUNT_KEY, JSON.stringify(account));
 }
 
-export function readOrders(session: HydrogenSession): ShopOrder[] {
-  const orders = readJson<ShopOrder[]>(session, ORDERS_KEY, []);
-  return Array.isArray(orders) ? orders : [];
-}
-
-export function writeOrders(session: HydrogenSession, orders: ShopOrder[]) {
-  session.set(ORDERS_KEY, JSON.stringify(orders.slice(0, 20)));
+export function readOrders(session: HydrogenSession): never[] {
+  // Retired local test orders are not payment records.
+  return [];
 }
 
 export function readLocale(session: HydrogenSession): string | null {
@@ -124,7 +97,7 @@ export function getShopState(session: HydrogenSession, locale: ShopLocale): Shop
     lines: hydrateCart(cart),
     totals: totalsForCart(cart),
     account: readAccount(session),
-    orders: readOrders(session),
+    orders: [],
   };
 }
 
@@ -137,38 +110,6 @@ export async function shopHeaders(
     headers.append('Set-Cookie', await session.commit());
   }
   return headers;
-}
-
-export function createOrder(input: {
-  account: ShopAccount;
-  cart: CartState;
-  cardLast4: string;
-}): ShopOrder {
-  const lines = hydrateCart(input.cart);
-  return {
-    id: makeOrderId(),
-    email: input.account.email,
-    name: input.account.name,
-    createdAt: new Date().toISOString(),
-    lines,
-    totals: totalsForCart(input.cart),
-    discountCode: input.cart.discountCode,
-    shipping: {
-      address1: input.account.address1 || '',
-      address2: input.account.address2,
-      city: input.account.city || '',
-      region: input.account.region || '',
-      postal: input.account.postal || '',
-      country: input.account.country || '',
-      phone: input.account.phone,
-    },
-    cardLast4: input.cardLast4,
-    status: 'paid_test',
-  };
-}
-
-export function getOrder(session: HydrogenSession, id: string): ShopOrder | undefined {
-  return readOrders(session).find((order) => order.id === id);
 }
 
 export function isEmail(value: string): boolean {

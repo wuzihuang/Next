@@ -56,7 +56,7 @@ enum LegalText {
         ]),
         Section(heading: "4. Not medical advice · not a medical device", paragraphs: [
             "The Service is a general wellness and fitness product. It is not a medical device, and it has not been evaluated, cleared or approved by the FDA, the NMPA, or any other health authority. It is not intended to diagnose, treat, cure, monitor, mitigate or prevent any disease or medical condition.",
-            "Every number the Service shows is an estimate. This includes heart rate, heart rate variability, sleep stages and sleep score, overnight blood oxygen, skin temperature, Body Battery, training load, calories burned and eaten, energy targets, body composition, and the wrist optical meal response. These estimates come from consumer sensors and algorithms, can be wrong, incomplete or delayed, and must not be used in place of a measurement by a qualified professional or a medical-grade instrument. Meal response is a unitless index; it is not a blood glucose reading.",
+            "Every number the Service shows is an estimate. This includes heart rate, heart rate variability, sleep stages and sleep score, overnight blood oxygen, skin temperature, readiness, training load, calories burned and eaten, energy targets, body composition, and the wrist optical meal response. These estimates come from consumer sensors and algorithms, can be wrong, incomplete or delayed, and must not be used in place of a measurement by a qualified professional or a medical-grade instrument. Meal response is a unitless index; it is not a blood glucose reading.",
             "Talk to a doctor before you start or change any exercise, diet, fasting, weight-loss or sleep programme, and before you act on anything the Service shows or says, especially if you are pregnant, have a heart, blood pressure, metabolic or sleep condition, an eating disorder or a history of one, a pacemaker or other implanted device, or take medication.",
             "Never ignore or delay professional medical advice because of the Service. It does not watch you, send alerts to anyone, or detect emergencies. If you think you may have a medical emergency, call your local emergency number immediately.",
         ]),
@@ -147,7 +147,7 @@ enum LegalText {
         ]),
         Section(heading: "4. 不构成医疗建议 · 不是医疗器械", paragraphs: [
             "本服务是一般性的健康与健身产品，不是医疗器械，未经美国 FDA、中国国家药品监督管理局或任何其他卫生主管部门的评估、注册或批准，不用于诊断、治疗、治愈、监测、缓解或预防任何疾病或健康状况。",
-            "本服务显示的所有数字都是估算值，包括心率、心率变异性、睡眠分期与睡眠评分、夜间血氧、皮肤温度、身体电量、训练负荷、消耗与摄入热量、能量目标、身体成分以及腕部光学餐后反应。这些估算来自消费级传感器和算法，可能不准确、不完整或有延迟，不得替代专业人员或医用级仪器的测量。餐后反应是一个无单位指数，不是血糖读数。",
+            "本服务显示的所有数字都是估算值，包括心率、心率变异性、睡眠分期与睡眠评分、夜间血氧、皮肤温度、准备度、训练负荷、消耗与摄入热量、能量目标、身体成分以及腕部光学餐后反应。这些估算来自消费级传感器和算法，可能不准确、不完整或有延迟，不得替代专业人员或医用级仪器的测量。餐后反应是一个无单位指数，不是血糖读数。",
             "开始或调整任何运动、饮食、断食、减重或睡眠方案之前，以及依据本服务显示或给出的任何内容采取行动之前，请先咨询医生。如你怀孕，患有心脏、血压、代谢或睡眠方面的疾病，患有或曾患进食障碍，装有心脏起搏器或其他植入设备，或正在服药，尤其应当如此。",
             "切勿因本服务而忽视或延误专业医疗意见。本服务不会看护你，不会向任何人发出警报，也不会识别紧急情况。如你认为自己可能遇到医疗紧急情况，请立即拨打当地急救电话。",
         ]),
@@ -230,7 +230,7 @@ enum LegalText {
         Section(heading: "2. What we collect", paragraphs: [
             "Account: your email address, your name if you provide it, and the identifier issued by Sign in with Apple or Google. If you use Apple's Hide My Email, we see only the relay address.",
             "Profile: sex, date of birth, height and weight, entered by you or read from Apple Health with your permission, plus your goal, units, language and settings. We only read from Apple Health; we never write to it.",
-            "Band readings, only after you consent: heart rate, heart rate variability including raw beat-to-beat intervals, steps, distance, calories and movement intensity, sleep signals (staging, duration, night HRV and overnight automatic blood oxygen), skin temperature, wrist optical meal response, and the body composition scans you start yourself. From these we compute scores such as sleep score, Body Battery, training load and energy targets.",
+            "Band readings, only after you consent: heart rate, heart rate variability including raw beat-to-beat intervals, steps, distance, calories and movement intensity, sleep signals (staging, duration, night HRV and overnight automatic blood oxygen), skin temperature, wrist optical meal response, and the body composition scans you start yourself. From these we compute scores such as sleep score, readiness, training load and energy targets.",
             "What the band can do but we never switch on: blood pressure, ECG, and daytime or on-demand blood oxygen. We do not enable, store or show them.",
             "Meals: the words, voice and photos you use to log food, and the estimates made from them. Location metadata is removed from photos on upload.",
             "Voice: when you speak to the app, the audio is streamed to a speech recognition provider to turn it into text. We do not store the recording; we keep the resulting text as part of the conversation or meal.",
@@ -301,7 +301,7 @@ enum LegalText {
         Section(heading: "2. 我们收集什么", paragraphs: [
             "账户信息：你的邮箱地址、你提供的姓名，以及通过 Apple 或 Google 登录时对方分配的标识符。如你使用 Apple 的「隐藏邮件地址」，我们只能看到中转地址。",
             "个人资料：性别、出生日期、身高和体重，由你填写，或经你授权从 Apple 健康读取；以及你的目标、单位、语言和各项设置。我们只从 Apple 健康读取，从不写入。",
-            "手环读数（仅在你同意后）：心率、心率变异性（含原始逐拍间期）、步数、距离、热量和活动强度、睡眠信号（分期、时长、夜间 HRV 和夜间自动血氧）、皮肤温度、腕部光学餐后反应，以及由你亲自发起的身体成分测量。我们据此计算睡眠评分、身体电量、训练负荷和能量目标等指标。",
+            "手环读数（仅在你同意后）：心率、心率变异性（含原始逐拍间期）、步数、距离、热量和活动强度、睡眠信号（分期、时长、夜间 HRV 和夜间自动血氧）、皮肤温度、腕部光学餐后反应，以及由你亲自发起的身体成分测量。我们据此计算睡眠评分、准备度、训练负荷和能量目标等指标。",
             "手环具备但我们从不开启的功能：血压、心电图，以及白天或手动触发的血氧测量。我们不开启、不存储、也不显示这些数据。",
             "餐食：你用来记录饮食的文字、语音和照片，以及据此得出的估算结果。照片上传时会去除位置信息。",
             "语音：你对 App 说话时，音频会实时传给语音识别服务商转成文字。我们不保存录音，只保留转写后的文字，作为对话或餐食记录的一部分。",

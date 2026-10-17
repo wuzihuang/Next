@@ -1,9 +1,7 @@
 import {Form, Link} from 'react-router';
 import type {ShopLocale} from '~/lib/locale';
-import {pickLocale} from '~/lib/locale';
-import type {ShopAccount, ShopOrder} from '~/lib/localShop.server';
+import type {ShopAccount} from '~/lib/localShop.server';
 import {shopCopy} from '~/lib/shopCopy';
-import {formatMoney} from '~/lib/shopMath';
 
 export function AccountLoginView({
   locale,
@@ -38,12 +36,11 @@ export function AccountLoginView({
 export function AccountHomeView({
   locale,
   account,
-  orders,
   saved,
 }: {
   locale: ShopLocale;
   account: ShopAccount;
-  orders: ShopOrder[];
+  orders: never[];
   saved?: boolean;
 }) {
   const t = shopCopy(locale);
@@ -64,21 +61,7 @@ export function AccountHomeView({
       {saved ? <p className="shop-note is-ok">{t.account.saved}</p> : null}
       <section className="shop-account-block">
         <h2>{t.account.orders}</h2>
-        {orders.length === 0 ? (
-          <p className="shop-lede">{t.account.noOrders}</p>
-        ) : (
-          <ul className="shop-order-list">
-            {orders.map((order) => (
-              <li key={order.id}>
-                <Link prefetch="intent" to={`/account/orders/${order.id}`}>
-                  <strong>{order.id}</strong>
-                  <span>{new Date(order.createdAt).toLocaleDateString()}</span>
-                  <em>{formatMoney(order.totals.total)}</em>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <p className="shop-lede">{t.account.noOrders}</p>
       </section>
       <Form className="shop-account-form" method="post">
         <h2>{t.account.profile}</h2>
@@ -129,50 +112,6 @@ export function AccountHomeView({
           {t.account.save}
         </button>
       </Form>
-    </div>
-  );
-}
-
-export function AccountOrderView({
-  locale,
-  order,
-}: {
-  locale: ShopLocale;
-  order: ShopOrder;
-}) {
-  const t = shopCopy(locale);
-  return (
-    <div className="shop-page">
-      <p className="shop-kicker">{t.account.orderPaid}</p>
-      <h1>{order.id}</h1>
-      <p className="shop-lede">
-        {order.name} · {order.email}
-      </p>
-      <ul className="shop-mini-lines">
-        {order.lines.map((line) => (
-          <li key={line.variantId}>
-            <span className="shop-mini-media">
-              <img alt="" src={line.image} />
-            </span>
-            <div>
-              <strong>
-                {pickLocale(locale, line.productTitle.en, line.productTitle.zh)}
-              </strong>
-              <span>
-                {pickLocale(locale, line.variantLabel.en, line.variantLabel.zh)} ×{' '}
-                {line.quantity}
-              </span>
-            </div>
-            <em>{formatMoney(line.price * line.quantity)}</em>
-          </li>
-        ))}
-      </ul>
-      <p className="shop-complete-total">
-        {t.cart.total} {formatMoney(order.totals.total)}
-      </p>
-      <Link className="shop-text-btn" prefetch="intent" to="/account">
-        ← {t.account.title}
-      </Link>
     </div>
   );
 }

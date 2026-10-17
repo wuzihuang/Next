@@ -28,7 +28,7 @@ const ZH: Record<string, string> = {
   proteinG: "蛋白质",
   meals: "今天的餐",
   trainingLoad: "训练负荷",
-  bodyBattery: "身体电量",
+  bodyBattery: "准备度",
   heartRate: "心率",
   steps: "步数",
   weight: "体重",

@@ -159,9 +159,9 @@ enum BodyBatteryLedgerMath {
         return Int((minutes / 5).rounded()) * 5
     }
 
-    /// Five-minute ticks the drain model charged for stress: the index sat above 40.
+    /// Five-minute ticks the drain model charged for stress: the index sat above 45.
     /// nil when no tick carried a stress index at all — missing is not calm.
-    static func stressedMinutes(_ samples: [VitalSample], above threshold: Int = 40) -> Int? {
+    static func stressedMinutes(_ samples: [VitalSample], above threshold: Int = 45) -> Int? {
         let scored = samples.compactMap(\.stress)
         guard !scored.isEmpty else { return nil }
         return scored.filter { $0 > threshold }.count * 5

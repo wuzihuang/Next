@@ -44,7 +44,7 @@ final class BodyBatteryEntryTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["OF 100"].waitForExistence(timeout: 30),
                       "page two Body Battery should open the reserve page")
-        XCTAssertEqual(app.buttons["Back"].value as? String, "BODY BATTERY")
+        XCTAssertEqual(app.buttons["Back"].value as? String, "READINESS")
         XCTAssertTrue(app.buttons["range.DAY"].exists)
 
         app.buttons["Back"].tap()

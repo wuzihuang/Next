@@ -3,6 +3,11 @@ import Foundation
 /// What the app needs from a band, and nothing more. Two implementations sit behind it:
 /// `MockBand` on the simulator and `VeepooBand` on a device with the framework linked.
 /// A device build that cannot import the SDK gets `DisconnectedBand` — idle, invents nothing.
+/// Dedicated all-days commands that sit beside the origin dump.
+enum BandAuxiliaryDomain: String, Sendable {
+    case hrv, oxygen, temperature
+}
+
 protocol BandService: AnyObject {
     var state: BandConnectionState { get }
     var events: AsyncStream<BandEvent> { get }
@@ -17,6 +22,10 @@ protocol BandService: AnyObject {
     func reconnectForSport() async
     func prepareFreshSync() async
     func finishFreshSync() async
+    /// When this connection last finished the dedicated command. Nil means it must run.
+    func auxiliaryCompletedAt(_ domain: BandAuxiliaryDomain) async -> Date?
+    /// Drop one cached dedicated command so the next health read transfers it again.
+    func invalidateAuxiliary(_ domain: BandAuxiliaryDomain) async
     /// ⚠️ The SDK only offers disconnect(). "Forget this HOOP" is the app clearing its own
     /// device id — "factory reset" is not something we can do, and the two must never blur.
     func disconnect() async
@@ -154,6 +163,9 @@ protocol BandService: AnyObject {
 }
 
 extension BandService {
+    func auxiliaryCompletedAt(_ domain: BandAuxiliaryDomain) async -> Date? { nil }
+    func invalidateAuxiliary(_ domain: BandAuxiliaryDomain) async {}
+
     func readOriginPage(calendarDay: Date) async throws -> OriginDataPage {
         let startedAt = Date()
         let calendar = Calendar.current
@@ -493,6 +505,11 @@ struct BandHealthData {
     var opticalStatus: BandDomainReadStatus = .complete
     var respiration: [RespirationSample] = []
     var respirationStatus: BandDomainReadStatus = .notCollected
+    /// False when this page reused a dedicated command from the last half hour.
+    /// The caller then leaves that domain's acknowledgement untouched.
+    var publishesHRV = true
+    var publishesTemperature = true
+    var publishesOxygen = true
 }
 
 /// 04B rule 04 · one run of the band's own sleepLine: a stage and how many minutes it held.

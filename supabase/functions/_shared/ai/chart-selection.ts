@@ -70,7 +70,7 @@ export const FAST_METRICS = {
   proteinG: "Protein grams the user recorded eating (蛋白质).",
   meals: "Which meals were recorded today and their calories (记了哪几餐).",
   trainingLoad: "The product's daily training load score out of 21 (训练负荷).",
-  bodyBattery: "Body Battery, the 0–100 energy reserve (身体电量).",
+  bodyBattery: "Readiness, the 0–100 state score (准备度). No percent sign.",
   heartRate: "Wrist heart rate over a day (心率曲线).",
   steps: "Step count (步数).",
   weight: "Body weight in kilograms (体重).",
@@ -146,12 +146,12 @@ export const FAST_BINDINGS: FastBinding[] = [
   {
     id: "line:bodyBattery.today", type: "line", source: "bodyBattery.today", metric: "bodyBattery",
     windows: TODAY, presentations: ["TREND", "STRUCTURE"],
-    unit: "", copy: "trend", says: "Today's Body Battery curve.",
+    unit: "", copy: "trend", says: "Today's Readiness curve.",
   },
   {
     id: "battery:battery.now", type: "battery", source: "battery.now", metric: "bodyBattery",
     windows: TODAY, presentations: ["SCALAR", "TARGET_PROGRESS", "NO_PREFERENCE"],
-    unit: "", copy: "scalar", says: "Body Battery right now.",
+    unit: "", copy: "scalar", says: "Readiness right now.",
   },
   // ---------------------------------------------------------------- last night
   {
@@ -206,17 +206,17 @@ export const FAST_BINDINGS: FastBinding[] = [
   {
     id: "line:bodyBattery.7d", type: "line", source: "bodyBattery.7d", metric: "bodyBattery",
     windows: ROLLING_7, presentations: ["TREND", "NO_PREFERENCE"], spanDays: 7,
-    unit: "", copy: "trend", says: "Body Battery over the last seven user days, as a line.",
+    unit: "", copy: "trend", says: "Readiness over the last seven user days, as a line.",
   },
   {
     id: "days:bodyBattery.7d", type: "days", source: "bodyBattery.7d", metric: "bodyBattery",
     windows: ROLLING_7, presentations: ["DAILY_COMPARISON"], spanDays: 7,
-    unit: "", copy: "daily", says: "Body Battery for each of the last seven user days.",
+    unit: "", copy: "daily", says: "Readiness for each of the last seven user days.",
   },
   {
     id: "line:bodyBattery.30d", type: "line", source: "bodyBattery.30d", metric: "bodyBattery",
     windows: ROLLING_30, presentations: ["TREND", "NO_PREFERENCE", "DAILY_COMPARISON"], spanDays: 30,
-    unit: "", copy: "trend", says: "Body Battery over the last thirty user days.",
+    unit: "", copy: "trend", says: "Readiness over the last thirty user days.",
   },
   {
     id: "days:steps.7d", type: "days", source: "steps.7d", metric: "steps",

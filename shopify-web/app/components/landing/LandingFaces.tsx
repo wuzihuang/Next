@@ -459,7 +459,7 @@ function FaceBattery() {
   const h = 96;
   return (
     <Face
-      kicker="BODY BATTERY"
+      kicker="READINESS"
       badge={{label: 'NOW', tone: LIME}}
       hero="86"
       unit="/ 100"

@@ -1,27 +1,20 @@
 import {data, redirect} from 'react-router';
 import {
-  createOrder,
   getShopState,
   isEmail,
   readAccount,
   readCart,
-  readOrders,
   shopHeaders,
   readLocale,
   writeAccount,
   writeCart,
-  writeOrders,
-  type ShopAccount,
 } from './localShop.server';
 import {localeFromRequest} from './locale';
 import {shopCopy} from './shopCopy';
+import {canonicalVariantId, clampQuantity} from './cartPricing.js';
 import {
   addLine,
-  cardLast4,
-  isCvcValid,
-  isExpiryValid,
-  isKnownDiscount,
-  isTestCardNumber,
+  emptyCart,
   removeLine,
   setDiscount,
   updateLine,
@@ -29,6 +22,8 @@ import {
 
 type ShopContext = {
   session: import('@shopify/hydrogen').HydrogenSession;
+  env?: {PUBLIC_STORE_DOMAIN?: string; PUBLIC_HOOP_PRODUCT_HANDLE?: string};
+  storefront?: import('@shopify/hydrogen').Storefront;
 };
 
 function returnTo(request: Request, fallback: string): string {
@@ -71,7 +66,7 @@ export async function handleCartAction(
     const code = String(form.get('code') || '');
     cart = setDiscount(cart, code);
     writeCart(context.session, cart);
-    const notice = !code ? '' : isKnownDiscount(code) ? 'ok' : 'bad';
+    const notice = code ? 'ok' : '';
     return redirect(notice ? `/cart?code=${notice}` : '/cart', {
       headers: await shopHeaders(context.session),
     });
@@ -94,64 +89,47 @@ export async function handleCheckoutAction(
   context: ShopContext,
 ) {
   const locale = localeFromRequest(request, readLocale(context.session));
-  const t = shopCopy(locale);
   const shop = getShopState(context.session, locale);
   if (shop.lines.length === 0) {
     return redirect('/cart');
   }
 
-  const form = await request.formData();
-  const email = String(form.get('email') || '').trim();
-  const name = String(form.get('name') || '').trim();
-  const address1 = String(form.get('address1') || '').trim();
-  const city = String(form.get('city') || '').trim();
-  const region = String(form.get('region') || '').trim();
-  const postal = String(form.get('postal') || '').trim();
-  const country = String(form.get('country') || '').trim();
-  const card = String(form.get('card') || '');
-  const expiry = String(form.get('expiry') || '');
-  const cvc = String(form.get('cvc') || '');
-
-  let error = '';
-  if (!email || !name || !address1 || !city || !region || !postal || !country) {
-    error = t.checkout.errorRequired;
-  } else if (!isEmail(email)) {
-    error = t.checkout.errorEmail;
-  } else if (!isTestCardNumber(card)) {
-    error = t.checkout.errorCard;
-  } else if (!isExpiryValid(expiry)) {
-    error = t.checkout.errorExpiry;
-  } else if (!isCvcValid(cvc)) {
-    error = t.checkout.errorCvc;
+  try {
+    const domain = context.env?.PUBLIC_STORE_DOMAIN || '';
+    if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(domain) || !context.storefront) throw new Error('Checkout unavailable');
+    const catalog = await context.storefront.query(CHECKOUT_PRODUCT_QUERY, {
+      cache: context.storefront.CacheNone(),
+      variables: {handle: context.env?.PUBLIC_HOOP_PRODUCT_HANDLE || 'hoop'},
+    });
+    const variants = catalog.product?.variants.nodes || [];
+    const normalizedCart = shop.cart.lines.reduce((cart, line) => addLine(cart, line.variantId, line.quantity), emptyCart());
+    const lines = normalizedCart.lines.map((line) => {
+      const color = ({'hoop-black': ['black', '黑色'], 'hoop-white': ['white', '白色']} as Record<string, string[]>)[canonicalVariantId(line.variantId)];
+      const matches = variants.filter((variant) => color?.includes(variant.title.trim().toLowerCase()));
+      const variant = matches[0];
+      if (matches.length !== 1 || !variant.availableForSale || variant.price.currencyCode !== 'USD' || Number(variant.price.amount) !== 99 || !/^gid:\/\/shopify\/ProductVariant\/[1-9]\d*$/.test(variant.id)) throw new Error('Item unavailable');
+      const quantity = clampQuantity(line.quantity);
+      if (!quantity) throw new Error('Invalid quantity');
+      return {merchandiseId: variant.id, quantity};
+    });
+    if (!lines.length) throw new Error('Cart empty');
+    const discount = shop.cart.discountCode?.trim();
+    const result = await context.storefront.mutate(CHECKOUT_CART_MUTATION, {
+      variables: {input: {lines, buyerIdentity: {countryCode: 'US'}, discountCodes: discount ? [discount] : []}},
+    });
+    if (result.cartCreate?.userErrors.length || result.cartCreate?.warnings.length || !result.cartCreate?.cart) throw new Error('Cart unavailable');
+    const createdLines = result.cartCreate.cart.lines.nodes;
+    if (createdLines.length !== lines.length || lines.some((line) => !createdLines.some((created) => created.merchandise.id === line.merchandiseId && created.quantity === line.quantity))) throw new Error('Cart changed');
+    const url = new URL(result.cartCreate.cart.checkoutUrl);
+    const primary = new URL(catalog.shop.primaryDomain.url);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || ![domain, primary.hostname].includes(url.hostname)) throw new Error('Invalid checkout URL');
+    // Shopify owns confirmation. Preserve the local cart if checkout is abandoned.
+    return redirect(url.toString(), {status: 303, headers: await shopHeaders(context.session, {'Cache-Control': 'no-store'})});
+  } catch {
+    return data({error: locale === 'zh'
+      ? '暂时无法结算：商品缺货、价格变动或商店连接不可用。购物车已保留，请重试或联系 shop@nextbody.ai。'
+      : 'Checkout unavailable: stock, price or store connection could not be verified. Your cart is saved. Retry or contact shop@nextbody.ai.'}, {status: 503});
   }
-
-  if (error) {
-    return data({error}, {status: 400});
-  }
-
-  const account: ShopAccount = {
-    ...(readAccount(context.session) || {email, name}),
-    email,
-    name,
-    address1,
-    address2: String(form.get('address2') || '').trim() || undefined,
-    city,
-    region,
-    postal,
-    country,
-    phone: String(form.get('phone') || '').trim() || undefined,
-  };
-  const order = createOrder({
-    account,
-    cart: shop.cart,
-    cardLast4: cardLast4(card),
-  });
-  writeAccount(context.session, account);
-  writeOrders(context.session, [order, ...readOrders(context.session)]);
-  writeCart(context.session, {lines: []});
-  return redirect(`/checkout/complete?order=${order.id}`, {
-    headers: await shopHeaders(context.session),
-  });
 }
 
 export async function handleAccountLogin(
@@ -200,3 +178,24 @@ export async function handleAccountUpdate(
     headers: await shopHeaders(context.session),
   });
 }
+
+const CHECKOUT_PRODUCT_QUERY = `#graphql
+  query CheckoutProduct($handle: String!) @inContext(country: US) {
+    shop { primaryDomain { url } }
+    product(handle: $handle) {
+      variants(first: 100) {
+        nodes { id title availableForSale price { amount currencyCode } }
+      }
+    }
+  }
+` as const;
+
+const CHECKOUT_CART_MUTATION = `#graphql
+  mutation CheckoutCart($input: CartInput!) {
+    cartCreate(input: $input) {
+      cart { id checkoutUrl lines(first: 100) { nodes { quantity merchandise { ... on ProductVariant { id } } } } }
+      userErrors { field message code }
+      warnings { code }
+    }
+  }
+` as const;

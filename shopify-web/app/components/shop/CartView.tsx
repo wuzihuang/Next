@@ -4,7 +4,7 @@ import type {ShopLocale} from '~/lib/locale';
 import {pickLocale} from '~/lib/locale';
 import type {ShopState} from '~/lib/localShop.server';
 import {shopCopy} from '~/lib/shopCopy';
-import {formatMoney, isKnownDiscount} from '~/lib/shopMath';
+import {formatMoney} from '~/lib/shopMath';
 
 export function CartView({
   locale,
@@ -55,6 +55,7 @@ export function CartView({
                 </button>
               </div>
             </Form>
+            <p className="shop-hint">{locale === 'zh' ? '预估金额；最终折扣、运费和税费以 Shopify 结算为准。' : 'Estimate; Shopify confirms final discounts, shipping and tax.'}</p>
             <dl>
               <div>
                 <dt>{t.cart.subtotal}</dt>
@@ -145,5 +146,5 @@ function CartLineRow({
 
 export function discountNotice(code: string | null): string | null {
   if (!code) return null;
-  return isKnownDiscount(code) ? 'ok' : 'bad';
+  return code === 'ok' ? 'ok' : null;
 }

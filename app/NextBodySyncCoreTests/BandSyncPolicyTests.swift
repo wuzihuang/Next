@@ -65,11 +65,13 @@ final class BandSyncPolicyTests: XCTestCase {
         }
     }
 
-    private func needsAudit(_ states: [BandDomainSyncState], outcome: BandRefreshResult.Status? = .success) -> Bool {
+    private func needsAudit(_ states: [BandDomainSyncState], outcome: BandRefreshResult.Status? = .success,
+                            requireToday: Bool = true) -> Bool {
         let today = Calendar.current.startOfDay(for: auditNow)
         let dayStart = Calendar.current.date(byAdding: .day, value: -3, to: today)!
         let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart)!
-        return BandSyncPolicy.needsHistorySync(states: states, outcome: outcome, start: dayStart, end: dayEnd, now: auditNow)
+        return BandSyncPolicy.needsHistorySync(states: states, outcome: outcome, start: dayStart, end: dayEnd,
+                                               now: auditNow, requireAcknowledgedToday: requireToday)
     }
 
     func testHistoryAuditSkipsOnlyConfirmedFullDaysCheckedToday() {
@@ -129,6 +131,57 @@ final class BandSyncPolicyTests: XCTestCase {
         XCTAssertEqual(BandSyncPolicy.dayStatus(pagesReturned: 2, wanted: 2, auxiliaryUploaded: false), .partial)
         XCTAssertFalse(needsAudit(confirmedHistory(), outcome: .success),
                        "a later settlement timeout must not force another history pull")
+    }
+
+    func testLightTierReadsYesterdayOnlyBeforeFourOrWhenUnconfirmed() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let early = calendar.date(from: DateComponents(year: 2026, month: 10, day: 17, hour: 3))!
+        let day = calendar.date(from: DateComponents(year: 2026, month: 10, day: 17, hour: 10))!
+        XCTAssertEqual(BandSyncPolicy.refreshDayOffsets(tier: .light, includesYesterday:
+            BandSyncPolicy.refreshIncludesYesterday(tier: .light, now: early, yesterdayConfirmed: true, calendar: calendar)),
+            [0, 1])
+        XCTAssertEqual(BandSyncPolicy.refreshDayOffsets(tier: .light, includesYesterday:
+            BandSyncPolicy.refreshIncludesYesterday(tier: .light, now: day, yesterdayConfirmed: true, calendar: calendar)),
+            [0])
+        XCTAssertEqual(BandSyncPolicy.refreshDayOffsets(tier: .light, includesYesterday:
+            BandSyncPolicy.refreshIncludesYesterday(tier: .light, now: day, yesterdayConfirmed: false, calendar: calendar)),
+            [0, 1])
+        XCTAssertEqual(BandSyncPolicy.refreshDayOffsets(tier: .daily, includesYesterday: true), [0, 1])
+        XCTAssertEqual(BandSyncPolicy.refreshDayOffsets(tier: .full, includesYesterday: true), [0, 1])
+    }
+
+    func testAuxiliaryDumpRunsForAFullSyncAnOpenNightOrAStaleCommand() {
+        let now = Date(timeIntervalSince1970: 1_800_000)
+        XCTAssertTrue(BandSyncPolicy.needsAuxiliaryDump(nightConfirmed: true, lastCompletedAt: now, now: now, tier: .full))
+        XCTAssertTrue(BandSyncPolicy.needsAuxiliaryDump(nightConfirmed: false, lastCompletedAt: now, now: now, tier: .light))
+        XCTAssertTrue(BandSyncPolicy.needsAuxiliaryDump(nightConfirmed: true, lastCompletedAt: nil, now: now, tier: .daily))
+        XCTAssertTrue(BandSyncPolicy.needsAuxiliaryDump(nightConfirmed: true, lastCompletedAt: now.addingTimeInterval(5), now: now, tier: .daily))
+        XCTAssertFalse(BandSyncPolicy.needsAuxiliaryDump(
+            nightConfirmed: true, lastCompletedAt: now, now: now.addingTimeInterval(29 * 60), tier: .light))
+        XCTAssertTrue(BandSyncPolicy.needsAuxiliaryDump(
+            nightConfirmed: true, lastCompletedAt: now, now: now.addingTimeInterval(30 * 60), tier: .daily))
+    }
+
+    func testSkippedDomainKeepsItsPreviousAcknowledgement() {
+        let now = Date(timeIntervalSince1970: 1_800_000)
+        let previous = BandDomainSyncState(domain: "hrv", status: .complete, attemptedAt: now,
+                                            acknowledgedStart: now, acknowledgedEnd: now.addingTimeInterval(60),
+                                            repairStart: nil, repairEnd: nil)
+        let origin = BandDomainSyncState(domain: "origin", status: .complete, attemptedAt: now.addingTimeInterval(10),
+                                         acknowledgedStart: now, acknowledgedEnd: now.addingTimeInterval(60),
+                                         repairStart: nil, repairEnd: nil)
+        let kept = BandSyncPolicy.keepingSkippedDomains([origin], previous: [previous], skipped: ["hrv"])
+        XCTAssertEqual(kept.map(\.domain), ["origin", "hrv"])
+        XCTAssertEqual(kept.last?.attemptedAt, now)
+        let replaced = BandSyncPolicy.keepingSkippedDomains([origin, previous], previous: [], skipped: [])
+        XCTAssertEqual(replaced.map(\.domain), ["origin", "hrv"])
+    }
+
+    func testDailyRepairKeepsAnAcknowledgementFromYesterday() {
+        XCTAssertFalse(needsAudit(confirmedHistory(at: auditNow.addingTimeInterval(-86_400)),
+                                  requireToday: false))
+        XCTAssertTrue(needsAudit(confirmedHistory(at: auditNow.addingTimeInterval(-86_400))))
     }
 
     func testWholeDayFailureCannotInheritSuccessfulDomainReceipts() {

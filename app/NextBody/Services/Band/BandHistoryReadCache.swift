@@ -21,12 +21,31 @@ final class BandHistoryReadCache: @unchecked Sendable {
     private var epoch: UInt = 0
     private var refreshing = false
     private var receipts: [Domain: Receipt] = [:]
+    /// HRV, oxygen and temperature stay valid across refreshes on the same link.
+    /// The all-days origin dump does not: it is the only source of the latest five-minute slots.
+    private let auxiliaryLifetime: TimeInterval = BandSyncPolicy.auxiliaryReuse
 
-    func beginRefresh(scope: Scope) {
+    func beginRefresh(scope: Scope, now: Date = Date()) {
         lock.lock(); defer { lock.unlock() }
-        reset()
-        self.scope = scope
+        let kept: [Domain: Receipt]
+        if self.scope == scope {
+            kept = receipts.filter { domain, receipt in
+                guard domain != .all else { return false }
+                guard receipt.status == .complete || receipt.status == .unsupported else { return false }
+                return now >= receipt.completedAt && now.timeIntervalSince(receipt.completedAt) < auxiliaryLifetime
+            }
+        } else {
+            kept = [:]
+        }
+        epoch &+= 1
         refreshing = true
+        receipts = kept
+        self.scope = scope
+    }
+
+    func drop(_ domain: Domain) {
+        lock.lock(); defer { lock.unlock() }
+        receipts[domain] = nil
     }
 
     func endRefresh() {
@@ -53,8 +72,12 @@ final class BandHistoryReadCache: @unchecked Sendable {
     func receipt(for domain: Domain, scope: Scope, at now: Date = Date()) -> Receipt? {
         lock.lock(); defer { lock.unlock() }
         adopt(scope)
-        guard let receipt = receipts[domain], now >= receipt.completedAt,
-              refreshing || now.timeIntervalSince(receipt.completedAt) < 60 else { return nil }
+        guard let receipt = receipts[domain], now >= receipt.completedAt else { return nil }
+        if domain == .all {
+            guard refreshing || now.timeIntervalSince(receipt.completedAt) < 60 else { return nil }
+        } else if !refreshing, now.timeIntervalSince(receipt.completedAt) >= auxiliaryLifetime {
+            return nil
+        }
         return receipt
     }
 

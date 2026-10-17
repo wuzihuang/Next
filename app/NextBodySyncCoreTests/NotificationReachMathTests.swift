@@ -209,6 +209,25 @@ final class NotificationReachMathTests: XCTestCase {
             .fire(.reserve, mealSlot: nil, weekly: false))
     }
 
+    func testReadinessStaysQuietUntilThirtyFiveAndFifteenBelowMorning() {
+        let now = date(2026, 9, 6, 16)
+        XCTAssertEqual(
+            NotificationReachMath.decide(
+                snap(now: now, energyOn: true, reserveNow: 36, prevReserve: 50, bbWake: 82, dayHigh: 82),
+                calendar: calendar),
+            .skip)
+        XCTAssertEqual(
+            NotificationReachMath.decide(
+                snap(now: now, energyOn: true, reserveNow: 35, prevReserve: 50, bbWake: 49, dayHigh: 49),
+                calendar: calendar),
+            .skip)
+        XCTAssertEqual(
+            NotificationReachMath.decide(
+                snap(now: now, energyOn: true, reserveNow: 35, prevReserve: 50, bbWake: 50, dayHigh: 82),
+                calendar: calendar),
+            .fire(.reserve, mealSlot: nil, weekly: false))
+    }
+
     func testReserveSilentWhenWakeAlreadyLow() {
         let now = date(2026, 9, 6, 8)
         XCTAssertEqual(

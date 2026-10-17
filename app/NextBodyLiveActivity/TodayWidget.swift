@@ -41,7 +41,7 @@ struct TodayWidget: Widget {
                 .containerBackground(for: .widget) { Island.carbon }
         }
         .configurationDisplayName("Today")
-        .description("Body battery, training load, and what you ate.")
+        .description("Readiness, training load, and what you ate.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }

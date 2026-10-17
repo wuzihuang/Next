@@ -199,7 +199,7 @@ const en: LandingCopy = {
       {kicker: 'AI DISPLAY', title: 'Ask out loud. It draws the screen.'},
     ],
     triad: [
-      {value: '72%', label: 'BODY BATTERY'},
+      {value: '72', label: 'READINESS'},
       {value: '14.9', label: 'TRAINING'},
       {value: '-728', label: 'CALORIES'},
     ],
@@ -224,14 +224,14 @@ const en: LandingCopy = {
   },
   appRead: {
     title: 'See your state at a glance.',
-    lede: "Body Battery, last night's sleep, heart rate, and stress — all in the real NextBody.",
+    lede: "Readiness, last night's sleep, heart rate, and stress — all in the real NextBody.",
     note: 'For iPhone.',
     cta: 'See the App',
   },
   radar: {
     kicker: 'THREE CORE NUMBERS',
     title: ['Three numbers', 'run the cut.'],
-    lede: 'Body Battery tells you how much you have left to spend today. Training tells you how hard to go. Calories tells you how much to eat.',
+    lede: 'Readiness tells you how much load you can take right now. Training tells you how hard to go. Calories tells you how much to eat.',
   },
   composition: {
     kicker: 'Composition',
@@ -277,7 +277,7 @@ const en: LandingCopy = {
     coachLabel: 'AI COACH',
     readLine: 'READ SLEEP · HRV · LOAD · BATTERY',
     verdict: 'A short night, and your HRV has not come back yet.',
-    p1: 'You slept 5 h 12 m — 1 h 40 m under your weekly average. Night HRV came in at 31 ms, the second night down from 38. Your body battery started the day at 61, not the 78 you usually wake with.',
+    p1: 'You slept 5 h 12 m — 1 h 40 m under your weekly average. Night HRV came in at 31 ms, the second night down from 38. Morning readiness started the day at 61, not the 78 you usually wake with.',
     p2: 'Training load is fine at 12.4. This is a recovery problem, not a fitness one. Today should be light.',
     today: 'TODAY',
     steps: [
@@ -361,7 +361,7 @@ const en: LandingCopy = {
     lede: 'HOOP does not run other apps. It reads twelve kinds of data — the three numbers that run the day, eight instruments on the wrist, and one scan you start yourself.',
     note: 'Night HRV lives on Sleep. No blood pressure. No ECG.',
     items: [
-      'BODY BATTERY',
+      'READINESS',
       'TRAINING LOAD',
       'SLEEP',
       'HEART',
@@ -443,7 +443,7 @@ const zh: LandingCopy = {
       {kicker: 'AI 表盘', title: '开口问。它画出屏幕。'},
     ],
     triad: [
-      {value: '72%', label: 'BODY BATTERY'},
+      {value: '72', label: 'READINESS'},
       {value: '14.9', label: 'TRAINING'},
       {value: '-728', label: 'CALORIES'},
     ],
@@ -468,14 +468,14 @@ const zh: LandingCopy = {
   },
   appRead: {
     title: '一眼看清今天的状态。',
-    lede: '身体电量、昨晚的睡眠、心率和压力——全在真实的 NextBody 里。',
+    lede: '准备度、昨晚的睡眠、心率和压力——全在真实的 NextBody 里。',
     note: '支持 iPhone。',
     cta: '看 App',
   },
   radar: {
     kicker: '三大核心指标',
     title: ['三位一体', '检测核心减脂'],
-    lede: 'Body Battery 让你知道今天还能测试、还能练多久。Training 告诉你该练到多少。Calories 告诉你今天该吃到多少。',
+    lede: '准备度告诉你此刻还能承受多大负荷。Training 告诉你该练到多少。Calories 告诉你今天该吃到多少。',
   },
   composition: {
     kicker: '身体成分',
@@ -517,14 +517,14 @@ const zh: LandingCopy = {
     you: '12:54 · 你',
     question: '我今天怎么这么累？',
     coachLabel: 'AI 教练',
-    readLine: '已读 睡眠 · HRV · 负荷 · 电量',
+    readLine: '已读 睡眠 · HRV · 负荷 · 准备度',
     verdict: '昨晚太短，而且你的 HRV 还没回来。',
-    p1: '你只睡了 5 小时 12 分——比周平均少 1 小时 40 分。夜间 HRV 是 31 ms，比前一晚的 38 又低了一档。今天的身体电量从 61 开始，而不是你平时醒来的 78。',
+    p1: '你只睡了 5 小时 12 分——比周平均少 1 小时 40 分。夜间 HRV 是 31 ms，比前一晚的 38 又低了一档。今天的晨间准备度是 61，而不是你平时醒来的 78。',
     p2: '训练负荷 12.4，没问题。这是恢复的问题，不是体能的问题。今天应该练轻一点。',
     today: '今天',
     steps: [
       '把训练控制在 Z2，最多 30 分钟',
-      '挪到 16:00 之后，那时电量已经回来了',
+      '挪到 16:00 之后，那时准备度已经回来了',
       '22:30 前熄灯——真正解决问题的是这一夜',
     ],
     actPlan: '调整今天的计划',
@@ -538,8 +538,8 @@ const zh: LandingCopy = {
       {title: '09:30 前记录早餐', sub: '08:12 已完成 · 331 kcal', done: true},
       {
         title: '只练 Z2，30 分钟，16:00 之后',
-        sub: '等电量回来了再花掉它',
-        meta: '醒来电量 61 · 负荷 12.4',
+        sub: '等准备度回来再安排训练',
+        meta: '晨间准备度 61 · 负荷 12.4',
       },
       {
         title: '午餐补 40 g 蛋白，缺口保持在 −500',
@@ -601,7 +601,7 @@ const zh: LandingCopy = {
     lede: 'HOOP 不跑别的 App。它读十二种数据——管住一天的三个数、手腕上的八项仪表，以及一次由你自己发起的扫描。',
     note: '夜间 HRV 归在睡眠里。不测血压，不做心电图。',
     items: [
-      'BODY BATTERY',
+      'READINESS',
       'TRAINING LOAD',
       'SLEEP',
       'HEART',

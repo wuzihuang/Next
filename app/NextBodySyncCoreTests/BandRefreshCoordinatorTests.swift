@@ -29,6 +29,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         var historyRecoveredDays: Set<Int> = []
         var historyReceivedDays: [Int: BandRefreshResult] = [:]
         var checksHistory = false
+        var dayOffsets = [0, 1]
         var finishGate: Gate?
         var afterDay: ((Int) -> Void)?
         lazy var coordinator = BandRefreshCoordinator(state: { [self] in
@@ -52,7 +53,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
                 events.append("history")
                 return .init(result: historyHasWork ? .init(status: historyStatus, points: 7) : nil,
                              recoveredDays: historyRecoveredDays)
-            }, checkHistory: { self.checksHistory }, finish: { [self] in
+            }, days: { [self] in dayOffsets }, checkHistory: { self.checksHistory }, finish: { [self] in
                 if let finishGate { await finishGate.wait() }
             })
         }
@@ -90,7 +91,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         XCTAssertTrue(f.events.isEmpty)
         result = await f.refresh(.fullHistory)
         XCTAssertEqual(result.status, .success, "an explicit device refresh may reconnect")
-        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:1", "day:alice:0", "history"])
+        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:0", "day:alice:1", "history"])
     }
 
     @MainActor func testConcurrentHistoryRequestUpgradesTheSharedRefresh() async {
@@ -103,7 +104,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         let results = await (first.value, second.value)
         XCTAssertEqual(results.0, results.1)
         XCTAssertEqual(results.0, .init(status: .success, points: 12, syncedAt: f.clock))
-        XCTAssertEqual(f.events, ["prepare:alice:true", "day:alice:1", "day:alice:0", "history"])
+        XCTAssertEqual(f.events, ["prepare:alice:true", "day:alice:0", "day:alice:1", "history"])
     }
 
     @MainActor func testThrottleRunsBeforeReadinessAndExplicitRefreshBypassesIt() async {
@@ -132,7 +133,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         f.clock.addTimeInterval(61)
         var result = await f.refresh(.resume)
         XCTAssertEqual(result.status, .success)
-        XCTAssertEqual(f.events.last, "day:alice:0")
+        XCTAssertEqual(Array(f.events.suffix(2)), ["day:alice:0", "day:alice:1"])
         // Switched away and straight back: the pull that just ran is the answer.
         f.clock.addTimeInterval(30)
         result = await f.refresh(.resume)
@@ -163,7 +164,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(retry.status, .throttled)
         let manual = await f.refresh(.fullHistory)
         XCTAssertEqual(manual.status, .success)
-        XCTAssertEqual(f.events, ["prepare:alice:true", "prepare:alice:false", "day:alice:1", "day:alice:0", "history"])
+        XCTAssertEqual(f.events, ["prepare:alice:true", "prepare:alice:false", "day:alice:0", "day:alice:1", "history"])
     }
 
     @MainActor func testHistoryCanJoinWhileTodayIsStillReading() async {
@@ -175,7 +176,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         gate.release()
         let results = await (recent.value, history.value)
         XCTAssertEqual(results.0, results.1)
-        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:1", "day:alice:0", "history"])
+        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:0", "day:alice:1", "history"])
     }
 
     @MainActor func testRevokedConsentWhilePreparingStopsBeforeAnyDay() async {
@@ -207,11 +208,11 @@ final class BandRefreshCoordinatorTests: XCTestCase {
 
     @MainActor func testAccountChangeBetweenDaysStopsOldWork() async {
         let f = Fixture()
-        f.afterDay = { offset in if offset == 1 { f.account = "bob" } }
+        f.afterDay = { offset in if offset == 0 { f.account = "bob" } }
         let result = await f.refresh(.fullHistory)
         XCTAssertEqual(result.status, .cancelled)
-        XCTAssertEqual(result.points, 2)
-        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:1"])
+        XCTAssertEqual(result.points, 3)
+        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:0"])
         XCTAssertNil(result.syncedAt)
     }
 
@@ -227,7 +228,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         let results = await (old.value, next.value)
         XCTAssertEqual(results.0.status, .cancelled)
         XCTAssertEqual(results.1.status, .success)
-        XCTAssertEqual(f.events, ["prepare:alice:false", "prepare:bob:false", "day:bob:1", "day:bob:0"])
+        XCTAssertEqual(f.events, ["prepare:alice:false", "prepare:bob:false", "day:bob:0", "day:bob:1"])
     }
 
     @MainActor func testCancellingOneWaiterDoesNotCancelSharedWork() async {
@@ -241,7 +242,7 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         let results = await (view.value, other.value)
         XCTAssertEqual(results.0.status, .cancelled)
         XCTAssertEqual(results.1.status, .success)
-        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:1", "day:alice:0"])
+        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:0", "day:alice:1"])
     }
 
     @MainActor func testConsentResumeIsScopedAndConsumedOnce() async {
@@ -292,13 +293,32 @@ final class BandRefreshCoordinatorTests: XCTestCase {
         f.account = "bob"; f.finishGate = nil
         let second = Task { @MainActor in await f.refresh(.latest) }
         for _ in 0..<10 { await Task.yield() }
-        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:1", "day:alice:0"])
+        XCTAssertEqual(f.events, ["prepare:alice:false", "day:alice:0", "day:alice:1"])
         gate.release()
         let results = await (first.value, second.value)
         XCTAssertEqual(results.0.status, .cancelled)
         XCTAssertEqual(results.1.status, .success)
     }
 
+
+    @MainActor func testTodayCanBeReadAlone() async {
+        let f = Fixture()
+        f.dayOffsets = [0]
+        let result = await f.refresh(.foreground)
+        XCTAssertEqual(result.status, .success)
+        XCTAssertEqual(result.points, 3)
+        XCTAssertEqual(f.events, ["prepare:alice:true", "day:alice:0"])
+    }
+
+    @MainActor func testRefreshTierFollowsTheRequest() {
+        XCTAssertEqual(BandRefreshRequest.background.tier, .light)
+        XCTAssertEqual(BandRefreshRequest.foreground.tier, .light)
+        XCTAssertEqual(BandRefreshRequest.automatic.tier, .daily)
+        XCTAssertEqual(BandRefreshRequest.resume.tier, .daily)
+        XCTAssertEqual(BandRefreshRequest.phoneTool.tier, .daily)
+        XCTAssertEqual(BandRefreshRequest.latest.tier, .daily)
+        XCTAssertEqual(BandRefreshRequest.fullHistory.tier, .full)
+    }
 
     @MainActor func testNoHistoryWorkDoesNotTurnFailedRecentReadsIntoPartialSuccess() async {
         let f = Fixture(); f.historyHasWork = false; f.dayStatus = [0: .failed, 1: .failed]

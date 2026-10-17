@@ -58,7 +58,7 @@ export const POLICIES: PolicyPage[] = [
           en: [
             "Account: your email address, your name if you provide it, and the identifier issued by Sign in with Apple or Google. If you use Apple's Hide My Email, we see only the relay address.",
             'Profile: sex, date of birth, height and weight, entered by you or read from Apple Health with your permission, plus your goal, units, language and settings. We only read from Apple Health; we never write to it.',
-            'Band readings, only after you consent: heart rate, heart rate variability including raw beat-to-beat intervals, steps, distance, calories and movement intensity, sleep signals (staging, duration, night HRV and overnight automatic blood oxygen), skin temperature, wrist optical meal response, and the body composition scans you start yourself. From these we compute scores such as sleep score, Body Battery, training load and energy targets.',
+            'Band readings, only after you consent: heart rate, heart rate variability including raw beat-to-beat intervals, steps, distance, calories and movement intensity, sleep signals (staging, duration, night HRV and overnight automatic blood oxygen), skin temperature, wrist optical meal response, and the body composition scans you start yourself. From these we compute scores such as sleep score, readiness, training load and energy targets.',
             'What the band can do but we never switch on: blood pressure, ECG, and daytime or on-demand blood oxygen. We do not enable, store or show them.',
             'Meals: the words, voice and photos you use to log food, and the estimates made from them. Location metadata is removed from photos on upload.',
             'Voice: when you speak to the app, the audio is streamed to a speech recognition provider to turn it into text. We do not store the recording; we keep the resulting text as part of the conversation or meal.',
@@ -72,7 +72,7 @@ export const POLICIES: PolicyPage[] = [
           zh: [
             '账户信息：你的邮箱地址、你提供的姓名，以及通过 Apple 或 Google 登录时对方分配的标识符。如你使用 Apple 的「隐藏邮件地址」，我们只能看到中转地址。',
             '个人资料：性别、出生日期、身高和体重，由你填写，或经你授权从 Apple 健康读取；以及你的目标、单位、语言和各项设置。我们只从 Apple 健康读取，从不写入。',
-            '手环读数（仅在你同意后）：心率、心率变异性（含原始逐拍间期）、步数、距离、热量和活动强度、睡眠信号（分期、时长、夜间 HRV 和夜间自动血氧）、皮肤温度、腕部光学餐后反应，以及由你亲自发起的身体成分测量。我们据此计算睡眠评分、身体电量、训练负荷和能量目标等指标。',
+            '手环读数（仅在你同意后）：心率、心率变异性（含原始逐拍间期）、步数、距离、热量和活动强度、睡眠信号（分期、时长、夜间 HRV 和夜间自动血氧）、皮肤温度、腕部光学餐后反应，以及由你亲自发起的身体成分测量。我们据此计算睡眠评分、准备度、训练负荷和能量目标等指标。',
             '手环具备但我们从不开启的功能：血压、心电图，以及白天或手动触发的血氧测量。我们不开启、不存储、也不显示这些数据。',
             '餐食：你用来记录饮食的文字、语音和照片，以及据此得出的估算结果。照片上传时会去除位置信息。',
             '语音：你对 App 说话时，音频会实时传给语音识别服务商转成文字。我们不保存录音，只保留转写后的文字，作为对话或餐食记录的一部分。',
@@ -264,11 +264,11 @@ export const POLICIES: PolicyPage[] = [
         },
         body: {
           en: [
-            'The nextbody.ai storefront is hosted by Shopify. Hosting requests include technical information such as your IP address and browser details; Shopify may set cookies needed to operate its services. The website loads fonts from Google Fonts, which receives technical request information such as your IP address. Our current test storefront stores cart, language, test-account and test-order state in your browser. It does not process a real payment or share the iOS health account. Clearing site data removes that local state.',
+            'The nextbody.ai storefront is hosted by Shopify. Hosting requests include technical information such as your IP address and browser details; Shopify may set cookies needed to operate its services. The website loads fonts from Google Fonts, which receives technical request information such as your IP address. The storefront stores cart, language and local contact preferences in your browser or session cookie. Checkout is hosted by Shopify, which processes payment, shipping and order information under its privacy policy. Website purchases do not share the iOS health account. Clearing site data removes local preferences, but does not delete Shopify orders.',
             'If you contact us about an order or support request, we process the contact details and content you provide to respond. Do not include payment card numbers, passwords or unnecessary health information.',
           ],
           zh: [
-            'nextbody.ai 商店由 Shopify 托管。访问请求包含 IP 地址、浏览器信息等技术信息；Shopify 可能设置运营其服务所需的 Cookie。网站从 Google Fonts 加载字体，该服务会收到 IP 地址等技术请求信息。当前测试商店在浏览器中保存购物车、语言、测试账户和测试订单状态，不处理真实付款，也不与 iOS 健康账户共用账户数据。清除网站数据会移除这些本地状态。',
+            'nextbody.ai 商店由 Shopify 托管。访问请求包含 IP 地址、浏览器信息等技术信息；Shopify 可能设置运营其服务所需的 Cookie。网站从 Google Fonts 加载字体，该服务会收到 IP 地址等技术请求信息。商店在浏览器或会话 Cookie 中保存购物车、语言和本地联系方式设置。结算由 Shopify 托管，支付、配送和订单信息按 Shopify 隐私政策处理。网站购买不与 iOS 健康账户共用账户数据。清除网站数据会移除本地设置，但不会删除 Shopify 订单。',
             '你就订单或支持请求联系我们时，我们会处理你提供的联系方式及内容以作答复。请勿发送银行卡号、密码或不必要的健康信息。',
           ],
         },
@@ -345,13 +345,13 @@ export const POLICIES: PolicyPage[] = [
         body: {
           en: [
             'The Service is a general wellness and fitness product. It is not a medical device, and it has not been evaluated, cleared or approved by the FDA, the NMPA, or any other health authority. It is not intended to diagnose, treat, cure, monitor, mitigate or prevent any disease or medical condition.',
-            'Every number the Service shows is an estimate. This includes heart rate, heart rate variability, sleep stages and sleep score, overnight blood oxygen, skin temperature, Body Battery, training load, calories burned and eaten, energy targets, body composition, and the wrist optical meal response. These estimates come from consumer sensors and algorithms, can be wrong, incomplete or delayed, and must not be used in place of a measurement by a qualified professional or a medical-grade instrument. Meal response is a unitless index; it is not a blood glucose reading.',
+            'Every number the Service shows is an estimate. This includes heart rate, heart rate variability, sleep stages and sleep score, overnight blood oxygen, skin temperature, readiness, training load, calories burned and eaten, energy targets, body composition, and the wrist optical meal response. These estimates come from consumer sensors and algorithms, can be wrong, incomplete or delayed, and must not be used in place of a measurement by a qualified professional or a medical-grade instrument. Meal response is a unitless index; it is not a blood glucose reading.',
             'Talk to a doctor before you start or change any exercise, diet, fasting, weight-loss or sleep programme, and before you act on anything the Service shows or says, especially if you are pregnant, have a heart, blood pressure, metabolic or sleep condition, an eating disorder or a history of one, a pacemaker or other implanted device, or take medication.',
             'Never ignore or delay professional medical advice because of the Service. It does not watch you, send alerts to anyone, or detect emergencies. If you think you may have a medical emergency, call your local emergency number immediately.',
           ],
           zh: [
             '本服务是一般性的健康与健身产品，不是医疗器械，未经美国 FDA、中国国家药品监督管理局或任何其他卫生主管部门的评估、注册或批准，不用于诊断、治疗、治愈、监测、缓解或预防任何疾病或健康状况。',
-            '本服务显示的所有数字都是估算值，包括心率、心率变异性、睡眠分期与睡眠评分、夜间血氧、皮肤温度、身体电量、训练负荷、消耗与摄入热量、能量目标、身体成分以及腕部光学餐后反应。这些估算来自消费级传感器和算法，可能不准确、不完整或有延迟，不得替代专业人员或医用级仪器的测量。餐后反应是一个无单位指数，不是血糖读数。',
+            '本服务显示的所有数字都是估算值，包括心率、心率变异性、睡眠分期与睡眠评分、夜间血氧、皮肤温度、准备度、训练负荷、消耗与摄入热量、能量目标、身体成分以及腕部光学餐后反应。这些估算来自消费级传感器和算法，可能不准确、不完整或有延迟，不得替代专业人员或医用级仪器的测量。餐后反应是一个无单位指数，不是血糖读数。',
             '开始或调整任何运动、饮食、断食、减重或睡眠方案之前，以及依据本服务显示或给出的任何内容采取行动之前，请先咨询医生。如你怀孕，患有心脏、血压、代谢或睡眠方面的疾病，患有或曾患进食障碍，装有心脏起搏器或其他植入设备，或正在服药，尤其应当如此。',
             '切勿因本服务而忽视或延误专业医疗意见。本服务不会看护你，不会向任何人发出警报，也不会识别紧急情况。如你认为自己可能遇到医疗紧急情况，请立即拨打当地急救电话。',
           ],
@@ -633,8 +633,8 @@ export const POLICIES: PolicyPage[] = [
     handle: 'terms-of-service',
     title: {en: 'Terms of Service', zh: '服务条款'},
     lede: {
-      en: 'The rules for buying on nextbody.ai — orders, price, warranty, and the test checkout.',
-      zh: '在 nextbody.ai 购买的规则 —— 订单、价格、保修，以及测试结算。',
+      en: 'The rules for buying on nextbody.ai — orders, price, warranty, and Shopify checkout.',
+      zh: '在 nextbody.ai 购买的规则 —— 订单、价格、保修，以及 Shopify 结算。',
     },
     updated: UPDATED,
     sections: [
@@ -695,15 +695,15 @@ export const POLICIES: PolicyPage[] = [
         },
       },
       {
-        heading: {en: 'This checkout is a test', zh: '本店结算是测试'},
+        heading: {en: 'Shopify checkout', zh: 'Shopify 结算'},
         body: {
           en: [
-            'Right now this storefront runs a closed test checkout. It accepts a card number so you can walk the whole path and see an order, but it does not charge the card, it does not reach a payment processor, and it does not create a shipment.',
-            'Until a live checkout is switched on, the pages here are a description of the product, not an offer to sell.',
+            'Checkout redirects to Shopify. Enter your shipping and payment details there; this storefront does not collect card numbers. A redirect alone is not proof of payment or shipment.',
+            'Shopify confirms availability, final discounts, shipping, taxes and payment status. Refer to the Shopify order confirmation for your purchase.',
           ],
           zh: [
-            '目前本店运行的是闭环测试结算。它接受卡号，只为让你把整条路径走完并看到订单，但不会扣款、不会到达支付机构，也不会产生发货。',
-            '在正式结算打开之前，这里的页面是对产品的描述，不构成销售要约。',
+            '结算会跳转至 Shopify。在该页面填写配送和支付信息；本店面不收集银行卡号。跳转本身不代表已付款或已发货。',
+            'Shopify 会确认库存、最终折扣、运费、税费和支付状态。购买情况以 Shopify 订单确认页面为准。',
           ],
         },
       },
@@ -724,7 +724,7 @@ export const POLICIES: PolicyPage[] = [
         heading: {en: 'Your shop account', zh: '商店账户'},
         body: {
           en: [
-            'The shop account holds your orders and addresses. It is separate from the health account in the app; the shop never sees your readings.',
+            'The website stores local contact preferences. Shopify maintains actual order and shipping records. Website purchases are separate from the health account in the app; the shop never sees your readings.',
             'Keep the password to yourself. Tell us if it leaks and we will lock the account.',
           ],
           zh: [
@@ -888,13 +888,13 @@ export const POLICIES: PolicyPage[] = [
         },
       },
       {
-        heading: {en: 'On this test shop', zh: '在本测试店'},
+        heading: {en: 'Payment and order records', zh: '支付与订单记录'},
         body: {
           en: [
-            'Orders placed here are test orders. No payment is taken, so there is nothing to refund and no parcel to send back. The confirmation page is the end of the path.',
+            'Shopify maintains the payment and order record. Contact shop@nextbody.ai with your Shopify order number for returns, refunds or delivery questions. A refund is complete only when confirmed by Shopify or your payment provider.',
           ],
           zh: [
-            '这里下的都是测试订单。没有扣款，因此没有可退的钱，也没有要寄回的包裹。确认页就是这条路径的终点。',
+            'Shopify 保存支付与订单记录。退货、退款或配送问题，请带上 Shopify 订单号联系 shop@nextbody.ai。退款完成以 Shopify 或支付机构的确认信息为准。',
           ],
         },
       },
@@ -991,7 +991,7 @@ export const POLICIES: PolicyPage[] = [
         },
       },
       {
-        heading: {en: 'On this test shop', zh: '在本测试店'},
+        heading: {en: 'Payment and order records', zh: '支付与订单记录'},
         body: {
           en: [
             'You can enter any supported country and see the rate and the total. Nothing is picked, packed or posted, and no carrier is ever contacted.',

@@ -72,4 +72,31 @@ final class BandHistoryReadCacheTests: XCTestCase {
         XCTAssertEqual(reused.completedAt, completed, "database query time cannot promote an old snapshot to a new revision")
     }
 
+    func testAuxiliaryReceiptSurvivesTheNextRefreshForThirtyMinutes() {
+        let cache = BandHistoryReadCache()
+        cache.beginRefresh(scope: scope, now: now)
+        let token = cache.generation(scope: scope)
+        cache.record(.complete, for: .hrv, generation: token, at: now)
+        cache.record(.complete, for: .all, generation: token, at: now)
+        cache.endRefresh()
+        let later = now.addingTimeInterval(60)
+        cache.beginRefresh(scope: scope, now: later)
+        XCTAssertEqual(cache.status(for: .hrv, scope: scope, at: later), .complete)
+        XCTAssertNil(cache.status(for: .all, scope: scope, at: later))
+        cache.endRefresh()
+        XCTAssertEqual(cache.status(for: .hrv, scope: scope, at: now.addingTimeInterval(30 * 60 - 1)), .complete)
+        XCTAssertNil(cache.status(for: .hrv, scope: scope, at: now.addingTimeInterval(30 * 60)))
+    }
+
+    func testAuxiliaryReceiptDoesNotCrossADifferentBand() {
+        let cache = BandHistoryReadCache()
+        cache.beginRefresh(scope: scope, now: now)
+        let token = cache.generation(scope: scope)
+        cache.record(.complete, for: .oxygen, generation: token, at: now)
+        cache.endRefresh()
+        let other = BandHistoryReadCache.Scope(account: "alice", binding: "band-b", device: "sdk-a")
+        cache.beginRefresh(scope: other, now: now.addingTimeInterval(10))
+        XCTAssertNil(cache.status(for: .oxygen, scope: other, at: now.addingTimeInterval(10)))
+    }
+
 }

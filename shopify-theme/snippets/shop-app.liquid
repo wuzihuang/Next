@@ -1,3 +1,7 @@
+{% doc %}
+Renders the NextBody storefront with Shopify catalog data for hosted checkout.
+{% enddoc %}
+{% assign checkout_product = settings.hoop_product | default: all_products.hoop %}
 {% assign shop_locale = 'en' %}
 {% if request.path contains '/pages/zh' or request.query_parameters.lang == 'zh' %}
   {% assign shop_locale = 'zh' %}
@@ -7,6 +11,9 @@
 
 <script type="application/json" id="nb-catalog">
 {
+  "shopDomain": {{ shop.permanent_domain | json }},
+  "currency": {{ cart.currency.iso_code | json }},
+  "shopifyVariants": {{ checkout_product.variants | json }},
   "hero": {{ 'hoop-black-a2.png' | asset_url | json }},
   "products": [
     {
@@ -36,7 +43,7 @@
       },
       "facts": [
         {"value": {"en": "99", "zh": "99"}, "label": {"en": "USD ONCE", "zh": "美元一次"}},
-        {"value": {"en": "6", "zh": "6"}, "label": {"en": "USD / MONTH · PRO", "zh": "美元 / 月 · PRO"}},
+        {"value": {"en": "19.99", "zh": "19.99"}, "label": {"en": "USD / YEAR · PRO · US", "zh": "美元 / 年 · PRO · 美国"}},
         {"value": {"en": "5", "zh": "5"}, "label": {"en": "DAYS / CHARGE", "zh": "天 / 次充电"}}
       ],
       "options": [

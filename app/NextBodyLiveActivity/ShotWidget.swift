@@ -28,7 +28,7 @@ struct ShotWidget: Widget {
         }
         .configurationDisplayName("Log a meal")
         .description("Photograph a meal.")
-        .supportedFamilies([.systemSmall])
+        .supportedFamilies(WidgetBridge.shotEnabled ? [.systemSmall] : [])
         .contentMarginsDisabled()
     }
 }

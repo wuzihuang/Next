@@ -5,8 +5,11 @@
 
 import { userClient, currentUserId, cors, json } from "../_shared/db.ts";
 import { batteryFallback } from "../_shared/contract.ts";
+import { aiDisabled } from "../_shared/ai-switch.ts";
 
 Deno.serve(async (req) => {
+  const off = aiDisabled(req);
+  if (off) return off;
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const userId = await currentUserId(req);
   if (!userId) return json({ error: "UNAUTHENTICATED" }, 401);

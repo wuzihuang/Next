@@ -2686,5 +2686,8 @@
   "UPDATING TRAINING": "正在更新训练负荷",
   "Session saved on this phone. Waiting to upload.": "运动记录已保存在本机，等待上传。",
   "SESSION HISTORY": "运动历史",
-  "This session exceeds the supported record limits. Other sessions can still sync.": "本场记录超出支持范围，其他运动记录仍可同步。"
+  "This session exceeds the supported record limits. Other sessions can still sync.": "本场记录超出支持范围，其他运动记录仍可同步。",
+  "Open the plus menu": "打开加号菜单",
+  "Pick TODAY and add it.": "选 TODAY，添加即可。",
+  "Logged at exactly this number. Nothing is estimated over it.": "就按这个数记录，不会再估算覆盖。"
 }

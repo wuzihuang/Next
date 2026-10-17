@@ -2,6 +2,24 @@
 
 NextBody-Hoop. See `README.md` for the project, `docs/STATUS.md` for current state.
 
+## AI folders are off limits
+
+App AI is hidden, not deleted. Its code lives in two folders:
+
+- `app/NextBody/AI/` — Chat, Plan, AI memory, the model client, voice and phone tools
+- `supabase/functions/_shared/ai/` — prompts, tools, quota, coach and plan
+
+**Do not open, read, search, edit, move or delete anything in these two folders without
+the owner's explicit permission in the current conversation.** Exclude them from searches
+(for example `rg --glob '!**/AI/**' --glob '!**/_shared/ai/**'`). If a task seems to need
+them, stop and ask first.
+
+The switches live outside those folders and may be read without asking:
+`app/NextBody/App/AIFeature.swift` (`enabled = false`), `WidgetBridge.shotEnabled` (Shot
+widget, `false`) and `supabase/functions/_shared/ai-switch.ts`, which answers 410
+`AI_DISABLED` from `turn`, `asr`, `memory-settle` and `screen-current` unless the Edge
+Function secret `AI_ENABLED=1`. Changing a switch still needs the owner's permission.
+
 ## Agent skills
 
 ### TypeSafe

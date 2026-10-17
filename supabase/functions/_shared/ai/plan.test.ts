@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { adviceEvidence, type EvidenceRow } from "./advice-evidence.ts";
-import { addDays } from "./calendar.ts";
+import { addDays } from "../calendar.ts";
 import { planContext, PlanArgs, validateAdvice, type PlanContext } from "./plan.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 

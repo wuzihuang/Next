@@ -18,7 +18,7 @@ let package = Package(
         ),
         .target(
             name: "NextBodyChatCore",
-            path: "NextBody/Features/Chat",
+            path: "NextBody/AI/Chat",
             exclude: [
                 "ChatDetailView.swift",
                 "ChatHistorySheet.swift",
@@ -46,7 +46,7 @@ let package = Package(
         ),
         .target(
             name: "NextBodyPlanCore",
-            path: "NextBody/Features/Plan",
+            path: "NextBody/AI/Plan",
             exclude: ["PlanChevron.swift", "PlanLip.swift", "PlanPage.swift", "PlanChecks.swift", "PlanStore.swift"],
             sources: ["PlanFaceMath.swift", "DailyPlan.swift", "AdviceRequestLifetime.swift", "AdviceDayPolicy.swift"]
         ),

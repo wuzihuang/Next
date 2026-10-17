@@ -15,41 +15,42 @@
 import { generateObject, streamText, type Tool, type CoreMessage } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
-import { ChatHistory, coachFrame, coachMessages } from "../_shared/coach.ts";
-import { ThoughtStream } from "../_shared/thoughts.ts";
+import { ChatHistory, coachFrame, coachMessages } from "../_shared/ai/coach.ts";
+import { ThoughtStream } from "../_shared/ai/thoughts.ts";
 import { model, modelVersion, primaryModelId, modelChain, isModelFailure, withModelFallback } from "../_shared/model.ts";
-import { ImageExtract } from "../_shared/image-inspection.ts";
-import { systemPrompt, type Surface } from "../_shared/prompt.ts";
-import { buildTools, FIND_TOOL, PERSONAL_ENTITIES, READ_TOOL } from "../_shared/tools.ts";
-import { ENTITIES, resolveMatch, WRITE_ACTIONS } from "../_shared/entities.ts";
-import { NumberLedger, auditFrame } from "../_shared/ledger.ts";
+import { ImageExtract } from "../_shared/ai/image-inspection.ts";
+import { systemPrompt, type Surface } from "../_shared/ai/prompt.ts";
+import { buildTools, FIND_TOOL, PERSONAL_ENTITIES, READ_TOOL } from "../_shared/ai/tools.ts";
+import { ENTITIES, resolveMatch, WRITE_ACTIONS } from "../_shared/ai/entities.ts";
+import { NumberLedger, auditFrame } from "../_shared/ai/ledger.ts";
 import { Envelope, normalizeLocale, slowDownFrame, tagSafe } from "../_shared/contract.ts";
-import { buildRenderTools, RENDER_TOOL } from "../_shared/charts.ts";
+import { buildRenderTools, RENDER_TOOL } from "../_shared/ai/charts.ts";
 import { userClient, currentUserId, cors, json, userDayKey } from "../_shared/db.ts";
 import { enforceRequestBudget } from "../_shared/rate-limit.ts";
-import { consumeAiQuota, checkAiSpend, quotaDeniedResponse, recordAiUsage, recordProviderAttempt } from "../_shared/ai-quota.ts";
+import { consumeAiQuota, checkAiSpend, quotaDeniedResponse, recordAiUsage, recordProviderAttempt } from "../_shared/ai/ai-quota.ts";
 import { usageFromProvider, type TokenUsage } from "../_shared/cost.ts";
 import {
   MAX_TURN_STEPS, MAX_RESUMES, createTurnWorkflow, finishTurnStep, gateTurnTool, restoreTurnWorkflow,
   serializeTurnWorkflow, WORKFLOW_READY, WORKFLOW_REREAD, WORKFLOW_COACH, HEALTH_PREPARE, type TurnWorkflow,
-} from "../_shared/turn-phase.ts";
-import { clientFreshness, freshnessContext } from "../_shared/freshness.ts";
-import { createTurnContext, withTurnRange, workflowRangeSchema, type TurnContext } from "../_shared/turn-context.ts";
+} from "../_shared/ai/turn-phase.ts";
+import { clientFreshness, freshnessContext } from "../_shared/ai/freshness.ts";
+import { createTurnContext, withTurnRange, workflowRangeSchema, type TurnContext } from "../_shared/ai/turn-context.ts";
 import { estimateMeal, foodDraftEnvelope, looksLikeMealPrompt, commitEstimatedMeals, storeMealPhoto, type MealEstimateDraft } from "../_shared/meal-estimate.ts";
-import type { Ctx } from "../_shared/sources.ts";
-import { repairTextToolCall } from "../_shared/tool-repair.ts";
-import { DO_TOOL, PHONE_TOOLS, WRITE_TOOL, normalizePhoneArgs, phoneToolDescription, phoneToolResult, type PhoneToolRequest } from "../_shared/phone-tools.ts";
-import { loadMemory, memoryContext } from "../_shared/memory.ts";
-import { buildPlanTool, planContext, savePlanRow, PLAN_LOOKBACK_DAYS, PLAN_RENDER, type PlanRow } from "../_shared/plan.ts";
-import { addDays } from "../_shared/sources.ts";
+import type { Ctx } from "../_shared/ai/sources.ts";
+import { repairTextToolCall } from "../_shared/ai/tool-repair.ts";
+import { DO_TOOL, PHONE_TOOLS, WRITE_TOOL, normalizePhoneArgs, phoneToolDescription, phoneToolResult, type PhoneToolRequest } from "../_shared/ai/phone-tools.ts";
+import { loadMemory, memoryContext } from "../_shared/ai/memory.ts";
+import { buildPlanTool, planContext, savePlanRow, PLAN_LOOKBACK_DAYS, PLAN_RENDER, type PlanRow } from "../_shared/ai/plan.ts";
+import { addDays } from "../_shared/ai/sources.ts";
 import { searchWeb, WEB_SEARCH, type WebEvidence, type WebSearchResult } from "../_shared/web-search.ts";
-import { ADVICE_REFERENCES } from "../_shared/advice-evidence.ts";
-import { DATA_METRICS } from "../_shared/data-read.ts";
-import { jevConfig } from "../_shared/typesafe.ts";
-import { routeTurn, type JevAttempt } from "../_shared/decision-router.ts";
-import { runFastTurn, type FastTurnResult, type ProbeResult } from "../_shared/fast-turn.ts";
+import { ADVICE_REFERENCES } from "../_shared/ai/advice-evidence.ts";
+import { DATA_METRICS } from "../_shared/ai/data-read.ts";
+import { jevConfig } from "../_shared/ai/typesafe.ts";
+import { routeTurn, type JevAttempt } from "../_shared/ai/decision-router.ts";
+import { runFastTurn, type FastTurnResult, type ProbeResult } from "../_shared/ai/fast-turn.ts";
 
-import { fetchAs, type Kind } from "../_shared/sources.ts";
+import { fetchAs, type Kind } from "../_shared/ai/sources.ts";
+import { aiDisabled } from "../_shared/ai-switch.ts";
 
 const HOURLY = 60;
 /// A trace entry whose ok:true result backs a "logged / set / started" sentence: any
@@ -1214,7 +1215,7 @@ export async function handleTurn(
   }
 }
 
-if (import.meta.main) Deno.serve((req) => handleTurn(req));
+if (import.meta.main) Deno.serve((req) => aiDisabled(req) ?? handleTurn(req));
 
 /// The model writes `range` as an object, and sometimes as the JSON text of one.
 /// Returns the range, undefined when none was given, or "invalid" to ask for it again.

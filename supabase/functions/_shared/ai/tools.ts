@@ -10,7 +10,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 // return before harvesting it. As a type-only import the class was erased at runtime, `new`
 // threw, generateText caught it, and every turn came back MODEL_UNAVAILABLE.
 import { NumberLedger } from "./ledger.ts";
-import { SEED_MEAL_VERSION } from "./db.ts";
+import { SEED_MEAL_VERSION } from "../db.ts";
 import type { Ctx } from "./sources.ts";
 
 /// Read tools for a turn. All read-only, all through the caller's JWT.

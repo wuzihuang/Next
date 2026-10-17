@@ -3,10 +3,10 @@
 import { tool, type Tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
-import type { Envelope } from "./contract.ts";
+import type { Envelope } from "../contract.ts";
 import { auditFrame, NumberLedger } from "./ledger.ts";
-import { addDays, dayBounds } from "./calendar.ts";
-import { acceptSnapshot, readSnapshot } from "./metric-snapshot.ts";
+import { addDays, dayBounds } from "../calendar.ts";
+import { acceptSnapshot, readSnapshot } from "../metric-snapshot.ts";
 import { ADVICE_REFERENCES, adviceEvidence, type EvidenceRow } from "./advice-evidence.ts";
 
 export const PLAN_RENDER = "plan.render";

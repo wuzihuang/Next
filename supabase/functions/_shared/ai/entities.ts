@@ -13,8 +13,8 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { normalizeDays, normalizeSlot, normalizeTime } from "./normalize.ts";
-import { SEED_MEAL_VERSION } from "./db.ts";
-import { addDays } from "./calendar.ts";
+import { SEED_MEAL_VERSION } from "../db.ts";
+import { addDays } from "../calendar.ts";
 
 export type Op = "create" | "update" | "delete" | "restore";
 export type Where = "phone" | "server";

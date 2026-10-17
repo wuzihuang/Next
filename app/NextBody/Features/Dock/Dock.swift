@@ -40,6 +40,32 @@ struct Dock: View {
     @FocusState private var focused: Bool
 
     var body: some View {
+        if AIFeature.enabled { inputRow } else { plusOnlyRow }
+    }
+
+    private var plusOnlyRow: some View {
+        DockCircleButton(filled: menuOpen, action: onPlus) { plusFace }
+            .accessibilityLabel(menuOpen ? L("Close") : L("Open the plus menu"))
+            .frame(width: width, height: NB.Layout.dockHeight)
+    }
+
+    /// The key at rest is the orb, not a camera outline: it opens 06's sheet, where the photo
+    /// rows are one option among the band's own. It fills the key edge to edge — under about
+    /// 40 pt the two shells stop reading as shells and the ball is just texture.
+    private var plusFace: some View {
+        ZStack {
+            OrbGlyph(side: NB.Layout.dockSideButton)
+                .opacity(menuOpen ? 0 : 1)
+                .scaleEffect(menuOpen ? 0.6 : 1)
+            PlusGlyph(tint: NB.carbon)
+                .rotationEffect(.degrees(45))
+                .opacity(menuOpen ? 1 : 0)
+                .scaleEffect(menuOpen ? 1 : 0.6)
+        }
+        .animation(.easeOut(duration: 0.14), value: menuOpen)
+    }
+
+    private var inputRow: some View {
         HStack(spacing: 14) {
             // Left slot · switches input mode or opens dedicated chat.
             DockCircleButton(ringed: mode == .keyboard, action: {
@@ -80,24 +106,9 @@ struct Dock: View {
                 .accessibilityIdentifier("dock-send")
                 .transition(.scale.combined(with: .opacity))
             } else {
-                DockCircleButton(filled: menuOpen, action: onPlus, onLongPress: onPlusLongPress) {
-                    ZStack {
-                        // The key at rest is the orb, not a camera outline: it opens 06's
-                        // sheet, where the photo rows are one option among the band's own.
-                        // It fills the key edge to edge — under about 40 pt the two shells
-                        // stop reading as shells and the ball is just texture.
-                        // A hold skips the sheet and goes straight to Photograph your meal —
-                        // swell + hum while held, tap on the lift (DockCircleButton).
-                        OrbGlyph(side: NB.Layout.dockSideButton)
-                            .opacity(menuOpen ? 0 : 1)
-                            .scaleEffect(menuOpen ? 0.6 : 1)
-                        PlusGlyph(tint: NB.carbon)
-                            .rotationEffect(.degrees(45))
-                            .opacity(menuOpen ? 1 : 0)
-                            .scaleEffect(menuOpen ? 1 : 0.6)
-                    }
-                    .animation(.easeOut(duration: 0.14), value: menuOpen)
-                }
+                // A hold skips the sheet and goes straight to Photograph your meal —
+                // swell + hum while held, tap on the lift (DockCircleButton).
+                DockCircleButton(filled: menuOpen, action: onPlus, onLongPress: onPlusLongPress) { plusFace }
                 .accessibilityLabel(menuOpen ? L("Close") : L("Camera"))
                 .accessibilityHint(menuOpen ? "" : L("Long press to photograph your meal."))
                 .accessibilityAction(named: Text(L("Photograph your meal"))) { onPlusLongPress?() }

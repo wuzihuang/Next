@@ -11,7 +11,7 @@ import {
   parseProviderEvent,
   realtimeURL,
   sessionUpdate,
-} from "../_shared/asr-realtime.ts";
+} from "../_shared/ai/asr-realtime.ts";
 import { cors, currentUserId, json, userClient } from "../_shared/db.ts";
 import { asrFlashModel, asrRealtimeModel } from "../_shared/model.ts";
 import { enforceRequestBudget } from "../_shared/rate-limit.ts";
@@ -19,8 +19,9 @@ import {
   consumeAiQuota,
   quotaDeniedResponse,
   recordAiUsage,
-} from "../_shared/ai-quota.ts";
+} from "../_shared/ai/ai-quota.ts";
 import { type TokenUsage, usageFromProvider } from "../_shared/cost.ts";
+import { aiDisabled } from "../_shared/ai-switch.ts";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_SECONDS = 60;
@@ -196,7 +197,7 @@ export async function handleAsr(
   }
 }
 
-if (import.meta.main) Deno.serve((req) => handleAsr(req));
+if (import.meta.main) Deno.serve((req) => aiDisabled(req) ?? handleAsr(req));
 
 function streamTranscription(
   req: Request,

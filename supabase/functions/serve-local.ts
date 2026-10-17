@@ -48,6 +48,7 @@ const keys = [
   "SUPABASE_ANON_KEY",
   "DASHSCOPE_API_KEY",
   "AI_GATEWAY_API_KEY",
+  "AI_ENABLED",
 ]
   .map((k) => `${k}=${Deno.env.get(k) ? "set" : "MISSING"}`).join("  ");
 console.log("env:", keys);

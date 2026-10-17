@@ -1,4 +1,4 @@
-import { readSnapshot, acceptSnapshot } from "./metric-snapshot.ts";
+import { readSnapshot, acceptSnapshot } from "../metric-snapshot.ts";
 // 07 · 09 · the data behind every chart, fetched by the server rather than copied by the model.
 //
 // A chart tool names a source; the source reads this user's rows through the turn's own JWT
@@ -8,12 +8,12 @@ import { readSnapshot, acceptSnapshot } from "./metric-snapshot.ts";
 //
 // null means "no data": the panel writes —— and the model picks another chart. Never 0.
 
-import type { ReadContext } from "./read-context.ts";
-import { addDays, dayBounds, dayOf, hhmm, weekday, zoned } from "./calendar.ts";
-import { queryMetrics, type Metric } from "./metric-query.ts";
-export { addDays, dayBounds, dayOf, weekday, zoned } from "./calendar.ts";
-import { readSampleHistory } from "./archive.ts";
-import { SEED_MEAL_VERSION } from "./db.ts";
+import type { ReadContext } from "../read-context.ts";
+import { addDays, dayBounds, dayOf, hhmm, weekday, zoned } from "../calendar.ts";
+import { queryMetrics, type Metric } from "../metric-query.ts";
+export { addDays, dayBounds, dayOf, weekday, zoned } from "../calendar.ts";
+import { readSampleHistory } from "../archive.ts";
+import { SEED_MEAL_VERSION } from "../db.ts";
 
 export type Point = [string, number];
 

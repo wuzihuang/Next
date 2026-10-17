@@ -259,10 +259,10 @@ struct HomeView: View {
                 .overlay(Color(hex: 0x09090B).opacity(keyboard.height > 0 ? 0.55 : 0).allowsHitTesting(false))
                 .allowsHitTesting(!swiping && planY == 0)
             instrumentsPage
-            planLipLayer
+            if AIFeature.enabled { planLipLayer }
             plusSheetLayer
             liveSessionLayer
-            planPageLayer
+            if AIFeature.enabled { planPageLayer }
         }
     }
 
@@ -415,7 +415,7 @@ struct HomeView: View {
             router.measuredWidget = nil
         }
         .onChange(of: router.dockPrefill) { _, p in
-            guard let p else { return }
+            guard AIFeature.enabled, let p else { return }
             draft = p.text
             backlogDay = p.day
             withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { dockMode = .keyboard }
@@ -736,7 +736,7 @@ struct HomeView: View {
                         if plusOpen { closePlus() }
                         else { sheetDrag = 0; withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { plusOpen = true } }
                      },
-                     onPlusLongPress: {
+                     onPlusLongPress: !AIFeature.enabled ? nil : {
                         let wait = plusOpen
                         if wait { closePlus() }
                         openCamera(afterMenu: wait)
@@ -866,7 +866,7 @@ struct HomeView: View {
                        radius: firstRun.panelRadius,
                        onDismissWidget: { dismissWidget() }) { target in
             // 06 · 17 · a fresh measurement answers a tap with a message, not a page.
-            if let q = widget?.replyPrompt { handleSend(q) }
+            if AIFeature.enabled, let q = widget?.replyPrompt { handleSend(q) }
             else if let w = widget,
                     let a = w.action,
                     a.contains("确认记录") || a.localizedCaseInsensitiveContains("confirm"),
@@ -899,7 +899,7 @@ struct HomeView: View {
                         Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "H"]) }
                     } else {
                         let lip = v.startLocation.y >= screen.height - safe.bottom - CGFloat(PlanFaceMath.lipHotZone)
-                        if planY != 0 || lip {
+                        if AIFeature.enabled, planY != 0 || lip {
                             homeDrag = .plan
                             planYAtTouch = planY
                             Task { await Analytics.shared.track("PLAN_AXIS_LOCK", ["AXIS": "PLAN"]) }
@@ -952,13 +952,14 @@ struct HomeView: View {
     /// ADR 0022 · the face reads the day's set; the first foreground of the day makes it.
     /// Nothing here starts a second generation: the store attaches to whatever is running.
     private func ensurePlan(reload: Bool = false) {
-        guard ConsentStore.shared.granted else { return }
+        guard AIFeature.enabled, ConsentStore.shared.granted else { return }
         planStore.ensureToday(day: data.today.day, store: data, ai: adviceAI, reload: reload)
     }
 
     /// docs/plans/2026-09-09-ai-tool-surface.md · what a voice turn may do to the panel:
     /// confirm the food draft it is showing, clear it, refresh the advice, or say what is up.
     private func lendPanelToPhoneTools() {
+        guard AIFeature.enabled else { return }
         PhoneToolRunner.shared.panelHandler = .init(
             confirmDraft: {
                 // The panel is THINKING for the confirming turn; the draft is what counts.
@@ -991,6 +992,7 @@ struct HomeView: View {
 
     /// REFRESH: the only way to regenerate within the day.
     private func refreshPlan() {
+        guard AIFeature.enabled else { return }
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
         planStore.refresh(day: data.today.day, store: data, ai: adviceAI)
     }
@@ -1040,7 +1042,7 @@ struct HomeView: View {
     }
 
     private func openPlan(fromIdle: Bool) {
-        guard !planSettledOpen else { return }
+        guard AIFeature.enabled, !planSettledOpen else { return }
         planSettledOpen = true
         guard ConsentStore.shared.granted else { router.takeover = .consent; return }
         ensurePlan()
@@ -1076,6 +1078,7 @@ struct HomeView: View {
     /// the recorder will not start, the dock stays idle rather than animating over nothing —
     /// which is what it did before there was a recorder at all.
     private func beginListening() {
+        guard AIFeature.enabled else { return }
         let operationID = UUID()
         voiceOperationID = operationID
         Task {
@@ -1118,6 +1121,7 @@ struct HomeView: View {
     /// Simulator / no camera → say so, rather than silently opening the library.
     /// `afterMenu` waits for the plus sheet's dismiss (0.22 s) so the camera cover is not fighting it.
     private func openCamera(afterMenu: Bool = false) {
+        guard AIFeature.enabled else { return }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             note(DockNote(line: L("CAMERA UNAVAILABLE"), text: L("Use Photo library from the plus menu.")), clearAfter: 4)
             return
@@ -1373,6 +1377,7 @@ struct HomeView: View {
     private func handleSend(_ text: String) { handleSend(text, operationID: UUID()) }
 
     private func handleSend(_ text: String, operationID: UUID) {
+        guard AIFeature.enabled else { return }
         // 补屏 edge 2 · withdrawn or never granted: the server would answer 403 consent_withdrawn;
         // this side does not ask. The panel is already NOT COLLECTING, and the way back is the
         // consent screen, not a turn.

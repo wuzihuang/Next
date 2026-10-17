@@ -1,6 +1,6 @@
 // Evidence selection, not a second health score. Comparisons describe this person's
 // observations; the model decides whether a difference merits a practical suggestion.
-import { addDays } from "./calendar.ts";
+import { addDays } from "../calendar.ts";
 
 export type EvidenceRow = Record<string, unknown>;
 export type AdviceEvidence = {

@@ -11,7 +11,7 @@
 // probability 0.61, and the margin to the runner-up 0.72 − 0.24 = 0.48 on another question
 // of the same batch. Thresholds name which one they mean; nothing multiplies them together.
 
-import type { TokenUsage } from "./cost.ts";
+import type { TokenUsage } from "../cost.ts";
 
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 

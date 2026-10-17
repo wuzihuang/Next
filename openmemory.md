@@ -10,6 +10,16 @@ RevenueCat client, billing Edge Functions and `/turn`/`/asr` entitlement checks 
 removed locally. Authentication, consent and AI quotas remain. Historical billing
 migrations/records are preserved; existing App Store renewals require cancellation
 outside the codebase. The physical HOOP shop is not part of this removal.
+As of 2026-10-17, App AI is hidden, not deleted. iOS: AI-only code lives in
+`app/NextBody/AI/` (Chat, Plan, Memory, Services: AIService, AISession, AIImagePayload,
+ASRStreamingSession, SpeechCapture, PhoneTools) behind `App/AIFeature.swift` (`enabled = false`); Home
+keeps the panel (standby / morning / measure / sport recap) and a plus-only dock; plus menu
+drops the photo rows; Log a meal requires KCAL; Profile drops AI MEMORY; Router drops
+`.chat` / `.planFace` / `.aiMemory`; Shot widget has no families (`WidgetBridge.shotEnabled`).
+Server: AI-only shared modules live in `supabase/functions/_shared/ai/`; `turn`, `asr`,
+`memory-settle`, `screen-current` answer 410 `AI_DISABLED` unless the secret
+`AI_ENABLED=1` (`_shared/ai-switch.ts`). AI tables are untouched. AGENTS.md forbids
+opening either AI folder without the owner's permission.
 
 ## Architecture
 

@@ -13,6 +13,9 @@ enum WidgetBridge {
     static let suiteName = "group.com.nextbody.hoop"
     static let todayKind = "NextBodyToday"
     static let shotKind = "NextBodyShot"
+    /// The Shot shutter sends the photo to the AI meal estimate. The extension cannot see
+    /// `AIFeature`, so it carries its own copy; keep the two equal.
+    static let shotEnabled = false
     static let photoURL = URL(string: "nextbody://log?via=photo")!
     static let photoDidArrive = Notification.Name("NextBody.widgetPhoto")
     private static let pendingPhotoKey = "widget.shot.pending"

@@ -5,7 +5,7 @@ import { buildRenderTools, FAMILY_KIND } from "./charts.ts";
 import { NumberLedger, auditFrame } from "./ledger.ts";
 import { createTurnWorkflow, gateTurnTool, WORKFLOW_READY } from "./turn-phase.ts";
 import { SKILL_BY_TYPE } from "./skills.ts";
-import { Envelope } from "./contract.ts";
+import { Envelope } from "../contract.ts";
 import { fetchAs, SOURCE_BY_ID, type Ctx } from "./sources.ts";
 import { FAST_READ_TASK, ASSISTED_READ_TASK } from "./jev-policy.ts";
 import type { FastPlan } from "./decision-router.ts";

@@ -14,8 +14,8 @@ import { FAST_BINDINGS, resolveWindow, type FastBinding } from "./chart-selectio
 import { buildRenderTools } from "./charts.ts";
 import { auditFrame, NumberLedger } from "./ledger.ts";
 import { createTurnWorkflow, gateTurnTool, WORKFLOW_READY } from "./turn-phase.ts";
-import { Envelope } from "./contract.ts";
-import { addDays } from "./calendar.ts";
+import { Envelope } from "../contract.ts";
+import { addDays } from "../calendar.ts";
 import { fetchAs, type Ctx } from "./sources.ts";
 import { FAST_READ_TASK } from "./jev-policy.ts";
 import type { FastPlan } from "./decision-router.ts";

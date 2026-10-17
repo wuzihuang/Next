@@ -36,6 +36,13 @@ enum Destination: Hashable {
 }
 
 extension Destination {
+    var isAI: Bool {
+        switch self {
+        case .chat, .planFace, .aiMemory: true
+        default: false
+        }
+    }
+
     /// F0 rule 06 · the five values `TARGETS` allows on the wire. `device`, `measurements`
     /// and the device sheets are deliberately absent: they are reachable only from profile,
     /// and a model that could name them could jump straight to a second level.
@@ -181,6 +188,7 @@ final class Router: ObservableObject {
     /// ADR 0018 · bumped when something asks for the plan face; Home observes it.
     @Published private(set) var planRequest = 0
     func requestPlan() {
+        guard AIFeature.enabled else { return }
         if !path.isEmpty { backToRoot() }
         planRequest += 1
     }
@@ -199,6 +207,7 @@ final class Router: ObservableObject {
 
     /// F0 rule 06: every widget on the panel is tappable and declares its target page.
     func open(_ d: Destination, from: EntryPoint = .home) {
+        if d.isAI, !AIFeature.enabled { return }
         if case .planFace = d { requestPlan(); return }
         // Snapshot once when leaving the root; nested pushes (profile → device) keep it.
         if path.isEmpty { homePageOnLeave = homePage }

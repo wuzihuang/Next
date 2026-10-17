@@ -1,5 +1,5 @@
 import { z } from "npm:zod@3.25.76";
-import type { Envelope } from "./contract.ts";
+import type { Envelope } from "../contract.ts";
 
 export const ChatHistory = z.array(z.object({
   role: z.enum(["user", "assistant"]),

@@ -26,13 +26,15 @@ struct PlusMenuSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GroupHeader(L("ADD TO THE MESSAGE"))
-            MenuRow(icon: .camera, title: L("Photograph your meal"),
-                    detail: L("Opens the camera. The plate is logged as soon as you shoot.")) { close(); onCamera?() }
-            MenuRow(icon: .library, title: L("Photo library"),
-                    detail: L("Pick food or an order. AI reads it automatically.")) { close(); onLibrary?() }
+            if AIFeature.enabled {
+                GroupHeader(L("ADD TO THE MESSAGE"))
+                MenuRow(icon: .camera, title: L("Photograph your meal"),
+                        detail: L("Opens the camera. The plate is logged as soon as you shoot.")) { close(); onCamera?() }
+                MenuRow(icon: .library, title: L("Photo library"),
+                        detail: L("Pick food or an order. AI reads it automatically.")) { close(); onLibrary?() }
 
-            Hairline().padding(.vertical, 8)
+                Hairline().padding(.vertical, 8)
+            }
             GroupHeader(L("SPORT MODE"))
             let sportOffline: String? = data.band.connected ? nil : L("The band isn't connected.")
             MenuRow(icon: .sport, title: L("Start a session"),

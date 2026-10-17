@@ -10,8 +10,8 @@ import { assert, assertEquals, assertStringIncludes } from "https://deno.land/st
 import { handleTurn, type TurnDependencies } from "./index.ts";
 import { streamText } from "npm:ai@4.3.16";
 import { convertArrayToReadableStream, MockLanguageModelV1 } from "npm:ai@4.3.16/test";
-import { JEV_ENDPOINT } from "../_shared/typesafe.ts";
-import { routingQuestions, type JevAttempt } from "../_shared/decision-router.ts";
+import { JEV_ENDPOINT } from "../_shared/ai/typesafe.ts";
+import { routingQuestions, type JevAttempt } from "../_shared/ai/decision-router.ts";
 
 const operationId = "11111111-1111-4111-8111-111111111111";
 const DAY = "2026-09-20";

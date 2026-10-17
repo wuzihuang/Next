@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { queryMetrics } from "./metric-query.ts";
+import { queryMetrics } from "../metric-query.ts";
 import type { Ctx } from "./sources.ts";
 function context(
   tables: Record<string, Record<string, unknown>[]>,

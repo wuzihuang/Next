@@ -377,7 +377,7 @@ struct AIPanel: View {
             }
             .padding(.top, 6)
 
-            Text(L("%@ · TAP OR TALK — I'M UP", sourceLine))
+            Text(AIFeature.enabled ? L("%@ · TAP OR TALK — I'M UP", sourceLine) : sourceLine)
                 .font(NBFont.dot(500, 10.5)).tracking(0.18 * 10.5)
                 .foregroundStyle(NB.white.opacity(0.42))
                 .padding(.top, 8)

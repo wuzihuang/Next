@@ -1,4 +1,4 @@
-import { asrRealtimeModel } from "./model.ts";
+import { asrRealtimeModel } from "../model.ts";
 
 export function realtimeURL(): string {
   return `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=${asrRealtimeModel()}`;

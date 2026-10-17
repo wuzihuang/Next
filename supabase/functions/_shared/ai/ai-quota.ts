@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
-import { cors, serviceClient } from "./db.ts";
-import { slowDownFrame } from "./contract.ts";
-import type { TokenUsage } from "./cost.ts";
+import { cors, serviceClient } from "../db.ts";
+import { slowDownFrame } from "../contract.ts";
+import type { TokenUsage } from "../cost.ts";
 
 /// Endpoints that admit a user operation. One admission costs the person one of their
 /// daily operations, so only work a person asked for appears here.

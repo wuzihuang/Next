@@ -10,9 +10,9 @@ import {
   stampColumn,
   type DataMetric,
   type Metric,
-} from "./metric-query.ts";
-import { addDays, dayBounds } from "./calendar.ts";
-import type { ReadContext as Ctx } from "./read-context.ts";
+} from "../metric-query.ts";
+import { addDays, dayBounds } from "../calendar.ts";
+import type { ReadContext as Ctx } from "../read-context.ts";
 
 export {
   DATA_METRICS,
@@ -21,7 +21,7 @@ export {
   TICK_METRICS,
   type DataMetric,
   type TickMetric,
-} from "./metric-query.ts";
+} from "../metric-query.ts";
 
 /// Inclusive day count of a from→to window, at least 1.
 export function spanDays(from: string, to: string): number {

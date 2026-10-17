@@ -18,14 +18,14 @@ struct WidgetsSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
                     todayFace
-                    shotFace
+                    if WidgetBridge.shotEnabled { shotFace }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 10) {
                     step(1, L("Touch and hold an empty spot on your home screen."))
                     step(2, L("Tap the + in the corner, then search for NEXTBODY."))
-                    step(3, L("Pick TODAY or LOG A MEAL and add it."))
+                    step(3, WidgetBridge.shotEnabled ? L("Pick TODAY or LOG A MEAL and add it.") : L("Pick TODAY and add it."))
                 }
 
                 Text(L("A widget is also the only reader the app syncs for in the background. With one on your home screen the day's numbers stay current between opens; without one, nothing is fetched until you open the app."))

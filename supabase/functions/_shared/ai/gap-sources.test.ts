@@ -10,7 +10,7 @@
 //     is the failure that puts a wrong number on the panel.
 
 import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { PANEL_TYPES } from "./contract.ts";
+import { PANEL_TYPES } from "../contract.ts";
 import { CHART_SKILLS, SKILL_BY_TYPE } from "./skills.ts";
 import { type ChartData, type Ctx, fetchAs, SOURCE_BY_ID, SOURCE_IDS } from "./sources.ts";
 

@@ -8,7 +8,7 @@
 // full value is a ring; how a day moved is a line; how a week went is days; what a plate
 // was is food. The skill says when, when not, and how the words should read.
 
-import type { PanelType } from "./contract.ts";
+import type { PanelType } from "../contract.ts";
 
 export type Family = "number" | "curve" | "pair" | "column" | "arc" | "gauge" | "stack" | "grid" | "strip" | "rows"
   // 2026-09-06 gap audit · a total with its sub-scores, a beat-to-beat cloud, a closed

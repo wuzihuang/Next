@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 APP = Path(__file__).resolve().parents[2]
-service = (APP / "NextBody/Services/AIService.swift").read_text()
+service = (APP / "NextBody/AI/Services/AIService.swift").read_text()
 home = (APP / "NextBody/Features/Home/HomeView.swift").read_text()
 
 

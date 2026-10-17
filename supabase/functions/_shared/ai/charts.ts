@@ -13,7 +13,7 @@
 import { tool, type Tool } from "npm:ai@4.3.16";
 import { z } from "npm:zod@3.25.76";
 import { CHART_SKILLS, toolDescription, type ChartSkill } from "./skills.ts";
-import { TARGETS, type Envelope } from "./contract.ts";
+import { TARGETS, type Envelope } from "../contract.ts";
 import { fetchAs, sourceList, SOURCE_IDS, type ChartData, type Ctx, type Kind, type SourceResult } from "./sources.ts";
 import type { NumberLedger } from "./ledger.ts";
 

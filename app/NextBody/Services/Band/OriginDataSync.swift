@@ -43,7 +43,7 @@ final class OriginDataSync {
             work: refreshWork(into: store, request: request))
         // Alarm warm-up is not health sync. Do not keep the sync button busy after the
         // shared refresh has published its terminal result.
-        Task { await PhoneToolRunner.shared.primeAlarms() }
+        if AIFeature.enabled { Task { await PhoneToolRunner.shared.primeAlarms() } }
         return result
     }
 

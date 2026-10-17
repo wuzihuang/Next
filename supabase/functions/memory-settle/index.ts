@@ -14,12 +14,13 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { userClient, serviceClient, currentUserId, cors, json, userDayKey } from "../_shared/db.ts";
 import { model, withModelFallback } from "../_shared/model.ts";
 import { usageFromProvider } from "../_shared/cost.ts";
-import { recordAiUsage, checkAiSpend } from "../_shared/ai-quota.ts";
+import { recordAiUsage, checkAiSpend } from "../_shared/ai/ai-quota.ts";
 import { normalizeLocale } from "../_shared/contract.ts";
 import {
   MemoryDoc, emptyMemory, estimateTokens, fitMemory, loadMemory, memoryMessages, memoryPrompt,
   type SessionLine,
-} from "../_shared/memory.ts";
+} from "../_shared/ai/memory.ts";
+import { aiDisabled } from "../_shared/ai-switch.ts";
 
 export const IDLE_MINUTES = 30;
 
@@ -115,4 +116,4 @@ export async function handleMemorySettle(req: Request, deps = defaults): Promise
   return json({ settled, skipped });
 }
 
-if (import.meta.main) Deno.serve((req) => handleMemorySettle(req));
+if (import.meta.main) Deno.serve((req) => aiDisabled(req) ?? handleMemorySettle(req));

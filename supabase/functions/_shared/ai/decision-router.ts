@@ -19,7 +19,7 @@ import {
   taskOpen, type JevTask, type PolicyVersion,
 } from "./jev-policy.ts";
 import { askJev, type JevAnswer, type JevCallResult, type JevChoiceQuestion, type JevConfig } from "./typesafe.ts";
-import type { TokenUsage } from "./cost.ts";
+import type { TokenUsage } from "../cost.ts";
 
 export const SCOPE_Q = "request_scope";
 export const METRIC_Q = "metric";

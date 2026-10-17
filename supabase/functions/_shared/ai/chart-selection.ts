@@ -13,8 +13,8 @@
 
 import { CHART_SKILLS, SKILL_BY_TYPE } from "./skills.ts";
 import { SOURCE_BY_ID } from "./sources.ts";
-import { addDays } from "./calendar.ts";
-import type { PanelType } from "./contract.ts";
+import { addDays } from "../calendar.ts";
+import type { PanelType } from "../contract.ts";
 
 /// Time categories the router may ask about. Only the resolvable ones reach a window.
 export const TIME_LABELS = [

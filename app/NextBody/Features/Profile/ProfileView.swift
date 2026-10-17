@@ -114,7 +114,9 @@ struct ProfileView: View {
                         }
                     }
                     // ADR 0018 · what the AI remembers, visible and erasable.
-                    SettingRow(title: L("AI MEMORY"), value: L("VIEW")) { router.open(.aiMemory, from: .profile) }
+                    if AIFeature.enabled {
+                        SettingRow(title: L("AI MEMORY"), value: L("VIEW")) { router.open(.aiMemory, from: .profile) }
+                    }
                     // A title, the words, up to three screenshots — filed as one issue on the
                     // product repo with the build and the phone attached, so nobody has to
                     // write back asking which version.

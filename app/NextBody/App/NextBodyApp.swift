@@ -90,7 +90,7 @@ struct NextBodyApp: App {
                     AwakeEvidence.record()
                     requestForegroundRefresh(reason: "foreground")
                     // ADR 0018 · idle sessions fold into memory the next time the app is in front.
-                    AISession.shared.settleIfDue()
+                    if AIFeature.enabled { AISession.shared.settleIfDue() }
                 }
         }
     }

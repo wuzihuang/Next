@@ -8,7 +8,7 @@ import {
   readData,
   spanDays,
 } from "./data-read.ts";
-import { queryMetrics, TICK_METRICS } from "./metric-query.ts";
+import { queryMetrics, TICK_METRICS } from "../metric-query.ts";
 import type { Ctx } from "./sources.ts";
 
 function context(

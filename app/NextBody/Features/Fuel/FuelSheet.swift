@@ -111,15 +111,15 @@ struct LogMealSheet: View {
         guard let value = Double(kcal.replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")), value.isFinite, value >= 1, value <= 100000 else { return nil }
         return value
     }
-    private var canSave: Bool { !typed.isEmpty && !working }
+    private var canSave: Bool { !typed.isEmpty && !working && (AIFeature.enabled || override != nil) }
 
     var body: some View {
         SheetFrame(title: L("Log a meal"), fillsHeight: false) {
             VStack(spacing: 10) {
                 if !favorites.list.isEmpty { regulars }
-                PlatePhotoButton(busy: working) { shoot() }
+                if AIFeature.enabled { PlatePhotoButton(busy: working) { shoot() } }
                 FieldBox(label: L("What you ate"), text: $text)
-                FieldBox(label: L("KCAL · OPTIONAL"), text: $kcal, keyboard: .decimalPad)
+                FieldBox(label: AIFeature.enabled ? L("KCAL · OPTIONAL") : L("KCAL"), text: $kcal, keyboard: .decimalPad)
             }
             Text(failure ?? explanation)
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
@@ -177,7 +177,8 @@ struct LogMealSheet: View {
     }
 
     private var explanation: String {
-        override == nil
+        guard AIFeature.enabled else { return L("Logged at exactly this number. Nothing is estimated over it.") }
+        return override == nil
             ? L("Leave KCAL empty and the model reads it: one row per food, with portions. What it cannot tell stays ——.")
             : L("Logged at exactly this number. Nothing is estimated over it.")
     }
@@ -189,6 +190,7 @@ struct LogMealSheet: View {
             onClose()
             return
         }
+        guard AIFeature.enabled else { return }
         working = true
         let sentence = typed
         AIService.shared.beginReadingPlate(caption: sentence, image: nil)

@@ -120,7 +120,7 @@ final class OriginDataSync {
                 let planned = plannedDays().count
                 BandSyncActivity.shared.expect(total: tier == .full ? max(planned, held ?? planned) : max(planned, 1))
                 return true
-            }, days: { plannedDays() }, day: { daysAgo in
+            }, day: { daysAgo in
                 guard let scope else { return .init(status: .cancelled) }
                 guard Band.live.state == .connected else { return .init(status: .disconnected) }
                 let day = today.adding(days: -daysAgo)
@@ -154,7 +154,7 @@ final class OriginDataSync {
                 guard Band.live.state == .connected else { return .init(result: .init(status: .disconnected)) }
                 return await sync.backfillIfNeeded(scope: scope, today: today, recentDays: recentDays,
                                                    auditToday: resolvedTier() == .full, into: store)
-            }, checkHistory: { resolvedTier() != .light }, finish: {
+            }, days: { plannedDays() }, checkHistory: { resolvedTier() != .light }, finish: {
                 await sync.awaitPendingNetwork()
                 BandSyncActivity.shared.show(.finishing)
                 await Band.live.finishFreshSync()

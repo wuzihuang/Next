@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The two faces, and how to put one on the home screen.
+/// TODAY, and how to put it on the home screen.
 ///
 /// ⚠️ This sheet exists because of a funnel nobody could see. A background pull is only
 /// scheduled when a widget is installed — without one there is no reader, so the app does
@@ -16,16 +16,13 @@ struct WidgetsSheet: View {
     var body: some View {
         SheetFrame(title: L("Widgets"), fillsHeight: false) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    todayFace
-                    if WidgetBridge.shotEnabled { shotFace }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                todayFace
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 10) {
                     step(1, L("Touch and hold an empty spot on your home screen."))
                     step(2, L("Tap the + in the corner, then search for NEXTBODY."))
-                    step(3, WidgetBridge.shotEnabled ? L("Pick TODAY or LOG A MEAL and add it.") : L("Pick TODAY and add it."))
+                    step(3, L("Pick TODAY and add it."))
                 }
 
                 Text(L("A widget is also the only reader the app syncs for in the background. With one on your home screen the day's numbers stay current between opens; without one, nothing is fetched until you open the app."))
@@ -67,21 +64,6 @@ struct WidgetsSheet: View {
                     miniFact(L("LOAD"), "12.4", NB.lime1)
                     miniFact(L("EATEN"), "1,240", NB.ember1)
                 }
-            }
-        }
-    }
-
-    private var shotFace: some View {
-        face(title: L("LOG A MEAL")) {
-            VStack(alignment: .leading, spacing: 8) {
-                Spacer(minLength: 0)
-                Image(systemName: "camera")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(NB.ember1)
-                Text(L("PHOTOGRAPH\nTHE PLATE"))
-                    .font(NBFont.dot(600, 9)).tracking(0.14 * 9)
-                    .foregroundStyle(NB.white.opacity(0.62))
-                Spacer(minLength: 0)
             }
         }
     }

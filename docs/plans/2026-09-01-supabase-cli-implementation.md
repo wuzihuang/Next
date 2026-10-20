@@ -1,7 +1,5 @@
 # Supabase CLI Configuration Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Configure this repository for safe local Supabase CLI access to project `gkgzwcxivnffsecshvfs` without adding Swift files.
 
 **Architecture:** Supabase CLI owns `supabase/config.toml` and the local project link. Repository-local environment files expose consistent variable names while `.gitignore` prevents the password-bearing file and CLI working state from entering version control.

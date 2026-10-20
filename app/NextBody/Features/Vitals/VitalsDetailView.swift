@@ -443,7 +443,7 @@ struct VitalsDetailView: View {
                 // multi-night window the value becomes a median and the feet become the
                 // night count and the weakest group.
                 if metric.showsDetailPills {
-                    SegmentedPills(options: RollingPills.words, selection: $rangeRaw)
+                    SegmentedPills(options: RollingPills.words, selection: $rangeRaw, lined: true)
                 }
                 if metric == .sleep, let status = sleepScoreStatus {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {

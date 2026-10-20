@@ -284,3 +284,7 @@ _Avoid_: toast, 通知, 一次排好几条, 只在界面上撤销
 **读取中的盘 (reading plate)**:
 已经发出、还没有行的那一盘：食物表里那一行有照片、有那句话，数字列写 READING。它从不写数字，也不写 0——猜一个 kcal 配个转圈是这一格唯一不许出现的东西。带图的一轮和从 LOG A MEAL 发出的一轮（`intent: "meal"`）都不随连接中断，人走开了服务端也把这一盘写完。
 _Avoid_: 骨架屏数字, 进度百分比当成把握, 0 kcal 占位
+
+**助手连接 (assistant connection)**:
+一个外部 AI 客户端（ChatGPT、Claude、Cursor、Grok…）经 MCP 读取某个健康账号自己数据的授权：Supabase Auth 的 OAuth grant 加 `mcp_grants` 一行，两者都在才算连着（ADR 0032）。读默认开，记餐要单独打开；在 Profile › AI ASSISTANTS 断开，下一次请求立刻失效。它不是 App 内的 AI，不受 `AIFeature` 开关管。
+_Avoid_: API Key, 个人令牌, 把它叫成 App 的 AI / Coach, 只删其中一份记录

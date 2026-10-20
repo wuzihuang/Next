@@ -430,6 +430,34 @@ actor SupabaseClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
+    /// ADR 0032 · the AI assistants this account authorized through Supabase Auth's OAuth server.
+    func oauthGrants() async throws -> [[String: Any]] {
+        var r = URLRequest(url: SupabaseConfig.url.appendingPathComponent("auth/v1/user/oauth/grants"))
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)", forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await authenticatedData(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+    }
+
+    /// Deletes the assistant's refresh tokens. Its access token lives up to an hour more;
+    /// `revoke_mcp_grant` is what stops it on the next request.
+    func revokeOAuthGrant(clientId: String) async throws {
+        var r = URLRequest(url: SupabaseConfig.url.appendingPathComponent("auth/v1/user/oauth/grants")
+            .appending(queryItems: [URLQueryItem(name: "client_id", value: clientId)]))
+        r.httpMethod = "DELETE"
+        r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+        r.setValue("Bearer \(accessToken ?? SupabaseConfig.publishableKey)", forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await authenticatedData(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) || code == 404 else {
+            throw Failure.http(code, String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+
     /// One object out of a private bucket, with this session's own token. The bucket policy
     /// is the whole of the access control — the first path segment is the owner — so there
     /// is no signed URL to mint and nothing for the phone to decide.

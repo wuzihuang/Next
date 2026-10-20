@@ -1213,7 +1213,11 @@ struct MeasureTakeover: View {
                     fatMassKg: r.fatMassKg,
                     leanMassKg: r.leanMassKg,
                     bmrKcal: r.bmrKcal,
-                    inputWeightKg: r.inputWeightKg))))
+                    inputWeightKg: r.inputWeightKg,
+                    muscleMassKg: r.muscleKg,
+                    bodyWaterPercent: r.bodyWaterPercent,
+                    boneMassKg: r.boneKg,
+                    proteinPercent: r.proteinPercent))))
             // The row goes up now. The next launch reads body_composition back, and a
             // scan that only ever lived in memory would be replaced by the seed by then.
             Task { await Repository.shared.recordBodyComposition(r) }

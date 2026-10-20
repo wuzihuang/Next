@@ -1,27 +1,20 @@
 import XCTest
 
-/// ADR 0017 · 「我的」身份卡与 COMPOSITION 之间那块身体电量是整块一热区，
-/// 点进去是 BODY BATTERY 页，返回回「我的」。
+/// Body Battery stays on Home. ME no longer draws a second copy of it.
 final class BodyBatteryEntryTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
-    func testProfileModuleOpensBodyBattery() {
+    func testProfileDoesNotHostBodyBattery() {
         let app = launch(route: "profile")
-        XCTAssertTrue(app.staticTexts["YEAR"].waitForExistence(timeout: 30),
-                      "profile never showed the instrument plates")
-
-        let entry = app.buttons["BODY_BATTERY"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 6), "身份卡下没有身体电量模块")
-        entry.tap()
-
-        XCTAssertTrue(app.staticTexts["OF 100"].waitForExistence(timeout: 30),
-                      "身体电量卡没有进到 13 详情页")
-        XCTAssertTrue(app.buttons["range.DAY"].exists)
-        XCTAssertTrue(app.buttons["range.WEEK"].exists)
-        XCTAssertTrue(app.staticTexts["LAST NIGHT'S INPUTS"].exists)
+        XCTAssertTrue(app.buttons["COMPOSITION"].waitForExistence(timeout: 30),
+                      "profile never showed the year map")
+        XCTAssertFalse(app.buttons["BODY_BATTERY"].exists,
+                       "ME should not draw a second Body Battery")
+        XCTAssertTrue(app.buttons["BODY_LINK"].exists)
+        XCTAssertTrue(app.staticTexts["MEASUREMENTS"].exists)
     }
 
     func testPageTwoCardOpensBodyBattery() {
@@ -52,23 +45,19 @@ final class BodyBatteryEntryTests: XCTestCase {
                       "back from Body Battery should land on home page two")
     }
 
-    func testBackFromProfileEntryReturnsToMe() {
+    func testProfileCompositionReturnsToMe() {
         let app = launch(route: "profile")
-        XCTAssertTrue(app.buttons["BODY_BATTERY"].waitForExistence(timeout: 30),
-                      "profile never showed the body battery plate")
-        app.buttons["BODY_BATTERY"].tap()
+        let entry = app.buttons["COMPOSITION"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 30),
+                      "profile never showed the year map")
+        entry.tap()
         let notNow = app.buttons["Not now"]
         if notNow.waitForExistence(timeout: 3) { notNow.tap() }
-        XCTAssertTrue(app.staticTexts["OF 100"].waitForExistence(timeout: 30),
-                      "detail never opened")
-
         let back = app.buttons["Back"]
-        XCTAssertTrue(back.waitForExistence(timeout: 6))
-        back.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
-
-        XCTAssertTrue(app.staticTexts["YEAR"].waitForExistence(timeout: 8),
-                      "从「我的」进身体电量，返回应该回「我的」")
-        XCTAssertTrue(app.buttons["BODY_BATTERY"].exists)
+        XCTAssertTrue(back.waitForExistence(timeout: 30))
+        back.tap()
+        XCTAssertTrue(app.buttons["COMPOSITION"].waitForExistence(timeout: 8),
+                      "composition opened from ME should return to ME")
         XCTAssertTrue(app.staticTexts["MEASUREMENTS"].exists)
     }
 

@@ -104,10 +104,8 @@ struct MetricTrendHero: View {
             summaryRow
             if !rolls.isEmpty { rollStrip }
         }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 18)
+        .padding(.bottom, 4)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("vitals.hero")
         .accessibilityLabel(caption)

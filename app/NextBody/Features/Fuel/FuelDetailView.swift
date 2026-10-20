@@ -202,7 +202,7 @@ struct FuelDetailView: View {
         }) {
             VStack(alignment: .leading, spacing: 14) {
                 SegmentedPills(options: RollingPills.words,
-                               selection: $rangeRaw)
+                               selection: $rangeRaw, lined: true)
                 switch range {
                 case .day:   dayBoard
                 case .week:  weekBoard
@@ -286,25 +286,22 @@ struct FuelDetailView: View {
                              burnTicks: dayBurnTicks,
                              outUnknown: outUnknown)
                 if let budget = m.targetIn {
-                    Text(L("BUDGET %@", Fmt.kcal(budget)))
+                    Text(L("ALLOWANCE %@", Fmt.kcal(budget)))
                         .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
                         .foregroundStyle(NB.white.opacity(0.34))
-                    // A budget nobody can account for is a number, not a plan. #29: the
-                    // budget is resting for the whole day, plus the activity the band has
-                    // measured so far, plus the goal — so it climbs as the wearer moves,
-                    // and this line is the whole of the arithmetic. RESTING is the body
-                    // scan's figure when there is one (with the scan's date), else the
-                    // weight estimate. ⚠️ Every number here is the server's; nothing is
-                    // recomputed on the phone.
-                    if let resting = m.bmrFull, let offset = m.goalOffset {
+                    // An allowance nobody can account for is a number, not a reference. #29:
+                    // the allowance is resting for the whole day plus the activity the band
+                    // has measured so far — so it climbs as the wearer moves, without
+                    // subtracting a weight-loss goal offset.
+                    if let resting = m.bmrFull {
                         let active = m.eActive ?? 0
                         let restingLabel = m.restingSource == "BODY_SCAN"
                             ? L("BODY SCAN %@", m.restingMeasuredAt.map(Fmt.monthDay) ?? Fmt.dash)
                             : L("ESTIMATED FROM WEIGHT")
-                        let floored = budget - (resting + active + offset) > 40
-                        Text(L("RESTING %@ · %@ · ACTIVE +%@ · GOAL %@%@",
+                        let floored = budget - (resting + active) > 40
+                        Text(L("RESTING %@ · %@ · ACTIVE +%@%@",
                                Fmt.kcal(resting), restingLabel, Fmt.kcal(active),
-                               Fmt.signedKcal(offset), floored ? L(" · FLOOR") : ""))
+                               floored ? L(" · FLOOR") : ""))
                             .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
                             .foregroundStyle(NB.white.opacity(0.34))
                             .lineLimit(1).minimumScaleFactor(0.7)
@@ -315,9 +312,8 @@ struct FuelDetailView: View {
                     .font(NBFont.ui(400, 11)).tracking(0.02 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
-            .padding(16)
             .frame(width: NB.Layout.contentWidth, alignment: .leading)
-            .cardSkin()
+            .padding(.bottom, 4)
 
             FuelFoodTable(meals: dayMeals, trailing: Fmt.kcal(m.eIn),
                           reading: isPast ? nil : ai.readingPlate) { meal in
@@ -373,7 +369,7 @@ struct FuelDetailView: View {
                                 gap: Fmt.signedKcal(total?.gap),
                                 gapTint: gapTint(total?.gap))
                 if let budget = m.targetIn {
-                    Text(L("BUDGET %@", Fmt.kcal(budget)))
+                    Text(L("ALLOWANCE %@", Fmt.kcal(budget)))
                         .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
                         .foregroundStyle(NB.white.opacity(0.34))
                 }
@@ -386,9 +382,8 @@ struct FuelDetailView: View {
                     .font(NBFont.ui(400, 11)).tracking(0.02 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
-            .padding(16)
             .frame(width: NB.Layout.contentWidth, alignment: .leading)
-            .cardSkin()
+            .padding(.bottom, 4)
 
             FuelLedgerTable(
                 title: L("DAYS"),
@@ -423,7 +418,7 @@ struct FuelDetailView: View {
                                 gap: Fmt.signedKcal(typical?.gap),
                                 gapTint: gapTint(typical?.gap))
                 if let budget = m.targetIn {
-                    Text(L("BUDGET %@", Fmt.kcal(budget)))
+                    Text(L("ALLOWANCE %@", Fmt.kcal(budget)))
                         .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
                         .foregroundStyle(NB.white.opacity(0.34))
                 }
@@ -436,9 +431,8 @@ struct FuelDetailView: View {
                     .font(NBFont.ui(400, 11)).tracking(0.02 * 11)
                     .foregroundStyle(NB.text3Prod)
             }
-            .padding(16)
             .frame(width: NB.Layout.contentWidth, alignment: .leading)
-            .cardSkin()
+            .padding(.bottom, 4)
 
             FuelLedgerTable(
                 title: L("WEEKS"),

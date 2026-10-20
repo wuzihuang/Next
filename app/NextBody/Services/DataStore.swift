@@ -326,7 +326,11 @@ final class DataStore: ObservableObject {
                 fatMassKg: scan.fatMassKg,
                 leanMassKg: scan.leanMassKg,
                 bmrKcal: scan.bmrKcal.map(Double.init),
-                inputWeightKg: scan.inputWeightKg
+                inputWeightKg: scan.inputWeightKg,
+                muscleMassKg: scan.muscleMassKg,
+                bodyWaterPercent: scan.bodyWaterPercent,
+                boneMassKg: scan.boneMassKg,
+                proteinPercent: scan.proteinPercent
             )
         }
     }
@@ -369,16 +373,17 @@ final class DataStore: ObservableObject {
         m.eOutFull = 2280
         m.eIn = 1240
         m.balance = -620
-        m.targetIn = 1900
-        // #29 · the parts 09 prints under the budget: resting (a scan's), activity so far, goal.
+        m.targetIn = 2280
+        m.targetBasis = 2280
+        // #29 · the parts 09 prints under the allowance: resting (a scan's) plus activity so far.
         m.bmrFull = 1960
         m.restingSource = "BODY_SCAN"
         m.restingMeasuredAt = m.day.start
-        m.goalOffset = -380
+        m.goalOffset = 0
         m.protein = MacroSlot(target: 145, eaten: 84)
-        m.carb = MacroSlot(target: 195, eaten: 132)
+        m.carb = MacroSlot(target: 290, eaten: 132)
         m.fat = MacroSlot(target: 60, eaten: 42)
-        m.nextMeal = 660
+        m.nextMeal = 1040
         m.weightKg = 68.4
         m.fatKg = 12.9
         m.leanKg = 55.5

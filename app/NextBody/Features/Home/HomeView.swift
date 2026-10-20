@@ -252,17 +252,8 @@ struct HomeView: View {
 
     private var homeCanvas: some View {
         ZStack(alignment: .topLeading) {
-            page
-                .zIndex(keyboard.height > 0 || dockMode == .listening ? 2 : 0)
-                .allowsHitTesting(!swiping && planY == 0)
-            panel
-                .overlay(Color(hex: 0x09090B).opacity(keyboard.height > 0 ? 0.55 : 0).allowsHitTesting(false))
-                .allowsHitTesting(!swiping && planY == 0)
-            instrumentsPage
-            if AIFeature.enabled { planLipLayer }
-            plusSheetLayer
+            HomeV2Shell()
             liveSessionLayer
-            if AIFeature.enabled { planPageLayer }
         }
     }
 
@@ -336,7 +327,6 @@ struct HomeView: View {
 
     private var homeGestured: some View {
         homeCanvas
-            .highPriorityGesture(pageGesture, including: pagingEnabled ? .all : .subviews)
     }
 
     private var homeRouting: some View {
@@ -373,7 +363,6 @@ struct HomeView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                fireWidgetShot()
                 // ADR 0022 · the first foreground of the day makes the day's set.
                 ensurePlan()
             }
@@ -388,10 +377,7 @@ struct HomeView: View {
             readoutHold = nil
             readoutHeldOnPageTwo = false
         }
-        .onReceive(NotificationCenter.default.publisher(for: WidgetBridge.photoDidArrive)) { _ in
-            fireWidgetShot()
-        }
-        .onAppear { fireWidgetShot(); lendPanelToPhoneTools() }
+        .onAppear { lendPanelToPhoneTools() }
         .onChange(of: router.planRequest) { _, _ in
             // ADR 0018 · a plan frame or app.open("plan") lands on the face. A frame from
             // Chat already replaced the day's set on the server: read it back.
@@ -444,7 +430,7 @@ struct HomeView: View {
             guard item != nil else { return }
             Task { await sendFromPicker() }
         }
-        .statusBarHidden(firstRun.statusBarHidden)
+        .statusBarHidden(false)
         // Any tap at all lands on ◇11 — there is no "skip?" to answer.
         // After idle this gesture must not exist: a parent TapGesture cancels
         // the dock orb's UIKit PressHold, so a tap never opened the plus sheet.
@@ -1110,12 +1096,6 @@ struct HomeView: View {
     }
 
     @State private var showPicker = false
-
-    /// A Shot widget tap lands here. The shutter is the send — same as plus-menu food photo.
-    private func fireWidgetShot() {
-        guard WidgetBridge.consumePhoto() else { return }
-        openCamera()
-    }
 
     /// Every camera entry sends the captured image directly for food recognition.
     /// Simulator / no camera → say so, rather than silently opening the library.

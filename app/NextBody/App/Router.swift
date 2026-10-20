@@ -97,6 +97,8 @@ enum SheetRoute: Hashable, Identifiable {
     /// ever explains that a background sync is scheduled for a widget to read — without one
     /// installed there is no reader, so the radio stays off (ADR 0026).
     case widgets
+    /// ADR 0032 · the MCP address and every assistant connected to this account.
+    case assistants
     /// Profile › REPORT A PROBLEM · title, words, screenshots → one GitHub issue.
     case feedback
     /// ADR 0010 · 一条测量记录的全部字段。两个详情页之间没有路，所以清单里的行点开是盖在
@@ -148,22 +150,18 @@ final class Router: ObservableObject {
         }
     }
     /// In-memory only: capture the exact parent before a push, including its scroll
-    /// position. A popped route immediately releases its stack-owned image.
-    private var returnBackdrops: [UIImage?] = []
-    var returnBackdrop: UIImage? { returnBackdrops.last ?? nil }
+    /// position. A popped route immediately releases its stack-owned snapshot view.
+    /// `snapshotView` asks the render server for the layer contents — a ~45ms CPU
+    /// rasterization (`drawHierarchy` through `UIGraphicsImageRenderer`) used to run
+    /// here on every push and was the visible hitch.
+    private var returnBackdrops: [UIView?] = []
+    var returnBackdrop: UIView? { returnBackdrops.last ?? nil }
 
-    private func captureReturnBackdrop() -> UIImage? {
+    private func captureReturnBackdrop() -> UIView? {
         guard let window = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).flatMap(\.windows)
             .first(where: \.isKeyWindow) else { return nil }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = window.screen.scale
-        format.opaque = true
-        var drawn = false
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-            drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
-        }
-        return drawn ? image : nil
+        return window.snapshotView(afterScreenUpdates: false)
     }
     @Published var entry: EntryPoint = .home
     private(set) var takeoverGeneration: UInt = 0
@@ -223,6 +221,15 @@ final class Router: ObservableObject {
     func backToRoot() {
         path.removeAll()
         homePage = homePageOnLeave
+    }
+
+    /// Leaves every detail page and shows one home pager slot. `backToRoot`
+    /// puts back the slot that was open when the root was left; this one
+    /// chooses the slot, and the path-clear restore keeps that choice.
+    func showHome(page: Int) {
+        homePageOnLeave = page
+        path.removeAll()
+        homePage = page
     }
 
     func back() {

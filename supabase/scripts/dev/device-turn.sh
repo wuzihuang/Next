@@ -1,7 +1,7 @@
 #!/bin/zsh
 # device-turn.sh "<question>" <tag> · install the built app, launch it with NB_DEBUG_TURN, grab the screen twice.
 SCR=${NB_DEV_DIR:-$(dirname $0)}
-GRAB=${NB_SCREENGRAB:-/private/tmp/claude-501/-Users-zihuangwu-Documents-Next/274ad21d-a07f-4df4-9754-15068564bfe7/scratchpad/ScreenGrab.app}
+GRAB=${NB_SCREENGRAB:?set NB_SCREENGRAB to the ScreenGrab.app path}
 UDID=00008150-0011293C2E21401C; CD=8D5E60E3-E60A-5A23-8EBF-0FCFE6661E36
 Q="$1"; TAG="$2"
 pkill -f idevicesyslog 2>/dev/null; sleep 1

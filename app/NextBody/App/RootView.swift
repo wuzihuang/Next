@@ -199,6 +199,7 @@ struct RootView: View {
             if let s = ProcessInfo.processInfo.environment["NB_DEBUG_SHEET"] {
                 let sheet: SheetRoute? = switch s {
                 case "feedback":         .feedback
+                case "assistants":       .assistants
                 case "deleteAccount":    .deleteAccount
                 case "privacy":          .privacy
                 case "about":            .about

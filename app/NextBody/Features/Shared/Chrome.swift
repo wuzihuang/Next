@@ -219,30 +219,32 @@ struct HomeHeader: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Avatar(size: 36, initials: initials)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(dayLine)
-                        .font(NBFont.dot(600, 10))
-                        .tracking(0.18 * 10)
-                        .foregroundStyle(NB.text3Prod)
-                    HStack(spacing: 6) {
-                        Text(name)
-                            .font(NBFont.brand(700, 20))
-                            .tracking(-0.01 * 20)
-                            .foregroundStyle(NB.text1)
-                            .lineLimit(1)
-                        WearFlameMark(flame: flame)
-                            .layoutPriority(1)
+            Button(action: onProfile) {
+                HStack(spacing: 10) {
+                    Avatar(size: 36, initials: initials)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(dayLine)
+                            .font(NBFont.dot(600, 10))
+                            .tracking(0.18 * 10)
+                            .foregroundStyle(NB.text3Prod)
+                        HStack(spacing: 6) {
+                            Text(name)
+                                .font(NBFont.brand(700, 20))
+                                .tracking(-0.01 * 20)
+                                .foregroundStyle(NB.text1)
+                                .lineLimit(1)
+                            WearFlameMark(flame: flame)
+                                .layoutPriority(1)
+                        }
                     }
                 }
+                .frame(height: Self.height)
+                .contentShape(Rectangle())
             }
-            .frame(height: Self.height)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onProfile)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(profileLabel)
-            .accessibilityAddTraits(.isButton)
+            .buttonStyle(HotZoneTap(pressedScale: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(profileLabel)
+        .accessibilityAddTraits(.isButton)
             #if DEBUG
             // 07's catalogue is the one board that cannot be audited by using the app,
             // because which widget appears is the model's choice. A long press opens
@@ -258,7 +260,7 @@ struct HomeHeader: View {
                     .padding(.leading, 12)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(HotZoneTap(pressedScale: 1))
             .accessibilityLabel(pipLabel)
         }
         .frame(width: width, height: Self.height)
@@ -722,7 +724,7 @@ private struct InteractiveEdgeBack: ViewModifier {
     @State private var x: CGFloat = 0
     @State private var committing = false
     @State private var depth = 0
-    @State private var backdrop: UIImage?
+    @State private var backdrop: UIView?
 
     func body(content: Content) -> some View {
         content
@@ -731,8 +733,7 @@ private struct InteractiveEdgeBack: ViewModifier {
             .background {
                 if x > 0, let backdrop {
                     GeometryReader { geometry in
-                        Image(uiImage: backdrop)
-                            .resizable()
+                        BackdropSnapshot(snapshot: backdrop)
                             .frame(width: ScreenMetrics.size.width, height: ScreenMetrics.size.height)
                             .offset(x: -geometry.frame(in: .global).minX,
                                     y: -geometry.frame(in: .global).minY)
@@ -782,6 +783,23 @@ private struct InteractiveEdgeBack: ViewModifier {
             }
         }
     }
+}
+
+/// Hosts the render-server snapshot of the page that was left. One view, added once;
+/// the snapshot is already sized in window coordinates.
+private struct BackdropSnapshot: UIViewRepresentable {
+    let snapshot: UIView
+
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.isUserInteractionEnabled = false
+        snapshot.frame = CGRect(origin: .zero, size: ScreenMetrics.size)
+        snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(snapshot)
+        return container
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
 /// A window recognizer does not cover the back button's hit target.

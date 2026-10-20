@@ -17,6 +17,11 @@ final class BodyCompositionQueue {
         let fatMassKg: Double
         let leanMassKg: Double
         let bmrKcal: Int?
+        // Added after the first release; an outbox item saved before it decodes with nil.
+        var muscleMassKg: Double? = nil
+        var bodyWaterPercent: Double? = nil
+        var boneMassKg: Double? = nil
+        var proteinPercent: Double? = nil
     }
 
     private(set) var pending: [Pending] = []
@@ -51,7 +56,9 @@ final class BodyCompositionQueue {
             userDay: formatter.string(from: UserDay.containing(date).date),
             inputWeightKg: reading.inputWeightKg, bodyFatPercent: reading.bodyFatPercent,
             fatMassKg: reading.fatMassKg, leanMassKg: reading.leanMassKg,
-            bmrKcal: reading.bmrKcal)
+            bmrKcal: reading.bmrKcal,
+            muscleMassKg: reading.muscleKg, bodyWaterPercent: reading.bodyWaterPercent,
+            boneMassKg: reading.boneKg, proteinPercent: reading.proteinPercent)
         try durable().save(item, id: item.id.uuidString, account: ownerUserId)
         pending = try durable().items()
         Task { await flush() }
@@ -78,6 +85,10 @@ final class BodyCompositionQueue {
                 "lean_body_mass_kg": item.leanMassKg,
             ]
             if let bmr = item.bmrKcal { row["bmr_kcal"] = bmr }
+            if let v = item.muscleMassKg { row["muscle_mass_kg"] = v }
+            if let v = item.bodyWaterPercent { row["body_water_pct"] = v }
+            if let v = item.boneMassKg { row["bone_mass_kg"] = v }
+            if let v = item.proteinPercent { row["protein_pct"] = v }
             do {
                 _ = try await SupabaseClient.shared.insert("body_composition", rows: [row],
                                                             returning: false)

@@ -15,8 +15,8 @@ the owner's explicit permission in the current conversation.** Exclude them from
 them, stop and ask first.
 
 The switches live outside those folders and may be read without asking:
-`app/NextBody/App/AIFeature.swift` (`enabled = false`), `WidgetBridge.shotEnabled` (Shot
-widget, `false`) and `supabase/functions/_shared/ai-switch.ts`, which answers 410
+`app/NextBody/App/AIFeature.swift` (`enabled = false`) and
+`supabase/functions/_shared/ai-switch.ts`, which answers 410
 `AI_DISABLED` from `turn`, `asr`, `memory-settle` and `screen-current` unless the Edge
 Function secret `AI_ENABLED=1`. Changing a switch still needs the owner's permission.
 

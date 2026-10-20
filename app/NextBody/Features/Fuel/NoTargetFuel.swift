@@ -18,15 +18,15 @@ struct NoTargetFuel: View {
     var body: some View {
         // Same header as the page with a target, so the two never feel like two apps.
         DetailScroll(glow: NB.ember1, title: L("CALORIES"), trailing: {
-            Text(L("%@ TARGET", Fmt.dash)).font(NBFont.dot(700, 12)).tracking(0.04 * 12).foregroundStyle(NB.emberPale)
+            Text(L("%@ ALLOWANCE", Fmt.dash)).font(NBFont.dot(700, 12)).tracking(0.04 * 12).foregroundStyle(NB.emberPale)
         }) {
             VStack(alignment: .leading, spacing: 22) {
-                // NO TARGET · the one action
+                // NO ALLOWANCE · the one action
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(L("NO TARGET")).font(NBFont.dot(700, 11)).tracking(0.24 * 11).foregroundStyle(NB.ember1)
+                    Text(L("NO ALLOWANCE")).font(NBFont.dot(700, 11)).tracking(0.24 * 11).foregroundStyle(NB.ember1)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(Fmt.dash).font(NBFont.dot(800, 64)).foregroundStyle(NB.white.opacity(0.24))
-                        Text(L("KCAL TARGET")).font(NBFont.dot(600, 11)).tracking(0.2 * 11).foregroundStyle(NB.text3Prod)
+                        Text(L("KCAL ALLOWANCE")).font(NBFont.dot(600, 11)).tracking(0.2 * 11).foregroundStyle(NB.text3Prod)
                     }
                     Text(L("Targets are built from your body weight. Without it, HOOP can count what you eat, but it can't tell you how much you need."))
                         .font(NBFont.ui(300, 15)).lineSpacing(8).foregroundStyle(sub)
@@ -42,9 +42,8 @@ struct NoTargetFuel: View {
                     Text(L("Type it in, or pull the latest from Apple Health."))
                         .font(NBFont.ui(300, 13)).lineSpacing(6).foregroundStyle(sub)
                 }
-                .padding(22)
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
-                .cardSkin()
+                .padding(.bottom, 4)
 
                 // LOGGED TODAY · counts, not comparisons
                 VStack(alignment: .leading, spacing: 16) {
@@ -63,9 +62,8 @@ struct NoTargetFuel: View {
                     }
                     Text(L("No targets to compare them to yet.")).font(NBFont.ui(300, 13)).foregroundStyle(sub)
                 }
-                .padding(22)
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
-                .cardSkin()
+                .lineSkin(top: 18)
 
                 // THE BAND COUNTED · true without a weight
                 VStack(alignment: .leading, spacing: 0) {
@@ -83,9 +81,8 @@ struct NoTargetFuel: View {
                     }
                     .frame(height: 44)
                 }
-                .padding(22)
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
-                .cardSkin()
+                .lineSkin(top: 18)
 
                 // WHAT A WEIGH-IN TURNS ON · text only (rule 11)
                 VStack(alignment: .leading, spacing: 12) {
@@ -102,9 +99,8 @@ struct NoTargetFuel: View {
                         }
                     }
                 }
-                .padding(22)
                 .frame(width: NB.Layout.contentWidth, alignment: .leading)
-                .cardSkin()
+                .lineSkin(top: 18)
                 FastingAction(day: m.day)
             }
             .padding(.horizontal, 16)

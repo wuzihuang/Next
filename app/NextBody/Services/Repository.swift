@@ -294,7 +294,7 @@ final class Repository {
         let account = SupabaseClient.currentUserIdSnapshot()
         guard let rows = try? await db.select("body_composition", query: [
             .init(name: "select",
-                  value: "id,measured_at,body_fat_pct,fat_mass_kg,lean_body_mass_kg,bmr_kcal,input_weight_kg,measurement_source"),
+                  value: "id,measured_at,body_fat_pct,fat_mass_kg,lean_body_mass_kg,bmr_kcal,input_weight_kg,measurement_source,muscle_mass_kg,body_water_pct,bone_mass_kg,protein_pct"),
             .init(name: "order", value: "measured_at.desc"),
             .init(name: "limit", value: "200"),
         ]) else { return }
@@ -642,7 +642,7 @@ final class Repository {
 
         async let scanRows = db.select("body_composition", query: [
             .init(name: "select",
-                  value: "id,measured_at,body_fat_pct,fat_mass_kg,lean_body_mass_kg,bmr_kcal,input_weight_kg"),
+                  value: "id,measured_at,body_fat_pct,fat_mass_kg,lean_body_mass_kg,bmr_kcal,input_weight_kg,muscle_mass_kg,body_water_pct,bone_mass_kg,protein_pct"),
             .init(name: "measurement_source", value: "eq.device_bia"),
             .init(name: "order", value: "measured_at.desc"),
             .init(name: "limit", value: String(limit)),
@@ -664,7 +664,11 @@ final class Repository {
                 fatMassKg: number(row["fat_mass_kg"]),
                 leanMassKg: number(row["lean_body_mass_kg"]),
                 bmrKcal: number(row["bmr_kcal"]).map { Int($0) },
-                inputWeightKg: number(row["input_weight_kg"])))))
+                inputWeightKg: number(row["input_weight_kg"]),
+                muscleMassKg: number(row["muscle_mass_kg"]),
+                bodyWaterPercent: number(row["body_water_pct"]),
+                boneMassKg: number(row["bone_mass_kg"]),
+                proteinPercent: number(row["protein_pct"])))))
         }
         for row in (try? await balanceRows) ?? [] {
             guard let id = (row["id"] as? String).flatMap(UUID.init(uuidString:)),
@@ -1168,21 +1172,25 @@ final class Repository {
                         m.eTrainPlan = nil
                         // The estimate itself is assembled in merge(), once every row it is
                         // made of is known.
-                        m.targetIn = number(fu["target_in"])
-                        // Published beside the budget so 09 can account for it (#29): resting
-                        // plus the activity measured so far, where the resting figure came
-                        // from, and the goal's offset. Nothing here is recomputed — the phone
-                        // has no second formula, it prints the server's parts.
-                        m.targetBasis = number(fu["target_basis_kcal"])
+                        // The allowance is resting for the whole day plus the activity measured
+                        // so far, without subtracting a weight-loss goal offset.
+                        let basis = number(fu["target_basis_kcal"]) ?? full.map { $0 + (m.eActive ?? 0) }
+                        m.targetBasis = basis
                         m.targetBasisDays = nil
                         m.restingSource = fu["resting_source"] as? String
                         m.restingMeasuredAt = (fu["resting_measured_at"] as? String).flatMap(Self.timestamp)
-                        m.goalOffset = number(fu["goal_offset_kcal"])
-                        // The macro targets are the server's split, not a second one computed
-                        // here — two answers to "what is my protein target" is one too many.
-                        if let p = number(fu["protein_g"]) { m.protein = MacroSlot(target: Int(p), eaten: 0) }
-                        if let c = number(fu["carb_g"])    { m.carb    = MacroSlot(target: Int(c), eaten: 0) }
-                        if let f = number(fu["fat_g"])     { m.fat     = MacroSlot(target: Int(f), eaten: 0) }
+                        m.goalOffset = 0
+                        m.targetIn = basis ?? number(fu["target_in"])
+                        let p = number(fu["protein_g"]).map(Int.init)
+                        let f = number(fu["fat_g"]).map(Int.init)
+                        if let p { m.protein = MacroSlot(target: p, eaten: 0) }
+                        if let f { m.fat     = MacroSlot(target: f, eaten: 0) }
+                        if let allowance = m.targetIn, let p, let f {
+                            let c = max(0, Int(((allowance - Double(p * 4 + f * 9)) / 4).rounded()))
+                            m.carb = MacroSlot(target: c, eaten: 0)
+                        } else if let c = number(fu["carb_g"]) {
+                            m.carb = MacroSlot(target: Int(c), eaten: 0)
+                        }
                         switch fu["intake_state"] as? String {
                         case "FASTED": m.fuelState = .fasted
                         case "CONFIRMED": m.fuelState = .confirmed
@@ -1847,7 +1855,11 @@ final class Repository {
                 fatMassKg: number(row["fat_mass_kg"]),
                 leanMassKg: number(row["lean_body_mass_kg"]),
                 bmrKcal: number(row["bmr_kcal"]),
-                inputWeightKg: number(row["input_weight_kg"])
+                inputWeightKg: number(row["input_weight_kg"]),
+                muscleMassKg: number(row["muscle_mass_kg"]),
+                bodyWaterPercent: number(row["body_water_pct"]),
+                boneMassKg: number(row["bone_mass_kg"]),
+                proteinPercent: number(row["protein_pct"])
             )
         }
         .sorted { $0.at > $1.at }

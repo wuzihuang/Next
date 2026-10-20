@@ -6,6 +6,16 @@
     "supabase": {
       "type": "http",
       "url": "https://mcp.supabase.com/mcp?project_ref=gkgzwcxivnffsecshvfs&features=docs%2Caccount%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions%2Cbranching"
+    },
+    "everos": {
+      "command": "uvx",
+      "args": ["everos-mcp"],
+      "env": {
+        "EVEROS_API_KEY": "${EVEROS_API_KEY}",
+        "EVEROS_USER_ID": "wuzihuang",
+        "EVEROS_APP_ID": "next",
+        "EVEROS_PROJECT_ID": "wuzihuang/Next"
+      }
     }
   }
 }

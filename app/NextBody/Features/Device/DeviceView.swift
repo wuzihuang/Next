@@ -9,7 +9,6 @@ struct DeviceView: View {
     /// 9-0 A · the two-HOOP set: both slots, the wear timeline, the link moves.
     @ObservedObject private var hoops = DeviceSetStore.shared
     /// The lime ground is one shape that slides between the slots on a declaration.
-    @Namespace private var limeSlot
 
     @State private var sheet: SheetRoute?
     @State private var identity: BandIdentity?
@@ -66,10 +65,11 @@ struct DeviceView: View {
             .padding(.horizontal, 10).frame(height: 24)
             .overlay(connected ? nil : Capsule().stroke(NB.hairline, lineWidth: 1))
         }) {
-            VStack(alignment: .leading, spacing: 14) {
-                // 9-0 A · slots never move: A above, B below. The lime moves with the
-                // declaration — that is the only thing that changes places.
-                VStack(alignment: .leading, spacing: 18) {
+            // Cards, spaced 12pt apart; each group's title is lime and sits above its card.
+            VStack(alignment: .leading, spacing: 0) {
+                // 9-0 A · slots never move: A above, B below. The wearing slot is the one
+                // that carries the lime marker — that is the only thing that changes places.
+                VStack(alignment: .leading, spacing: 0) {
                     slotSlab(.a)
                     if hoops.hasSecond { slotSlab(.b) } else { emptySlotSlab }
                 }
@@ -86,6 +86,8 @@ struct DeviceView: View {
                     Text(syncMessage)
                         .font(NBFont.ui(400, 12))
                         .foregroundStyle(NB.ember1)
+                        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+                        .padding(.vertical, 14)
                         .accessibilityIdentifier("device-sync-message")
                 }
                 if !connected { readOnlyNotice }
@@ -367,9 +369,10 @@ struct DeviceView: View {
             Text(L("THE BAND SET WHAT IT COULD. THIS IS ITS ANSWER, NOT OURS."))
                 .font(NBFont.ui(300, 11)).tracking(0.04 * 11).foregroundStyle(NB.text3Prod)
         }
-        .padding(14)
+        .padding(16)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
         .cardSkin()
+        .padding(.top, 12)
     }
 
     /// 12 edge 4 · DEVICE BUSY · QUEUE, DON'T FAIL.
@@ -379,10 +382,10 @@ struct DeviceView: View {
             Text(L("A measurement is running. Your change is queued and will go through when it finishes."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5).lineSpacing(5).foregroundStyle(NB.white.opacity(0.70))
         }
-        .padding(14)
+        .padding(16)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous).stroke(NB.ember1.opacity(0.25), lineWidth: 1))
+        .cardSkin()
+        .padding(.top, 12)
     }
 
     /// Page reads participate in the same drain as sync. A page task resumed after a
@@ -485,16 +488,16 @@ struct DeviceView: View {
                 if syncActivity.workflow.active {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(NB.lime1)
+                        .tint(NB.carbon4)
                 }
                 Text(syncActivity.workflow.active ? L(syncActivity.workflow.stage.buttonLabel) : L("SYNC"))
                     .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                    .foregroundStyle(NB.lime1)
+                    .foregroundStyle(NB.carbon4)
             }
             .frame(minWidth: 40)
             .padding(.horizontal, 16)
             .frame(height: 36)
-            .background(NB.carbon4, in: Capsule())
+            .background(NB.lime1, in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -587,14 +590,15 @@ struct DeviceView: View {
         return f.string(from: date)
     }
 
-    /// One slot: lime when it is the declared wearer, carbon otherwise. Same position
-    /// either way — only the colour and the strip word change.
+    /// One slot: the declared wearer is the full read-out, the other is a standby row. Same
+    /// position either way — only the contents and the strip word change. The first slot
+    /// sits right under the title, so it opens without a gap.
     @ViewBuilder private func slotSlab(_ slot: HoopSlot) -> some View {
         if slot == hoops.wearing {
-            limeHero(slot)
+            limeHero(slot, spaced: slot != .a)
                 .transition(.opacity)
         } else {
-            standbySlab(slot)
+            standbySlab(slot, spaced: slot != .a)
                 .transition(.opacity)
         }
     }
@@ -604,27 +608,28 @@ struct DeviceView: View {
     /// a 28pt key inside 34 left three points of air and read as a seam.
     private func slotStrip(_ slot: HoopSlot, onLime: Bool) -> some View {
         HStack(spacing: 10) {
-            HoopKeyGlyph(letter: slot.rawValue, onLime: onLime)
+            // The wearing HOOP's key is the one lime-filled mark on the page.
+            HoopKeyGlyph(letter: slot.rawValue, lit: onLime)
             Text(onLime ? stripWord : standbyWord(hoops.snapshot(slot), pending: pendingDays(slot)))
                 .font(NBFont.dot(600, 10.5)).tracking(0.2 * 10.5)
-                .foregroundStyle(onLime ? NB.carbon4 : (pendingDays(slot) > 0 ? NB.ember1 : NB.white.opacity(0.55)))
+                .foregroundStyle(onLime ? NB.lime1 : (pendingDays(slot) > 0 ? NB.ember1 : NB.white.opacity(0.55)))
                 .lineLimit(1).minimumScaleFactor(0.8)
             Spacer(minLength: 0)
             if onLime, syncActivity.total > 0 {
                 Text("\(syncActivity.done) / \(syncActivity.total) " + L("DAYS"))
                     .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(NB.carbon4.opacity(0.7))
+                    .foregroundStyle(NB.white.opacity(0.7))
                     .contentTransition(.numericText())
             } else if onLime, let since = hoops.wearingSince {
                 Text(L("SINCE") + " " + Self.stamp(since).uppercased())
                     .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(NB.carbon4.opacity(0.55))
+                    .foregroundStyle(NB.white.opacity(0.55))
             }
         }
         .padding(.horizontal, 16)
         .frame(height: 50)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(onLime ? NB.carbon4.opacity(0.15) : NB.white.opacity(0.08)).frame(height: 1)
+            Rectangle().fill(NB.hairline).frame(height: 1).padding(.horizontal, 16)
         }
         .accessibilityIdentifier("device.slotStrip.\(slot.rawValue)")
     }
@@ -670,13 +675,14 @@ struct DeviceView: View {
 
     /// The other HOOP: what it last said, when it was last read, and its own SYNC key.
     /// Nothing here is live — the app talks to one band at a time.
-    private func standbySlab(_ slot: HoopSlot) -> some View {
+    private func standbySlab(_ slot: HoopSlot, spaced: Bool) -> some View {
         let snap = hoops.snapshot(slot)
         let deadline = WearTimeline.syncDeadline(lastSync: snap?.lastSync, boundAt: snap?.boundAt,
                                                  holdsDays: snap?.holdsDays)
         // The whole card is the switch. It carries no SYNC key of its own: the app talks
         // to the band on your wrist, and this one is read when you put it on.
         return Button { sheet = .wearSwitch(slot.rawValue) } label: {
+          DeviceBlock(spaced: spaced) {
           VStack(alignment: .leading, spacing: 0) {
             slotStrip(slot, onLime: false)
             HStack(alignment: .center, spacing: 12) {
@@ -699,15 +705,14 @@ struct DeviceView: View {
             Hairline().padding(.horizontal, 16)
             HStack(spacing: 0) {
                 standbyCell(L("BATTERY"), standbyBattery(snap))
-                Rectangle().fill(NB.white.opacity(0.08)).frame(width: 1)
+                Rectangle().fill(NB.hairline).frame(width: 1)
                 standbyCell(L("LAST SYNC"), snap?.lastSync.map { Self.stamp($0).uppercased() } ?? L("NEVER"))
-                Rectangle().fill(NB.white.opacity(0.08)).frame(width: 1)
+                Rectangle().fill(NB.hairline).frame(width: 1)
                 standbyCell(L("SYNC BEFORE"), deadline.map { Self.stamp($0).uppercased() } ?? Fmt.dash)
             }
             .frame(height: 56)
           }
-          .frame(width: NB.Layout.contentWidth)
-          .cardSkin()
+          }
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -785,10 +790,11 @@ struct DeviceView: View {
             .padding(16)
             .frame(minHeight: 72)
             .frame(width: NB.Layout.contentWidth, alignment: .leading)
+            // A dashed outline says the slot is empty.
             .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
-                .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                .foregroundStyle(NB.white.opacity(0.22)))
+                .stroke(NB.white.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
             .contentShape(Rectangle())
+            .padding(.top, 12)
         }
         .buttonStyle(.plain)
         .disabled(BoundBand.identifier == nil)
@@ -796,14 +802,15 @@ struct DeviceView: View {
     }
 
     /// Name + SYNC, 12 BRIDGE TREND lead corridor, then WORN / WITH YOU / SYNCED / LAST POINT.
-    private func limeHero(_ slot: HoopSlot) -> some View {
+    private func limeHero(_ slot: HoopSlot, spaced: Bool) -> some View {
+        DeviceBlock(spaced: spaced) {
         VStack(spacing: 0) {
             if hoops.hasSecond { slotStrip(slot, onLime: true) }
             HStack(alignment: .center, spacing: 12) {
                 Text(hoops.hasSecond ? (hoops.snapshot(slot)?.name ?? data.band.name) : data.band.name)
                     .font(NBFont.ui(600, 26))
                     .tracking(-0.03 * 26)
-                    .foregroundStyle(NB.carbon4)
+                    .foregroundStyle(NB.text1)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -818,12 +825,12 @@ struct DeviceView: View {
             if syncActivity.showsProgress {
                 VStack(alignment: .leading, spacing: 6) {
                     DottedProgress(progress: syncActivity.fraction,
-                                   lit: NB.carbon4, track: NB.carbon4.opacity(0.18))
+                                   lit: NB.lime1, track: NB.white.opacity(0.14))
                         .frame(height: 6)
                         .animation(.linear(duration: 0.15), value: syncActivity.fraction)
                     Text(syncProgressWord)
                         .font(NBFont.dot(600, 9.5)).tracking(0.18 * 9.5)
-                        .foregroundStyle(NB.carbon4.opacity(0.62))
+                        .foregroundStyle(NB.white.opacity(0.62))
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
@@ -840,27 +847,25 @@ struct DeviceView: View {
                             Text(L("TREND"))
                                 .font(NBFont.dot(700, 11))
                                 .tracking(0.20 * 11)
-                                .foregroundStyle(NB.carbon4)
+                                .foregroundStyle(NB.text1)
                             Text("· " + L("7D DRAIN CURVE"))
                                 .font(NBFont.ui(600, 11))
                                 .tracking(0.04 * 11)
-                                .foregroundStyle(NB.carbon4.opacity(0.62))
+                                .foregroundStyle(NB.white.opacity(0.55))
                         }
                         Spacer(minLength: 0)
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             if let leftParts {
                                 Text(leftParts.value)
                                     .font(NBFont.dot(700, 15))
-                                    .foregroundStyle(NB.carbon4)
+                                    .foregroundStyle(NB.lime1)
                                 Text(leftParts.unit)
                                     .font(NBFont.dot(600, 10))
                                     .tracking(0.08 * 10)
-                                    .foregroundStyle(NB.carbon4.opacity(0.65))
+                                    .foregroundStyle(NB.white.opacity(0.55))
                             }
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(NB.carbon4.opacity(0.50))
-                                .padding(.leading, 2)
+                            Chevron(color: NB.white.opacity(0.28))
+                                .padding(.leading, 4)
                         }
                     }
                     LimeTrendLead(plot: glancePlot)
@@ -876,37 +881,30 @@ struct DeviceView: View {
             .accessibilityLabel(L("TREND"))
             .accessibilityValue(leftParts.map { "\($0.value) \($0.unit)" } ?? "")
 
-            Rectangle().fill(NB.carbon4.opacity(0.15)).frame(height: 1)
+            Hairline().padding(.horizontal, 16)
 
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     LimeMetric(label: L("WORN"), value: wornParts.value, unit: wornParts.unit)
-                    Rectangle().fill(NB.carbon4.opacity(0.15)).frame(width: 1)
+                    Rectangle().fill(NB.hairline).frame(width: 1)
                     LimeMetric(label: L("WITH YOU"), value: companionParts.value, unit: companionParts.unit)
                 }
-                Rectangle().fill(NB.carbon4.opacity(0.15)).frame(height: 1)
+                Hairline().padding(.horizontal, 16)
                 HStack(spacing: 0) {
                     LimeMetric(label: L("SYNCED"), value: syncedParts.value, unit: syncedParts.unit)
-                    Rectangle().fill(NB.carbon4.opacity(0.15)).frame(width: 1)
+                    Rectangle().fill(NB.hairline).frame(width: 1)
                     LimeMetric(label: L("LAST POINT"), value: lastPointValue)
                 }
             }
         }
-        .frame(width: NB.Layout.contentWidth)
-        .background {
-            RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
-                .fill(NB.lime1)
-                .matchedGeometryEffect(id: "wearingLime", in: limeSlot)
         }
-        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
-            .stroke(NB.lime1, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
     }
 
-    /// Two carbon bricks cut from one die: lime eyebrow, 18pt title, the same 14pt gap.
-    /// The alarm count rides the eyebrow (`CLOCK · 2`) so both bricks keep one height.
+    /// Two cells split by one vertical rule: lime eyebrow, 18pt title, the same 14pt gap.
+    /// The alarm count rides the eyebrow (`CLOCK · 2`) so both cells keep one height.
     private var actionTiles: some View {
-        HStack(spacing: 10) {
+        DeviceBlock {
+        HStack(spacing: 0) {
             Button { sheet = .findHoop } label: {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(L("PING"))
@@ -918,12 +916,13 @@ struct DeviceView: View {
                         .foregroundStyle(NB.text1)
                 }
                 .padding(16)
-                .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .cardSkin()
             .accessibilityIdentifier("device.findHoop")
+
+            Rectangle().fill(NB.hairline).frame(width: 1)
 
             Button { sheet = .bandAlarms } label: {
                 VStack(alignment: .leading, spacing: 14) {
@@ -936,14 +935,13 @@ struct DeviceView: View {
                         .foregroundStyle(NB.text1)
                 }
                 .padding(16)
-                .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .cardSkin()
             .accessibilityIdentifier("device.alarms")
         }
-        .frame(width: NB.Layout.contentWidth)
+        }
     }
 
     /// How much of the screen a sheet takes. A table or a picture wants the tall detent,
@@ -1046,7 +1044,7 @@ struct DeviceView: View {
                 .animation(.easeOut(duration: 0.25), value: otaProgress)
             }
 
-            Hairline()
+            Hairline().padding(.horizontal, 16)
             IdentityRow(name: "MODEL", value: identityValue(\.model))
             IdentityRow(name: "HARDWARE", value: identityValue(\.hardware))
             IdentityRow(name: "BLUETOOTH", value: bluetoothValue)
@@ -1097,15 +1095,16 @@ struct DeviceView: View {
     private var debugHeader: some View {
         HStack(spacing: 8) {
             Text(L("DEBUG"))
-                .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
+                .font(NBFont.ui(700, 16)).tracking(0.1 * 16)
                 .foregroundStyle(NB.ember1)
             Text(L("BUILD ONLY"))
                 .font(NBFont.dot(600, 9)).tracking(0.14 * 9)
                 .foregroundStyle(NB.ember1)
             Spacer(minLength: 0)
         }
-        .padding(.leading, 2)
-        .padding(.top, 8)
+        .padding(.horizontal, 4)
+        .padding(.top, 30)
+        .padding(.bottom, 10)
     }
 
     private var debugCard: some View {
@@ -1115,7 +1114,7 @@ struct DeviceView: View {
             IdentityRow(name: "SOFTWARE", value: reportedFirmware)
             IdentityRow(name: "DEVICE NO.", value: identityValue(\.deviceNumber))
             IdentityRow(name: "SPORT MODE", value: identityValue(\.sportMode))
-            IdentityRow(name: "BLUETOOTH", value: bluetoothValue, last: true)
+            IdentityRow(name: "BLUETOOTH", value: bluetoothValue)
             NavRow(title: L("Automatic measurement"),
                    detail: autoDetail,
                    value: autoValue,
@@ -1186,7 +1185,7 @@ struct DeviceView: View {
                 .foregroundStyle(NB.text3Prod)
             Spacer(minLength: 0)
         }
-        .padding(.leading, 4)
+        .padding(.top, 16)
     }
 }
 
@@ -1211,24 +1210,42 @@ private struct LockGlyph: View {
     }
 }
 
+/// One card of the page. Slots and tiles are spaced 12pt apart; a row group that follows
+/// its own title sits flush under it.
+private struct DeviceBlock<Content: View>: View {
+    var spaced = true
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(spacing: 0) { content }
+            .frame(width: NB.Layout.contentWidth, alignment: .leading)
+            // The last row's rule sits one point below the frame and is clipped, so the
+            // card's own edge closes the list.
+            .padding(.bottom, -1)
+            .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+            .cardSkin()
+            .padding(.top, spaced ? 12 : 0)
+    }
+}
+
+/// A section title: lime and large enough to find from the other end of the page.
 private struct GroupLabel12: View {
     let text: String
     init(_ t: String) { text = t }
     var body: some View {
         Text(text)
-            .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-            .foregroundStyle(Color(hex: 0x8A8A96))
-            .padding(.leading, 2)
-            .padding(.top, 8)
+            .font(NBFont.ui(700, 16)).tracking(0.1 * 16)
+            .foregroundStyle(NB.lime1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+            .padding(.top, 30)
+            .padding(.bottom, 10)
     }
 }
 
 private struct RowCard<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
-        VStack(spacing: 0) { content }
-            .frame(width: NB.Layout.contentWidth)
-            .cardSkin()
+        DeviceBlock(spaced: false) { content }
     }
 }
 
@@ -1272,9 +1289,9 @@ private struct LimeTrendLead: View {
                     else { heard.addPath(segment) }
                     prev = p
                 }
-                ctx.stroke(heard, with: .color(NB.carbon4),
+                ctx.stroke(heard, with: .color(NB.lime1),
                            style: StrokeStyle(lineWidth: 1.5, lineCap: .square, lineJoin: .miter))
-                ctx.stroke(guess, with: .color(NB.carbon4.opacity(0.35)),
+                ctx.stroke(guess, with: .color(NB.lime1.opacity(0.4)),
                            style: StrokeStyle(lineWidth: 1.2, lineCap: .square, lineJoin: .miter, dash: [2, 3]))
                 if i + 1 < plot.runs.count,
                    let next = plot.runs[i + 1].first,
@@ -1283,7 +1300,7 @@ private struct LimeTrendLead: View {
                     var join = Path()
                     join.move(to: point(last))
                     join.addLine(to: point(next))
-                    ctx.stroke(join, with: .color(NB.carbon4.opacity(0.35)),
+                    ctx.stroke(join, with: .color(NB.lime1.opacity(0.4)),
                                style: StrokeStyle(lineWidth: 1.2, dash: [2, 3]))
                 }
             }
@@ -1291,12 +1308,12 @@ private struct LimeTrendLead: View {
             if let end = plot.runs.last?.last {
                 let at = point(end)
                 ctx.fill(Path(ellipseIn: CGRect(x: at.x - 2, y: at.y - 2, width: 4, height: 4)),
-                         with: .color(NB.carbon4))
+                         with: .color(NB.lime1))
             } else if !hasPoints {
                 var lead = Path()
                 lead.move(to: CGPoint(x: 0, y: size.height / 2))
                 lead.addLine(to: CGPoint(x: size.width, y: size.height / 2))
-                ctx.stroke(lead, with: .color(NB.carbon4.opacity(0.20)),
+                ctx.stroke(lead, with: .color(NB.white.opacity(0.2)),
                            style: StrokeStyle(lineWidth: 1.2, dash: [2, 3]))
             }
         }
@@ -1314,15 +1331,15 @@ private struct LimeMetric: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(label)
                 .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
-                .foregroundStyle(NB.carbon4.opacity(0.6))
+                .foregroundStyle(NB.white.opacity(0.55))
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
                     .font(NBFont.dot(700, 20))
-                    .foregroundStyle(NB.carbon4)
+                    .foregroundStyle(NB.lime1)
                 if let unit {
                     Text(unit)
                         .font(NBFont.dot(500, 10))
-                        .foregroundStyle(NB.carbon4.opacity(0.6))
+                        .foregroundStyle(NB.white.opacity(0.55))
                 }
             }
         }
@@ -1346,11 +1363,11 @@ private struct NavRow: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                        .font(NBFont.ui(500, 15))
                         .foregroundStyle(enabled ? NB.text1 : NB.text2)
                     Text(detail)
                         .font(NBFont.dot(500, 10)).tracking(0.14 * 10)
-                        .foregroundStyle(NB.white.opacity(0.34))
+                        .foregroundStyle(NB.white.opacity(0.5))
                 }
                 Spacer(minLength: 0)
                 Text(value)
@@ -1368,7 +1385,7 @@ private struct NavRow: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.55)
-        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.horizontal, 16) }
     }
 }
 
@@ -1384,13 +1401,13 @@ private struct IdentityRow: View {
             Spacer(minLength: 0)
             Text(value)
                 .font(NBFont.dot(500, 11)).tracking(0.08 * 11)
-                .foregroundStyle(NB.white.opacity(0.34))
+                .foregroundStyle(NB.white.opacity(0.55))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
         .padding(.horizontal, 16)
         .frame(height: 48)
-        .overlay(alignment: .bottom) { last ? nil : Hairline() }
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.horizontal, 16) }
     }
 }
 
@@ -1406,11 +1423,11 @@ private struct DestructiveRow: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
+                        .font(NBFont.ui(500, 15))
                         .foregroundStyle(tint)
                     Text(detail)
                         .font(NBFont.ui(400, 11.5)).tracking(0.02 * 11.5)
-                        .foregroundStyle(NB.white.opacity(0.34))
+                        .foregroundStyle(NB.white.opacity(0.5))
                 }
                 Spacer(minLength: 0)
                 Chevron()
@@ -1420,7 +1437,7 @@ private struct DestructiveRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.horizontal, 16) }
     }
 }
 
@@ -1503,8 +1520,7 @@ struct AutoMeasurementSheet: View {
                                 last: index == slots.count - 1)
                         }
                     }
-                    .frame(width: NB.Layout.contentWidth)
-                    .cardSkin()
+                    .sheetLines()
                     .padding(.top, 16)
 
                     Text(footer)
@@ -1696,7 +1712,7 @@ private struct MeasureToggle: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.horizontal, 16) }
     }
 
     @ViewBuilder
@@ -1766,12 +1782,11 @@ struct SyncCadenceSheet: View {
                     }
                     .buttonStyle(.plain)
                     .overlay(alignment: .bottom) {
-                        index == SyncCadence.options.count - 1 ? nil : Hairline().padding(.leading, 16)
+                        index == SyncCadence.options.count - 1 ? nil : Hairline().padding(.horizontal, 16)
                     }
                 }
             }
-            .frame(width: NB.Layout.contentWidth)
-            .cardSkin()
+            .sheetLines()
             .padding(.top, 16)
 
             Text(L("Some stored history, including temperature, still arrives in five-minute points. Faster reads do not create extra samples."))
@@ -1845,8 +1860,7 @@ struct WhyWontItConnectSheet: View {
                 ReasonItem(index: "03", title: L("The battery is flat"),
                            detail: L("Charge it for ten minutes and hold the side key."), last: true)
             }
-            .frame(width: NB.Layout.contentWidth)
-            .cardSkin()
+            .sheetLines()
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
@@ -1878,7 +1892,7 @@ private struct ReasonItem: View {
             Spacer(minLength: 0)
         }
         .padding(16)
-        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.leading, 16) }
+        .overlay(alignment: .bottom) { last ? nil : Hairline().padding(.horizontal, 16) }
     }
 }
 
@@ -1935,12 +1949,11 @@ private struct SportProbeSheet: View {
                         .disabled(probing != nil)
                         .buttonStyle(.plain)
                         if index < SportModeCatalog.modes.count - 1 {
-                            Hairline().padding(.leading, 16)
+                            Hairline().padding(.horizontal, 16)
                         }
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .cardSkin()
+                .sheetLines()
                 .padding(.top, 16)
             }
         }
@@ -1987,7 +2000,7 @@ private struct CapabilitySweepSheet: View {
             }
             .disabled(running)
             .buttonStyle(.plain)
-            .cardSkin()
+            .sheetLines()
             .padding(.top, 16)
             if let probeError {
                 Text(probeError)
@@ -2006,7 +2019,7 @@ private struct CapabilitySweepSheet: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
-                .cardSkin()
+                .sheetLines()
                 .padding(.top, 16)
             }
         }

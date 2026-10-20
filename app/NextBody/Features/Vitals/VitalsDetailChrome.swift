@@ -71,10 +71,8 @@ struct VitalsHero: View {
                 Rectangle().fill(NB.white.opacity(0.06)).frame(height: 1)
             }
         }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 18)
+        .padding(.bottom, 4)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("vitals.hero")
         .accessibilityLabel(sensor)
@@ -414,11 +412,13 @@ struct VitalsStatPair: View {
     let right: Model
 
     var body: some View {
-        HStack(spacing: 10) {
-            tile(left)
-            tile(right)
+        HStack(spacing: 0) {
+            tile(left).padding(.trailing, 14)
+            Rectangle().fill(NB.hairline).frame(width: 1)
+            tile(right).padding(.leading, 14)
         }
         .frame(width: NB.Layout.contentWidth)
+        .lineSkin()
     }
 
     private func tile(_ m: Model) -> some View {
@@ -443,10 +443,7 @@ struct VitalsStatPair: View {
                 .foregroundStyle(m.value == nil ? NB.text3Prod : (m.tint ?? NB.text2))
                 .lineLimit(1).minimumScaleFactor(0.75)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSkin()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(m.label)
         .accessibilityValue(m.value.map { "\($0) \(m.unit ?? ""), \(m.foot)" } ?? "no reading, \(m.foot)")

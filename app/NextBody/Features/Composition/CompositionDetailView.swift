@@ -52,7 +52,7 @@ struct CompositionDetailView: View {
         }) {
             VStack(alignment: .leading, spacing: 14) {
                 SegmentedPills(options: RollingPills.words,
-                               selection: $rangeRaw)
+                               selection: $rangeRaw, lined: true)
                 windowCard
                 sinceBaselineCard
                 if range == .day {
@@ -134,9 +134,8 @@ struct CompositionDetailView: View {
                                     valueTint: BodyScanCadence.isDue(since: latest.at) ? NB.ember1 : NB.text1)
                 }
             }
-            .padding(16)
             .frame(width: NB.Layout.contentWidth, alignment: .leading)
-            .cardSkin()
+            .lineSkin(top: 16)
             .accessibilityIdentifier("composition.sinceBaseline")
         }
     }
@@ -208,16 +207,12 @@ struct CompositionDetailView: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
             .padding(.bottom, 12)
 
             Rectangle().fill(NB.hairline).frame(height: 1)
             strip
         }
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-        .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L("COMPOSITION"))
         .accessibilityValue(L(detail.periodKey))
@@ -314,8 +309,7 @@ struct CompositionDetailView: View {
             }
         }
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-        .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .overlay(alignment: .top) { Hairline() }
     }
 
     private var scanRows: some View {
@@ -346,8 +340,7 @@ struct CompositionDetailView: View {
             }
         }
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-        .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .overlay(alignment: .top) { Hairline() }
     }
 
     private var weekRows: some View {
@@ -367,8 +360,7 @@ struct CompositionDetailView: View {
             footnote(windowScans)
         }
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-        .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .overlay(alignment: .top) { Hairline() }
     }
 
     private func listHead(left: String, right: String) -> some View {
@@ -381,7 +373,7 @@ struct CompositionDetailView: View {
                 .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                 .foregroundStyle(NB.white.opacity(0.60))
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 0)
         .padding(.top, 16)
         .padding(.bottom, 12)
     }
@@ -390,7 +382,7 @@ struct CompositionDetailView: View {
         Text(L("No body scan in this window yet."))
             .font(NBFont.ui(300, 13))
             .foregroundStyle(NB.text3Prod)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 0)
             .padding(.vertical, 14)
     }
 
@@ -412,7 +404,7 @@ struct CompositionDetailView: View {
                 .foregroundStyle(NB.text3Prod)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 0)
         .padding(.top, 12)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -645,7 +637,7 @@ private struct CompositionDeltaRow: View {
                 .font(NBFont.dot(600, 11)).tracking(0.1 * 11)
                 .foregroundStyle(highlight ? NB.lime1 : NB.text2)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 0)
         .padding(.vertical, 11)
     }
 }
@@ -676,7 +668,7 @@ private struct CompositionScanRow: View {
                 .font(NBFont.dot(600, 11)).tracking(0.1 * 11)
                 .foregroundStyle(newest ? NB.lime1 : NB.text2)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 0)
         .padding(.vertical, 11)
     }
 }

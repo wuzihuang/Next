@@ -97,10 +97,8 @@ struct ActiveEnergyHero: View {
                 .foregroundStyle(NB.text2)
                 .lineLimit(1).minimumScaleFactor(0.8)
         }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 18)
+        .padding(.bottom, 4)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("vitals.hero")
         .accessibilityLabel(sensor)

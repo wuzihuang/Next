@@ -48,11 +48,10 @@ struct HealthLightSheet: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("healthLight.state.\(state.rawValue)")
                         .disabled(busy || !connected || unsupported)
-                        if state != .stayOn { Hairline().padding(.leading, 16) }
+                        if state != .stayOn { Hairline().padding(.horizontal, 16) }
                     }
                 }
-                .frame(width: NB.Layout.contentWidth)
-                .cardSkin()
+                .sheetLines()
                 if let reminder {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 3) {
@@ -72,8 +71,7 @@ struct HealthLightSheet: View {
                             .accessibilityIdentifier("healthLight.disconnectReminder")
                     }
                     .padding(16)
-                    .frame(width: NB.Layout.contentWidth)
-                    .cardSkin()
+                    .sheetLines()
                 }
                 Button(L("Read again")) { perform(nil) }
                     .foregroundStyle(NB.lime1)

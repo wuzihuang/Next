@@ -37,7 +37,7 @@ final class ProfileEditingTests: XCTestCase {
     }
 
     private func openBodyMetrics(_ app: XCUIApplication) {
-        let entry = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "BODY METRICS")).firstMatch
+        let entry = app.buttons["PROFILE"]
         for _ in 0..<8 {
             if entry.exists && entry.isHittable { break }
             app.swipeUp()

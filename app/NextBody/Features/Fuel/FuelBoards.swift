@@ -273,9 +273,8 @@ struct FuelLedgerTable: View {
                 ledgerRow(footer, muted: true)
             }
         }
-        .padding(16)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
+        .lineSkin(top: 16)
     }
 
     private var header: some View {
@@ -384,9 +383,8 @@ struct FuelFoodTable: View {
                 micros
             }
         }
-        .padding(16)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
+        .lineSkin(top: 16)
         .accessibilityIdentifier("fuel.food")
     }
 

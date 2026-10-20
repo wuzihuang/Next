@@ -124,11 +124,6 @@ struct NextBodyApp: App {
     }
 
     private func openIncoming(_ url: URL) {
-        if WidgetBridge.isPhotoLog(url) {
-            WidgetBridge.rememberPhoto()
-            NotificationCenter.default.post(name: WidgetBridge.photoDidArrive, object: nil)
-            return
-        }
         guard session.stage == .root else { return }
         guard let link = NotificationDeepLink.parse(url) else { return }
         router.receive(link)

@@ -12,13 +12,6 @@ import WidgetKit
 enum WidgetBridge {
     static let suiteName = "group.com.nextbody.hoop"
     static let todayKind = "NextBodyToday"
-    static let shotKind = "NextBodyShot"
-    /// The Shot shutter sends the photo to the AI meal estimate. The extension cannot see
-    /// `AIFeature`, so it carries its own copy; keep the two equal.
-    static let shotEnabled = false
-    static let photoURL = URL(string: "nextbody://log?via=photo")!
-    static let photoDidArrive = Notification.Name("NextBody.widgetPhoto")
-    private static let pendingPhotoKey = "widget.shot.pending"
     private static let glanceKey = "widget.glance.v1"
     private static let glanceFile = "widget.glance.v1.json"
     private static let log = Logger(subsystem: "com.nextbody.hoop", category: "widget")
@@ -62,23 +55,6 @@ enum WidgetBridge {
         #if canImport(WidgetKit)
         WidgetCenter.shared.reloadTimelines(ofKind: todayKind)
         #endif
-    }
-
-    static func isPhotoLog(_ url: URL) -> Bool {
-        guard url.scheme == "nextbody", url.host == "log" else { return false }
-        let via = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "via" })?.value
-        return via == "photo"
-    }
-
-    static func rememberPhoto() {
-        UserDefaults.standard.set(true, forKey: pendingPhotoKey)
-    }
-
-    static func consumePhoto() -> Bool {
-        guard UserDefaults.standard.bool(forKey: pendingPhotoKey) else { return false }
-        UserDefaults.standard.removeObject(forKey: pendingPhotoKey)
-        return true
     }
 
     @discardableResult

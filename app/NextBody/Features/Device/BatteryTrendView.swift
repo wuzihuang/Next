@@ -47,7 +47,7 @@ struct BatteryTrendView: View {
         }) {
             VStack(alignment: .leading, spacing: 14) {
                 SegmentedPills(options: RollingPills.words,
-                               selection: $rangeRaw)
+                               selection: $rangeRaw, lined: true)
                 instrument
             }
             .padding(.horizontal, 16)
@@ -162,9 +162,9 @@ struct BatteryTrendView: View {
                     .accessibilityIdentifier("battery.eta")
             }
         }
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
-        .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+        .frame(width: NB.Layout.contentWidth + 2 * NB.Layout.gutter, alignment: .leading)
+        .overlay(alignment: .top) { Hairline() }
+        .padding(.horizontal, -NB.Layout.gutter)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L("Battery trend"))
         .accessibilityValue(L(detail.periodKey))

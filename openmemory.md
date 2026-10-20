@@ -15,7 +15,8 @@ As of 2026-10-17, App AI is hidden, not deleted. iOS: AI-only code lives in
 ASRStreamingSession, SpeechCapture, PhoneTools) behind `App/AIFeature.swift` (`enabled = false`); Home
 keeps the panel (standby / morning / measure / sport recap) and a plus-only dock; plus menu
 drops the photo rows; Log a meal requires KCAL; Profile drops AI MEMORY; Router drops
-`.chat` / `.planFace` / `.aiMemory`; Shot widget has no families (`WidgetBridge.shotEnabled`).
+`.chat` / `.planFace` / `.aiMemory`. The home-screen Shot widget (Log a meal) is gone;
+TODAY is the only WidgetKit face and it only displays the day's numbers.
 Server: AI-only shared modules live in `supabase/functions/_shared/ai/`; `turn`, `asr`,
 `memory-settle`, `screen-current` answer 410 `AI_DISABLED` unless the secret
 `AI_ENABLED=1` (`_shared/ai-switch.ts`). AI tables are untouched. AGENTS.md forbids
@@ -30,6 +31,7 @@ opening either AI folder without the owner's permission.
 - `supabase/functions/_shared/`: model provider, prompt, tool catalogue, data sources,
   render contract, numeric ledger, and thought-stream processing.
 - `supabase/migrations/`: Postgres schema, RLS policies, and data lifecycle changes.
+- `scripts/everos/`: EverOS Cloud agent memory (`everos-cloud` 1.2.0 in `scripts/everos/.venv`). `EVEROS_API_KEY` lives in gitignored `.env.local`. Calls use `app_id=next`, `project_id=wuzihuang/Next`, default `user_id=wuzihuang`.
 - `shopify-web/`: Hydrogen + React Router storefront. Home `/` and `/zh` are a 1:1
   Paper `Hoop-WEB` landing (`MQ-0` EN / `30G-0` 中文): 1440 artboard, live
   layout is full-bleed (`.lp-shell` has no max-width; `--lp-max: none`), ink `#070709`,
@@ -141,11 +143,7 @@ opening either AI folder without the owner's permission.
   picker (App / small / medium / large), Today small (BODY BATTERY 68),
   Today medium (BATTERY 68 / LOAD 2.6 / EATEN -- / band 82%), and Today
   large (three rings plus SLEEP/ACTIVE/HR / STRESS/STEPS/DISTANCE /
-  RESPONSE/HRV/SPO2). Shot strip pins `ShotWidget` LOG A MEAL on the
-  home screen (yellow viewfinder) and the same Shot beside a filled
-  Today medium (BATTERY 72 / LOAD 12.4 / EATEN 1,240). Inject Shot via
-  IconState `widgetIdentifier=NextBodyShot` then `simctl shutdown` /
-  `boot` — the in-app widget gallery stayed blank. Q-0 VOICE / HOLDING
+  RESPONSE/HRV/SPO2). There is no Log a meal widget. Q-0 VOICE / HOLDING
   / four casting faces are design-only; do not clone them.
   Firmware-check strip pins Device VERSION 2.4.1 Up to date, and
   Could not reach the update server (`NB_DEBUG_EDGE=uptodate` /
@@ -175,6 +173,24 @@ opening either AI folder without the owner's permission.
 
 ## Components
 
+- **MCP for outside AI assistants (ADR 0032)** — `supabase/functions/mcp/`
+  (`server.ts` stateless Streamable HTTP JSON-RPC, `tools.ts` read tools +
+  `log_meal`/`delete_meal`, 18 Deno tests). Auth = Supabase Auth OAuth 2.1 server
+  (DCR + PKCE); tokens are normal Supabase JWTs plus `client_id`. Migration
+  `20261018100000_ai_assistants_reach_their_owner.sql`: `mcp_grants`
+  (can_write default false), first-party RPCs `record_mcp_grant` /
+  `set_mcp_grant_write` / `revoke_mcp_grant`, OAuth-only `touch_mcp_grant`,
+  PostgREST pre-request `mcp_request_gate` (8 read tables + few RPCs; write RPCs
+  need can_write), storage restrictive policy, budget endpoint `mcp` 60/min.
+  `_shared/db.ts` `currentUserId` rejects tokens with `client_id`;
+  `assistantCaller` accepts only them. pgTAP `supabase/tests/mcp_request_gate.sql`.
+  `mcp-web/` = Cloudflare Pages at `mcp.nextbody.ai` (consent page,
+  `.well-known` metadata, `/mcp` proxy). iOS `Features/Profile/AssistantsSheet.swift`
+  (Profile › DATA & LEGAL › AI ASSISTANTS; route `.assistants`; Supabase.swift
+  `oauthGrants` / `revokeOAuthGrant`). Disconnect = GoTrue DELETE grant first,
+  then `revoke_mcp_grant`. GoTrue discovery lives at
+  `/auth/v1/.well-known/oauth-authorization-server`; grants list shape
+  `[{client:{id,name}, scopes, granted_at}]`.
 - **Shopify Paper landing** — `shopify-web/app/components/landing/` +
   `app/lib/landing.ts` + `app/styles/landing.css`. `/` English, `/zh` Chinese
   (default English). `PageLayout` hides old Header/Footer on those routes.
@@ -479,6 +495,7 @@ opening either AI folder without the owner's permission.
 - `supabase/functions/`: Edge Functions and the AI screen-rendering contract.
 - `supabase/migrations/`: database schema changes.
 - `docs/prd/` and `docs/adr/`: product laws and architecture decisions.
+- Agent memory: MCP `everos` (EverOS Cloud via `uvx everos-mcp`) sits alongside NAS `mem0`/`openviking`; scope `EVEROS_USER_ID=wuzihuang`, `EVEROS_PROJECT_ID=Next`. Config lives in user-level `~/.cursor/mcp.json` and `~/.config/devin/mcp_config.json` — the API key never enters the repo.
 
 ## User Defined Namespaces
 - [Leave blank - user populates]
@@ -630,14 +647,12 @@ opening either AI folder without the owner's permission.
   and pin under it — a centred stack put the circles ~8pt from the
   squircle. Large rings stay centred (no topInset).
   Band cell is `WidgetBandPip` (same 12×7 as
-  `BandBatteryPip`); it does not withdraw at 90 minutes. A second kind,
-  Shot (`NextBodyShot`, small only) is Paper 02 LIME: lime viewfinder,
-  lime lens, `LOG A MEAL`. Tap opens `nextbody://log?via=photo` and Home
-  fires `openCamera(sendFood: true)`. Gallery name is "Log a meal". App Group
-  `group.com.nextbody.hoop` carries the glance (`widget.glance.v1.json`);
-  `UserDefaults.standard` is never a fallback for numbers. Shot pending is
-  app-process `UserDefaults.standard` only. The widget process does not
-  talk BLE. `signedIn` follows Keychain `userId`. Unlogged EATEN stays ——.
+  `BandBatteryPip`); it does not withdraw at 90 minutes. TODAY is the only
+  WidgetKit kind; the Log a meal shutter (`NextBodyShot`) is removed.
+  App Group `group.com.nextbody.hoop` carries the glance
+  (`widget.glance.v1.json`); `UserDefaults.standard` is never a fallback
+  for numbers. The widget process does not talk BLE. `signedIn` follows
+  Keychain `userId`. Unlogged EATEN stays ——.
 - **App Icon** — Shipping mark is the StandbyArt planet: carbon ground, lime-1 charge
   band (gap at top-left), violet-2 tilted orbit, lime stand. Paper `NEXTBODY-HOOP`
   page `APP ICON` holds four icon castings: `20 FACES`, `100 FACES`, `BOLD`
@@ -657,24 +672,34 @@ opening either AI folder without the owner's permission.
   cells (lime deficit / outline level / red surplus). Colour comes from two logged meal
   slots plus band coverage and live BALANCE — weigh-ins never light a square, and the
   open user day is allowed to colour before 04:00 so the map is not empty until tomorrow.
-- **Profile 11C Instrument** — `ProfileView.swift` is the live 我的 page. Four
-  `panelWash` plates: identity (NOW + brand name + lime avatar + HEIGHT/WEIGHT/AGE
-  rail), Body Battery (curve + MORNING/NIGHT/NOW), composition (YEAR header →
-  today, 26×7 Daily Direction cells → that day, DEFICIT/SURPLUS/LEVEL/GAP
-  legend, 12-week gauges on the same card), measurements (recent three +
-  `ALL_MEASUREMENTS` only). Settings rows stay `carbon4` (ACCOUNT /
-  PREFERENCES including HAPTICS + APPLE HEALTH last-read / DATA & LEGAL).
-  Page gap is 16. Nav trailing is a lime YOU pip. Current 1:1 Paper replica
-  of that code is Hoop Sport `01M1M2B4XWK5W388XSKACJ1K9N` page `我的` (`B-0`),
-  artboard `11C · 我的 · ME` (390, fit-content). NEXTBODY-HOOP `11 · 我的
-  Profile` / old `57U-0` is the earlier spec (no Body Battery plate, old
-  month-dot map, EXPORT MY DATA). 11D/E/F stay Paper-only. UI/brand type on
-  device is Fusion Pixel; Paper still paints Inter Tight / Jost / Doto.
+- **Profile 12-B line** — `ProfileView.swift` is the live 我的 page, Paper NEXT
+  `01M5431DYXFG97J2RRGJR6YTTD` page `首页` artboard `12-B · ME — 线条风格`
+  (`MH2-0`). Carbon ground, full-width hairlines, no plates. Compact `‹ ME`
+  bar with a lime YOU pip. Identity is a 72pt lime ring, NOW, and the name
+  (opens `.profileEdit`). HEIGHT / AGE come from the profile; WEIGHT is the
+  latest `compositionScans.inputWeightKg` only — a missing scan is `——`, never
+  `today.weightKg` — with `SCAN ·` date under it, and that number is lime.
+  COMPOSITION is the 26×7 Daily Direction map (months above, legend
+  DEFICIT / LEVEL / SURPLUS / GAP) and opens today's composition; `BODY ›`
+  calls `Router.showHome(page: 2)`. Fat / lean / the 12-week gauges and the
+  Body Battery curve are gone from ME. MEASUREMENTS stays three lines plus
+  `ALL_MEASUREMENTS`. Rows: PROFILE, TRAINING GOAL (the goal enum's own name,
+  CUT / RECOMP / BULK), DEVICE, NOTIFICATIONS (real auth; denied is
+  `OFF IN SETTINGS` in amber), APPLE HEALTH (`ACCESS OFF` amber until linked),
+  the MCP card says “Connect your AI” and opens the three-step page:
+  one address, copy, add it, sign in, turn on meal logging. UNITS · HAPTICS (units sheet, haptics
+  toggle lives on that sheet), LANGUAGE · WIDGETS (language sheet links to
+  widgets), COLLECTING HEALTH DATA, PRIVACY · TERMS (date from
+  `LegalText.revised`; the sheet links to the other document), REPORT,
+  DELETE ACCOUNT in `#F87171`. SIGN OUT is text. The build line reads
+  `CFBundleShortVersionString` and `CFBundleVersion`. AI MEMORY stays behind
+  `AIFeature.enabled`. UI/brand type on device is Fusion Pixel; Paper still
+  paints Inter Tight / Jost / Doto.
 - **Pro exploration (Paper only, 2026-09-13)** — not in code. STATUS 08 still
   holds: no purchase entry. Legal copy still says NEXTBODY is free forever.
   Chosen direction is C taken as **signage**: full-bleed lime `#EFF65A` ×
-  black type, monthly only `$6` (Jost `$` + Doto `6`). Live 1:1 ME stays
-  on `B-0`. The paid flow lives on Hoop Sport page `订阅` (`A-0`).
+  black type, monthly only `$6` (Jost `$` + Doto `6`).   Live ME is the line page in NEXT (`MH2-0`); Hoop Sport `B-0` is the older
+  plate replica. The paid flow lives on Hoop Sport page `订阅` (`A-0`).
   **The planet is background only, and only on the dark screens.** ME
   carries no sky: both ME boards are flat carbon `#0B0B0D` with no
   bloom, stars, or ring, because a gradient sky above a stack of plates
@@ -714,7 +739,8 @@ opening either AI folder without the owner's permission.
   reads `DataStore.compositionScans` from every `body_composition` row (device
   BIA, scale, manual). Only persisted fields are drawn.
 - `Router`: one-level detail navigation; leaving the root snapshots `homePage`, and every dismiss restores it so page-two vitals return to page two. Destinations include `sportMode`.
-- `HomeView`: owns the current optional `PanelWidget`, dock state, and panel callbacks; the pager index lives on `Router.homePage` so NavigationStack push/pop cannot wipe it.
+- `HomeView` still boots the day (sync, consent gate, live-session takeover). The visible root is `HomeV2Shell`: three horizontal pages, body on the left, planet in the centre, instruments on the right. `Router.homePage` is 0 planet, 1 instruments, 2 body, so a detail push still returns to the page that was open. The page drag is a `simultaneousGesture` so `HotZoneTap` receives the touch; a high-priority drag held the finger until lift and the card never opened. Planet readiness opens Body Battery, sleep opens the sleep board, load opens Training, a logged food card opens Fuel (an unlogged day still opens the MCP copy guide from its own line, and the target row opens Fuel). Body head / chest / gut follow PRD 10, even when the glow is dark. The deck scales to 2.6× around the tapped part and fades out, and `HomeZoneDetail` grows out of the same point in 0.45 s on curve (0.32, 0.72, 0, 1). Back, a swipe right, or a pull down reverses the move. The body page reports the part's centre in its own `body-page` coordinate space, and `HomeDeck` adds `safe.top + HomeHeader.height` to convert it to screen coordinates. Body metrics open Composition. Timeline rows open the matching board (meal → Fuel, sleep → sleep, workout → Training, stress → stress, now → heart, sync → Device). Instrument cells open their vitals boards. The today-timeline sheet pins a lime down-chevron and `Swipe down for home` (下滑回到首页) under the status bar. A tap, a downward flick, or about 80pt of pull on that edge, the title, or the list while it is at rest sends the sheet home. Opening from the planet still takes a third of the screen or an upward fling. The timeline workout pill is still the only control for `sportMode`. Food has four faces from real meals and targets; unlogged days never show eaten as 0. Muscle, visceral fat, water, bone and metabolic age stay —— until those fields are actually stored. The old dock, strip, plan drawer and photo-meal path are not on this root.
+- `HomeBodyParticles` (`Features/Home/HomeBodyParticles.swift`): the body-page figure is a live point cloud, not the `HomeBody` PNG. `BodyCloud.shared` samples the PNG once (150 columns, about 4,400 points, seeded so it is the same every launch) and one `Canvas` draws it in about 24 batched paths: 4 tones × 6 opacity levels, additive blend. The first time the body page becomes active the points gather from scatter (nothing is drawn before that). Every later visit plays an outward ripple and restarts the scan sweep. It also breathes at the torso, twinkles, sheds rising dust and shows occasional flares. Head, chest and gut intensities tint points inside narrow zone rects, so the hands stay untinted. Animation pauses when the page is off screen or Reduce Motion is on. A blurred static halo `Canvas` sits underneath. `BodyLens` either fits the whole figure or enlarges it around a focus point. `Zone.anchor` is each part's centre in artwork units, and `Zone.closeUp` frames `HomeZoneDetail` as a head-and-shoulders, chest, or torso close-up. Close-ups use `BodyCloud.dense` (260 columns) and draw only the points on screen. On the body page, `BodyStage` splits the space under the status line into figure, handle, and rows: the row is 17 % of the room, clamped to 84…112 pt. Pulling up trades figure height for two more rows, so three rows fill the space exactly with no gap. Each caption has a leader line from its body part (a dot and ring) to a rail under the caption. The line is solid in the zone's tint when the zone has data, and dashed and dim when it does not, so the gut caption is always tied to the belly.
 - `AIPanel`: renders STANDBY when no widget exists, THINKING during a request, and a completed personalized widget frame.
 - `StreamHaptics`: typing ticks + a line tap while THINKING; when the turn lands,
   `settled()` is one Core Haptics needle (intensity 0.9, sharpness 1.0). No continuous

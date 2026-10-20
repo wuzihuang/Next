@@ -29,6 +29,17 @@ enum LegalText {
     static let updatedEN = "Last updated October 15, 2026"
     static let updatedZH = "最后更新：2026 年 10 月 15 日"
 
+    /// The date both documents were last checked against the tree. ME prints the short form.
+    static let revised: Date = {
+        var c = DateComponents()
+        c.calendar = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(secondsFromGMT: 0)
+        c.year = 2026
+        c.month = 10
+        c.day = 15
+        return c.date ?? Date(timeIntervalSince1970: 0)
+    }()
+
     static func document(_ kind: Kind, locale: AppLocale = AppLanguage.shared.locale) -> Document {
         switch (kind, locale) {
         case (.terms, .simplifiedChinese):   Document(title: "服务条款", updated: updatedZH, sections: termsZH)

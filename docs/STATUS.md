@@ -1,5 +1,53 @@
 # NEXTBODY · build status
 
+## 2026-10-18 — AI assistants over MCP · production (ADR 0032)
+
+Live on `gkgzwcxivnffsecshvfs`:
+- `supabase db push --include-all` applied the six meal migrations that had never reached
+  production (20260920160000 → 20260921144736: meal groups/photos/micros, atomic plates,
+  sport recaps, profile weight at settlement, meal photo lifecycle, decimal nutrients) and
+  then `20261018100000`. `authenticator` had no previous `pgrst.db_pre_request`.
+- Before OAuth was switched on, account-delete, export, archive-data, billing-sync, feedback,
+  meal, meal-commit, meal-operation and metric-read were redeployed from their **downloaded
+  production source** with one change: `currentUserId` refuses tokens carrying `client_id`.
+  No other code in them changed. day-settle (secret auth), revenuecat-webhook (no user auth)
+  and the AI functions (410 without `AI_ENABLED`) were left alone.
+- `mcp` deployed (`verify_jwt = false`), secret `MCP_PUBLIC_ORIGIN`. Auth config: OAuth
+  server on, dynamic registration on, authorization path `/oauth/consent`, Site URL
+  `https://mcp.nextbody.ai` (was the unused default `http://localhost:3000`), redirect allowlist
+  `https://mcp.nextbody.ai/oauth/consent**`.
+- Cloudflare Pages project `nextbody-mcp` deployed; `mcp.nextbody.ai` attached, proxied CNAME
+  in the nextbody.ai zone. `wrangler.toml` `[vars]` holds the public settings (dashboard
+  variables are ignored while `pages_build_output_dir` is set).
+
+Smoke-tested: both `.well-known` documents, `/mcp` → 401 with `resource_metadata`, a dynamic
+registration + authorize redirect to the consent page (test client then deleted), consent
+page sign-in in a browser. Not yet: a person connecting a real assistant and signing in with an
+email code; Apple/Google buttons are hidden until a Services ID and Google web client exist
+(`SIGN_IN_PROVIDERS=apple,google` at build). The app's AI ASSISTANTS sheet ships with the next
+build.
+
+### Local development notes
+
+Each account can connect ChatGPT, Claude, Cursor or Grok to its own data at
+`https://mcp.nextbody.ai/mcp`. Supabase Auth's OAuth 2.1 server issues the tokens
+(dynamic registration + PKCE); the consent page and `.well-known` metadata live in
+`mcp-web/` (Cloudflare Pages). New: migration `20261018100000_ai_assistants_reach_their_owner`
+(`mcp_grants`, grant RPCs, PostgREST pre-request gate, storage block, `mcp` budget 60/min),
+Edge Function `mcp` (read tools, `log_meal`, `delete_meal`; `verify_jwt = false`), and
+Profile › AI ASSISTANTS in the app (copy address, per-client steps, list, meal-logging
+switch, disconnect). Writing is off per assistant until the person turns it on.
+
+Verified locally: pgTAP 25/25, `mcp` Deno 18/18 (all non-AI Deno suites 208/208),
+`mcp-web` typecheck + 6 tests, iOS simulator build, a scripted OAuth round trip against local
+Supabase (register → approve → token with `client_id` → MCP call → disconnect → next request
+401, refresh refused), and the consent page approved in a browser through `wrangler pages dev`
+(grant row recorded with meal logging on). Email OTP on the consent page was not exercised locally
+because the local SMTP rejects test domains.
+
+Remaining owner step: an Apple Services ID and a Google web client, if web sign-in with
+either should appear on the consent page (`mcp-web/README.md`).
+
 ## 2026-10-15 — Remove app subscription (local code only)
 
 App paywall, RevenueCat integration, purchase/restore UI and billing Edge Functions
@@ -572,7 +620,7 @@ Three things are blocked by something outside the repo, and none of them is a de
 
   ⚠️ I spent most of this pass calling it "down" and telling you to reconnect with `/mcp`. That
   advice was wrong, and the diagnosis is worth writing down because it is not what it looks like.
-  The server is **local**: `~/.claude.json` has `paper -> http://127.0.0.1:29979/mcp`. Paper.app
+  The server is **local**: the MCP config has `paper -> http://127.0.0.1:29979/mcp`. Paper.app
   is running (it holds the LISTEN socket on 29979, alongside several CLOSED ones from earlier
   connections) and a `~/.paper/bin/paper mcp` relay is up and idle. But a connection to that port
   now **accepts and then hangs** — `curl` sits until it times out rather than being refused. The
@@ -1060,7 +1108,7 @@ built. Everything below was walked on the iPhone 16e simulator with the accessib
   sentences for those cases are placeholders marked ⚠️ 待定.
 - OriginDataSync still writes `calendar_day` / `day_offset`; delete those two lines when
   migration 20260902020000 is applied.
-- A second Claude session (`zephwu-d5`) is working in this same tree: the local function
+- A second agent session (`zephwu-d5`) is working in this same tree: the local function
   host on :8001 and the proxy-bypass hunk in `Supabase.swift` are its, and were left
   uncommitted here.
 

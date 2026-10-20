@@ -28,6 +28,10 @@ struct MeasurementRecord: Identifiable, Hashable {
         /// ⚠️ 手环不产生体重。BIA 是拿我们通过 syncPersonalInfo 推下去的体重算出来的，所以
         /// 这个数必须和它的来源一起显示，否则读起来像手环称出来的。
         var inputWeightKg: Double?
+        var muscleMassKg: Double? = nil
+        var bodyWaterPercent: Double? = nil
+        var boneMassKg: Double? = nil
+        var proteinPercent: Double? = nil
     }
 
     /// 一次平衡检查的摘要。**没有逐拍序列**：产品不呈现也不解读心律波形。

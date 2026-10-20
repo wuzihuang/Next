@@ -115,7 +115,7 @@ struct ActivateSecondSheet: View {
             SheetHead(eyebrow: L("FOUND") + " · \(nearby.count) " + L("NEARBY"),
                       title: candidates.count == 1 ? L("Found one") : L("Found") + " \(candidates.count)",
                       body: L("The one that isn't already yours is picked. The HOOP you wear shows up too, but it stays where it is."))
-            VStack(spacing: 10) {
+            VStack(spacing: 0) {
                 ForEach(candidates) { band in
                     NearbyCard(band: band, state: band.id == pick?.id ? .picked : .other) { picked = band.id }
                 }
@@ -436,9 +436,7 @@ private struct NearbyCard: View {
             .padding(.horizontal, 16)
             .frame(height: 72)
             .frame(maxWidth: .infinity)
-            .background(Color(hex: 0x15151A), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(state == .picked ? NB.lime1.opacity(0.55) : NB.hairline, lineWidth: 1))
+            .overlay(alignment: .top) { Rectangle().fill(state == .picked ? NB.lime1.opacity(0.55) : NB.hairline).frame(height: 1) }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -529,8 +527,7 @@ struct WearSwitchSheet: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 66)
-                .frame(width: NB.Layout.contentWidth)
-                .cardSkin()
+                .sheetLines()
             }
             Spacer(minLength: 0)
             LimePillButton(title: L("I'm wearing HOOP") + " \(to.rawValue)") {

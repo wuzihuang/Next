@@ -26,13 +26,30 @@ export function serviceClient(): SupabaseClient {
   );
 }
 
-export async function currentUserId(req: Request): Promise<string | null> {
+async function verifiedClaims(req: Request): Promise<Record<string, unknown> | null> {
   const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
   if (!token) return null;
   const db = userClient(req);
   const { data, error } = await db.auth.getClaims(token);
   if (error || typeof data?.claims?.sub !== "string") return null;
-  return data.claims.sub;
+  return data.claims as Record<string, unknown>;
+}
+
+/// The app's own session. ⚠️ ADR 0032 · a token carrying `client_id` belongs to a connected
+/// AI assistant and is refused here, so it can only ever reach the `mcp` function.
+export async function currentUserId(req: Request): Promise<string | null> {
+  const claims = await verifiedClaims(req);
+  if (!claims || (typeof claims.client_id === "string" && claims.client_id !== "")) return null;
+  return claims.sub as string;
+}
+
+/// ADR 0032 · the `mcp` function's caller: only an OAuth access token issued to an assistant.
+export async function assistantCaller(
+  req: Request,
+): Promise<{ userId: string; clientId: string } | null> {
+  const claims = await verifiedClaims(req);
+  if (!claims || typeof claims.client_id !== "string" || claims.client_id === "") return null;
+  return { userId: claims.sub as string, clientId: claims.client_id };
 }
 
 export const cors = {

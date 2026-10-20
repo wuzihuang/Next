@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+.dev.vars
+public/config.js
+public/landing.js
+public/oauth/consent/app.js
+public/fonts/
+public/_headers

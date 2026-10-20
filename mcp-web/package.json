@@ -1,0 +1,25 @@
+{
+  "name": "nextbody-mcp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --dev && wrangler pages dev public",
+    "deploy": "wrangler pages deploy public --project-name nextbody-mcp",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261018.1",
+    "@fontsource/doto": "^5.3.0",
+    "@fontsource/inter-tight": "^5.3.0",
+    "@fontsource/jost": "^5.3.0",
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.151.1"
+  }
+}

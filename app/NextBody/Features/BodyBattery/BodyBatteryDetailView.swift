@@ -64,7 +64,7 @@ struct BodyBatteryDetailView: View {
                 .minimumScaleFactor(0.72)
         }) {
             VStack(alignment: .leading, spacing: 14) {
-                SegmentedPills(options: RollingPills.words, selection: $rangeRaw)
+                SegmentedPills(options: RollingPills.words, selection: $rangeRaw, lined: true)
                 switch range {
                 case .day:   dayBoard
                 case .week:  weekBoard
@@ -178,11 +178,8 @@ struct BodyBatteryDetailView: View {
             BatteryCurve(samples: m.reserveCurve, day: m.day, dim: isDim).frame(height: 120)
             BodyBatteryTimeAxis(day: m.day)
         }
-        .padding(20)
+        .padding(.bottom, 4)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .background(Color(hex: 0x0F0F13), in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
-            .stroke(NB.hairline, lineWidth: 1))
     }
 
     /// 13 · WHY <n> as a ledger. Where the day started, four signed rows with the reason
@@ -533,11 +530,8 @@ struct BodyBatteryDetailView: View {
                 .lineSpacing(8)
                 .foregroundStyle(NB.text1)
         }
-        .padding(20)
+        .padding(.bottom, 4)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .background(Color(hex: 0x0F0F13), in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
-            .stroke(NB.hairline, lineWidth: 1))
     }
 
     private var needsCard: some View {

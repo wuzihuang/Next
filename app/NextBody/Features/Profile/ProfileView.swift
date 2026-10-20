@@ -1,531 +1,514 @@
 import SwiftUI
+import UserNotifications
 
-/// 11C · 我的 Profile · Instrument. The title is ME, not SETTINGS: the first thing
-/// this page gives you is you, not a control panel. Reached only from the avatar;
-/// back goes to the root. The DEVICE row is the way onto the band page.
+/// 12-B · ME. The page answers who you are: the person, the one
+/// year of direction, and the way in for outside AI assistants. Today's readiness stays
+/// on Home, so this page does not draw a second Body Battery.
 struct ProfileView: View {
     @ObservedObject private var language = AppLanguage.shared
     @ObservedObject private var consent = ConsentStore.shared
     @ObservedObject private var haptics = HapticsSetting.shared
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
+    @State private var notifyLamp = NotifyLamp.off
+    @State private var showGuide = false
 
-    private var hasScans: Bool {
-        #if DEBUG
-        if DebugEdge.on("empty") { return false }
-        #endif
-        return !data.weighIns.isEmpty
-    }
+    private enum NotifyLamp { case on, off, denied }
 
-    /// Lime / outline / red — not the two greys. Weigh-ins never colour this map
-    /// (F0 D05); an empty grid with five morning scans was the copy lying.
-    private var hasLitSquares: Bool {
-        ([data.today] + data.history).contains {
-            switch $0.direction {
-            case .deficit, .level, .surplus: return true
-            case .greyNothing, .greyNoBurn: return false
+    private let amber = Color(hex: 0xF59E5B)
+    private let deleteRed = Color(hex: 0xF87171)
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            NB.carbon.ignoresSafeArea()
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    identity
+                    gauges
+                    composition
+                    mcpCard
+
+                    SectionMark(L("ACCOUNT"))
+                    LineGroup {
+                        line(L("PROFILE"), value: data.profile.displayName.uppercased(), id: "PROFILE") {
+                            router.sheet = .profileEdit
+                        }
+                        line(L("TRAINING GOAL"), value: goalWord, id: "TRAINING_GOAL") {
+                            router.sheet = .goal
+                        }
+                        line(L("DEVICE"), value: deviceValue, id: "DEVICE") {
+                            router.open(.device, from: .profile)
+                        }
+                    }
+
+                    SectionMark(L("PREFERENCES"))
+                    LineGroup {
+                        line(L("NOTIFICATIONS"), value: notifyValue, valueTint: notifyTint, id: "NOTIFICATIONS") {
+                            router.sheet = .notifications
+                        }
+                        line(L("APPLE HEALTH"), value: healthValue, valueTint: healthTint, id: "APPLE_HEALTH") {
+                            router.sheet = .appleHealth
+                        }
+                        line(L("UNITS · HAPTICS"), value: unitsValue, id: "UNITS") {
+                            router.sheet = .units
+                        }
+                        line(L("LANGUAGE · WIDGETS"), value: language.locale.nativeName, id: "LANGUAGE") {
+                            router.sheet = .language
+                        }
+                    }
+
+                    SectionMark(L("DATA & LEGAL"))
+                    LineGroup {
+                        line(L("COLLECTING HEALTH DATA"),
+                             value: consent.granted ? L("ON") : L("OFF"), id: "COLLECTING") {
+                            if consent.granted {
+                                Task { await ConsentStore.shared.record(.withdrawn, msOnScreen: nil) }
+                            } else {
+                                router.takeover = .consent
+                            }
+                        }
+                        if AIFeature.enabled {
+                            line(L("AI MEMORY"), value: L("VIEW"), id: "AI_MEMORY") {
+                                router.open(.aiMemory, from: .profile)
+                            }
+                        }
+                        line(L("PRIVACY · TERMS"), value: legalStamp, id: "PRIVACY") {
+                            router.sheet = .privacy
+                        }
+                        line(L("REPORT A PROBLEM"), id: "REPORT") {
+                            router.sheet = .feedback
+                        }
+                        line(L("DELETE ACCOUNT"), titleTint: deleteRed, id: "DELETE") {
+                            router.sheet = .deleteAccount
+                        }
+                    }
+
+                    signOff
+                }
+                .padding(.top, 44)
             }
+            bar
+            if showGuide {
+                HomeMCPGuide(backTitle: L("ME"), onBack: {
+                                 withAnimation(.easeOut(duration: 0.32)) { showGuide = false }
+                             })
+                    .ignoresSafeArea()
+                    .zIndex(2)
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden()
+        .detailEdgeBack {
+            if showGuide {
+                withAnimation(.easeOut(duration: 0.32)) { showGuide = false }
+            } else {
+                router.backToRoot()
+            }
+        }
+        .task { await refreshNotifications() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task { await refreshNotifications() }
+        }
+        .onAppear {
+            let state = latestScan?.inputWeightKg == nil ? "NO_SCAN" : "SCAN"
+            Task { await Analytics.shared.track("ME_OPEN", ["STATE": state]) }
         }
     }
 
-    var body: some View {
-        DetailScroll(glow: NB.lime1, title: L("ME"), trailing: {
-            // 11C · the page's own pip. Device says CONNECTED the same way.
+    private var bar: some View {
+        HStack(spacing: 0) {
+            Button { router.backToRoot() } label: {
+                HStack(spacing: 8) {
+                    BackChevron(height: 16, line: 1.6, color: NB.white)
+                    Text(L("ME"))
+                        .font(NBFont.ui(500, 16))
+                        .foregroundStyle(NB.white)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L("Back"))
+            .accessibilityValue(L("ME"))
+            Spacer(minLength: 0)
             HStack(spacing: 7) {
                 Circle().fill(NB.lime1).frame(width: 6, height: 6)
                 Text(L("YOU"))
                     .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(NB.lime1)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 24)
-        }) {
-            VStack(alignment: .leading, spacing: 16) {
-                identityCard
-                bodyBatteryCard
-                compositionCard
-                // ADR 0010 · Composition 回答「这一年往哪走」，这块回答「我最近测了什么」。
-                // 净变化已经收进 Composition 底栏，不再单独占三张瓦片。
-                measurementsCard
-
-                GroupLabel(L("ACCOUNT"))
-                RowGroup {
-                    SettingRow(title: L("PERSONAL INFO"), value: data.profile.displayName.uppercased()) {
-                        router.sheet = .profileEdit
-                    }
-                    SettingRow(title: L("BODY METRICS"),
-                               value: "\(Int(data.profile.heightCm)) CM · \(Fmt.kg(data.today.weightKg)) KG") {
-                        router.sheet = .profileEdit
-                    }
-                    // 11 edge 2 · the sheet closes and the value changes at once; today's target and
-                    // macros do not. The 「明天生效」 line lives on the row, not only in the sheet.
-                    SettingRow(title: L("TRAINING GOAL"), value: goalLabel,
-                               detail: goalChangedToday ? "FROM TOMORROW · TODAY IS UNCHANGED" : nil) {
-                        router.sheet = .goal
-                    }
-                    // The band page — overview, firmware, heart-rate alarm.
-                    SettingRow(title: L("DEVICE"),
-                               value: data.band.connected
-                                    ? "HOOP · \(data.band.batteryPercent.map { "\($0)%" } ?? Fmt.dash)"
-                                    : "HOOP · DAY 1") {
-                        router.open(.device, from: .profile)
-                    }
-                }
-
-                GroupLabel(L("PREFERENCES"))
-                RowGroup {
-                    SettingRow(title: L("NOTIFICATIONS"), value: L("ON")) { router.sheet = .notifications }
-                    // Every motor in the product behind one switch: the typing stream on the
-                    // screen and under the keyboard, the orb's hold, the tap that marks an
-                    // answer. Toggled in place, like COLLECTING HEALTH DATA below — and it
-                    // keeps its chevron for the same reason that row does: a lane of rows
-                    // with one arrow missing reads as broken, not as a different kind of row.
-                    SettingRow(title: L("HAPTICS"), value: haptics.enabled ? L("ON") : L("OFF")) {
-                        haptics.toggle()
-                        // Turning it on answers in the hand; turning it off says nothing.
-                        if haptics.enabled { HoldHaptics.shared.release() }
-                    }
-                    SettingRow(title: L("UNITS"), value: data.profile.usesMetric ? L("METRIC · KG") : L("IMPERIAL · LB")) {
-                        router.sheet = .units
-                    }
-                    // SYNCED means an import completed; the date is the last successful read.
-                    SettingRow(title: L("APPLE HEALTH"),
-                               value: data.profile.appleHealthLinked ? "SYNCED" : "NOT CONNECTED",
-                               valueTint: data.profile.appleHealthLinked ? nil : NB.ember1,
-                               detail: healthLastRead.map { "LAST READ \($0)" }) {
-                        router.sheet = .appleHealth
-                    }
-                    SettingRow(title: L("LANGUAGE"), value: language.locale.rowLabel) { router.sheet = .language }
-                    // ADR 0026 · a background pull is scheduled for a widget to read. Until
-                    // this row existed the product never said the word out loud, so an
-                    // account with no widget was quietly never syncing between opens.
-                    SettingRow(title: L("WIDGETS"), value: L("HOW TO ADD")) { router.sheet = .widgets }
-                }
-
-                GroupLabel(L("DATA & LEGAL"))
-                RowGroup {
-                    // 补屏 rule 06 · 「撤回 ≠ 删除，两个动作、两行入口、两条权利」. This row stops
-                    // collection; DELETE ACCOUNT, three rows down, is the other right.
-                    SettingRow(title: L("COLLECTING HEALTH DATA"), value: consent.granted ? L("ON") : L("OFF")) {
-                        if consent.granted {
-                            Task { await ConsentStore.shared.record(.withdrawn, msOnScreen: nil) }
-                        } else {
-                            router.takeover = .consent
-                        }
-                    }
-                    // ADR 0018 · what the AI remembers, visible and erasable.
-                    if AIFeature.enabled {
-                        SettingRow(title: L("AI MEMORY"), value: L("VIEW")) { router.open(.aiMemory, from: .profile) }
-                    }
-                    // A title, the words, up to three screenshots — filed as one issue on the
-                    // product repo with the build and the phone attached, so nobody has to
-                    // write back asking which version.
-                    SettingRow(title: L("REPORT A PROBLEM"), value: L("WRITE")) {
-                        router.sheet = .feedback
-                    }
-                    SettingRow(title: L("PRIVACY POLICY"), value: L("UPDATED SEP 19")) { router.sheet = .privacy }
-                    SettingRow(title: L("TERMS OF SERVICE"), value: "V 3.0") { router.sheet = .about }
-                    // The second of only two places in the product allowed to use red.
-                    SettingRow(title: L("DELETE ACCOUNT"), value: L("PERMANENT"),
-                               titleTint: NB.alert2) { router.sheet = .deleteAccount }
-                }
-
-                Button { router.sheet = .signOut } label: {
-                    Text(L("SIGN OUT"))
-                        .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                        .foregroundStyle(NB.text1)
-                        .frame(width: NB.Layout.contentWidth, height: 48)
-                        .background(Color(hex: 0x141418), in: Capsule())
-                        .overlay(Capsule().stroke(NB.white.opacity(0.10), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 6)
-
-                Text(L("NEXTBODY 1.4.2  ·  BUILD 2831"))
-                    .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(NB.white.opacity(0.22))
-                    .frame(width: NB.Layout.contentWidth, alignment: .center)
-                    .padding(.top, 12)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 30)
-        } onBack: {
-            router.backToRoot()
         }
+        .padding(.horizontal, 20)
+        .frame(height: 44)
+        .frame(maxWidth: .infinity)
+        .background(NB.carbon)
     }
 
-    /// 11 rule 06 · true only on the day the goal was changed.
-    private var goalChangedToday: Bool {
-        UserDefaults.standard.string(forKey: "nb.goal.changedDay") == UserDay.containing(Date()).key
-    }
-    /// The day Health last answered with anything, or nil if it never has.
-    private var healthLastRead: String? {
-        guard let at = UserDefaults.standard.object(forKey: "nb.health.lastRead") as? Date else { return nil }
-        return Fmt.displayDate(at, format: "MMM d").uppercased()
-    }
-
-    private var goalLabel: String {
-        switch data.profile.goal {
-        case .cut: L("ENDURANCE"); case .recomp: L("RECOMP"); case .bulk: L("STRENGTH")
-        }
-    }
-
-    /// 11C · NOW, the name at brand size, the avatar on the right. The three gauges
-    /// sit under a hairline. Tapping the head goes to PERSONAL INFO, same as the row below.
-    private var identityCard: some View {
-        VStack(spacing: 0) {
-            Button { router.sheet = .profileEdit } label: {
-                HStack(alignment: .bottom, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(L("NOW"))
-                            .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
-                            .foregroundStyle(NB.text2)
-                        Text(data.profile.displayName.uppercased())
-                            .font(NBFont.brand(700, 28))
-                            .foregroundStyle(NB.text1)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                            .lineHeight(32)
-                        Text(data.profile.email)
-                            .font(NBFont.dot(500, 11)).tracking(0.02 * 11)
-                            .foregroundStyle(NB.text3Prod)
-                    }
-                    Spacer(minLength: 0)
-                    Avatar(size: 44, initials: data.profile.initials, ink: NB.lime1)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 14)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Hairline()
-
-            HStack(spacing: 0) {
-                InstrumentGauge(label: L("HEIGHT"),
-                                value: "\(Int(data.profile.heightCm))", unit: "CM",
-                                slot: .leading)
-                VHair()
-                InstrumentGauge(label: L("WEIGHT"),
-                                value: Fmt.kg(data.today.weightKg), unit: "KG",
-                                slot: .middle)
-                VHair()
-                InstrumentGauge(label: L("AGE"),
-                                value: "\(data.profile.age)", unit: nil,
-                                slot: .trailing)
-            }
-        }
-        .frame(width: NB.Layout.contentWidth)
-        .instrumentPlate()
-    }
-
-    /// 13 / ADR 0017 · scheme A. One hot zone between identity and COMPOSITION.
-    /// The curve is the read; PEAK / NIGHT / NOW sit under the hairline.
-    private var bodyBatteryCard: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            bodyBatteryContent(now: context.date)
-        }
-    }
-
-    private func bodyBatteryContent(now: Date) -> some View {
-        let m = data.todayForDisplay
-        let night = m.reserveDrivers?.nightCharge
-        let peakValue = m.bbWake
-        let peakClock = m.bodyBatteryWakeAt.map(Fmt.clock)
-        let currentValue = m.bodyBatteryForDisplay(at: now)
-        let dim = m.bodyBatteryFreshness(at: now) != .fresh
-        let observed = m.bodyBatteryObservedAt.map { L("SYNCED %@", Fmt.clock($0)) } ?? L("NO TICK")
-        let chargeLine: String = {
-            if let peakValue, let peakClock {
-                return L("MORNING %d · %@", peakValue, peakClock)
-            }
-            return m.bbWake == nil ? L("FROM WRIST DATA") : L("OVERNIGHT RECOVERY UNAVAILABLE")
-        }()
-        return Button {
-            router.open(.bodyBattery, from: .profile)
+    private var identity: some View {
+        Button {
+            track("IDENTITY")
+            router.sheet = .profileEdit
         } label: {
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(observed)
-                                .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
-                                .foregroundStyle(NB.text2)
-                            Text(MetricNames.bodyBattery)
-                                .font(NBFont.brand(700, 22))
-                                .foregroundStyle(NB.text1)
-                                .lineHeight(26)
-                            Text(chargeLine)
-                                .font(NBFont.dot(500, 11)).tracking(0.02 * 11)
-                                .foregroundStyle(NB.lime1)
-                        }
-                        Spacer(minLength: 0)
-                        Chevron()
-                    }
-                    BatteryCurve(samples: m.reserveCurve, day: m.day, dim: dim)
-                        .frame(height: 88)
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    Circle().stroke(NB.lime1, lineWidth: 2)
+                    Text(data.profile.initials)
+                        .font(NBFont.ui(600, 22))
+                        .foregroundStyle(NB.lime1)
                 }
-                .padding(14)
-
-                Hairline()
-
-                HStack(spacing: 0) {
-                    InstrumentGauge(label: L("MORNING"),
-                                    value: peakValue.map(String.init) ?? Fmt.dash,
-                                    unit: peakClock,
-                                    tint: peakValue == nil ? NB.text3Prod : NB.lime1,
-                                    slot: .leading)
-                    VHair()
-                    InstrumentGauge(label: L("NIGHT"),
-                                    value: night.map(Fmt.signed) ?? Fmt.dash,
-                                    tint: night == nil ? NB.text3Prod : NB.lime1,
-                                    slot: .middle)
-                    VHair()
-                    InstrumentGauge(label: L(dim ? "LAST READING" : "NOW"),
-                                    value: currentValue.map(String.init) ?? Fmt.dash,
-                                    tint: currentValue == nil || dim ? NB.text3Prod : NB.text1,
-                                    slot: .trailing)
+                .frame(width: 72, height: 72)
+                .shadow(color: NB.lime1.opacity(0.25), radius: 14)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L("NOW"))
+                        .font(NBFont.dot(700, 10)).tracking(0.2 * 10)
+                        .foregroundStyle(NB.white.opacity(0.9))
+                    Text(data.profile.displayName)
+                        .font(NBFont.brand(700, 38)).tracking(-0.01 * 38)
+                        .foregroundStyle(NB.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                        .lineHeight(42)
                 }
+                Spacer(minLength: 0)
             }
-            .frame(width: NB.Layout.contentWidth, alignment: .leading)
-            .instrumentPlate()
+            .padding(.horizontal, 20)
+            .padding(.top, 26)
+            .padding(.bottom, 28)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("BODY_BATTERY")
+        .background(alignment: .topLeading) {
+            RadialGradient(colors: [NB.lime1.opacity(0.12), .clear],
+                           center: .topLeading, startRadius: 0, endRadius: 280)
+                .frame(height: 180)
+                .allowsHitTesting(false)
+        }
+        .accessibilityIdentifier("IDENTITY")
     }
 
-    /// A2 + 11C · the only "one year" view. Header opens today; a cell opens that day.
-    /// The three 12-week numbers live on this plate, not as tiles under it.
-    private var compositionCard: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 14) {
-                Button {
-                    router.open(.composition(date: data.today.day.start), from: .profile)
-                } label: {
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L("YEAR"))
-                                .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
-                                .foregroundStyle(NB.text2)
-                            Text(L("COMPOSITION"))
-                                .font(NBFont.brand(700, 22))
-                                .foregroundStyle(NB.text1)
-                                .lineHeight(26)
-                            Text(hasScans ? L("RECOMP · 12 W") : L("NO WEIGH-INS YET"))
-                                .font(NBFont.dot(500, 11)).tracking(0.02 * 11)
-                                .foregroundStyle(NB.text3Prod)
-                        }
-                        Spacer(minLength: 0)
-                        Chevron()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("COMPOSITION")
-
-                MonthAxis()
-                DirectionHeatMap(history: data.history, today: data.today) { day in
-                    router.open(.composition(date: day.start), from: .profile)
-                }
-                DirectionLegend()
-                if !hasLitSquares {
-                    HStack(alignment: .center) {
-                        Text(L("LOG TWO MEALS ON A DAY YOU WEAR THE BAND\nAND THE FIRST SQUARE LIGHTS UP"))
-                            .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                            .lineSpacing(4)
-                            .foregroundStyle(NB.text3Prod)
-                        Spacer(minLength: 0)
-                        if !hasScans {
-                            Button { router.sheet = .weighIn } label: {
-                                Text(L("ADD A WEIGH-IN"))
-                                    .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                                    .foregroundStyle(NB.lime1)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            .padding(14)
-
-            Hairline()
-
+    private var gauges: some View {
+        HStack(alignment: .top, spacing: 0) {
+            gauge(L("HEIGHT"), value: heightReadout.value, unit: heightReadout.unit, inset: 16)
+            gauge(L("WEIGHT"), value: weightReadout.value, unit: weightReadout.unit,
+                  tint: weightReadout.caption == nil ? NB.white : NB.lime1,
+                  caption: weightReadout.caption, inset: 16)
+            gauge(L("AGE"), value: "\(data.profile.age)", inset: 16)
+        }
+        .background {
             HStack(spacing: 0) {
-                InstrumentGauge(label: L("FAT MASS"),
-                                value: Fmt.signedKg(data.netFatMass12w, decimals: 1),
-                                unit: "KG",
-                                tint: data.netFatMass12w == nil ? NB.text3Prod : NB.lime1,
-                                slot: .leading)
-                VHair()
-                InstrumentGauge(label: L("LEAN MASS"),
-                                value: Fmt.signedKg(data.netLeanMass12w, decimals: 1),
-                                unit: "KG",
-                                tint: data.netLeanMass12w == nil ? NB.text3Prod : NB.lime1,
-                                slot: .middle)
-                VHair()
-                InstrumentGauge(label: L("BODY FAT"),
-                                value: Fmt.kg(data.bodyFatPercent),
-                                unit: "%",
-                                tint: data.bodyFatPercent == nil ? NB.text3Prod : NB.text1,
-                                slot: .trailing)
+                Spacer(minLength: 0)
+                Rectangle().fill(NB.hairline).frame(width: 1)
+                Spacer(minLength: 0)
+                Rectangle().fill(NB.hairline).frame(width: 1)
+                Spacer(minLength: 0)
             }
         }
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .instrumentPlate()
+        .cardSkin()
+        .padding(.horizontal, 16)
     }
 
-    /// ADR 0010 · 主动测量记录。最近三条，混排倒序，底部一行进清单。
-    ///
-    /// ⚠️ 行本身不可点。这张卡唯一的热区是底部的 ALL MEASUREMENTS——F0 的规矩是一张卡一个
-    /// 热区，而这里那个热区不能是整张卡：整张卡可点的话，「看最近三条」和「看全部」就成了
-    /// 同一个动作，那三行也就没有理由留在这一页上。
-    private var measurementsCard: some View {
-        let recent = Array(data.measurements.prefix(3))
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L("MEASUREMENTS"))
-                    .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-                    .foregroundStyle(NB.text1)
-                Spacer(minLength: 0)
-                // 只有一种话：距上次多久。次数是虚荣指标，而且两种测量混着数没有意义。
-                Text(lastMeasurementLabel)
-                    .font(NBFont.dot(500, 11)).tracking(0.04 * 11)
-                    .foregroundStyle(recent.isEmpty ? NB.text3Prod : NB.macroValue)
-            }
-
-            if recent.isEmpty {
-                Text(L("HOLD THE SIDE KEY FROM THE PLUS MENU.\nTHIRTY SECONDS MAKES THE FIRST ROW."))
-                    .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
-                    .lineSpacing(4)
-                    .foregroundStyle(NB.text3Prod)
-                    .padding(.top, 16)
-            } else {
-                VStack(spacing: 13) {
-                    // 只测过一种就只列那一种。绝不露出一行永远空着的另一种——那看起来像坏了。
-                    ForEach(recent) { record in
-                        MeasurementRow(record: record, style: .card)
-                    }
-                }
-                .padding(.top, 16)
-            }
-
-            Hairline().padding(.top, 14)
-
+    private var composition: some View {
+        VStack(alignment: .leading, spacing: 12) {
             Button {
-                if recent.isEmpty { router.sheet = .plusMenu }
-                else { router.open(.measurements, from: .profile) }
+                track("COMPOSITION")
+                router.open(.composition(date: data.today.day.start), from: .profile)
             } label: {
-                HStack {
-                    Text(L("ALL MEASUREMENTS"))
-                        .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                        .foregroundStyle(recent.isEmpty ? NB.text3Prod : NB.lime1)
+                HStack(spacing: 8) {
+                    Circle().fill(NB.lime1).frame(width: 6, height: 6)
+                    Text(L("COMPOSITION · 26 W · %@", goalWord))
+                        .font(NBFont.dot(700, 14)).tracking(0.12 * 14)
+                        .foregroundStyle(NB.lime1)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
                     Spacer(minLength: 0)
-                    if recent.isEmpty {
-                        // 没有记录时这一行没有清单可去，右端换成开始测一次的入口——而且开的是
-                        // 加号菜单的测量组，不直接开接管：哪一种得由人选。
-                        Text(L("MEASURE"))
-                            .font(NBFont.ui(600, 11)).tracking(0.12 * 11)
-                            .foregroundStyle(NB.lime1)
-                    } else {
-                        Chevron(color: NB.lime1)
-                    }
+                    Text("›")
+                        .font(NBFont.ui(400, 16))
+                        .foregroundStyle(NB.white.opacity(0.35))
                 }
-                .frame(height: 20)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.top, 13)
-            // 这张卡唯一的热区，给它一个不随文案和语言变的名字。
-            .accessibilityIdentifier("ALL_MEASUREMENTS")
-        }
-        .padding(14)
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .instrumentPlate()
-    }
+            .accessibilityIdentifier("COMPOSITION")
 
-    private var lastMeasurementLabel: String {
-        guard let days = data.measurements.daysSinceLatest() else { return L("NONE YET") }
-        return days <= 0 ? L("LAST · TODAY") : L("LAST · %d D AGO", days)
-    }
-}
-
-// MARK: pieces
-
-/// 11C · the three data plates wash at `--panel-chrome`. Settings rows stay `cardSkin`.
-private struct InstrumentPlate: ViewModifier {
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
-        content
-            .background(NB.panelWash, in: shape)
-            .overlay(shape.stroke(NB.hairline, lineWidth: 1))
-            .clipShape(shape)
-    }
-}
-extension View {
-    fileprivate func instrumentPlate() -> some View { modifier(InstrumentPlate()) }
-}
-
-private struct GroupLabel: View {
-    let text: String
-    init(_ t: String) { text = t }
-    var body: some View {
-        Text(text)
-            .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-            .foregroundStyle(Color(hex: 0x8A8A96))
-            .padding(.leading, 2)
-            .padding(.top, 8)
-    }
-}
-
-private struct RowGroup<Content: View>: View {
-    @ViewBuilder let content: Content
-    var body: some View {
-        VStack(spacing: 0) { content }
-            .frame(width: NB.Layout.contentWidth)
-            .cardSkin()
-    }
-}
-
-private struct SettingRow: View {
-    let title: String
-    var value: String? = nil
-    var valueTint: Color? = nil
-    var titleTint: Color? = nil
-    /// 11 edges · 「最多加一行副文案」. The row is the alarm; the sub-line is its reason.
-    var detail: String? = nil
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(NBFont.ui(500, 13)).tracking(0.06 * 13)
-                        .foregroundStyle(titleTint ?? NB.text1)
-                    if let detail {
-                        Text(detail)
-                            .font(NBFont.ui(300, 11)).tracking(0.04 * 11)
-                            .foregroundStyle(NB.text3Prod)
-                    }
+            MonthAxis()
+            DirectionHeatMap(history: data.history, today: data.today) { day in
+                router.open(.composition(date: day.start), from: .profile)
+            }
+            DirectionLegend()
+            HStack(alignment: .center, spacing: 12) {
+                Text(L("The latest fat and lean mass are on the Body page"))
+                    .font(NBFont.ui(300, 12))
+                    .foregroundStyle(NB.white.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button {
+                    openBody()
+                } label: {
+                    Text(L("BODY ›"))
+                        .font(NBFont.dot(700, 10)).tracking(0.12 * 10)
+                        .foregroundStyle(NB.lime1)
                 }
-                Spacer(minLength: 0)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("BODY_LINK")
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSkin()
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+    }
+
+    /// The way in for ChatGPT, Claude, Cursor or Grok: the address to paste and the steps per client.
+    private var mcpCard: some View {
+        Button {
+            track("AI_ASSISTANTS")
+            openGuide()
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Circle().fill(NB.lime1).frame(width: 6, height: 6)
+                    Text(L("MCP"))
+                        .font(NBFont.dot(700, 12)).tracking(0.2 * 12)
+                        .foregroundStyle(NB.lime1)
+                    Spacer(minLength: 0)
+                }
+                Text(L("Connect your AI"))
+                    .font(NBFont.ui(700, 20)).tracking(0.04 * 20)
+                    .foregroundStyle(NB.white)
+                Text(L("ChatGPT, Claude, Cursor and Grok can read your own data."))
+                    .font(NBFont.ui(300, 13)).lineSpacing(5)
+                    .foregroundStyle(NB.white.opacity(0.7))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(L("How to connect"))
+                    .font(NBFont.ui(600, 13)).tracking(0.12 * 13)
+                    .foregroundStyle(NB.carbon4)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(NB.lime1, in: Capsule())
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .cardSkin()
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .accessibilityIdentifier("AI_ASSISTANTS")
+    }
+
+    private var signOff: some View {
+        VStack(spacing: 14) {
+            Button {
+                track("SIGN_OUT")
+                router.sheet = .signOut
+            } label: {
+                Text(L("SIGN OUT"))
+                    .font(NBFont.ui(500, 12)).tracking(0.22 * 12)
+                    .foregroundStyle(NB.white)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Text(buildLine)
+                .font(NBFont.dot(700, 10)).tracking(0.16 * 10)
+                .foregroundStyle(NB.lime1.opacity(0.7))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 28)
+        .padding(.bottom, 34)
+        .padding(.horizontal, 20)
+    }
+
+    private func line(_ title: String, value: String? = nil, valueTint: Color? = nil,
+                      titleTint: Color? = nil, id: String, action: @escaping () -> Void) -> some View {
+        Button {
+            track(id)
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(NBFont.ui(500, 14)).tracking(0.08 * 14)
+                    .foregroundStyle(titleTint ?? NB.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 8)
                 if let value {
                     Text(value)
-                        .font(NBFont.dot(500, 10.5)).tracking(0.14 * 10.5)
-                        .foregroundStyle(valueTint ?? NB.text3Prod)
+                        .font(NBFont.dot(700, 11))
+                        .foregroundStyle(valueTint ?? NB.white.opacity(0.8))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
                 Chevron()
             }
             .padding(.horizontal, 16)
-            .frame(height: detail == nil ? 48 : 60)
+            .frame(height: 54)
+            .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .overlay(alignment: .bottom) {
-            Hairline().padding(.leading, 16)
+            Rectangle().fill(NB.hairline).frame(height: 1).padding(.leading, 16)
         }
+        .accessibilityIdentifier(id)
+    }
+
+    private func gauge(_ label: String, value: String, unit: String? = nil,
+                       tint: Color = NB.white, caption: String? = nil,
+                       inset: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(NBFont.ui(500, 10)).tracking(0.16 * 10)
+                .foregroundStyle(NB.white.opacity(0.9))
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(NBFont.dot(800, 28)).tracking(-0.03 * 28)
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if let unit {
+                    Text(unit)
+                        .font(NBFont.dot(700, 9))
+                        .foregroundStyle(NB.white.opacity(0.8))
+                }
+            }
+            if let caption {
+                Text(caption)
+                    .font(NBFont.dot(700, 9)).tracking(0.08 * 9)
+                    .foregroundStyle(NB.white.opacity(0.8))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, inset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func track(_ row: String) {
+        Task { await Analytics.shared.track("ME_ROW_TAP", ["ROW": row]) }
+    }
+
+    private func openGuide() {
+        withAnimation(.easeOut(duration: 0.32)) { showGuide = true }
+        Task { await Analytics.shared.track("ME_MCP_GUIDE_OPEN", [:]) }
+    }
+
+    private func openBody() {
+        Task { await Analytics.shared.track("ME_BODY_LINK_TAP", [:]) }
+        router.showHome(page: 2)
+    }
+
+    private func refreshNotifications() async {
+        let status = await NotificationReach.authorizationStatus()
+        if NotificationReach.isAuthorized(status) {
+            notifyLamp = .on
+        } else if status == .denied {
+            notifyLamp = .denied
+        } else {
+            notifyLamp = .off
+        }
+    }
+
+    private var latestScan: CompositionScan? {
+        data.compositionScans.max { $0.at < $1.at }
+    }
+
+    private var goalWord: String { L(data.profile.goal.rawValue) }
+
+    private var heightReadout: (value: String, unit: String) {
+        if data.profile.usesMetric {
+            return ("\(Int(data.profile.heightCm.rounded()))", "CM")
+        }
+        let inches = Int((data.profile.heightCm / 2.54).rounded())
+        return ("\(inches / 12)'\(inches % 12)", "FT")
+    }
+
+    /// The same weight Home's body page reads: the latest scan, or a dash.
+    private var weightReadout: (value: String, unit: String, caption: String?) {
+        let metric = data.profile.usesMetric
+        let unit = metric ? "KG" : "LB"
+        guard let scan = latestScan, let kg = scan.inputWeightKg else {
+            return (Fmt.dash, unit, nil)
+        }
+        let shown = metric ? kg : kg * 2.2046226
+        return (Fmt.kg(shown), unit, L("SCAN · %@", stamp(scan.at)))
+    }
+
+    private var deviceValue: String {
+        guard data.band.connected else { return L("DISCONNECTED") }
+        if let percent = data.band.batteryPercent {
+            return L("HOOP · %d%%", percent)
+        }
+        return L("HOOP · %@", Fmt.dash)
+    }
+
+    private var unitsValue: String {
+        let unit = data.profile.usesMetric ? L("METRIC") : L("IMPERIAL")
+        return L("%@ · %@", unit, haptics.enabled ? L("ON") : L("OFF"))
+    }
+
+    private var notifyValue: String {
+        switch notifyLamp {
+        case .on: L("ON")
+        case .off: L("OFF")
+        case .denied: L("OFF IN SETTINGS")
+        }
+    }
+
+    private var notifyTint: Color? { notifyLamp == .denied ? amber : nil }
+
+    private var healthValue: String {
+        data.profile.appleHealthLinked ? L("SYNCED") : L("ACCESS OFF")
+    }
+
+    private var healthTint: Color? { data.profile.appleHealthLinked ? nil : amber }
+
+    private var legalStamp: String {
+        let format = language.isEnglish ? "MMM d" : "M月d日"
+        return Fmt.displayDate(LegalText.revised, format: format).uppercased()
+    }
+
+    private var buildLine: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? Fmt.dash
+        let build = info?["CFBundleVersion"] as? String ?? Fmt.dash
+        return L("NEXTBODY %@ · BUILD %@", version, build)
+    }
+
+    private func stamp(_ date: Date) -> String {
+        let format = language.isEnglish ? "MMM d" : "M月d日"
+        return Fmt.displayDate(date, format: format).uppercased()
+    }
+}
+
+private struct SectionMark: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text)
+            .font(NBFont.ui(700, 16)).tracking(0.1 * 16)
+            .foregroundStyle(NB.lime1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 30)
+            .padding(.bottom, 10)
+    }
+}
+
+private struct LineGroup<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        // The last row's rule sits one point below the frame and is clipped, so the card's own edge closes it.
+        VStack(spacing: 0) { content }
+            .padding(.bottom, -1)
+            .clipShape(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
+            .cardSkin()
+            .padding(.horizontal, 16)
     }
 }
 
@@ -542,55 +525,6 @@ struct Chevron: View {
     }
 }
 
-/// 11C · one column on an instrument rail. Leading / middle / trailing carry the
-/// board's own padding so the three numbers sit on the same hairline as the card edge.
-private enum GaugeSlot {
-    case leading, middle, trailing
-    var insets: EdgeInsets {
-        switch self {
-        case .leading:  EdgeInsets(top: 14, leading: 16, bottom: 16, trailing: 12)
-        case .middle:   EdgeInsets(top: 14, leading: 14, bottom: 16, trailing: 12)
-        case .trailing: EdgeInsets(top: 14, leading: 14, bottom: 16, trailing: 16)
-        }
-    }
-}
-
-private struct InstrumentGauge: View {
-    let label: String
-    let value: String
-    var unit: String? = nil
-    var tint: Color = NB.text1
-    let slot: GaugeSlot
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
-                .foregroundStyle(NB.text2)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(value)
-                    .font(NBFont.dot(700, 22)).tracking(0.02 * 22)
-                    .foregroundStyle(tint)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                if let unit {
-                    Text(unit)
-                        .font(NBFont.dot(600, 10)).tracking(0.12 * 10)
-                        .foregroundStyle(NB.text3Prod)
-                }
-            }
-        }
-        .padding(slot.insets)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct VHair: View {
-    var body: some View {
-        Rectangle().fill(NB.hairline).frame(width: 1)
-    }
-}
-
 private struct MonthAxis: View {
     var body: some View {
         let f = DateFormatter()
@@ -603,8 +537,8 @@ private struct MonthAxis: View {
         return HStack(spacing: 0) {
             ForEach(months, id: \.self) { m in
                 Text(m)
-                    .font(NBFont.dot(500, 9)).tracking(0.14 * 9)
-                    .foregroundStyle(NB.white.opacity(0.26))
+                    .font(NBFont.dot(500, 10)).tracking(0.08 * 10)
+                    .foregroundStyle(NB.white.opacity(0.45))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -622,12 +556,8 @@ struct DirectionHeatMap: View {
     private let weeks = 26
     private let gap: CGFloat = 3
 
-    /// The card hands it `contentWidth` minus its own 14pt padding on each side. The cell
-    /// size and the view's height must come from the same arithmetic: the old code measured
-    /// the width in a GeometryReader but hardcoded the height to `7 * 9 + 6 * 3`, a 9pt cell
-    /// no real phone has — so the grid overflowed its frame and landed on the legend.
     private var cell: CGFloat {
-        (NB.Layout.contentWidth - 28 - gap * CGFloat(weeks - 1)) / CGFloat(weeks)
+        (NB.Layout.screenWidth - 40 - gap * CGFloat(weeks - 1)) / CGFloat(weeks)
     }
 
     var body: some View {
@@ -661,14 +591,12 @@ struct DirectionHeatMap: View {
     }
 }
 
-/// F0 D05 · four words in one row. The swatch is the same cell the map paints, so
-/// LEVEL stays an outline and GAP is the empty grey — never the quadrant palette.
 struct DirectionLegend: View {
     var body: some View {
         HStack(spacing: 12) {
             chip(.deficit, MetricNames.deficit)
-            chip(.surplus, MetricNames.surplus)
             chip(.level, MetricNames.level)
+            chip(.surplus, MetricNames.surplus)
             chip(.greyNothing, L("GAP"))
         }
     }
@@ -678,10 +606,10 @@ struct DirectionLegend: View {
             DirectionCell(direction: direction, height: 8, radius: 2)
                 .frame(width: 8, height: 8)
             Text(label)
-                .font(NBFont.ui(500, 10)).tracking(0.12 * 10)
-                .foregroundStyle(NB.text2)
+                .font(NBFont.dot(700, 10)).tracking(0.06 * 10)
+                .foregroundStyle(NB.white.opacity(0.8))
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

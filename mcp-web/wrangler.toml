@@ -1,0 +1,10 @@
+name = "nextbody-mcp"
+pages_build_output_dir = "public"
+compatibility_date = "2026-10-18"
+
+# With pages_build_output_dir set, this file is the Pages configuration and dashboard
+# variables are ignored. All three are public; `wrangler pages dev` overrides them from .dev.vars.
+[vars]
+SUPABASE_URL = "https://gkgzwcxivnffsecshvfs.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_FBRhpyBVNzlpBdjp4NOF4Q_1ZrVGWRt"
+MCP_PUBLIC_ORIGIN = "https://mcp.nextbody.ai"

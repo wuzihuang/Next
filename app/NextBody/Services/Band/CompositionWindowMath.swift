@@ -10,6 +10,10 @@ struct CompositionScan: Equatable, Sendable, Identifiable {
     var leanMassKg: Double?
     var bmrKcal: Double?
     var inputWeightKg: Double?
+    var muscleMassKg: Double? = nil
+    var bodyWaterPercent: Double? = nil
+    var boneMassKg: Double? = nil
+    var proteinPercent: Double? = nil
 }
 
 struct CompositionPoint: Equatable, Sendable {

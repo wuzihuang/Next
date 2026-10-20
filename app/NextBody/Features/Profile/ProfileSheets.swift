@@ -25,6 +25,7 @@ struct ProfileSheet: View {
             case .deleteAccount: DeleteAccountSheet()
             case .signOut:       SignOutSheet()
             case .widgets:       WidgetsSheet()
+            case .assistants:    AssistantsSheet()
             default:             EmptyView()
             }
         }
@@ -232,16 +233,16 @@ struct TrainingGoalSheet: View {
     @EnvironmentObject private var data: DataStore
     @Environment(\.dismiss) private var dismiss
 
-    private static let options: [(Goal, String, String)] = [
-        (.bulk, "Strength", "Lean mass first, the scale second"),
-        (.cut, "Endurance", "Aerobic base and recovery lead"),
-        (.recomp, "Recomp", "Trade fat for muscle, same weight"),
+    private static let options: [(Goal, String)] = [
+        (.bulk, "Lean mass first, the scale second"),
+        (.cut, "Aerobic base and recovery lead"),
+        (.recomp, "Trade fat for muscle, same weight"),
     ]
 
     var body: some View {
         SheetFrame(title: L("Training goal")) {
             VStack(spacing: 10) {
-                ForEach(Self.options, id: \.0) { g, title, sub in
+                ForEach(Self.options, id: \.0) { g, sub in
                     Button {
                         if data.profile.goal != g {
                             UserDefaults.standard.set(UserDay.containing(Date()).key, forKey: "nb.goal.changedDay")
@@ -253,10 +254,10 @@ struct TrainingGoalSheet: View {
                     } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(title)
+                                Text(L(g.rawValue))
                                     .font(NBFont.ui(500, 16)).tracking(0.01 * 16)
                                     .foregroundStyle(NB.text1)
-                                Text(sub)
+                                Text(L(sub))
                                     .font(NBFont.ui(300, 12)).tracking(0.02 * 12)
                                     .foregroundStyle(NB.white.opacity(0.38))
                             }
@@ -418,6 +419,7 @@ struct SwitchRow: View {
 /// ⚠️ The unit is a display preference only: the SDK's own unit flag is never written to the band.
 struct UnitsSheet: View {
     @EnvironmentObject private var data: DataStore
+    @ObservedObject private var haptics = HapticsSetting.shared
     @State private var weightUnit = "KG"
     @State private var heightUnit = "CM"
 
@@ -436,6 +438,16 @@ struct UnitsSheet: View {
                     Text(L("Height")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
                     Spacer(minLength: 0)
                     UnitToggle(options: ["CM", "FT"], selection: $heightUnit)
+                }
+                .padding(.horizontal, 16).frame(height: 62)
+                .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
+
+                HStack {
+                    Text(L("HAPTICS")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
+                    Spacer(minLength: 0)
+                    Toggle("", isOn: $haptics.enabled)
+                        .labelsHidden()
+                        .tint(NB.lime1)
                 }
                 .padding(.horizontal, 16).frame(height: 62)
                 .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
@@ -470,11 +482,15 @@ struct UnitsSheet: View {
             let saved = data.profile
             Task { await Repository.shared.saveProfile(saved, editedFields: ["units_metric"]) }
         }
+        .onChange(of: haptics.enabled) { _, on in
+            if on { HoldHaptics.shared.release() }
+        }
     }
 }
 
 struct LanguageSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var router: Router
     @ObservedObject private var language = AppLanguage.shared
 
     var body: some View {
@@ -491,8 +507,21 @@ struct LanguageSheet: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .overlay(alignment: .bottom) { loc == AppLocale.allCases.last ? nil : Hairline().padding(.leading, 16) }
+                    .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
                 }
+                Button { router.sheet = .widgets } label: {
+                    HStack {
+                        Text(L("WIDGETS")).font(NBFont.ui(500, 15)).foregroundStyle(NB.text1)
+                        Spacer(minLength: 0)
+                        Text(L("HOW TO ADD"))
+                            .font(NBFont.dot(500, 11)).tracking(0.08 * 11)
+                            .foregroundStyle(NB.text3Prod)
+                        Chevron()
+                    }
+                    .padding(.horizontal, 16).frame(height: 58)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
@@ -554,6 +583,7 @@ struct AppleHealthSheet: View {
 struct LegalSheet: View {
     let kind: LegalText.Kind
     init(_ kind: LegalText.Kind) { self.kind = kind }
+    @EnvironmentObject private var router: Router
 
     var body: some View {
         let doc = LegalText.document(kind)
@@ -577,6 +607,21 @@ struct LegalSheet: View {
                             }
                         }
                     }
+                    Button {
+                        router.sheet = kind == .privacy ? .about : .privacy
+                    } label: {
+                        HStack {
+                            Text(kind == .privacy ? L("TERMS OF SERVICE") : L("PRIVACY POLICY"))
+                                .font(NBFont.ui(500, 14)).tracking(0.06 * 14)
+                                .foregroundStyle(NB.text1)
+                            Spacer(minLength: 0)
+                            Text("›")
+                                .font(NBFont.ui(400, 16))
+                                .foregroundStyle(NB.white.opacity(0.35))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 24)

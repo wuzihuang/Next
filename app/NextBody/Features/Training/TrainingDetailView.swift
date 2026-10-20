@@ -70,7 +70,7 @@ struct TrainingDetailView: View {
         }) {
             VStack(alignment: .leading, spacing: 14) {
                 SegmentedPills(options: RollingPills.words,
-                               selection: $rangeRaw)
+                               selection: $rangeRaw, lined: true)
                 switch range {
                 case .day:   dayBoard
                 case .week:  weekBoard
@@ -719,11 +719,9 @@ struct TrainingDetailView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.top, 20)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
         .frame(width: NB.Layout.contentWidth)
-        .cardSkin()
     }
 
     @ViewBuilder
@@ -853,11 +851,45 @@ struct TrainingDetailView: View {
 struct SegmentedPills: View {
     let options: [String]
     @Binding var selection: String
+    /// 线条方案 · tabs on a hairline, the chosen one underlined, no capsule.
+    var lined = false
 
     static let height: CGFloat = 44
     private static let inset: CGFloat = 3
 
     var body: some View {
+        if lined { linedBody } else { pillBody }
+    }
+
+    private var linedBody: some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.self) { o in
+                let selected = selection == o
+                Button {
+                    guard !selected else { return }
+                    selection = o
+                } label: {
+                    Text(L(o))
+                        .font(NBFont.dot(selected ? 700 : 500, 12)).tracking(0.16 * 12)
+                        .foregroundStyle(selected ? NB.text1 : NB.text3Prod)
+                        .frame(maxWidth: .infinity, minHeight: Self.height)
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(selected ? NB.text1 : Color.clear).frame(height: 1.5)
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("range.\(o)")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .frame(width: NB.Layout.contentWidth, height: Self.height)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(NB.hairline).frame(height: 1)
+        }
+    }
+
+    private var pillBody: some View {
         HStack(spacing: Self.inset) {
             ForEach(options, id: \.self) { o in
                 let selected = selection == o
@@ -894,6 +926,21 @@ struct CardSkin: ViewModifier {
 }
 extension View { func cardSkin() -> some View { modifier(CardSkin()) } }
 
+/// 线条方案 · a section on the ground: one hairline across its top, no fill, no frame.
+/// The gap above the next hairline is the parent stack's spacing, so the rhythm is
+/// rule · breathing room · content · breathing room · rule.
+struct LineSkin: ViewModifier {
+    var top: CGFloat = 14
+    func body(content: Content) -> some View {
+        content
+            .padding(.top, top)
+            .overlay(alignment: .top) {
+                Rectangle().fill(NB.hairline).frame(height: 1)
+            }
+    }
+}
+extension View { func lineSkin(top: CGFloat = 14) -> some View { modifier(LineSkin(top: top)) } }
+
 struct SectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
@@ -929,9 +976,8 @@ struct CardBlock<Content: View>: View {
             }
             content
         }
-        .padding(14)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .cardSkin()
+        .lineSkin()
     }
 }
 

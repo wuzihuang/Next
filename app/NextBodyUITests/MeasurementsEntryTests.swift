@@ -10,13 +10,13 @@ final class MeasurementsEntryTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// 11C · YEAR / COMPOSITION 是同一张卡的头，点头进今天的成分页。
+    /// 12-B · COMPOSITION 行进今天的成分页。
     func testCompositionHeaderOpensToday() {
         let app = launch(route: "profile")
-        XCTAssertTrue(app.staticTexts["YEAR"].waitForExistence(timeout: 30),
-                      "profile never showed the instrument composition card")
+        XCTAssertTrue(app.buttons["COMPOSITION"].waitForExistence(timeout: 30),
+                      "profile never showed the year map")
         XCTAssertTrue(app.staticTexts["MEASUREMENTS"].exists,
-                      "measurements must stay a plate of its own")
+                      "measurements stay on ME")
 
         let entry = app.buttons["COMPOSITION"]
         XCTAssertTrue(entry.waitForExistence(timeout: 6), "卡头没有 COMPOSITION 这个入口")

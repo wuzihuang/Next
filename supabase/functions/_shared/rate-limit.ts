@@ -10,7 +10,8 @@ export type BudgetEndpoint =
   | "archive-data"
   | "export"
   | "account-delete"
-  | "feedback";
+  | "feedback"
+  | "mcp";
 /** serviceOwner is only for an already authenticated internal service worker. SQL
  * independently denies its privileged RPC to every authenticated/anonymous user. */
 export async function enforceRequestBudget(

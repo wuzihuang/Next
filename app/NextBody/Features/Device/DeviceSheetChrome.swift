@@ -115,3 +115,15 @@ struct SheetNote: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 }
+
+extension View {
+    /// A list in a sheet: the full-width hairline above and below replace the rounded box.
+    /// The sheet pads its content by the gutter; the rules reach the screen edges.
+    func sheetLines() -> some View {
+        self
+            .frame(width: NB.Layout.contentWidth + 2 * DeviceSheet.gutter)
+            .overlay(alignment: .top) { Hairline() }
+            .overlay(alignment: .bottom) { Hairline() }
+            .padding(.horizontal, -DeviceSheet.gutter)
+    }
+}

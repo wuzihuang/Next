@@ -71,6 +71,14 @@ final class LiveSessionStore: ObservableObject {
         if !caloriesAreEstimated { return L("BURNED") }
         return session?.joined == true ? L("ESTIMATE SINCE JOIN") : L("ESTIMATED BURN")
     }
+    var energyExplanation: String? {
+        guard caloriesAreEstimated else { return nil }
+        guard metrics.estimationAvailable else {
+            return L("No supported calorie estimate for this activity or profile. Heart rate is still recorded.")
+        }
+        return L("Active calories over %.0f observed seconds only. Resting energy and missing intervals are excluded.",
+                 metrics.estimatedSeconds)
+    }
     private var openTask: Task<Void, Never>?
     private var cleanupTask: Task<Void, Never>?
     private var lifetime: SportSessionLifetime?
@@ -194,7 +202,11 @@ final class LiveSessionStore: ObservableObject {
             self.opening = false
             switch outcome {
             case .opened, .joined:
-                if case .joined = outcome { self.session?.joined = true }
+                if case .joined = outcome {
+                    self.session?.joined = true
+                    self.metrics = SportMetricAccumulator(weightKg: weightKg, age: profile.age,
+                                                          male: profile.sexIsMale)
+                }
                 self.wristTask = Task { [weak self] in
                     await LiveReadout.shared.standDown { await self?.runWrist(owner: owner) }
                 }
@@ -520,6 +532,7 @@ final class LiveSessionStore: ObservableObject {
     }
 
     private func accept(_ info: SportLiveInfo) {
+        guard metrics.canAccept(at: info.receivedAt) else { return }
         guard info.runState == nil || info.runState == 1 || info.runState == 2 else {
             interruptMetrics()
             wrist = .reaching
@@ -528,7 +541,7 @@ final class LiveSessionStore: ObservableObject {
         let now = Date()
         if !Self.debugFakeWrist, let owner = lifetime, accepts(owner),
            let account = owner.account,
-           let sample = energyEvidence.accept(at: now, runState: info.runState,
+           let sample = energyEvidence.accept(at: info.receivedAt, runState: info.runState,
                 sportMode: session?.joined == true ? nil : session?.mode.rawValue,
                 timeZone: TimeZone.current.identifier) {
             do { try SportEvidenceQueue.shared.enqueue(sample, ownerUserId: account) }
@@ -540,7 +553,7 @@ final class LiveSessionStore: ObservableObject {
         }
         if !Self.debugFakeWrist, let owner = lifetime, accepts(owner),
            let account = owner.account,
-           let sample = heartEvidence.accept(at: now, heartRate: info.heartRate,
+           let sample = heartEvidence.accept(at: info.receivedAt, heartRate: info.heartRate,
                 runState: info.runState, sportMode: session?.joined == true ? nil : session?.mode.rawValue,
                 timeZone: TimeZone.current.identifier) {
             do { try SportEvidenceQueue.shared.enqueue(sample, ownerUserId: account) }
@@ -555,15 +568,14 @@ final class LiveSessionStore: ObservableObject {
         // The band's clock is the record. The first time it says how long it has run, the
         // screen's clock is set to it — and stays with it if the two drift apart.
         if let dur = info.durationSec, var s = session {
-            let bandStart = now.addingTimeInterval(-Double(dur))
+            let bandStart = info.receivedAt.addingTimeInterval(-Double(dur))
             if abs(bandStart.timeIntervalSince(s.startedAt)) > 3 {
                 s.startedAt = bandStart
                 session = s
             }
         }
         if seekBeganAt == nil { seekBeganAt = now }
-        metrics = metrics.accepting(timestamp: now, heartRate: info.heartRate,
-                                    caloriesKcal: info.caloriesKcal, runState: info.runState)
+        metrics = metrics.accepting(info)
         hr = metrics.heartRate
         hrAt = metrics.heartRate == nil ? nil : info.receivedAt
         #if DEBUG
@@ -725,7 +737,8 @@ final class LiveSessionStore: ObservableObject {
             loadBefore: loadBefore,
             loadAfter: Band.allowsSeed ? DataStore.shared.today.trainingLoad : nil,
             curvePoints: math.curvePoints, observedSeconds: math.observedSeconds,
-            hasCalories: hasCalories, restHR: rest, maxHR: hrMax)
+            hasCalories: hasCalories, restHR: rest, maxHR: hrMax,
+            energyObservedSeconds: caloriesAreEstimated ? metrics.estimatedSeconds : nil)
         lastRecap = recap
         guard Band.allowsSeed else {
             SportRecapStore.shared.record(recap)

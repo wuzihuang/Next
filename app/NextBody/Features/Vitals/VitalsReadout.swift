@@ -824,9 +824,9 @@ extension VitalsReadout {
     }
 
     /// ADR 0008 · the score's own colour bands, without naming the night.
-    static func sleepDial(score: Int) -> VitalsDial.Model {
+    static func sleepDial(score: Int, contributors: Bool = false) -> VitalsDial.Model {
         let placed = VitalsDialMath.sleepCuts()
-        return dial(scale: placed.scale, cuts: placed.cuts, value: Double(score),
+        return dial(scale: placed.scale, cuts: contributors ? [60, 70, 85] : placed.cuts, value: Double(score),
                     names: ["", "", "", ""],
                     tints: [NB.ember1, NB.compareAmber, NB.violet1, NB.optimal2])
     }

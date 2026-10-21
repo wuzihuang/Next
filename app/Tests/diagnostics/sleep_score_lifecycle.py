@@ -10,6 +10,12 @@ def extract(path, marker):
 repo=APP/'NextBody/Services/Repository.swift';metrics=APP/'NextBody/Models/Metrics.swift'
 source='import Foundation\nfunc L(_ s: String, _ args: CVarArg...) -> String { String(format:s,arguments:args) }\n'
 source+=extract(metrics,'struct SleepScore:')+'\n'+extract(metrics,'enum SleepScoreGroup:')+'\n'
+source+=extract(metrics,'enum SleepContributor:')+'\n'
+snapshot=APP/'NextBody/Services/Band/HealthSnapshotRead.swift'
+source+=extract(snapshot,'enum ISOTimestamp {')+'\n'
+source+='enum HealthSnapshotRead {\n'+extract(snapshot,'nonisolated static func timestamp(')+'\n}\n'
+correction=(APP/'NextBody/Features/Vitals/SleepCorrection.swift').read_text().splitlines()
+source+='enum SleepCorrection {\n'+next(line for line in correction if 'static let horizonDays =' in line)+'\n}\n'
 source+=r'''
 enum SleepScoreLoadState { case idle, loading, ready, failed }
 struct UserDay: Equatable {
@@ -57,6 +63,16 @@ source+=r'''
  check(db.query.contains {$0.name=="user_day" && $0.value=="gte.2026-08-08"},"30-night query is exactly 30 dates")
  let encoded=try JSONSerialization.jsonObject(with:JSONEncoder().encode(store.sleepScores[day.key]!)) as! [String:Any]
  check(encoded["computedAt"] != nil,"score timestamp survives Codable")
+ db.rows=[["user_day":day.key,"score":56,"duration_score":41,"inputs":[
+  "contributor_policy":3,"duration_min":289,"score_total_sleep":41,"score_rem":65.56,
+  "weight_total_sleep":40,"weight_rem":15],"score_version":"sleep-v3.0"]]
+ await repo.loadSleepScores(days:30,endingAt:day,into:store)
+ check(store.sleepScores[day.key]?.usesContributors == true &&
+       store.sleepScores[day.key]?.contributorScore(.rem) == 65.56 &&
+       store.sleepScores[day.key]?.contributorScore(.latency) == nil,
+       "real loader preserves seven-factor scores and missing latency")
+ db.rows=[["user_day":day.key,"score":87,"duration_score":77,"score_version":"sleep-v1.2"]]
+ await repo.loadSleepScores(days:30,endingAt:day,into:store)
  db.fail=true
  await repo.loadSleepScores(days:30,endingAt:day,into:store)
  check(store.sleepScores[day.key]?.score==87 && store.sleepScoreLoadState == .failed,"offline request preserves score with explicit failure")

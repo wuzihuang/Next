@@ -111,9 +111,6 @@ enum SheetRoute: Hashable, Identifiable {
     /// 9-0 A·S8 · one tap on the other HOOP's card. There are only two, so the tap is the
     /// choice and the sheet only confirms. The payload is the slot being switched to.
     case wearSwitch(String)
-    /// The `Counted from …` line: the wearer pins a different start by hand. Not the
-    /// switching path — the app works the start out from the band's own evidence.
-    case wearCorrect
     /// Choose one HOOP to remove; the other binding and account history stay.
     case releaseSet
     /// 12Y · find the wrist (LED). Not `.findBand`.

@@ -35,6 +35,13 @@ struct MeasureTakeover: View {
     @State private var lostGrace: Double = 3
     @State private var grown = false
     @State private var reading: PartialReading?
+    @State private var resultReading: BodyCompositionReading?
+    @State private var previousScan: CompositionScan?
+    @State private var resultScanAt: Date?
+    @State private var scanOpenedAt = Date()
+    @State private var scanStartedAt: Date?
+    @State private var scanRestarts = 0
+    @State private var resultHeroVisible = false
     @State private var failure: String?
     /// True once the stream has carried the band's own seconds; the phone's clock then
     /// stops counting, so the number on screen is the scan's and never runs ahead of it.
@@ -55,6 +62,18 @@ struct MeasureTakeover: View {
     private var isBalance: Bool { kind == .ecg }
     /// Measured on a real HOOP: the balance check runs 40 s, the body scan 30, the heart leg 60.
     private var total: Int { isBodyScan ? 30 : isBalance ? 40 : 60 }
+
+    private enum BodyScanScreen: Equatable {
+        case prepare, scanning, result
+    }
+
+    private var bodyScanScreen: BodyScanScreen {
+        switch phase {
+        case .counting, .halfway, .lost, .computing: .scanning
+        case .result: .result
+        default: .prepare
+        }
+    }
 
     private let secondHand = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -86,7 +105,9 @@ struct MeasureTakeover: View {
             // 06 · the three alternative layouts, for comparing on the wrist rather than as
             // pictures — `NB_DEBUG_BALANCE_STYLE`. They replace the column below entirely;
             // the field, the close mark and every rule about what may be printed are shared.
-            if isBalance, BalanceLayout.current != .original {
+            if isBodyScan {
+                bodyScanLayout
+            } else if isBalance, BalanceLayout.current != .original {
                 balanceVariant
             } else {
             // 06 · E/F · the board's column, centred: the eyebrow and the close mark, one
@@ -141,7 +162,263 @@ struct MeasureTakeover: View {
         .onDisappear { cancelMeasurement() }
         .onReceive(secondHand) { _ in tick() }
         .onChange(of: remaining) { beatAt = Date() }
+        .task(id: phase) {
+            guard isBodyScan, phase == .result else {
+                resultHeroVisible = false
+                return
+            }
+            resultHeroVisible = false
+            try? await Task.sleep(for: .milliseconds(120))
+            withAnimation(.easeOut(duration: 0.55)) { resultHeroVisible = true }
+        }
         .statusBarHidden(false)
+    }
+
+    @ViewBuilder private var bodyScanLayout: some View {
+        Group {
+            switch bodyScanScreen {
+            case .prepare:
+                BodyScanPrepareLayout(
+                    topInset: ScreenMetrics.safeArea.top + Chrome.gateTopInset,
+                    bottomInset: ScreenMetrics.safeArea.bottom + 24,
+                    status: scanCopy.status, statusTint: scanCopy.tint,
+                    headline: scanCopy.headline, help: scanCopy.help,
+                    header: { header },
+                    stage: {
+                        if phase == .failed || phase == .busy || phase == .dropped || phase == .noReading {
+                            Color.clear
+                        } else {
+                            HoopFigure(mode: hoopMode)
+                        }
+                    },
+                    footer: { EmptyView() })
+                .transition(.opacity)
+            case .scanning:
+                BodyScanScanningLayout(
+                    topInset: ScreenMetrics.safeArea.top + Chrome.gateTopInset,
+                    bottomInset: ScreenMetrics.safeArea.bottom + 28,
+                    headerHeight: 34,
+                    remaining: remaining, held: phase == .lost,
+                    status: scanCopy.status, statusTint: scanCopy.tint,
+                    headline: scanCopy.headline, help: scanCopy.help,
+                    beat: phase == .computing ? total : total - remaining,
+                    total: total, beatAt: beatAt, complete: phase == .computing,
+                    header: { header },
+                    footer: { EmptyView() })
+                .transition(.opacity)
+            case .result:
+                bodyScanResult
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.35), value: bodyScanScreen)
+        .opacity(grown ? 1 : 0)
+    }
+
+    /// The shared body-scan words when the phase maps onto one; the device-side phases
+    /// (failed / busy / dropped / noReading / notWearing) keep the takeover's own copy.
+    private var scanCopy: (status: String, tint: Color, headline: String, help: String) {
+        if let s = bodyScanState {
+            return (s.status, s.statusTint, s.headline, s.help)
+        }
+        return (statusLine, statusTint, headlineText, helpLine)
+    }
+
+    private var bodyScanState: BodyScanState? {
+        switch phase {
+        case .opening:   .opening
+        case .waiting:   .waiting
+        case .nudge:     .nudge
+        case .contact:   .contact
+        case .counting:  .counting(fields: fields)
+        case .halfway:   .halfway
+        case .lost:      .lost(grace: Int(lostGrace.rounded()))
+        case .computing: .computing
+        default: nil
+        }
+    }
+
+    private var hoopMode: HoopFigure.Mode {
+        switch phase {
+        case .contact: .contact
+        case .nudge, .notWearing: .nudge
+        default: .waiting
+        }
+    }
+
+    private var bodyScanResult: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: ScreenMetrics.safeArea.top + Chrome.gateTopInset)
+            header
+            Spacer(minLength: 0)
+            Text(L("BODY FAT"))
+                .font(NBFont.dot(600, 11)).tracking(0.16 * 11)
+                .foregroundStyle(NB.white.opacity(0.72))
+                .padding(.top, 28)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(resultHeroVisible ? bodyFatValue : Fmt.dash)
+                    .font(NBFont.dot(700, 88)).tracking(-0.04 * 88)
+                    .foregroundStyle(NB.white)
+                    .contentTransition(.numericText())
+                Text("%")
+                    .font(NBFont.dot(500, 14))
+                    .foregroundStyle(NB.white.opacity(0.42))
+            }
+            .frame(height: 106, alignment: .center)
+            Text(bodyFatDelta)
+                .font(NBFont.dot(500, 10.5)).tracking(0.1 * 10.5)
+                .foregroundStyle(bodyFatDeltaTint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            resultMetricGrid
+                .padding(.top, 22)
+            HStack(spacing: 8) {
+                Text(L("+ %d MORE FIELDS", remainingFieldCount))
+                    .font(NBFont.dot(600, 10.5)).tracking(0.08 * 10.5)
+                    .foregroundStyle(NB.white.opacity(0.55))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 0)
+                Button {
+                    openComposition()
+                } label: {
+                    Text(L("IN COMPOSITION →"))
+                        .font(NBFont.dot(600, 10.5)).tracking(0.08 * 10.5)
+                        .foregroundStyle(NB.lime1)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 15)
+            Spacer(minLength: 32)
+            Spacer(minLength: 0)
+            Spacer(minLength: 0)
+            Button(action: done) {
+                Text(L("DONE"))
+                    .font(NBFont.dot(600, 13)).tracking(0.14 * 13)
+                    .foregroundStyle(NB.panelInk)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(NB.lime1, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, NB.Layout.gutter)
+            .padding(.top, 20)
+            Text(L("Next scan is worth taking in 7 days. A wrist reading moves with water and the hour."))
+                .font(NBFont.ui(300, 12))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(NB.white.opacity(0.42))
+                .frame(width: 318)
+                .padding(.top, 14)
+            Color.clear.frame(height: ScreenMetrics.safeArea.bottom + 18)
+        }
+    }
+
+    private var resultMetricGrid: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                resultMetric(L("FAT MASS"), value: positive(resultReading?.fatMassKg), unit: L("KG"))
+                resultMetricRule
+                resultMetric(L("LEAN MASS"), value: positive(resultReading?.leanMassKg), unit: L("KG"))
+                resultMetricRule
+                resultMetric(L("MUSCLE"), value: positive(resultReading?.muscleKg), unit: L("KG"), lime: true)
+            }
+            .frame(height: 68)
+            Rectangle().fill(NB.white.opacity(0.1)).frame(height: 1)
+            HStack(spacing: 0) {
+                resultMetric(L("BODY WATER"), value: positive(resultReading?.bodyWaterPercent), unit: "%")
+                resultMetricRule
+                resultMetric(L("BONE"), value: positive(resultReading?.boneKg), unit: L("KG"))
+                resultMetricRule
+                resultMetric(L("BMR"), value: positive(resultReading?.bmrKcal.map(Double.init), decimals: 0),
+                             unit: L("KCAL"))
+            }
+            .frame(height: 68)
+        }
+        .overlay(alignment: .top) {
+            Rectangle().fill(NB.white.opacity(0.1)).frame(height: 1)
+        }
+        .padding(.horizontal, NB.Layout.gutter)
+    }
+
+    private var resultMetricRule: some View {
+        Rectangle().fill(NB.white.opacity(0.1)).frame(width: 1).padding(.vertical, 15)
+    }
+
+    private func resultMetric(_ label: String, value: String, unit: String,
+                              lime: Bool = false) -> some View {
+        VStack(spacing: 4) {
+            Text(label)
+                .font(NBFont.dot(600, 10.5)).tracking(0.08 * 10.5)
+                .foregroundStyle(NB.white.opacity(0.55))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+            HStack(alignment: .lastTextBaseline, spacing: 3) {
+                Text(value)
+                    .font(NBFont.dot(700, 26))
+                    .foregroundStyle(lime ? NB.lime1 : NB.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.55)
+                if value != Fmt.dash {
+                    Text(unit)
+                        .font(NBFont.dot(500, 10))
+                        .foregroundStyle(NB.white.opacity(0.4))
+                        .lineLimit(1)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var bodyFatValue: String {
+        guard let value = resultReading?.bodyFatPercent, value > 0 else { return Fmt.dash }
+        return String(format: "%.1f", value)
+    }
+
+    private var bodyFatDelta: String {
+        guard let value = resultReading?.bodyFatPercent, value > 0,
+              let previousScan, let previous = previousScan.bodyFatPercent, previous > 0 else {
+            return L("FIRST READING")
+        }
+        let delta = value - previous
+        let signed = String(format: "%@%.1f", delta < 0 ? "−" : "+", abs(delta))
+        let days = max(0, Calendar.current.dateComponents([.day], from: previousScan.at, to: Date()).day ?? 0)
+        let age = days == 0 ? L("TODAY") : days == 1 ? L("1 DAY AGO") : L("%d DAYS AGO", days)
+        return L("%@ SINCE LAST SCAN · %@", signed, age)
+    }
+
+    private var bodyFatDeltaTint: Color {
+        previousScan?.bodyFatPercent == nil ? NB.white.opacity(0.42) : NB.violet1.opacity(0.75)
+    }
+
+    private var remainingFieldCount: Int {
+        guard let resultReading else { return 0 }
+        let values: [Double?] = [
+            resultReading.inputWeightKg,
+            resultReading.bmi,
+            resultReading.proteinPercent,
+            resultReading.subcutaneousFatPercent,
+            resultReading.skeletalMusclePercent,
+            resultReading.muscleRatePercent,
+            resultReading.waterKg,
+            resultReading.proteinKg,
+        ]
+        return values.compactMap { $0 }.filter { $0 > 0 }.count
+    }
+
+    private func positive(_ value: Double?, decimals: Int = 1) -> String {
+        guard let value, value > 0 else { return Fmt.dash }
+        return String(format: "%.*f", decimals, value)
+    }
+
+    private func openComposition() {
+        let date = resultScanAt
+        done()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            router.open(.composition(date: date), from: .home)
+        }
     }
 
     /// The board's header: what is being measured, in lime, on the left; the only way out on
@@ -156,7 +433,7 @@ struct MeasureTakeover: View {
                 // reads as text rather than as more of the pattern.
                 .foregroundStyle(isBalance && balanceFieldVisible ? NB.white.opacity(0.92) : NB.lime1)
             Spacer(minLength: 0)
-            Button(action: leave) { CloseMark() }
+            Button(action: isBodyScan && phase == .result ? done : leave) { CloseMark() }
                 .buttonStyle(.plain)
                 .frame(width: 44, height: 34)
                 .opacity(phase == .opening ? 0 : 1)
@@ -217,7 +494,9 @@ struct MeasureTakeover: View {
 
     /// The eyebrow: what is being measured and how long it takes, in 03's own words.
     private var eyebrow: String {
-        isBodyScan ? L("BODY SCAN · 30S") : isBalance ? L("BALANCE CHECK · 40S") : L("BATTERY CHECK · 60S")
+        if isBodyScan && phase == .result { return L("BODY SCAN · SAVED") }
+        return isBodyScan ? L("BODY SCAN · 30S")
+            : isBalance ? L("BALANCE CHECK · 40S") : L("BATTERY CHECK · 60S")
     }
 
     private var headlineText: String {
@@ -248,21 +527,21 @@ struct MeasureTakeover: View {
     @ViewBuilder private var stage: some View {
         switch phase {
         case .opening, .waiting:
-            BandFigure(tint: NB.lime1, mode: .ripple)
+            HoopFigure(mode: .waiting)
         case .nudge, .notWearing:
             // Amber is the first time this flow uses colour: it means "we need you to move",
             // never "you failed". Only the key and its ripples change — the layout does not.
-            BandFigure(tint: NB.ember1, mode: .ripple)
+            HoopFigure(mode: .nudge)
         case .contact:
             if isBodyScan {
-                BandFigure(tint: NB.lime1, mode: .contact)
+                HoopFigure(mode: .contact)
             } else if isBalance {
                 balanceStage
             } else {
                 // Pulse monitor from the moment contact lands — flat until the first rate,
                 // so the wait is not a second screen that only appears once a number exists.
                 ZStack {
-                    BandFigure(tint: NB.lime1, mode: .lit).opacity(0.14)
+                    HoopFigure(mode: .lit).opacity(0.14)
                     LiveECG(bpm: reading?.heartRate,
                             tint: NB.lime1,
                             amplitude: 1)
@@ -282,8 +561,9 @@ struct MeasureTakeover: View {
                 // 06 edge 2 · a lifted finger freezes the figure where it was and turns it
                 // amber. Computing and the result hold the whole body lit: it has been read,
                 // and draining it at the end would say the reading went away.
-                BodyFill(beat: phase == .computing || phase == .result ? total : total - remaining,
-                         total: total, beatAt: beatAt, held: phase == .lost)
+                ScanBody(beat: phase == .computing || phase == .result ? total : total - remaining,
+                         total: total, beatAt: beatAt, held: phase == .lost,
+                         complete: phase == .computing || phase == .result)
                     // The figure is drawn to the height it is given, so the height is the size:
                     // 03 · Scanning's own 280, not whatever room the page happens to have left.
                     .frame(height: 280)
@@ -295,7 +575,7 @@ struct MeasureTakeover: View {
                     // at the wrist, and the pulse trace is written over it at 14 %.
                     // ⚠️ Not an ECG channel: this HOOP's Battery Check is PPG heart rate
                     // (F5), shaped into a monitor sweep from the measured BPM.
-                    BandFigure(tint: NB.lime1, mode: .lit).opacity(0.14)
+                    HoopFigure(mode: .lit).opacity(0.14)
                     LiveECG(bpm: reading?.heartRate,
                             tint: phase == .lost ? NB.ember2 : NB.lime1,
                             amplitude: phase == .computing ? 0 : 1)
@@ -453,7 +733,9 @@ struct MeasureTakeover: View {
     private var helpLine: String {
         switch phase {
         case .opening:   ""
-        case .waiting:   L("Rest your hand on the table. Nothing to press.")
+        case .waiting:   isBodyScan
+            ? L("Rest your hand on the table. Nothing to press. It takes about 30 seconds.")
+            : L("Rest your hand on the table. Nothing to press.")
         case .nudge:     L("Skin, not a nail or a sleeve. Let it rest, don't press.")
         case .contact:   isBodyScan ? L("A tiny current crosses your body. You won't feel it.")
                                     : isBalance ? L("Keep the finger on the key. The field breathes with your pulse.")
@@ -497,6 +779,10 @@ struct MeasureTakeover: View {
     }
 
     private func leave() {
+        if isBodyScan, phase != .result {
+            let reason = String(describing: phase).uppercased()
+            Task { await Analytics.shared.track("SCAN_ABORT", ["REASON": reason]) }
+        }
         cancelMeasurement()
         done()
     }
@@ -526,6 +812,23 @@ struct MeasureTakeover: View {
             reading = PartialReading(heartRate: 68)
             studyProgress = 1
             fields = 14
+            if isBodyScan {
+                let now = Date()
+                resultReading = BodyCompositionReading(
+                    bodyFatPercent: 23.5, fatMassKg: 17.4, leanMassKg: 55.6,
+                    muscleKg: 52.1, boneKg: 2.8, bodyWaterPercent: 56.2,
+                    proteinPercent: 18.4, subcutaneousFatPercent: 15.2,
+                    skeletalMusclePercent: 41.8, bmrKcal: 1_640, bmi: 22.7,
+                    inputWeightKg: 73, muscleRatePercent: 71.4,
+                    waterKg: 41.0, proteinKg: 13.4)
+                reading = PartialReading(heartRate: 68, bodyFatPercent: 23.5)
+                previousScan = CompositionScan(
+                    id: UUID(), at: now.addingTimeInterval(-2 * 24 * 60 * 60),
+                    bodyFatPercent: 24.1, fatMassKg: 18, leanMassKg: 55.2,
+                    bmrKcal: 1_625, inputWeightKg: 73.2, muscleMassKg: 51.9,
+                    bodyWaterPercent: 55.8, boneMassKg: 2.8, proteinPercent: 18.2)
+                resultScanAt = now
+            }
             if ProcessInfo.processInfo.environment["NB_DEBUG_MEASURE_FOLD"] == "1" {
                 router.measuredWidget = isBalance
                     ? WidgetCatalogue.balanceResult
@@ -536,9 +839,10 @@ struct MeasureTakeover: View {
                 }
             }
         case .lost:
-            remaining = 37
+            remaining = isBodyScan ? 18 : 37
             lostGrace = 2.1
-            reading = PartialReading(heartRate: 71)
+            reading = PartialReading(heartRate: 71, bodyFatPercent: isBodyScan ? 23.8 : nil)
+            if isBodyScan { fields = 5 }
         case .failed:
             failure = L("No reading this time.")
         case .nudge:
@@ -556,6 +860,13 @@ struct MeasureTakeover: View {
 
     private func open() {
         guard phoneExecution?.isAuthorized != false else { return }
+        scanOpenedAt = .now
+        scanStartedAt = nil
+        scanRestarts = 0
+        resultReading = nil
+        previousScan = nil
+        resultScanAt = nil
+        resultHeroVisible = false
         remaining = total
         bandClock = false
         reading = nil
@@ -927,6 +1238,10 @@ struct MeasureTakeover: View {
             // The only haptic in the flow, fired on the first `testing`/`start` state that
             // comes back — never on the fact that we sent `start`.
             Haptics.impact(.medium)
+            if isBodyScan, scanStartedAt == nil {
+                scanStartedAt = .now
+                Task { await Analytics.shared.track("SCAN_START", [:]) }
+            }
             // After a lift-off restart the stream yields contact again; do not wipe the
             // minute back to the pre-count contact frame (that hides 00:XX and feels broken).
             if phase != .counting && phase != .halfway {
@@ -949,22 +1264,36 @@ struct MeasureTakeover: View {
             if phase != next { withAnimation { phase = next } }
 
         case .lostContact:
+            if isBodyScan, phase != .lost { scanRestarts += 1 }
             withAnimation { phase = .lost }
 
         case .finished(let result):
+            if isBodyScan, case .bodyComposition(let composition) = result {
+                let finishedAt = Date()
+                previousScan = data.compositionScans
+                    .filter { $0.at < finishedAt }
+                    .max { $0.at < $1.at }
+                resultReading = composition
+            }
             // 06 rule 09 · store, then the result folds back onto the panel as one widget —
             // built before the store so the sentence can say what moved.
             let widget = resultWidget(result)
             store(result)
             router.measuredWidget = widget
             if isBodyScan {
-                // 06 · 20 / G·03 · the result is the home panel (one hero, four fields,
-                // one sentence), not a takeover page that says "Fourteen fields." The
-                // cover is not the panel, so the fold is a cut: home is already holding
-                // the widget, and a slide-down would be a different motion than the board.
-                var cut = Transaction()
-                cut.disablesAnimations = true
-                withTransaction(cut) { done() }
+                resultScanAt = data.compositionScans.first?.at
+                withAnimation(.easeInOut(duration: 0.35)) { phase = .computing }
+                let resultTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(650))
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeInOut(duration: 0.35)) { phase = .result }
+                    let elapsed = Int(Date().timeIntervalSince(scanOpenedAt) * 1000)
+                    await Analytics.shared.track("SCAN_DONE", [
+                        "MS": elapsed,
+                        "RESTARTS": scanRestarts,
+                    ])
+                }
+                run = resultTask
                 return
             }
             // Battery Check already spent computing on the real stress/HRV legs.
@@ -1248,136 +1577,6 @@ private final class LiftFlag: @unchecked Sendable {
     }
     func mark() {
         lock.lock(); value = true; lock.unlock()
-    }
-}
-
-/// 06 · E · the band, drawn as the board draws it: the strap fading into the ground at both
-/// ends, the case, the dot-matrix screen, and the side key on the right edge.
-///
-/// ⚠️ The ripples come out of the KEY, not out of the middle of the face. Rings centred on
-/// the screen are an instruction to press the display — which is not where the sensor is, and
-/// not what the user is being asked to do. The one action this screen asks for is a fingertip
-/// resting on the side key, so that is the only place anything moves.
-private struct BandFigure: View {
-    enum Mode {
-        /// Waiting for a finger: rings walk out of the key on one 1.6 s loop.
-        case ripple
-        /// Skin has closed the circuit: the rings stop, the surface lights, the fingertip is drawn.
-        case contact
-        /// Lit but quiet — the ghost the trace is written over while the count runs.
-        case lit
-    }
-    var tint: Color = NB.lime1
-    var mode: Mode = .ripple
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// The board's own geometry, in its 390 × 470 space.
-    private static let W: CGFloat = 390, H: CGFloat = 470
-    private static let keyCentre = CGPoint(x: 255, y: 210)
-    private static let bandCentre = CGPoint(x: 195, y: 210)
-
-    var body: some View {
-        TimelineView(.animation) { tl in
-            Canvas { ctx, size in
-                let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
-                let s = min(size.width / Self.W, size.height / Self.H)
-                ctx.translateBy(x: (size.width - Self.W * s) / 2, y: (size.height - Self.H * s) / 2)
-                ctx.scaleBy(x: s, y: s)
-                draw(&ctx, t)
-            }
-        }
-        .frame(maxWidth: Self.W)
-        .aspectRatio(Self.W / Self.H, contentMode: .fit)
-        .accessibilityHidden(true)
-    }
-
-    private func circle(_ c: CGPoint, _ r: CGFloat) -> Path {
-        Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
-    }
-
-    private func draw(_ ctx: inout GraphicsContext, _ t: Double) {
-        let lit = mode != .ripple
-
-        // The halo the contact frame puts behind the whole band: one ring at 152, and the
-        // glow it sits in. This is the only burst of colour in the flow.
-        if mode == .contact {
-            ctx.fill(Path(ellipseIn: CGRect(x: 10, y: 35, width: 370, height: 350)),
-                     with: .radialGradient(Gradient(colors: [tint.opacity(0.20), tint.opacity(0)]),
-                                           center: Self.bandCentre, startRadius: 0, endRadius: 185))
-            ctx.stroke(circle(Self.bandCentre, 152), with: .color(tint.opacity(0.30)), lineWidth: 3)
-        }
-
-        // The strap, fading out top and bottom so the band is a band and not a phone.
-        let strapInk = Color(hex: lit ? 0x191A1F : 0x15161A)
-        ctx.fill(Path(roundedRect: CGRect(x: 161, y: 0, width: 68, height: 118), cornerRadius: 14),
-                 with: .linearGradient(Gradient(stops: [.init(color: strapInk.opacity(0), location: 0),
-                                                        .init(color: strapInk, location: 0.6)]),
-                                       startPoint: CGPoint(x: 195, y: 0), endPoint: CGPoint(x: 195, y: 118)))
-        ctx.fill(Path(roundedRect: CGRect(x: 161, y: 302, width: 68, height: 168), cornerRadius: 14),
-                 with: .linearGradient(Gradient(stops: [.init(color: strapInk, location: 0.4),
-                                                        .init(color: strapInk.opacity(0), location: 1)]),
-                                       startPoint: CGPoint(x: 195, y: 302), endPoint: CGPoint(x: 195, y: 470)))
-
-        // The case, and the screen printed in the house dot matrix at a 4 pt pitch.
-        let shell = Path(roundedRect: CGRect(x: 139, y: 112, width: 112, height: 196), cornerRadius: 36)
-        ctx.fill(shell, with: .color(Color(hex: lit ? 0x1B1C21 : 0x17181C)))
-        ctx.stroke(shell, with: .color(lit ? tint.opacity(0.35) : NB.white.opacity(0.07)),
-                   lineWidth: lit ? 1.5 : 1)
-
-        let face = Path(roundedRect: CGRect(x: 153, y: 126, width: 84, height: 168), cornerRadius: 26)
-        ctx.fill(face, with: .color(Color(hex: lit ? 0x0C0D08 : 0x0A0A0D)))
-        ctx.drawLayer { layer in
-            layer.clip(to: face)
-            var dots = Path()
-            var y: CGFloat = 127
-            while y < 294 {
-                var x: CGFloat = 154
-                while x < 237 {
-                    dots.addRoundedRect(in: CGRect(x: x, y: y, width: 3.2, height: 3.2),
-                                        cornerSize: CGSize(width: 0.8, height: 0.8))
-                    x += 4
-                }
-                y += 4
-            }
-            layer.fill(dots, with: .color(Color(hex: lit ? 0x9BA23C : 0x24252C)))
-        }
-
-        // Eight cells alight while the circuit is closed — the band answering, not a spinner.
-        if lit {
-            let cells = [(169.0, 158.0), (197, 146), (213, 182), (181, 206),
-                         (205, 234), (173, 258), (217, 270), (189, 278)]
-            for (i, c) in cells.enumerated() {
-                let p = (t * 0.6 + Double(i) / Double(cells.count)).truncatingRemainder(dividingBy: 1)
-                let a = 0.45 + 0.55 * (0.5 + 0.5 * cos(p * 2 * .pi))
-                ctx.fill(Path(roundedRect: CGRect(x: c.0, y: c.1, width: 3.2, height: 3.2), cornerRadius: 0.8),
-                         with: .color(tint.opacity(a)))
-            }
-        }
-
-        // The side key: the one place on the hardware this screen is talking about.
-        ctx.fill(Path(roundedRect: CGRect(x: 251, y: 186, width: 8, height: 48), cornerRadius: 4),
-                 with: .color(tint))
-
-        // Three rings out of the key on one 1.6 s loop, a third of a turn apart. They never
-        // stop and they never time out: the way out of this screen is the close mark.
-        if mode == .ripple {
-            for i in 0..<3 {
-                let p = reduceMotion
-                    ? Double(i) / 3
-                    : ((t / 1.6) + Double(i) / 3).truncatingRemainder(dividingBy: 1)
-                ctx.stroke(circle(Self.keyCentre, 34 + CGFloat(p) * 72),
-                           with: .color(tint.opacity((1 - p) * 0.42)), lineWidth: 3)
-            }
-        }
-
-        // The fingertip, resting on the key — drawn only once contact is real.
-        if mode == .contact {
-            let c = CGPoint(x: 272, y: 210)
-            ctx.stroke(circle(c, 18), with: .color(NB.limePale.opacity(0.16)), lineWidth: 1)
-            ctx.fill(circle(c, 11), with: .color(NB.carbon))
-            ctx.stroke(circle(c, 11), with: .color(NB.limePale.opacity(0.95)), lineWidth: 1.4)
-            ctx.fill(circle(c, 3.6), with: .color(tint))
-        }
     }
 }
 

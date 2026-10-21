@@ -59,6 +59,8 @@ struct SleepWindowSummary {
 
     var scores: [SleepScore] { slots.compactMap(\.score) }
 
+    var contributorScores: [SleepScore] { scores.filter(\.usesContributors) }
+
     func groupMedian(_ group: SleepScoreGroup) -> Int? {
         Self.median(scores.compactMap { $0.value(of: group).map(Double.init) })
             .map { Int($0.rounded()) }
@@ -195,15 +197,32 @@ struct SleepScoreBreakdown: View {
     let score: SleepScore
 
     var body: some View {
+        if score.usesContributors {
+            SleepContributorBreakdown(score: score)
+        } else {
+            legacyBody
+        }
+    }
+
+    private var legacyBody: some View {
         VStack(alignment: .leading, spacing: 9) {
             ForEach(SleepScoreGroup.allCases, id: \.self) { group in
                 row(group)
             }
-            Text(L("WEIGHTS ARE SHARES OF THIS SCORE; MISSING GROUPS ARE EXCLUDED"))
+            Text(L(score.inputs["duration_score_cap"] == nil
+                   ? "WEIGHTS ARE SHARES OF THIS SCORE; MISSING GROUPS ARE EXCLUDED"
+                   : "WEIGHTS APPLY BEFORE THE DURATION LIMIT; MISSING GROUPS ARE EXCLUDED"))
                     .font(NBFont.dot(500, 9)).tracking(0.06 * 9)
                     .foregroundStyle(NB.text3Prod)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 2)
+            if let cap = score.appliedDurationCap {
+                Text(L("SHORT SLEEP · SCORE CAPPED AT %d", cap))
+                    .font(NBFont.dot(500, 9)).tracking(0.06 * 9)
+                    .foregroundStyle(NB.compareAmber)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("sleep.durationCap")
+            }
             SleepScoreCalibration(score: score)
         }
     }
@@ -271,12 +290,24 @@ struct SleepScoreBreakdown: View {
 
 extension SleepScore {
     func effectiveWeight(of group: SleepScoreGroup) -> Double? {
+        guard !usesContributors else { return nil }
         let groups = SleepScoreGroup.allCases
         let weights = SleepScoreMath.effectiveWeights(
             values: groups.map { value(of: $0).map(Double.init) },
-            weights: groups.map { Double($0.weight) })
+            weights: groups.map { group in
+                guard let weight = inputs["weight_\(group.rawValue)"],
+                      weight.isFinite, weight > 0 else { return Double(group.weight) }
+                return weight
+            })
         guard let index = groups.firstIndex(of: group) else { return nil }
         return weights[index]
+    }
+
+    var appliedDurationCap: Int? {
+        guard inputs["duration_cap_applied"] == 1,
+              let cap = inputs["duration_score_cap"], cap.isFinite,
+              (0...100).contains(cap) else { return nil }
+        return Int(cap.rounded())
     }
 }
 
@@ -351,6 +382,14 @@ struct SleepWindowBreakdown: View {
     let summary: SleepWindowSummary
 
     var body: some View {
+        if !summary.contributorScores.isEmpty {
+            SleepContributorWindow(summary: summary)
+        } else {
+            legacyBody
+        }
+    }
+
+    private var legacyBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(SleepScoreGroup.allCases, id: \.self) { group in
                 let scored = summary.scores.filter { $0.value(of: group) != nil }
@@ -383,6 +422,158 @@ struct SleepWindowBreakdown: View {
                 .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+struct SleepContributorBreakdown: View {
+    let score: SleepScore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(SleepContributor.allCases, id: \.self) { contributor in
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(contributor.explanation)
+                        if let weight = score.contributorWeight(contributor) {
+                            Text(L("WEIGHT %.1f%%", weight))
+                        } else {
+                            Text(L("NOT MEASURED · EXCLUDED FROM SCORE"))
+                        }
+                    }
+                    .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+                } label: {
+                    SleepContributorRow(
+                        title: contributor.title, value: measured(contributor),
+                        score: score.contributorScore(contributor))
+                }
+                .tint(NB.text3Prod)
+                .accessibilityIdentifier("sleep.contributor.\(contributor.rawValue)")
+            }
+            Text(L("HOOP scoring inspired by Oura's public contributors, not Oura's proprietary formula. Missing factors are excluded and remaining weights are normalized."))
+                .font(NBFont.ui(400, 10)).foregroundStyle(NB.text3Prod)
+                .fixedSize(horizontal: false, vertical: true)
+            if let cap = score.appliedDurationCap {
+                Text(L("SHORT SLEEP · SCORE CAPPED AT %d", cap))
+                    .font(NBFont.dot(500, 10)).foregroundStyle(NB.compareAmber)
+                    .accessibilityIdentifier("sleep.durationCap")
+            }
+        }
+    }
+
+    private func measured(_ contributor: SleepContributor) -> String {
+        func number(_ key: String) -> Double? {
+            guard let value = score.inputs[key], value.isFinite, value >= 0, value <= 100_000 else { return nil }
+            return value
+        }
+        func duration(_ key: String) -> String {
+            number(key).map { Fmt.duration(Int($0.rounded())) } ?? Fmt.dash
+        }
+        switch contributor {
+        case .totalSleep: return duration("duration_min")
+        case .efficiency:
+            return number("efficiency_pct").map { L("%.0f%% · RECORDED", $0) } ?? L("NOT MEASURED")
+        case .restfulness:
+            return score.contributorScore(contributor).map(SleepContributor.rating) ?? L("NOT MEASURED")
+        case .rem, .deep:
+            let key = contributor.rawValue
+            guard number("\(key)_min") != nil else { return L("NOT MEASURED") }
+            return duration("\(key)_min") + (number("\(key)_pct").map { String(format: " · %.0f%%", $0) } ?? "")
+        case .latency: return L("NOT MEASURED")
+        case .timing:
+            guard let midpoint = number("midpoint_min"), midpoint < 1440 else { return L("NOT MEASURED") }
+            return L("MIDPOINT %@", SleepScoreMath.bedClock(offset: midpoint - 1080))
+        }
+    }
+}
+
+struct SleepContributorRow: View {
+    let title: String
+    let value: String
+    let score: Double?
+
+    static func tint(_ score: Double?) -> Color {
+        guard let score else { return NB.text3Prod }
+        switch score {
+        case 85...: return NB.optimal2
+        case 70..<85: return NB.violet1
+        case 60..<70: return NB.compareAmber
+        default: return NB.ember1
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title).font(NBFont.ui(500, 12)).foregroundStyle(NB.text1)
+                Spacer(minLength: 4)
+                Text(value).font(NBFont.dot(600, 12)).foregroundStyle(Self.tint(score))
+                    .multilineTextAlignment(.trailing)
+            }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(NB.barTrack)
+                    if let score, score.isFinite {
+                        Capsule().fill(Self.tint(score))
+                            .frame(width: geometry.size.width * CGFloat(min(100, max(0, score))) / 100)
+                    }
+                }
+            }
+            .frame(height: 4)
+        }
+        .frame(minHeight: 44)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(score.map { L("%@ · %.0f OUT OF 100", SleepContributor.rating($0), $0) } ?? L("NOT MEASURED"))
+    }
+}
+
+struct SleepContributorCoverage: View {
+    let score: SleepScore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L("%d OF 7 FACTORS SCORED", SleepContributor.allCases.filter { score.contributorScore($0) != nil }.count))
+                .font(NBFont.dot(600, 11)).foregroundStyle(NB.text1)
+            if score.inputs["duration_recorded"] != 1 {
+                Text(L("Duration is reported or estimated, not fully measured time asleep."))
+            }
+            if let missing = score.inputs["unstaged_minutes"], missing.isFinite, missing > 0, missing <= 2880 {
+                Text(L("%@ WITHOUT STAGES · EFFICIENCY AND RESTFULNESS EXCLUDED", Fmt.duration(Int(missing.rounded()))))
+            }
+            Text(L("Latency is unavailable. Efficiency covers recorded periods only; restfulness uses wake episodes only. Timing uses a population midpoint reference."))
+            Text(L("Only recorded sleep is included. Unrecorded naps are not added. Heart rate, HRV, oxygen and respiration remain supporting measurements, not sleep-score factors."))
+        }
+        .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+struct SleepContributorWindow: View {
+    let summary: SleepWindowSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(SleepContributor.allCases, id: \.self) { contributor in
+                let values = summary.contributorScores.compactMap { $0.contributorScore(contributor) }
+                let median = SleepScoreMath.median(values)
+                VStack(alignment: .leading, spacing: 4) {
+                    SleepContributorRow(title: contributor.title,
+                                        value: median.map { String(Int($0.rounded())) } ?? L("NOT MEASURED"),
+                                        score: median)
+                    Text(L("%d OF %d NIGHTS MEASURED", values.count, summary.slots.count))
+                        .font(NBFont.dot(500, 9)).foregroundStyle(NB.text3Prod)
+                }
+            }
+            if summary.contributorScores.count != summary.scores.count {
+                Text(L("LEGACY SCORES ARE SHOWN IN THE TREND, NOT MIXED INTO THE SEVEN FACTORS"))
+                    .font(NBFont.ui(400, 10)).foregroundStyle(NB.compareAmber)
+            }
+            Text(L("FACTOR MEDIANS ARE SEPARATE; THE TOTAL IS THE MEDIAN OF NIGHTLY SCORES"))
+                .font(NBFont.ui(400, 10)).foregroundStyle(NB.text3Prod)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -522,7 +713,9 @@ struct SleepScheduleNight: Identifiable {
             let bed = Self.eveningOffset(start)
             self.bed = bed
             self.wake = bed + end.timeIntervalSince(start) / 60
-        } else if let bed = score?.inputs["bed_offset"], let minutes = score?.inputs["duration_min"], minutes > 0 {
+        } else if let bed = score?.inputs["bed_offset"],
+                  let minutes = score?.inputs[score?.usesContributors == true ? "sleep_elapsed_minutes" : "duration_min"],
+                  bed.isFinite, minutes.isFinite, minutes > 0, minutes <= 2880 {
             self.bed = bed
             self.wake = bed + minutes
         } else {

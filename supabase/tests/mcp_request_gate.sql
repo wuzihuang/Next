@@ -77,7 +77,11 @@ select set_eq(
     where c.contype = 'f' and c.confrelid in (
       'public.daily_results'::regclass, 'public.weigh_ins'::regclass, 'public.body_composition'::regclass,
       'public.sleep_nights'::regclass, 'public.night_score'::regclass, 'public.oxygen_samples'::regclass,
-      'public.raw_samples'::regclass, 'public.meals'::regclass)$$,
+      'public.raw_samples'::regclass, 'public.meals'::regclass,
+      'public.response_samples'::regclass, 'public.balance_checks'::regclass,
+      'public.sport_session_recaps'::regclass, 'public.manual_sport_sessions'::regclass,
+      'public.sport_heart_rate_samples'::regclass, 'public.sport_energy_samples'::regclass,
+      'public.reserve_samples'::regclass, 'public.night_hrv'::regclass)$$,
   $$select unnest(array['day_fuel', 'daily_training', 'reserve_daily', 'body_composition'])$$,
   'only the settlement children and body composition hang off the readable tables');
 

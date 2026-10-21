@@ -157,4 +157,52 @@ final class CompositionWindowMathTests: XCTestCase {
         XCTAssertEqual(scale.min, 17.6, accuracy: 0.001)
         XCTAssertEqual(scale.max, 18.4, accuracy: 0.001)
     }
+
+    // 11 §03 · one cell is one week; colour is measured direction, never a meal log.
+
+    func testWeekCellsReadThePreviousMeasuredWeek() {
+        let end = UserDay.containing(day(2026, 9, 26, hour: 12))
+        let week = { (offset: Int) in end.adding(days: -offset * 7) }
+        let scans = [
+            // anchor week — nothing to compare against, so HELD, not aligned
+            scan(week(24).start.addingTimeInterval(3600), fat: 18.0, fatMass: 14.0, lean: 60.0),
+            // fat down → aligned for a recomp aim
+            scan(week(10).start.addingTimeInterval(3600), fat: 17.0, fatMass: 13.0, lean: 60.2),
+            // fat up without lean → drift
+            scan(week(4).start.addingTimeInterval(3600), fat: 18.2, fatMass: 14.3, lean: 60.2),
+            // inside the band → held
+            scan(week(1).start.addingTimeInterval(3600), fat: 18.2, fatMass: 14.4, lean: 60.15),
+        ]
+        let cells = CompositionWindowMath.weekCells(scans: scans, aim: .recomp, endingOn: end)
+        XCTAssertEqual(cells.count, 26)
+        XCTAssertEqual(cells[0].tone, .noScan)
+        XCTAssertEqual(cells[1].tone, .held)     // week 24: first anchor
+        XCTAssertEqual(cells[15].tone, .aligned) // week 10: fat −1.0 vs the anchor
+        XCTAssertEqual(cells[21].tone, .drift)   // week 4: fat +1.3, lean flat
+        XCTAssertEqual(cells[24].tone, .held)    // week 1: inside the band
+        XCTAssertEqual(cells[25].tone, .noScan)  // this week has no scan yet
+    }
+
+    func testWeekCellsSkipEmptyWeeksAndKeepTheOldBaseline() {
+        let end = UserDay.containing(day(2026, 9, 26, hour: 12))
+        let scans = [
+            scan(end.adding(days: -170).start.addingTimeInterval(3600), fat: 18.0, fatMass: 14.0, lean: 60.0),
+            scan(end.adding(days: -10).start.addingTimeInterval(3600), fat: 17.5, fatMass: 13.3, lean: 60.1),
+        ]
+        let cells = CompositionWindowMath.weekCells(scans: scans, aim: .cut, endingOn: end)
+        XCTAssertEqual(cells[25].tone, .noScan)
+        XCTAssertEqual(cells[24].tone, .aligned) // compared across ~24 empty weeks
+    }
+
+    func testClassifyFollowsTheAim() {
+        // fat up with lean up is BULK: drift for cut/recomp, aligned for bulk
+        XCTAssertEqual(CompositionWindowMath.classify(fatDelta: 0.3, leanDelta: 0.2, aim: .bulk), .aligned)
+        XCTAssertEqual(CompositionWindowMath.classify(fatDelta: 0.3, leanDelta: 0.2, aim: .cut), .drift)
+        XCTAssertEqual(CompositionWindowMath.classify(fatDelta: 0.3, leanDelta: 0.2, aim: .recomp), .drift)
+        // lean down without fat down is drift for every aim
+        XCTAssertEqual(CompositionWindowMath.classify(fatDelta: 0, leanDelta: -0.2, aim: .bulk), .drift)
+        XCTAssertEqual(CompositionWindowMath.classify(fatDelta: 0, leanDelta: -0.2, aim: .recomp), .drift)
+        // inside the band, or nothing to compare, is held — never aligned
+        XCTAssertEqual(CompositionWindowMath.classify(fatDelta: nil, leanDelta: nil, aim: .cut), .held)
+    }
 }

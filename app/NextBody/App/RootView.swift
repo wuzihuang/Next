@@ -339,8 +339,6 @@ enum SheetChrome {
         case .goal, .notifications, .units: return 480
         // 9-0 A·S8 · one sentence and one key.
         case .wearSwitch:                   return 380
-        // The correction: a sentence and the wheel.
-        case .wearCorrect:                  return 560
         default:                            return maxHeight
         }
     }

@@ -59,4 +59,19 @@ final class SportRecapArchiveTests: XCTestCase {
         XCTAssertEqual(try local.operations(account: "a", kind: SportRecapArchive.kind).count, 1)
     }
 
+    func testEnergyCoverageRoundTripsWithoutInventingCoverageForLegacyRecaps() throws {
+        let legacy = recap(owner: "a")
+        let decoded = try JSONDecoder().decode(SportSessionRecap.self,
+            from: JSONEncoder().encode(legacy))
+        XCTAssertNil(decoded.energyObservedSeconds)
+        var current = legacy
+        current.energyObservedSeconds = 7.5
+        XCTAssertEqual(try JSONDecoder().decode(SportSessionRecap.self,
+            from: JSONEncoder().encode(current)).energyObservedSeconds, 7.5)
+        for seconds in [Double.nan, .infinity, -1, 86_401] {
+            current.energyObservedSeconds = seconds
+            XCTAssertFalse(current.isValid)
+        }
+    }
+
 }

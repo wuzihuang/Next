@@ -4,9 +4,8 @@ import UIKit
 /// The body-scan figure as a live point cloud. The points are sampled once from the `HomeBody`
 /// artwork by brightness; on screen they gather, breathe, shimmer and get swept by a scan line.
 struct HomeBodyParticles: View {
-    var head: Double
-    var chest: Double
-    var gut: Double
+    /// One per `HomeV2Model.Zone`, in `allCases` order: head, heart, gut, legs.
+    var spots: [BodyCloud.Spot]
     /// Only the page on screen animates.
     var active: Bool
     var lens: BodyLens = .fit
@@ -30,7 +29,7 @@ struct HomeBodyParticles: View {
                     let frame = BodyCloud.Frame(now: timeline.date,
                                                 gatheredAt: reduceMotion ? .distantPast : gatheredAt,
                                                 pulsedAt: pulsedAt,
-                                                tints: [head, chest, gut],
+                                                spots: spots,
                                                 lens: lens,
                                                 still: reduceMotion)
                     cloud.draw(in: &context, size: size, frame: frame)
@@ -83,8 +82,9 @@ extension HomeV2Model.Zone {
     var anchor: CGPoint {
         switch self {
         case .head: CGPoint(x: 0.5, y: 0.115)
-        case .chest: CGPoint(x: 0.5, y: 0.285)
+        case .heart: CGPoint(x: 0.56, y: 0.265)
         case .gut: CGPoint(x: 0.5, y: 0.43)
+        case .legs: CGPoint(x: 0.45, y: 0.72)
         }
     }
 
@@ -92,8 +92,9 @@ extension HomeV2Model.Zone {
     var closeUp: BodyLens {
         switch self {
         case .head: BodyLens(height: 980, focus: anchor, target: CGPoint(x: 0.74, y: 0.34))
-        case .chest: BodyLens(height: 760, focus: anchor, target: CGPoint(x: 0.74, y: 0.34))
+        case .heart: BodyLens(height: 760, focus: anchor, target: CGPoint(x: 0.68, y: 0.34))
         case .gut: BodyLens(height: 800, focus: anchor, target: CGPoint(x: 0.70, y: 0.30))
+        case .legs: BodyLens(height: 900, focus: anchor, target: CGPoint(x: 0.72, y: 0.42))
         }
     }
 }
@@ -126,13 +127,19 @@ struct BodyCloud: Sendable {
         var scatterY: CGFloat
     }
 
+    /// One zone's light: how hot it burns and in which colour. Intensity 0 leaves the motes white.
+    struct Spot: Sendable {
+        var intensity: Double
+        var tint: Color
+    }
+
     struct Frame {
         var now: Date
         /// nil: the page has not been shown yet.
         var gatheredAt: Date?
         var pulsedAt: Date
-        /// Head, chest, gut. 0 when the domain has no data.
-        var tints: [Double]
+        /// In `HomeV2Model.Zone.allCases` order. A spot with intensity 0 tints nothing.
+        var spots: [Spot]
         var lens: BodyLens
         var still: Bool
     }
@@ -149,12 +156,14 @@ struct BodyCloud: Sendable {
     static let dense = BodyCloud.sample(named: "HomeBody", cols: 260)
 
     private static let levels = 6
-    private static let palette: [Color] = [Color(hex: 0xBDF5F0), Color(hex: 0xF6C56A), NB.lime1, Color(hex: 0xE25B4A)]
-    /// Zones in artwork units: head, chest, gut. Same order as `Frame.tints`. Narrow enough
-    /// that the arms and hands beside the torso stay untinted.
-    private static let zones: [CGRect] = [CGRect(x: 0.36, y: 0, width: 0.28, height: 0.19),
-                                          CGRect(x: 0.30, y: 0.19, width: 0.40, height: 0.18),
-                                          CGRect(x: 0.33, y: 0.37, width: 0.34, height: 0.15)]
+    /// Tone zero: the untinted mote colour, and the scan line.
+    private static let base = Color(hex: 0xBDF5F0)
+    /// Zones in artwork units, in `HomeV2Model.Zone.allCases` order: head, heart, gut, legs.
+    /// Narrow enough that the arms and hands beside the torso stay untinted.
+    private static let zones: [CGRect] = [CGRect(x: 0.36, y: 0.00, width: 0.28, height: 0.19),
+                                          CGRect(x: 0.48, y: 0.20, width: 0.20, height: 0.14),
+                                          CGRect(x: 0.33, y: 0.37, width: 0.34, height: 0.15),
+                                          CGRect(x: 0.34, y: 0.52, width: 0.32, height: 0.46)]
 
     static func sample(named name: String, cols: Int) -> BodyCloud {
         guard let image = UIImage(named: name)?.cgImage else {
@@ -217,7 +226,7 @@ struct BodyCloud: Sendable {
             ? nil
             : top + (CGFloat((scanClock / 5.2).truncatingRemainder(dividingBy: 1)) * 1.3 - 0.15) * span
 
-        var paths = [Path](repeating: Path(), count: Self.palette.count * levels)
+        var paths = [Path](repeating: Path(), count: (1 + frame.spots.count) * levels)
         var flares = Path()
 
         func put(_ x: CGFloat, _ y: CGFloat, side: CGFloat, alpha: CGFloat, tone: Int) {
@@ -264,7 +273,8 @@ struct BodyCloud: Sendable {
 
             var tone = 0
             if let zone = Self.zones.firstIndex(where: { $0.contains(CGPoint(x: mote.x, y: mote.y)) }),
-               (mote.seed * 37.7).truncatingRemainder(dividingBy: 1) < CGFloat(frame.tints[zone]) * 0.5 {
+               zone < frame.spots.count,
+               (mote.seed * 37.7).truncatingRemainder(dividingBy: 1) < CGFloat(frame.spots[zone].intensity) * 0.5 {
                 tone = zone + 1
             }
             put(px, py, side: side, alpha: alpha, tone: tone)
@@ -293,18 +303,19 @@ struct BodyCloud: Sendable {
             let left = max(0, box.minX)
             let right = min(size.width, box.maxX)
             context.fill(Path(CGRect(x: left, y: lineY - 0.5, width: right - left, height: 1)),
-                         with: .linearGradient(Gradient(colors: [Self.palette[0].opacity(0),
-                                                                 Self.palette[0].opacity(0.5 * settle),
-                                                                 Self.palette[0].opacity(0)]),
+                         with: .linearGradient(Gradient(colors: [Self.base.opacity(0),
+                                                                 Self.base.opacity(0.5 * settle),
+                                                                 Self.base.opacity(0)]),
                                                startPoint: CGPoint(x: left, y: lineY),
                                                endPoint: CGPoint(x: right, y: lineY)))
         }
-        for tone in Self.palette.indices {
+        for tone in 0...frame.spots.count {
+            let tint = tone == 0 ? Self.base : frame.spots[tone - 1].tint
             for level in 0..<levels {
                 let path = paths[tone * levels + level]
                 guard !path.isEmpty else { continue }
                 let opacity = (Double(level) + 0.5) / Double(levels)
-                context.fill(path, with: .color(Self.palette[tone].opacity(opacity)))
+                context.fill(path, with: .color(tint.opacity(opacity)))
             }
         }
         context.fill(flares, with: .color(NB.white.opacity(0.85)))
@@ -321,7 +332,7 @@ struct BodyCloud: Sendable {
             guard bounds.contains(point) else { continue }
             halo.addRect(CGRect(x: point.x - side / 2, y: point.y - side / 2, width: side, height: side))
         }
-        context.fill(halo, with: .color(Self.palette[0].opacity(0.32)))
+        context.fill(halo, with: .color(Self.base.opacity(0.32)))
     }
 
     private static func bump(_ value: CGFloat, _ low: CGFloat, _ high: CGFloat) -> CGFloat {

@@ -4,9 +4,21 @@ import os
 /// Fixed workflow segments, not an estimate of remaining time. SDK dump completion is
 /// only one segment; only the shared refresh's terminal success can publish 100%.
 struct BandSyncProgress: Equatable, Sendable {
+    enum Destination: String, Sendable {
+        case app = "APP", cloud = "CLOUD"
+    }
+
     enum Stage: String, Sendable {
         case searching, connecting, verifying, identity, battery, capabilities
         case reading, saving, updating, finishing, complete, stopped
+
+        var destination: Destination? {
+            switch self {
+            case .saving, .updating: .cloud
+            case .complete, .stopped: nil
+            default: .app
+            }
+        }
 
         var buttonLabel: String {
             switch self {
@@ -29,9 +41,9 @@ struct BandSyncProgress: Equatable, Sendable {
             case .identity: "READING DEVICE INFO"
             case .battery: "READING BATTERY"
             case .capabilities: "PREPARING DEVICE DATA"
-            case .reading: "READING THE BAND"
-            case .saving: "SAVING READINGS"
-            case .updating: "UPDATING RESULTS"
+            case .reading: "SYNCING TO APP"
+            case .saving: "SYNCING TO CLOUD"
+            case .updating: "UPDATING CLOUD RESULTS"
             case .finishing: "FINISHING SYNC"
             case .complete: "SYNC COMPLETE"
             case .stopped: "SYNC INCOMPLETE"

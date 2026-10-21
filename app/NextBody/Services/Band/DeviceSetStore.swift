@@ -109,9 +109,6 @@ final class DeviceSetStore: ObservableObject {
     func isFlat(_ slot: HoopSlot) -> Bool { slots[slot]?.isFlat ?? false }
     func snapshot(_ slot: HoopSlot) -> SlotSnapshot? { slots[slot] }
     var wearingSince: Date? { timeline.wearingSince() }
-    /// True when the start came from the band's own evidence rather than a time the
-    /// wearer pinned — the `Counted from …` line says so, and offers to change it.
-    var wearingInferred: Bool { timeline.current()?.source != "manual" }
 
     /// The empty slot the next activation fills, if the set has room.
     var openSlot: HoopSlot? {

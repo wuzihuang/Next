@@ -3,13 +3,11 @@ import Foundation
 /// The home-screen widgets' numbers, and the rules that decide what they may print.
 ///
 /// The glance is a copy of the facts each size is allowed to draw — body battery
-/// (0–100), training load (0–21), EATEN, the band's own charge, the last
-/// heart / stress tick, last night's sleep score, today's ACTIVE / steps /
-/// metres, the latest RESPONSE point, and last night's HRV / SpO2. Unlogged
-/// intake is `nil`, never `0`. FASTED is `0`. After ninety minutes the live
-/// body numbers withdraw; an unlogged EATEN stays "——" because that is
-/// still the truth. Last night's score, HRV, SpO2 and the band pip do not
-/// withdraw with them.
+/// (0–100), training load (0–21), last night's SLEEP, the band's own charge, the
+/// last heart / stress tick, today's ACTIVE / steps / metres, and last night's
+/// resting pulse / HRV / SpO2. After ninety minutes the live body numbers
+/// withdraw. Last night's score, resting pulse, HRV, SpO2 and the band pip do
+/// not withdraw with them.
 ///
 /// Body battery is the exception: it keeps `TickFreshness`'s three states so
 /// the widget and the app agree about the same tick. Ninety minutes only dims
@@ -28,8 +26,6 @@ enum WidgetFaceMath {
         var numbersAt: Date
         var battery: Int?
         var load: Double?
-        var eaten: Double?
-        var target: Double?
         var signedIn: Bool
         var bandPercent: Int?
         var bandCharge: String?
@@ -40,7 +36,7 @@ enum WidgetFaceMath {
         var activeKcal: Double?
         var steps: Int?
         var distanceM: Int?
-        var responsePoint: Double?
+        var nightRhr: Int?
         var nightHrv: Int?
         var spo2: Int?
         /// Independent clock: a meal/heart update cannot renew an old reserve score.
@@ -51,8 +47,6 @@ enum WidgetFaceMath {
             numbersAt: .distantPast,
             battery: nil,
             load: nil,
-            eaten: nil,
-            target: nil,
             signedIn: false,
             bandPercent: nil,
             bandCharge: nil,
@@ -63,7 +57,7 @@ enum WidgetFaceMath {
             activeKcal: nil,
             steps: nil,
             distanceM: nil,
-            responsePoint: nil,
+            nightRhr: nil,
             nightHrv: nil,
             spo2: nil)
 
@@ -72,8 +66,6 @@ enum WidgetFaceMath {
             numbersAt: Date(timeIntervalSince1970: 1_778_086_800),
             battery: 72,
             load: 12.4,
-            eaten: 1_240,
-            target: 1_900,
             signedIn: true,
             bandPercent: 82,
             bandCharge: "unplugged",
@@ -84,7 +76,7 @@ enum WidgetFaceMath {
             activeKcal: 320,
             steps: 8_432,
             distanceM: 6_200,
-            responsePoint: 108,
+            nightRhr: 52,
             nightHrv: 54,
             spo2: 96,
             batteryObservedAt: Date(timeIntervalSince1970: 1_778_086_800))
@@ -97,25 +89,25 @@ enum WidgetFaceMath {
         var batteryDim: Bool = false
         var loadText: String
         var loadProgress: Double
-        var eatenText: String
-        var eatenProgress: Double
         var bandText: String
         var bandProgress: Double
         var bandLit: Bool
         var heartText: String
         var stressText: String
         var sleepText: String
+        var sleepProgress: Double
+        /// Last night's `h:mm` — the large face's SLEPT cell, the duration the
+        /// score ring does not carry.
+        var sleepClockText: String
         var activeText: String
         var stepsText: String
         var distanceText: String
-        var responseText: String
+        var rhrText: String
         var hrvText: String
         var spo2Text: String
         var stale: Bool
         /// `HH:mm` of `numbersAt` when the live numbers have been withdrawn.
         var clock: String?
-        /// `HH:mm` of `numbersAt` while signed in — the large face prints it as TIME.
-        var stamp: String?
     }
 
     static func isFresh(_ glance: Glance, now: Date) -> Bool {
@@ -160,6 +152,11 @@ enum WidgetFaceMath {
     /// Score first. Duration only when the night has not settled — same hero as page two.
     static func sleepText(score: Int?, minutes: Int?) -> String {
         if let score { return String(score) }
+        return nightClock(minutes)
+    }
+
+    /// The night's `h:mm`, regardless of whether a score landed.
+    static func nightClock(_ minutes: Int?) -> String {
         guard let minutes, minutes > 0 else { return dash }
         return String(format: "%d:%02d", minutes / 60, minutes % 60)
     }
@@ -167,14 +164,6 @@ enum WidgetFaceMath {
     static func kmText(_ metres: Int?) -> String {
         guard let metres else { return dash }
         return String(format: "%.1f", Double(metres) / 1000)
-    }
-
-    static func responseText(_ value: Double?) -> String {
-        guard let value else { return dash }
-        let rounded = value.rounded()
-        return abs(value - rounded) < 0.05
-            ? String(Int(rounded))
-            : String(format: "%.1f", value)
     }
 
     static func clockText(_ date: Date) -> String {
@@ -211,9 +200,6 @@ enum WidgetFaceMath {
         let hideBattery = signedOut
             || (batteryAge.map { $0 < 0 || $0 >= goneAfter } ?? hideLive)
         let dimBattery = !hideBattery && (batteryAge.map { $0 >= staleAfter } ?? false)
-        let eatenKnown = glance.eaten != nil
-        let eatenHidden = hideLive && eatenKnown
-        let eaten = eatenHidden ? nil : glance.eaten
         return TodayReadout(
             batteryText: hideBattery ? dash : batteryText(glance.battery),
             batteryProgress: hideBattery ? 0 : progress(
@@ -221,10 +207,6 @@ enum WidgetFaceMath {
             batteryDim: dimBattery,
             loadText: hideLive ? dash : loadText(glance.load),
             loadProgress: hideLive ? 0 : progress(value: glance.load, ceiling: loadCeiling),
-            eatenText: kcalText(eaten),
-            eatenProgress: hideLive
-                ? 0
-                : FuelCardMath.readout(eaten: glance.eaten, target: glance.target).fill,
             bandText: signedOut ? dash : percentText(glance.bandPercent),
             bandProgress: signedOut
                 ? 0
@@ -234,17 +216,17 @@ enum WidgetFaceMath {
             stressText: hideLive ? dash : countText(glance.stress),
             sleepText: signedOut ? dash : sleepText(
                 score: glance.sleepScore, minutes: glance.sleepMinutes),
+            sleepProgress: signedOut ? 0 : progress(
+                value: glance.sleepScore.map(Double.init), ceiling: batteryCeiling),
+            sleepClockText: signedOut ? dash : nightClock(glance.sleepMinutes),
             activeText: hideLive ? dash : kcalText(glance.activeKcal),
             stepsText: hideLive ? dash : groupedText(glance.steps),
             distanceText: hideLive ? dash : kmText(glance.distanceM),
-            responseText: hideLive ? dash : responseText(glance.responsePoint),
+            rhrText: signedOut ? dash : countText(glance.nightRhr),
             hrvText: signedOut ? dash : countText(glance.nightHrv),
             spo2Text: signedOut ? dash : countText(glance.spo2),
             stale: stale,
-            clock: stale ? clockText(glance.numbersAt) : nil,
-            stamp: signedOut || glance.numbersAt == .distantPast
-                ? nil
-                : clockText(glance.numbersAt))
+            clock: stale ? clockText(glance.numbersAt) : nil)
     }
 
     private static let kcalFormatter: NumberFormatter = {

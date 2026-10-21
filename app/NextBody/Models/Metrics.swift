@@ -227,7 +227,26 @@ struct SleepScore: Codable, Hashable {
     var version: String = ""
     var computedAt: Date? = nil
 
-    var isCalibrating: Bool { personalWeight < 1 }
+    var isCalibrating: Bool { !usesContributors && personalWeight < 1 }
+
+    var usesContributors: Bool { inputs["contributor_policy"] == 3 }
+
+    func contributorScore(_ contributor: SleepContributor) -> Double? {
+        guard usesContributors, let value = inputs["score_\(contributor.rawValue)"],
+              value.isFinite, (0...100).contains(value) else { return nil }
+        return value
+    }
+
+    func contributorWeight(_ contributor: SleepContributor) -> Double? {
+        let present = SleepContributor.allCases.compactMap { item -> (SleepContributor, Double)? in
+            guard contributorScore(item) != nil, let weight = inputs["weight_\(item.rawValue)"],
+                  weight.isFinite, weight > 0 else { return nil }
+            return (item, weight)
+        }
+        let total = present.reduce(0) { $0 + $1.1 }
+        guard total > 0, let weight = present.first(where: { $0.0 == contributor })?.1 else { return nil }
+        return weight / total * 100
+    }
 
     func value(of group: SleepScoreGroup) -> Int? {
         switch group {
@@ -275,6 +294,44 @@ enum SleepScoreGroup: String, CaseIterable, Hashable {
         case .architecture: ["deep_pct", "rem_pct", "wakes"]
         case .recovery:     ["hrv_ms", "rhr", "spo2_min", "respiration"]
         case .regularity:   ["bed_offset"]
+        }
+    }
+}
+
+enum SleepContributor: String, CaseIterable, Hashable {
+    case totalSleep = "total_sleep"
+    case efficiency, restfulness, rem, deep, latency, timing
+
+    var title: String {
+        switch self {
+        case .totalSleep: L("TOTAL SLEEP")
+        case .efficiency: L("SLEEP EFFICIENCY")
+        case .restfulness: L("RESTFULNESS")
+        case .rem: L("REM SLEEP")
+        case .deep: L("DEEP SLEEP")
+        case .latency: L("SLEEP LATENCY")
+        case .timing: L("SLEEP TIMING")
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .totalSleep: L("Time asleep, excluding recorded wakefulness. Most adults need 7–9 hours. HOOP gives full duration marks from 7.5 hours and limits short-night scores.")
+        case .efficiency: L("Time asleep divided by the fully staged recording. 85% meets the reference. This is recorded-period efficiency, not time-in-bed efficiency.")
+        case .restfulness: L("Based on recorded awake minutes and wake episodes. Movement and out-of-bed events are not measured here.")
+        case .rem: L("Scored against 90 minutes of REM; the percentage is context, not a substitute for enough sleep. An absent REM channel stays unmeasured.")
+        case .deep: L("Scored against 60 minutes of deep sleep. Adults commonly spend around 15–20% of sleep in this stage; needs vary with age.")
+        case .latency: L("Time from trying to sleep to falling asleep. The band does not record this. Time to first deep sleep is not latency. This factor is excluded.")
+        case .timing: L("The longest recorded sleep period's midpoint is compared with 00:00–03:00 local time. This is a population reference, not a measured personal chronotype.")
+        }
+    }
+
+    static func rating(_ score: Double) -> String {
+        switch score {
+        case 85...: L("OPTIMAL")
+        case 70..<85: L("GOOD")
+        case 60..<70: L("FAIR")
+        default: L("PAY ATTENTION")
         }
     }
 }

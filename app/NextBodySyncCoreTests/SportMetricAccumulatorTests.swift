@@ -4,7 +4,7 @@ import XCTest
 final class SportMetricAccumulatorTests: XCTestCase {
     private let epoch = Date(timeIntervalSince1970: 1_000)
     private var empty: SportMetricAccumulator {
-        SportMetricAccumulator(weightKg: 70, age: 34, male: true)
+        SportMetricAccumulator(weightKg: 70, age: 34, male: true, sportMode: 3)
     }
     private func report(_ state: SportMetricAccumulator, _ seconds: Double,
                         hr: Int? = 120, kcal: Double? = nil, run: Int? = 1) -> SportMetricAccumulator {
@@ -140,21 +140,22 @@ final class SportMetricAccumulatorTests: XCTestCase {
         }
     }
 
-    func testValidatedProfileUsesExistingKeytelEquationAndTrapezoid() {
+    func testAerobicEstimateSubtractsRestingEnergyBeforeIntegration() {
         let state = report(report(empty, 0, hr: 100), 10, hr: 150)
         let maleHeart = -55.0969 + 0.6309 * 125.0
         let averageRate = (maleHeart + 0.1988 * 70.0 + 0.2017 * 34.0) / 4.184
-        XCTAssertEqual(state.kcal, averageRate * 10 / 60, accuracy: 0.000001)
-        let female = SportMetricAccumulator(weightKg: 60, age: 30, male: false)
+        XCTAssertEqual(state.kcal, (averageRate - 3.5 * 70 / 200) * 10 / 60, accuracy: 0.000001)
+        let female = SportMetricAccumulator(weightKg: 60, age: 30, male: false, sportMode: 8)
         let femaleHeart = -20.4022 + 0.4472 * 120.0
         let expected = (femaleHeart - 0.1263 * 60.0 + 0.0740 * 30.0) / 4.184
-        XCTAssertEqual(report(report(female, 0), 10).kcal, expected * 10 / 60, accuracy: 0.000001)
+        XCTAssertEqual(report(report(female, 0), 10).kcal,
+                       (expected - 3.5 * 60 / 200) * 10 / 60, accuracy: 0.000001)
         for weight in [Double.nan, .infinity, 0, -70] {
-            let invalid = SportMetricAccumulator(weightKg: weight, age: 34, male: true)
+            let invalid = SportMetricAccumulator(weightKg: weight, age: 34, male: true, sportMode: 3)
             XCTAssertEqual(report(report(invalid, 0), 10).kcal, 0)
         }
         for age in [nil, 0, -1] as [Int?] {
-            let invalid = SportMetricAccumulator(weightKg: 70, age: age, male: true)
+            let invalid = SportMetricAccumulator(weightKg: 70, age: age, male: true, sportMode: 3)
             XCTAssertEqual(report(report(invalid, 0), 10).kcal, 0)
         }
     }
@@ -176,5 +177,102 @@ final class SportMetricAccumulatorTests: XCTestCase {
 
         XCTAssertGreaterThan(state.kcal, 300)
         XCTAssertLessThan(state.kcal, 500)
+    }
+
+    func testLowOrOutOfRangeHeartRateIsNotCalorieEvidenceOrMeasuredZero() {
+        for heart in [1, 50, 80, 89, 151, 220, 255] {
+            let state = report(report(empty, 0, hr: heart), 10, hr: heart)
+            XCTAssertEqual(state.heartRate, heart)
+            XCTAssertEqual(state.kcal, 0)
+            XCTAssertEqual(state.estimatedSeconds, 0)
+            XCTAssertFalse(state.hasEnergyEvidence)
+        }
+    }
+
+    func testUnsupportedActivityDoesNotBorrowAnAerobicEquation() {
+        for mode in [nil, 0, 13, 16, 24, 32, 34, 65535] as [Int?] {
+            let start = SportMetricAccumulator(weightKg: 70, age: 34, male: true, sportMode: mode)
+            let state = report(report(start, 0), 10)
+            XCTAssertFalse(start.estimationAvailable)
+            XCTAssertFalse(state.hasEnergyEvidence)
+            XCTAssertEqual(state.heartRate, 120)
+        }
+    }
+
+    func testAerobicModelDoesNotExtrapolateOutsideItsStudyPopulation() {
+        for (weight, age) in [(46.0, 34), (121.0, 34), (70.0, 17), (70.0, 46)] {
+            let start = SportMetricAccumulator(weightKg: weight, age: age, male: true, sportMode: 3)
+            XCTAssertFalse(start.estimationAvailable)
+            XCTAssertFalse(report(report(start, 0), 10).hasEnergyEvidence)
+        }
+        let strength = SportMetricAccumulator(weightKg: 130, age: 60, male: true, sportMode: 25)
+        XCTAssertTrue(strength.estimationAvailable)
+        XCTAssertTrue(report(report(strength, 0, hr: nil), 10, hr: nil).hasEnergyEvidence)
+    }
+
+    func testRejectedHeartRateBreaksEnergyCoverageWithoutErasingAcceptedEnergy() {
+        let valid = report(report(empty, 0), 10)
+        let rejected = report(valid, 11, hr: 80)
+        let resumed = report(rejected, 12)
+        XCTAssertEqual(resumed.kcal, valid.kcal)
+        XCTAssertEqual(resumed.estimatedSeconds, 10)
+        XCTAssertGreaterThan(report(resumed, 13).kcal, valid.kcal)
+    }
+
+    func testDuplicateTimestampCannotChangeTheNextIntervalOrCountAnotherBeat() {
+        let first = report(empty, 0, hr: 100)
+        let duplicate = report(first, 0, hr: 150)
+        XCTAssertEqual(duplicate.sampleCount, first.sampleCount)
+        XCTAssertEqual(duplicate.heartRate, first.heartRate)
+        XCTAssertEqual(report(duplicate, 10, hr: 100).kcal,
+                       report(first, 10, hr: 100).kcal, accuracy: 0.000001)
+    }
+
+    func testOutOfOrderReportCannotRollBackACumulativeCounter() {
+        let first = report(empty, 10, kcal: 50)
+        let stale = report(first, 9, kcal: 1)
+        XCTAssertEqual(stale.kcal, 50)
+        XCTAssertNil(stale.calorieCorrection)
+        XCTAssertEqual(stale.sampleCount, 1)
+    }
+
+    func testStrengthEnergyDoesNotChangeWithHeartRateSexOrAge() {
+        for mode in [25, 29, 46, 47] {
+            let low = SportMetricAccumulator(weightKg: 70, age: nil, male: false, sportMode: mode)
+            let high = SportMetricAccumulator(weightKg: 70, age: 70, male: true, sportMode: mode)
+            XCTAssertEqual(report(report(low, 0, hr: nil), 10, hr: nil).kcal,
+                           report(report(high, 0, hr: 200), 10, hr: 200).kcal)
+        }
+    }
+
+    func testUnsupportedEstimateCanStillUseVerifiedNativeEnergy() {
+        let start = SportMetricAccumulator(weightKg: nil, age: nil, male: false, sportMode: 16)
+        let state = report(start, 0, kcal: 0)
+        XCTAssertTrue(state.hasEnergyEvidence)
+        XCTAssertEqual(report(state, 1, kcal: 12).kcal, 12)
+    }
+
+    func testConstantRateDoesNotDependOnCallbackFrequency() {
+        let expected = report(report(empty, 0), 10)
+        var everySecond = empty
+        for second in 0...10 { everySecond = report(everySecond, Double(second)) }
+        XCTAssertEqual(everySecond.kcal, expected.kcal, accuracy: 0.000001)
+        XCTAssertEqual(everySecond.estimatedSeconds, expected.estimatedSeconds)
+    }
+
+    func testInterruptedStreamRetainsTimestampHighWaterMark() {
+        let state = report(empty, 10).interrupted()
+        XCTAssertFalse(state.canAccept(at: epoch.addingTimeInterval(10)))
+        XCTAssertFalse(state.canAccept(at: epoch.addingTimeInterval(9)))
+        XCTAssertFalse(state.canAccept(at: Date(timeIntervalSince1970: .nan)))
+        XCTAssertTrue(state.canAccept(at: epoch.addingTimeInterval(11)))
+    }
+
+    func testNonpositiveAerobicPredictionIsUnknownRatherThanMeasuredZero() {
+        let start = SportMetricAccumulator(weightKg: 120, age: 18, male: false, sportMode: 8)
+        let state = report(report(start, 0, hr: 90), 10, hr: 90)
+        XCTAssertFalse(state.hasEnergyEvidence)
+        XCTAssertEqual(state.estimatedSeconds, 0)
+        XCTAssertEqual(state.heartRate, 90)
     }
 }

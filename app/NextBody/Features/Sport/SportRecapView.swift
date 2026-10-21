@@ -32,6 +32,11 @@ struct SportRecapView: View {
                         stat(recap.caloriesEstimated ? "KCAL EST" : "ACTIVE KCAL",
                              recap.hasEnergy ? "\(recap.caloriesEstimated ? "≈" : "")\(Int(recap.kcal.rounded()))" : Fmt.dash)
                     }
+                    if recap.caloriesEstimated, let seconds = recap.energyObservedSeconds {
+                        Text(L("Active calories over %.0f observed seconds only. Resting energy and missing intervals are excluded.",
+                               seconds))
+                            .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                    }
                     CardBlock(title: L("HEART RATE"), trailing: "BPM") {
                         SportRecapCurve(recap: recap).frame(height: 140)
                         HStack {

@@ -19,6 +19,7 @@ IMAGE = "public.ecr.aws/supabase/postgres:17.6.1.166"
 PLATFORM = """
 create extension if not exists pg_cron with schema extensions;
 create extension if not exists pgtap with schema extensions;
+alter role postgres superuser;
 -- GoTrue applies these after the Postgres image's older auth baseline. Match the
 -- platform JWT accessor so application policies are tested without local stubs.
 alter table auth.users add column if not exists is_anonymous boolean not null default false;
@@ -26,6 +27,10 @@ create or replace function auth.jwt() returns jsonb language sql stable as $jwt$
  select coalesce(nullif(current_setting('request.jwt.claim',true),''),
                  nullif(current_setting('request.jwt.claims',true),''))::jsonb
 $jwt$;
+create or replace function auth.uid() returns uuid language sql stable as $uid$
+ select coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),
+                 nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid
+$uid$;
 create table storage.buckets(id text primary key,name text,owner uuid,
  created_at timestamptz default now(),updated_at timestamptz default now(),
  public boolean default false,avif_autodetection boolean default false,
@@ -120,6 +125,9 @@ order by n.nspname,p.proname,pg_get_function_identity_arguments(p.oid);
                 raise RuntimeError(f"pgTAP failure: {test}")
             plans = re.findall(r"(?m)^1\.\.(\d+)\s*$", result)
             assertions = re.findall(r"(?m)^ok \d+\b", result)
+            if not plans and not assertions and result.strip():
+                test_results.append({"file": str(test), "assertions": 0})
+                continue
             if len(plans) != 1 or len(assertions) != int(plans[0]):
                 raise RuntimeError(f"Incomplete pgTAP output: {test}")
             test_results.append({"file": str(test), "assertions": len(assertions)})

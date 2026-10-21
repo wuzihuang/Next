@@ -5,7 +5,7 @@ import SwiftUI
 struct HomeTimelineBoard: View {
     let events: [HomeV2Model.TimelineItem]
     let earlier: Bool
-    let onEarlier: () -> Void
+    let onHistory: () -> Void
     let onWorkout: () -> Void
     let onOpen: (HomeV2Model.TimelineItem) -> Void
     let onClose: () -> Void
@@ -18,10 +18,18 @@ struct HomeTimelineBoard: View {
     @State private var pullAtTouch: CGFloat = 1
 
     private var rows: [HomeV2Model.TimelineItem] {
+        #if DEBUG
         if ProcessInfo.processInfo.environment["NB_DEBUG_HOME_BOARD"] == "timeline" {
-            return Self.board
+            let day = UserDay.containing(Date())
+            return HomeTimeline.visible(Self.board, on: day, earlier: earlier,
+                                        now: day.end.addingTimeInterval(-1))
         }
+        #endif
         return events
+    }
+
+    private var days: [UserDay] {
+        Array(Set(rows.map(\.day))).sorted(by: >)
     }
 
     var body: some View {
@@ -30,7 +38,7 @@ struct HomeTimelineBoard: View {
                 .padding(.top, ScreenMetrics.safeArea.top + 2)
             HStack(alignment: .center) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(L("Today"))
+                    Text(earlier ? L("Past 7 days") : L("Today"))
                         .font(.custom("InterTight-Bold", size: 30))
                         .tracking(-0.02 * 30)
                         .foregroundStyle(Color.white)
@@ -60,30 +68,45 @@ struct HomeTimelineBoard: View {
             .contentShape(Rectangle())
             .gesture(headerPull)
             if rows.isEmpty {
-                Button(action: onWorkout) {
-                    Text(L("Start your workout"))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("No events yet"))
+                        .font(.custom("InterTight-SemiBold", size: 17))
+                        .foregroundStyle(Color.white)
+                    Text(L("Meals, workouts, sleep, weigh-ins and measurements appear here."))
                         .font(.custom("Jost-Regular", size: 15))
                         .foregroundStyle(Color.white.opacity(0.72))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 6)
                 }
-                .buttonStyle(HotZoneTap(pressedScale: 1))
                 .padding(.horizontal, 20)
-                .padding(.bottom, 10)
+                .padding(.vertical, 18)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, event in
-                        TimelineRailRow(event: event, continues: index < rows.count - 1, onOpen: { onOpen(event) })
+                    ForEach(days) { day in
+                        if earlier {
+                            Text(Fmt.displayDate(day.start, format: "EEE d MMM").uppercased())
+                                .font(.custom("Jost-Medium", size: 12))
+                                .tracking(0.08 * 12)
+                                .foregroundStyle(Color.white.opacity(0.48))
+                                .padding(.top, 8)
+                                .padding(.bottom, 16)
+                                .accessibilityIdentifier("TIMELINE_DAY_\(day.key)")
+                        }
+                        let entries = rows.filter { $0.day == day }
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, event in
+                            TimelineRailRow(event: event, continues: index < entries.count - 1, onOpen: { onOpen(event) })
+                        }
                     }
-                    Button(action: onEarlier) {
-                        Text(earlier ? L("Today only") : L("Past 7 days ↓"))
+                    Button(action: onHistory) {
+                        Text(L("View history →"))
                             .font(.custom("Jost-Regular", size: 14))
                             .foregroundStyle(Color.white.opacity(0.55))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 18)
                     }
-                    .buttonStyle(HotZoneTap(pressedScale: 1))
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("TIMELINE_RANGE")
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, ScreenMetrics.safeArea.bottom + 12)
@@ -92,6 +115,7 @@ struct HomeTimelineBoard: View {
                         .frame(width: 0, height: 0)
                 }
             }
+            .accessibilityIdentifier("TIMELINE_LIST")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(NB.carbon)
@@ -144,17 +168,21 @@ struct HomeTimelineBoard: View {
             Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: day.start) ?? day.start
         }
         return [
-            .init(id: "now", at: at(14, 12), title: "Now · walking",
-                  detail: "1,840 steps · 18 min outdoor · HR 98", accent: .now, meal: nil, trailing: "+0.9"),
             .init(id: "lunch", at: at(12, 45), title: "Lunch · chicken rice bowl",
-                  detail: "Steady · within 6% of usual", accent: .meal,
+                  detail: "", accent: .meal,
                   meal: .init(kcal: 620, protein: 38, carb: 72, fat: 18), trailing: nil),
             .init(id: "stress", at: at(11, 30), title: "Stress peak · 68",
-                  detail: "Seated 35 min · recovered by 12:05", accent: .stress, meal: nil, trailing: nil),
+                  detail: "Highest recorded stress that day.", accent: .stress, meal: nil, trailing: nil),
             .init(id: "move", at: at(8, 15), title: "Morning mobility",
-                  detail: "22 min · Zone 2 · 142 kcal", accent: .workout, meal: nil, trailing: "+2.4"),
+                  detail: "08:15–08:37 · 22 min · 142 kcal", accent: .workout, meal: nil, trailing: "+2.4"),
+            .init(id: "scan", at: at(7, 25), title: "Body scan",
+                  detail: "18.9% · 55.5 KG", accent: .bodyScan, meal: nil, trailing: nil),
+            .init(id: "weight", at: at(7, 20), title: "Weigh-in",
+                  detail: "68.4 KG · Manual entry", accent: .weighIn, meal: nil, trailing: nil),
             .init(id: "wake", at: at(7, 12), title: "Woke up · sleep 82",
-                  detail: "7h 12m · HRV 54 ms · SpO2 97%", accent: .sleep, meal: nil, trailing: nil)
+                  detail: "7h 12m · HRV 54 ms · SpO2 97%", accent: .wake, meal: nil, trailing: nil),
+            .init(id: "sleep", at: Calendar.current.date(byAdding: .day, value: -1, to: at(23, 50))!, title: "Fell asleep",
+                  detail: "Recorded by HOOP", accent: .sleep, meal: nil, trailing: nil)
         ]
     }
 }
@@ -165,10 +193,18 @@ private struct TimelineRailRow: View {
     let onOpen: () -> Void
 
     var body: some View {
-        Button(action: onOpen) {
-            row
+        Group {
+            if event.accent == .weighIn {
+                row
+            } else {
+                Button(action: onOpen) {
+                    row
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(HotZoneTap(pressedScale: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("TIMELINE_EVENT_\(event.accent.rawValue)_\(event.id)")
     }
 
     private var row: some View {
@@ -195,8 +231,8 @@ private struct TimelineRailRow: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(event.title)
-                        .font(.custom(event.accent == .now ? "InterTight-Bold" : "InterTight-SemiBold", size: 15))
-                        .foregroundStyle(event.accent == .now ? NB.lime1 : Color.white)
+                        .font(.custom("InterTight-SemiBold", size: 15))
+                        .foregroundStyle(Color.white)
                     Spacer(minLength: 8)
                     if let trailing = event.trailing {
                         Text(trailing)
@@ -230,12 +266,11 @@ private struct TimelineRailRow: View {
 
     private var dot: Color {
         switch event.accent {
-        case .now: return NB.lime1
         case .meal: return Color.white.opacity(0.35)
         case .stress: return NB.ember1
-        case .workout: return Color.white.opacity(0.35)
-        case .sleep: return Color.white.opacity(0.35)
-        case .sync: return Color.white.opacity(0.25)
+        case .workout, .activity: return NB.lime1
+        case .sleep, .wake: return Color.white.opacity(0.35)
+        case .weighIn, .bodyScan, .balanceCheck: return Color.white.opacity(0.55)
         }
     }
 

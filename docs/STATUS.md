@@ -2233,7 +2233,7 @@ Physical BLE cleanup after the user's selected removal still needs a walk.
   reads the transport slot, legacy keys migrate into slot A), `DeviceSetStore` (load,
   declare, handover, standby sync, activation, release), sleep rows carry `device_key` and
   go through `publish_sleep_night`. DEVICE: wearing strip, standby slab with its own
-  `SYNC B`, dashed `Add your second HOOP` slot, WEARING › `I'm wearing HOOP B`, CONNECTION ›
+  `SYNC B`, dashed `Add your second HOOP` slot, CONNECTION ›
   `Release both HOOPs`. Sheets: `ActivateSecondSheet`, `WearSwitchSheet`, `ReleaseSetSheet`
   (`NB_DEBUG_DEVICE_SHEET=activateSecond|wearSwitch|releaseSet`; `NB_DEBUG_SECOND_HOOP=1` seeds
   slot B on a simulator so the set page is walkable without tapping through activation). Connected screen carries
@@ -2253,8 +2253,9 @@ Physical BLE cleanup after the user's selected removal still needs a walk.
   phone has read the newly worn band, `settle_wear_start` walks that band's own run of
   on-wrist ticks backwards (45-minute gap, 24-hour horizon, never across an earlier
   declaration, only while the outgoing band was idle) and moves the start there. The
-  picker and the Now/Earlier wheel are gone; a time pinned by hand is `manual` and lives
-  behind the `Counted from …` line (`NB_DEBUG_DEVICE_SHEET=wearCorrect`).
+  picker and the Now/Earlier wheel are gone, and the `Counted from …` correction row
+  (with `WearCorrectSheet` and the `.wearCorrect` route) was removed from the device
+  page on 2026-10-20 — `manual` times still exist in `wear_events` but have no UI left.
 - Five things the first real-device session turned up, all fixed 2026-09-13:
   an outlined key inside a plain button is hit-tested on its glyphs only, so `NOT NOW`
   did nothing (`.contentShape(Capsule())`, also applied to Forget and Disconnect);

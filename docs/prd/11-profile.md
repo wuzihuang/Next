@@ -4,8 +4,11 @@
 01 One second-level page only: Device. Every other row opens a sheet in place, height by content, ≤ 78%.
 02 Every row shows its current value on the right; rows without a value (privacy, terms) show a version
    or update date. Never blank.
-03 Heat map: one cell a day, one column a week, the composition quadrant palette. Two greys — NO WEIGH-IN
-   and MEASURED, NO CHANGE — must differ, not by legend alone.
+03 Week grid: one cell per user week over 26 weeks. A cell is coloured only by that week's
+   latest body scan against the nearest earlier week that has one — ALIGNED (lime, toward the
+   training goal), HELD (outline, inside the noise band or no baseline yet), DRIFT (amber,
+   against the goal), NO SCAN (dark). Eating never colours a cell; the day-level DEFICIT /
+   LEVEL / SURPLUS palette belongs to fuel and does not appear here.
 04 The three numbers under the map are 12-week range totals; the range is written on the card head. Not
    the 7-day EMA; the two never quote each other.
 05 Sheet submit semantics by content: single-choice closes on pick (no Save); forms have explicit Save;

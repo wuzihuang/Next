@@ -8,11 +8,9 @@ final class WidgetFaceMathTests: XCTestCase {
         let read = WidgetFaceMath.today(glance, now: glance.numbersAt)
         XCTAssertEqual(read.batteryText, "72")
         XCTAssertEqual(read.loadText, "12.4")
-        XCTAssertEqual(read.eatenText, "1,240")
         XCTAssertEqual(read.batteryProgress, 0.72, accuracy: 0.0001)
         XCTAssertFalse(read.batteryDim)
         XCTAssertEqual(read.loadProgress, 12.4 / 21, accuracy: 0.0001)
-        XCTAssertEqual(read.eatenProgress, 1_240 / 1_900, accuracy: 0.0001)
         XCTAssertFalse(read.stale)
         XCTAssertNil(read.clock)
         XCTAssertEqual(read.bandText, "82%")
@@ -21,34 +19,38 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertEqual(read.heartText, "72")
         XCTAssertEqual(read.stressText, "31")
         XCTAssertEqual(read.sleepText, "78")
+        XCTAssertEqual(read.sleepProgress, 0.78, accuracy: 0.0001)
         XCTAssertEqual(read.activeText, "320")
         XCTAssertEqual(read.stepsText, "8,432")
         XCTAssertEqual(read.distanceText, "6.2")
-        XCTAssertEqual(read.responseText, "108")
+        XCTAssertEqual(read.rhrText, "52")
         XCTAssertEqual(read.hrvText, "54")
         XCTAssertEqual(read.spo2Text, "96")
-        XCTAssertEqual(read.stamp, WidgetFaceMath.clockText(glance.numbersAt))
+        XCTAssertEqual(read.sleepClockText, "7:12")
     }
 
-    func testUnloggedEatenIsADashNeverZero() {
+    func testANightWithoutSleepIsADashNeverZero() {
         var glance = WidgetFaceMath.Glance.placeholder
-        glance.eaten = nil
+        glance.sleepScore = nil
+        glance.sleepMinutes = nil
         let read = WidgetFaceMath.today(glance, now: glance.numbersAt)
-        XCTAssertEqual(read.eatenText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.eatenProgress, 0)
+        XCTAssertEqual(read.sleepText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.sleepProgress, 0)
+        XCTAssertEqual(read.sleepClockText, WidgetFaceMath.dash)
     }
 
-    func testFastedZeroIsAnAssertion() {
+    func testSleepRingFollowsTheScoreNotTheClock() {
         var glance = WidgetFaceMath.Glance.placeholder
-        glance.eaten = 0
+        glance.sleepScore = nil
+        glance.sleepMinutes = 432
         let read = WidgetFaceMath.today(glance, now: glance.numbersAt)
-        XCTAssertEqual(read.eatenText, "0")
-        XCTAssertEqual(read.eatenProgress, 0)
+        XCTAssertEqual(read.sleepText, "7:12")
+        XCTAssertEqual(read.sleepProgress, 0)
+        XCTAssertEqual(read.sleepClockText, "7:12")
     }
 
-    func testStaleWithdrawsLiveNumbersAndKeepsUnloggedEatenAsADash() {
+    func testStaleWithdrawsLiveNumbersAndKeepsTheNightNumbers() {
         var glance = WidgetFaceMath.Glance.placeholder
-        glance.eaten = nil
         glance.numbersAt = Date(timeIntervalSince1970: 0)
         glance.batteryObservedAt = glance.numbersAt
         let now = Date(timeIntervalSince1970: WidgetFaceMath.staleAfter + 1)
@@ -60,30 +62,30 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertTrue(read.batteryDim)
         XCTAssertEqual(read.batteryProgress, 0.72, accuracy: 0.0001)
         XCTAssertEqual(read.loadText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.eatenText, WidgetFaceMath.dash)
         XCTAssertEqual(read.clock, WidgetFaceMath.clockText(glance.numbersAt))
         XCTAssertEqual(read.bandText, "82%")
         XCTAssertEqual(read.heartText, WidgetFaceMath.dash)
         XCTAssertEqual(read.stressText, WidgetFaceMath.dash)
         XCTAssertEqual(read.sleepText, "78")
+        XCTAssertEqual(read.sleepProgress, 0.78, accuracy: 0.0001)
         XCTAssertEqual(read.activeText, WidgetFaceMath.dash)
         XCTAssertEqual(read.stepsText, WidgetFaceMath.dash)
         XCTAssertEqual(read.distanceText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.responseText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.rhrText, "52")
         XCTAssertEqual(read.hrvText, "54")
         XCTAssertEqual(read.spo2Text, "96")
-        XCTAssertEqual(read.stamp, WidgetFaceMath.clockText(glance.numbersAt))
+        XCTAssertEqual(read.sleepClockText, "7:12")
     }
 
-    func testStaleAlsoWithdrawsALoggedEaten() {
+    func testStaleKeepsTheSleepRing() {
         var glance = WidgetFaceMath.Glance.placeholder
         glance.numbersAt = Date(timeIntervalSince1970: 0)
         glance.batteryObservedAt = glance.numbersAt
         let now = Date(timeIntervalSince1970: WidgetFaceMath.staleAfter)
         let read = WidgetFaceMath.today(glance, now: now)
         XCTAssertTrue(read.stale)
-        XCTAssertEqual(read.eatenText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.eatenProgress, 0)
+        XCTAssertEqual(read.sleepText, "78")
+        XCTAssertEqual(read.sleepProgress, 0.78, accuracy: 0.0001)
     }
 
     func testSignedOutIsDashesWithoutAStaleClock() {
@@ -92,7 +94,7 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertNil(read.clock)
         XCTAssertEqual(read.batteryText, WidgetFaceMath.dash)
         XCTAssertEqual(read.loadText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.eatenText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.sleepText, WidgetFaceMath.dash)
     }
 
     func testSignedOutHidesEvenWhenNumbersArePresent() {
@@ -103,22 +105,21 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertNil(read.clock)
         XCTAssertEqual(read.batteryText, WidgetFaceMath.dash)
         XCTAssertEqual(read.loadText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.eatenText, WidgetFaceMath.dash)
         XCTAssertEqual(read.batteryProgress, 0)
         XCTAssertEqual(read.loadProgress, 0)
-        XCTAssertEqual(read.eatenProgress, 0)
         XCTAssertEqual(read.bandText, WidgetFaceMath.dash)
         XCTAssertFalse(read.bandLit)
         XCTAssertEqual(read.heartText, WidgetFaceMath.dash)
         XCTAssertEqual(read.stressText, WidgetFaceMath.dash)
         XCTAssertEqual(read.sleepText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.sleepProgress, 0)
         XCTAssertEqual(read.activeText, WidgetFaceMath.dash)
         XCTAssertEqual(read.stepsText, WidgetFaceMath.dash)
         XCTAssertEqual(read.distanceText, WidgetFaceMath.dash)
-        XCTAssertEqual(read.responseText, WidgetFaceMath.dash)
+        XCTAssertEqual(read.rhrText, WidgetFaceMath.dash)
         XCTAssertEqual(read.hrvText, WidgetFaceMath.dash)
         XCTAssertEqual(read.spo2Text, WidgetFaceMath.dash)
-        XCTAssertNil(read.stamp)
+        XCTAssertEqual(read.sleepClockText, WidgetFaceMath.dash)
     }
 
     func testNextReloadHitsTheNinetyMinuteEdge() {
@@ -157,17 +158,17 @@ final class WidgetFaceMathTests: XCTestCase {
         XCTAssertEqual(WidgetFaceMath.kmText(nil), WidgetFaceMath.dash)
     }
 
-    func testMealRefreshCannotRenewAnOldBodyBattery() {
+    func testAFreshLiveTickCannotRenewAnOldBodyBattery() {
         var glance = WidgetFaceMath.Glance.placeholder
         let now = glance.numbersAt.addingTimeInterval(2 * 3600)
         glance.numbersAt = now
-        glance.eaten = 1_500
+        glance.heartRate = 80
         let read = WidgetFaceMath.today(glance, now: now)
-        // A fresh meal makes the rest of the face live again; the two-hour-old
-        // reserve score stays on its own clock and only dims.
+        // A fresh heart tick makes the rest of the face live again; the
+        // two-hour-old reserve score stays on its own clock and only dims.
         XCTAssertEqual(read.batteryText, "72")
         XCTAssertTrue(read.batteryDim)
-        XCTAssertEqual(read.eatenText, "1,500")
+        XCTAssertEqual(read.heartText, "80")
         XCTAssertEqual(read.loadText, "12.4")
     }
 

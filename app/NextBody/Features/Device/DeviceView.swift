@@ -75,13 +75,6 @@ struct DeviceView: View {
                 }
                 .animation(.spring(duration: 0.65, bounce: 0.12), value: hoops.wearing)
                 actionTiles
-                if hoops.hasSecond {
-                    GroupLabel12(L("WEARING"))
-                    RowCard {
-                        DestructiveRow(title: countedFromTitle, detail: countedFromDetail,
-                                       tint: NB.text1, last: true) { sheet = .wearCorrect }
-                    }
-                }
                 if let syncMessage {
                     Text(syncMessage)
                         .font(NBFont.ui(400, 12))
@@ -136,7 +129,7 @@ struct DeviceView: View {
                let stage = BandSyncProgress.Stage(rawValue: raw) {
                 syncActivity.beginCounting()
                 syncActivity.phase = "connecting"
-                if stage == .reading || stage == .updating || stage == .complete {
+                if [.reading, .saving, .updating, .finishing, .complete].contains(stage) {
                     syncActivity.phase = "syncing"
                     syncActivity.reportRead(day: 3, of: 3, percent: 100)
                 }
@@ -203,7 +196,6 @@ struct DeviceView: View {
                 case "healthLight": sheet = .healthLight
                 case "activateSecond": sheet = .activateSecond
                 case "wearSwitch": sheet = .wearSwitch(hoops.wearing.other.rawValue)
-                case "wearCorrect": sheet = .wearCorrect
                 case "releaseSet": sheet = .releaseSet
                 default: break
                 }
@@ -267,7 +259,6 @@ struct DeviceView: View {
                 case "healthLight": sheet = .healthLight
                 case "activateSecond": sheet = .activateSecond
                 case "wearSwitch": sheet = .wearSwitch(hoops.wearing.other.rawValue)
-                case "wearCorrect": sheet = .wearCorrect
                 case "releaseSet": sheet = .releaseSet
                 default: break
                 }
@@ -325,7 +316,6 @@ struct DeviceView: View {
                 case .activateSecond:  ActivateSecondSheet()
                 case .wearSwitch(let raw):
                     WearSwitchSheet(to: HoopSlot(rawValue: raw) ?? hoops.wearing.other)
-                case .wearCorrect:     WearCorrectSheet()
                 case .releaseSet:      ReleaseSetSheet()
                 case .bandAlarms:      AlarmsSheet { alarmCount = $0 }
                 #if DEBUG
@@ -497,7 +487,7 @@ struct DeviceView: View {
             .frame(minWidth: 40)
             .padding(.horizontal, 16)
             .frame(height: 36)
-            .background(NB.lime1, in: Capsule())
+            .background(syncActivity.workflow.tint, in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -557,20 +547,6 @@ struct DeviceView: View {
     }
 
     // MARK: 9-0 A · the set
-
-    /// What the record counts from, and who decided it. The switch itself is the other
-    /// HOOP's card; this row exists only to correct a start the app worked out.
-    private var countedFromTitle: String {
-        guard let since = hoops.wearingSince else { return L("Tap the other HOOP to switch") }
-        return L("Counted from") + " " + Self.stamp(since)
-    }
-
-    private var countedFromDetail: String {
-        guard hoops.wearingSince != nil else { return L("Your record follows the one you name.") }
-        return hoops.wearingInferred
-            ? L("HOOP") + " \(hoops.wearing.rawValue) " + L("worked this out. Tap if you put it on earlier.")
-            : L("You set this time. Tap to change it.")
-    }
 
     /// A deadline in a sentence carries its day: `today 13:52`, `tomorrow 09:00`, `Sep 17`.
     private static func dayStamp(_ date: Date) -> String {
@@ -825,7 +801,7 @@ struct DeviceView: View {
             if syncActivity.showsProgress {
                 VStack(alignment: .leading, spacing: 6) {
                     DottedProgress(progress: syncActivity.fraction,
-                                   lit: NB.lime1, track: NB.white.opacity(0.14))
+                                   lit: syncActivity.workflow.tint, track: NB.white.opacity(0.14))
                         .frame(height: 6)
                         .animation(.linear(duration: 0.15), value: syncActivity.fraction)
                     Text(syncProgressWord)
@@ -949,7 +925,6 @@ struct DeviceView: View {
     private static func sheetFraction(_ route: SheetRoute) -> CGFloat {
         switch route {
         case .bandAutoMonitor, .findHoop, .bandAlarms, .healthLight, .activateSecond: return 0.78
-        case .wearCorrect:  return 0.74
         case .releaseSet:   return 0.82
         // 9-0 A·S8 · a question, the HOOP it names, and one key.
         case .wearSwitch:   return 0.55

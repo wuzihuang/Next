@@ -87,7 +87,12 @@ final class OriginDataSync {
                       Band.live.state == .connected else { return false }
                 BandPresence.shared.start(store: store)
                 store.band.connected = true
+                let metadataStarted = Date()
                 await BandPresence.shared.refresh(store: store, prepared: BandReadiness.shared.snapshot)
+                NightDiagnostics.shared.record("sync.prepare", fields: [
+                    "segment": "device_metadata",
+                    "durationSeconds": String(Date().timeIntervalSince(metadataStarted)),
+                ])
                 guard refreshState().rejection(expected: scope) == nil else { return false }
                 do {
                     try await BandReadiness.read(account: scope.account, binding: scope.binding) {
@@ -131,6 +136,7 @@ final class OriginDataSync {
                     let started = Date()
                     BandSyncActivity.shared.show(.updating)
                     _ = await Repository.shared.settleNow(days: 0)
+                    let reloadStarted = Date()
                     if Self.refreshState().rejection(expected: scope) == nil {
                         await Repository.shared.load(days: 1, endingAt: day, into: store)
                     }
@@ -138,6 +144,10 @@ final class OriginDataSync {
                         let sleepDays = resolvedTier() == .full ? 30 : 2
                         await Repository.shared.loadSleepScores(days: sleepDays, endingAt: day, into: store)
                     }
+                    NightDiagnostics.shared.record("sync.reload", fields: [
+                        "durationSeconds": String(Date().timeIntervalSince(reloadStarted)),
+                        "day": day.key,
+                    ])
                     NightDiagnostics.shared.record("sync.segment", fields: [
                         "segment": "settlement_and_reload",
                         "durationSeconds": String(Date().timeIntervalSince(started)),
@@ -145,6 +155,7 @@ final class OriginDataSync {
                     ])
                     if Self.refreshState().rejection(expected: scope) == nil { await onTodayReady?() }
                 } else if daysAgo > 0, points > 0, Self.refreshState().rejection(expected: scope) == nil {
+                    BandSyncActivity.shared.show(.updating)
                     _ = await Repository.shared.settleNow(days: daysAgo)
                 }
                 BandSyncActivity.shared.step()
@@ -155,13 +166,19 @@ final class OriginDataSync {
                 return await sync.backfillIfNeeded(scope: scope, today: today, recentDays: recentDays,
                                                    auditToday: resolvedTier() == .full, into: store)
             }, days: { plannedDays() }, checkHistory: { resolvedTier() != .light }, finish: {
+                BandSyncActivity.shared.show(.saving)
                 await sync.awaitPendingNetwork()
                 BandSyncActivity.shared.show(.finishing)
                 await Band.live.finishFreshSync()
             }, completed: { result in
                 if result.status == .success, let at = result.syncedAt, let scope,
                    refreshState().rejection(expected: scope) == nil {
+                    BandSyncActivity.shared.show(.saving)
+                    let receiptStarted = Date()
                     await Repository.shared.markDeviceSynced(at: at)
+                    NightDiagnostics.shared.record("sync.completion_receipt", fields: [
+                        "durationSeconds": String(Date().timeIntervalSince(receiptStarted)),
+                    ])
                     if refreshState().rejection(expected: scope) == nil { store.lastSync = at }
                 }
                 NightDiagnostics.shared.record("sync.refresh_finished", fields: [
@@ -503,6 +520,7 @@ final class OriginDataSync {
         // Read every real sync: an earlier sleep record may have extended after the user woke.
         var night: SleepNight?
         var sleepStatus: BandDomainReadStatus = .notCollected
+        var sleepRow: [String: Any]?
         do {
             night = try await BandReadiness.read(account: userId, binding: deviceKey) {
                 try await band.readSleep(dayOffset: wanted.max() ?? 0)
@@ -737,6 +755,7 @@ final class OriginDataSync {
         checkpoint("local_persistence")
         BandSyncActivity.shared.show(.saving)
         await awaitPendingNetwork()
+        checkpoint("wait_publication")
         let publication: BandEvidencePublication
         do { publication = try Self.evidencePublication(userId: userId) }
         catch {
@@ -745,10 +764,12 @@ final class OriginDataSync {
             return 0
         }
         func evidenceDomain(_ name: String, _ samples: [[String: Any]], _ status: BandDomainReadStatus,
-                            version: String, window: (Date, Date)? = nil) -> BandEvidencePublication.Domain {
+                            version: String, window: (Date, Date)? = nil,
+                            statusFollowsSleep: Bool = false) -> BandEvidencePublication.Domain {
             BandEvidencePublication.Domain(name: name, deviceKey: deviceKey, day: Self.dayString(day.start),
                 timezone: tz, start: window?.0 ?? day.start, end: window?.1 ?? readEnd,
-                observedAt: now, mappingVersion: version, status: status, samples: samples)
+                observedAt: now, mappingVersion: version, status: status, samples: samples,
+                statusFollowsSleep: statusFollowsSleep)
         }
         do {
             try publication.stage(evidenceDomain("origin", rows, .partial, version: "veepoo-rmssd-v1",
@@ -829,8 +850,8 @@ final class OriginDataSync {
                     }
                 }
                 row["raw"] = raw
-                try await publication.publishSleep(row)
-                sleepStatus = .complete
+                _ = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
+                sleepRow = row
             } catch is CancellationError {
                 lastOutcome = "failed"
                 return 0
@@ -865,7 +886,8 @@ final class OriginDataSync {
         ].filter { !skippedDomains.contains($0.0) }
         var publications = domains.map { name, samples, status in
             evidenceDomain(name, samples, status, version: name == "origin" ? "veepoo-rmssd-v1" : "veepoo-rmssd-v2",
-                           window: name == "origin" ? (day.start, originReadEnd) : nil)
+                           window: name == "origin" ? (day.start, originReadEnd) : nil,
+                           statusFollowsSleep: name == "sleep" && sleepRow != nil)
         }
         let oxygenWindow = Self.nightWindow(day: day, night: night, store: store)
         var oxygenRead = oxygenStatus
@@ -901,8 +923,25 @@ final class OriginDataSync {
         publications.append(evidenceDomain("response", opticalSamples, opticalStatus, version: "veepoo-optical-v1"))
 
         var changedCount = 0
-        let publicationResults = await publication.publish(publications)
-        for (domain, publicationResult) in zip(publications, publicationResults) {
+        let published = await publication.publish(publications, sleep: sleepRow)
+        let metrics = publication.uploadMetrics
+        NightDiagnostics.shared.record("sync.upload_calls", fields: [
+            "calls": String(metrics.calls), "rounds": String(metrics.rounds), "domains": String(metrics.domains)
+        ])
+        if let sleepResult = published.sleep {
+            do {
+                try sleepResult.get()
+                sleepStatus = .complete
+            } catch is CancellationError {
+                lastOutcome = "failed"
+                return 0
+            } catch {
+                auxiliaryUploaded = false
+                sleepStatus = .failed
+                BandLog.shared.record("upsert sleep_nights", error: error)
+            }
+        }
+        for (domain, publicationResult) in zip(publications, published.domains) {
             do {
                 let result = try publicationResult.get()
                 changedCount += result.changedCount
@@ -1046,11 +1085,14 @@ final class OriginDataSync {
         return nil
     }
 
-    private static let domainTransport = BandDeltaTransport { name, args, owner in
+    private static let domainTransport = BandDeltaTransport(rpc: { name, args, owner in
         let response = try await SupabaseClient.shared.rpc(name, args: args, expectedOwner: owner)
         return try JSONDecoder().decode(BandIngestionAcknowledgment.self,
             from: JSONSerialization.data(withJSONObject: response))
-    }
+    }, bundleRPC: { args, owner in
+        let response = try await SupabaseClient.shared.rpc("ingest_band_bundle", args: args, expectedOwner: owner)
+        return try BandBundleReply(response: response)
+    })
 
     private static func evidencePublication(userId: String) throws -> BandEvidencePublication {
         BandEvidencePublication(account: userId, local: try LocalDataStore.shared(), authorized: {
@@ -1063,6 +1105,8 @@ final class OriginDataSync {
             let response = try await SupabaseClient.shared.rpc(
                 "publish_sleep_night", args: ["p_row": row], expectedOwner: owner)
             return response as? [[String: Any]] ?? []
+        }, bundle: { domains, sleep, budgetMs, owner in
+            try await domainTransport.bundle(domains: domains, sleep: sleep, budgetMs: budgetMs, owner: owner)
         }))
     }
 
@@ -1164,9 +1208,14 @@ final class OriginDataSync {
         BandSyncActivity.shared.updatingResults()
         _ = await Repository.shared.settleNow(days: days + max(0, elapsedDays))
         if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
+        let reloadStarted = Date()
         await Repository.shared.load(days: days, endingAt: today, into: store)
         if let rejected = Self.refreshState().rejection(expected: scope) { return cancelled(rejected) }
         await Repository.shared.loadSleepScores(days: auditToday ? 30 : 2, endingAt: today, into: store)
+        NightDiagnostics.shared.record("sync.reload", fields: [
+            "durationSeconds": String(Date().timeIntervalSince(reloadStarted)),
+            "day": today.key, "days": String(days),
+        ])
         BandSyncActivity.shared.resultsLoaded()
         return .init(result: .combining(results, at: Date()), recoveredDays: recoveredDays)
     }
@@ -1249,6 +1298,13 @@ final class OriginDataSync {
         run.filed = true
         pendingRun = run
         guard SupabaseClient.currentUserIdSnapshot() == userId else { return }
+        BandSyncActivity.shared.show(.saving)
+        let started = Date()
+        defer {
+            NightDiagnostics.shared.record("sync.run_receipt", fields: [
+                "durationSeconds": String(Date().timeIntervalSince(started)),
+            ])
+        }
         var row: [String: Any] = [
             "user_id": userId,
             "started_at": ISO8601DateFormatter().string(from: run.startedAt),

@@ -23,7 +23,7 @@ select cmp_ok((nb.training_evidence('15150000-0000-4000-8000-000000000001','2026
  '>',0::numeric,'training publication exposes the positive session contribution');
 insert into public.sleep_nights(user_id,user_day,total_minutes,deep_minutes,light_minutes,wake_count,sleep_start,wake_at,sleep_line)
 values ('15150000-0000-4000-8000-000000000001','2026-09-15',480,100,280,1,
- '2026-09-14 23:00+00','2026-09-15 07:00+00','0:100 1:280 2:100');
+ '2026-09-14 23:00+00','2026-09-15 07:00+00','0:100,1:280,2:100');
 select nb.refresh_night_score('15150000-0000-4000-8000-000000000001','2026-09-15');
 select ok((nb.training_evidence('15150000-0000-4000-8000-000000000001','2026-09-15')->'target'->>'target')::numeric>0,
  'a recorded completed night publishes a recovery-driven target');
@@ -68,12 +68,12 @@ select is((nb.training_sessions('15150000-0000-4000-8000-000000000001','2026-09-
 -- Sleep controls the base at the same wake reserve; the separate live-reserve cap
 -- may mask that change in the final target, so test the base sensitivity directly.
 create temp table rested_target as select nb.training_recovery_target('15150000-0000-4000-8000-000000000001','2026-09-15',80::smallint) t;
-update public.night_score set recovery_score=15 where user_id='15150000-0000-4000-8000-000000000001';
+update public.night_score set score=15 where user_id='15150000-0000-4000-8000-000000000001';
 create temp table low_recovery as select nb.training_recovery_target('15150000-0000-4000-8000-000000000001','2026-09-15',80::smallint) t;
-update public.night_score set recovery_score=95 where user_id='15150000-0000-4000-8000-000000000001';
+update public.night_score set score=95 where user_id='15150000-0000-4000-8000-000000000001';
 select cmp_ok((select (t->>'target')::numeric from low_recovery),'<',
  (nb.training_recovery_target('15150000-0000-4000-8000-000000000001','2026-09-15',80::smallint)->>'target')::numeric,
- 'worse overnight recovery lowers the base with wake reserve held constant');
+ 'a worse seven-factor sleep score lowers the base with wake reserve held constant');
 update public.night_score set inputs=jsonb_set(inputs,'{duration_min}','240'),duration_score=25
  where user_id='15150000-0000-4000-8000-000000000001';
 select cmp_ok((nb.training_target('15150000-0000-4000-8000-000000000001','2026-09-15',100::smallint)->>'target')::numeric,

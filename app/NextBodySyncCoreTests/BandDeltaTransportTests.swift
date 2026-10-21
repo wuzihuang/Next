@@ -46,4 +46,34 @@ final class BandDeltaTransportTests: XCTestCase {
         _ = try await transport.ingest(["p_samples": []], owner: "alice")
         XCTAssertEqual(calls, ["ingest_band_delta", "ingest_band_domain", "ingest_band_domain", "ingest_band_delta"])
     }
+
+    @MainActor func testBundleMissingRPCIsRememberedForFiveMinutes() async throws {
+        var now = Date(timeIntervalSince1970: 1_000)
+        var calls = 0
+        let transport = BandDeltaTransport(now: { now }, rpc: { _, _, _ in
+            XCTFail("The bundle probe must not use the legacy RPC")
+            return .init(inserted: 0, completed: 0, unchanged: 0, rejected: 0, affectedDays: [])
+        }, bundleRPC: { args, owner in
+            calls += 1
+            XCTAssertEqual(owner, "alice")
+            if calls == 1 {
+                XCTAssertEqual((args["p_domains"] as? [[String: Any]])?.count, 1)
+                XCTAssertEqual((args["p_sleep"] as? [String: Any])?["user_id"] as? String, "alice")
+                XCTAssertEqual(args["p_budget_ms"] as? Int, 1250)
+            }
+            if calls == 1 { throw SupabaseFailure.http(404, #"{"code":"PGRST202"}"#) }
+            return try BandBundleReply(response: ["results": [], "sleep": NSNull()])
+        })
+
+        let unsupported = try await transport.bundle(domains: [["p_domain": "origin"]],
+            sleep: ["user_id": "alice"], budgetMs: 1250, owner: "alice")
+        XCTAssertNil(unsupported)
+        let remembered = try await transport.bundle(domains: [], sleep: nil, budgetMs: nil, owner: "alice")
+        XCTAssertNil(remembered)
+        XCTAssertEqual(calls, 1)
+        now.addTimeInterval(301)
+        let available = try await transport.bundle(domains: [], sleep: nil, budgetMs: nil, owner: "alice")
+        XCTAssertNotNil(available)
+        XCTAssertEqual(calls, 2)
+    }
 }

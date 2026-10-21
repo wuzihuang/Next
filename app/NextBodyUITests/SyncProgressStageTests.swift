@@ -1,18 +1,37 @@
 import XCTest
+import UIKit
 
 final class SyncProgressStageTests: XCTestCase {
     func testConnectionVerificationIsPartOfProgress() {
         let app = launch(stage: "verifying")
-        XCTAssertTrue(app.staticTexts["8% · 正在验证设备"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["日常同步 · App · 8% · 正在验证设备"].waitForExistence(timeout: 20))
         XCTAssertEqual(app.buttons["立即同步"].value as? String, "正在验证设备")
-        assertHomeMatches(app, line: "8% · 正在验证设备")
+        assertSyncColor(app.buttons["立即同步"], cloud: false)
+        assertHomeMatches(app, line: "日常同步 · App · 8% · 正在验证设备")
+    }
+
+    func testBandReadingIsYellowAndNamesApp() {
+        let app = launch(stage: "reading")
+        XCTAssertTrue(app.buttons["立即同步"].waitForExistence(timeout: 20))
+        XCTAssertEqual(app.buttons["立即同步"].value as? String, "正在同步到 App")
+        assertSyncColor(app.buttons["立即同步"], cloud: false)
+        assertHomeMatches(app, line: "日常同步 · App · 55% · 正在读取第 3 / 3")
+    }
+
+    func testCloudUploadIsBlueBeforeResultsUpdate() {
+        let app = launch(stage: "saving")
+        XCTAssertTrue(app.staticTexts["日常同步 · 云端 · 55% · 正在同步到云端"].waitForExistence(timeout: 20))
+        XCTAssertEqual(app.buttons["立即同步"].value as? String, "正在同步到云端")
+        assertSyncColor(app.buttons["立即同步"], cloud: true)
+        assertHomeMatches(app, line: "日常同步 · 云端 · 55% · 正在同步到云端")
     }
 
     func testDumpCompleteStillShowsLessThanWholeSyncComplete() {
         let app = launch(stage: "updating")
-        XCTAssertTrue(app.staticTexts["92% · 正在更新结果"].waitForExistence(timeout: 20))
-        XCTAssertEqual(app.buttons["立即同步"].value as? String, "正在更新结果")
-        assertHomeMatches(app, line: "92% · 正在更新结果")
+        XCTAssertTrue(app.staticTexts["日常同步 · 云端 · 92% · 正在更新云端结果"].waitForExistence(timeout: 20))
+        XCTAssertEqual(app.buttons["立即同步"].value as? String, "正在更新云端结果")
+        assertSyncColor(app.buttons["立即同步"], cloud: true)
+        assertHomeMatches(app, line: "日常同步 · 云端 · 92% · 正在更新云端结果")
     }
 
     func testCompletionClearsTheBarAndTheButtonTogether() {
@@ -30,9 +49,7 @@ final class SyncProgressStageTests: XCTestCase {
         back.tap()
         let close = app.buttons["panel-dismiss"]
         if close.exists { close.tap() }
-        let status = app.staticTexts["panel.syncStatus"]
-        XCTAssertTrue(status.waitForExistence(timeout: 20))
-        XCTAssertNotEqual(status.label, "100% · 同步完成")
+        XCTAssertFalse(app.otherElements["home.syncProgress"].exists)
         XCTAssertFalse(app.otherElements["panel.syncProgress"].exists)
     }
 
@@ -40,9 +57,38 @@ final class SyncProgressStageTests: XCTestCase {
         app.buttons["返回"].tap()
         let close = app.buttons["panel-dismiss"]
         if close.exists { close.tap() }
-        let status = app.staticTexts["panel.syncStatus"]
+        let status = app.otherElements["home.syncProgress"]
         XCTAssertTrue(status.waitForExistence(timeout: 20))
-        XCTAssertEqual(status.label, line, "Returning home must not start a second progress calculation")
+        XCTAssertEqual(status.value as? String, line, "Returning home must not start a second progress calculation")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = line
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    private func assertSyncColor(_ element: XCUIElement, cloud: Bool,
+                                 file: StaticString = #filePath, line: UInt = #line) {
+        guard let image = element.screenshot().image.cgImage else {
+            return XCTFail("Sync control screenshot unavailable", file: file, line: line)
+        }
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let rendered = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+            else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        XCTAssertTrue(rendered, file: file, line: line)
+        let target = cloud ? [56, 189, 248] : [239, 246, 90]
+        let matching = stride(from: 0, to: pixels.count, by: 4).filter { offset in
+            (0..<3).allSatisfy { abs(Int(pixels[offset + $0]) - target[$0]) <= 12 }
+        }.count
+        XCTAssertGreaterThan(Double(matching) / Double(width * height), 0.2,
+                             cloud ? "Cloud sync must be blue" : "App sync must be yellow",
+                             file: file, line: line)
     }
 
     private func launch(stage: String) -> XCUIApplication {

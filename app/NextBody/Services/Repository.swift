@@ -6,6 +6,10 @@ import Foundation
 /// degrades in place to "——" — it does not compute a substitute and does not send a second request.
 @MainActor
 final class Repository {
+    private enum SettleAttempt {
+        case success, busy, retryableFailure, failure
+    }
+
     static let shared = Repository()
 
     let db = SupabaseClient.shared
@@ -543,15 +547,33 @@ final class Repository {
     /// Quiet when the RPC is not deployed yet — the cron still comes round.
     @discardableResult
     func settleNow(days: Int) async -> Bool {
-        if await invokeSettle(days: days) { return true }
-        NightDiagnostics.shared.record("sync.settlement_retry", fields: ["days": String(days)])
-        return await invokeSettle(days: days)
+        let started = Date()
+        defer {
+            NightDiagnostics.shared.record("sync.settlement", fields: [
+                "days": String(days),
+                "durationSeconds": String(Date().timeIntervalSince(started)),
+            ])
+        }
+        switch await invokeSettle(days: days) {
+        case .success, .busy: return true
+        case .failure: return false
+        case .retryableFailure:
+            NightDiagnostics.shared.record("sync.settlement_retry", fields: ["days": String(days)])
+            switch await invokeSettle(days: days) {
+            case .success, .busy: return true
+            case .retryableFailure, .failure: return false
+            }
+        }
     }
 
-    private func invokeSettle(days: Int) async -> Bool {
+    private func invokeSettle(days: Int) async -> SettleAttempt {
         do {
-            _ = try await db.rpc("settle_now", args: ["p_days": days])
-            return true
+            let response = try await db.rpc("settle_now", args: ["p_days": days])
+            if let result = response as? Int, result == -1 {
+                NightDiagnostics.shared.record("sync.settlement_busy", fields: ["days": String(days)])
+                return .busy
+            }
+            return .success
         } catch {
             BandLog.shared.record("settle_now", error: error)
             var fields = ["kind": String(describing: type(of: error))]
@@ -567,7 +589,7 @@ final class Repository {
                 fields["transportCode"] = String((transport as NSError).code)
             }
             NightDiagnostics.shared.record("sync.settlement_failed", fields: fields)
-            return false
+            return BandSyncPolicy.retriesSettle(after: error) ? .retryableFailure : .failure
         }
     }
 

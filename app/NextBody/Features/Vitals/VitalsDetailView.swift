@@ -345,7 +345,7 @@ struct VitalsDetailView: View {
         case .sleep:
             return TrendSpec(
                 style: .bars, scale: VitalsDialMath.sleepCuts().scale,
-                zones: VitalsReadout.sleepDial(score: 0),
+                zones: VitalsReadout.sleepDial(score: 0, contributors: !sleepWindow.contributorScores.isEmpty),
                 rule: habit.map { .init(value: $0, label: L("MEDIAN %@", whole($0))) },
                 format: whole, unit: "/ 100",
                 seriesLabel: L("SCORE · PER NIGHT"), nightly: true,
@@ -465,9 +465,10 @@ struct VitalsDetailView: View {
                 } else if metric == .sleep, let score = todayScore {
                     // The card led with the score; the board must not lead with something else.
                     VitalsHero(sensor: heroSensor,
-                               value: String(score.score), unit: r.value ?? L("OUT OF 100"),
-                               tint: metric.tint, dial: VitalsReadout.sleepDial(score: score.score),
-                               footLeft: r.footLeft, footRight: r.footRight)
+                               value: String(score.score), unit: score.usesContributors ? L("OUT OF 100") : r.value ?? L("OUT OF 100"),
+                               tint: metric.tint, dial: VitalsReadout.sleepDial(score: score.score, contributors: score.usesContributors),
+                               footLeft: score.usesContributors ? SleepContributor.rating(Double(score.score)) : r.footLeft,
+                               footRight: score.usesContributors ? L("7 SLEEP FACTORS") : r.footRight)
                 } else if metric == .active, !isMetricWindow {
                     ActiveEnergyHero(model: activeModel, sensor: heroSensor)
                 } else {
@@ -478,11 +479,15 @@ struct VitalsDetailView: View {
 
                 // The score explains itself on the screenful it appears on.
                 if metric == .sleep, range == .day, let score = todayScore {
-                    CardBlock(title: L("SCORE BREAKDOWN"), trailing: L("OUT OF 100")) {
+                    CardBlock(title: L(score.usesContributors ? "SLEEP CONTRIBUTORS" : "SCORE BREAKDOWN"), trailing: L("OUT OF 100")) {
                         SleepScoreBreakdown(score: score)
                     }
                     CardBlock(title: L("NIGHT DATA COVERAGE")) {
-                        SleepScoreCoverage(score: score)
+                        if score.usesContributors {
+                            SleepContributorCoverage(score: score)
+                        } else {
+                            SleepScoreCoverage(score: score)
+                        }
                     }
                 }
 
@@ -665,9 +670,13 @@ struct VitalsDetailView: View {
         let score = todayScore
 
         // ---- DURATION · the night against the line it is scored on
-        SleepSectionHeader(group: .duration, score: score?.duration, effectiveWeight: score?.effectiveWeight(of: .duration))
-        CardBlock(title: L("TOTAL SLEEP"), trailing: r.footLeft) {
-            if let night = m.sleep, night.totalMinutes > 0 {
+        if score?.usesContributors != true {
+            SleepSectionHeader(group: .duration, score: score?.duration, effectiveWeight: score?.effectiveWeight(of: .duration))
+        }
+        CardBlock(title: L("TOTAL SLEEP"), trailing: score?.usesContributors == true ? nil : r.footLeft) {
+            if let minutes = score?.inputs["duration_min"], minutes.isFinite, minutes > 0, minutes <= 2880 {
+                SleepDurationBar(minutes: Int(minutes.rounded()))
+            } else if let night = m.sleep, night.totalMinutes > 0 {
                 SleepDurationBar(minutes: night.totalMinutes)
             } else {
                 VitalsChartEmpty(line: L("NO NIGHT ON RECORD"), sub: L("WEAR IT TONIGHT"))
@@ -688,7 +697,9 @@ struct VitalsDetailView: View {
         }
 
         // ---- STRUCTURE · how the night was spent, and how broken it was
-        SleepSectionHeader(group: .architecture, score: score?.architecture, effectiveWeight: score?.effectiveWeight(of: .architecture))
+        if score?.usesContributors != true {
+            SleepSectionHeader(group: .architecture, score: score?.architecture, effectiveWeight: score?.effectiveWeight(of: .architecture))
+        }
         CardBlock(title: metric.chartTitle, trailing: r.chartNote) {
             if let line = m.sleep?.line, !line.isEmpty {
                 VitalsHypnogram(runs: line, tint: metric.tint,
@@ -714,7 +725,12 @@ struct VitalsDetailView: View {
         }
 
         // ---- RECOVERY · what the body did while it was down there
-        SleepSectionHeader(group: .recovery, score: score?.recovery, effectiveWeight: score?.effectiveWeight(of: .recovery))
+        if score?.usesContributors == true {
+            Text(L("SUPPORTING MEASUREMENTS · NOT SCORED"))
+                .font(NBFont.ui(600, 12)).foregroundStyle(NB.text3Prod)
+        } else {
+            SleepSectionHeader(group: .recovery, score: score?.recovery, effectiveWeight: score?.effectiveWeight(of: .recovery))
+        }
         CardBlock(title: L("NIGHT SPO2"), trailing: L("FIXED 85–100 %")) {
             let points = (m.sleep?.spo2 ?? []).filter { m.sleep?.containsSleepTimestamp($0.ts) == true }
             if !points.isEmpty {
@@ -778,7 +794,9 @@ struct VitalsDetailView: View {
         }
 
         // ---- REGULARITY · only definable against this person's own habit
-        SleepSectionHeader(group: .regularity, score: score?.regularity, effectiveWeight: score?.effectiveWeight(of: .regularity))
+        if score?.usesContributors != true {
+            SleepSectionHeader(group: .regularity, score: score?.regularity, effectiveWeight: score?.effectiveWeight(of: .regularity))
+        }
         CardBlock(title: L("SLEEP BY NIGHT"), trailing: bedtimeTrailing) {
             scheduleChart(nights: scheduleNights(count: 7), baseline: score?.inputs["bed_median"],
                           empty: score?.inputs["bed_offset"] == nil ? L("NO BEDTIME RECORDED") : L("NO NIGHTS ON RECORD"))
@@ -805,7 +823,7 @@ struct VitalsDetailView: View {
         if nights.contains(where: \.isRecorded) {
             SleepScheduleBars(nights: nights, baseline: baseline)
             SleepScheduleBars.legend(baseline: baseline)
-            if baseline == nil {
+            if baseline == nil && todayScore?.usesContributors != true {
                 Text(L("BASELINE %d / %d NIGHTS · SCORED FROM THE THIRD NIGHT",
                        Int(todayScore?.inputs["baseline_bed_nights"] ?? 0),
                        SleepScoreMath.regularityBaselineNights))
@@ -814,7 +832,8 @@ struct VitalsDetailView: View {
             }
         } else {
             VitalsChartEmpty(line: empty,
-                             sub: L("BASELINE %d / %d NIGHTS · SCORED FROM THE THIRD NIGHT",
+                             sub: todayScore?.usesContributors == true ? L("TIMING USES SLEEP MIDPOINT, NOT BEDTIME REGULARITY")
+                                : L("BASELINE %d / %d NIGHTS · SCORED FROM THE THIRD NIGHT",
                                     Int(todayScore?.inputs["baseline_bed_nights"] ?? 0),
                                     SleepScoreMath.regularityBaselineNights))
         }
@@ -847,7 +866,8 @@ struct VitalsDetailView: View {
     private var multiNightBoard: some View {
         let summary = sleepWindow
         if summary.recorded > 0 {
-            CardBlock(title: L("SCORE BREAKDOWN"), trailing: L("GROUP MEDIANS")) {
+            CardBlock(title: L(summary.contributorScores.isEmpty ? "SCORE BREAKDOWN" : "SLEEP CONTRIBUTORS"),
+                      trailing: L(summary.contributorScores.isEmpty ? "GROUP MEDIANS" : "FACTOR MEDIANS")) {
                 SleepWindowBreakdown(summary: summary)
             }
         }

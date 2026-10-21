@@ -21,9 +21,4 @@ enum MetricNames {
     static var training: String { L("TRAINING") }
 
     static var calories: String { L("CALORIES") }
-
-    /// Daily Direction's three buckets, as 11's legend prints them.
-    static var deficit: String { L("DEFICIT") }
-    static var level: String { L("LEVEL") }
-    static var surplus: String { L("SURPLUS") }
 }

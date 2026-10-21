@@ -28,6 +28,7 @@ struct SportSessionRecap: Equatable, Codable, Identifiable, Sendable {
     var hasCalories: Bool? = nil
     var restHR: Int? = nil
     var maxHR: Int? = nil
+    var energyObservedSeconds: Double? = nil
 
     var id: String { sessionID?.uuidString ?? String(startedAt.timeIntervalSince1970) }
     var hasZones: Bool { (observedSeconds ?? (avgHR == nil ? 0 : 1)) > 0 }
@@ -36,6 +37,7 @@ struct SportSessionRecap: Equatable, Codable, Identifiable, Sendable {
         startedAt.timeIntervalSince1970.isFinite && endedAt.timeIntervalSince1970.isFinite
             && endedAt >= startedAt && endedAt.timeIntervalSince(startedAt) <= 86_400
             && (0...86_400).contains(seconds) && kcal.isFinite && (0...100_000).contains(kcal)
+            && (energyObservedSeconds.map { $0.isFinite && (0...86_400).contains($0) } ?? true)
             && zoneMinutes.count == 5 && zoneMinutes.allSatisfy { $0.isFinite && (0...1440).contains($0) }
             && (curvePoints?.allSatisfy { (1...250).contains($0.bpm)
                 && $0.at.timeIntervalSince1970.isFinite } ?? true)

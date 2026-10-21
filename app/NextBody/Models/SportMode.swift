@@ -62,6 +62,12 @@ enum SportModeCatalog {
         .init(rawValue: 47, name: "Dumbbell"),
     ]
 
+    /// The picker's row order: A→Z on the English name. `modes` itself stays in SDK
+    /// `rawValue` order for the Device debug probe and ordinal lookups.
+    static let displayModes: [SportModeOption] = modes.sorted {
+        $0.name.localizedStandardCompare($1.name) == .orderedAscending
+    }
+
     static func name(for rawValue: Int) -> String {
         if let name = modes.first(where: { $0.rawValue == rawValue })?.name {
             return L(name)

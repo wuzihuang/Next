@@ -25,13 +25,27 @@ function fakeDb(
       const applied: string[] = [table];
       filters.push(applied);
       const q: Record<string, unknown> = {};
-      for (const op of ["select", "eq", "is", "gte", "lte", "order", "limit"]) {
+      let start = 0;
+      let end = Number.MAX_SAFE_INTEGER;
+      const conditions: ((row: Record<string, unknown>) => boolean)[] = [];
+      for (const op of ["select", "eq", "is", "gte", "lte", "lt", "order", "limit", "range"]) {
         q[op] = (...args: unknown[]) => {
           applied.push(`${op}:${args.map(String).join(",")}`);
+          if (op === "range") [start, end] = args as number[];
+          if (op === "limit") end = Number(args[0]) - 1;
+          const key = String(args[0]), value = args[1];
+          if (["eq", "is", "gte", "lte", "lt"].includes(op)) {
+            conditions.push((row) => !(key in row) || (op === "eq" || op === "is" ? row[key] === value
+              : op === "gte" ? String(row[key]) >= String(value)
+              : op === "lte" ? String(row[key]) <= String(value) : String(row[key]) < String(value)));
+          }
           return q;
         };
       }
-      q.then = (resolve: (v: unknown) => unknown) => resolve({ data: tables[table] ?? [], error: null });
+      q.then = (resolve: (v: unknown) => unknown) => resolve({
+        data: (tables[table] ?? []).filter((row) => conditions.every((fn) => fn(row as Record<string, unknown>))).slice(start, end + 1),
+        error: null,
+      });
       q.maybeSingle = () => Promise.resolve({ data: (tables[table] ?? [])[0] ?? null, error: null });
       return q;
     },
@@ -41,6 +55,8 @@ function fakeDb(
 
 const OWNER = { userId: "11111111-1111-4111-8111-111111111111", clientId: "client-1" };
 const GRANT = { client_id: "client-1", client_name: "ChatGPT", can_write: true, timezone: "America/Denver", deleting: false, consent: "granted" };
+const REQUEST_ID = "33333333-3333-4333-8333-333333333333";
+const RECEIPT = { plate_id: "22222222-2222-4222-8222-222222222222", meal_ids: ["m1"], replay: false, day: "2026-10-18", slot: "LUNCH", total_kcal: 120 };
 
 function deps(db: SupabaseClient, overrides: Partial<McpDependencies> = {}): McpDependencies {
   let n = 0;
@@ -134,7 +150,7 @@ Deno.test("tools/list names every tool with a schema", async () => {
   const { db } = fakeDb(GRANT);
   const body = await (await handleMcp(post({ jsonrpc: "2.0", id: 1, method: "tools/list" }), deps(db))).json();
   const names = body.result.tools.map((t: { name: string }) => t.name);
-  assertEquals(names, ["list_metrics", "read_metrics", "get_day_summary", "get_sleep_night", "list_meals", "log_meal", "delete_meal"]);
+  assertEquals(names, ["list_metrics", "read_metrics", "get_day_summary", "get_sleep_night", "list_meals", "read_health_records", "get_health_profile", "log_meal", "delete_meal"]);
   for (const tool of body.result.tools) assertEquals(tool.inputSchema.type, "object");
 });
 
@@ -158,9 +174,12 @@ Deno.test("log_meal is refused without the write grant and never reaches the dat
 
 Deno.test("log_meal writes one plate on the person's local day and recalculates it", async () => {
   const { db, calls } = fakeDb(GRANT, {}, {
-    apply_meal_plate: { data: { meal_ids: ["m1", "m2"], replay: false } },
+    log_mcp_meal: { data: { ...RECEIPT, meal_ids: ["m1", "m2"], day: "2026-10-17", slot: "DINNER", total_kcal: 840.3 } },
+    settle_now: { data: 2 },
+    calculation_status: { data: [{ user_day: "2026-10-17", pending: false }] },
   });
   const out = await toolPayload(await handleMcp(post(call("log_meal", {
+    request_id: REQUEST_ID,
     eaten_at: "2026-10-17T19:30:00-06:00",
     items: [
       { name: "Beef noodle soup", portion: "1 bowl", kcal: 650.26, protein_g: 35, carb_g: 80, fat_g: 18, sodium_mg: 1800 },
@@ -168,55 +187,57 @@ Deno.test("log_meal writes one plate on the person's local day and recalculates 
     ],
   })), deps(db)));
   assertEquals(out.isError, undefined);
-  const plate = calls.find((c) => c.name === "apply_meal_plate")!;
-  assertEquals(plate.args.p_group_id, "00000000-0000-4000-8000-000000000000");
+  const plate = calls.find((c) => c.name === "log_mcp_meal")!;
+  assertEquals(plate.args.p_request_id, REQUEST_ID);
+  assertEquals(plate.args.p_eaten_at, "2026-10-18T01:30:00.000Z");
   const items = plate.args.p_items as Record<string, unknown>[];
-  assertEquals(items[0].user_day, "2026-10-17");
-  assertEquals(items[0].slot, "DINNER");
   assertEquals(items[0].kcal, 650.3);
   assertEquals(items[0].sodium_mg, 1800);
-  assertEquals(items[0].model_version, "mcp:ChatGPT");
   assertEquals("fiber_g" in items[1], false);
   assertEquals("sugar_g" in items[1], false);
   assertEquals(calls.find((c) => c.name === "settle_now")!.args, { p_days: 1 });
   assertEquals(out.data.mealIds, ["m1", "m2"]);
   assertEquals(out.data.day, "2026-10-17");
+  assertEquals(out.data.dayTotalsUpdated, true);
 });
 
 Deno.test("a log_meal retry without eaten_at sends the same plate", async () => {
-  const { db, calls } = fakeDb(GRANT, {}, { apply_meal_plate: { data: { meal_ids: ["m1"], replay: false } } });
+  const { db, calls } = fakeDb(GRANT, {}, { log_mcp_meal: { data: RECEIPT } });
   const args = {
     request_id: "33333333-3333-4333-8333-333333333333",
     items: [{ name: "Toast", kcal: 120, protein_g: 4, carb_g: 20, fat_g: 2 }],
   };
   await handleMcp(post(call("log_meal", args)), deps(db));
-  await handleMcp(post(call("log_meal", args)), deps(db, { now: () => new Date("2026-10-18T19:00:07Z") }));
-  const plates = calls.filter((c) => c.name === "apply_meal_plate");
+  await handleMcp(post(call("log_meal", args)), deps(db, { now: () => new Date("2026-10-19T19:00:07Z") }));
+  const plates = calls.filter((c) => c.name === "log_mcp_meal");
   assertEquals(plates.length, 2);
   assertEquals(plates[0].args, plates[1].args);
   assertEquals("logged_at" in (plates[0].args.p_items as Record<string, unknown>[])[0], false);
 });
 
-Deno.test("log_meal refuses days outside the seven-day edit window and future times", async () => {
-  const { db, calls } = fakeDb(GRANT);
+Deno.test("log_meal reports the writer's invalid time without claiming a saved meal", async () => {
+  const { db } = fakeDb(GRANT, {}, { log_mcp_meal: { error: { code: "22023", message: "INVALID_MEAL_TIME" } } });
   const old = await toolPayload(await handleMcp(post(call("log_meal", {
+    request_id: REQUEST_ID,
     eaten_at: "2026-10-01T12:00:00-06:00",
     items: [{ name: "Toast", kcal: 120, protein_g: 4, carb_g: 20, fat_g: 2 }],
   })), deps(db)));
   assert(old.isError);
   const future = await toolPayload(await handleMcp(post(call("log_meal", {
+    request_id: REQUEST_ID,
     eaten_at: "2026-10-19T12:00:00-06:00",
     items: [{ name: "Toast", kcal: 120, protein_g: 4, carb_g: 20, fat_g: 2 }],
   })), deps(db)));
   assert(future.isError);
-  assertEquals(calls.some((c) => c.name === "apply_meal_plate"), false);
+  assertStringIncludes(future.text, "INVALID_MEAL_TIME");
 });
 
 Deno.test("log_meal relays the database's reason for a refusal", async () => {
   const { db } = fakeDb(GRANT, {}, {
-    apply_meal_plate: { error: { code: "22023", message: "DAY_ALREADY_FASTED" } },
+    log_mcp_meal: { error: { code: "22023", message: "DAY_ALREADY_FASTED" } },
   });
   const out = await toolPayload(await handleMcp(post(call("log_meal", {
+    request_id: REQUEST_ID,
     items: [{ name: "Toast", kcal: 120, protein_g: 4, carb_g: 20, fat_g: 2 }],
   })), deps(db)));
   assert(out.isError);
@@ -277,4 +298,126 @@ Deno.test("list_metrics reports the person's own today", async () => {
   const out = await toolPayload(await handleMcp(post(call("list_metrics", {})), deps(db)));
   assertEquals(out.data.today, "2026-10-18");
   assertEquals(out.data.timezone, "America/Denver");
+});
+
+Deno.test("a saved meal does not claim totals updated while settlement is busy", async () => {
+  const { db } = fakeDb(GRANT, {}, {
+    log_mcp_meal: { data: RECEIPT },
+    settle_now: { data: -1 },
+  });
+  const out = await toolPayload(await handleMcp(post(call("log_meal", {
+    request_id: "33333333-3333-4333-8333-333333333333",
+    items: [{ name: "Toast", kcal: 120, protein_g: 4, carb_g: 20, fat_g: 2 }],
+  })), deps(db)));
+  assertEquals(out.isError, undefined);
+  assertEquals(out.data.dayTotalsUpdated, false);
+  assertStringIncludes(String(out.data.note), "Logged.");
+  assert(!String(out.data.note).includes("has been recalculated"));
+});
+
+Deno.test("log_meal requires a request id before any write", async () => {
+  const { db, calls } = fakeDb(GRANT);
+  const out = await toolPayload(await handleMcp(post(call("log_meal", {
+    items: [{ name: "Toast", kcal: 120, protein_g: 4, carb_g: 20, fat_g: 2 }],
+  })), deps(db)));
+  assert(out.isError);
+  assertStringIncludes(out.text, "request_id");
+  assertEquals(calls.map((c) => c.name), ["touch_mcp_grant"]);
+});
+
+Deno.test("a conflict asks for reconciliation rather than a new request id", async () => {
+  const { db } = fakeDb(GRANT, {}, { log_mcp_meal: { error: { code: "23505", message: "OPERATION_CONFLICT" } } });
+  const out = await toolPayload(await handleMcp(post(call("log_meal", {
+    request_id: REQUEST_ID,
+    items: [{ name: "Toast", kcal: 120, protein_g: 4, carb_g: 20, fat_g: 2 }],
+  })), deps(db)));
+  assert(out.isError);
+  assertStringIncludes(out.text, "list_meals");
+  assertStringIncludes(out.text, "Do not change the id");
+});
+
+Deno.test("the metric catalog includes stored daytime vitals and body composition", async () => {
+  const out = await toolPayload(await handleMcp(post(call("list_metrics", {})), deps(fakeDb(GRANT).db)));
+  const metrics = (out.data.metrics as { metric: string }[]).map((m) => m.metric);
+  for (const metric of ["heartRate", "stress", "steps", "skinTemp", "tickHrv", "foodResponse",
+    "muscleMassKg", "bodyWaterPct", "boneMassKg", "proteinPct", "bmrKcal", "inputWeightKg"]) {
+    assert(metrics.includes(metric), `Missing ${metric}`);
+  }
+  assertEquals(out.data.canLogMeals, true);
+});
+
+Deno.test("daytime metrics return measured values and preserve unknowns", async () => {
+  const { db, filters } = fakeDb(GRANT, {
+    raw_samples: [{ ts: "2026-10-18T18:00:00Z", heart: 72, stress: null, step: 0, src: "band" }],
+  });
+  const out = await toolPayload(await handleMcp(post(call("read_metrics", {
+    metrics: ["heartRate", "stress", "steps"], from: "2026-10-18", to: "2026-10-18",
+  })), deps(db)));
+  assertEquals(out.isError, undefined);
+  const series = out.data.series as { metric: string; points: { value: unknown }[] }[];
+  assertEquals(series.map((s) => [s.metric, s.points[0].value]), [["heartRate", 72], ["stress", null], ["steps", 0]]);
+  assert(filters.every((f) => f.includes(`eq:user_id,${OWNER.userId}`)));
+});
+
+Deno.test("health records paginate without pretending a partial page is complete", async () => {
+  const { db, filters } = fakeDb(GRANT, {
+    balance_checks: [{ id: "first", rest_share: 45 }, { id: "second", rest_share: 55 }],
+  });
+  const out = await toolPayload(await handleMcp(post(call("read_health_records", {
+    collection: "balance_checks", from: "2026-10-18", to: "2026-10-18", limit: 1,
+  })), deps(db)));
+  assertEquals(out.data.records, [{ id: "first", rest_share: 45 }]);
+  assertEquals(out.data.nextOffset, 1);
+  assert(filters.every((f) => f.includes(`eq:user_id,${OWNER.userId}`)));
+});
+
+Deno.test("health reads cannot select an arbitrary table or another user", async () => {
+  const { db, filters } = fakeDb(GRANT);
+  for (const args of [
+    { collection: "profiles" },
+    { collection: "vitals", user_id: "someone-else" },
+    { collection: "vitals", from: "2026-02-30", to: "2026-03-01" },
+  ]) {
+    const out = await toolPayload(await handleMcp(post(call("read_health_records", args)), deps(db)));
+    assert(out.isError);
+  }
+  assertEquals(filters.length, 0);
+});
+
+Deno.test("overnight oxygen includes the evening before the wake day and excludes daylight", async () => {
+  const { db } = fakeDb({ ...GRANT, timezone: "UTC" }, {
+    sleep_nights: [{ user_day: "2026-10-18", sleep_start: "2026-10-17T22:00:00.000Z", wake_at: "2026-10-18T06:00:00.000Z" }],
+    oxygen_samples: [
+      { ts: "2026-10-17T23:00:00.000Z", spo2: 98 },
+      { ts: "2026-10-18T03:00:00.000Z", spo2: 97 },
+      { ts: "2026-10-18T14:00:00.000Z", spo2: 99 },
+    ],
+  }, { calculation_status: { data: [] } });
+  const out = await toolPayload(await handleMcp(post(call("read_metrics", {
+    metrics: ["bloodOxygen"], from: "2026-10-18", to: "2026-10-18",
+  })), deps(db)));
+  const series = out.data.series as { points: { value: unknown }[] }[];
+  assertEquals(series[0].points.map((p) => p.value), [98, 97]);
+});
+
+Deno.test("meals expose the next page instead of silently truncating food history", async () => {
+  const { db } = fakeDb(GRANT, {
+    meals: [{ id: "first", model_version: "app" }, { id: "second", model_version: "app" }],
+  });
+  const first = await toolPayload(await handleMcp(post(call("list_meals", { limit: 1 })), deps(db)));
+  assertEquals((first.data.meals as { id: string }[]).map((m) => m.id), ["first"]);
+  assertEquals(first.data.nextOffset, 1);
+  const second = await toolPayload(await handleMcp(post(call("list_meals", { limit: 1, offset: 1 })), deps(db)));
+  assertEquals((second.data.meals as { id: string }[]).map((m) => m.id), ["second"]);
+  assertEquals(second.data.nextOffset, null);
+});
+
+Deno.test("temporary authentication outages return retryable 503 rather than revoking the connection", async () => {
+  const { db } = fakeDb(GRANT);
+  const res = await handleMcp(post(call("list_metrics", {})), deps(db, {
+    authenticate: () => Promise.reject(new Error("private upstream details")),
+  }));
+  assertEquals(res.status, 503);
+  assertEquals(res.headers.get("WWW-Authenticate"), null);
+  assert(!(await res.text()).includes("private upstream details"));
 });

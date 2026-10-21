@@ -38,6 +38,7 @@ public final class LocalDataStore: @unchecked Sendable {
         try execute("PRAGMA synchronous=FULL")
         try execute("CREATE TABLE IF NOT EXISTS documents(account TEXT NOT NULL,key TEXT NOT NULL,payload BLOB NOT NULL,revision TEXT NOT NULL,expiry REAL,accessed REAL NOT NULL,PRIMARY KEY(account,key))")
         try execute("CREATE TABLE IF NOT EXISTS outbox(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL,account TEXT NOT NULL,kind TEXT NOT NULL,payload BLOB NOT NULL,document_key TEXT,UNIQUE(account,id))")
+        try execute("CREATE INDEX IF NOT EXISTS outbox_document ON outbox(account,document_key)")
         try execute("CREATE TABLE IF NOT EXISTS observation_documents(account TEXT NOT NULL,key TEXT NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(account,key))")
     }
     deinit { sqlite3_close(db) }

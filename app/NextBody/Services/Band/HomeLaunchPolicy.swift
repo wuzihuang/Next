@@ -87,6 +87,11 @@ extension HomeLaunchPolicy {
 enum BandSyncPolicy {
     static let connectionAttempts = 3
 
+    static func retriesSettle(after error: Error) -> Bool {
+        if case SupabaseFailure.transport = error { return true }
+        return false
+    }
+
     static func matchesBoundDevice(discovered: String, sdkAddress: String? = nil,
                                    bound: String?, boundPeripheral: String? = nil) -> Bool {
         guard let bound, !bound.isEmpty else { return false }

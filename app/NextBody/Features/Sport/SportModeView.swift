@@ -58,7 +58,7 @@ struct SportModeView: View {
             }
 
             VStack(spacing: 0) {
-                ForEach(Array(SportModeCatalog.modes.enumerated()), id: \.element.id) { index, mode in
+                ForEach(Array(SportModeCatalog.displayModes.enumerated()), id: \.element.id) { index, mode in
                     let dead = refused.contains(mode.rawValue)
                     Button { start(mode) } label: {
                         HStack(spacing: 10) {
@@ -87,7 +87,7 @@ struct SportModeView: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("sport-mode-\(mode.rawValue)")
                     .disabled(!connected || starting != nil || dead)
-                    if index < SportModeCatalog.modes.count - 1 {
+                    if index < SportModeCatalog.displayModes.count - 1 {
                         Hairline().padding(.leading, 16)
                     }
                 }

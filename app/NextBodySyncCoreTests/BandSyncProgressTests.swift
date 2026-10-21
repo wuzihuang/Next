@@ -2,6 +2,40 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class BandSyncProgressTests: XCTestCase {
+    func testStagesDistinguishAppWorkFromCloudWork() {
+        for stage in [BandSyncProgress.Stage.searching, .connecting, .verifying,
+                      .identity, .battery, .capabilities, .reading, .finishing] {
+            XCTAssertEqual(stage.destination, .app)
+        }
+        for stage in [BandSyncProgress.Stage.saving, .updating] {
+            XCTAssertEqual(stage.destination, .cloud)
+        }
+        XCTAssertNil(BandSyncProgress.Stage.complete.destination)
+        XCTAssertNil(BandSyncProgress.Stage.stopped.destination)
+    }
+
+    func testHistoryCanReturnToAppWithoutRewindingProgress() {
+        var progress = BandSyncProgress()
+        progress.begin()
+        progress.show(.reading)
+        progress.read(1)
+        progress.show(.saving)
+        XCTAssertEqual(progress.stage.destination, .cloud)
+        progress.filedDay()
+        let saved = progress.fraction
+        progress.show(.reading)
+        XCTAssertEqual(progress.stage.destination, .app)
+        XCTAssertEqual(progress.fraction, saved)
+        progress.updatingResults()
+        XCTAssertEqual(progress.stage.destination, .cloud)
+        progress.finish(success: false)
+        XCTAssertNil(progress.stage.destination)
+        progress.show(.saving)
+        XCTAssertNil(progress.stage.destination)
+        progress.begin()
+        XCTAssertEqual(progress.stage.destination, .app)
+    }
+
     func testHistoryAndDailyModesHaveSeparateCopy() {
         var progress = BandSyncProgress()
         progress.begin()

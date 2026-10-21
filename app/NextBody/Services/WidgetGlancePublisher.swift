@@ -13,8 +13,6 @@ enum WidgetGlancePublisher {
             numbersAt: numbersAt ?? now,
             battery: store.today.bodyBatteryForDisplay(at: now),
             load: store.today.trainingLoad,
-            eaten: store.today.eIn,
-            target: store.today.targetIn,
             signedIn: signedIn,
             bandPercent: store.band.batteryPercent,
             bandCharge: store.band.displayedCharge.rawValue,
@@ -26,11 +24,7 @@ enum WidgetGlancePublisher {
             activeKcal: VitalsReadout.dayActiveKcal(store.today),
             steps: VitalsReadout.daySteps(store.today).map { Int($0.rounded()) },
             distanceM: VitalsReadout.dayMetres(store.today).map { Int($0.rounded()) },
-            responsePoint: MealResponsePresentation.index(
-                today: store.today,
-                history: store.history,
-                points: store.mealResponsePoints,
-                zerosToday: store.mealResponseZerosToday).latestPoint,
+            nightRhr: store.today.nightInputs?.rhr.map { Int($0.rounded()) },
             nightHrv: store.today.nightInputs?.hrv.map { Int($0.rounded()) },
             spo2: {
                 guard let night = store.today.sleep else { return nil }
@@ -42,15 +36,13 @@ enum WidgetGlancePublisher {
            let previous = WidgetBridge.loadGlance(),
            previous.battery == glance.battery,
            previous.load == glance.load,
-           previous.eaten == glance.eaten,
-           previous.target == glance.target,
            previous.heartRate == glance.heartRate,
            previous.stress == glance.stress,
            previous.sleepScore == glance.sleepScore,
            previous.activeKcal == glance.activeKcal,
            previous.steps == glance.steps,
            previous.distanceM == glance.distanceM,
-           previous.responsePoint == glance.responsePoint,
+           previous.nightRhr == glance.nightRhr,
            previous.nightHrv == glance.nightHrv,
            previous.spo2 == glance.spo2 {
             glance.numbersAt = previous.numbersAt

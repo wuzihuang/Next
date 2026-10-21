@@ -1,4 +1,5 @@
 import XCTest
+import SQLite3
 import NextBodyLocalData
 
 final class LocalDataTests: XCTestCase {
@@ -270,5 +271,47 @@ extension LocalDataTests {
         XCTAssertNil(try store.readObservationDocument(account: "alice", key: "sleep"))
         XCTAssertTrue(try store.observationDocuments(account: "alice").isEmpty)
         XCTAssertEqual(try store.readObservationDocument(account: "bob", key: "sleep"), Data("b".utf8))
+    }
+}
+
+extension LocalDataTests {
+    func testCachePruneLooksUpPendingDocumentsByIndex() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = try LocalDataStore(url: url)
+
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil)
+        guard openResult == SQLITE_OK, let db else {
+            if let db { sqlite3_close(db) }
+            XCTFail("Could not open local data database")
+            return
+        }
+        defer { sqlite3_close(db) }
+
+        let sql = """
+        EXPLAIN QUERY PLAN
+        SELECT account,key,length(payload) FROM documents
+        WHERE NOT EXISTS(SELECT 1 FROM outbox o WHERE o.account=documents.account AND o.document_key=documents.key)
+        ORDER BY accessed DESC
+        """
+        var statement: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard prepareResult == SQLITE_OK, let statement else {
+            if let statement { sqlite3_finalize(statement) }
+            XCTFail("Could not prepare cache prune query plan")
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var details: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let detail = sqlite3_column_text(statement, 3) {
+                details.append(String(cString: detail))
+            }
+        }
+
+        XCTAssertTrue(details.contains { $0.contains("INDEX outbox_document") }, details.joined(separator: "\n"))
+        _ = store
     }
 }

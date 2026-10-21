@@ -421,16 +421,12 @@ function validDay(day: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(Date.parse(day)) &&
     new Date(day).toISOString().slice(0, 10) === day;
 }
-async function clipSleepWindows(
+async function readSleepWindows(
   ctx: Ctx,
-  metrics: readonly Metric[],
-  tables: Map<string, Row[]>,
   from: string,
   to: string,
 ) {
-  const clipped = metrics.filter((metric) => definitions[metric].clipToSleep);
-  if (clipped.length === 0) return;
-  const nights = (await pageRows((offset) =>
+  return (await pageRows((offset) =>
     ctx.db.from("sleep_nights")
       .select("sleep_start,wake_at")
       .eq("user_id", ctx.userId)
@@ -440,13 +436,22 @@ async function clipSleepWindows(
       .range(offset, offset + 999)
   )).flatMap((row) => {
     if (
-      typeof row.sleep_start !== "string" || typeof row.wake_at !== "string"
+      typeof row.sleep_start !== "string" || typeof row.wake_at !== "string" ||
+      !Number.isFinite(Date.parse(row.sleep_start)) || !Number.isFinite(Date.parse(row.wake_at)) ||
+      Date.parse(row.sleep_start) >= Date.parse(row.wake_at)
     ) {
       return [];
     }
     return [{ start: row.sleep_start, end: row.wake_at }];
   });
-  if (nights.length === 0) return;
+}
+
+function clipSleepWindows(
+  metrics: readonly Metric[],
+  tables: Map<string, Row[]>,
+  nights: { start: string; end: string }[],
+) {
+  const clipped = metrics.filter((metric) => definitions[metric].clipToSleep);
   for (const metric of clipped) {
     const def = definitions[metric];
     const stamp = stampColumn(def);
@@ -493,10 +498,12 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
   try {
     const before = await readSnapshot(ctx, from, to);
     const tables = new Map<string, Row[]>();
+    const nights = request.metrics.some((metric) => definitions[metric].clipToSleep)
+      ? await readSleepWindows(ctx, from, to) : [];
     for (const metric of request.metrics) {
       const def = definitions[metric];
       if (tables.has(def.table)) continue;
-      if (def.unsupported) {
+      if (def.unsupported || (def.clipToSleep && nights.length === 0)) {
         tables.set(def.table, []);
         continue;
       }
@@ -504,13 +511,16 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
       const select = def.table === "daily_results"
         ? dailyResultsSelect(request.metrics)
         : "*";
+      const start = def.clipToSleep
+        ? new Date(Math.min(...nights.map((night) => Date.parse(night.start))))
+        : dayBounds(from, tz).start;
+      const end = def.clipToSleep
+        ? new Date(Math.max(...nights.map((night) => Date.parse(night.end))))
+        : dayBounds(to, tz).end;
       const rows = await pageRows((offset) => {
         let q = ctx.db.from(def.table).select(select).eq("user_id", ctx.userId);
         q = def.timestamp
-          ? q.gte(stamp, dayBounds(from, tz).start.toISOString()).lt(
-            stamp,
-            dayBounds(to, tz).end.toISOString(),
-          )
+          ? q.gte(stamp, start.toISOString()).lt(stamp, end.toISOString())
           : q.gte("user_day", from).lte("user_day", to);
         const ordered = q.order(def.timestamp ? stamp : "user_day");
         const paged = def.timestamp && stamp === "measured_at"
@@ -520,7 +530,7 @@ async function fetchMetrics(ctx: Ctx, request: MetricRequest) {
       });
       tables.set(def.table, rows);
     }
-    await clipSleepWindows(ctx, request.metrics, tables, from, to);
+    clipSleepWindows(request.metrics, tables, nights);
     const data = await Promise.all(request.metrics.map(async (metric) => {
       const def = definitions[metric], rows = tables.get(def.table)!;
       const value = (r: Row) => {

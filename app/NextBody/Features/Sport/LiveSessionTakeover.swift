@@ -330,8 +330,9 @@ struct LiveSessionTakeover: View {
     }
 
     private var helpLine: String {
-        closing ? "The session lands on the panel."
-                : "Hold to stop. The band keeps the session open until you do."
+        if closing { return L("The session lands on the panel.") }
+        return store.energyExplanation
+            ?? L("Hold to stop. The band keeps the session open until you do.")
     }
 
     private func elapsed(to now: Date) -> String {

@@ -699,33 +699,4 @@ struct PagerButton: View {
     }
 }
 
-/// F2 §06 · three colours plus two greys. LEVEL is outline only — it says
-/// "we can't tell", not "you hit it exactly".
-struct DirectionCell: View {
-    let direction: DailyDirection
-    var today = false
-    var height: CGFloat = 34
-    var radius: CGFloat = 6
 
-    var body: some View {
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(fill)
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .stroke(stroke, lineWidth: direction == .level ? 1.5 : (today ? 2 : 0)))
-            .frame(height: height)
-    }
-
-    private var fill: Color {
-        switch direction {
-        case .deficit:     NB.lime1
-        case .level:       .clear
-        case .surplus:     NB.alert2
-        case .greyNothing: Color(hex: 0x26262E)
-        case .greyNoBurn:  Color(hex: 0x3A3A44)
-        }
-    }
-    private var stroke: Color {
-        if direction == .level { return NB.white.opacity(0.35) }
-        return today ? NB.white.opacity(0.7) : .clear
-    }
-}

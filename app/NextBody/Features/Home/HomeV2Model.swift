@@ -74,12 +74,27 @@ enum HomeV2Model {
         var food: Food
     }
 
+    /// The traffic light a body part wears. Five stops between fine and broken, so a
+    /// merely so-so night does not read the same amber as a genuinely bad one.
+    /// `dim` sits off the ramp: a part that has not started reading, drawn in white.
+    enum BodyStatus: Int, Equatable, Comparable {
+        case dim = -1, good = 0, ok, watch, poor, bad
+        static func < (l: Self, r: Self) -> Bool { l.rawValue < r.rawValue }
+        func escalated() -> Self {
+            BodyStatus(rawValue: min(BodyStatus.bad.rawValue, rawValue + 1)) ?? .bad
+        }
+    }
+
     struct BodyGlow: Equatable {
         var lit: Bool
         /// 0.35…1 when the domain has data. 0 when it does not.
         var intensity: Double
         var eyebrow: String
         var value: String
+        /// Short second lines under the value — the rest of the part's readings.
+        var details: [String] = []
+        /// Only meaningful while `lit`; an unlit part draws in dim white.
+        var status: BodyStatus = .ok
     }
 
     struct BodyMetric: Equatable, Identifiable {
@@ -95,14 +110,16 @@ enum HomeV2Model {
     struct Body: Equatable {
         var scannedAt: Date?
         var head: BodyGlow
-        var chest: BodyGlow
+        var heart: BodyGlow
         var gut: BodyGlow
+        var legs: BodyGlow
         var primary: [BodyMetric]
         var more: [BodyMetric]
     }
 
-    enum Zone: String, Equatable, Identifiable {
-        case head, chest, gut
+    /// The four lit parts, top to bottom. `BodyCloud.zones` paints its motes in this order.
+    enum Zone: String, Equatable, Identifiable, CaseIterable {
+        case head, heart, gut, legs
         var id: String { rawValue }
     }
 
@@ -124,47 +141,33 @@ enum HomeV2Model {
         var stats: [Stat]
         var noteLabel: String
         var note: String?
+        /// The part's light as it stood on the map. nil keeps the page in neutral white.
+        var status: BodyStatus?
     }
 
-    enum TimelineAccent: Equatable {
-        case now, meal, stress, workout, sleep, sync
-    }
-
-    struct TimelineMeal: Equatable {
-        var kcal: Int
-        var protein: Int
-        var carb: Int
-        var fat: Int
-    }
-
-    struct TimelineItem: Equatable, Identifiable {
-        var id: String
-        var at: Date
-        var title: String
-        var detail: String
-        var accent: TimelineAccent
-        var meal: TimelineMeal?
-        var trailing: String?
-    }
+    typealias TimelineMeal = HomeTimeline.Meal
+    typealias TimelineItem = HomeTimeline.Item
 
     /// The page a home card opens. Empty numbers still open it — the detail
     /// page is where a missing night or an unlogged day is allowed to say so.
     static func destination(for zone: Zone) -> Destination {
         switch zone {
         case .head: return .vitals(.sleep)
-        case .chest: return .bodyBattery
+        case .heart: return .vitals(.heart)
         case .gut: return .fuel
+        case .legs: return .vitals(.steps)
         }
     }
 
-    static func destination(for accent: TimelineAccent) -> Destination {
-        switch accent {
-        case .now: return .vitals(.heart)
-        case .meal: return .fuel
+    static func destination(for item: TimelineItem) -> Destination? {
+        switch item.accent {
+        case .meal: return .fuelDay(item.day)
         case .stress: return .vitals(.stress)
-        case .workout: return .training
-        case .sleep: return .vitals(.sleep)
-        case .sync: return .device
+        case .workout, .activity: return .training
+        case .sleep, .wake: return .vitals(.sleep)
+        case .bodyScan: return .composition(date: item.at)
+        case .balanceCheck: return .measurements
+        case .weighIn: return nil
         }
     }
 
@@ -310,56 +313,202 @@ enum HomeV2Model {
     static func body(metrics: DailyMetrics, history: [DailyMetrics], meals: [MealEntry],
                      scans: [CompositionScan], heightCm: Double) -> Body {
         let food = food(metrics: metrics, meals: meals)
-        let night = metrics.sleep
-        let readiness = metrics.bodyBatteryForDisplay()
         let latest = scans.max { $0.at < $1.at }
-        let head = headGlow(night: night)
-        let chest = chestGlow(readiness: readiness, band: readinessBand(readiness))
-        let gut = gutGlow(food: food)
         let fields = compositionFields(latest: latest, scans: scans, heightCm: heightCm)
         return Body(
             scannedAt: latest?.at,
-            head: head,
-            chest: chest,
-            gut: gut,
+            head: headGlow(metrics: metrics),
+            heart: heartGlow(metrics: metrics),
+            gut: gutGlow(food: food),
+            legs: legsGlow(metrics: metrics, history: history),
             primary: [fields.fat, fields.muscle, fields.lean],
             more: [fields.fatMass, fields.water, fields.protein, fields.bone, fields.bmr, fields.bmi])
     }
 
-    static func headGlow(night: SleepSummary?) -> BodyGlow {
-        guard let minutes = night?.totalMinutes, minutes > 0 else {
-            return BodyGlow(lit: false, intensity: 0, eyebrow: L("HEAD"), value: Fmt.dash)
-        }
-        let hours = Double(minutes) / 60
-        let bend = min(1, abs(hours - 7.5) / 3)
-        return BodyGlow(lit: true, intensity: 0.4 + 0.6 * bend,
-                        eyebrow: L("HEAD"), value: L("SLEPT %@", sleepHours(minutes)))
+    /// The glow burns with the status, not with the number: fine reads at a third,
+    /// a bad reading at full. Unlit parts stay dark.
+    private static func glowIntensity(lit: Bool, status: BodyStatus) -> Double {
+        lit ? 0.35 + 0.65 * Double(max(0, status.rawValue)) / Double(BodyStatus.bad.rawValue) : 0
     }
 
-    static func chestGlow(readiness: Int?, band: ReadinessBand) -> BodyGlow {
-        guard let readiness else {
-            return BodyGlow(lit: false, intensity: 0, eyebrow: L("CHEST"), value: Fmt.dash)
+    private static func latestStress(_ metrics: DailyMetrics) -> Int? {
+        metrics.vitalsCurve.last(where: { $0.stress != nil })?.stress
+    }
+
+    /// Head owns the night: the sleep numbers plus the day's stress index. HRV is a
+    /// heart measurement and lives on the chest, not here.
+    static func headGlow(metrics: DailyMetrics) -> BodyGlow {
+        let night = metrics.sleep
+        let minutes = night?.totalMinutes
+        let stress = latestStress(metrics)
+        let status = sleepStatus(metrics: metrics)
+        let lit = (minutes ?? 0) > 0 || stress != nil
+        var details: [String] = []
+        var nightBits: [String] = []
+        if let score = metrics.sleepScore?.score { nightBits.append(L("SCORE %d", score)) }
+        if let deep = night?.deepMinutes, deep > 0 { nightBits.append(L("DEEP %@", sleepHours(deep))) }
+        let rem = night?.remMinutes ?? 0
+        if rem > 0 { nightBits.append(L("REM %@", sleepHours(rem))) }
+        if !nightBits.isEmpty { details.append(nightBits.joined(separator: " · ")) }
+        if let stress { details.append(L("STRESS %d", stress)) }
+        return BodyGlow(
+            lit: lit,
+            intensity: glowIntensity(lit: lit, status: status),
+            eyebrow: L("HEAD"),
+            value: minutes.map { $0 > 0 ? L("SLEPT %@", sleepHours($0)) : Fmt.dash } ?? Fmt.dash,
+            details: details,
+            status: status)
+    }
+
+    /// The head's light is the night's light: the settled score when it exists, duration
+    /// when it does not, pushed one stop worse by a high stress index.
+    static func sleepStatus(metrics: DailyMetrics) -> BodyStatus {
+        let status: BodyStatus
+        if let score = metrics.sleepScore?.score {
+            status = score >= 85 ? .good : score >= 70 ? .ok : score >= 55 ? .watch
+                 : score >= 40 ? .poor : .bad
+        } else if let minutes = metrics.sleep?.totalMinutes, minutes > 0 {
+            status = minutes >= 570 ? .ok : minutes >= 450 ? .good : minutes >= 390 ? .ok
+                 : minutes >= 300 ? .watch : minutes >= 240 ? .poor : .bad
+        } else {
+            status = .watch
         }
-        let word: String
-        switch band {
-        case .recover: word = L("REST")
-        case .peak: word = L("RECOVERED")
-        case .steady: word = L("STEADY")
-        case .unknown: word = Fmt.dash
+        guard let stress = latestStress(metrics), stress >= 75 else { return status }
+        return status.escalated()
+    }
+
+    /// Every pulse-derived reading in one place: the live rate, the resting rate against
+    /// its seven-day base, the night's oxygen floor and the sleeping breath rate.
+    struct HeartInputs {
+        var live: Int?
+        var rhr: Double?
+        var rhrBase: Double?
+        var spo2: Int?
+        var resp: Double?
+        var hrv: Double?
+        var hrvBase: Double?
+        var hasAny: Bool { live != nil || rhr != nil || spo2 != nil || resp != nil }
+    }
+
+    static func heartInputs(_ metrics: DailyMetrics) -> HeartInputs {
+        let breaths = metrics.sleep?.respiration?.map(\.breathsPerMinute) ?? []
+        return HeartInputs(
+            live: metrics.vitalsCurve.last(where: { $0.hr != nil })?.hr,
+            rhr: metrics.nightInputs?.rhr,
+            rhrBase: metrics.nightInputs?.rhrBase,
+            spo2: metrics.sleep?.spo2.map(\.percent).min(),
+            resp: breaths.isEmpty ? nil : breaths.reduce(0, +) / Double(breaths.count),
+            hrv: metrics.nightInputs?.hrv,
+            hrvBase: metrics.nightInputs?.hrvBase)
+    }
+
+    /// Worst signal wins: one bad reading is enough to pull the light down.
+    static func heartStatus(_ inputs: HeartInputs) -> BodyStatus {
+        var status: BodyStatus?
+        if let rhr = inputs.rhr, let base = inputs.rhrBase {
+            let delta = rhr - base
+            status = delta <= 2 ? .good : delta <= 6 ? .watch : delta <= 10 ? .poor : .bad
         }
-        let bend = min(1, abs(Double(readiness) - 75) / 40)
-        return BodyGlow(lit: true, intensity: 0.4 + 0.6 * bend, eyebrow: L("CHEST"), value: word)
+        if let spo2 = inputs.spo2 {
+            let s: BodyStatus = spo2 >= 95 ? .good : spo2 >= 93 ? .watch : spo2 >= 90 ? .poor : .bad
+            status = max(status ?? s, s)
+        }
+        if let resp = inputs.resp {
+            let s: BodyStatus = (12...20).contains(resp) ? .good : (8...26).contains(resp) ? .watch : .poor
+            status = max(status ?? s, s)
+        }
+        return status ?? .ok
+    }
+
+    static func heartGlow(metrics: DailyMetrics) -> BodyGlow {
+        let inputs = heartInputs(metrics)
+        let status = heartStatus(inputs)
+        let lit = inputs.hasAny
+        var details: [String] = []
+        var resting: [String] = []
+        if let rhr = inputs.rhr { resting.append(L("RHR %d", Int(rhr.rounded()))) }
+        if let spo2 = inputs.spo2 { resting.append(L("SpO2 %d%%", spo2)) }
+        if !resting.isEmpty { details.append(resting.joined(separator: " · ")) }
+        if let resp = inputs.resp { details.append(L("RESP %@", String(format: "%.1f", resp))) }
+        return BodyGlow(
+            lit: lit,
+            intensity: glowIntensity(lit: lit, status: status),
+            eyebrow: L("HEART"),
+            value: inputs.live.map { L("%d BPM", $0) }
+                ?? inputs.rhr.map { L("RHR %d", Int($0.rounded())) } ?? Fmt.dash,
+            details: details,
+            status: status)
     }
 
     static func gutGlow(food: Food) -> BodyGlow {
+        let status = gutStatus(food: food)
         guard food.face == .complete || food.face == .remaining,
               let eaten = food.eatenKcal, let target = food.targetKcal, target > 0 else {
-            return BodyGlow(lit: false, intensity: 0, eyebrow: L("GUT"), value: Fmt.dash)
+            return BodyGlow(lit: false, intensity: 0, eyebrow: L("GUT"), value: Fmt.dash,
+                            status: status)
         }
         let delta = eaten - target
-        let bend = min(1, abs(Double(delta)) / Double(target))
         let text = delta == 0 ? L("ON ALLOWANCE") : L("%@ KCAL", Fmt.signedKcal(Double(delta)))
-        return BodyGlow(lit: true, intensity: 0.4 + 0.6 * bend, eyebrow: L("GUT"), value: text)
+        return BodyGlow(lit: true, intensity: glowIntensity(lit: true, status: status),
+                        eyebrow: L("GUT"), value: text,
+                        details: [L("%@ / %@ EATEN", Fmt.kcal(Double(eaten)), Fmt.kcal(Double(target)))],
+                        status: status)
+    }
+
+    /// How far the plate sits from the allowance. Overshooting slides to red faster
+    /// than coming up short does.
+    static func gutStatus(food: Food) -> BodyStatus {
+        guard food.face == .complete || food.face == .remaining,
+              let eaten = food.eatenKcal, let target = food.targetKcal, target > 0 else {
+            return .ok
+        }
+        let fraction = Double(eaten - target) / Double(target)
+        if fraction > 0.30 { return .bad }
+        if fraction > 0.15 { return .poor }
+        if fraction > 0.02 { return .watch }
+        if fraction < -0.30 { return .poor }
+        if fraction < -0.15 { return .watch }
+        if fraction < -0.03 { return .ok }
+        return .good
+    }
+
+    /// Legs own the day's ground: steps first, the band's metres and movement kcal beside them.
+    static func legsGlow(metrics: DailyMetrics, history: [DailyMetrics]) -> BodyGlow {
+        let steps = VitalsReadout.daySteps(metrics)
+        let metres = VitalsReadout.dayMetres(metrics)
+        let active = VitalsReadout.dayActiveKcal(metrics)
+        let status = legsStatus(steps: steps, metres: metres, history: history)
+        let lit = steps != nil || metres != nil
+        var details: [String] = []
+        if let metres { details.append(L("DIST %@ KM", String(format: "%.1f", metres / 1000))) }
+        if let active { details.append(L("ACTIVE %@", Fmt.kcal(active))) }
+        return BodyGlow(
+            lit: lit,
+            intensity: glowIntensity(lit: lit, status: status),
+            eyebrow: L("LEGS"),
+            value: steps.map { L("%@ STEPS", Fmt.kcal($0)) }
+                ?? metres.map { L("%@ KM", String(format: "%.1f", $0 / 1000)) } ?? Fmt.dash,
+            details: details,
+            status: status)
+    }
+
+    /// Steps graded against the person's own week when there is one, absolute floors otherwise.
+    /// A zero is a day that has not started counting, not a failed one — it stays neutral.
+    static func legsStatus(steps: Double?, metres: Double?, history: [DailyMetrics]) -> BodyStatus {
+        if let steps, steps > 0 {
+            let prior = history.suffix(8).dropLast().compactMap { VitalsReadout.daySteps($0) }
+            if prior.count >= 3 {
+                let mean = prior.reduce(0, +) / Double(prior.count)
+                let ratio = mean > 0 ? steps / mean : 1
+                return ratio >= 0.9 ? .good : ratio >= 0.7 ? .ok : ratio >= 0.5 ? .watch
+                     : ratio >= 0.3 ? .poor : .bad
+            }
+            return steps >= 8_000 ? .good : steps >= 6_000 ? .ok : steps >= 4_000 ? .watch
+                 : steps >= 2_000 ? .poor : .bad
+        }
+        guard let metres, metres > 0 else { return .dim }
+        return metres >= 6_000 ? .good : metres >= 4_000 ? .ok : metres >= 2_500 ? .watch
+             : metres >= 1_000 ? .poor : .bad
     }
 
     /// The nine figures the band's BIA scan really returns, drawn from the latest scan only.
@@ -418,8 +567,9 @@ enum HomeV2Model {
     static func detail(zone: Zone, metrics: DailyMetrics, history: [DailyMetrics], meals: [MealEntry]) -> Detail {
         switch zone {
         case .head: return sleepDetail(metrics: metrics, history: history)
-        case .chest: return recoveryDetail(metrics: metrics)
+        case .heart: return heartDetail(metrics: metrics)
         case .gut: return foodDetail(metrics: metrics, meals: meals)
+        case .legs: return legsDetail(metrics: metrics, history: history)
         }
     }
 
@@ -434,10 +584,8 @@ enum HomeV2Model {
             return L("%@ VS AVG", Fmt.signed(Double(delta) / 60))
         }()
         let verdict = (minutes ?? 0) > 0 && (minutes ?? 0) < 7 * 60 ? L("SHORT ON SLEEP") : L("LAST NIGHT")
-        let hrv = metrics.nightInputs?.hrv
-        let rhr = metrics.nightInputs?.rhr
-        let hrvBase = metrics.nightInputs?.hrvBase
-        let rhrBase = metrics.nightInputs?.rhrBase
+        let stress = latestStress(metrics)
+        let stressPeak = metrics.vitalsCurve.compactMap(\.stress).max()
         var note: String?
         if let minutes {
             let shortNights = ([minutes] + prior.prefix(1)).filter { $0 < 7 * 60 }.count
@@ -460,56 +608,99 @@ enum HomeV2Model {
                 Stat(id: "rem", label: L("REM"),
                      value: night.flatMap { $0.line.isEmpty ? nil : sleepHours($0.remMinutes) } ?? Fmt.dash,
                      unit: L("H"), foot: averageFoot(night?.remMinutes, history.compactMap { $0.sleep?.remMinutes })),
-                Stat(id: "debt", label: L("SLEEP DEBT"), value: Fmt.dash, unit: L("H"), foot: Fmt.dash),
-                Stat(id: "hrv", label: L("HRV"), value: hrv.map { String(Int($0.rounded())) } ?? Fmt.dash,
-                     unit: L("MS"), foot: deltaFoot(hrv, hrvBase, unit: L("MS"))),
-                Stat(id: "rhr", label: L("RESTING HR"), value: rhr.map { String(Int($0.rounded())) } ?? Fmt.dash,
-                     unit: L("BPM"), foot: deltaFoot(rhr, rhrBase, unit: L("BPM"))),
+                Stat(id: "light", label: L("LIGHT SLEEP"), value: night.map { sleepHours($0.lightMinutes) } ?? Fmt.dash,
+                     unit: L("H"), foot: averageFoot(night?.lightMinutes, history.compactMap { $0.sleep?.lightMinutes })),
+                Stat(id: "score", label: L("SLEEP SCORE"), value: metrics.sleepScore.map { String($0.score) } ?? Fmt.dash,
+                     unit: "", foot: metrics.sleepScore?.isCalibrating == true ? L("CALIBRATING") : Fmt.dash),
+                Stat(id: "stress", label: L("STRESS"), value: stress.map(String.init) ?? Fmt.dash,
+                     unit: "", foot: stressPeak.map { $0 >= 60 ? L("PEAK %d", $0) : L("TODAY") } ?? Fmt.dash),
                 Stat(id: "bed", label: L("BEDTIME"), value: night?.sleepStart.map { Fmt.clock($0) } ?? Fmt.dash,
                      unit: "", foot: bedtimeFoot(night?.sleepStart)),
             ],
             noteLabel: L("TONIGHT"),
-            note: note)
+            note: note,
+            status: sleepStatus(metrics: metrics))
     }
 
-    static func recoveryDetail(metrics: DailyMetrics) -> Detail {
-        let readiness = metrics.bodyBatteryForDisplay()
-        let band = readinessBand(readiness)
-        let status = status(band: band)
-        let breath = metrics.sleep?.respiration?.map(\.breathsPerMinute)
-        let breathMean = breath.flatMap { points -> Double? in
-            guard !points.isEmpty else { return nil }
-            return points.reduce(0, +) / Double(points.count)
-        }
-        let hrv = metrics.nightInputs?.hrv
-        let rhr = metrics.nightInputs?.rhr
-        var note: String?
-        if let readiness {
-            note = L("Readiness is %d.", readiness)
+    static func heartDetail(metrics: DailyMetrics) -> Detail {
+        let inputs = heartInputs(metrics)
+        let status = heartStatus(inputs)
+        let verdict: String
+        switch status {
+        case .dim: verdict = Fmt.dash
+        case .good, .ok: verdict = L("IN RANGE")
+        case .watch: verdict = L("WATCH")
+        case .poor: verdict = L("ELEVATED")
+        case .bad: verdict = L("ATTENTION")
         }
         return Detail(
-            zone: .chest,
-            eyebrow: L("RECOVERY · TODAY"),
-            hero: readiness.map(String.init) ?? Fmt.dash,
-            heroUnit: "",
+            zone: .heart,
+            eyebrow: L("HEART · TODAY"),
+            hero: (inputs.live ?? inputs.rhr.map { Int($0.rounded()) }).map(String.init) ?? Fmt.dash,
+            heroUnit: L("BPM"),
             aside: Fmt.dash,
-            verdict: status.phrase,
+            verdict: verdict,
             stats: [
-                Stat(id: "hrv", label: L("HRV"), value: hrv.map { String(Int($0.rounded())) } ?? Fmt.dash,
-                     unit: L("MS"), foot: deltaFoot(hrv, metrics.nightInputs?.hrvBase, unit: L("MS"))),
-                Stat(id: "rhr", label: L("RESTING HR"), value: rhr.map { String(Int($0.rounded())) } ?? Fmt.dash,
-                     unit: L("BPM"), foot: deltaFoot(rhr, metrics.nightInputs?.rhrBase, unit: L("BPM"))),
-                Stat(id: "breath", label: L("BREATH / MIN"), value: breathMean.map { String(format: "%.1f", $0) } ?? Fmt.dash,
-                     unit: "", foot: breathMean == nil ? Fmt.dash : L("STEADY")),
-                Stat(id: "strain", label: L("STRAIN"), value: Fmt.load(metrics.trainingLoad),
-                     unit: "/21", foot: L("TODAY")),
-                Stat(id: "steps", label: L("STEPS"), value: Fmt.kcal(metrics.steps.map(Double.init)),
-                     unit: "", foot: Fmt.dash),
-                Stat(id: "active", label: L("ACTIVE"), value: Fmt.kcal(metrics.eActive),
-                     unit: L("KCAL"), foot: metrics.eActive == nil ? Fmt.dash : L("TODAY")),
+                Stat(id: "now", label: L("NOW"), value: inputs.live.map(String.init) ?? Fmt.dash,
+                     unit: L("BPM"), foot: inputs.live == nil ? Fmt.dash : L("TODAY")),
+                Stat(id: "rhr", label: L("RESTING HR"), value: inputs.rhr.map { String(Int($0.rounded())) } ?? Fmt.dash,
+                     unit: L("BPM"), foot: deltaFoot(inputs.rhr, inputs.rhrBase, unit: L("BPM"))),
+                Stat(id: "peak", label: L("PEAK HR"), value: metrics.peakHR.map(String.init) ?? Fmt.dash,
+                     unit: L("BPM"), foot: metrics.peakHR == nil ? Fmt.dash : L("TODAY")),
+                Stat(id: "hrv", label: L("HRV"), value: inputs.hrv.map { String(Int($0.rounded())) } ?? Fmt.dash,
+                     unit: L("MS"), foot: deltaFoot(inputs.hrv, inputs.hrvBase, unit: L("MS"))),
+                Stat(id: "spo2", label: L("SPO2 MIN"), value: inputs.spo2.map(String.init) ?? Fmt.dash,
+                     unit: "%", foot: inputs.spo2 == nil ? Fmt.dash : L("LAST NIGHT")),
+                Stat(id: "resp", label: L("BREATH / MIN"), value: inputs.resp.map { String(format: "%.1f", $0) } ?? Fmt.dash,
+                     unit: "", foot: inputs.resp == nil ? Fmt.dash : L("STEADY")),
             ],
             noteLabel: L("TODAY"),
-            note: note)
+            note: nil,
+            status: status)
+    }
+
+    static func legsDetail(metrics: DailyMetrics, history: [DailyMetrics]) -> Detail {
+        let steps = VitalsReadout.daySteps(metrics)
+        let metres = VitalsReadout.dayMetres(metrics)
+        let active = VitalsReadout.dayActiveKcal(metrics)
+        let status = legsStatus(steps: steps, metres: metres, history: history)
+        let prior = history.suffix(8).dropLast().compactMap { VitalsReadout.daySteps($0) }
+        let versus: String = {
+            guard let steps, prior.count >= 3 else { return Fmt.dash }
+            let mean = prior.reduce(0, +) / Double(prior.count)
+            return L("%@ VS AVG", Fmt.signed(steps - mean))
+        }()
+        let sessions = metrics.segments.filter { !$0.allDay }.count
+        let verdict: String
+        switch status {
+        case .dim: verdict = Fmt.dash
+        case .good: verdict = L("ON PACE")
+        case .ok: verdict = L("YOUR USUAL RANGE")
+        case .watch: verdict = L("BELOW USUAL")
+        case .poor, .bad: verdict = L("WELL BELOW")
+        }
+        return Detail(
+            zone: .legs,
+            eyebrow: L("MOVEMENT · TODAY"),
+            hero: steps.map { Fmt.kcal($0) } ?? metres.map { String(format: "%.1f", $0 / 1000) } ?? Fmt.dash,
+            heroUnit: steps != nil ? L("STEPS") : L("KM"),
+            aside: versus,
+            verdict: verdict,
+            stats: [
+                Stat(id: "dist", label: L("DISTANCE"), value: metres.map { String(format: "%.2f", $0 / 1000) } ?? Fmt.dash,
+                     unit: L("KM"), foot: metres.map { L("%@ M WALKED", Fmt.kcal($0)) } ?? L("NO DISTANCE YET")),
+                Stat(id: "active", label: L("ACTIVE"), value: active.map { Fmt.kcal($0) } ?? Fmt.dash,
+                     unit: L("KCAL"), foot: active == nil ? L("NEEDS YOUR WEIGHT") : L("MOVEMENT ONLY")),
+                Stat(id: "time", label: L("ACTIVE TIME"), value: Fmt.duration(metrics.activeMinutes),
+                     unit: "", foot: metrics.activeMinutes == nil ? Fmt.dash : L("TODAY")),
+                Stat(id: "load", label: L("STRAIN"), value: Fmt.load(metrics.trainingLoad),
+                     unit: "/21", foot: L("TODAY")),
+                Stat(id: "sessions", label: L("SESSIONS"), value: sessions > 0 ? String(sessions) : Fmt.dash,
+                     unit: "", foot: L("TODAY")),
+            ],
+            noteLabel: L("TODAY"),
+            note: nil,
+            status: status == .dim ? nil : status)
     }
 
     static func foodDetail(metrics: DailyMetrics, meals: [MealEntry]) -> Detail {
@@ -549,35 +740,27 @@ enum HomeV2Model {
                      unit: "", foot: L("TODAY")),
             ],
             noteLabel: L("TODAY"),
-            note: note)
+            note: note,
+            status: deck.face == .complete || deck.face == .remaining ? gutStatus(food: deck) : nil)
     }
 
     static func timeline(day: UserDay, metrics: DailyMetrics, history: [DailyMetrics],
-                         meals: [MealEntry], recaps: [SportSessionRecap], lastSync: Date?,
-                         earlier: Bool, now: Date = Date()) -> [TimelineItem] {
-        let days = earlier ? day.rollingBack(7) : [day]
-        let pool = [metrics] + history
-        var items: [TimelineItem] = []
-        for row in pool where days.contains(row.day) {
-            items += dayItems(metrics: row, meals: meals, recaps: recaps, lastSync: lastSync, now: now)
-            for segment in row.segments where !segment.allDay {
-                items.append(segmentItem(segment))
-            }
+                         meals: [MealEntry], recaps: [SportSessionRecap],
+                         weighIns: [WeighIn], measurements: [MeasurementRecord], usesMetric: Bool,
+                         earlier: Bool, now: Date = Date(), lookbackDays: Int = 6) -> [TimelineItem] {
+        var seenDays = Set<UserDay>()
+        let firstDay = earlier ? day.adding(days: -max(0, lookbackDays)) : day
+        let pool = ([metrics] + history).filter {
+            $0.day >= firstDay && $0.day <= day.adding(days: 1) && seenDays.insert($0.day).inserted
         }
-        var seen = Set<String>()
-        return items.filter { seen.insert($0.id).inserted }
-            .sorted { $0.at > $1.at }
-    }
-
-    private static func dayItems(metrics: DailyMetrics, meals: [MealEntry],
-                                 recaps: [SportSessionRecap], lastSync: Date?, now: Date) -> [TimelineItem] {
-        var items: [TimelineItem] = []
-        let plates = meals.filter { $0.day == metrics.day && $0.status == .confirmed }
-        for plate in plates {
+        var items = pool.flatMap { dayItems(metrics: $0, now: now) }
+        var seenMeals = Set<UUID>()
+        for plate in meals where seenMeals.insert(plate.id).inserted && plate.status == .confirmed {
             items.append(TimelineItem(
                 id: "meal-\(plate.id.uuidString)",
                 at: plate.at,
-                title: L("%@ · %@", plate.slot.rawValue.localizedCapitalized, plate.text.isEmpty ? L("Meal") : plate.text),
+                title: L("%@ · %@", L(plate.slot.rawValue).localizedCapitalized,
+                         plate.text.isEmpty ? L("Meal") : plate.text),
                 detail: "",
                 accent: .meal,
                 meal: TimelineMeal(kcal: Int(plate.kcal.rounded()),
@@ -586,81 +769,135 @@ enum HomeV2Model {
                                    fat: Int(plate.fat.rounded())),
                 trailing: nil))
         }
-        if let night = metrics.sleep, let wake = night.wakeAt {
-            items.append(TimelineItem(
-                id: "sleep-\(metrics.day.key)",
-                at: wake,
-                title: metrics.sleepScore.map { L("Woke up · sleep %d", $0.score) } ?? L("Woke up"),
-                detail: [Fmt.duration(night.totalMinutes),
-                         metrics.nightInputs?.hrv.map { L("HRV %d ms", Int($0.rounded())) },
-                         night.spo2.map(\.percent).min().map { L("SpO2 %d%%", $0) }]
-                    .compactMap { $0 }.joined(separator: " · "),
-                accent: .sleep,
-                meal: nil,
-                trailing: nil))
-        }
-        for recap in recaps where UserDay.containing(recap.startedAt) == metrics.day {
+        for recap in recaps where recap.isValid {
             let delta = recap.loadAfter.flatMap { after in recap.loadBefore.map { after - $0 } }
             items.append(TimelineItem(
                 id: "sport-\(recap.id)",
                 at: recap.startedAt,
                 title: recap.title,
-                detail: [Fmt.duration(recap.seconds / 60),
+                detail: ["\(Fmt.clock(recap.startedAt))–\(timelineClock(recap.endedAt, on: UserDay.containing(recap.startedAt)))",
+                         recap.seconds < 60 ? L("%d SEC", recap.seconds) : Fmt.duration(recap.seconds / 60),
                          recap.avgHR.map { L("HR %d", $0) },
                          recap.hasEnergy ? L("%@ kcal", Fmt.kcal(recap.kcal)) : nil]
                     .compactMap { $0 }.joined(separator: " · "),
                 accent: .workout,
                 meal: nil,
-                trailing: delta.map { String(format: "%+.1f", $0) }))
+                trailing: delta.map { String(format: "%+.1f", $0) },
+                endAt: recap.endedAt))
         }
-        if let peak = metrics.vitalsCurve.max(by: { ($0.stress ?? -1) < ($1.stress ?? -1) }),
+        for entry in weighIns where entry.origin != .band && entry.weightKg.isFinite && entry.weightKg > 0 {
+            let weight = usesMetric ? entry.weightKg : entry.weightKg * 2.2046226
+            let unit = usesMetric ? L("KG") : L("LB")
+            items.append(TimelineItem(
+                id: "weight-\(entry.id.uuidString)",
+                at: entry.date,
+                title: L("Weigh-in"),
+                detail: "\(Fmt.kg(weight)) \(unit) · \(entry.origin == .health ? L("Apple Health") : L("Manual entry"))",
+                accent: .weighIn,
+                meal: nil,
+                trailing: nil))
+        }
+        for record in measurements {
+            let accent: HomeTimeline.Accent
+            let detail: String
+            switch record.detail {
+            case .bodyScan(let scan):
+                accent = .bodyScan
+                let fat = scan.bodyFatPercent.map { "\(Fmt.kg($0))%" } ?? Fmt.dash
+                let lean = scan.leanMassKg.map {
+                    "\(Fmt.kg(usesMetric ? $0 : $0 * 2.2046226)) \(usesMetric ? L("KG") : L("LB"))"
+                } ?? Fmt.dash
+                detail = L("Body fat %@ · Lean mass %@", fat, lean)
+            case .balanceCheck:
+                accent = .balanceCheck
+                detail = record.summary
+            }
+            items.append(TimelineItem(
+                id: "measurement-\(record.id.uuidString)",
+                at: record.at,
+                title: record.title,
+                detail: detail,
+                accent: accent,
+                meal: nil,
+                trailing: nil,
+                recordID: record.id))
+        }
+        return HomeTimeline.visible(items, on: day, earlier: earlier, now: now,
+                                    lookbackDays: lookbackDays)
+    }
+
+    private static func dayItems(metrics: DailyMetrics, now: Date) -> [TimelineItem] {
+        var items = sleepItems(metrics: metrics)
+        items += metrics.segments.filter { !$0.allDay }.map(segmentItem)
+        let readings = metrics.vitalsCurve.filter {
+            $0.ts >= metrics.day.start && $0.ts < metrics.day.end && $0.ts <= now
+        }
+        if let peak = readings.max(by: { ($0.stress ?? -1) < ($1.stress ?? -1) }),
            let stress = peak.stress, stress >= 60 {
             items.append(TimelineItem(
                 id: "stress-\(metrics.day.key)",
                 at: peak.ts,
                 title: L("Stress peak · %d", stress),
-                detail: L("Highest reading today."),
+                detail: L("Highest recorded stress that day."),
                 accent: .stress,
-                meal: nil,
-                trailing: nil))
-        }
-        if let lastSync, UserDay.containing(lastSync) == metrics.day {
-            items.append(TimelineItem(
-                id: "sync-\(metrics.day.key)",
-                at: lastSync,
-                title: L("Sync"),
-                detail: L("Band readings landed."),
-                accent: .sync,
-                meal: nil,
-                trailing: nil))
-        }
-        if metrics.day == UserDay.containing(now),
-           let live = metrics.vitalsCurve.last(where: { $0.hr != nil && now.timeIntervalSince($0.ts) < 20 * 60 }),
-           let hr = live.hr {
-            items.append(TimelineItem(
-                id: "now-\(metrics.day.key)",
-                at: now,
-                title: L("Now"),
-                detail: L("HR %d", hr),
-                accent: .now,
                 meal: nil,
                 trailing: nil))
         }
         return items
     }
 
+    private static func sleepItems(metrics: DailyMetrics) -> [TimelineItem] {
+        guard let night = metrics.sleep else { return [] }
+        if let start = night.sleepStart, let wake = night.wakeAt, wake <= start { return [] }
+        let source = night.isUserReported ? L("Manually logged sleep")
+            : night.isCorrected ? L("Edited sleep times") : L("Recorded by HOOP")
+        var items: [TimelineItem] = []
+        if let start = night.sleepStart {
+            items.append(TimelineItem(
+                id: "sleep-start-\(metrics.day.key)",
+                at: start,
+                title: L("Fell asleep"),
+                detail: source,
+                accent: .sleep,
+                meal: nil,
+                trailing: nil,
+                endAt: night.wakeAt))
+        }
+        if let wake = night.wakeAt {
+            items.append(TimelineItem(
+                id: "sleep-wake-\(metrics.day.key)",
+                at: wake,
+                title: metrics.sleepScore.map { L("Woke up · sleep %d", $0.score) } ?? L("Woke up"),
+                detail: [night.totalMinutes > 0 ? Fmt.duration(night.totalMinutes) : nil,
+                         night.sleepStart.map { L("Asleep at %@", timelineClock($0, on: UserDay.containing(wake))) },
+                         metrics.nightInputs?.hrv.map { L("HRV %d ms", Int($0.rounded())) },
+                         night.spo2.map(\.percent).min().map { L("SpO2 %d%%", $0) },
+                         night.isUserReported || night.isCorrected ? source : nil]
+                    .compactMap { $0 }.joined(separator: " · "),
+                accent: .wake,
+                meal: nil,
+                trailing: nil))
+        }
+        return items
+    }
+
+    private static func timelineClock(_ at: Date, on day: UserDay) -> String {
+        UserDay.containing(at) == day ? Fmt.clock(at) : Fmt.displayDate(at, format: "MMM d HH:mm")
+    }
+
     private static func segmentItem(_ segment: TrainingSegment) -> TimelineItem {
         TimelineItem(
             id: "segment-\(segment.at.timeIntervalSince1970)",
             at: segment.at,
-            title: segment.name,
+            title: L("Activity · %@", segment.name),
             detail: [segment.minutes.map { Fmt.duration($0) },
                      segment.avgHR.map { L("HR %d", $0) },
                      segment.steps.map { L("%@ steps", Fmt.kcal(Double($0))) }]
                 .compactMap { $0 }.joined(separator: " · "),
-            accent: .workout,
+            accent: .activity,
             meal: nil,
-            trailing: String(format: "%+.1f", segment.delta))
+            trailing: String(format: "%+.1f", segment.delta),
+            endAt: segment.minutes.map { segment.at.addingTimeInterval(Double($0) * 60) })
     }
 
     static func sleepHours(_ minutes: Int) -> String {

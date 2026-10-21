@@ -27,10 +27,12 @@ struct SportMetricAccumulator {
     private let integrationRate: Double?
     private let profile: EnergyProfile?
     private let strengthMet: Double?
+    private let heartRateModel: Bool
+    private let lastReportAt: Date?
 
     var averageHR: Int? { sampleCount == 0 ? nil : heartRateSum / sampleCount }
     var estimationAvailable: Bool {
-        strengthMet == nil ? profile?.age != nil : profile != nil
+        strengthMet == nil ? heartRateModel && profile?.supportsHeartRate == true : profile != nil
     }
     /// A complete profile only makes an estimate possible. A number becomes
     /// publishable after a valid interval, or after an authoritative native report.
@@ -42,7 +44,9 @@ struct SportMetricAccumulator {
                   sampleCount: 0, peakHR: nil, heartRateSum: 0,
                   integrationAt: nil, integrationRate: nil,
                   profile: EnergyProfile(weightKg: weightKg, age: age, male: male),
-                  strengthMet: Self.strengthMET(sportMode: sportMode))
+                  strengthMet: Self.strengthMET(sportMode: sportMode),
+                  heartRateModel: sportMode.map { [1, 2, 3, 4, 7, 8, 45].contains($0) } ?? false,
+                  lastReportAt: nil)
     }
 
     private init(heartRate: Int?, heartRateAt: Date?, kcal: Double,
@@ -50,7 +54,7 @@ struct SportMetricAccumulator {
                  estimatedSeconds: TimeInterval,
                  sampleCount: Int, peakHR: Int?, heartRateSum: Int,
                  integrationAt: Date?, integrationRate: Double?, profile: EnergyProfile?,
-                 strengthMet: Double?) {
+                 strengthMet: Double?, heartRateModel: Bool, lastReportAt: Date?) {
         self.heartRate = heartRate
         self.heartRateAt = heartRateAt
         self.kcal = kcal
@@ -64,6 +68,8 @@ struct SportMetricAccumulator {
         self.integrationRate = integrationRate
         self.profile = profile
         self.strengthMet = strengthMet
+        self.heartRateModel = heartRateModel
+        self.lastReportAt = lastReportAt
     }
 
     func liveHR(at timestamp: Date) -> Int? {
@@ -72,12 +78,22 @@ struct SportMetricAccumulator {
         return age >= 0 && age < Self.liveWindow ? heartRate : nil
     }
 
+    func accepting(_ report: SportLiveInfo) -> Self {
+        accepting(timestamp: report.receivedAt, heartRate: report.heartRate,
+                  caloriesKcal: report.caloriesKcal, runState: report.runState)
+    }
+
+    func canAccept(at timestamp: Date) -> Bool {
+        timestamp.timeIntervalSince1970.isFinite && (lastReportAt.map { timestamp > $0 } ?? true)
+    }
+
     /// nil runState is the heart-test fallback. Explicit paused/stopped/unknown states
     /// cannot establish contact or contribute HR samples. Never clamp a raw sentinel
     /// into the valid byte range, or smooth a real abrupt heart-rate change.
     func accepting(timestamp: Date, heartRate rawHR: Int?, caloriesKcal: Double?,
                    runState: Int?) -> Self {
         guard timestamp.timeIntervalSince1970.isFinite else { return interrupted() }
+        guard canAccept(at: timestamp) else { return self }
         let running = runState == nil || runState == 1
         let beat = running
             ? rawHR.flatMap { (1...255).contains($0) ? $0 : nil } : nil
@@ -90,8 +106,10 @@ struct SportMetricAccumulator {
             // Strength evidence requires an explicit band running state. A fallback
             // heart callback may still be displayed, but it cannot prove duration.
             rate = runState == 1 ? profile?.netKcalPerMinute(met: strengthMet) : nil
-        } else {
+        } else if heartRateModel {
             rate = beat.flatMap { profile?.kcalPerMinute(heartRate: $0) }
+        } else {
+            rate = nil
         }
         let elapsed = integrationAt.map { timestamp.timeIntervalSince($0) }
         let estimate: (kcal: Double, seconds: TimeInterval) = source == .estimate
@@ -108,7 +126,8 @@ struct SportMetricAccumulator {
                     heartRateSum: heartRateSum + (beat ?? 0),
                     integrationAt: baselineAllowed ? timestamp : nil,
                     integrationRate: baselineAllowed ? rate : nil, profile: profile,
-                    strengthMet: strengthMet)
+                    strengthMet: strengthMet, heartRateModel: heartRateModel,
+                    lastReportAt: timestamp)
     }
 
     /// A disconnect, stream replacement or loss of contact cannot bridge an energy interval.
@@ -118,7 +137,8 @@ struct SportMetricAccumulator {
              calorieCorrection: nil, estimatedSeconds: estimatedSeconds,
              sampleCount: sampleCount, peakHR: peakHR, heartRateSum: heartRateSum,
              integrationAt: nil, integrationRate: nil, profile: profile,
-             strengthMet: strengthMet)
+             strengthMet: strengthMet, heartRateModel: heartRateModel,
+             lastReportAt: lastReportAt)
     }
 
     private func integrated(rate: Double?, elapsed: TimeInterval?) -> (kcal: Double, seconds: TimeInterval) {
@@ -146,6 +166,10 @@ struct SportMetricAccumulator {
         let age: Int?
         let male: Bool
 
+        var supportsHeartRate: Bool {
+            age.map { (18...45).contains($0) } == true && (47...120).contains(weightKg)
+        }
+
         init?(weightKg: Double?, age: Int?, male: Bool) {
             guard let weightKg, weightKg.isFinite, weightKg > 0 else { return nil }
             self.weightKg = weightKg
@@ -155,13 +179,13 @@ struct SportMetricAccumulator {
 
         /// Existing Keytel estimate; it is used only while native energy is unavailable.
         func kcalPerMinute(heartRate: Int) -> Double? {
-            guard let age else { return nil }
+            guard supportsHeartRate, let age, (90...150).contains(heartRate) else { return nil }
             let h = Double(heartRate), a = Double(age)
             let kj = male
                 ? -55.0969 + 0.6309 * h + 0.1988 * weightKg + 0.2017 * a
                 : -20.4022 + 0.4472 * h - 0.1263 * weightKg + 0.0740 * a
-            let rate = kj / 4.184
-            return rate.isFinite ? max(0, rate) : nil
+            let rate = kj / 4.184 - 3.5 * weightKg / 200
+            return rate.isFinite && rate > 0 ? rate : nil
         }
 
         /// Net activity energy, excluding the standard 1 MET already represented

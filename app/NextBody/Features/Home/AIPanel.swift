@@ -316,7 +316,7 @@ struct AIPanel: View {
                 .foregroundStyle(NB.white.opacity(0.30))
         }
         if syncActivity.showsProgress {
-            DottedProgress(progress: syncActivity.fraction, lit: NB.lime1, track: NB.white.opacity(0.12))
+            DottedProgress(progress: syncActivity.fraction, lit: syncActivity.workflow.tint, track: NB.white.opacity(0.12))
                 .frame(height: 4)
                 .animation(.linear(duration: 0.15), value: syncActivity.fraction)
                 .accessibilityIdentifier("panel.syncProgress")
@@ -429,7 +429,7 @@ struct AIPanel: View {
     }
 
     private var headerTint: Color {
-        if syncActivity.showsProgress { return NB.lime1 }
+        if syncActivity.showsProgress { return syncActivity.workflow.tint }
         if syncActivity.failureLine != nil { return NB.ember1 }
         guard band.connected else { return NB.white.opacity(0.55) }
         switch live.phase {

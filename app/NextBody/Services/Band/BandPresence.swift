@@ -78,10 +78,11 @@ final class BandPresence {
         // Battery observations remain fresh, but registration/capability publication is
         // initialization, not something to repeat on every automatic health-data pull.
         guard metadata.needsRefresh(metadataKey()) else { return }
-        BandSyncActivity.shared.show(.capabilities)
+        BandSyncActivity.shared.show(.saving)
         guard await Repository.shared.registerDevice(identity: identity, battery: battery) else { return }
 
         guard isCurrent() else { return }
+        BandSyncActivity.shared.show(.capabilities)
 
         // 07 · the plus menu is gated on what this HOOP says it can do, read from the band
         // and stored, so the gate is right before the device page has ever been opened.
@@ -92,6 +93,7 @@ final class BandPresence {
             if let deviceId = Repository.shared.deviceId,
                let userId = await SupabaseClient.shared.currentUserId {
                 guard userId == account, isCurrent() else { return }
+                BandSyncActivity.shared.show(.saving)
                 let saved = await Repository.shared.saveCapabilities(caps, deviceId: deviceId, userId: userId,
                                                                      holdsDays: identity?.watchDataDayNumber)
                 guard isCurrent() else { return }
@@ -216,7 +218,8 @@ final class BandSyncActivity: ObservableObject {
     /// Home's display and Device render this exact line, including the same rounding
     /// and day counter. Neither surface owns another sync state or percentage.
     var progressLine: String {
-        let prefix = L(workflow.modeLabel) + " · \(Int(fraction * 100))% · "
+        let destination = workflow.stage.destination.map { L($0.rawValue) + " · " } ?? ""
+        let prefix = L(workflow.modeLabel) + " · " + destination + "\(Int(fraction * 100))% · "
         if workflow.stage == .reading, total > 0 {
             return prefix + L("READING DAY") + " \(min(done + 1, total)) " + L("OF") + " \(total)"
         }

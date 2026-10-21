@@ -111,22 +111,10 @@ struct TodayWidgetFace: View {
         GeometryReader { geo in
             let margin = Self.margin(for: geo.size.width)
             switch family {
-            case .systemSmall: small
             case .systemLarge: large(margin: margin, height: geo.size.height)
             default: medium(margin: margin, height: geo.size.height)
             }
         }
-    }
-
-    /// One number. The square is the body-battery instrument.
-    private var small: some View {
-        VStack(spacing: 8) {
-            WidgetRing(progress: readout.batteryProgress, value: readout.batteryText,
-                       label: "READINESS", tint: Island.lime, valueSize: 28,
-                       diameter: 112, stroke: 9, labelSize: 8, dim: readout.batteryDim)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Island.carbon)
     }
 
     /// Three rings, then the name and the band — same carbon, no second plate.
@@ -156,15 +144,16 @@ struct TodayWidgetFace: View {
     }
 
     /// Brand, rings, then last night and today's movers — one carbon.
-    /// TEMP stays off this face. The third row is page two's missing
-    /// RESPONSE plus last night's HRV and SpO2.
+    /// TEMP stays off this face. SLEEP moved up into the third ring, so the
+    /// grid opens with the night's duration (SLEPT); the third row is last
+    /// night's resting pulse, HRV and SpO2.
     private func large(margin: CGFloat, height: CGFloat) -> some View {
         VStack(spacing: 0) {
             identityRail(margin: margin, topInset: 10)
             rings(margin: margin, valueSize: (22, 20, 16), share: 0.225, centred: true)
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    vital("SLEEP", readout.sleepText)
+                    vital("SLEPT", readout.sleepClockText)
                     vital("ACTIVE", readout.activeText)
                     vital("HR", readout.heartText)
                 }
@@ -174,7 +163,7 @@ struct TodayWidgetFace: View {
                     vital("DISTANCE", readout.distanceText)
                 }
                 HStack(spacing: 0) {
-                    vital("RESPONSE", readout.responseText)
+                    vital("RHR", readout.rhrText)
                     vital("HRV", readout.hrvText)
                     vital("SPO2", readout.spo2Text)
                 }
@@ -223,8 +212,8 @@ struct TodayWidgetFace: View {
                                label: "LOAD", tint: Island.white, valueSize: valueSize.1,
                                diameter: d, stroke: stroke, labelSize: 8)
                     Spacer(minLength: minGap)
-                    WidgetRing(progress: readout.eatenProgress, value: readout.eatenText,
-                               label: "EATEN", tint: Island.ember, valueSize: valueSize.2,
+                    WidgetRing(progress: readout.sleepProgress, value: readout.sleepText,
+                               label: "SLEEP", tint: Island.luna, valueSize: valueSize.2,
                                diameter: d, stroke: stroke, labelSize: 8)
                 }
                 .padding(.horizontal, margin)

@@ -115,10 +115,17 @@ struct OnboardingFlow: View {
                 }, onSkip: {
                     Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "FAILED"]) }
                     enter()
+                }, onSkipEarly: {
+                    Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "USER"]) }
+                    enter()
                 }, onReconnect: {
                     // 03 edge 3 · reuse the whole pairing chain, then come back to BASELINE 01.
                     UserDefaults.standard.set(true, forKey: "nb.onboarding.resumeAtBaseline")
                     session.stage = .gateConnect
+                }, onBack: {
+                    // S1's back lands on the last interactive step — FingersOn would only
+                    // re-arm the battery gate and bounce straight back here.
+                    step = .goal
                 })
             case .baseline:
                 BaselineScreen(reading: baseline, onEnter: enter)
@@ -639,58 +646,82 @@ private struct FingersOn: View {
     @State private var lowBattery: Int?
 
     var body: some View {
-        OnbPage(counter: L("BASELINE 01 / 03"),
-                title: L("Now, your baseline"),
-                sub: L("Rest your hand on the table and touch the side key with your index finger. Hold still."),
-                onBack: onBack,
-                cta: L("Start body scan"), ctaEnabled: lowBattery == nil, onCTA: {
-                    Task { await Analytics.shared.track("SCAN_START", [:]) }
-                    onStart()
-                },
-                footnote: L("Takes about 30 seconds")) {
-            ZStack {
+        // Same S1 as the re-scan: the hoop waits for a finger, the battery check is
+        // the only thing between this screen and the stream — no start button.
+        BodyScanPrepareLayout(
+            topInset: Chrome.gateTopInset, bottomInset: 24,
+            status: BodyScanState.waiting.status,
+            statusTint: BodyScanState.waiting.statusTint,
+            headline: BodyScanState.waiting.headline,
+            help: BodyScanState.waiting.help,
+            header: { OnbHeader(counter: L("BASELINE 01 / 03"), onBack: onBack) },
+            stage: {
                 if let lowBattery {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(spacing: 12) {
-                            BatteryGlyph()
-                            Text(L("BATTERY %d%%", lowBattery))
-                                .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
-                        }
-                        Text(L("Charge the band before the first scan — it needs about 15%."))
-                            .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
-                            .foregroundStyle(NB.white.opacity(0.80))
-                        Button {
-                            Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "LOW_BATTERY"]) }
-                            onSkip()
-                        } label: {
-                            Text(L("Skip for now, measure later →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 24)
-                    .frame(width: NB.Layout.contentWidth, height: 176, alignment: .leading)
-                    .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous).stroke(NB.hairline, lineWidth: 1))
-                    .offset(y: -40)
+                    lowBatteryCard(percent: lowBattery)
+                } else {
+                    HoopFigure(mode: .waiting)
                 }
-                TimelineView(.animation) { tl in
-                    let t = tl.date.timeIntervalSinceReferenceDate
-                    BandOutline(pulse: (sin(t * 2) + 1) / 2)
+            },
+            footer: {
+                if lowBattery == nil {
+                    BodyScanSkipButton { onSkip() }
                 }
-                .frame(width: 240, height: 300)
-
-                Text(L("INDEX FINGER ON THE SIDE KEY"))
-                    .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
-                    .foregroundStyle(NB.lime1.opacity(0.75))
-                    .offset(y: 190)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 16)
-        }
+            })
         .task {
             if DebugEdge.on("lowbattery") { lowBattery = 8; return }
-            if let b = try? await Band.live.readBattery(), b.isPercent, let p = b.percent, p < 15 { lowBattery = p }
+            if let b = try? await Band.live.readBattery(), b.isPercent, let p = b.percent, p < 15 {
+                lowBattery = p
+                return
+            }
+            Task { await Analytics.shared.track("SCAN_START", [:]) }
+            onStart()
         }
+    }
+
+    private func lowBatteryCard(percent: Int) -> some View {
+        VStack {
+            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    BatteryGlyph()
+                    Text(L("BATTERY %d%%", percent))
+                        .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
+                }
+                Text(L("Charge the band before the first scan — it needs about 15%."))
+                    .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
+                    .foregroundStyle(NB.white.opacity(0.80))
+                Button {
+                    Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "LOW_BATTERY"]) }
+                    onSkip()
+                } label: {
+                    Text(L("Skip for now, measure later →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .frame(width: NB.Layout.contentWidth, height: 176, alignment: .leading)
+            .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous).stroke(NB.hairline, lineWidth: 1))
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// The plain-text skip under the prepare screen's foot rule — gone the moment a
+/// finger is on the key.
+private struct BodyScanSkipButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button {
+            Task { await Analytics.shared.track("SCAN_SKIP", ["REASON": "USER"]) }
+            action()
+        } label: {
+            Text(L("Skip for now, measure later →"))
+                .font(NBFont.ui(300, 13)).tracking(0.02 * 13)
+                .foregroundStyle(NB.white.opacity(0.42))
+                .padding(.top, 12)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -705,186 +736,195 @@ private struct BatteryGlyph: View {
     }
 }
 
-/// The band drawn as a lit outline of LEDs, with the fingertip meeting the side key.
-private struct BandOutline: View {
-    let pulse: Double
-    var body: some View {
-        Canvas { ctx, size in
-            let rect = CGRect(x: size.width / 2 - 62, y: size.height / 2 - 82, width: 124, height: 164)
-            let path = Path(roundedRect: rect, cornerRadius: 40)
-            ctx.stroke(path, with: .color(NB.lime1.opacity(0.35 + 0.35 * pulse)),
-                       style: StrokeStyle(lineWidth: 7, lineCap: .round, dash: [2.4, 3.4]))
-            ctx.stroke(Path(roundedRect: rect.insetBy(dx: 14, dy: 14), cornerRadius: 28),
-                       with: .color(NB.lime1.opacity(0.12)), lineWidth: 1)
-            // side key + fingertip
-            ctx.fill(Path(roundedRect: CGRect(x: rect.maxX + 2, y: rect.midY - 22, width: 7, height: 44),
-                          cornerRadius: 3.5), with: .color(NB.lime1))
-            ctx.stroke(Path(ellipseIn: CGRect(x: rect.maxX + 16, y: rect.midY - 18, width: 36, height: 36)),
-                       with: .color(NB.lime1.opacity(0.55)), style: StrokeStyle(lineWidth: 2, dash: [3, 3]))
-            var lead = Path()
-            lead.move(to: CGPoint(x: rect.maxX + 52, y: rect.midY))
-            lead.addLine(to: CGPoint(x: size.width, y: rect.midY))
-            ctx.stroke(lead, with: .color(NB.lime1.opacity(0.28)),
-                       style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-        }
-    }
-}
-
 // MARK: 05 · 测量 Scanning
+
+/// The mutable scan state. A class so every write — the stream's, the nudge and grace
+/// timers', the debug pins' — lands on the object the view actually reads, wherever the
+/// writer was scheduled. @State on the view struct could not guarantee that.
+private final class OnbScanModel: ObservableObject {
+    @Published var remaining = 30
+    /// 06 · body composition progress is the fields themselves (14 of them).
+    @Published var fields = 0
+    /// True once the band has reported the fingers. Until then the screen is S1.
+    @Published var contact = false
+    /// Edge 1 · after 5 quiet seconds in waiting the prepare screen turns amber.
+    @Published var nudged = false
+    /// 03 edge 2 · a lifted finger holds the count on screen; the band itself starts over.
+    @Published var holding = false
+    /// 06 edge 2 · the resume grace, in seconds, counted down while `holding`.
+    @Published var lostGrace = 3.0
+    @Published var restarts = 0
+    /// 03 edge 3 · the one edge this screen cannot fix itself.
+    @Published var dropped = false
+    /// The SDK ran and said no — its reason, in its words. Retry or skip; never a number.
+    @Published var failure: String?
+    /// True only while the band is actually measuring.
+    @Published var measuring = false
+    @Published var halfway = false
+    /// The finished reading sits on computing briefly — the same pause the takeover takes.
+    @Published var computing = false
+    @Published var startedAt = Date()
+    /// When the band's count last moved — the figure hops from this instant, never from a timer.
+    @Published var beatAt = Date()
+}
 
 private struct ScanningScreen: View {
     /// Pushed to the band before the scan starts (F2 §05).
     let info: PersonalInfo
     let onDone: (BodyCompositionReading) -> Void
     var onSkip: () -> Void = {}
+    var onSkipEarly: () -> Void = {}
     var onReconnect: () -> Void = {}
-    /// The band's own seconds. Nothing on this screen is timed by the phone: the count is
-    /// whatever the SDK's progress says, and it holds while the fingers are off.
-    @State private var remaining = 30
-    /// 03 edge 2 · a lifted finger holds the count on screen; the band itself starts over.
-    @State private var holding = false
-    @State private var restarts = 0
-    /// 03 edge 3 · the one edge this screen cannot fix itself.
-    @State private var dropped = false
-    /// The SDK ran and said no — its reason, in its words. Retry or skip; never a number.
-    @State private var failure: String?
+    var onBack: () -> Void = {}
+    /// The scan state lives in a class, not @State on the view: `.task`'s closure
+    /// captures `self` before install, and writes through a detached struct copy are
+    /// silently dropped — the nudge and the debug pins used to land on nothing.
+    @StateObject private var model = OnbScanModel()
     @State private var attempt = 0
-    /// True only while the band is actually measuring. Before contact, and whenever the
-    /// fingers are off, the trace is a flat line: a beating wave with nothing being read is
-    /// a picture of a measurement that is not happening.
-    @State private var measuring = false
-    @State private var startedAt = Date()
-    /// When the band's count last moved — the figure hops from this instant, never from a timer.
-    @State private var beatAt = Date()
-    /// Edge 1 · NO CONTACT. Rises after 4 s without contact (3 s after a lift), and drops the
-    /// instant the band reports the fingers.
-    @State private var nudge = false
     @State private var nudgeTask: Task<Void, Never>?
+    @State private var graceTask: Task<Void, Never>?
+
+    private var scanState: BodyScanState {
+        if model.computing { return .computing }
+        if model.holding { return .lost(grace: Int(model.lostGrace.rounded())) }
+        if model.measuring { return model.halfway ? .halfway : .counting(fields: model.fields) }
+        if model.contact { return .contact }
+        if model.nudged { return .nudge }
+        return .waiting
+    }
+
+    /// S1 covers every pre-measure state — and the failure / dropped cards, which sit in
+    /// the stage where the hoop was. S2 is measuring, held or computing.
+    private var showsPrepare: Bool { !(model.measuring || model.holding || model.computing) }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            content
-            if nudge {
-                ContactNudgeSheet(lifted: holding)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: nudge)
+        content
         // Leaving the screen cancels this task, which ends the stream, which stops the
         // band's test (F1 rule 05). `attempt` re-runs it from the failure card.
-        .task(id: attempt) { await scanTask() }
+            .onAppear { run = Task { await scanTask() } }
+            .onDisappear { run?.cancel() }
+            .onChange(of: attempt) { _, _ in run?.cancel(); run = Task { await scanTask() } }
     }
+
+    @State private var run: Task<Void, Never>?
 
     private var content: some View {
-        VStack(spacing: 0) {
-            Color.clear.frame(height: Chrome.gateTopInset)
-            // Once the scan starts the back key is gone — you cannot half-measure a body.
-            OnbHeader(counter: L("BASELINE 02 / 03"))
-            OnbTitle(title: L("Scanning"),
-                     sub: L("A tiny current maps your body — you won't feel a thing. Keep your finger on the key."))
-                .padding(.top, 24)
-
-            if let failure {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(failure)
-                        .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
-                    Text(L("The band ran the scan and could not finish it.\nNothing you filled in is lost."))
-                        .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
-                        .foregroundStyle(NB.white.opacity(0.80))
-                    HStack(spacing: 24) {
-                        Button(action: { attempt += 1 }) {
-                            Text(L("Try again →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
-                        }
-                        .buttonStyle(.plain)
-                        Button(action: onSkip) {
-                            Text(L("Skip for now")).font(NBFont.ui(400, 14)).tracking(0.02 * 14).foregroundStyle(NB.white.opacity(0.42))
-                        }
-                        .buttonStyle(.plain)
+        // ⚠️ Both layouts stay mounted: an `if`/`switch` between two generic layouts pinned
+        // the prepare screen to its first frame — body re-evaluated but the branch never
+        // re-rendered (the takeover's own switch is unaffected). Opacity is the swap.
+        ZStack {
+            let s = scanState
+            BodyScanPrepareLayout(
+                topInset: Chrome.gateTopInset, bottomInset: 24,
+                status: s.status, statusTint: s.statusTint,
+                headline: s.headline, help: s.help,
+                header: {
+                    // Once the scan starts the back key is gone — you cannot
+                    // half-measure a body.
+                    OnbHeader(counter: L("BASELINE 01 / 03"),
+                              onBack: model.contact || model.failure != nil || model.dropped ? nil : onBack)
+                },
+                stage: {
+                    if let failure = model.failure { failureCard(reason: failure) }
+                    else if model.dropped { droppedCard }
+                    else { HoopFigure(mode: model.nudged ? .nudge : model.contact ? .contact : .waiting) }
+                },
+                footer: {
+                    if !model.contact, model.failure == nil, !model.dropped {
+                        BodyScanSkipButton { onSkipEarly() }
                     }
-                }
-                .padding(.horizontal, 24)
-                .frame(width: NB.Layout.contentWidth, height: 176, alignment: .leading)
-                .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous).stroke(NB.hairline, lineWidth: 1))
-                .padding(.top, 60)
-            } else if dropped {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(L("BAND DISCONNECTED"))
-                        .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
-                    Text(L("The band went quiet mid-scan.\nNothing you filled in is lost."))
-                        .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
-                        .foregroundStyle(NB.white.opacity(0.80))
-                    Button(action: onReconnect) {
-                        Text(L("Reconnect →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 24)
-                .frame(width: NB.Layout.contentWidth, height: 176, alignment: .leading)
-                .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous).stroke(NB.hairline, lineWidth: 1))
-                .padding(.top, 60)
-            } else {
-            // BIA has no waveform. The current walks the body, one beat per band second;
-            // edge 2 · a lifted finger freezes the figure where it was and turns it amber.
-            BodyFill(beat: 30 - remaining, beatAt: beatAt, active: measuring, held: holding)
-                .frame(height: 280)
-                .padding(.top, 24)
-                .onChange(of: remaining) { beatAt = Date() }
-
-            Text(L("BODY COMPOSITION"))
-                .font(NBFont.dot(600, 10)).tracking(0.24 * 10)
-                .foregroundStyle(NB.white.opacity(0.34))
-                .padding(.top, 28)
-
-            // The counter counts down, not up: the ETA belongs before the wait, not during it.
-            // Edge 2 · it holds — never resets to zero; zero looks like 「白干了」.
-            Text(holding ? L("HOLDING · 00:%02d", remaining) : String(format: "00:%02d", remaining))
-                .font(holding ? NBFont.dot(600, 12) : NBFont.dot(700, 26)).tracking(holding ? 0.2 * 12 : 0.14 * 26)
-                .foregroundStyle(holding ? NB.ember1 : NB.lime1)
-                .padding(.top, 12)
-                .contentTransition(.numericText(countsDown: true))
-            }
-
-            Spacer(minLength: 0)
-
-            // Grey, in front — what to do if it breaks, said before it breaks.
-            Text(holding ? L("Put your finger back — we'll pick it up.")
-                 : restarts > 0 ? L("Second lift — starting over from 30.")
-                 : L("Lift your finger and the scan restarts."))
-                .font(holding ? NBFont.ui(400, 14.5) : NBFont.ui(300, 13)).tracking(0.02 * 13)
-                .foregroundStyle(holding ? NB.emberPale : NB.white.opacity(0.42))
-
-            Color.clear.frame(height: 20)
+                })
+            .opacity(showsPrepare ? 1 : 0)
+            .id("\(s.status)|\(model.failure != nil)|\(model.dropped)")
+            BodyScanScanningLayout(
+                topInset: Chrome.gateTopInset, bottomInset: 24,
+                headerHeight: 44,
+                remaining: model.remaining, held: model.holding,
+                status: s.status, statusTint: s.statusTint,
+                headline: s.headline, help: s.help,
+                beat: model.computing ? 30 : 30 - model.remaining,
+                total: 30, beatAt: model.beatAt, complete: model.computing,
+                header: { OnbHeader(counter: L("BASELINE 02 / 03")) },
+                footer: { EmptyView() })
+            .opacity(showsPrepare ? 0 : 1)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func scanTask() async {
+    private func failureCard(reason: String) -> some View {
+        card {
+            Text(reason)
+                .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
+            Text(L("The band ran the scan and could not finish it.\nNothing you filled in is lost."))
+                .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
+                .foregroundStyle(NB.white.opacity(0.80))
+            HStack(spacing: 24) {
+                Button(action: { attempt += 1 }) {
+                    Text(L("Try again →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+                }
+                .buttonStyle(.plain)
+                Button(action: onSkip) {
+                    Text(L("Skip for now")).font(NBFont.ui(400, 14)).tracking(0.02 * 14).foregroundStyle(NB.white.opacity(0.42))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var droppedCard: some View {
+        card {
+            Text(L("BAND DISCONNECTED"))
+                .font(NBFont.dot(600, 12)).tracking(0.2 * 12).foregroundStyle(NB.ember1)
+            Text(L("The band went quiet mid-scan.\nNothing you filled in is lost."))
+                .font(NBFont.ui(400, 14.5)).tracking(0.01 * 14.5).lineSpacing(6)
+                .foregroundStyle(NB.white.opacity(0.80))
+            Button(action: onReconnect) {
+                Text(L("Reconnect →")).font(NBFont.ui(500, 14)).tracking(0.02 * 14).foregroundStyle(NB.lime1)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack {
+            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 14) { content() }
+                .padding(.horizontal, 24)
+                .frame(width: NB.Layout.contentWidth, height: 176, alignment: .leading)
+                .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: NB.R.spec, style: .continuous).stroke(NB.hairline, lineWidth: 1))
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// ⚠️ Must run on the main actor: `.task` closures are not actor-bound, and @State
+    /// written off-main can be silently dropped — the nudge and the debug pins used to
+    /// land on nothing. The takeover's own scan loop is main-actor for the same reason.
+    @MainActor private func scanTask() async {
             // DEBUG walks on the mock: `lifted` pauses at 3 s and lifts again at 9 s;
             // `banddropped` loses the band at 2 s.
             #if DEBUG
             if applyDebugScanPin() { return }
             #endif
             if DebugEdge.on("lifted") {
-                remaining = 30; measuring = true
-                for _ in 0..<3 { try? await Task.sleep(for: .seconds(1)); withAnimation { remaining -= 1 } }
-                withAnimation { holding = true }
-                try? await Task.sleep(for: .seconds(3)); withAnimation { holding = false }
-                for _ in 0..<3 { try? await Task.sleep(for: .seconds(1)); withAnimation { remaining -= 1 } }
-                withAnimation { holding = true }
-                try? await Task.sleep(for: .seconds(2)); withAnimation { holding = false; restarts += 1; remaining = 30 }
-                while remaining > 0 { try? await Task.sleep(for: .seconds(1)); withAnimation { remaining -= 1 } }
+                model.remaining = 30; model.contact = true; model.measuring = true
+                for _ in 0..<3 { try? await Task.sleep(for: .seconds(1)); withAnimation { model.remaining -= 1 } }
+                withAnimation { model.holding = true }
+                try? await Task.sleep(for: .seconds(3)); withAnimation { model.holding = false }
+                for _ in 0..<3 { try? await Task.sleep(for: .seconds(1)); withAnimation { model.remaining -= 1 } }
+                withAnimation { model.holding = true }
+                try? await Task.sleep(for: .seconds(2)); withAnimation { model.holding = false; model.restarts += 1; model.remaining = 30 }
+                while model.remaining > 0 { try? await Task.sleep(for: .seconds(1)); withAnimation { model.remaining -= 1 } }
                 return
             }
             if DebugEdge.on("banddropped") {
-                try? await Task.sleep(for: .seconds(2)); withAnimation { dropped = true }
+                try? await Task.sleep(for: .seconds(2)); withAnimation { model.dropped = true }
                 return
             }
             let watch = Task {
                 for await event in Band.live.events {
                     if case .state(.disconnected) = event {
-                        await MainActor.run { withAnimation { dropped = true } }
+                        await MainActor.run { withAnimation { model.dropped = true } }
                         return
                     }
                 }
@@ -895,95 +935,148 @@ private struct ScanningScreen: View {
 
     #if DEBUG
     /// `NB_DEBUG_SCAN_LEFT=24` freezes the body-fill figure at that remaining second.
-    /// `NB_DEBUG_SCAN_HOLD=1` paints the amber lift; `nocontact` raises the nudge sheet.
+    /// `NB_DEBUG_SCAN_HOLD=1` paints the amber lift; `nocontact` puts S1 in its nudge state.
     private func applyDebugScanPin() -> Bool {
         let env = ProcessInfo.processInfo.environment
         guard let raw = env["NB_DEBUG_SCAN_LEFT"], let left = Int(raw) else { return false }
-        remaining = min(30, max(0, left))
-        beatAt = Date()
-        measuring = env["NB_DEBUG_SCAN_HOLD"] != "1"
+        model.remaining = min(30, max(0, left))
+        model.fields = min(14, Int(14 * Double(30 - model.remaining) / 30))
+        model.halfway = model.remaining <= 15
+        model.contact = true
+        model.beatAt = Date()
+        model.measuring = env["NB_DEBUG_SCAN_HOLD"] != "1"
             && !DebugEdge.on("nocontact")
             && !DebugEdge.on("banddropped")
-        holding = env["NB_DEBUG_SCAN_HOLD"] == "1" || DebugEdge.on("lifted")
-        if holding { measuring = true }
+        model.holding = env["NB_DEBUG_SCAN_HOLD"] == "1" || DebugEdge.on("lifted")
+        if model.holding { model.measuring = true }
         if DebugEdge.on("nocontact") {
-            measuring = false
-            holding = false
-            nudge = true
+            model.measuring = false
+            model.holding = false
+            model.contact = false
+            model.nudged = true
         }
         if DebugEdge.on("banddropped") {
-            dropped = true
-            measuring = false
-            holding = false
+            model.dropped = true
+            model.measuring = false
+            model.holding = false
         }
         return true
     }
     #endif
 
-    /// Start (or restart) the no-contact clock: the sheet rises if nothing has changed by then.
+    /// Start (or restart) the no-contact clock: the prepare screen turns amber if nothing
+    /// has changed by then — while a finger is already on the key, or measuring, or held,
+    /// there is nothing to nudge about.
     private func armNudge(after seconds: Double) {
         nudgeTask?.cancel()
-        nudgeTask = Task {
+        nudgeTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled, failure == nil, !dropped else { return }
-            if !measuring || holding { nudge = true }
+            guard !Task.isCancelled, model.failure == nil, !model.dropped else { return }
+            if !model.measuring && !model.contact && !model.holding {
+                model.nudged = true
+            }
         }
     }
 
     private func disarmNudge() {
         nudgeTask?.cancel(); nudgeTask = nil
-        if nudge { nudge = false }
+        if model.nudged { model.nudged = false }
+    }
+
+    /// 06 edge 2 · a lifted finger gets the takeover's three seconds of grace, shown as
+    /// PAUSED over the held figure, then the screen is back at waiting for a finger.
+    private func startGrace() {
+        graceTask?.cancel()
+        graceTask = Task { @MainActor in
+            while model.lostGrace > 0 {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, model.holding else { return }
+                withAnimation { model.lostGrace -= 1 }
+            }
+            guard !Task.isCancelled, model.holding else { return }
+            withAnimation {
+                model.holding = false
+                model.contact = false
+                model.halfway = false
+                model.measuring = false
+            }
+            model.remaining = 30
+            model.fields = 0
+            model.lostGrace = 3
+            armNudge(after: 5)
+        }
     }
 
     /// The scan is the band's. Weight first (F2 §05), then every state on screen is one the
-    /// SDK reported: contact, its own seconds, a lifted finger, the twelve fields, or why not.
+    /// SDK reported: contact, its own seconds, a lifted finger, the fourteen fields, or why not.
     private func runScan() async {
-        remaining = 30; holding = false; failure = nil; dropped = false; measuring = false
-        startedAt = Date()
+        model.remaining = 30; model.fields = 0; model.contact = false; model.holding = false; model.halfway = false
+        model.computing = false; model.failure = nil; model.dropped = false; model.measuring = false; model.lostGrace = 3
+        model.startedAt = Date()
         disarmNudge()
         do {
             // A relaunch between pairing and this screen leaves the band bound but not
             // connected; the SDK reconnects to it on its own before anything is pushed.
             if Band.live.state != .connected { await Band.live.reconnectIfBound() }
             try await Band.live.syncPersonalInfo(info)
-            armNudge(after: 4)
+            // Same rule as the takeover: five quiet seconds in waiting, then the amber ask.
+            armNudge(after: 5)
             for try await step in Band.live.measureBodyComposition() {
                 switch step {
                 case .waitingForContact:
                     break
                 case .contact:
+                    // A lift-off restart yields contact again; the minute is not wiped back —
+                    // the next progress line carries the fresh count.
+                    graceTask?.cancel()
                     disarmNudge()
-                    withAnimation { holding = false; measuring = true }
+                    withAnimation { model.contact = true; model.holding = false }
                 case .measuring(let fraction, _, let secondsLeft):
+                    graceTask?.cancel()
                     disarmNudge()
-                    let left = secondsLeft ?? Int(((1 - fraction) * 30).rounded())
-                    withAnimation { remaining = max(0, left); holding = false; measuring = true }
+                    model.fields = min(14, Int((14 * fraction).rounded(.down)))
+                    let left = secondsLeft ?? max(0, 30 - Int((30 * fraction).rounded()))
+                    if model.remaining != left { model.beatAt = Date() }
+                    withAnimation {
+                        model.contact = true; model.measuring = true; model.holding = false
+                        model.halfway = fraction >= 0.5
+                        model.remaining = left
+                    }
                 case .lostContact:
                     // 03 edge 2 · the count holds where it was; the band starts over on contact.
-                    withAnimation { holding = true; restarts += 1 }
-                    armNudge(after: 3)
+                    disarmNudge()
+                    graceTask?.cancel()
+                    model.lostGrace = 3
+                    withAnimation { model.holding = true; model.restarts += 1 }
+                    startGrace()
                 case .finished(.bodyComposition(let r)):
                     disarmNudge()
-                    withAnimation { measuring = false }
-                    await Analytics.shared.track("SCAN_DONE", ["MS": Int(Date().timeIntervalSince(startedAt) * 1000), "RESTARTS": restarts])
+                    graceTask?.cancel()
+                    withAnimation { model.measuring = false; model.computing = true }
+                    await Analytics.shared.track("SCAN_DONE", ["MS": Int(Date().timeIntervalSince(model.startedAt) * 1000), "RESTARTS": model.restarts])
+                    try? await Task.sleep(for: .milliseconds(650))
+                    guard !Task.isCancelled else { return }
                     onDone(r)
                     return
                 case .finished:
                     return
                 case .failed(let reason):
                     disarmNudge()
-                    withAnimation { failure = reason }
+                    graceTask?.cancel()
+                    withAnimation { model.failure = reason }
                     return
                 }
             }
         } catch BandError.notConnected {
             disarmNudge()
-            withAnimation { dropped = true }
+            graceTask?.cancel()
+            withAnimation { model.dropped = true }
         } catch is CancellationError {
             return
         } catch {
             disarmNudge()
-            withAnimation { failure = (error as? BandError)?.errorDescription ?? "BAND OFFLINE" }
+            graceTask?.cancel()
+            withAnimation { model.failure = (error as? BandError)?.errorDescription ?? "BAND OFFLINE" }
         }
     }
 }

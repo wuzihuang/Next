@@ -12,6 +12,8 @@ enum Island {
     static let panelInk  = Color(red: 0x07 / 255, green: 0x07 / 255, blue: 0x09 / 255)
     static let lime      = Color(red: 0xEF / 255, green: 0xF6 / 255, blue: 0x5A / 255)
     static let ember     = Color(red: 0xF6 / 255, green: 0xA4 / 255, blue: 0x1C / 255)
+    /// Sleep's violet — `NB.violet1` in the app's `Tokens.swift`.
+    static let luna      = Color(red: 0xA7 / 255, green: 0x8B / 255, blue: 0xFA / 255)
     static let white     = Color.white
 
     /// Doto — the dot-matrix numerals. Same names the app registers.

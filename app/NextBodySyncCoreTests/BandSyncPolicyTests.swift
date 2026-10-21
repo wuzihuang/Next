@@ -2,6 +2,13 @@ import XCTest
 @testable import NextBodySyncCore
 
 final class BandSyncPolicyTests: XCTestCase {
+    func testSettlementRetriesOnlyTransportFailures() {
+        XCTAssertTrue(BandSyncPolicy.retriesSettle(after: SupabaseFailure.transport(
+            NSError(domain: "network", code: -1009))))
+        XCTAssertFalse(BandSyncPolicy.retriesSettle(after: SupabaseFailure.http(57014, #"{"code":"57014"}"#)))
+        XCTAssertFalse(BandSyncPolicy.retriesSettle(after: NSError(domain: "other", code: 1)))
+    }
+
     func testStatusPrioritizesConnectionAndTransferOverStandby() {
         XCTAssertEqual(BandSyncPolicy.header(activity: "connecting", connected: false, live: "off"), "CONNECTING")
         XCTAssertEqual(BandSyncPolicy.header(activity: "syncing", connected: true, live: "off"), "SYNCING…")

@@ -12,6 +12,8 @@ struct ProfileView: View {
     @EnvironmentObject private var router: Router
     @State private var notifyLamp = NotifyLamp.off
     @State private var showGuide = false
+    /// how far the page has scrolled, in points; 0 at rest
+    @State private var scrolled: CGFloat = 0
 
     private enum NotifyLamp { case on, off, denied }
 
@@ -59,6 +61,9 @@ struct ProfileView: View {
 
                     SectionMark(L("DATA & LEGAL"))
                     LineGroup {
+                        line(L("AI ASSISTANTS"), value: L("MANAGE"), id: "ASSISTANTS_MANAGE") {
+                            router.sheet = .assistants
+                        }
                         line(L("COLLECTING HEALTH DATA"),
                              value: consent.granted ? L("ON") : L("OFF"), id: "COLLECTING") {
                             if consent.granted {
@@ -86,7 +91,20 @@ struct ProfileView: View {
                     signOff
                 }
                 .padding(.top, 44)
+                .background {
+                    // iOS 17 has no scroll geometry API; the content reports its own top.
+                    if #unavailable(iOS 18) {
+                        GeometryReader { g in
+                            Color.clear.preference(key: DetailOffsetKey.self,
+                                                   value: -g.frame(in: .named("profile")).minY)
+                        }
+                    }
+                }
             }
+            .coordinateSpace(name: "profile")
+            .modifier(ScrollOffsetWatcher { scrolled = $0 })
+            .background(alignment: .topLeading) { bloom }
+            barGround
             bar
             if showGuide {
                 HomeMCPGuide(backTitle: L("ME"), onBack: {
@@ -117,18 +135,7 @@ struct ProfileView: View {
 
     private var bar: some View {
         HStack(spacing: 0) {
-            Button { router.backToRoot() } label: {
-                HStack(spacing: 8) {
-                    BackChevron(height: 16, line: 1.6, color: NB.white)
-                    Text(L("ME"))
-                        .font(NBFont.ui(500, 16))
-                        .foregroundStyle(NB.white)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(L("Back"))
-            .accessibilityValue(L("ME"))
+            ProfileBackKey()
             Spacer(minLength: 0)
             HStack(spacing: 7) {
                 Circle().fill(NB.lime1).frame(width: 6, height: 6)
@@ -140,7 +147,39 @@ struct ProfileView: View {
         .padding(.horizontal, 20)
         .frame(height: 44)
         .frame(maxWidth: .infinity)
-        .background(NB.carbon)
+    }
+
+    /// The lime glow the identity block sits in. It paints from the screen's top corner —
+    /// through the clock and the glass bar — so the header and the page read as one
+    /// surface, and it fades to clear before its own edge so nothing is clipped.
+    private var bloom: some View {
+        RadialGradient(stops: [
+            .init(color: NB.lime1.opacity(0.12), location: 0),
+            .init(color: NB.lime1.opacity(0.04), location: 0.55),
+            .init(color: NB.lime1.opacity(0), location: 1),
+        ], center: .topLeading, startRadius: 0, endRadius: 300)
+            .frame(width: 480, height: 380)
+            .offset(x: -70, y: -55)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+    }
+
+    /// At rest the bar is glass and the bloom runs straight through it. Carbon fades in —
+    /// through the clock, past the 44pt bar, out in a short gradient — once the page
+    /// slides under. The fill climbs into the status bar so the inset is not eaten.
+    private var barGround: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: 44)
+                .frame(maxWidth: .infinity)
+                .background(NB.carbon.ignoresSafeArea(edges: .top))
+            LinearGradient(colors: [NB.carbon, NB.carbon.opacity(0)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 22)
+                .frame(maxWidth: .infinity)
+        }
+        .opacity(min(1, scrolled / 36))
+        .allowsHitTesting(false)
     }
 
     private var identity: some View {
@@ -177,12 +216,6 @@ struct ProfileView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(alignment: .topLeading) {
-            RadialGradient(colors: [NB.lime1.opacity(0.12), .clear],
-                           center: .topLeading, startRadius: 0, endRadius: 280)
-                .frame(height: 180)
-                .allowsHitTesting(false)
-        }
         .accessibilityIdentifier("IDENTITY")
     }
 
@@ -231,10 +264,10 @@ struct ProfileView: View {
             .accessibilityIdentifier("COMPOSITION")
 
             MonthAxis()
-            DirectionHeatMap(history: data.history, today: data.today) { day in
-                router.open(.composition(date: day.start), from: .profile)
+            CompositionWeekRow(weeks: weekCells) { week in
+                router.open(.composition(date: week.end.start), from: .profile)
             }
-            DirectionLegend()
+            CompositionWeekLegend()
             HStack(alignment: .center, spacing: 12) {
                 Text(L("The latest fat and lean mass are on the Body page"))
                     .font(NBFont.ui(300, 12))
@@ -418,6 +451,13 @@ struct ProfileView: View {
         data.compositionScans.max { $0.at < $1.at }
     }
 
+    private var weekCells: [CompositionWeekCell] {
+        CompositionWindowMath.weekCells(
+            scans: data.compositionScans,
+            aim: CompositionAim(rawValue: data.profile.goal.rawValue) ?? .recomp,
+            endingOn: UserDay.containing(Date()))
+    }
+
     private var goalWord: String { L(data.profile.goal.rawValue) }
 
     private var heightReadout: (value: String, unit: String) {
@@ -545,65 +585,75 @@ private struct MonthAxis: View {
     }
 }
 
-/// One cell is one day; a column is a week; the colour is Daily Direction.
-/// Every cell is tappable and lands on that day's composition detail.
-struct DirectionHeatMap: View {
-    let history: [DailyMetrics]
-    var today: DailyMetrics? = nil
-    let onDay: (UserDay) -> Void
+/// One cell is one user week; the colour is that week's measured direction toward the
+/// training goal — never what was eaten that day. BIA only means something a week apart,
+/// so a single scan lights the whole week and a grey cell is a week nobody scanned.
+/// Every cell is tappable and lands on composition detail at that week's end.
+struct CompositionWeekRow: View {
+    let weeks: [CompositionWeekCell]
+    let onWeek: (CompositionWeekCell) -> Void
 
-    private let rows = 7
-    private let weeks = 26
     private let gap: CGFloat = 3
 
     private var cell: CGFloat {
-        (NB.Layout.screenWidth - 40 - gap * CGFloat(weeks - 1)) / CGFloat(weeks)
+        (NB.Layout.screenWidth - 40 - gap * CGFloat(weeks.count - 1)) / CGFloat(weeks.count)
     }
 
     var body: some View {
         HStack(spacing: gap) {
-            ForEach(0..<weeks, id: \.self) { w in
-                VStack(spacing: gap) {
-                    ForEach(0..<rows, id: \.self) { r in
-                        let day = dayFor(week: w, row: r)
-                        let metrics = metrics(for: day)
-                        Button { onDay(day) } label: {
-                            DirectionCell(direction: metrics?.direction ?? .greyNothing,
-                                          height: cell, radius: 2)
-                                .frame(width: cell, height: cell)
-                        }
-                        .buttonStyle(.plain)
-                    }
+            ForEach(Array(weeks.enumerated()), id: \.offset) { index, week in
+                Button { onWeek(week) } label: {
+                    CompositionWeekCellView(tone: week.tone, current: index == weeks.count - 1,
+                                            height: cell, radius: 2)
+                        .frame(width: cell, height: cell)
                 }
+                .buttonStyle(.plain)
             }
         }
     }
+}
 
-    private func metrics(for day: UserDay) -> DailyMetrics? {
-        if let today, today.day == day { return today }
-        return history.first { $0.day == day }
+struct CompositionWeekCellView: View {
+    let tone: CompositionWeekTone
+    var current = false
+    var height: CGFloat = 34
+    var radius: CGFloat = 6
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(fill)
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .stroke(stroke, lineWidth: tone == .held ? 1.5 : (current ? 2 : 0)))
+            .frame(height: height)
     }
 
-    private func dayFor(week: Int, row: Int) -> UserDay {
-        let today = UserDay.containing(Date())
-        let daysBack = (weeks - 1 - week) * 7 + (6 - row)
-        return today.adding(days: -daysBack)
+    private var fill: Color {
+        switch tone {
+        case .aligned: NB.lime1
+        case .held: .clear
+        case .drift: NB.ember1
+        case .noScan: Color(hex: 0x26262E)
+        }
+    }
+    private var stroke: Color {
+        if tone == .held { return NB.white.opacity(0.35) }
+        return current ? NB.white.opacity(0.7) : .clear
     }
 }
 
-struct DirectionLegend: View {
+struct CompositionWeekLegend: View {
     var body: some View {
         HStack(spacing: 12) {
-            chip(.deficit, MetricNames.deficit)
-            chip(.level, MetricNames.level)
-            chip(.surplus, MetricNames.surplus)
-            chip(.greyNothing, L("GAP"))
+            chip(.aligned, L("ALIGNED"))
+            chip(.held, L("HELD"))
+            chip(.drift, L("DRIFT"))
+            chip(.noScan, L("NO SCAN"))
         }
     }
 
-    private func chip(_ direction: DailyDirection, _ label: String) -> some View {
+    private func chip(_ tone: CompositionWeekTone, _ label: String) -> some View {
         HStack(spacing: 6) {
-            DirectionCell(direction: direction, height: 8, radius: 2)
+            CompositionWeekCellView(tone: tone, height: 8, radius: 2)
                 .frame(width: 8, height: 8)
             Text(label)
                 .font(NBFont.dot(700, 10)).tracking(0.06 * 10)
@@ -612,5 +662,28 @@ struct DirectionLegend: View {
                 .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// ‹ ME. The edge-back host injects its slide-out into the environment inside this
+/// page's own body, so the read lives here — a property on the page itself would only
+/// ever see the environment above the host.
+private struct ProfileBackKey: View {
+    @EnvironmentObject private var router: Router
+    @Environment(\.detailBackSlide) private var detailBackSlide
+
+    var body: some View {
+        Button { detailBackSlide?() ?? router.backToRoot() } label: {
+            HStack(spacing: 8) {
+                BackChevron(height: 16, line: 1.6, color: NB.white)
+                Text(L("ME"))
+                    .font(NBFont.ui(500, 16))
+                    .foregroundStyle(NB.white)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L("Back"))
+        .accessibilityValue(L("ME"))
     }
 }

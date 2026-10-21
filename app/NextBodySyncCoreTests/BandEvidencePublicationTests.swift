@@ -11,8 +11,10 @@ final class BandEvidencePublicationTests: XCTestCase {
         var consent = true
         var sent: [[String: Any]] = []
         var order: [String] = []
+        var bundled: [(domains: [[String: Any]], sleep: [String: Any]?, budgetMs: Int?)] = []
         var ingest: (@MainActor ([String: Any]) async throws -> BandIngestionAcknowledgment)?
         var sleep: (@MainActor ([String: Any]) async throws -> [[String: Any]])?
+        var bundle: (@MainActor ([[String: Any]], [String: Any]?, Int?) async throws -> BandBundleReply?)?
 
         init() throws {
             directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -37,7 +39,27 @@ final class BandEvidencePublicationTests: XCTestCase {
                     XCTAssertEqual(capturedOwner, account)
                     self.order.append("sleep")
                     return try await self.sleep?(row) ?? [row]
+                }, bundle: { domains, row, budgetMs, capturedOwner in
+                    XCTAssertEqual(capturedOwner, account)
+                    self.bundled.append((domains, row, budgetMs))
+                    guard let bundle = self.bundle else { return nil }
+                    return try await bundle(domains, row, budgetMs)
                 }))
+        }
+        func response(_ results: [Any], sleep: [String: Any]? = nil) throws -> BandBundleReply {
+            var object: [String: Any] = ["results": results]
+            if let sleep { object["sleep"] = sleep } else { object["sleep"] = NSNull() }
+            return try BandBundleReply(response: object)
+        }
+        func success(_ count: Int, receipts: [String: String]? = nil,
+                     needsSamples: [String]? = nil) -> [String: Any] {
+            var ack: [String: Any] = [
+                "inserted": 0, "completed": 0, "unchanged": count, "rejected": 0,
+                "affected_days": [],
+            ]
+            if let receipts { ack["receipts"] = receipts }
+            if let needsSamples { ack["needs_samples"] = needsSamples }
+            return ["ok": ack]
         }
         func domain(_ samples: [[String: Any]], name: String = "origin", status: BandDomainReadStatus = .complete,
                     observedAt: String = "2026-09-08T12:00:00Z", deviceKey: String = "band",
@@ -560,4 +582,192 @@ final class BandEvidencePublicationTests: XCTestCase {
         }
     }
 
+    @MainActor func testBundlePublishesSleepAndMultipleDomainsInOneCall() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let domains = [f.domain(f.samples(2)), f.domain(f.samples(1), name: "hrv")]
+        f.bundle = { entries, row, _ in
+            XCTAssertEqual(entries.count, 2)
+            XCTAssertEqual(row?["user_day"] as? String, "2026-09-08")
+            let results = entries.map { entry in
+                f.success((entry["p_samples"] as? [[String: Any]])?.count ?? 0)
+            }
+            return try f.response(results, sleep: ["ok": [f.night]])
+        }
+
+        let publisher = f.publisher()
+        let result = await publisher.publish(domains, sleep: f.night)
+        XCTAssertEqual(result.domains.count, 2)
+        XCTAssertTrue(try result.domains[0].get().confirmed)
+        XCTAssertTrue(try result.domains[1].get().confirmed)
+        try result.sleep?.get()
+        XCTAssertEqual(f.bundled.count, 1)
+        XCTAssertEqual(publisher.uploadMetrics.calls, 1)
+        XCTAssertEqual(publisher.uploadMetrics.rounds, 1)
+    }
+
+    @MainActor func testBundleErrorsAreIsolatedToTheirDomain() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let domains = ["origin", "hrv", "temperature"].map { f.domain(f.samples(1), name: $0) }
+        f.bundle = { entries, _, _ in
+            try f.response([
+                f.success(1),
+                ["error": ["code": "22023", "message": "invalid domain"]],
+                f.success(1),
+            ])
+        }
+
+        let result = await f.publisher().publish(domains, sleep: nil)
+        XCTAssertTrue(try result.domains[0].get().confirmed)
+        XCTAssertThrowsError(try result.domains[1].get()) {
+            guard case BandEvidencePublication.Failure.server(code: "22023", message: _) = $0 else {
+                return XCTFail("Unexpected error: \($0)")
+            }
+        }
+        XCTAssertTrue(try result.domains[2].get().confirmed)
+        XCTAssertEqual(try f.pending().count, 1)
+    }
+
+    @MainActor func testNeedsSamplesRetriesOnlyThatDomainWithFullValues() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let timestamp = "2026-09-08T10:00:00Z"
+        let origin = f.domain([f.completeSample(timestamp)])
+        f.ingest = { _ in .init(inserted: 0, completed: 0, unchanged: 1, rejected: 0,
+                                affectedDays: [], receipts: [timestamp: "receipt-token"]) }
+        _ = try await f.publisher().publish(origin)
+        var round = 0
+        f.bundle = { entries, _, _ in
+            round += 1
+            if round == 1 {
+                XCTAssertEqual(entries.count, 2)
+                XCTAssertTrue((entries[0]["p_samples"] as? [[String: Any]] ?? []).isEmpty)
+                XCTAssertEqual((entries[0]["p_receipts"] as? [[String: Any]])?.count, 1)
+                return try f.response([
+                    f.success(1, needsSamples: [timestamp]),
+                    f.success(1),
+                ])
+            }
+            XCTAssertEqual(entries.count, 1)
+            XCTAssertEqual((entries[0]["p_samples"] as? [[String: Any]])?.first?["heart"] as? Int, 61)
+            XCTAssertNil(entries[0]["p_receipts"])
+            return try f.response([f.success(1, receipts: [timestamp: "fresh-token"])])
+        }
+        let result = await f.publisher().publish(
+            [origin, f.domain(f.samples(1), name: "hrv", observedAt: "2026-09-08T12:01:00Z")], sleep: nil)
+        XCTAssertTrue(try result.domains[0].get().confirmed)
+        XCTAssertTrue(try result.domains[1].get().confirmed)
+        XCTAssertEqual(round, 2)
+        XCTAssertTrue(try f.pending().isEmpty)
+    }
+
+    @MainActor func testDeferredDomainsAreRetried() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        var round = 0
+        f.bundle = { _, _, _ in
+            round += 1
+            return try f.response(round == 1 ? [["deferred": true]] : [f.success(1)])
+        }
+
+        let result = await f.publisher().publish([f.domain(f.samples(1))], sleep: nil)
+        XCTAssertTrue(try result.domains[0].get().confirmed)
+        XCTAssertEqual(round, 2)
+        XCTAssertTrue(try f.pending().isEmpty)
+    }
+
+    @MainActor func testItemsStillDeferredAfterThreeRoundsRemainQueued() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        f.bundle = { _, _, _ in try f.response([["deferred": true]], sleep: ["deferred": true]) }
+
+        let result = await f.publisher().publish([f.domain(f.samples(1))], sleep: f.night)
+        XCTAssertThrowsError(try result.domains[0].get()) {
+            guard case BandEvidencePublication.Failure.deferred = $0 else {
+                return XCTFail("Unexpected error: \($0)")
+            }
+        }
+        XCTAssertThrowsError(try result.sleep?.get()) {
+            guard case BandEvidencePublication.Failure.deferred = $0 else {
+                return XCTFail("Unexpected error: \($0)")
+            }
+        }
+        XCTAssertEqual(f.bundled.count, 3)
+        XCTAssertEqual(try f.pending().count, 1)
+        XCTAssertEqual(try f.pending(kind: "band-sleep").count, 1)
+    }
+
+    @MainActor func testSleepFollowingDomainResolvesCompleteOrFailedAndKeepsRepairRange() async throws {
+        for succeeds in [true, false] {
+            let f = try Fixture(); defer { f.remove() }
+            let domain = BandEvidencePublication.Domain(name: "sleep", deviceKey: "band", day: "2026-09-08",
+                timezone: "UTC", start: f.domain([]).start, end: f.domain([]).end,
+                observedAt: f.domain([]).observedAt, mappingVersion: "veepoo-rmssd-v2",
+                status: .notCollected, samples: [], statusFollowsSleep: true)
+            f.bundle = { entries, _, _ in
+                XCTAssertEqual(entries.first?["p_status"] as? String, "pending_sleep")
+                let sleep: [String: Any] = succeeds ? ["ok": [f.night]]
+                    : ["error": ["code": "22023", "message": "invalid sleep"]]
+                return try f.response([f.success(0)], sleep: sleep)
+            }
+
+            let result = await f.publisher().publish([domain], sleep: f.night)
+            let publication = try result.domains[0].get()
+            XCTAssertEqual(publication.state.status, succeeds ? .complete : .failed)
+            XCTAssertEqual(publication.state.repairStart == nil, succeeds)
+            if succeeds { try result.sleep?.get() }
+            else { XCTAssertThrowsError(try result.sleep?.get()) }
+        }
+    }
+
+    @MainActor func testBundleChunksAtEightDomains() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let samples = f.samples(9)
+        let domains = samples.map { f.domain([$0], name: "hrv") }
+        f.bundle = { entries, _, _ in
+            try f.response(entries.map { f.success(($0["p_samples"] as? [[String: Any]])?.count ?? 0) })
+        }
+
+        let result = await f.publisher().publish(domains, sleep: nil)
+        XCTAssertEqual(f.bundled.map { $0.domains.count }, [8, 1])
+        XCTAssertTrue(result.domains.allSatisfy { (try? $0.get().confirmed) == true })
+    }
+
+    @MainActor func testUnsupportedBundleFallsBackToSleepThenIndividualDomains() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let result = await f.publisher().publish(
+            [f.domain(f.samples(1)), f.domain(f.samples(1), name: "hrv")], sleep: f.night)
+        XCTAssertTrue(try result.domains.allSatisfy { try $0.get().confirmed })
+        try result.sleep?.get()
+        XCTAssertEqual(f.order.first, "sleep")
+        XCTAssertEqual(f.order.dropFirst().filter { $0 == "domain" }.count, 2)
+        XCTAssertEqual(f.bundled.count, 1)
+    }
+
+    @MainActor func testLegacyFallbackKeepsSleepFailureStatusOnFollowingDomain() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let template = f.domain([], name: "sleep")
+        let domain = BandEvidencePublication.Domain(name: "sleep", deviceKey: template.deviceKey,
+            day: template.day, timezone: template.timezone, start: template.start, end: template.end,
+            observedAt: template.observedAt, mappingVersion: template.mappingVersion,
+            status: .notCollected, samples: [], statusFollowsSleep: true)
+        f.sleep = { _ in throw Fixture.Failure.lostReply }
+
+        let result = await f.publisher().publish([domain], sleep: f.night)
+        XCTAssertEqual(try result.domains[0].get().state.status, .failed)
+        XCTAssertThrowsError(try result.sleep?.get())
+    }
+
+    @MainActor func testReplayBundlesPagesAndStopsAtFirstUnconfirmed() async throws {
+        let f = try Fixture(); defer { f.remove() }
+        let timestamp = f.samples(1)[0]["ts"] as! String
+        for value in [40, 41, 42] {
+            try f.publisher().stage(f.domain([["ts": timestamp, "hrv": value]], name: "hrv"))
+        }
+        f.bundle = { entries, _, _ in
+            XCTAssertEqual(entries.count, 3)
+            return try f.response([f.success(1), ["deferred": true], f.success(1)])
+        }
+
+        let acknowledged = try await f.publisher().replay()
+        XCTAssertEqual(acknowledged, 1)
+        XCTAssertEqual(try f.pending().count, 2)
+        XCTAssertEqual(f.bundled.count, 1)
+    }
 }

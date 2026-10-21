@@ -265,3 +265,91 @@ enum CompositionWindowMath {
         return sorted[mid]
     }
 }
+
+/// Which way the user's training goal points, so a week cell can tell aligned from drift.
+/// Mirrors `Goal`'s three cases; kept separate because `Goal` lives in the app module.
+enum CompositionAim: String, Equatable, Sendable {
+    case cut = "CUT", recomp = "RECOMP", bulk = "BULK"
+}
+
+/// A week cell's tone on the ME card. Colour is a fact about measured fat and lean,
+/// never a judgement about the day and never about eating.
+enum CompositionWeekTone: Equatable, Sendable {
+    /// No scan landed in this week.
+    case noScan
+    /// Measured, but the delta sits inside the noise band — or there is no earlier
+    /// measured week to compare against. An outline, not a verdict.
+    case held
+    /// Fat down or lean up, read toward the aim.
+    case aligned
+    /// The week moved against the aim.
+    case drift
+}
+
+/// One cell of the ME card's 26-week grid.
+struct CompositionWeekCell: Equatable, Sendable {
+    /// The user day this week ends on; tapping the cell opens composition there.
+    var end: UserDay
+    /// The week's representative — the latest scan inside it.
+    var scan: CompositionScan?
+    var tone: CompositionWeekTone
+}
+
+extension CompositionWindowMath {
+
+    /// The F2 §05 noise bands, restated so the week grid shares The Call's thresholds.
+    static let weekFatBand = 0.15
+    static let weekLeanBand = 0.10
+
+    /// 26 cells, one per user week ending on `day`, oldest first. A week is coloured by
+    /// comparing its latest scan against the latest scan of the nearest earlier week that
+    /// has one — empty weeks stay `noScan` and never stretch a comparison.
+    static func weekCells(
+        scans: [CompositionScan],
+        aim: CompositionAim,
+        endingOn day: UserDay,
+        count: Int = 26
+    ) -> [CompositionWeekCell] {
+        var cells: [CompositionWeekCell] = []
+        var baseline: CompositionScan?
+        for offset in stride(from: count - 1, through: 0, by: -1) {
+            let end = day.adding(days: -offset * 7)
+            let start = end.adding(days: -6)
+            let inside = inWindow(scans, from: start.start, to: end.end)
+            let rep = inside.last
+            let tone: CompositionWeekTone
+            if let rep {
+                tone = classify(
+                    fatDelta: rep.fatMassKg.flatMap { now in baseline?.fatMassKg.map { now - $0 } },
+                    leanDelta: rep.leanMassKg.flatMap { now in baseline?.leanMassKg.map { now - $0 } },
+                    aim: aim
+                )
+                baseline = rep
+            } else {
+                tone = .noScan
+            }
+            cells.append(CompositionWeekCell(end: end, scan: rep, tone: tone))
+        }
+        return cells
+    }
+
+    /// Goal-aware direction of one measured week. `nil` deltas read as inside the band —
+    /// an unmeasured field is not evidence for either direction.
+    static func classify(fatDelta: Double?, leanDelta: Double?, aim: CompositionAim) -> CompositionWeekTone {
+        let fat = fatDelta ?? 0, lean = leanDelta ?? 0
+        let fatDown = fat < -weekFatBand, fatUp = fat > weekFatBand
+        let leanUp = lean > weekLeanBand, leanDown = lean < -weekLeanBand
+        switch aim {
+        case .cut, .recomp:
+            if fatUp { return .drift }
+            if leanDown && !fatDown { return .drift }
+            if fatDown || leanUp { return .aligned }
+            return .held
+        case .bulk:
+            if leanDown { return .drift }
+            if fatUp && !leanUp { return .drift }
+            if leanUp { return .aligned }
+            return .held
+        }
+    }
+}

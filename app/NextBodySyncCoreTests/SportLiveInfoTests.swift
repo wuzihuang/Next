@@ -18,6 +18,22 @@ final class SportLiveInfoTests: XCTestCase {
         XCTAssertEqual(report.receivedAt, receipt)
     }
 
+    func testEnergyUsesReceiptIntervalsRatherThanTheTimeReportsAreProcessed() {
+        let first = SportLiveInfo(receivedAt: Date(timeIntervalSince1970: 100),
+                                  heartRate: 120, runState: 1)
+        let second = SportLiveInfo(receivedAt: Date(timeIntervalSince1970: 110),
+                                   heartRate: 120, runState: 1)
+        let initial = SportMetricAccumulator(weightKg: 70, age: 34, male: true, sportMode: 3)
+        let buffered = [first, second].reduce(initial) { $0.accepting($1) }
+        XCTAssertEqual(buffered.estimatedSeconds, 10)
+        XCTAssertEqual(buffered.kcal,
+                       initial.accepting(first).accepting(timestamp: second.receivedAt,
+                           heartRate: second.heartRate, caloriesKcal: nil, runState: 1).kcal)
+        let gap = SportLiveInfo(receivedAt: Date(timeIntervalSince1970: 130),
+                                heartRate: 120, runState: 1)
+        XCTAssertEqual(buffered.accepting(gap).kcal, buffered.kcal)
+    }
+
     func testUnknownEnergyUnitsNeverBecomeKcal() {
         for raw: UInt32 in [0, 50, 100, 150, 11_273, UInt32.max] {
             let report = SportLiveInfo.deviceReport(heartRate: 80, rawCalories: raw, durationSec: 0, runState: 1)

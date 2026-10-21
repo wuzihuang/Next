@@ -140,11 +140,12 @@ opening either AI folder without the owner's permission.
   AT 04:00), Units LB + FT, Lock Screen Live Activity permission, and the
   allowed Outdoor Run Live Activity (elapsed / 134 BPM / burned).
   Springboard Today strip pins the NextBody icon, the icon-menu size
-  picker (App / small / medium / large), Today small (BODY BATTERY 68),
-  Today medium (BATTERY 68 / LOAD 2.6 / EATEN -- / band 82%), and Today
-  large (three rings plus SLEEP/ACTIVE/HR / STRESS/STEPS/DISTANCE /
-  RESPONSE/HRV/SPO2). There is no Log a meal widget. Q-0 VOICE / HOLDING
-  / four casting faces are design-only; do not clone them.
+  picker (App / medium / large), Today medium (BATTERY 68 / LOAD 2.6 /
+  SLEEP -- / band 82%), and Today large (three rings plus
+  SLEPT/ACTIVE/HR / STRESS/STEPS/DISTANCE / RHR/HRV/SPO2). There is no
+  Log a meal widget and no small face — the square was retired.
+  Q-0 VOICE / HOLDING / four casting faces are design-only; do not
+  clone them.
   Firmware-check strip pins Device VERSION 2.4.1 Up to date, and
   Could not reach the update server (`NB_DEBUG_EDGE=uptodate` /
   `otacheckfail` on MockBand).
@@ -172,10 +173,120 @@ opening either AI folder without the owner's permission.
 - [Leave blank - user populates]
 
 ## Components
+- **Live sport active-energy repair (2026-10-21)** — `SportMetricAccumulator`
+  now subtracts the standard 1-MET resting component (`3.5 × kg / 200` kcal/min)
+  from the Keytel gross rate before trapezoidal integration. The four existing
+  strength MET estimates are unchanged. The heart-rate model is restricted to
+  run/walk/cycle modes (1–4, 7–8, 45), the study's age/weight population
+  (18–45 years, 47–120 kg), and a conservative 90–150 BPM operating window.
+  These are applicability guardrails, not individually validated accuracy limits
+  or a claim that exercise outside them burns nothing. Unsupported intervals
+  remain unknown; actual HR is still displayed and retained for training.
+  Source: https://pubmed.ncbi.nlm.nih.gov/15966347/ and the paper's discussion
+  of the limited linear HR/oxygen-consumption range.
+  `LiveSessionStore` uses `SportLiveInfo.receivedAt` for energy, durable evidence,
+  and band-start reconstruction. Duplicate/out-of-order reports are ignored;
+  pauses and gaps over 15 s still break integration. Joining a pre-existing
+  workout does not establish its mode and therefore does not borrow the
+  requested mode's estimator. Live/recap copy explains observed-only active
+  energy; optional `energyObservedSeconds` persists coverage independently of
+  HR-zone coverage, with legacy recaps left intact. Daily server settlement
+  and historical recap values are not rewritten by this client repair.
+  Focused verification: `python3 app/Tests/diagnostics/sport_energy.py` builds
+  real sport/storage sources plus their XCTest suites in a disposable package,
+  without reading the restricted AI targets in the main package. Full iOS
+  build/device acceptance and deployment remain separate.
+- **App/cloud sync stages (2026-10-21)** — `BandSyncProgress.Stage.destination`
+  distinguishes App work (yellow `NB.lime1`) from cloud work (blue `NB.blue1`).
+  Device button/bar, Home header ring and legacy panel use `workflow.tint`; accessible
+  progress names App or cloud. Upload, device registration, capability publication,
+  settlement and completion receipts are cloud stages. Backfill can alternate colors
+  without resetting progress; only terminal success reaches 100%.
+  `SyncProgressStageTests` checks rendered button colors and the current Home ring
+  (`home.syncProgress`), not the legacy panel removed from the default Home surface.
+  Retained 2026-10-20 device diagnostics showed a 50.46s daily pull: today's BLE/mapping
+  2.62s, local persistence 0.012s, upload 10.09s, settlement/reload 11.91s, plus yesterday
+  and preparation/receipts. These are historical observations, not a current-device
+  benchmark. Diagnostics now separate device metadata, publication wait, settlement,
+  reload and receipts; `sync.settlement` is nested within `settlement_and_reload`,
+  so do not sum both. Diagnostic recording still follows the existing 48-hour lease.
+- **Seven sleep contributors (sleep-v3.0, local 2026-10-21)** —
+  `20261021100000_sleep_seven_contributors.sql` replaces four-group scoring with
+  total sleep / efficiency / restfulness / REM / deep / latency / timing,
+  nominal weights 40/10/10/15/15/5/5. These are HOOP rules inspired by Oura's public
+  definitions, not Oura's proprietary formula (sources and curves in ADR 0008).
+  Measured total excludes stages 3/4; REM/deep use 90/60-minute targets; timing uses
+  the longest actual segment's local midpoint, not bedtime regularity. Keep v2's
+  continuous short-night cap. Efficiency is explicitly recorded-period-only and
+  restfulness wake-only; both require complete stage coverage. No real in-bed
+  start/latency exists: never substitute SDK firstDeepDuration/fallAsleepScore.
+  Latency stays missing; missing factors renormalise. Preserve corrected/reported
+  windows and missing-stage evidence, and do not invent naps or zero REM.
+  Numeric `inputs.score_*` / `weight_*` plus `contributor_policy=3` carry the contract;
+  legacy group columns except duration are null. `SleepContributor` in Metrics
+  and the contributor views in SleepRangeBoard render seven expandable rows,
+  coverage, cap and version-aware day/week/month breakdowns. Older caches retain
+  their four-group explanation. Training target v3 path uses the final sleep score
+  (`target-1.1`), not retired columns; legacy target path is unchanged.
+  Scoped checks: `python3 app/Tests/diagnostics/sleep_score_explanation.py` compiles
+  real model arithmetic and typechecks the four new SwiftUI views against iOS SDK
+  and actual design tokens without reading restricted AI folders.
+  SQL checks use `inspect-schema.py --test supabase/tests/sleep_contributors.sql`
+  plus `sleep_backfill.sql` and `sleep_window_correction.sql`.
+  The v2 guardrail suite is historical and runs with
+  `--through 20261020160000 --test supabase/tests/sleep_duration_guardrail.sql`.
+  Final isolated SQL checks passed 156 assertions across contributors, backfill,
+  window correction, training sessions and body-battery target suites. The real
+  score loader is also exercised by `sleep_score_lifecycle.py`, including v3
+  numeric evidence, null latency, account isolation and offline preservation.
+  Cached v3 schedules use `sleep_elapsed_minutes`, not `duration_min`, to recover
+  the actual wake clock after excluding awake time from the scored duration.
+  No hosted database migration or app release has been performed.
 
+- **HOOP body scan particles** — `app/NextBody/Features/Measure/HoopFigure.swift`
+  draws the screenless side-key device as precomputed Canvas particles; the S1
+  ring is 38% of stage width. The finger is the one raster exception: the
+  Paper-generated `HoopFinger` imageset (Paper node RMD-0 on artboard RMC-0,
+  file NEXT) preprocessed to straight alpha (a = max rgb, rgb un-premultiplied)
+  so it composites cleanly over the halo, anchored by the tip pad at the side
+  key, masked by a `.destinationIn` axis gradient so the base dissolves before
+  the stage edge. A code-drawn tip glow and twinkling
+  motes keep the contact reaction procedural.
+  `ScanBody.swift` reuses `BodyCloud.shared`'s deterministic Home-body motes,
+  cropping only empty margins so the constellation fills the scanning stage.
+  `MeasureTakeover` owns the unchanged band stream and state machine, and its
+  S1/S2 columns live in `BodyScanLayouts.swift` (`BodyScanPrepareLayout`,
+  `BodyScanScanningLayout`, `BodyScanCount`) with shared copy in `BodyScanState`
+  — onboarding's `FingersOn`/`ScanningScreen` render the same screens (OnbHeader
+  for the takeover header, BASELINE 01/03 in S1 and 02/03 in S2, a skip link in
+  the S1 footer until contact), so the first scan is the same UI as a re-scan.
+  ⚠️ ScanningScreen's mutable state lives in `OnbScanModel` (ObservableObject,
+  @StateObject) — writes from detached tasks must reach the rendered object —
+  and its prepare/scanning layouts sit side-by-side in a ZStack keyed by
+  `.id("\(status)|\(failed)|\(dropped)")`: a plain `if`/`Group` between the two
+  generic layouts pinned the screen to its first frame (evals ran, pixels froze).
+  `HomeBodyPage` exposes the
+  scan entry only when body composition is not known unsupported; its figure
+  reserves 42 pt for the hidden entry only at rest. The result's composition
+  link dismisses the takeover before opening that scan's detail, and S3 splits
+  its flexible space 1:3 above and below the reading.
+- **Sleep score duration guardrail (sleep-v2.0, local 2026-10-20)** —
+  `20261020160000_sleep_duration_limits_score.sql` changes the four nominal weights
+  to duration / structure / recovery / regularity = 50 / 20 / 20 / 10, then caps the
+  weighted score by recorded duration: 4h → 40, 5h → 60, 6h → 75, 7h → 90,
+  7.5h → 100, with continuous interpolation. Missing groups still renormalise;
+  existing input evidence, stage handling, personal baselines and duration scoring
+  stay unchanged. The migration rebuilds all night scores and queues dependent
+  daily settlement through `nb.invalidate_calculation`. It does not replace the
+  shared settlement functions. `SleepRangeBoard` reads per-night weights and cap
+  evidence from `inputs`, explains a binding cap, and retains legacy weights for
+  old cached results. Checks: `supabase/tests/sleep_duration_guardrail.sql` through
+  `supabase/scripts/inspect-schema.py`; `python3 app/Tests/diagnostics/sleep_score_explanation.py`
+  compiles the real score model/explanation without entering the restricted AI
+  folders. These changes are not a deployment or a change to sleep detection.
 - **MCP for outside AI assistants (ADR 0032)** — `supabase/functions/mcp/`
   (`server.ts` stateless Streamable HTTP JSON-RPC, `tools.ts` read tools +
-  `log_meal`/`delete_meal`, 18 Deno tests). Auth = Supabase Auth OAuth 2.1 server
+  `log_meal`/`delete_meal`). Auth = Supabase Auth OAuth 2.1 server
   (DCR + PKCE); tokens are normal Supabase JWTs plus `client_id`. Migration
   `20261018100000_ai_assistants_reach_their_owner.sql`: `mcp_grants`
   (can_write default false), first-party RPCs `record_mcp_grant` /
@@ -191,6 +302,33 @@ opening either AI folder without the owner's permission.
   then `revoke_mcp_grant`. GoTrue discovery lives at
   `/auth/v1/.well-known/oauth-authorization-server`; grants list shape
   `[{client:{id,name}, scopes, granted_at}]`.
+  Local 2026-10-21 hardening (not deployed): `health.ts` adds daytime vitals and
+  scan fields, bringing `list_metrics` to 35 metrics. `read_health_records` pages
+  11 fixed health collections; `get_health_profile` uses a narrow invoker RPC,
+  not unrestricted access to profiles or its relationships. The migration
+  `20261021120000_mcp_health_access_and_meal_receipts.sql` extends only the
+  health-read gate and introduces `log_mcp_meal` with private
+  `mcp_meal_requests` receipts keyed by owner/client/request UUID. The first
+  transaction fixes default time, local day, slot and source; identical retries
+  return that receipt even after timezone/day changes. Changed payloads conflict,
+  never invite a new ID. Write grants and consent are checked on replay too.
+  `request_id` is mandatory at the MCP tool boundary. A saved meal is separate
+  from settlement: `dayTotalsUpdated` requires non-busy settlement plus an
+  explicit non-pending `calculation_status` row for that day.
+  Meal lists and health records return `nextOffset`; absent values remain null.
+  Overnight oxygen now queries the actual sleep windows, including the evening
+  before the wake day; no sleep window means no claimed overnight readings.
+  Profile DATA & LEGAL and `HomeMCPGuide` both open assistant management. The
+  copy guide has six localized sections covering OAuth, tool discovery, local
+  dates, units, permission, confirmation, retries and error recovery; the server
+  initialization instructions and consent page describe the expanded surface.
+  Scoped checks: Deno `mcp/index.test.ts` and `metric-read/index.test.ts`,
+  `pnpm test && pnpm typecheck` in `mcp-web`, SQL `mcp_meal_retries.sql`,
+  `mcp_health_isolation.sql` and `mcp_request_gate.sql` via `inspect-schema.py`,
+  and iOS `MCPConnectionTests`. Cloudflare 1010 for Python's default user agent
+  is an external blocker; the available Wrangler OAuth scopes lack WAF/rules
+  write access. Do not disable whole-site protection or claim token-renewal
+  acceptance without an actual authorized OAuth lifecycle test.
 - **Shopify Paper landing** — `shopify-web/app/components/landing/` +
   `app/lib/landing.ts` + `app/styles/landing.css`. `/` English, `/zh` Chinese
   (default English). `PageLayout` hides old Header/Footer on those routes.
@@ -235,8 +373,35 @@ opening either AI folder without the owner's permission.
   same `definitions` registry (`grain: "tick"`). Catalog rows include the user's
   actual from/to coverage. System tables are not listed. Chart sources still
   fetch their own series. `_shared/sources.ts` remains the chart layer.
+- **ME card composition week grid (2026-10-20)** — Profile's `COMPOSITION · 26 W` card
+  paints one cell per user week, not one per day, and never from eating: each week's
+  latest `body_composition` scan is compared against the nearest earlier scanned week,
+  classified by the training goal into `aligned` (lime) / `held` (outline, in-band or
+  first anchor) / `drift` (amber) / `noScan` (dark) via `CompositionWindowMath.weekCells`
+  + `classify` (F2 §05 bands restated as `weekFatBand`/`weekLeanBand`; `CompositionAim`
+  mirrors `Goal` because `Goal` is app-module only). Replaces `DirectionHeatMap` /
+  `DirectionLegend` / `DirectionCell` and `MetricNames.deficit/level/surplus`;
+  `DailyDirection`/`DailyDirectionPolicy`/`daily_direction` stay as the server contract.
+  Legend chips: ALIGNED / HELD / DRIFT / NO SCAN. Tests: `CompositionWindowMathTests`
+  `testWeekCells*` + `testClassifyFollowsTheAim`.
 - **Number ledger** — `_shared/ledger.ts` rejects frame numbers that did not come from a tool.
 - **App language** — `AppLanguage` stores `en` / `zh-Hans` (default English). `L("English source")` looks up the current table. The system prompt language-locks AI frames to the selected locale.
+- **Detail-page chrome** — `Chrome.swift`: a bar is glass at rest; the page's top
+  bloom paints through it (ScrollView `.background` + `ignoresSafeArea` top), and
+  a carbon ground with a 22pt gradient tail fades in over 36pt of scroll so the
+  edge is never a line. `ScrollOffsetWatcher` / `DetailOffsetKey` (iOS 18
+  scroll geometry, iOS 17 preference fallback) are shared: 12 · ME keeps its
+  own `‹ ME · YOU` bar and bleeds the identity's lime bloom into the status
+  bar the same way instead of a solid carbon slab.
+  Back is one custom move everywhere: `detailEdgeBack` (window-level pan, ≤32pt
+  edge) slides the page right over `router.returnBackdrop` (a window
+  `snapshotView` taken at push), then pops with animations disabled. iOS 26's
+  system pop is kept out — it plays a card pop where the page underneath
+  scales back up ("放大一下"): `interactivePopGestureRecognizer` is disabled in
+  `EdgeBackGate`, and every ‹ key calls the host's `slideOff` through the
+  `detailBackSlide` environment value. The env read must live on a child view
+  (DetailBackButton / ProfileBackKey) — the value is injected inside the
+  page's own body, so a `@Environment` on the page itself always sees nil.
 
 ## Patterns
 
@@ -623,11 +788,16 @@ opening either AI folder without the owner's permission.
   (in the `NextBodySyncCore` package; tests `BackgroundRefreshPolicyTests`).
   Silent push is not an option until the APNs `.p8` exists.
 - **System widget (Paper THREE TIERS)** — TODAY on `NextBodyLiveActivity`
-  ships three families on one carbon, no tile columns: small = body battery
-  only; medium = three rings then a rail (`NEXTBODY` white, no lime square,
-  plus the home-header band cell); large = that rail on top, rings with
-  air between them, then a 3×3 of SLEEP / ACTIVE / HR, STRESS / STEPS /
-  DISTANCE, and RESPONSE / HRV / SPO2 (no TEMP). One margin governs the whole
+  ships two families on one carbon, no tile columns (the square small face
+  was retired): medium = three rings then a rail (`NEXTBODY` white, no
+  lime square, plus the home-header band cell) — READINESS lime, LOAD
+  white, SLEEP in `Island.luna` (violet-1); large = that rail on top,
+  rings with air between them, then a 3×3 of SLEPT / ACTIVE / HR,
+  STRESS / STEPS / DISTANCE, and RHR / HRV / SPO2 (no TEMP). The RHR
+  cell is last night's resting pulse (`nightInputs.rhr` →
+  `Glance.nightRhr`), a night number that does not withdraw at ninety
+  minutes — it replaced the meal-RESPONSE cell, which needed optical
+  points most days never produce. One margin governs the whole
   face — the wordmark, the band cell and the two outer rings all start there,
   and the leftover width becomes the air between the circles. That geometry is
   now shares of the face, not constants: `TodayWidgetFace.margin(for:)` is
@@ -642,7 +812,7 @@ opening either AI folder without the owner's permission.
   `identityRail(topInset: 10)`; at zero inset `NEXTBODY` and the band cell
   read as fused with the squircle's corner. The same rule on the bottom
   edge: medium `identityRail(bottomInset: 6)` keeps a little air under
-  the wordmark; the large 3×3 takes `.padding(.bottom, 14)` so RESPONSE /
+  the wordmark; the large 3×3 takes `.padding(.bottom, 14)` so RHR /
   HRV / SPO2 do not sit on the floor. Medium rings take `topInset: 16`
   and pin under it — a centred stack put the circles ~8pt from the
   squircle. Large rings stay centred (no topInset).
@@ -652,7 +822,7 @@ opening either AI folder without the owner's permission.
   App Group `group.com.nextbody.hoop` carries the glance
   (`widget.glance.v1.json`); `UserDefaults.standard` is never a fallback
   for numbers. The widget process does not talk BLE. `signedIn` follows
-  Keychain `userId`. Unlogged EATEN stays ——.
+  Keychain `userId`. No-night SLEEP stays ——.
 - **App Icon** — Shipping mark is the StandbyArt planet: carbon ground, lime-1 charge
   band (gap at top-left), violet-2 tilted orbit, lime stand. Paper `NEXTBODY-HOOP`
   page `APP ICON` holds four icon castings: `20 FACES`, `100 FACES`, `BOLD`
@@ -739,8 +909,41 @@ opening either AI folder without the owner's permission.
   reads `DataStore.compositionScans` from every `body_composition` row (device
   BIA, scale, manual). Only persisted fields are drawn.
 - `Router`: one-level detail navigation; leaving the root snapshots `homePage`, and every dismiss restores it so page-two vitals return to page two. Destinations include `sportMode`.
-- `HomeView` still boots the day (sync, consent gate, live-session takeover). The visible root is `HomeV2Shell`: three horizontal pages, body on the left, planet in the centre, instruments on the right. `Router.homePage` is 0 planet, 1 instruments, 2 body, so a detail push still returns to the page that was open. The page drag is a `simultaneousGesture` so `HotZoneTap` receives the touch; a high-priority drag held the finger until lift and the card never opened. Planet readiness opens Body Battery, sleep opens the sleep board, load opens Training, a logged food card opens Fuel (an unlogged day still opens the MCP copy guide from its own line, and the target row opens Fuel). Body head / chest / gut follow PRD 10, even when the glow is dark. The deck scales to 2.6× around the tapped part and fades out, and `HomeZoneDetail` grows out of the same point in 0.45 s on curve (0.32, 0.72, 0, 1). Back, a swipe right, or a pull down reverses the move. The body page reports the part's centre in its own `body-page` coordinate space, and `HomeDeck` adds `safe.top + HomeHeader.height` to convert it to screen coordinates. Body metrics open Composition. Timeline rows open the matching board (meal → Fuel, sleep → sleep, workout → Training, stress → stress, now → heart, sync → Device). Instrument cells open their vitals boards. The today-timeline sheet pins a lime down-chevron and `Swipe down for home` (下滑回到首页) under the status bar. A tap, a downward flick, or about 80pt of pull on that edge, the title, or the list while it is at rest sends the sheet home. Opening from the planet still takes a third of the screen or an upward fling. The timeline workout pill is still the only control for `sportMode`. Food has four faces from real meals and targets; unlogged days never show eaten as 0. Muscle, visceral fat, water, bone and metabolic age stay —— until those fields are actually stored. The old dock, strip, plan drawer and photo-meal path are not on this root.
-- `HomeBodyParticles` (`Features/Home/HomeBodyParticles.swift`): the body-page figure is a live point cloud, not the `HomeBody` PNG. `BodyCloud.shared` samples the PNG once (150 columns, about 4,400 points, seeded so it is the same every launch) and one `Canvas` draws it in about 24 batched paths: 4 tones × 6 opacity levels, additive blend. The first time the body page becomes active the points gather from scatter (nothing is drawn before that). Every later visit plays an outward ripple and restarts the scan sweep. It also breathes at the torso, twinkles, sheds rising dust and shows occasional flares. Head, chest and gut intensities tint points inside narrow zone rects, so the hands stay untinted. Animation pauses when the page is off screen or Reduce Motion is on. A blurred static halo `Canvas` sits underneath. `BodyLens` either fits the whole figure or enlarges it around a focus point. `Zone.anchor` is each part's centre in artwork units, and `Zone.closeUp` frames `HomeZoneDetail` as a head-and-shoulders, chest, or torso close-up. Close-ups use `BodyCloud.dense` (260 columns) and draw only the points on screen. On the body page, `BodyStage` splits the space under the status line into figure, handle, and rows: the row is 17 % of the room, clamped to 84…112 pt. Pulling up trades figure height for two more rows, so three rows fill the space exactly with no gap. Each caption has a leader line from its body part (a dot and ring) to a rail under the caption. The line is solid in the zone's tint when the zone has data, and dashed and dim when it does not, so the gut caption is always tied to the belly.
+- `HomeView` still boots the day (sync, consent gate, live-session takeover). The visible root is `HomeV2Shell`: three horizontal pages, body on the left, planet in the centre, instruments on the right. `Router.homePage` is 0 planet, 1 instruments, 2 body, so a detail push still returns to the page that was open. The page drag is a `simultaneousGesture` so `HotZoneTap` receives the touch; a high-priority drag held the finger until lift and the card never opened. Planet readiness opens Body Battery, sleep opens the sleep board, load opens Training, a logged food card opens Fuel (an unlogged day still opens the MCP copy guide from its own line, and the target row opens Fuel). Body head / heart / gut / legs follow PRD 10, even when the glow is dark. The deck scales to 2.6× around the tapped part and fades out, and `HomeZoneDetail` grows out of the same point in 0.45 s on curve (0.32, 0.72, 0, 1). Back, a swipe right, or a pull down reverses the move. The body page reports the part's centre in its own `body-page` coordinate space, and `HomeDeck` adds `safe.top + HomeHeader.height` to convert it to screen coordinates. Body metrics open Composition. Timeline rows open the matching board (meal → that day's Fuel, sleep/wake → sleep, workout/activity → Training, stress → stress); saved body scans and balance checks open their exact measurement sheet, while weigh-ins are read-only rows. Instrument cells open their vitals boards. The today-timeline sheet pins a lime down-chevron and `Swipe down for home` (下滑回到首页) under the status bar. A tap, a downward flick, or about 80pt of pull on that edge, the title, or the list while it is at rest sends the sheet home. Opening from the planet still takes a third of the screen or an upward fling. The timeline workout pill is still the only control for `sportMode`. Food has four faces from real meals and targets; unlogged days never show eaten as 0. Muscle, visceral fat, water, bone and metabolic age stay —— until those fields are actually stored. The old dock, strip, plan drawer and photo-meal path are not on this root.
+- **Home timeline events** — `Services/Band/HomeTimeline.swift` is the pure event-window
+  policy compiled by `NextBodySyncCore`; `Features/Home/HomeV2Model.swift` adapts existing
+  records, and `HomeTimelineBoard.swift` draws them. Includes confirmed meals, completed
+  sport recaps and distinct automatic activity, recorded sleep onset/wake, manual or
+  Health weigh-ins, saved body scans/balance checks, and at most one recorded stress
+  peak >=60 per day. Sync packets and live-heart “Now” are not life events. Band BIA
+  input weight is not a weigh-in; body-scan values explicitly say body fat / lean mass.
+  Events use their own timestamps, not the availability of a daily settlement. First
+  record per ID wins; current daily metrics precede stale history. Today is local
+  midnight to now, and past seven days includes today plus six calendar days.
+  Future/reversed intervals are withheld. A recorded workout replaces an automatic
+  segment only when it covers that segment within one five-minute sampling tick at
+  either edge; substantial activity outside the workout stays visible.
+  Sleep start and wake keep their actual dates; the wake row also prints the onset
+  clock/date, and manually logged or edited windows retain provenance. No onset is
+  inferred from a duration. Past-seven-day mode loads historical records and ticks
+  on demand, uses `recentMeals` for prior days, groups by date, and does not inflate
+  the planet's today-only count. Published measurements, weigh-ins, recent meals and
+  units participate in the deck cache stamp. Timeline scroll rows use plain buttons
+  rather than `HotZoneTap`'s zero-distance drag; an open sheet leaves subview gestures
+  enabled with `GestureMask.subviews`. Header/list pull-to-dismiss is unchanged.
+  Regression seams are `HomeTimelineTests` (portable) and `HomeTimelineEntryTests`
+  (real simulator list scrolling, historical dates, measurement sheets and dismissal).
+- **Rhythm history** — `Features/Home/HomeRhythmHistory.swift` is a separate overlay
+  from the today-only `HomeTimelineBoard`. Its 30D default is a Monday-aligned,
+  rolling 30-day calendar of 24-hour bars; 7D expands those same bars into a
+  single row. Recorded sleep intervals may cross midnight; meal, activity and
+  stress markers keep their actual timestamps, and tapping a day opens its
+  event list. Missing days remain empty rather than receiving generated data.
+  `HomeV2Shell` hydrates 29 preceding days on entry, and the model/event
+  policy accepts an explicit lookback so today's list remains today-only.
+  1Y is visible but unavailable until a bounded annual summary read exists;
+  loading a year of raw ticks through the detail loader would be excessive.
+- `HomeBodyParticles` (`Features/Home/HomeBodyParticles.swift`): the body-page figure is a live point cloud, not the `HomeBody` PNG. `BodyCloud.shared` samples the PNG once (150 columns, about 4,400 points, seeded so it is the same every launch) and one `Canvas` draws it in about 30 batched paths: (1 + 4 spot) tones × 6 opacity levels, additive blend. The first time the body page becomes active the points gather from scatter (nothing is drawn before that). Every later visit plays an outward ripple and restarts the scan sweep. It also breathes at the torso, twinkles, sheds rising dust and shows occasional flares. Head, heart, gut and legs spots (intensity + status tint, `Zone.allCases` order) colour points inside narrow zone rects, so the hands stay untinted. Animation pauses when the page is off screen or Reduce Motion is on. A blurred static halo `Canvas` sits underneath. `BodyLens` either fits the whole figure or enlarges it around a focus point. `Zone.anchor` is each part's centre in artwork units, and `Zone.closeUp` frames `HomeZoneDetail` as a head-and-shoulders, chest, torso or legs close-up. Close-ups use `BodyCloud.dense` (260 columns) and draw only the points on screen. On the body page, `BodyStage` splits the space under the status line into figure, handle, and rows: the row is 17 % of the room, clamped to 84…112 pt. Pulling up trades figure height for two more rows, so three rows fill the space exactly with no gap. Each caption has a leader line from its body part (a dot and ring) to a rail under the caption. The line is solid in the part's five-stop status colour (green → lime → yellow → orange → red) when it has data; head, heart and legs fall back to a dashed dim leader, while the gut's caption and leader hide entirely until food is logged.
 - `AIPanel`: renders STANDBY when no widget exists, THINKING during a request, and a completed personalized widget frame.
 - `StreamHaptics`: typing ticks + a line tap while THINKING; when the turn lands,
   `settled()` is one Core Haptics needle (intensity 0.9, sharpness 1.0). No continuous
@@ -923,10 +1126,17 @@ opening either AI folder without the owner's permission.
 - Band sync outcome is wrist facts only (`BandSyncPolicy.dayStatus`).
   `settle_now` writes derived scores afterwards and cannot mark a complete
   reading `partial`. Doing that showed "Some readings could not sync" after
-  a successful upload and forced the next pull to re-read the week. A
-  statement timeout (PostgreSQL `57014`, authenticated 8 s) retries once
-  (`Repository.settleNow`) and stays off the reading failure line. Cron and
+  a successful upload and forced the next pull to re-read the week. `settle_now`
+  lock contention returns `-1`; only transport failures retry once in
+  `Repository.settleNow`. HTTP statement timeouts are not retried. Cron and
   foreground settle still finish the scores.
+- Band publication sends sleep and up to eight compacted domain offers through
+  `public.ingest_band_bundle` when available, retaining each observation in the
+  local outbox before network work. Per-domain failures stay isolated; deferred
+  offers remain replayable, and stale receipts resend only their full samples.
+  The invoker RPC delegates to the existing authenticated sleep/delta functions.
+  `nb.settle_accounts` commits account work independently; `settle_now` returns
+  `-1` for a brief calculation-row lock wait so clients do not retry a busy settle.
 - NextBody `xcodebuild` warning cleanup: MockBand progress loops must
   `await progress(done)` rather than `MainActor.run { progress(done) }`
   (captured `var` in a Sendable closure). DEBUG panel pin helpers that touch
@@ -1001,8 +1211,22 @@ opening either AI folder without the owner's permission.
   averages. Numbers come from `body_composition` (all sources) into
   `DataStore.compositionScans`; SDK-only BIA fields that never persist are not
   drawn. Simulator seed maps the same records so the page is walkable offline.
+- Home body map: `BodyStatus.dim` (-1) is the off-ramp for a part that has a
+  reading of zero — the part stays lit (bright value, solid leader) but wears a
+  white halo (`NB.white`, `.good`-level intensity) instead of `.bad` red. Legs
+  returns `.dim` for zero steps/metres (`legsStatus` skips zero), and its
+  detail page passes `status: nil` for neutral white. Truly missing data
+  (nil, not zero) still means `BodyGlow.lit == false`: dim-white caption and
+  dashed leader.
 
 ## Verification
+- Back-swipe snapshot geometry: `python3 app/Tests/diagnostics/backdrop_geometry.py`
+  (requires a booted iOS simulator; `--device <UDID>` selects one). It compiles the
+  actual `BackdropSnapshot` container against UIKit and checks first layout,
+  safe-area size proposals, cancellation/reuse and the committed cover at three
+  phone sizes. Keep the snapshot at fixed window size with no flexible autoresizing:
+  a screen-sized child inside an initially zero-sized flexible container doubled
+  to 780×1688 on a 390×844 screen, then shrank when lifted into the window.
 - Swift package logic: `cd app && swift test`.
 - iOS UI behavior: run the `NextBody` Xcode scheme/UI test target on an available simulator or device.
 - Edge Function lint: `pnpm run lint`.

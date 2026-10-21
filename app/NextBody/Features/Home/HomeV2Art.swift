@@ -32,11 +32,12 @@ struct DottedSphere: View {
     }
 }
 
-/// Standing figure. The three glows are state, not buttons — the hit targets sit above this.
+/// Standing figure. The four glows are state, not buttons — the hit targets sit above this.
 struct BodyFigure: View {
     var head: Double
-    var chest: Double
+    var heart: Double
     var gut: Double
+    var legs: Double
 
     var body: some View {
         Canvas { context, size in
@@ -50,8 +51,9 @@ struct BodyFigure: View {
                              with: .color(color.opacity(0.55 * amount)))
             }
             glow(w * 0.50, h * 0.11, w * 0.16, head, Color(hex: 0xF6C56A))
-            glow(w * 0.50, h * 0.34, w * 0.18, chest, NB.lime1)
-            glow(w * 0.50, h * 0.48, w * 0.16, gut, Color(hex: 0xE25B4A))
+            glow(w * 0.55, h * 0.30, w * 0.14, heart, NB.lime1)
+            glow(w * 0.50, h * 0.46, w * 0.16, gut, Color(hex: 0xE25B4A))
+            glow(w * 0.46, h * 0.74, w * 0.16, legs, NB.cyan1)
 
             var dots: [CGPoint] = []
             func ring(_ cx: CGFloat, _ cy: CGFloat, _ rx: CGFloat, _ ry: CGFloat, _ count: Int) {
@@ -153,6 +155,20 @@ extension HomeV2Model.BodyMetric.Tint {
         case .ember: NB.ember1
         case .cyan: NB.cyan1
         case .white: NB.white
+        }
+    }
+}
+
+extension HomeV2Model.BodyStatus {
+    /// The map's five-stop ramp, green to red, so「还行」does not wear「糟糕」's amber.
+    var color: Color {
+        switch self {
+        case .dim: NB.white
+        case .good: NB.optimal2
+        case .ok: NB.lime2
+        case .watch: NB.filmYellow
+        case .poor: NB.run1
+        case .bad: NB.alert2
         }
     }
 }

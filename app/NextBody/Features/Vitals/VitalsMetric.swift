@@ -146,7 +146,8 @@ enum VitalsTimelineKind {
 /// with last night's number reads as a different instrument each morning.
 extension SleepScore {
     var tint: Color {
-        switch score {
+        if usesContributors { return SleepContributorRow.tint(Double(score)) }
+        return switch score {
         case 80...:   NB.optimal2
         case 60..<80: NB.violet1
         case 40..<60: NB.compareAmber

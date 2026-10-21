@@ -126,6 +126,35 @@ struct BandBatteryPip: View {
     }
 }
 
+/// 12 格粗段环 — the header's sync indicator, left of the battery. Twelve dot-matrix
+/// cells on a ring: lit cells count `BandSyncActivity.fraction`, dim cells are what the
+/// pull has not read yet. One honest number shared with the Device page's bar — the ring
+/// is the same progress drawn round, never a second estimate.
+struct BandSyncRing: View {
+    /// 0…1 from `BandSyncActivity.shared.fraction`.
+    let fraction: Double
+    let tint: Color
+
+    var body: some View {
+        Canvas { ctx, size in
+            let s = size.width / 24                        // viewBox is 24 × 24
+            let lit = Int((min(1, max(0, fraction)) * 12).rounded())
+            for i in 0..<12 {
+                let a = Double(i) * .pi / 6                // 12 o'clock, clockwise
+                let x = 12 + 9 * sin(a), y = 12 - 9 * cos(a)
+                ctx.fill(Path(CGRect(x: (x - 2.2) * s, y: (y - 2.2) * s,
+                                     width: 4.4 * s, height: 4.4 * s)),
+                         with: .color(i < lit ? tint : NB.barTrack))
+            }
+        }
+        .frame(width: 16, height: 16)
+    }
+}
+
+extension BandSyncProgress {
+    var tint: Color { stage.destination == .cloud ? NB.blue1 : NB.lime1 }
+}
+
 /// The avatar. 36pt in the home header, 44pt on 11 · Profile, 26pt where a board draws the
 /// smaller one. It used to be `Image("Avatar")` — one photograph of one stranger, shipped in
 /// the bundle and worn by every account. It carries the initials of the name instead, and
@@ -181,6 +210,9 @@ struct HomeHeader: View {
     let onProfile: () -> Void
     /// 12 · the band battery is the way into the device page.
     var onDevice: () -> Void = {}
+    /// The ring only exists while a pull is running; a finished ring left sitting at
+    /// 100% is not a state, it is clutter.
+    @ObservedObject private var syncActivity = BandSyncActivity.shared
     #if DEBUG
     @State private var catalogue = false
     #endif
@@ -254,6 +286,15 @@ struct HomeHeader: View {
             #endif
 
             Spacer(minLength: 0)
+            if syncActivity.showsProgress {
+                BandSyncRing(fraction: syncActivity.fraction, tint: syncActivity.workflow.tint)
+                    .frame(height: Self.height)
+                    .transition(.opacity)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(L("Sync progress"))
+                    .accessibilityValue(syncActivity.progressLine)
+                    .accessibilityIdentifier("home.syncProgress")
+            }
             Button(action: onDevice) {
                 BandBatteryPip(percent: batteryPercent, chargeState: chargeState)
                     .frame(height: Self.height)
@@ -263,6 +304,7 @@ struct HomeHeader: View {
             .buttonStyle(HotZoneTap(pressedScale: 1))
             .accessibilityLabel(pipLabel)
         }
+        .animation(.easeInOut(duration: 0.2), value: syncActivity.showsProgress)
         .frame(width: width, height: Self.height)
     }
 }
@@ -379,6 +421,20 @@ enum DetailBack {
 
     static func shouldPop(translation: CGFloat, velocity: CGFloat, width: CGFloat) -> Bool {
         translation > width * commitFraction || velocity > commitVelocity
+    }
+}
+
+/// The page's own back control asks its edge-back host to play the slide instead of
+/// letting NavigationStack run the system pop. iOS 26's pop scales the page underneath
+/// back up — a zoom this design does not have — so every exit takes the one slide.
+private struct DetailBackSlideKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var detailBackSlide: (() -> Void)? {
+        get { self[DetailBackSlideKey.self] }
+        set { self[DetailBackSlideKey.self] = newValue }
     }
 }
 
@@ -563,15 +619,8 @@ struct DetailScroll<Trailing: View, Content: View>: View {
                 .allowsHitTesting(false)
                 .position(x: NB.Layout.gutter + chevronW / 2, y: mix(startY, endY, t))
 
-            Button(action: onBack) {
-                Color.white.opacity(0.001)
-                    .frame(width: max(hitW, DetailBack.hitMinWidth), height: DetailBack.hitHeight)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(HotZoneTap(pressedOpacity: 1, pressedScale: 1))
-            .accessibilityLabel(L("Back"))
-            .accessibilityValue(title)
-            .position(x: hitW / 2, y: mix(startY, endY, t))
+            DetailBackButton(hitW: hitW, title: title, onBack: onBack)
+                .position(x: hitW / 2, y: mix(startY, endY, t))
         }
     }
 
@@ -675,6 +724,27 @@ struct DetailScroll<Trailing: View, Content: View>: View {
     }
 }
 
+/// The ‹ key. The host's slide-out arrives through the environment the edge-back
+/// modifier injects *inside* the page's own body — so the read lives on this child
+/// view; a property on the page itself would only ever see the environment above it.
+private struct DetailBackButton: View {
+    let hitW: CGFloat
+    let title: String
+    let onBack: () -> Void
+    @Environment(\.detailBackSlide) private var detailBackSlide
+
+    var body: some View {
+        Button { detailBackSlide?() ?? onBack() } label: {
+            Color.white.opacity(0.001)
+                .frame(width: max(hitW, DetailBack.hitMinWidth), height: DetailBack.hitHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(HotZoneTap(pressedOpacity: 1, pressedScale: 1))
+        .accessibilityLabel(L("Back"))
+        .accessibilityValue(title)
+    }
+}
+
 extension DetailScroll where Trailing == EmptyView {
     init(glow: Color, title: String, headline: String? = nil, eyebrow: String? = nil,
          @ViewBuilder content: () -> Content, onBack: @escaping () -> Void) {
@@ -687,7 +757,8 @@ extension DetailScroll where Trailing == EmptyView {
 /// the scroll view's own geometry; iOS 17 reads the preference the content publishes.
 /// Chrome is fully collapsed at 52pt. Beyond that point its appearance is constant,
 /// so discard further travel before publishing it back into the view hierarchy.
-private struct ScrollOffsetWatcher: ViewModifier {
+/// 12 · ME draws its own bar, not DetailScroll's, but fades a ground the same way.
+struct ScrollOffsetWatcher: ViewModifier {
     let onChange: (CGFloat) -> Void
     func body(content: Content) -> some View {
         if #available(iOS 18, *) {
@@ -700,7 +771,7 @@ private struct ScrollOffsetWatcher: ViewModifier {
     }
 }
 
-private struct DetailOffsetKey: PreferenceKey {
+struct DetailOffsetKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
@@ -730,6 +801,7 @@ private struct InteractiveEdgeBack: ViewModifier {
         content
             .compositingGroup()
             .offset(x: x)
+            .environment(\.detailBackSlide, slideOff)
             .background {
                 if x > 0, let backdrop {
                     GeometryReader { geometry in
@@ -766,10 +838,27 @@ private struct InteractiveEdgeBack: ViewModifier {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) { x = 0 }
             return
         }
+        slideOff()
+    }
+
+    /// The drag's commit and the ‹ key share this: slide the page off over the snapshot,
+    /// then pop with animations disabled so the system never plays its iOS-26 card pop.
+    /// iOS 26 also restores the recessed page underneath with a scale of its own — the
+    /// "zoom" on return — so the snapshot is lifted into the window and held over the
+    /// screen until that restore has had time to finish beneath it.
+    private func slideOff() {
+        guard !committing else { return }
         committing = true
         withAnimation(.spring(response: 0.32, dampingFraction: 0.90)) {
-            x = width
+            x = ScreenMetrics.size.width
         } completion: {
+            let window = Self.keyWindow()
+            let cover = backdrop ?? window?.snapshotView(afterScreenUpdates: false)
+            if let cover, let window {
+                cover.frame = window.bounds
+                cover.isUserInteractionEnabled = false
+                window.addSubview(cover)
+            }
             var cut = Transaction()
             cut.disablesAnimations = true
             withTransaction(cut) {
@@ -781,7 +870,18 @@ private struct InteractiveEdgeBack: ViewModifier {
                     committing = false
                 }
             }
+            if let cover {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    cover.removeFromSuperview()
+                }
+            }
         }
+    }
+
+    private static func keyWindow() -> UIWindow? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            .first(where: \.isKeyWindow)
     }
 }
 
@@ -791,10 +891,10 @@ private struct BackdropSnapshot: UIViewRepresentable {
     let snapshot: UIView
 
     func makeUIView(context: Context) -> UIView {
-        let container = UIView()
+        let container = UIView(frame: CGRect(origin: .zero, size: ScreenMetrics.size))
         container.isUserInteractionEnabled = false
         snapshot.frame = CGRect(origin: .zero, size: ScreenMetrics.size)
-        snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        snapshot.autoresizingMask = []
         container.addSubview(snapshot)
         return container
     }
@@ -895,7 +995,25 @@ private final class EdgeBackGate: NSObject, UIGestureRecognizerDelegate {
             self.pan = pan
             self.window = window
         }
+        // iOS 26 lets the system's own swipe-back start anywhere on the screen, and it
+        // plays the card pop — the page underneath visibly scales back up. This design's
+        // only return is the edge slide above, so the system's recognizers stay off.
+        if let nav = Self.navigationController(under: window.rootViewController) {
+            nav.interactivePopGestureRecognizer?.isEnabled = false
+            nav.view.gestureRecognizers?.forEach {
+                if $0 is UIPanGestureRecognizer { $0.isEnabled = false }
+            }
+        }
         return listener
+    }
+
+    private static func navigationController(under vc: UIViewController?) -> UINavigationController? {
+        guard let vc else { return nil }
+        if let nav = vc as? UINavigationController { return nav }
+        for child in vc.children {
+            if let nav = navigationController(under: child) { return nav }
+        }
+        return vc.presentedViewController.flatMap { navigationController(under: $0) }
     }
 
     func pop(_ listener: Listener) {

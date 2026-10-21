@@ -548,55 +548,6 @@ struct WearSwitchSheet: View {
     }
 }
 
-/// Behind the `Counted from …` line, and nowhere else. The app already worked the start
-/// out from the band; this is the wearer saying otherwise.
-struct WearCorrectSheet: View {
-    @EnvironmentObject private var data: DataStore
-    @ObservedObject private var hoops = DeviceSetStore.shared
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var since = Date()
-    @State private var loaded = false
-
-    private var slot: HoopSlot { hoops.wearing }
-    private var floor: Date {
-        let bound = hoops.timeline.earliestSwitch(to: slot) ?? Date().addingTimeInterval(-14 * 86_400)
-        return max(bound, Date().addingTimeInterval(-14 * 86_400))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SheetTitle(L("When did you put it on?"))
-            SheetBody(hoops.wearingInferred
-                      ? L("HOOP") + " \(slot.rawValue) " + L("said it went on your wrist at this time. Set another one and your record counts from there instead.")
-                      : L("Your record counts from this time. Set another one to move it."))
-            DatePicker("", selection: $since, in: floor...Date(), displayedComponents: [.date, .hourAndMinute])
-                .datePickerStyle(.wheel)
-                .labelsHidden()
-                .colorScheme(.dark)
-                .frame(height: 196)
-                .clipped()
-            Spacer(minLength: 0)
-            LimePillButton(title: L("Count from this time")) {
-                let slot = self.slot, at = since
-                dismiss()
-                Task { await DeviceSetStore.shared.declareWearing(slot, since: at, store: data) }
-            }
-            OutlineKey(title: L("LEAVE IT"), tint: NB.text2) { dismiss() }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 26)
-        .padding(.bottom, 26)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(NB.carbon2)
-        .onAppear {
-            guard !loaded else { return }
-            loaded = true
-            since = min(max(hoops.wearingSince ?? Date(), floor), Date())
-        }
-    }
-}
-
 // MARK: Remove one binding, keeping the other slot and account history.
 struct ReleaseSetSheet: View {
     var initialSlot: HoopSlot? = nil

@@ -192,6 +192,17 @@ enum BandSyncPolicy {
         return now.timeIntervalSince(lastCompletedAt) >= reuse
     }
 
+    /// A dump reused from earlier on this link still holds every calendar day that ended before
+    /// it finished. Skipping such a day kept its old receipt, so the daily audit never passed
+    /// and every launch walked the retained week again.
+    static func reusedDumpCoversDay(dayOffset: Int, completedAt: Date?, now: Date,
+                                    calendar: Calendar = .current) -> Bool {
+        guard dayOffset > 0, let completedAt,
+              let dayEnd = calendar.date(byAdding: .day, value: 1 - dayOffset,
+                                         to: calendar.startOfDay(for: now)) else { return false }
+        return completedAt >= dayEnd
+    }
+
     /// A domain skipped this refresh keeps the acknowledgement it already has.
     /// Publishing an empty read would mark it not collected.
     static func keepingSkippedDomains(_ published: [BandDomainSyncState],

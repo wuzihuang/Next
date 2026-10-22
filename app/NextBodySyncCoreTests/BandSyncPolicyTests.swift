@@ -170,6 +170,23 @@ final class BandSyncPolicyTests: XCTestCase {
             nightConfirmed: true, lastCompletedAt: now, now: now.addingTimeInterval(30 * 60), tier: .daily))
     }
 
+    func testReusedDumpPublishesOnlyDaysThatEndedBeforeItFinished() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let midnight = calendar.date(from: DateComponents(year: 2026, month: 10, day: 22))!
+        let morning = midnight.addingTimeInterval(9 * 3600)
+        func covers(_ offset: Int, _ completed: Date?) -> Bool {
+            BandSyncPolicy.reusedDumpCoversDay(dayOffset: offset, completedAt: completed,
+                                               now: morning.addingTimeInterval(600), calendar: calendar)
+        }
+        XCTAssertTrue(covers(1, morning), "yesterday ended before this morning's dump")
+        XCTAssertTrue(covers(5, morning))
+        XCTAssertTrue(covers(1, midnight), "a dump finishing exactly at midnight holds all of yesterday")
+        XCTAssertFalse(covers(1, midnight.addingTimeInterval(-60)), "yesterday was still open when it finished")
+        XCTAssertFalse(covers(0, morning), "today is never complete in a reused dump")
+        XCTAssertFalse(covers(1, nil))
+    }
+
     func testSkippedDomainKeepsItsPreviousAcknowledgement() {
         let now = Date(timeIntervalSince1970: 1_800_000)
         let previous = BandDomainSyncState(domain: "hrv", status: .complete, attemptedAt: now,

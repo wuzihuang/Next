@@ -1005,9 +1005,12 @@ final class VeepooBand: BandService, @unchecked Sendable {
             try await self.readAllDataIfStale()
             let scope = self.historyReadScope
             let generation = self.historyReads.generation(scope: scope)
-            let cachedHRV = self.historyReads.status(for: .hrv, scope: scope)
-            let cachedTemperature = self.historyReads.status(for: .temperature, scope: scope)
-            let cachedOxygen = self.historyReads.status(for: .oxygen, scope: scope)
+            let hrvReceipt = self.historyReads.receipt(for: .hrv, scope: scope)
+            let temperatureReceipt = self.historyReads.receipt(for: .temperature, scope: scope)
+            let oxygenReceipt = self.historyReads.receipt(for: .oxygen, scope: scope)
+            let cachedHRV = hrvReceipt?.status
+            let cachedTemperature = temperatureReceipt?.status
+            let cachedOxygen = oxygenReceipt?.status
             var hrvStatus: BandDomainReadStatus = cachedHRV ?? (model.hrvType == 0 ? .unsupported : .complete)
             var temperatureStatus: BandDomainReadStatus = cachedTemperature ?? (model.temperatureType == 0 ? .unsupported : .complete)
             var oxygenStatus: BandDomainReadStatus = cachedOxygen ?? (model.oxygenType == 0 ? .unsupported : .complete)
@@ -1099,9 +1102,14 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 }
                 self.historyReads.record(oxygenStatus, for: .oxygen, generation: generation)
             }
-            let publishesHRV = cachedHRV == nil
-            let publishesOxygen = cachedOxygen == nil
+            let now = Date()
+            func covers(_ receipt: BandHistoryReadCache.Receipt?) -> Bool {
+                BandSyncPolicy.reusedDumpCoversDay(dayOffset: dayOffset, completedAt: receipt?.completedAt, now: now)
+            }
+            let publishesHRV = cachedHRV == nil || covers(hrvReceipt)
+            let publishesOxygen = cachedOxygen == nil || covers(oxygenReceipt)
             let publishesTemperature = ![2, 4].contains(model.temperatureType) || cachedTemperature == nil
+                || covers(temperatureReceipt)
             let date = Self.dayString(daysAgo: dayOffset)
             let resolvedHrvStatus = hrvStatus
             let resolvedTemperatureStatus = temperatureStatus

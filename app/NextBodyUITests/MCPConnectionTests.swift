@@ -28,6 +28,7 @@ final class MCPConnectionTests: XCTestCase {
                 XCTAssertTrue(text.label.contains(required), "\(language) prompt lacks \(required)")
             }
             XCTAssertTrue(text.label.contains(language == "en" ? "same arguments" : "相同参数"))
+            XCTAssertTrue(text.label.contains(language == "en" ? "condiments" : "调料"))
             app.terminate()
         }
     }

@@ -553,12 +553,13 @@ export const TOOLS: ToolDefinition[] = [
     name: "log_meal",
     title: "Log a meal",
     description:
-      "Logs one plate (1–12 foods), then attempts to update that day's totals. Confirm foods, portions and time with the person first. Estimate kcal and protein/carbs/fat grams; omit unknown fiber_g/sugar_g/sodium_mg. request_id (UUID) is required: create it once per confirmed plate and reuse the exact same arguments after any timeout. Never change the id to resolve a conflict; read list_meals first. eaten_at is ISO 8601 with an offset, defaults to the first accepted request's time, and must be today or the previous 6 local days. slot defaults from that time (breakfast 04–11, lunch 11–15, dinner 15–21, otherwise snack). Retries return the original receipt even across day boundaries. dayTotalsUpdated=false means saved, not yet recalculated. Requires meal-logging permission.",
+      "Logs one plate (1–12 foods), then attempts to update that day's totals. Confirm foods, portions and time with the person first. One item per distinct dish, side or drink. Condiments, sauces, dips, dressings, cooking oil, butter and seasonings belong to the food they were eaten with: add their kcal and macros to that item and name them in its name or portion (e.g. \"Dumplings with vinegar-chili dip\", \"12 pieces + 1 dish dip\"); fold a sauce shared by the whole plate into the main food. Log a condiment as its own item only if the person asks or ate it on its own. Estimate kcal and protein/carbs/fat grams; omit unknown fiber_g/sugar_g/sodium_mg. request_id (UUID) is required: create it once per confirmed plate and reuse the exact same arguments after any timeout. Never change the id to resolve a conflict; read list_meals first. eaten_at is ISO 8601 with an offset, defaults to the first accepted request's time, and must be today or the previous 6 local days. slot defaults from that time (breakfast 04–11, lunch 11–15, dinner 15–21, otherwise snack). Retries return the original receipt even across day boundaries. dayTotalsUpdated=false means saved, not yet recalculated. Requires meal-logging permission.",
     inputSchema: {
       type: "object",
       properties: {
         items: {
           type: "array",
+          description: "One entry per distinct dish, side or drink. Fold condiments, sauces, dips, oil and seasonings into the food they accompany instead of listing them separately.",
           minItems: 1,
           maxItems: 12,
           items: {

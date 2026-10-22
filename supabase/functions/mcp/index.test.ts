@@ -154,6 +154,17 @@ Deno.test("tools/list names every tool with a schema", async () => {
   for (const tool of body.result.tools) assertEquals(tool.inputSchema.type, "object");
 });
 
+Deno.test("log_meal tells assistants to fold condiments into the food they accompany", async () => {
+  const { db } = fakeDb(GRANT);
+  const listed = await (await handleMcp(post({ jsonrpc: "2.0", id: 1, method: "tools/list" }), deps(db))).json();
+  const logMeal = listed.result.tools.find((t: { name: string }) => t.name === "log_meal");
+  assertStringIncludes(logMeal.description, "Condiments");
+  assertStringIncludes(logMeal.description, "belong to the food they were eaten with");
+  assertStringIncludes(logMeal.inputSchema.properties.items.description, "Fold condiments");
+  const init = await (await handleMcp(post({ jsonrpc: "2.0", id: 2, method: "initialize" }), deps(db))).json();
+  assertStringIncludes(init.result.instructions, "fold condiments");
+});
+
 Deno.test("unknown methods and tools are JSON-RPC errors", async () => {
   const { db } = fakeDb(GRANT);
   const method = await (await handleMcp(post({ jsonrpc: "2.0", id: 1, method: "resources/list" }), deps(db))).json();

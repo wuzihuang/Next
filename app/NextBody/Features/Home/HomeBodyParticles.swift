@@ -274,7 +274,7 @@ struct BodyCloud: Sendable {
             var tone = 0
             if let zone = Self.zones.firstIndex(where: { $0.contains(CGPoint(x: mote.x, y: mote.y)) }),
                zone < frame.spots.count,
-               (mote.seed * 37.7).truncatingRemainder(dividingBy: 1) < CGFloat(frame.spots[zone].intensity) * 0.5 {
+               (mote.seed * 37.7).truncatingRemainder(dividingBy: 1) < CGFloat(frame.spots[zone].intensity) * 0.8 {
                 tone = zone + 1
             }
             put(px, py, side: side, alpha: alpha, tone: tone)
@@ -313,6 +313,7 @@ struct BodyCloud: Sendable {
             let tint = tone == 0 ? Self.base : frame.spots[tone - 1].tint
             for level in 0..<levels {
                 let path = paths[tone * levels + level]
+        context.blendMode = .normal
                 guard !path.isEmpty else { continue }
                 let opacity = (Double(level) + 0.5) / Double(levels)
                 context.fill(path, with: .color(tint.opacity(opacity)))

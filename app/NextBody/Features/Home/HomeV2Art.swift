@@ -160,15 +160,16 @@ extension HomeV2Model.BodyMetric.Tint {
 }
 
 extension HomeV2Model.BodyStatus {
-    /// The map's five-stop ramp, green to red, so「还行」does not wear「糟糕」's amber.
+    /// Shared status ramp. The last two stops are distinct orange and orange-red,
+    /// reserving pure alert red for explicit alerts elsewhere in the app.
     var color: Color {
         switch self {
         case .dim: NB.white
         case .good: NB.optimal2
         case .ok: NB.lime2
         case .watch: NB.filmYellow
-        case .poor: NB.run1
-        case .bad: NB.alert2
+        case .poor: NB.ember1
+        case .bad: NB.ember2
         }
     }
 }

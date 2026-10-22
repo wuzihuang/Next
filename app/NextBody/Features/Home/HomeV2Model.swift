@@ -1,4 +1,6 @@
 import Foundation
+import SwiftUI
+import UIKit
 
 /// Homepage V2 · Planet / Body / Instruments.
 ///
@@ -74,9 +76,8 @@ enum HomeV2Model {
         var food: Food
     }
 
-    /// The traffic light a body part wears. Five stops between fine and broken, so a
-    /// merely so-so night does not read the same amber as a genuinely bad one.
-    /// `dim` sits off the ramp: a part that has not started reading, drawn in white.
+    /// Categorical status ramp for sleep, heart and calorie allowance. The leg tint is
+    /// a separate movement-volume ramp; `dim` remains the neutral off-ramp.
     enum BodyStatus: Int, Equatable, Comparable {
         case dim = -1, good = 0, ok, watch, poor, bad
         static func < (l: Self, r: Self) -> Bool { l.rawValue < r.rawValue }
@@ -95,6 +96,8 @@ enum HomeV2Model {
         var details: [String] = []
         /// Only meaningful while `lit`; an unlit part draws in dim white.
         var status: BodyStatus = .ok
+        /// A data-specific hue can replace the shared status ramp (e.g. macros or step volume).
+        var tint: Color? = nil
     }
 
     struct BodyMetric: Equatable, Identifiable {
@@ -143,6 +146,7 @@ enum HomeV2Model {
         var note: String?
         /// The part's light as it stood on the map. nil keeps the page in neutral white.
         var status: BodyStatus?
+        var tint: Color? = nil
     }
 
     typealias TimelineMeal = HomeTimeline.Meal
@@ -320,7 +324,7 @@ enum HomeV2Model {
             head: headGlow(metrics: metrics),
             heart: heartGlow(metrics: metrics),
             gut: gutGlow(food: food),
-            legs: legsGlow(metrics: metrics, history: history),
+            legs: legsGlow(metrics: metrics),
             primary: [fields.fat, fields.muscle, fields.lean],
             more: [fields.fatMass, fields.water, fields.protein, fields.bone, fields.bmr, fields.bmi])
     }
@@ -452,11 +456,19 @@ enum HomeV2Model {
         return BodyGlow(lit: true, intensity: glowIntensity(lit: true, status: status),
                         eyebrow: L("GUT"), value: text,
                         details: [L("%@ / %@ EATEN", Fmt.kcal(Double(eaten)), Fmt.kcal(Double(target)))],
-                        status: status)
+                        status: status, tint: gutTint(food: food))
     }
 
-    /// How far the plate sits from the allowance. Overshooting slides to red faster
-    /// than coming up short does.
+    /// Mixes the established protein, carbohydrate and fat colours by their share of
+    /// recorded macro calories. Missing macros do not contribute a made-up zero.
+    static func gutTint(food: Food) -> Color? {
+        BodyTintMath.gut(protein: food.protein.eaten, carb: food.carb.eaten, fat: food.fat.eaten,
+                         proteinColor: rgb(NB.optimal2), carbColor: rgb(NB.lime1),
+                         fatColor: rgb(NB.run1)).map(color)
+    }
+
+    /// How far the plate sits from the allowance. Overshooting advances through amber
+    /// and orange before orange-red; it is not a clinical warning.
     static func gutStatus(food: Food) -> BodyStatus {
         guard food.face == .complete || food.face == .remaining,
               let eaten = food.eatenKcal, let target = food.targetKcal, target > 0 else {
@@ -472,43 +484,50 @@ enum HomeV2Model {
         return .good
     }
 
-    /// Legs own the day's ground: steps first, the band's metres and movement kcal beside them.
-    static func legsGlow(metrics: DailyMetrics, history: [DailyMetrics]) -> BodyGlow {
+    /// Legs own the day's ground: step volume sets the colour; distance and movement kcal
+    /// remain supporting readouts, not substitutes for an unreported step count.
+    static func legsGlow(metrics: DailyMetrics) -> BodyGlow {
         let steps = VitalsReadout.daySteps(metrics)
         let metres = VitalsReadout.dayMetres(metrics)
         let active = VitalsReadout.dayActiveKcal(metrics)
-        let status = legsStatus(steps: steps, metres: metres, history: history)
+        let status = legsStatus(steps: steps)
         let lit = steps != nil || metres != nil
         var details: [String] = []
         if let metres { details.append(L("DIST %@ KM", String(format: "%.1f", metres / 1000))) }
         if let active { details.append(L("ACTIVE %@", Fmt.kcal(active))) }
         return BodyGlow(
             lit: lit,
-            intensity: glowIntensity(lit: lit, status: status),
+            intensity: lit ? BodyTintMath.legsIntensity(steps: steps) : 0,
             eyebrow: L("LEGS"),
             value: steps.map { L("%@ STEPS", Fmt.kcal($0)) }
                 ?? metres.map { L("%@ KM", String(format: "%.1f", $0 / 1000)) } ?? Fmt.dash,
             details: details,
-            status: status)
+            status: status, tint: legsTint(steps: steps))
     }
 
-    /// Steps graded against the person's own week when there is one, absolute floors otherwise.
-    /// A zero is a day that has not started counting, not a failed one — it stays neutral.
-    static func legsStatus(steps: Double?, metres: Double?, history: [DailyMetrics]) -> BodyStatus {
-        if let steps, steps > 0 {
-            let prior = history.suffix(8).dropLast().compactMap { VitalsReadout.daySteps($0) }
-            if prior.count >= 3 {
-                let mean = prior.reduce(0, +) / Double(prior.count)
-                let ratio = mean > 0 ? steps / mean : 1
-                return ratio >= 0.9 ? .good : ratio >= 0.7 ? .ok : ratio >= 0.5 ? .watch
-                     : ratio >= 0.3 ? .poor : .bad
-            }
-            return steps >= 8_000 ? .good : steps >= 6_000 ? .ok : steps >= 4_000 ? .watch
-                 : steps >= 2_000 ? .poor : .bad
-        }
-        guard let metres, metres > 0 else { return .dim }
-        return metres >= 6_000 ? .good : metres >= 4_000 ? .ok : metres >= 2_500 ? .watch
-             : metres >= 1_000 ? .poor : .bad
+    /// Low steps are neutral, not a warning. At 10k the hue is yellow; 20–30k
+    /// moves from orange toward orange-red as activity volume rises.
+    static func legsTint(steps: Double?) -> Color {
+        color(BodyTintMath.legs(steps: steps, palette: .init(
+            neutral: BodyRGB(red: 1, green: 1, blue: 1, alpha: 0.28),
+            green: rgb(NB.optimal2), yellow: rgb(NB.filmYellow),
+            orange: rgb(NB.ember1), orangeRed: rgb(NB.ember2))))
+    }
+
+    private static func rgb(_ color: Color) -> BodyRGB {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        _ = UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return BodyRGB(red: Double(r), green: Double(g), blue: Double(b), alpha: Double(a))
+    }
+
+    private static func color(_ rgb: BodyRGB) -> Color {
+        Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue, opacity: rgb.alpha)
+    }
+
+    /// Walking volume is not a body-status warning; only zero or unavailable stays neutral.
+    static func legsStatus(steps: Double?) -> BodyStatus {
+        guard let steps, steps > 0 else { return .dim }
+        return .good
     }
 
     /// The nine figures the band's BIA scan really returns, drawn from the latest scan only.
@@ -663,7 +682,7 @@ enum HomeV2Model {
         let steps = VitalsReadout.daySteps(metrics)
         let metres = VitalsReadout.dayMetres(metrics)
         let active = VitalsReadout.dayActiveKcal(metrics)
-        let status = legsStatus(steps: steps, metres: metres, history: history)
+        let status = legsStatus(steps: steps)
         let prior = history.suffix(8).dropLast().compactMap { VitalsReadout.daySteps($0) }
         let versus: String = {
             guard let steps, prior.count >= 3 else { return Fmt.dash }
@@ -700,7 +719,8 @@ enum HomeV2Model {
             ],
             noteLabel: L("TODAY"),
             note: nil,
-            status: status == .dim ? nil : status)
+            status: status == .dim ? nil : status,
+            tint: legsTint(steps: steps))
     }
 
     static func foodDetail(metrics: DailyMetrics, meals: [MealEntry]) -> Detail {
@@ -741,7 +761,8 @@ enum HomeV2Model {
             ],
             noteLabel: L("TODAY"),
             note: note,
-            status: deck.face == .complete || deck.face == .remaining ? gutStatus(food: deck) : nil)
+            status: deck.face == .complete || deck.face == .remaining ? gutStatus(food: deck) : nil,
+            tint: gutTint(food: deck))
     }
 
     static func timeline(day: UserDay, metrics: DailyMetrics, history: [DailyMetrics],

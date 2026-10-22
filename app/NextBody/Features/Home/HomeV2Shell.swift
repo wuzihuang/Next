@@ -1051,7 +1051,8 @@ private struct HomeBodyPage: View {
 
     /// A lit part wears its status colour; unlit parts are handled in dim white by callers.
     private func statusTint(_ zone: HomeV2Model.Zone) -> Color {
-        glowModel(zone).status.color
+        let glow = glowModel(zone)
+        return glow.tint ?? glow.status.color
     }
 
     private func metricRow(_ metrics: [HomeV2Model.BodyMetric]) -> some View {
@@ -1607,7 +1608,7 @@ private struct HomeZoneDetail: View {
     }
 
     private var tint: Color {
-        model.status?.color ?? Color.white.opacity(0.55)
+        model.tint ?? model.status?.color ?? Color.white.opacity(0.55)
     }
 
     private var title: String {

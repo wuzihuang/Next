@@ -1211,13 +1211,13 @@ opening either AI folder without the owner's permission.
   averages. Numbers come from `body_composition` (all sources) into
   `DataStore.compositionScans`; SDK-only BIA fields that never persist are not
   drawn. Simulator seed maps the same records so the page is walkable offline.
-- Home body map: `BodyStatus.dim` (-1) is the off-ramp for a part that has a
-  reading of zero — the part stays lit (bright value, solid leader) but wears a
-  white halo (`NB.white`, `.good`-level intensity) instead of `.bad` red. Legs
-  returns `.dim` for zero steps/metres (`legsStatus` skips zero), and its
-  detail page passes `status: nil` for neutral white. Truly missing data
-  (nil, not zero) still means `BodyGlow.lit == false`: dim-white caption and
-  dashed leader.
+- Home body map: `BodyStatus.dim` (-1) is the neutral off-ramp. A measured
+  zero can keep the label/leader visible without implying a warning; truly
+  absent data (`nil`) stays unlit. Legs use a separate step-volume tint: gray
+  to green below 8k, yellow at 10k, orange at 20k, orange-red at 30k+, and no
+  low-step red/orange warning. Their status copy stays neutral. Gut's tint is
+  the weighted blend of recorded protein/carbohydrate/fat calories, while its
+  calorie-allowance status still controls glow intensity.
 
 ## Verification
 - Back-swipe snapshot geometry: `python3 app/Tests/diagnostics/backdrop_geometry.py`
@@ -1231,3 +1231,10 @@ opening either AI folder without the owner's permission.
 - iOS UI behavior: run the `NextBody` Xcode scheme/UI test target on an available simulator or device.
 - Edge Function lint: `pnpm run lint`.
 - Edge Function tests: `deno test --node-modules-dir=auto --allow-all supabase/functions`.
+- Home body colour ramp and macro tint: `cd app && swift test --filter NextBodyHomeTests`.
+  The math is pure in `Features/Home/BodyTintMath.swift` (SwiftPM target
+  `NextBodyHomeCore`; `HomeV2Model.legsTint/gutTint` only bridge `Color`). Tests check
+  low/missing steps stay neutral, 8k green, 10k yellow, 20k orange, 30k+ orange-red,
+  and protein/carb/fat at 4/4/9 kcal per g with gut colours `optimal2`/`lime1`/`run1`
+  (the same macro colours as the timeline and planet). UI test bundles cannot
+  `@testable import NextBody`, so model logic tests belong in a SwiftPM core target.

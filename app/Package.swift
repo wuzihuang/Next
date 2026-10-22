@@ -45,6 +45,16 @@ let package = Package(
             path: "NextBodySleepTests"
         ),
         .target(
+            name: "NextBodyHomeCore",
+            path: "NextBody/Features/Home",
+            sources: ["BodyTintMath.swift"]
+        ),
+        .testTarget(
+            name: "NextBodyHomeTests",
+            dependencies: ["NextBodyHomeCore"],
+            path: "NextBodyHomeTests"
+        ),
+        .target(
             name: "NextBodyPlanCore",
             path: "NextBody/AI/Plan",
             exclude: ["PlanChevron.swift", "PlanLip.swift", "PlanPage.swift", "PlanChecks.swift", "PlanStore.swift"],

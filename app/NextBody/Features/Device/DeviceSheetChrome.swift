@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 12Y · one chrome for the two action-tile sheets (Find HOOP, Alarms).
+/// 12Y · one chrome for the two action-tile sheets (Find NEXTBODY, Alarms).
 /// They used to each invent their own: a different ground, a different gutter, a
 /// headline on one face and none on the other, and three fonts for the same 52pt key.
 /// Now both share the DEVICE sheet anatomy — eyebrow → title → one sentence on

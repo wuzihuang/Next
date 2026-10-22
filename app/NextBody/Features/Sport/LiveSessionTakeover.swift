@@ -176,7 +176,7 @@ struct LiveSessionTakeover: View {
             HStack(spacing: 7) {
                 Circle().fill(connected ? NB.lime1 : NB.ember1)
                     .frame(width: 5, height: 5)
-                Text(connected ? "HOOP" : "OFFLINE")
+                Text(connected ? "NEXTBODY" : "OFFLINE")
                     .font(NBFont.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(connected ? NB.white.opacity(0.42) : NB.ember1)
             }

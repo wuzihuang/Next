@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Generated 1:1 from the Paper design tokens of NEXTBODY-HOOP · page "新版设计".
+// Generated 1:1 from the Paper design tokens of NEXTBODY-NEXTBODY · page "新版设计".
 // One concept, one name (F0 rule 01). Never hard-code a hex outside this file.
 extension Color {
     init(hex: UInt32, opacity: Double = 1) {

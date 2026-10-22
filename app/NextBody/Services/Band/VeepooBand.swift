@@ -66,7 +66,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         // ⚠️ Which subclass sits here decides whether the day can be read at all, and it has
         // to be set before the first connect (doc §SDK初始化).
         //  · VPPeripheralBaseManage (what the SDK leaves in place): readBasicData, readSleepData
-        //    and readStepData are a single `ret`. Two syncs on a real HOOP ran exactly 90 s —
+        //    and readStepData are a single `ret`. Two syncs on a real NEXTBODY ran exactly 90 s —
         //    the timeout — and wrote nothing, while battery and BIA worked.
         //  · VPPeripheralAddManage uses app-owned persistence. Protocol 5 readBasic sends nil
         //    progress arrays, then a 0/0 terminal callback with the parsed array. It must not
@@ -136,7 +136,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 // SDK deviceAddress can change from UUID to MAC after verification.
                 // CoreBluetooth identity stays stable on this phone.
                 guard let id = model.peripheral?.identifier.uuidString else { return }
-                let name = model.deviceName ?? "HOOP"
+                let name = model.deviceName ?? "NEXTBODY"
                 let rssi = model.rssi?.intValue ?? -99
                 let bound = BoundBand.identifier
                 let matches = BandSyncPolicy.matchesBoundDevice(discovered: id, sdkAddress: model.deviceAddress,
@@ -533,7 +533,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                         await self.stopScan()
                         do {
                             try await self.connect(DiscoveredBand(id: target.key,
-                                name: target.value.deviceName ?? "HOOP", rssi: target.value.rssi?.intValue ?? -99,
+                                name: target.value.deviceName ?? "NEXTBODY", rssi: target.value.rssi?.intValue ?? -99,
                                 batteryPercent: nil))
                             if !Task.isCancelled { self.state = .connected }
                         } catch {
@@ -610,11 +610,11 @@ final class VeepooBand: BandService, @unchecked Sendable {
     func readIdentity() async throws -> BandIdentity {
         guard let model = central.peripheralModel else { throw BandError.notConnected }
         // The light bytes this firmware reports, logged where the device page always looks.
-        // 2026-09-10 · a HOOP answered "no health light"; this is how that is told apart
+        // 2026-09-10 · a NEXTBODY answered "no health light"; this is how that is told apart
         // from a model that simply had not been parsed yet.
         Self.log.notice("identity · light=\(model.healthLightType, privacy: .public) lostRemind=\(model.lostRemindState, privacy: .public) days=\(model.saveDays, privacy: .public)")
         return BandIdentity(
-            name: model.deviceName ?? "HOOP",
+            name: model.deviceName ?? "NEXTBODY",
             model: model.deviceVersion ?? "—",
             hardware: model.deviceTestVersion ?? "—",
             firmware: model.deviceVersion ?? "—",
@@ -711,7 +711,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         }
     }
 
-    /// 断链提醒 · the firmware's own "the phone is gone" signal. nil means this HOOP has no
+    /// 断链提醒 · the firmware's own "the phone is gone" signal. nil means this NEXTBODY has no
     /// such switch; the sheet draws nothing for it.
     func readDisconnectReminder() async throws -> Bool? {
         let binding = BoundBand.identifier
@@ -1184,7 +1184,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
     ///
     /// ⚠️ Two sleep stores. `VPPeripheralModel.sleepType` 0 (and 2, per the vendor demo) is
     /// 「普通睡眠」 and fills the dictionary table; 1/3 is 「精准睡眠」 and fills only the
-    /// `VPAccurateSleepModel` table. The HOOP is the latter: reading the dictionary table
+    /// `VPAccurateSleepModel` table. The NEXTBODY is the latter: reading the dictionary table
     /// alone answered "no night" on every sync and `sleep_nights` never got a row. The accurate
     /// table is asked first, the dictionary table second, whichever the model claims — the
     /// claim is logged, never trusted on its own.
@@ -1264,7 +1264,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         let stages: [Int?]
     }
 
-    /// 🔬 REM probe · `VPAccurateSleepModel` carries two independent REM channels and HOOP reads
+    /// 🔬 REM probe · `VPAccurateSleepModel` carries two independent REM channels and NEXTBODY reads
     /// neither: `otherDuration`「其他睡眠时间…快速眼动期」 as a whole-night total, and stage 2 inside
     /// `sleepLine`. The SDK header states the KH series emits no stage 2/3 *in the line*; it says
     /// nothing about the totals, and `sleepRecords` currently spends `otherDuration` only as a
@@ -1429,7 +1429,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         }
         func int(_ v: Any?) -> Int? { num(v).map { Int($0) } }
         // VPDataBaseOperation.h: 「如果有heartValue用heartValue, 如果没有则优先使用ppgs, 如果
-        // heartValue和ppgs都没有就用ecgs」. On the HOOP heartValue is 0 on every slot and the
+        // heartValue和ppgs都没有就用ecgs」. On the NEXTBODY heartValue is 0 on every slot and the
         // slot's beats sit in `ppgs`, one array per five minutes; the slot's heart rate is
         // their mean. ⚠️ 0 is the band's "nothing on the wrist", not a reading. It is
         // dropped here at the bridge, or the readout would print HR 0 and HR_REST's lowest
@@ -1503,7 +1503,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     case .start:
                         // VPTestHeartStateStart ·「开始检测心率，还没有测出结果」— the band's own
                         // answer that the sensor is on. ⚠️ It used to fall into `default: break`,
-                        // and this HOOP can take ten seconds to produce a first rate: the screen
+                        // and this NEXTBODY can take ten seconds to produce a first rate: the screen
                         // sat on 「waiting for your finger」, then went amber, for a measurement
                         // that had already begun. This is the band answering, not the echo of our
                         // own `start` — that distinction is what the judgement was ever about.
@@ -1785,7 +1785,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
     func startFindHoop() async throws {
         guard let peripheral else { throw BandError.notConnected }
         if central.peripheralModel.searchDeviceFunction != 1 {
-            throw BandError.unsupported("Find HOOP")
+            throw BandError.unsupported("Find NEXTBODY")
         }
         findGeneration += 1
         let gen = findGeneration
@@ -1798,7 +1798,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                     }
                     switch phase {
                     case .unsupported:
-                        done(.failure(BandError.unsupported("Find HOOP")))
+                        done(.failure(BandError.unsupported("Find NEXTBODY")))
                     case .enter, .exit, .timeout:
                         done(.success(()))
                     }
@@ -2062,7 +2062,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
         let rrs = nums(m.rrs), muRrs = nums(m.muRrs)
         let hearts = nums(m.hearts), muHearts = nums(m.muHearts)
         // ⚠️ The header calls `rrs` 「App手动测试每秒的rr值」 and says nothing about its unit.
-        // Forty-one of them came back on a real HOOP and every one was thrown away by the
+        // Forty-one of them came back on a real NEXTBODY and every one was thrown away by the
         // physiological filter downstream, which is how a finished measurement turned into
         // 「没读够」. Whatever they are, they are printed raw here before anything judges them.
         log.notice("pulse study raw · rrs \(rrs.prefix(8).map { String(format: "%.1f", $0) }.joined(separator: ","), privacy: .public) (\(rrs.count))")
@@ -2311,13 +2311,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
 
     /// The band's own list of what it can measure — `veepooSDK_readFuncAssessment`, one read,
     /// no sensor time. Seventeen types, each with `support` and `open` straight from the band.
-    /// ⚠️ Use this, not `readCapabilities`, whenever the question is "does this HOOP do X".
+    /// ⚠️ Use this, not `readCapabilities`, whenever the question is "does this NEXTBODY do X".
     /// The capability bits are partly guessed positions in `deviceFuctionData`; this is the
     /// band answering in its own words.
     func readHealthFunctions() async throws -> [BandHealthFunction] {
         guard let peripheral else { throw BandError.notConnected }
         return try await queue.run("readHealthFunctions", priority: .p1) {
-            // ⚠️ 5 s, not the usual 12: a HOOP on firmware that has no such command does
+            // ⚠️ 5 s, not the usual 12: a NEXTBODY on firmware that has no such command does
             // not refuse it, it says nothing at all — and this read sits on the serial queue
             // in front of the day pull. Measured on the wrist: no answer, ever.
             try await self.sdk("readFuncAssessment", seconds: 5) { done in
@@ -2513,7 +2513,7 @@ final class VeepooBand: BandService, @unchecked Sendable {
                 let models: [VPAutoMonitTestModel] = try await self.sdk("readAutoMonitoring") { done in
                     peripheral.veepooSDKReadAutoMonitSwitchInfo { native in
                         guard let native else {
-                            done(.failure(BandError.rejected("THIS HOOP DID NOT REPORT ITS AUTOMATIC MEASUREMENTS")))
+                            done(.failure(BandError.rejected("THIS NEXTBODY DID NOT REPORT ITS AUTOMATIC MEASUREMENTS")))
                             return
                         }
                         done(.success(native))
@@ -2899,13 +2899,13 @@ final class VeepooBand: BandService, @unchecked Sendable {
 /// transport slot in `DeviceSlots`: every call site that keys readiness, refresh scope and
 /// evidence by `identifier` follows the link the moment the transport slot changes.
 enum BoundBand {
-    /// MockBand / simulator walk-through. Must never unbind a real HOOP.
+    /// MockBand / simulator walk-through. Must never unbind a real NEXTBODY.
     static let seedIdentifier = "C4-2E-8F-1A-73-9D"
     private static let legacyKey = "nb.band.identifier"
     private static let legacyPeripheralKey = "nb.band.peripheralIdentifier"
     private static let legacyPeripheralOwnerKey = "nb.band.peripheralBinding"
 
-    /// A phone that bound one HOOP before slots existed keeps it, in slot A.
+    /// A phone that bound one NEXTBODY before slots existed keeps it, in slot A.
     private static func migrateIfNeeded() {
         let defaults = UserDefaults.standard
         guard DeviceSlots.bindings.isEmpty, let legacy = defaults.string(forKey: legacyKey) else { return }

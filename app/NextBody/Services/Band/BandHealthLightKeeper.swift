@@ -72,7 +72,7 @@ final class BandHealthLightKeeper {
                     reconciling = true
                     continue
                 } catch BandError.unsupported {
-                    Self.log.notice("health light: this HOOP has no light control")
+                    Self.log.notice("health light: this NEXTBODY has no light control")
                     return
                 } catch is CancellationError {
                     // The band was taken mid-command. Not a refusal; ask again for free.

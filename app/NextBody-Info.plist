@@ -74,7 +74,7 @@
 	<string>Photograph your meal so NextBody can log the food.</string>
 	<!-- F5 §03 · the string is the board's own; its two "never"s are promises. Four read types, nothing written back. -->
 	<key>NSHealthShareUsageDescription</key>
-	<string>HOOP reads your sex, date of birth, height and weight from Health to set up your baseline. It never writes to Health, and never shares this data.</string>
+	<string>NEXTBODY reads your sex, date of birth, height and weight from Health to set up your baseline. It never writes to Health, and never shares this data.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>NextBody uses Health only to read your body measurements for your baseline. It does not write to Health.</string>
 	<!-- Required by linked band SDK APIs; the app does not request library access. -->

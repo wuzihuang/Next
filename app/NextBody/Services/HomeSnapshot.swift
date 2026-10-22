@@ -456,9 +456,11 @@ enum HomeSnapshot {
         store.sleepScores = (payload.sleepScores ?? [:]).filter { $0.key >= from && $0.key <= current.key }
         store.sleepScoreLoadState = .idle
         store.today.sleepScore = store.sleepScores[store.today.day.key]
-        for index in store.history.indices {
-            store.history[index].sleepScore = store.sleepScores[store.history[index].day.key]
+        var scored = store.history
+        for index in scored.indices {
+            scored[index].sleepScore = store.sleepScores[scored[index].day.key]
         }
+        store.history = scored
     }
 
     private static func load(userId: String) -> Payload? {

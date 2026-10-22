@@ -22,7 +22,7 @@ public final class LocalDataStore: @unchecked Sendable {
         sharedLock.lock(); defer { sharedLock.unlock() }
         if let instance { return instance }
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                     appropriateFor: nil, create: true).appendingPathComponent("HOOP")
+                                                     appropriateFor: nil, create: true).appendingPathComponent("NEXTBODY")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let store = try LocalDataStore(url: directory.appendingPathComponent("local-data.sqlite"))
         instance = store

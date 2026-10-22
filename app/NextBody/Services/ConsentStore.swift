@@ -17,7 +17,7 @@ import Foundation
 @MainActor
 final class ConsentStore: ObservableObject {
     static let shared = ConsentStore()
-    /// 1.3.0 · ADR 0008 · HOOP now settles a sleep score, and the 1.2.0 screen promised the
+    /// 1.3.0 · ADR 0008 · NEXTBODY now settles a sleep score, and the 1.2.0 screen promised the
     /// opposite in as many words. A stored 1.2.0 grant must see the new copy; the hash of the
     /// screen is what a later edit is measured by.
     static let version = "1.3.0"
@@ -119,7 +119,7 @@ final class ConsentStore: ObservableObject {
 /// The screen's words, verbatim from the board. One list, so the hash and the screen agree.
 enum ConsentCopy {
     static let eyebrow = "NOTHING READ YET"
-    static let title = "What HOOP collects"
+    static let title = "What NEXTBODY collects"
     static let lede = "Nothing has been read yet — not from the band, not from Apple Health. This is the complete list, and what each item is for."
 
     struct Item { let name: String; let why: String }
@@ -128,7 +128,7 @@ enum ConsentCopy {
     static let sections: [Section] = [
         Section(head: "FROM APPLE HEALTH · READ ONLY", items: [
             Item(name: "Sex, date of birth, height, weight",
-                 why: "Every calorie and body-composition number is built from these four. HOOP reads them and never writes anything back to Health."),
+                 why: "Every calorie and body-composition number is built from these four. NEXTBODY reads them and never writes anything back to Health."),
         ]),
         Section(head: "FROM THE BAND", items: [
             Item(name: "Heart rate", why: "One reading about every five minutes, all day."),
@@ -137,7 +137,7 @@ enum ConsentCopy {
             Item(name: "Steps, distance, calories and movement intensity",
                  why: "Your daily load, and the burn side of energy balance."),
             Item(name: "Sleep signals",
-                 why: "Staging, duration, night HRV and overnight automatic oxygen from the night the band recorded. From these HOOP settles one sleep score for the night, out of four parts \u{2014} how long you slept, the structure of it, how your body recovered, and how close to your usual hour you went to bed. The score is computed on our server and can be recomputed; it is not a medical assessment."),
+                 why: "Staging, duration, night HRV and overnight automatic oxygen from the night the band recorded. From these NEXTBODY settles one sleep score for the night, out of four parts \u{2014} how long you slept, the structure of it, how your body recovered, and how close to your usual hour you went to bed. The score is computed on our server and can be recomputed; it is not a medical assessment."),
             Item(name: "Body composition — 14 measures from the band's bioimpedance sensor",
                  why: "Body fat, muscle, water, bone, protein, metabolic rate and more. Only when you start a measurement yourself. Never in the background."),
             Item(name: "Skin temperature", why: "One hidden input to readiness. It is never shown as a number."),
@@ -147,7 +147,7 @@ enum ConsentCopy {
         Section(head: "FROM YOU", items: [
             Item(name: "Meals — your words and your photos",
                  why: "Photos are read to estimate the food, kept where only you can open them, and deleted after 30 days. Location tags are removed on upload."),
-            Item(name: "What you say out loud", why: "Turned into text so HOOP can answer. The recording is never stored."),
+            Item(name: "What you say out loud", why: "Turned into text so NEXTBODY can answer. The recording is never stored."),
             Item(name: "How you use the app", why: "Which screens you open and what fails, so we can fix it."),
             Item(name: "Band battery and firmware version — not health data",
                  why: "So the app can tell you to charge it or update it."),
@@ -157,15 +157,15 @@ enum ConsentCopy {
     struct Note { let head: String; let body: String }
     static let notes: [Note] = [
         Note(head: "WHAT WE DON'T TOUCH",
-             body: "The KR96 PRO hardware can also read blood pressure, ECG, and daytime or on-demand blood oxygen. HOOP never turns those on, never stores them and never shows them. Overnight automatic oxygen is stored and shown on the sleep page only. Wrist optical meal response is stored and shown as RESPONSE; it is not a blood test."),
+             body: "The KR96 PRO hardware can also read blood pressure, ECG, and daytime or on-demand blood oxygen. NEXTBODY never turns those on, never stores them and never shows them. Overnight automatic oxygen is stored and shown on the sleep page only. Wrist optical meal response is stored and shown as RESPONSE; it is not a blood test."),
         Note(head: "WHAT WE NEVER DO",
              body: "We never sell your health data.\nWe never give it to advertising networks or data brokers.\nWe never write anything back to Apple Health."),
         Note(head: "WHERE IT GOES",
-             body: "Your phone and our servers. When you ask HOOP a question, only the numbers it needs go to the model that writes the answer, and it is not allowed to keep them or train on them."),
+             body: "Your phone and our servers. When you ask NEXTBODY a question, only the numbers it needs go to the model that writes the answer, and it is not allowed to keep them or train on them."),
     ]
 
-    static let agree = "I agree to let HOOP collect the health data listed on this screen."
-    static let ifNot = "If you don't agree, HOOP reads nothing. Your band stays paired and stays silent, every screen stays blank, and you can come back to this screen from Settings."
+    static let agree = "I agree to let NEXTBODY collect the health data listed on this screen."
+    static let ifNot = "If you don't agree, NEXTBODY reads nothing. Your band stays paired and stays silent, every screen stays blank, and you can come back to this screen from Settings."
     static let withdraw = "You can withdraw at any time in Settings › Data. Withdrawing stops collection. Deleting what we already have is a separate tap on the same screen."
     static let cta = "Continue"
 

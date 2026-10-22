@@ -18,7 +18,7 @@ struct PlusMenuSheet: View {
 
     private func close() { if let onClose { onClose() } else { dismiss() } }
 
-    // F6 §05 · a measurement this HOOP cannot do is not offered at all, rather than offered
+    // F6 §05 · a measurement this NEXTBODY cannot do is not offered at all, rather than offered
     // greyed out with the reason written in the row. A row you cannot press is still a row
     // about a thing you now want.
     private var canHeartRate: Bool { !data.capabilities.knownUnsupported(.heartRate) }

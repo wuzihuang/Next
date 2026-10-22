@@ -135,7 +135,7 @@ final class DataStore: ObservableObject {
         guard band.connected != connected else { return }
         band.connected = connected
     }
-    /// 12 · what this HOOP reports it can do, as last stored. The device page and 07's
+    /// 12 · what this NEXTBODY reports it can do, as last stored. The device page and 07's
     /// capabilities() gate read this so they are right before the band answers, and still
     /// right when it is out of range.
     @Published var capabilities = BandCapabilities()
@@ -203,11 +203,11 @@ final class DataStore: ObservableObject {
             DeviceSlots.remove(released)
         }
         // `SIMCTL_CHILD_NB_DEBUG_SECOND_HOOP=1` seeds the mock's second band into slot B so the
-        // two-HOOP DEVICE page (9-0 A) can be walked without tapping through activation.
+        // two-NEXTBODY DEVICE page (9-0 A) can be walked without tapping through activation.
         if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SECOND_HOOP"] != nil,
            DeviceSlots.binding(.b) == nil,
            ProcessInfo.processInfo.environment["NB_DEBUG_RELEASED_SLOT"] == nil {
-            DeviceSlots.set(SlotBinding(slot: .b, identifier: "8E-41-C0-2B-77-1F", name: "NEXTBODY HOOP",
+            DeviceSlots.set(SlotBinding(slot: .b, identifier: "8E-41-C0-2B-77-1F", name: "NEXTBODY",
                                         boundAt: Date().addingTimeInterval(-2 * 86_400)))
         }
         #endif
@@ -1325,12 +1325,12 @@ struct BandState: Hashable {
 
     /// A real phone before the band has answered anything. Every field fills in from the
     /// band itself (BandPresence) or from the devices row; none of them is guessed.
-    static let unknown = BandState(connected: false, name: "HOOP", mac: "",
+    static let unknown = BandState(connected: false, name: "NEXTBODY", mac: "",
                                    batteryPercent: nil, chargeState: .unknown, firmware: "",
                                    lastBattery: nil,
                                    lastSync: .distantPast, capabilities: [])
 
-    static let mock = BandState(connected: true, name: "NEXTBODY HOOP", mac: "C4:2E:8F:1A:73:9D",
+    static let mock = BandState(connected: true, name: "NEXTBODY", mac: "C4:2E:8F:1A:73:9D",
                                 batteryPercent: 82, chargeState: .unplugged, firmware: "1.4.7",
                                 lastBattery: BandBattery(isPercent: true, percent: 82, level: nil,
                                                          chargeState: .unplugged),
@@ -1357,6 +1357,11 @@ final class SessionStore: ObservableObject {
 
     init() {
         #if DEBUG
+        if FlowRehearsal.on {
+            stage = .gateSignIn
+            applyLaunchCover()
+            return
+        }
         // `SIMCTL_CHILD_NB_DEBUG_STAGE=gateConnect` opens the app at that gate for a walk.
         if Band.allowsSeed, let s = ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"], let st = Stage(rawValue: s) {
             stage = st
@@ -1398,6 +1403,7 @@ final class SessionStore: ObservableObject {
     func resolveLaunch() async {
         defer { markLaunchReady() }
         #if DEBUG
+        if FlowRehearsal.on { return }
         if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_STAGE"] != nil { return }
         #endif
         guard await ensureSession() else {
@@ -1452,7 +1458,7 @@ final class SessionStore: ObservableObject {
     }
 
     /// 11 · DELETE EVERYTHING, the phone half of it. reset() is a sign-out, and a sign-out
-    /// is explicitly not this: 「The HOOP stays paired and keeps recording. Your data comes
+    /// is explicitly not this: 「The NEXTBODY stays paired and keeps recording. Your data comes
     /// back when you sign in.」 Delete promises the opposite in the same sheet — the band
     /// unpairs itself, and there is no undo — so nothing the account wrote may survive here.
     ///
@@ -1478,7 +1484,7 @@ final class SessionStore: ObservableObject {
         Task { await Analytics.shared.purge() }
 
         // ⚠️ The SDK only offers disconnect(); "forget" is the app dropping its own device
-        // id — the same pair of sentences as FORGET THIS HOOP, and no more than that.
+        // id — the same pair of sentences as FORGET THIS NEXTBODY, and no more than that.
         BoundBand.forget()
         Task { await Band.live.disconnect() }
 

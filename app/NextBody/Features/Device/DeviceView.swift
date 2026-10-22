@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// 12X · 04 ACTION TILES. Lime identity slab (HOOP + SYNC + 2×2), then two
-/// carbon bricks (Find HOOP / Alarms). No charge numeral on this card.
+/// 12X · 04 ACTION TILES. Lime identity slab (NEXTBODY + SYNC + 2×2), then two
+/// carbon bricks (Find NEXTBODY / Alarms). No charge numeral on this card.
 struct DeviceView: View {
     @EnvironmentObject private var data: DataStore
     @EnvironmentObject private var router: Router
     @ObservedObject private var syncActivity = BandSyncActivity.shared
-    /// 9-0 A · the two-HOOP set: both slots, the wear timeline, the link moves.
+    /// 9-0 A · the two-NEXTBODY set: both slots, the wear timeline, the link moves.
     @ObservedObject private var hoops = DeviceSetStore.shared
     /// The lime ground is one shape that slides between the slots on a declaration.
 
@@ -107,12 +107,12 @@ struct DeviceView: View {
                                        tint: NB.text1) { sheet = .findBand }
                     }
                     if hoops.hasSecond {
-                        DestructiveRow(title: L("Remove a HOOP"),
-                                       detail: L("Choose one to remove. Your other HOOP and history stay."),
+                        DestructiveRow(title: L("Remove a NEXTBODY"),
+                                       detail: L("Choose one to remove. Your other NEXTBODY and history stay."),
                                        tint: NB.alert2, last: true) { sheet = .releaseSet }
                             .accessibilityIdentifier("device.removeHoop")
                     } else {
-                        DestructiveRow(title: L("Forget this HOOP"),
+                        DestructiveRow(title: L("Forget this NEXTBODY"),
                                        detail: L("Removes it from this phone. Your history stays."),
                                        tint: NB.alert2, last: true) { sheet = .unbind }
                     }
@@ -432,10 +432,10 @@ struct DeviceView: View {
         }
     }
 
-    /// Only what this HOOP actually reported for automatic measurement.
+    /// Only what this NEXTBODY actually reported for automatic measurement.
     private var autoDetail: String {
         guard connected else { return L("CONNECT TO READ") }
-        guard let autoRead else { return L("ASKING THIS HOOP") }
+        guard let autoRead else { return L("ASKING THIS NEXTBODY") }
         let slots = autoRead.slots
         if !slots.isEmpty {
             return slots.map { L(Self.autoShort($0.kind)) }.joined(separator: " · ")
@@ -469,7 +469,7 @@ struct DeviceView: View {
         }
     }
 
-    /// SYNC stays actionable off-link: it first reconnects the bound HOOP.
+    /// SYNC stays actionable off-link: it first reconnects the bound NEXTBODY.
     private var deviceSyncButton: some View {
         Button {
             Task { await pullBandNow() }
@@ -495,7 +495,7 @@ struct DeviceView: View {
         .layoutPriority(1)
         .disabled(BoundBand.identifier == nil || syncing)
         .accessibilityLabel(L("Sync now"))
-        .accessibilityHint(L("Connect this HOOP if needed, then pull the latest readings."))
+        .accessibilityHint(L("Connect this NEXTBODY if needed, then pull the latest readings."))
         .accessibilityValue(syncActivity.workflow.active ? L(syncActivity.workflow.stage.label) : "")
     }
 
@@ -514,14 +514,14 @@ struct DeviceView: View {
         case .consentRequired:
             router.takeover = .consent
         case .signedOut:
-            syncMessage = L("Sign in to sync this HOOP.")
+            syncMessage = L("Sign in to sync this NEXTBODY.")
         case .busy:
             syncMessage = L("Finish the current measurement or device operation, then sync again.")
         case .disconnected, .unbound:
             let snap = hoops.snapshot(hoops.wearing)
             syncMessage = (snap?.isFlat == true || snap?.isLow == true)
-                ? L("Could not reach this HOOP. It was nearly out of charge when last read — put it on its charger, then tap Sync.")
-                : L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
+                ? L("Could not reach this NEXTBODY. It was nearly out of charge when last read — put it on its charger, then tap Sync.")
+                : L("Could not reach this NEXTBODY. Keep it nearby, check Bluetooth, then tap Sync to try again.")
         case .partial:
             syncMessage = syncActivity.failureLine ?? L("Some readings could not sync. Tap Sync to try again.")
         case .failed:
@@ -584,7 +584,7 @@ struct DeviceView: View {
     /// a 28pt key inside 34 left three points of air and read as a seam.
     private func slotStrip(_ slot: HoopSlot, onLime: Bool) -> some View {
         HStack(spacing: 10) {
-            // The wearing HOOP's key is the one lime-filled mark on the page.
+            // The wearing NEXTBODY's key is the one lime-filled mark on the page.
             HoopKeyGlyph(letter: slot.rawValue, lit: onLime)
             Text(onLime ? stripWord : standbyWord(hoops.snapshot(slot), pending: pendingDays(slot)))
                 .font(NBFont.dot(600, 10.5)).tracking(0.2 * 10.5)
@@ -628,7 +628,7 @@ struct DeviceView: View {
     private var stripWord: String {
         switch hoops.phase {
         // PRD W2 · the band being left finishes the command it is on. Saying CONNECTING
-        // here would be a lie: the link is still on the other HOOP.
+        // here would be a lie: the link is still on the other NEXTBODY.
         case .finishing(let s):
             return L("FINISHING") + " \(s.rawValue) · " + L("THEN") + " \(hoops.wearing.rawValue)"
         case .switching(let s) where s == hoops.wearing:
@@ -649,7 +649,7 @@ struct DeviceView: View {
         }
     }
 
-    /// The other HOOP: what it last said, when it was last read, and its own SYNC key.
+    /// The other NEXTBODY: what it last said, when it was last read, and its own SYNC key.
     /// Nothing here is live — the app talks to one band at a time.
     private func standbySlab(_ slot: HoopSlot, spaced: Bool) -> some View {
         let snap = hoops.snapshot(slot)
@@ -663,7 +663,7 @@ struct DeviceView: View {
             slotStrip(slot, onLime: false)
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(snap?.name ?? "NEXTBODY HOOP")
+                    Text(snap?.name ?? "NEXTBODY")
                         .font(NBFont.ui(600, 22)).tracking(-0.03 * 22)
                         .foregroundStyle(NB.text1)
                         .lineLimit(1).minimumScaleFactor(0.7)
@@ -747,13 +747,13 @@ struct DeviceView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The only entry for the second HOOP (§03.3 step 5): a dashed empty slot on DEVICE.
+    /// The only entry for the second NEXTBODY (§03.3 step 5): a dashed empty slot on DEVICE.
     private var emptySlotSlab: some View {
         Button { sheet = .activateSecond } label: {
             HStack(spacing: 12) {
                 HoopKeyGlyph(letter: hoops.openSlot?.rawValue ?? "B")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(L("Add your second HOOP"))
+                    Text(L("Add your second NEXTBODY"))
                         .font(NBFont.ui(600, 16)).tracking(-0.02 * 16)
                         .foregroundStyle(NB.text1)
                     Text(L("KEEP WEARING. CHARGE THE OTHER."))
@@ -886,7 +886,7 @@ struct DeviceView: View {
                     Text(L("PING"))
                         .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                         .foregroundStyle(NB.lime1)
-                    Text(L("Find HOOP"))
+                    Text(L("Find NEXTBODY"))
                         .font(NBFont.ui(600, 18))
                         .tracking(-0.02 * 18)
                         .foregroundStyle(NB.text1)
@@ -926,7 +926,7 @@ struct DeviceView: View {
         switch route {
         case .bandAutoMonitor, .findHoop, .bandAlarms, .healthLight, .activateSecond: return 0.78
         case .releaseSet:   return 0.82
-        // 9-0 A·S8 · a question, the HOOP it names, and one key.
+        // 9-0 A·S8 · a question, the NEXTBODY it names, and one key.
         case .wearSwitch:   return 0.55
         default:            return 0.62
         }
@@ -1418,7 +1418,7 @@ private struct DestructiveRow: View {
 
 // MARK: 12S · the two device sheets
 
-/// One row per thing the band can measure — only what this HOOP reports is listed.
+/// One row per thing the band can measure — only what this NEXTBODY reports is listed.
 /// Interval firmware answers `readAutoMonitSwitchInfo`. Older firmware answers the
 /// base-function switches, with no interval to set.
 struct AutoMeasurementSheet: View {
@@ -1458,7 +1458,7 @@ struct AutoMeasurementSheet: View {
                     .padding(.top, 6)
 
                 if loading && slots.isEmpty {
-                    Text(L("ASKING THIS HOOP…"))
+                    Text(L("ASKING THIS NEXTBODY…"))
                         .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
                         .foregroundStyle(NB.white.opacity(0.38))
                         .padding(.top, 24)
@@ -1526,8 +1526,8 @@ struct AutoMeasurementSheet: View {
     private var subtitle: String {
         if firmwareOwnsInterval {
             return hasScientificSleep
-                ? L("This HOOP lets you turn each sensor or sleep mode on or off. How often it measures is decided by the firmware.")
-                : L("This HOOP only lets you turn each sensor on or off. How often it measures is decided by the firmware.")
+                ? L("This NEXTBODY lets you turn each sensor or sleep mode on or off. How often it measures is decided by the firmware.")
+                : L("This NEXTBODY only lets you turn each sensor on or off. How often it measures is decided by the firmware.")
         }
         return hasScientificSleep
             ? L("Choose each sensor's own interval. Scientific sleep uses automatic PPG.")
@@ -1540,7 +1540,7 @@ struct AutoMeasurementSheet: View {
         }
         return firmwareOwnsInterval
             ? L("The interval itself is not a setting on this firmware.")
-            : L("Only what this HOOP can measure is listed")
+            : L("Only what this NEXTBODY can measure is listed")
     }
 
     @ViewBuilder
@@ -1554,7 +1554,7 @@ struct AutoMeasurementSheet: View {
                 text: L("How often it measures is decided on the band. This app cannot change that interval."))
         case .interval, .none:
             EdgeNote(
-                line: L("THIS HOOP DID NOT REPORT ITS AUTOMATIC MEASUREMENTS"),
+                line: L("THIS NEXTBODY DID NOT REPORT ITS AUTOMATIC MEASUREMENTS"),
                 text: L("The interval API is on this firmware, but the band sent no rows. Try again while it is on your wrist."))
         }
     }
@@ -1787,7 +1787,7 @@ struct DisconnectSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(L("Disconnect the HOOP?"))
+            Text(L("Disconnect the NEXTBODY?"))
                 .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
                 .foregroundStyle(NB.text1)
             Text(L("It keeps recording on your wrist. Nothing new reaches the app until you connect again."))

@@ -8,7 +8,7 @@ final class SportSessionStressTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         #if targetEnvironment(simulator)
-        throw XCTSkip("Requires a paired physical iPhone and worn HOOP")
+        throw XCTSkip("Requires a paired physical iPhone and worn NEXTBODY")
         #endif
         app.launch()
         try home()

@@ -12,6 +12,8 @@ struct HomePlanetBoard: View {
     let onLoad: () -> Void
     let onFood: () -> Void
 
+    @AppStorage("nb.home.mcpGuideDismissed") private var guideDismissed = false
+
     private var face: Face { Face(model, events: events) }
 
     var body: some View {
@@ -245,6 +247,7 @@ struct HomePlanetBoard: View {
                 }
                 .buttonStyle(HotZoneTap(pressedScale: 1))
                 .accessibilityIdentifier("FOOD")
+                if !guideDismissed {
                 Button(action: onGuide) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(guide)
@@ -274,6 +277,20 @@ struct HomePlanetBoard: View {
                 }
                 .buttonStyle(HotZoneTap(pressedScale: 1))
                 .accessibilityIdentifier("CONNECT_MCP")
+                .overlay(alignment: .bottomTrailing) {
+                    Button { withAnimation(.easeOut(duration: 0.2)) { guideDismissed = true } } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.65))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 6)
+                    .accessibilityIdentifier("CONNECT_MCP_DISMISS")
+                }
+                }
             case .logged(let eaten, let allow, let meals, let left, let rows):
                 Button(action: onFood) {
                     VStack(spacing: 0) {

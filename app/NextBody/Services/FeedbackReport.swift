@@ -61,7 +61,7 @@ enum FeedbackReport {
             "timezone": TimeZone.current.identifier,
         ]
         if band.connected || !band.firmware.isEmpty {
-            var parts = ["HOOP"]
+            var parts = ["NEXTBODY"]
             if !band.firmware.isEmpty { parts.append("fw \(band.firmware)") }
             parts.append(band.connected ? "connected" : "not connected")
             if let pct = band.batteryPercent { parts.append("\(pct)%") }

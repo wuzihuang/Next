@@ -28,7 +28,7 @@ struct FindHoopSheet: View {
                 eyebrow: statusLine,
                 eyebrowTint: beat == .timeout ? NB.ember1 : NB.lime1,
                 eyebrowID: "find.status",
-                title: beat == .timeout ? L("Timed out") : L("Find HOOP"),
+                title: beat == .timeout ? L("Timed out") : L("Find NEXTBODY"),
                 subtitle: sentence
             )
 
@@ -341,7 +341,7 @@ struct FindHoopSheet: View {
             rssiFrozen = true
             beat = .timeout
         case .unsupported:
-            message = BandError.unsupported("Find HOOP").localizedDescription
+            message = BandError.unsupported("Find NEXTBODY").localizedDescription
             beat = .ready
         }
     }

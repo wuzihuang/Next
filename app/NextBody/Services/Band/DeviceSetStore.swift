@@ -3,7 +3,7 @@ import os
 
 /// docs/plans/2026-09-12-dual-device-continuity.md §04.5 · the phone's view of the set.
 ///
-/// One HOOP is worn; the other charges. The person says which (`I'm wearing B`), and that
+/// One NEXTBODY is worn; the other charges. The person says which (`I'm wearing B`), and that
 /// declaration is the only rule the server uses to pick a source. This store keeps both
 /// slots' last-known facts, the wear timeline, and drives the two link moves the manual
 /// model needs: the handover (transport follows the declaration) and the standby sync
@@ -120,7 +120,7 @@ final class DeviceSetStore: ObservableObject {
     /// where the one in flight is headed.
     private var handover: Task<Void, Never>?
     private var releaseCleanup: Task<Void, Never>?
-    /// Where the last move ended and when. A second tap on the HOOP the link just landed
+    /// Where the last move ended and when. A second tap on the NEXTBODY the link just landed
     /// on is not a reason to read it again.
     private var landed: (slot: HoopSlot, at: Date)?
 
@@ -134,7 +134,7 @@ final class DeviceSetStore: ObservableObject {
     func hydrateFromLocal() {
         var next: [HoopSlot: SlotSnapshot] = [:]
         for binding in DeviceSlots.bindings {
-            var snap = slots[binding.slot] ?? SlotSnapshot(slot: binding.slot, name: binding.name ?? "NEXTBODY HOOP")
+            var snap = slots[binding.slot] ?? SlotSnapshot(slot: binding.slot, name: binding.name ?? "NEXTBODY")
             snap.deviceId = binding.deviceId
             snap.identifier = binding.identifier
             snap.boundAt = binding.boundAt ?? snap.boundAt
@@ -213,7 +213,7 @@ final class DeviceSetStore: ObservableObject {
                binding.identifier != BoundBand.seedIdentifier {
                 claims.append((id, binding.identifier))
             }
-            var snap = slots[slot] ?? SlotSnapshot(slot: slot, name: binding.name ?? "NEXTBODY HOOP")
+            var snap = slots[slot] ?? SlotSnapshot(slot: slot, name: binding.name ?? "NEXTBODY")
             snap.deviceId = binding.deviceId
             snap.identifier = binding.identifier
             snap.boundAt = binding.boundAt
@@ -426,7 +426,7 @@ final class DeviceSetStore: ObservableObject {
             await Band.live.disconnect()
             guard !Task.isCancelled else { return }
             var fresh = BandState.unknown
-            fresh.name = slots[slot]?.name ?? "NEXTBODY HOOP"
+            fresh.name = slots[slot]?.name ?? "NEXTBODY"
             store.band = fresh
             store.lastSync = slots[slot]?.lastSync
             Repository.shared.adoptTransportDevice(id: slots[slot]?.deviceId)

@@ -318,7 +318,7 @@ enum SleepContributor: String, CaseIterable, Hashable, Identifiable {
 
     var explanation: String {
         switch self {
-        case .totalSleep: L("Time asleep, excluding recorded wakefulness. Most adults need 7–9 hours. HOOP gives full duration marks from 7.5 hours and limits short-night scores.")
+        case .totalSleep: L("Time asleep, excluding recorded wakefulness. Most adults need 7–9 hours. NEXTBODY gives full duration marks from 7.5 hours and limits short-night scores.")
         case .efficiency: L("Time asleep divided by the fully staged recording. 85% meets the reference. This is recorded-period efficiency, not time-in-bed efficiency.")
         case .restfulness: L("Based on recorded awake minutes and wake episodes. Movement and out-of-bed events are not measured here.")
         case .rem: L("Scored against 90 minutes of REM; the percentage is context, not a substitute for enough sleep. An absent REM channel stays unmeasured.")

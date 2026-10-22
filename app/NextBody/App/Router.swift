@@ -109,12 +109,12 @@ enum SheetRoute: Hashable, Identifiable {
     case measurement(UUID)
     // 12S · device
     case bandAutoMonitor, findBand, unbind, disconnect, firmware, syncCadence
-    /// 9-0 A·S1–S6 · give the second HOOP its slot (docs/plans/2026-09-12-dual-device-continuity.md).
+    /// 9-0 A·S1–S6 · give the second NEXTBODY its slot (docs/plans/2026-09-12-dual-device-continuity.md).
     case activateSecond
-    /// 9-0 A·S8 · one tap on the other HOOP's card. There are only two, so the tap is the
+    /// 9-0 A·S8 · one tap on the other NEXTBODY's card. There are only two, so the tap is the
     /// choice and the sheet only confirms. The payload is the slot being switched to.
     case wearSwitch(String)
-    /// Choose one HOOP to remove; the other binding and account history stay.
+    /// Choose one NEXTBODY to remove; the other binding and account history stay.
     case releaseSet
     /// 12Y · find the wrist (LED). Not `.findBand`.
     case findHoop
@@ -143,6 +143,12 @@ enum PushSettle {
         guard left > 0 else { return }
         try? await Task.sleep(for: .seconds(left))
     }
+}
+
+/// The home pager slot on its own publisher, so a page turn re-renders Home alone.
+@MainActor
+final class HomePager: ObservableObject {
+    @Published var page = 0
 }
 
 @MainActor
@@ -193,7 +199,14 @@ final class Router: ObservableObject {
     /// 04B · which home pager page is showing. 0 = panel + strip, 1 = vitals. Lives on the
     /// router (not on `HomeView` `@State`) so a NavigationStack push/pop cannot wipe it —
     /// pager page the user left. Page two's cards must return to those cards, not bounce
-    @Published var homePage = 0
+    /// ⚠️ Published by `pager`, not by the router. A page turn is the one router write that
+    /// lands during an animation, and a router publish re-renders the root, its
+    /// NavigationStack and every detail page on the stack. Only Home listens to the pager.
+    var homePage: Int {
+        get { pager.page }
+        set { if pager.page != newValue { pager.page = newValue } }
+    }
+    let pager = HomePager()
     /// docs/plans/2026-09-09-ai-tool-surface.md · `do app.open {window}`: the detail page
     /// that is showing switches its DAY / WEEK / MONTH pills and clears the request.
     @Published var windowRequest: RollingPills?

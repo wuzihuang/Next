@@ -153,7 +153,7 @@ struct AIPanel: View {
                     .padding(.horizontal, 22)
                     Spacer(minLength: 0)
                     VStack(spacing: 14) {
-                        Text(L("HOOP isn't reading anything yet."))
+                        Text(L("NEXTBODY isn't reading anything yet."))
                             .font(NBFont.brand(400, 18)).tracking(-0.01 * 18)
                             .foregroundStyle(NB.white.opacity(0.88))
                             .multilineTextAlignment(.center)
@@ -452,7 +452,7 @@ struct AIPanel: View {
         case .stress:                        return live.stressProgress.map { L("MEASURING STRESS · %d%%", $0) }
                                                  ?? L("MEASURING STRESS")
         case .reaching, .live:               return L("REACHING FOR A BEAT")
-        case .noContact:                     return L("PUT THE HOOP BACK ON")
+        case .noContact:                     return L("PUT THE NEXTBODY BACK ON")
         case .off, .offline:                 return agoText
         }
     }

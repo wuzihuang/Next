@@ -526,7 +526,7 @@ struct SleepContributorBreakdown: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 sheetHeader(L("ABOUT THIS SLEEP SCORE")) { showsMethod = false }
-                Text(L("HOOP scoring inspired by Oura's public contributors, not Oura's proprietary formula. Missing factors are excluded and remaining weights are normalized."))
+                Text(L("NEXTBODY scoring inspired by Oura's public contributors, not Oura's proprietary formula. Missing factors are excluded and remaining weights are normalized."))
                     .font(NBFont.ui(400, 14)).foregroundStyle(NB.text2)
                     .fixedSize(horizontal: false, vertical: true)
                 SleepContributorCoverage(score: score)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Inclusive user days this HOOP has been with the health account. WITH YOU.
+/// Inclusive user days this NEXTBODY has been with the health account. WITH YOU.
 ///
 /// The start is the earliest wrist tick or bind on this account — not the latest
 /// `devices.bound_at` after a radio swap, and not firmware saveDays.

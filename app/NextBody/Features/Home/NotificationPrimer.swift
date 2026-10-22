@@ -1,7 +1,7 @@
 import SwiftUI
 import UserNotifications
 
-/// F5 C4 · the notification primer. HOOP taps on edges (ADR 0019), not only last night.
+/// F5 C4 · the notification primer. NEXTBODY taps on edges (ADR 0019), not only last night.
 /// Two buttons, Not now / Turn on. The system dialog appears only after Turn on, and once
 /// refused is never shown again. Not now is not a refusal: the primer comes back the next morning.
 struct NotificationPrimer: View {
@@ -16,7 +16,7 @@ struct NotificationPrimer: View {
             NB.carbon.ignoresSafeArea()
             VStack(alignment: .leading, spacing: 18) {
                 Spacer()
-                Text(L("HOOP taps you when something changes."))
+                Text(L("NEXTBODY taps you when something changes."))
                     .font(NBFont.brand(600, 30)).tracking(-0.02 * 30).lineSpacing(4)
                     .foregroundStyle(ink)
                 Text(L("Last night lands, a meal is still open, training is under, or the band goes dark."))

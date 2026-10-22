@@ -84,7 +84,7 @@ final class BandPresence {
         guard isCurrent() else { return }
         BandSyncActivity.shared.show(.capabilities)
 
-        // 07 · the plus menu is gated on what this HOOP says it can do, read from the band
+        // 07 · the plus menu is gated on what this NEXTBODY says it can do, read from the band
         // and stored, so the gate is right before the device page has ever been opened.
         if let caps = try? await BandReadiness.read(account: account, binding: binding, work: { try await Band.live.readCapabilities() }) {
             guard isCurrent() else { return }
@@ -180,7 +180,7 @@ final class BandPresence {
             }
         }
 
-        // The band's own answer to "what can this HOOP measure" — one read, no sensor time.
+        // The band's own answer to "what can this NEXTBODY measure" — one read, no sensor time.
         // Logged, not stored: nothing on screen reads it yet, and a capability that decides
         // what the plus menu offers has to be a deliberate change, not a side effect of a probe.
         // ⚠️ The guessed bits above have twice removed a working feature. When this list is
@@ -189,7 +189,7 @@ final class BandPresence {
             let yes = functions.filter(\.support).map(\.name).joined(separator: ", ")
             let no = functions.filter { !$0.support }.map(\.name).joined(separator: ", ")
             Logger(subsystem: "com.nextbody.hoop", category: "band")
-                .notice("this HOOP measures: \(yes, privacy: .public) · not: \(no, privacy: .public)")
+                .notice("this NEXTBODY measures: \(yes, privacy: .public) · not: \(no, privacy: .public)")
         }
         #endif
     }
@@ -236,7 +236,7 @@ final class BandSyncActivity: ObservableObject {
         else if case BandError.busy = error {
             failureLine = L("Finish the current measurement or device operation, then sync again.")
         } else if case BandError.notConnected = error {
-            failureLine = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
+            failureLine = L("Could not reach this NEXTBODY. Keep it nearby, check Bluetooth, then tap Sync to try again.")
         } else if failureLine == nil {
             failureLine = L("Some readings could not sync. Tap Sync to try again.")
         }

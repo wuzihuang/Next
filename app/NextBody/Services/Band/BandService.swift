@@ -26,7 +26,7 @@ protocol BandService: AnyObject {
     func auxiliaryCompletedAt(_ domain: BandAuxiliaryDomain) async -> Date?
     /// Drop one cached dedicated command so the next health read transfers it again.
     func invalidateAuxiliary(_ domain: BandAuxiliaryDomain) async
-    /// ⚠️ The SDK only offers disconnect(). "Forget this HOOP" is the app clearing its own
+    /// ⚠️ The SDK only offers disconnect(). "Forget this NEXTBODY" is the app clearing its own
     /// device id — "factory reset" is not something we can do, and the two must never blur.
     func disconnect() async
 
@@ -36,7 +36,7 @@ protocol BandService: AnyObject {
     func readHealthLight() async throws -> BandHealthLightState
     func writeHealthLight(_ state: BandHealthLightState) async throws -> BandHealthLightState
     /// 断链提醒 · the firmware's own signal when the phone link drops. nil from the read
-    /// means this HOOP has no such switch, and the row is not drawn.
+    /// means this NEXTBODY has no such switch, and the row is not drawn.
     func readDisconnectReminder() async throws -> Bool?
     func writeDisconnectReminder(_ on: Bool) async throws -> Bool
 
@@ -63,7 +63,7 @@ protocol BandService: AnyObject {
     func measureBodyComposition() -> AsyncThrowingStream<MeasurementProgress, Error>
     /// 04 · one stress reading, the band's own 压力 test. One value at the end and no partials,
     /// so this is an awaited call rather than a stream like the two above — but it is not
-    /// quick: a real HOOP takes 19 s, reporting `progress` 0…100 in steps of 6 a second, and
+    /// quick: a real NEXTBODY takes 19 s, reporting `progress` 0…100 in steps of 6 a second, and
     /// only the last callback carries the number.
     /// ⚠️ It holds the sensor for all of that, which is why `LiveReadout` stops the heart-rate
     /// stream around it instead of running the two together — and why the progress is passed
@@ -118,7 +118,7 @@ protocol BandService: AnyObject {
     /// A product that draws a heart trace is a different regulatory animal in the US, and
     /// this one deliberately is not that animal.
     ///
-    /// Measured on a real HOOP: 40 s, progress climbing about 3 % a second.
+    /// Measured on a real NEXTBODY: 40 s, progress climbing about 3 % a second.
     /// The finger has to stay on the electrode for the whole run; `lostContact` is the SDK's
     /// `notLead` and is its own outcome, never folded into a failure.
     func measurePulseStudy() -> AsyncThrowingStream<PulseStudyStep, Error>
@@ -147,7 +147,7 @@ protocol BandService: AnyObject {
     /// and never collapsed into them.
     func probeHealthGlance(progress: @escaping @MainActor (Int) -> Void) async throws -> BandHealthGlance
 
-    /// What this HOOP says it can measure, in its own words.
+    /// What this NEXTBODY says it can measure, in its own words.
     /// ⚠️ This is the honest answer to "what does this band do", and the reason it exists is
     /// that `readCapabilities` is partly guessed bit positions in `deviceFuctionData`. A guess
     /// that reads `.unsupported` on a working firmware silently removes a feature — it has
@@ -648,19 +648,19 @@ enum AutoMonitoringRead: Equatable {
             case .notConnected:
                 return .failed(
                     headline: L("BAND OFFLINE"),
-                    sentence: L("Connect this HOOP, then open Automatic measurement again."))
+                    sentence: L("Connect this NEXTBODY, then open Automatic measurement again."))
             case .timeout:
                 return .failed(
                     headline: L("THE BAND DID NOT ANSWER"),
                     sentence: L("The automatic-measurement read timed out. Keep it on your wrist and try again."))
             case .unsupported:
                 return .failed(
-                    headline: L("THIS HOOP DOES NOT EXPOSE AUTOMATIC MEASUREMENT"),
+                    headline: L("THIS NEXTBODY DOES NOT EXPOSE AUTOMATIC MEASUREMENT"),
                     sentence: L("The firmware has no interval API and no automatic-measurement switches to turn."))
             default:
                 return .failed(
                     headline: error.localizedDescription,
-                    sentence: L("This HOOP refused the automatic-measurement read."))
+                    sentence: L("This NEXTBODY refused the automatic-measurement read."))
             }
         }
         return .failed(
@@ -679,7 +679,7 @@ enum BandError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConnected:        "BAND OFFLINE"
-        case .unsupported(let f):  "THIS HOOP DOES NOT MEASURE \(f.uppercased())"
+        case .unsupported(let f):  "THIS NEXTBODY DOES NOT MEASURE \(f.uppercased())"
         case .busy:                "MEASURING NOW"
         case .timeout(let c):      "\(c.uppercased()) TIMED OUT"
         case .rejected(let r):     r.uppercased()

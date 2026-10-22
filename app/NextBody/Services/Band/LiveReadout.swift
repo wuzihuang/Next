@@ -304,7 +304,7 @@ final class LiveReadout: ObservableObject {
         phase = .stress
         // The heart test was stopped a moment ago, and `veepooSDKTestHeartStart(false)` is a
         // command going out on the main queue — the band has not necessarily finished winding
-        // the sensor down when this line runs. A real HOOP took the stress test anyway
+        // the sensor down when this line runs. A real NEXTBODY took the stress test anyway
         // (device log: state 5 came straight back, never `deviceBusy`), so this is insurance
         // and not a fix for anything observed. It is the band's beat, not the screen's.
         try? await Task.sleep(for: .seconds(Cadence.settle))
@@ -329,7 +329,7 @@ final class LiveReadout: ObservableObject {
         } catch BandError.unsupported {
             // The band itself says there is no stress test on this firmware. The only
             // authority on that, and the only thing that stops us asking again.
-            Self.log.notice("stress: this HOOP has no stress test")
+            Self.log.notice("stress: this NEXTBODY has no stress test")
             stressUnsupported = true
             stressAnswered = true
         } catch BandError.busy {

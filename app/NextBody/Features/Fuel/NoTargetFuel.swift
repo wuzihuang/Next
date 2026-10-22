@@ -28,7 +28,7 @@ struct NoTargetFuel: View {
                         Text(Fmt.dash).font(NBFont.dot(800, 64)).foregroundStyle(NB.white.opacity(0.24))
                         Text(L("KCAL ALLOWANCE")).font(NBFont.dot(600, 11)).tracking(0.2 * 11).foregroundStyle(NB.text3Prod)
                     }
-                    Text(L("Targets are built from your body weight. Without it, HOOP can count what you eat, but it can't tell you how much you need."))
+                    Text(L("Targets are built from your body weight. Without it, NEXTBODY can count what you eat, but it can't tell you how much you need."))
                         .font(NBFont.ui(300, 15)).lineSpacing(8).foregroundStyle(sub)
                     // 1F5B · one 298 × 52 pill, the screen's only action.
                     Button { router.sheet = .weighIn } label: {
@@ -91,7 +91,7 @@ struct NoTargetFuel: View {
                         "A calorie target for the day, and how far you are from it.",
                         "Protein, carbs and fat measured against a target, not just a total.",
                         "Energy gap — what you ate minus what the band burned.",
-                        "HOOP can finally answer \"how much more should I eat today?\"",
+                        "NEXTBODY can finally answer \"how much more should I eat today?\"",
                     ], id: \.self) { line in
                         HStack(alignment: .top, spacing: 12) {
                             Circle().fill(NB.ember1).frame(width: 4, height: 4).padding(.top, 9)

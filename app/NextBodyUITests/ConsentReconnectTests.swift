@@ -14,11 +14,11 @@ final class ConsentReconnectTests: XCTestCase {
         app.launchArguments = ["-nb.consent", "{version = 1.2.0; choice = granted;}",
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["What HOOP collects"].waitForExistence(timeout: 15),
+        XCTAssertTrue(app.staticTexts["What NEXTBODY collects"].waitForExistence(timeout: 15),
                       "An obsolete grant must present its replacement before BLE readiness")
         app.buttons["consent.back"].tap()
         XCTAssertTrue(app.buttons["Sync now"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.staticTexts["What HOOP collects"].exists,
+        XCTAssertFalse(app.staticTexts["What NEXTBODY collects"].exists,
                        "Declining must return to the app without repeatedly reopening consent")
     }
 }

@@ -51,16 +51,16 @@ final class MockBand: BandService, @unchecked Sendable {
         // sheet at once) still answers, as the real radio does.
         guard state == .scanning || state == .connected || state == .connecting else { return }
         hub.send(.discovered(DiscoveredBand(
-            id: Self.firstHoop, name: "NEXTBODY HOOP", rssi: -46, batteryPercent: 96)))
-        // The second HOOP of a set sits on its charger a little further away. It arrives
+            id: Self.firstHoop, name: "NEXTBODY", rssi: -46, batteryPercent: 96)))
+        // The second NEXTBODY of a set sits on its charger a little further away. It arrives
         // late so Connect's first-discovered pick still lands on the first band.
         try? await Task.sleep(for: .milliseconds(900))
         guard state == .scanning || state == .connected || state == .connecting else { return }
         hub.send(.discovered(DiscoveredBand(
-            id: Self.secondHoop, name: "NEXTBODY HOOP", rssi: -61, batteryPercent: 71)))
+            id: Self.secondHoop, name: "NEXTBODY", rssi: -61, batteryPercent: 71)))
     }
 
-    /// Two simulator bands, so the two-HOOP set (9-0) can be walked without hardware.
+    /// Two simulator bands, so the two-NEXTBODY set (9-0) can be walked without hardware.
     static let firstHoop = "C4-2E-8F-1A-73-9D"
     static let secondHoop = "8E-41-C0-2B-77-1F"
     private var onSecond: Bool { BoundBand.identifier == Self.secondHoop }
@@ -119,7 +119,7 @@ final class MockBand: BandService, @unchecked Sendable {
     func readIdentity() async throws -> BandIdentity {
         try await requireConnection()
         return BandIdentity(
-            name: "NEXTBODY HOOP", model: "KR96 PRO", hardware: "1.2", firmware: "2.4.1",
+            name: "NEXTBODY", model: "KR96 PRO", hardware: "1.2", firmware: "2.4.1",
             deviceNumber: onSecond ? "HB-0107" : "HB-0042",
             bleIdentifier: onSecond ? Self.secondHoop : Self.firstHoop,
             watchDataDayNumber: 7, sportMode: "10 TYPES")
@@ -186,7 +186,7 @@ final class MockBand: BandService, @unchecked Sendable {
                     ? Double(asleep ? 52 + Int.random(in: 0...18) : 32 + Int.random(in: 0...16))
                     : nil,
                 stress: asleep ? nil : 20 + Int.random(in: 0...30),
-                // HOOP's original-data dictionary has no sleep stage. Accurate stages come
+                // NEXTBODY's original-data dictionary has no sleep stage. Accurate stages come
                 // from SleepNight.line, exactly as they do on the real SDK.
                 sleepState: nil)
         }
@@ -637,7 +637,7 @@ final class MockBand: BandService, @unchecked Sendable {
         return -52
     }
 
-    /// DEBUG · `NB_DEBUG_EDGE=noalarms` walks a HOOP that has never been given one,
+    /// DEBUG · `NB_DEBUG_EDGE=noalarms` walks a NEXTBODY that has never been given one,
     /// which is the only way to see the SWITCH sheet's centred key.
     func readAlarms() async throws -> [BandAlarm] {
         try await requireConnection()
@@ -652,7 +652,7 @@ final class MockBand: BandService, @unchecked Sendable {
         if let index = alarms.firstIndex(where: { $0.id == next.id }) {
             alarms[index] = next
         } else if BandAlarmMath.isFull(alarms) {
-            throw BandError.rejected("THIS HOOP IS FULL")
+            throw BandError.rejected("THIS NEXTBODY IS FULL")
         } else {
             alarms.append(next)
         }

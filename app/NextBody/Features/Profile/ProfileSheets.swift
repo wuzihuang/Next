@@ -344,7 +344,7 @@ struct NotificationsSheet: View {
                 .allowsHitTesting(!systemDenied)
             }
         } footer: {
-            Text(L("Move and drink buzzes live on the HOOP."))
+            Text(L("Move and drink buzzes live on the NEXTBODY."))
                 .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                 .foregroundStyle(NB.white.opacity(0.38))
         }
@@ -649,7 +649,7 @@ struct DeleteAccountSheet: View {
         let w = weighIns.map(String.init) ?? Fmt.dash
         let c = weeks.map { L("%d weeks", $0) } ?? Fmt.dash
         let n = nights.map { L("%d nights", $0) } ?? Fmt.dash
-        return L("%@ weigh-ins, %@ of composition and %@ you have slept in it go with it. The HOOP unpairs itself. There is no undo.", w, c, n)
+        return L("%@ weigh-ins, %@ of composition and %@ you have slept in it go with it. The NEXTBODY unpairs itself. There is no undo.", w, c, n)
     }
 
     var body: some View {
@@ -743,7 +743,7 @@ struct SignOutSheet: View {
     var body: some View {
         SheetFrame(title: L("Sign out?")) {
             // 11 edge 4 · not the same as delete, and it has to say so on the spot.
-            Text(L("The HOOP stays paired and keeps recording.\nYour data comes back when you sign in."))
+            Text(L("The NEXTBODY stays paired and keeps recording.\nYour data comes back when you sign in."))
                 .font(NBFont.brand(400, 14))
                 .lineSpacing(7)
                 .foregroundStyle(NB.text2)

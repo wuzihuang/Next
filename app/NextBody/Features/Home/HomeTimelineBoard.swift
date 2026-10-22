@@ -10,7 +10,11 @@ struct HomeTimelineBoard: View {
     let onOpen: (HomeV2Model.TimelineItem) -> Void
     let onClose: () -> Void
     /// Sheet progress owned by the deck: 1 is up, 0 is dismissed. The header pull writes it.
-    @Binding var pull: CGFloat
+    /// ⚠️ Not a `@Binding`. A binding makes the board depend on the value, and the deck
+    /// writes it on every frame of every pull: the whole list was rebuilt per frame, past
+    /// the `CachedLayer` meant to keep it still.
+    let readPull: () -> CGFloat
+    let writePull: (CGFloat) -> Void
     /// Finger lifted mid-pull. Velocity is points per second; the second value is where the pull started.
     let onPullEnd: (CGFloat, CGFloat) -> Void
 
@@ -159,10 +163,10 @@ struct HomeTimelineBoard: View {
     private func dragSheet(_ translation: CGFloat) {
         if !pulling {
             pulling = true
-            pullAtTouch = pull
+            pullAtTouch = readPull()
         }
         let span = max(ScreenMetrics.size.height, 1)
-        pull = min(1, max(0, pullAtTouch - translation / span))
+        writePull(min(1, max(0, pullAtTouch - translation / span)))
     }
 
     private func endSheet(_ velocity: CGFloat) {
@@ -192,7 +196,7 @@ struct HomeTimelineBoard: View {
             .init(id: "wake", at: at(7, 12), title: "Woke up · sleep 82",
                   detail: "7h 12m · HRV 54 ms · SpO2 97%", accent: .wake, meal: nil, trailing: nil),
             .init(id: "sleep", at: Calendar.current.date(byAdding: .day, value: -1, to: at(23, 50))!, title: "Fell asleep",
-                  detail: "Recorded by HOOP", accent: .sleep, meal: nil, trailing: nil)
+                  detail: "Recorded by NEXTBODY", accent: .sleep, meal: nil, trailing: nil)
         ]
     }
 }

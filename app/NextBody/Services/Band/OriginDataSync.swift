@@ -1271,7 +1271,7 @@ final class OriginDataSync {
 
     // MARK: what has already been sent
 
-    /// Per bound band, per user day. The band is in the key because a different HOOP has a
+    /// Per bound band, per user day. The band is in the key because a different NEXTBODY has a
     /// different history; forgetting one leaves its marks behind, and they are keyed to an
     /// identifier nothing asks for again.
     private static func watermarkKey(_ day: UserDay, userId: String) -> String {

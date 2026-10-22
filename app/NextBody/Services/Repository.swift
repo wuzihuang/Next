@@ -14,7 +14,7 @@ final class Repository {
 
     let db = SupabaseClient.shared
 
-    /// The bound HOOP's row id. Cached because sync_runs and device_capabilities both name
+    /// The bound NEXTBODY's row id. Cached because sync_runs and device_capabilities both name
     /// it, and neither is worth a round trip of its own.
     private(set) var deviceId: String?
 
@@ -247,7 +247,7 @@ final class Repository {
         ])
         async let deviceRows = db.select("devices", query: [
             .init(name: "select", value: "id,firmware_version,battery_percent,device_number,last_origin_sync_at,bound_at"),
-            // The bound one in the transport slot. A forgotten HOOP keeps its row (12 ·
+            // The bound one in the transport slot. A forgotten NEXTBODY keeps its row (12 ·
             // "your history stays") and must not lend the header its last battery reading.
             .init(name: "unbound_at", value: "is.null"),
             .init(name: "slot", value: "eq.\(BoundBand.transportSlot.rawValue)"),
@@ -318,12 +318,14 @@ final class Repository {
             guard let iso = row["measured_at"] as? String, let at = Self.timestamp(iso) else { continue }
             byDay[UserDay.containing(at)] = (number(row["fat_mass_kg"]), number(row["lean_body_mass_kg"]))
         }
-        for i in store.history.indices {
-            if let scan = byDay[store.history[i].day] {
-                store.history[i].fatKg = scan.fat
-                store.history[i].leanKg = scan.lean
+        var history = store.history
+        for i in history.indices {
+            if let scan = byDay[history[i].day] {
+                history[i].fatKg = scan.fat
+                history[i].leanKg = scan.lean
             }
         }
+        if history != store.history { store.history = history }
 
         // ⚠️ Not ISO8601DateFormatter(): PostgREST returns measured_at with an offset the
         // plain parser will take but a fractional-second column will not, and every row
@@ -399,7 +401,7 @@ final class Repository {
         return facts
     }
 
-    /// The transport HOOP's row. Written at the end of pairing, not only after Home reconnects
+    /// The transport NEXTBODY's row. Written at the end of pairing, not only after Home reconnects
     /// — a kill on the onboarding screens used to leave the account with no devices row.
     /// One bound row per slot (unbound_at is null). Since two HOOPs, one wearer a slot is
     /// assigned at activation and a new BLE alias in the same slot is the same band on a
@@ -762,9 +764,13 @@ final class Repository {
             }
             store.sleepScores = scores
             store.today.sleepScore = scores[store.today.day.key]
-            for index in store.history.indices {
-                store.history[index].sleepScore = scores[store.history[index].day.key]
+            // ⚠️ One write. Assigning through the published array's subscript publishes the
+            // whole store once per day of history.
+            var history = store.history
+            for index in history.indices {
+                history[index].sleepScore = scores[history[index].day.key]
             }
+            store.history = history
             store.sleepScoreLoadState = .ready
             HomeSnapshot.save(from: store)
         } catch {

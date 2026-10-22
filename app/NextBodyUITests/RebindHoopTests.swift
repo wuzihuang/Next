@@ -28,7 +28,7 @@ final class RebindHoopTests: XCTestCase {
         // Real mock BLE stages execute; registration is controlled at the repository
         // boundary. Failure must be retryable, never false success or a frozen 0%.
         let failure = app.staticTexts.matching(NSPredicate(format:
-            "label CONTAINS[c] %@ AND label CONTAINS %@", "Pairing could not be saved.", "Your other HOOP remains paired.")).firstMatch
+            "label CONTAINS[c] %@ AND label CONTAINS %@", "Pairing could not be saved.", "Your other NEXTBODY remains paired.")).firstMatch
         XCTAssertTrue(failure.waitForExistence(timeout: 30))
         XCTAssertFalse(app.buttons["activate.wearingNow"].exists)
         app.buttons["Try again"].tap()

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 补屏 A · 同意屏 What HOOP collects. 390 wide; the content is ~1860 tall and scrolls;
+/// 补屏 A · 同意屏 What NEXTBODY collects. 390 wide; the content is ~1860 tall and scrolls;
 /// the Continue sits in a fixed 104pt footer.
 ///
 /// Rule 02 · one checkbox, one Continue. Not pre-checked, the list does not collapse, and it is
@@ -153,11 +153,17 @@ struct ConsentScreen: View {
     private var msOnScreen: Int { Int(Date().timeIntervalSince(shownAt) * 1000) }
 
     private func accept() async {
+        #if DEBUG
+        if FlowRehearsal.on { onContinue(); return }
+        #endif
         await ConsentStore.shared.record(.granted, msOnScreen: msOnScreen)
         onContinue()
     }
 
     private func decline() {
+        #if DEBUG
+        if FlowRehearsal.on { onBack(); return }
+        #endif
         Task {
             await ConsentStore.shared.record(.declined, msOnScreen: msOnScreen)
             onBack()

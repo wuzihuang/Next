@@ -120,6 +120,12 @@ opening either AI folder without the owner's permission.
   `新版设计` (`N-0`), not redrawn. Headlines: SEE LAST NIGHT / KNOW YOUR CHARGE /
   HIT TODAY'S RING / EAT TO THE NUMBER / READ YOUR NIGHT. Ground is lime-1 `#EFF65A`.
   Device chrome uses CSS `zoom: 2.554` so the 390×844 phone fills a 1032-wide bezel.
+- Cosmic App Store set lives on Paper `NEXTBODY-HOOP` page `ASC · COSMOS 7` (`p-10-0`):
+  seven 1290×2796 frames (APP_IPHONE_67/69), 01 Readiness/Terra → 07 Body Scan. Phones
+  show real Home V2 sim captures (iPhone 17 Pro, `NB_DEBUG_HOME_SLOT`, `NB_DEBUG_TAKEOVER=bodyscan`);
+  sources and crops in `screenshots/asc-cosmos/raw/`. Paper `update_styles` cannot load
+  `paper-asset://` images — swap images with `write_html` replace. Wait ≥2s after
+  `simctl terminate` before relaunching, or the screenshot is of the old process.
 - Full-app walk-through screenshots (real iPhone 16e sim, English) live on Paper
   `NEXTBODY-HOOP` page `截图` (`T-0`). Shots only — no redraws. Capture uses
   `SIMCTL_CHILD_NB_DEBUG_*` + `/tmp/nextbody-t0-capture.py`. System keyboard
@@ -410,10 +416,17 @@ opening either AI folder without the owner's permission.
   `testWeekCells*` + `testClassifyFollowsTheAim`.
 - **Number ledger** — `_shared/ledger.ts` rejects frame numbers that did not come from a tool.
 - **App language** — `AppLanguage` stores `en` / `zh-Hans` (default English). `L("English source")` looks up the current table. The system prompt language-locks AI frames to the selected locale.
-- **Detail-page chrome** — `Chrome.swift`: a bar is glass at rest; the page's top
-  bloom paints through it (ScrollView `.background` + `ignoresSafeArea` top), and
-  a carbon ground with a 22pt gradient tail fades in over 36pt of scroll so the
-  edge is never a line. `ScrollOffsetWatcher` / `DetailOffsetKey` (iOS 18
+- **Detail-page chrome** — `Chrome.swift` (2026-10-22, learned from Oura's detail
+  pages, refs in `~/Downloads/OURA`): a pinned header = 52pt bar (40pt glass back
+  disc on the left, 44pt hit; title centred, brand 16) + a centred 36pt context
+  row (Oura's date-pager slot) that shows eyebrow / headline / `trailing` only
+  when one exists. A tinted linear gradient (glow 0.22 → 0.08 → 0 over 460pt)
+  is anchored at the screen top behind the scroll; the header ground is an
+  opaque strip of the same gradient, `ScreenMetrics.safeArea.top + headerHeight`
+  tall and top-aligned (a centred or unclipped 460pt slice covers the pills and
+  hero — that bug happened), with a hairline fading in over 24pt of scroll.
+  Init signatures are unchanged because AI-folder code calls DetailScroll.
+  `ScrollOffsetWatcher` / `DetailOffsetKey` (iOS 18
   scroll geometry, iOS 17 preference fallback) are shared: 12 · ME keeps its
   own `‹ ME · YOU` bar and bleeds the identity's lime bloom into the status
   bar the same way instead of a solid carbon slab.
@@ -973,7 +986,7 @@ opening either AI folder without the owner's permission.
   `settled()` is one Core Haptics needle (intensity 0.9, sharpness 1.0). No continuous
   body — that 55 ms mid-band knock read as dirty. Same cue on Home and Chat.
 - `PanelWidgetView`: renders the server-declared widget envelope on the fixed 358 × 470 panel canvas.
-- `Chrome`: shared page geometry and reusable navigation/close controls. `DetailScroll` draws `‹ TITLE` as one control — the board chevron sits on the large title's baseline and docks with it. An invisible 56pt 热区 covers the mark (and the word at rest); Chat's header uses the same cluster. `detailEdgeBack` is a window left-edge pan (`EdgeBackGate`) that offsets the page 1:1 with the finger (40% / 300 pt/s commit, same numbers as 04B). It is not an overlay on the ‹ mark. `NB_DEBUG_ROUTE` stops retrying after the first successful land so a pop stays popped. Regression: `NextBodyUITests/DetailBackTapTests` (tap matrix + swipe commit/cancel).
+- `Chrome`: shared page geometry and reusable navigation/close controls. `DetailScroll` draws a 40pt glass back disc (44pt hit) with the title centred in the bar (Oura pattern, 2026-10-22); Chat's header keeps its own `‹` cluster. `detailEdgeBack` is a window left-edge pan (`EdgeBackGate`) that offsets the page 1:1 with the finger (40% / 300 pt/s commit, same numbers as 04B). It is not an overlay on the ‹ mark. `NB_DEBUG_ROUTE` stops retrying after the first successful land so a pop stays popped. Regression: `NextBodyUITests/DetailBackTapTests` (tap matrix + swipe commit/cancel).
 - `AIService`: sends user turns and decodes rendered widget frames.
 - `ASRStreamingSession` + `SpeechCapture`: open the authenticated socket before recording,
   tail complete 16 kHz mono Int16 frames from the live WAV, and retain the WAV as fallback.
@@ -1177,8 +1190,9 @@ opening either AI folder without the owner's permission.
 - Gate branching is `LaunchGate.stage(hasBoundBand:profileComplete:)` — never the last `nb.gate.stage` alone. A finished profile is not asked again after re-pair; a kill mid-About You restores `nb.onboarding.draft.<userId>`.
 - Daily Direction on the heat map uses live E_OUT_NOW; `nb.compute_fuel` no longer writes a null direction for an open day. Two snacks in one slot still stay GREY_NOTHING.
 - Use design tokens from `NB`; do not introduce hard-coded colors outside `DesignSystem/Tokens.swift`.
-- Interactive controls expose at least a 44 × 44 pt hit target even when the visible glyph is smaller. Second-level back is the board's `‹` beside the large title, not a 44pt disc; the left-edge pan lives on the window so it cannot sit on top of that mark (`NextBodyUITests/DetailBackTapTests`).
-- Vitals second-level titles are the instrument name (`HEART` / 心率), never `VITALS ·` / `体征 ·`. `DetailScroll` pins the back chevron on the large title's baseline on every detail page.
+- Interactive controls expose at least a 44 × 44 pt hit target even when the visible glyph is smaller. Second-level back is a 40pt glass disc in a 44pt hit area (Oura pattern); the left-edge pan lives on the window so it cannot sit on top of that disc (`NextBodyUITests/DetailBackTapTests`).
+- Detail-page layout follows Oura: score hero (number + zone word at its baseline) → `SectionLabel` 主要指标 (`VitalsStatPair` = two filled tiles) → 详情 → cards. `LineSkin`/`CardBlock` are filled cards (white 6 %, radius 20) that bleed `NB.Layout.cardBleed` (12pt) into the gutter so content keeps `contentWidth`; `SegmentedPills(lined:)` is Oura's underline tabs. HOOP fonts and colours stay.
+- Vitals second-level titles are the instrument name (`HEART` / 心率), never `VITALS ·` / `体征 ·`. `DetailScroll` pins the back disc and the centred title on every detail page.
 - User-visible and accessibility defaults are English; explicit Simplified Chinese is selected through app language state (`AppLanguage` + `L()` English-as-key tables in `app/NextBody/L10n/`).
 - Adding a language: add an `AppLocale` case and a `L10n/Tables/<code>.json` mapping English source strings to that language. Missing keys fall back to English. The first table is `zh-Hans.json` (~1900 keys). Do not repeat a key — JSON keeps the last value, which is how `NO NIGHT YET` once leaked English over `还没有夜里`.
 - The sign-in / pair film line is `Find your next body.` / `找你的下一副身体。`.

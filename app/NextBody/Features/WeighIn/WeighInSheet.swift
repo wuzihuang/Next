@@ -48,7 +48,7 @@ struct WeighInSheet: View {
                 typed = "9"
             }
             #endif
-            // Only a weigh-in newer than HOOP's own last one is worth confirming.
+            // Only a weigh-in newer than NEXTBODY's own last one is worth confirming.
             if let w = await HealthService.shared.latestWeight(),
                w.at > (data.weighIns.first?.date ?? .distantPast) {
                 let f = DateFormatter(); f.dateFormat = "HH:mm"
@@ -84,8 +84,8 @@ struct WeighInSheet: View {
                 Text(L("Add a weigh-in"))
                     .font(NBFont.ui(500, 22)).tracking(0.01 * 22)
                     .foregroundStyle(NB.text1)
-                // It stays in HOOP: we never write a hand-typed number back into Health.
-                Text(L("Stays in HOOP. It never goes back to Health."))
+                // It stays in NEXTBODY: we never write a hand-typed number back into Health.
+                Text(L("Stays in NEXTBODY. It never goes back to Health."))
                     .font(NBFont.ui(300, 12.5)).tracking(0.02 * 12.5)
                     .foregroundStyle(NB.white.opacity(0.38))
             }

@@ -85,7 +85,7 @@ struct BatteryTrendView: View {
                 }
 
                 if plot.points.isEmpty {
-                    Text(L("Nothing recorded yet. Charge, unplug, or sync this HOOP to start the line."))
+                    Text(L("Nothing recorded yet. Charge, unplug, or sync this NEXTBODY to start the line."))
                         .font(NBFont.ui(400, 13)).tracking(0.02 * 13)
                         .foregroundStyle(NB.text3Prod)
                         .frame(height: 148, alignment: .topLeading)

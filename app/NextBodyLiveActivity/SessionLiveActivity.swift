@@ -148,7 +148,7 @@ private struct LockScreenSession: View {
                     .foregroundStyle(Island.white.opacity(0.78))
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Text("HOOP")
+                Text("NEXTBODY")
                     .font(Island.dot(600, 10)).tracking(0.2 * 10)
                     .foregroundStyle(Island.white.opacity(0.34))
             }

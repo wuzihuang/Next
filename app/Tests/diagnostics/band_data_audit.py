@@ -45,7 +45,7 @@ def quote(name):
 
 
 def audit(root, zone):
-    local = database(root / 'Library/Application Support/HOOP/local-data.sqlite')
+    local = database(root / 'Library/Application Support/NEXTBODY/local-data.sqlite')
     sdk = database(root / 'Documents/wypDataBase.sqlite')
     documents = list(local.execute('SELECT account,key,payload,expiry FROM documents'))
     homes = [(row, decode(row['payload'])) for row in documents if row['key'] == 'home']

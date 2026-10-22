@@ -1,5 +1,21 @@
 # NEXTBODY · build status
 
+## 2026-10-22 — Detail pages follow Oura's structure (code in 5208d172)
+
+Every second-level page now uses Oura's detail-page layout (reference screenshots in
+`~/Downloads/OURA`), keeping HOOP fonts and colours: a pinned header with a glass back
+disc, centred title and a centred context row; a tinted gradient from the screen top;
+score hero with the zone word at the number's baseline; 21pt section titles (主要指标 / 详情);
+filled rounded cards (`LineSkin`/`CardBlock`/`CardSkin`) and two-tile key metrics; Oura's
+underline range tabs; chart labels 9 → 10–11pt. Vitals pages now show key metrics before details.
+
+Verified: simulator Debug build (iPhone 17 Pro, iOS 26.3), before/after screenshots
+(`/tmp/nb-before`, `/tmp/nb-after`, `/tmp/nb-final`), four `DetailBackTapTests` passed on
+the restyled build before the final header-height fix. `VitalsSecondLevelTests` fails before
+reaching any detail page: it waits for a `CALORIES`/`FUEL` home card that the uncommitted
+planet-board work renamed to `FOOD`. The untracked `HomeTransitionPerfTests.swift` calls
+undefined helpers, so the UI-test target does not compile while it is present.
+
 ## 2026-10-22 — Macros follow activity and the body (ADR 0033) · local only
 
 Protein and carbohydrate targets now move with today's measured activity; fat follows sex,

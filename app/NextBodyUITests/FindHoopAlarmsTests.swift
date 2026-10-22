@@ -11,10 +11,10 @@ final class FindHoopAlarmsTests: XCTestCase {
     func testActionTilesSitUnderTheLimeSlab() {
         let app = launchDevice()
         XCTAssertTrue(app.buttons["device.findHoop"].waitForExistence(timeout: 30),
-                      "Find HOOP brick should sit on the device page")
+                      "Find NEXTBODY brick should sit on the device page")
         XCTAssertTrue(app.buttons["device.alarms"].exists)
         XCTAssertTrue(app.staticTexts["PING"].exists)
-        XCTAssertTrue(app.staticTexts["Find HOOP"].exists)
+        XCTAssertTrue(app.staticTexts["Find NEXTBODY"].exists)
         XCTAssertTrue(app.staticTexts["Alarms"].exists)
         XCTAssertTrue(app.staticTexts["WORN"].exists)
         XCTAssertTrue(app.staticTexts["SYNC"].exists || app.buttons["Sync now"].exists)
@@ -101,7 +101,7 @@ final class FindHoopAlarmsTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["08:45"].exists, "only the swiped clock goes")
     }
 
-    /// A HOOP that has never been given an alarm gets one key in the middle of the face —
+    /// A NEXTBODY that has never been given an alarm gets one key in the middle of the face —
     /// no list, no eyebrow count, no rocker to misread.
     func testAnEmptyHoopIsOneCentredKey() {
         let app = launchDevice(sheet: "bandAlarms", edge: "noalarms")
@@ -110,7 +110,7 @@ final class FindHoopAlarmsTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["NO ALARMS YET"].exists)
         XCTAssertFalse(app.staticTexts["— / ?"].exists)
         XCTAssertFalse(app.staticTexts["0 / ?"].exists)
-        XCTAssertEqual(app.switches.count, 0, "nothing to switch on an empty HOOP")
+        XCTAssertEqual(app.switches.count, 0, "nothing to switch on an empty NEXTBODY")
     }
 
     private func launchDevice(sheet: String? = nil, edge: String? = nil) -> XCUIApplication {

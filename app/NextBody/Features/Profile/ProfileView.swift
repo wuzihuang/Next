@@ -482,9 +482,9 @@ struct ProfileView: View {
     private var deviceValue: String {
         guard data.band.connected else { return L("DISCONNECTED") }
         if let percent = data.band.batteryPercent {
-            return L("HOOP · %d%%", percent)
+            return L("NEXTBODY · %d%%", percent)
         }
-        return L("HOOP · %@", Fmt.dash)
+        return L("NEXTBODY · %@", Fmt.dash)
     }
 
     private var unitsValue: String {

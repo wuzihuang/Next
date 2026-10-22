@@ -3,14 +3,14 @@ import os
 
 private let sheetLog = Logger(subsystem: "com.nextbody.hoop", category: "deviceset")
 
-// 9-0 A · the three sheets the two-HOOP set adds to DEVICE
+// 9-0 A · the three sheets the two-NEXTBODY set adds to DEVICE
 // (docs/plans/2026-09-12-dual-device-continuity.md §04.5, §12).
 //
 // Activate the second (A·S1–S6: one sheet, four faces), `I'm wearing B` (A·S8) and Release
 // both (A·S7). The activation faces are cut from Connect's own screens 02–05: the same
 // scan rings, the same dotted progress that moves when the band answers, not on a timer.
 
-// MARK: A·S1–S6 · activate the second HOOP
+// MARK: A·S1–S6 · activate the second NEXTBODY
 
 struct ActivateSecondSheet: View {
     @EnvironmentObject private var data: DataStore
@@ -41,7 +41,7 @@ struct ActivateSecondSheet: View {
             switch face {
             case .preparing:
                 SheetHead(eyebrow: L("PREPARING"), title: L("Preparing to pair"),
-                          body: L("Finishing the current HOOP command before searching. Your other HOOP stays paired."))
+                          body: L("Finishing the current NEXTBODY command before searching. Your other NEXTBODY stays paired."))
                 ProgressView().tint(NB.lime1).padding(24)
                 Spacer()
                 OutlineKey(title: L("CANCEL"), tint: NB.lime1) { dismiss() }
@@ -77,7 +77,7 @@ struct ActivateSecondSheet: View {
                       title: L("Fill slot") + " \(slot.rawValue)",
                       body: face == .nothingFound
                         ? L("Nothing answered. Is it lit up, within an arm's reach, and not still linked to another phone?")
-                        : L("Take the second HOOP off its charger and hold it near the phone. The one on your wrist steps off the link for a moment and comes back on its own."))
+                        : L("Take the second NEXTBODY off its charger and hold it near the phone. The one on your wrist steps off the link for a moment and comes back on its own."))
             TimelineView(.animation(paused: reduceMotion || face == .nothingFound)) { tl in
                 let t = face == .nothingFound ? 0 : tl.date.timeIntervalSinceReferenceDate
                 BandPortrait(scanRings: (0..<4).map { i in
@@ -114,7 +114,7 @@ struct ActivateSecondSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             SheetHead(eyebrow: L("FOUND") + " · \(nearby.count) " + L("NEARBY"),
                       title: candidates.count == 1 ? L("Found one") : L("Found") + " \(candidates.count)",
-                      body: L("The one that isn't already yours is picked. The HOOP you wear shows up too, but it stays where it is."))
+                      body: L("The one that isn't already yours is picked. The NEXTBODY you wear shows up too, but it stays where it is."))
             VStack(spacing: 0) {
                 ForEach(candidates) { band in
                     NearbyCard(band: band, state: band.id == pick?.id ? .picked : .other) { picked = band.id }
@@ -192,7 +192,7 @@ struct ActivateSecondSheet: View {
 
     private var paired: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SheetHead(eyebrow: L("PAIRED · SLOT") + " \(slot.rawValue)", title: "HOOP \(slot.rawValue) " + L("is in"),
+            SheetHead(eyebrow: L("PAIRED · SLOT") + " \(slot.rawValue)", title: "NEXTBODY \(slot.rawValue) " + L("is in"),
                       body: L("When you swap, tell the app you're wearing it. Until then it just waits on the charger — nothing from it is counted."))
             FigureRow(name: L("Battery"), value: activated?.battery?.percent.map { "\($0)" } ?? Fmt.dash,
                       unit: activated?.battery?.percent == nil ? "" : "%")
@@ -226,7 +226,7 @@ struct ActivateSecondSheet: View {
     private func stopped(_ why: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             SheetHead(eyebrow: L("STOPPED · SLOT") + " \(slot.rawValue)", title: L("Couldn't reach it"),
-                      body: why + " " + L("Your other HOOP remains paired."),
+                      body: why + " " + L("Your other NEXTBODY remains paired."),
                       trailing: percent, ember: true)
             DottedProgress(progress: progress)
                 .frame(width: NB.Layout.contentWidth - 16, height: 6)
@@ -288,7 +288,7 @@ struct ActivateSecondSheet: View {
             do { try await hoops.prepareActivation(owner: activationOwner) }
             catch {
                 guard !Task.isCancelled else { return }
-                face = .stopped(L("The HOOP is switching or finishing a command. Try again shortly."))
+                face = .stopped(L("The NEXTBODY is switching or finishing a command. Try again shortly."))
                 return
             }
             await BluetoothState.shared.waitForState()
@@ -503,8 +503,8 @@ struct WearSwitchSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SheetTitle(L("Switch to HOOP") + " \(to.rawValue)?")
-            SheetBody(L("From now on your record comes from this one. The app works out when you put it on from the HOOP itself, so there is nothing to set."))
+            SheetTitle(L("Switch to NEXTBODY") + " \(to.rawValue)?")
+            SheetBody(L("From now on your record comes from this one. The app works out when you put it on from the NEXTBODY itself, so there is nothing to set."))
             if hoops.snapshot(to)?.isFlat == true {
                 Text(L("It was out of charge when the app last read it. Say you are wearing it anyway — your record follows your wrist, not the link — but charge it or it records nothing."))
                     .font(NBFont.ui(400, 13)).tracking(0.01 * 13)
@@ -519,7 +519,7 @@ struct WearSwitchSheet: View {
                         Text(snap.name)
                             .font(NBFont.ui(500, 14)).tracking(0.02 * 14)
                             .foregroundStyle(NB.text1)
-                        Text(hoops.snapshot(to.other).map { _ in L("HOOP") + " \(to.other.rawValue) " + L("goes on the charger") } ?? "")
+                        Text(hoops.snapshot(to.other).map { _ in L("NEXTBODY") + " \(to.other.rawValue) " + L("goes on the charger") } ?? "")
                             .font(NBFont.dot(500, 10)).tracking(0.16 * 10)
                             .foregroundStyle(NB.white.opacity(0.34))
                     }
@@ -530,7 +530,7 @@ struct WearSwitchSheet: View {
                 .sheetLines()
             }
             Spacer(minLength: 0)
-            LimePillButton(title: L("I'm wearing HOOP") + " \(to.rawValue)") {
+            LimePillButton(title: L("I'm wearing NEXTBODY") + " \(to.rawValue)") {
                 guard !sent else { return }
                 sent = true
                 let slot = to
@@ -571,7 +571,7 @@ struct ReleaseSetSheet: View {
                     dismiss()
                 }
             } else {
-            SheetTitle(selected.map { L("Remove %@?", $0.displayName) } ?? L("Remove a HOOP"))
+            SheetTitle(selected.map { L("Remove %@?", $0.displayName) } ?? L("Remove a NEXTBODY"))
             if hoops.hasSecond {
                 ForEach(HoopSlot.allCases, id: \.self) { slot in
                     OutlineKey(title: slot.displayName + (selected == slot ? " ✓" : ""),
@@ -580,9 +580,9 @@ struct ReleaseSetSheet: View {
                         failureMessage = nil
                     }
                 }
-                SheetBody(L("Only the selected HOOP is removed. Your other HOOP stays paired and becomes the active HOOP. All synced history stays."))
+                SheetBody(L("Only the selected NEXTBODY is removed. Your other NEXTBODY stays paired and becomes the active NEXTBODY. All synced history stays."))
             } else {
-                SheetBody(L("This HOOP will be unpaired. All synced history stays. You can pair a HOOP again anytime."))
+                SheetBody(L("This NEXTBODY will be unpaired. All synced history stays. You can pair a NEXTBODY again anytime."))
             }
             if let failureMessage {
                 Text(L(failureMessage))
@@ -597,7 +597,7 @@ struct ReleaseSetSheet: View {
             }
             Spacer(minLength: 0)
             LimePillButton(title: L("Keep it paired")) { dismiss() }
-            OutlineKey(title: removing ? L("REMOVING…") : selected.map { L("REMOVE %@", $0.displayName) } ?? L("SELECT A HOOP"), tint: NB.alert2) {
+            OutlineKey(title: removing ? L("REMOVING…") : selected.map { L("REMOVE %@", $0.displayName) } ?? L("SELECT A NEXTBODY"), tint: NB.alert2) {
                 guard let selected, !removing else { return }
                 removing = true
                 failureMessage = nil

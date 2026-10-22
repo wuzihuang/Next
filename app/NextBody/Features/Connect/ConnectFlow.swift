@@ -68,7 +68,7 @@ struct ConnectFlow: View {
                     else if DebugEdge.on("permission") { scanEdge = .permission }
                 }
                 if st == .found, found == nil {
-                    found = DiscoveredBand(id: "debug-found", name: "NEXTBODY HOOP",
+                    found = DiscoveredBand(id: "debug-found", name: "NEXTBODY",
                                           rssi: -48, batteryPercent: 96)
                 }
                 if st == .pairing {
@@ -101,6 +101,9 @@ struct ConnectFlow: View {
 
     /// UNPAIRED · a finished About You is not asked again. NEW / PROFILE GAP go to onboarding.
     private func handOffAfterPair() {
+        #if DEBUG
+        if FlowRehearsal.on { session.stage = .gateOnboarding; return }
+        #endif
         Task {
             await session.ensureSession()
             let facts = await Repository.shared.fetchAccountGate()
@@ -118,6 +121,17 @@ struct ConnectFlow: View {
         if DebugEdge.on("nothingfound") { scanEdge = .nothingFound; return }
         if DebugEdge.on("btoff") { scanEdge = .bluetoothOff; return }
         if DebugEdge.on("permission") { scanEdge = .permission; return }
+        #if DEBUG
+        if FlowRehearsal.on {
+            scanTask = Task {
+                await FlowRehearsal.pause(3.5)
+                guard !Task.isCancelled, step == .searching else { return }
+                found = FlowRehearsal.band
+                go(.found)
+            }
+            return
+        }
+        #endif
         scanBegan = Date()
         Task { await Analytics.shared.track("PAIR_START", [:]) }
         scanTask = Task {
@@ -166,6 +180,19 @@ struct ConnectFlow: View {
     /// it reached: stopping is more honest than snapping back to zero.
     private func runPairing() {
         progress = 0; pairStage = 0; pairEdge = nil
+        #if DEBUG
+        if FlowRehearsal.on {
+            Task {
+                for (value, stage) in [(0.12, 0), (0.35, 1), (0.60, 2), (0.85, 3), (1.0, 3)] {
+                    await FlowRehearsal.pause(1.1)
+                    mark(value, stage: stage)
+                }
+                await FlowRehearsal.pause(0.6)
+                step = .connected
+            }
+            return
+        }
+        #endif
         let began = Date()
         Task {
             do {
@@ -560,7 +587,7 @@ private struct FoundIt: View {
                 .stroke(NB.lime1, lineWidth: 2)
                 .frame(width: 232, height: 232)
                 .shadow(color: NB.lime1.opacity(0.35), radius: 26)
-                .position(x: 195, y: 252 + 210)
+                .position(x: NB.Layout.screenWidth / 2, y: Chrome.boardY(252) + 210)
 
             BandPortrait(faceLit: true)
                 .frame(width: NB.Layout.screenWidth, height: 470)
@@ -622,7 +649,7 @@ private struct DeviceRow: View {
             .frame(width: 34, height: 34)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(band?.name.uppercased() ?? "NEXTBODY HOOP")
+                Text(band?.name.uppercased() ?? "NEXTBODY")
                     .font(NBFont.ui(500, 15)).tracking(0.02 * 15)
                     .foregroundStyle(NB.text1)
                 Text(L("READY TO PAIR"))
@@ -672,10 +699,10 @@ private struct Pairing: View {
         ZStack(alignment: .topLeading) {
             NB.panelInk
 
-            // A collapse, not a supernova: five sparse arms, one event horizon, a black centre.
-            TimelineView(.animation) { tl in
-                // Edge 4 · the arms stop turning and the whole thing goes amber.
-                Collapse(t: edge == nil ? tl.date.timeIntervalSinceReferenceDate : 0, progress: progress)
+            // An ASCII planet turning in glyphs.
+            TimelineView(.animation(minimumInterval: 1.0 / 24)) { tl in
+                // Edge 4 · the planet stops turning and the whole thing goes amber.
+                AsciiPlanet(t: edge == nil ? tl.date.timeIntervalSinceReferenceDate : 0, progress: progress)
                     .frame(width: NB.Layout.screenWidth, height: 400)
                     .grayscale(edge == nil ? 0 : 1)
                     .colorMultiply(edge == nil ? .white : NB.ember1)
@@ -786,44 +813,139 @@ struct DottedProgress: View {
     }
 }
 
-private struct Collapse: View {
+/// ASCII planet: a lit sphere of banded gas drawn in glyphs. Geometry is built once; each
+/// frame only re-shades the cells. `t == 0` freezes it (edge states).
+private struct AsciiPlanet: View {
     let t: TimeInterval
     let progress: Double
 
+    private struct Cell {
+        var x: CGFloat, y: CGFloat
+        var u: Double, v: Double, z: Double
+        var lat: Double, lon: Double
+        var hash: Double
+        var i: Int, j: Int
+    }
+
+    private static let diameter: CGFloat = 240
+    #if DEBUG
+    private static let columns = 32
+    #else
+    private static let columns = 51
+    #endif
+    private static let ramp: [String] = [" ", ".", ":", "-", "=", "+", "*", "%", "#", "@"]
+    private static let cellW: CGFloat = diameter / CGFloat(columns)
+    private static let cellH: CGFloat = cellW * 1.45
+
+    private static let cells: [Cell] = {
+        let R = Double(diameter / 2)
+        let ni = Int(ceil(R / Double(cellW))) + 1
+        let nj = Int(ceil(R / Double(cellH))) + 1
+        let th = 20.0 * .pi / 180, ph = 14.0 * .pi / 180
+        var out: [Cell] = []
+        for j in -nj...nj {
+            for i in -ni...ni {
+                let dx = Double(i) * Double(cellW), dy = Double(j) * Double(cellH)
+                let u = dx / R, v = dy / R
+                let r2 = u * u + v * v
+                if r2 > 1 { continue }
+                let z = (1 - r2).squareRoot()
+                let u1 = u * cos(th) - v * sin(th)
+                let v1 = v * cos(th) + u * sin(th)
+                let yy = -v1
+                let y2 = yy * cos(ph) + z * sin(ph)
+                let z2 = z * cos(ph) - yy * sin(ph)
+                out.append(Cell(x: CGFloat(dx), y: CGFloat(dy), u: u, v: v, z: z,
+                                lat: y2, lon: atan2(u1, z2), hash: hash3(i, j, 991), i: i, j: j))
+            }
+        }
+        return out
+    }()
+
+    @_optimize(speed)
+    private static func hash3(_ a: Int, _ b: Int, _ c: Int) -> Double {
+        var h = UInt32(truncatingIfNeeded: a &* 374761393 &+ b &* 668265263 &+ c &* 1274126177)
+        h = (h ^ (h >> 13)) &* 1274126177
+        h ^= h >> 16
+        return Double(h) / 4294967296
+    }
+
+    @_optimize(speed)
+    private static func noise(_ x: Double, _ y: Double, _ z: Double) -> Double {
+        let xi = Int(floor(x)), yi = Int(floor(y)), zi = Int(floor(z))
+        let xf = x - Double(xi), yf = y - Double(yi), zf = z - Double(zi)
+        let u = xf * xf * (3 - 2 * xf), w = yf * yf * (3 - 2 * yf), q = zf * zf * (3 - 2 * zf)
+        func h(_ a: Int, _ b: Int, _ c: Int) -> Double { hash3(a &+ xi, b &+ yi, c &+ zi &+ 7) }
+        let x00 = h(0, 0, 0) + (h(1, 0, 0) - h(0, 0, 0)) * u
+        let x10 = h(0, 1, 0) + (h(1, 1, 0) - h(0, 1, 0)) * u
+        let x01 = h(0, 0, 1) + (h(1, 0, 1) - h(0, 0, 1)) * u
+        let x11 = h(0, 1, 1) + (h(1, 1, 1) - h(0, 1, 1)) * u
+        let y0 = x00 + (x10 - x00) * w, y1 = x01 + (x11 - x01) * w
+        return y0 + (y1 - y0) * q
+    }
+
+    private static func clamp01(_ x: Double) -> Double { min(1, max(0, x)) }
+    private static func smooth(_ a: Double, _ b: Double, _ x: Double) -> Double {
+        let k = clamp01((x - a) / (b - a)); return k * k * (3 - 2 * k)
+    }
+
     var body: some View {
         Canvas { ctx, size in
-            let c = CGPoint(x: size.width / 2, y: size.height / 2 - 40)
-            // five sparse arms
-            for arm in 0..<5 {
-                let base = Double(arm) / 5 * 2 * .pi + t * 0.7
-                var p = Path()
-                var first = true
-                var r: CGFloat = 26
-                while r < 150 {
-                    let a: Double = base + Double(r) * 0.022
-                    let px: CGFloat = c.x + r * CGFloat(cos(a))
-                    let py: CGFloat = c.y + r * CGFloat(sin(a)) * 0.92
-                    let pt = CGPoint(x: px, y: py)
-                    if first { p.move(to: pt); first = false } else { p.addLine(to: pt) }
-                    r += 3
-                }
-                ctx.stroke(p, with: .color(NB.lime1.opacity(0.55 - Double(arm) * 0.06)),
-                           style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [5, 7]))
+            let fontSize = Self.cellH * 1.12
+            let font = Font.system(size: fontSize, weight: .heavy, design: .monospaced)
+            let primary = Color(hex: 0xDBE6FF), accent = NB.lime1
+            var glyphs: [[GraphicsContext.ResolvedText]] = []
+            for color in [primary, accent] {
+                glyphs.append(Self.ramp.map { ctx.resolve(Text($0).font(font).foregroundColor(color)) })
             }
-            // event horizon
-            ctx.stroke(Path(ellipseIn: CGRect(x: c.x - 34, y: c.y - 34, width: 68, height: 68)),
-                       with: .color(NB.lime1.opacity(0.85)), lineWidth: 3)
-            // the centre stays black
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 30, y: c.y - 30, width: 60, height: 60)),
-                     with: .color(NB.panelInk))
-            // stray debris being pulled in
-            for i in 0..<7 {
-                let a: Double = Double(i) * 1.7 + t * 0.4
-                let r: CGFloat = 150 + CGFloat((sin(t * 0.6 + Double(i)) + 1) * 26)
-                let dx: CGFloat = c.x + r * CGFloat(cos(a)) - 2
-                let dy: CGFloat = c.y + r * CGFloat(sin(a)) * 0.9 - 2
-                ctx.fill(Path(CGRect(x: dx, y: dy, width: 4, height: 4)),
-                         with: .color(NB.lime1.opacity(0.5)))
+
+            let period = 24.0 / 1.06
+            let rot = (t.truncatingRemainder(dividingBy: period) / period) * 2 * .pi
+            let shearPhase = (t / (period / 4)) * 2 * .pi
+            let shearA = 0.03 * 2 * .pi
+            let tick = Int(floor(t * 10))
+            let nb = 8.0, fill = 0.78, warp = 0.4, S = 1.4, cut = 0.15, sFloor = 0.4
+            let det = 0.35, amb = 0.35, con = 1.7, empty = 0.05
+            let atThr = 1 - 0.0075 * 22, shim = t == 0 ? 0 : 0.2 * 2 / 9, rimA = 0.2
+            var lx = 0.2, ly = 0.2
+            let lz = (max(0.05, 1 - lx * lx - ly * ly)).squareRoot()
+            lx *= 1; ly *= 1
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+
+            for cell in Self.cells {
+                let y2 = cell.lat
+                let lon = cell.lon - rot + shearA * sin(shearPhase + y2 * nb * 1.3)
+                let cs = cos(lon), sn = sin(lon)
+                let wn = Self.noise(cs * 2.2, sn * 2.2, y2 * 5 + 11) * 0.65
+                    + Self.noise(cs * 4.4, sn * 4.4, y2 * 10 + 23) * 0.35 - 0.5
+                let phase = (y2 + wn * warp * 0.25) * .pi * nb
+                let cc = 0.5 + 0.5 * cos(phase)
+                let stripe = Self.clamp01((cc - (1 - fill)) / fill)
+                if stripe <= 0 { continue }
+
+                var f = 0.0, amp = 0.5, fr = S
+                for _ in 0..<3 {
+                    f += Self.noise(cs * fr, sn * fr, (y2 * nb * 0.7 + 3) * (fr / S)) * amp
+                    amp *= 0.5; fr *= 2
+                }
+                f /= 0.875
+                let fs = (f - 0.5) * 2.2 + 0.5
+                let streak = sFloor + (1 - sFloor) * Self.smooth(cut, cut + 0.55, fs)
+                var band = pow(stripe, 0.5) * streak
+                if band < 0.01 { continue }
+                band *= 1 - det + det * 2 * Self.noise(cs * 14, sn * 14, y2 * 40 + 5)
+
+                let lam = max(0, lx * cell.u + ly * cell.v + lz * cell.z)
+                let rimK = 1 - rimA * (1 - Self.smooth(0, 0.45, cell.z))
+                var b = band * (amb + (1 - amb) * lam) * con * rimK
+                if shim > 0 { b += (Self.hash3(cell.i, cell.j, tick) - 0.5) * shim }
+                if b < empty { continue }
+
+                var idx = 1 + Int(floor((b - empty) / max(0.01, 1 - empty) * 8))
+                if idx > 8 { idx = 8 }
+                if band > 0.2 && Self.noise(cs * 24, sn * 24, y2 * 55 + 7) > atThr { idx = 9 }
+                let isAccent = ((cell.u + cell.v + 2) / 4) * 0.85 + cell.hash * 0.15 < progress
+                ctx.draw(glyphs[isAccent ? 1 : 0][idx], at: CGPoint(x: c.x + cell.x, y: c.y + cell.y), anchor: .center)
             }
         }
         .allowsHitTesting(false)
@@ -899,29 +1021,29 @@ private struct Connected: View {
             TypeIn(text: L("YOU'RE CONNECTED"), progress: LinkChoreo.title(t),
                    font: NBFont.dot(700, 20), tracking: 0.34 * 20, size: 20, color: NB.lime1)
                 .frame(width: w, alignment: .center)
-                .offset(y: Chrome.boardY(592))
+                .offset(y: Chrome.boardY(584))
 
             TypeIn(text: L("You're now linked to the future you."), progress: LinkChoreo.subtitle(t),
                    font: NBFont.ui(300, 14), tracking: 0.02 * 14, size: 14, color: NB.white.opacity(0.72))
                 .frame(width: w, alignment: .center)
-                .offset(y: Chrome.boardY(628))
+                .offset(y: Chrome.boardY(618))
 
             Text(L("LINK LOCKED · DOUBLE TAP"))
                 .font(NBFont.dot(500, 10.5)).tracking(0.24 * 10.5)
                 .foregroundStyle(NB.white.opacity(0.40))
                 .frame(width: w, alignment: .center)
-                .offset(y: Chrome.boardY(664))
+                .offset(y: Chrome.boardY(650))
                 .opacity(footer)
 
-            // 9-0 00B · the second HOOP is not paired here. One line says where it goes;
-            // Device › Add your second HOOP does the work later.
-            Text(L("KEEP WEARING. CHARGE THE OTHER.") + "\n" + L("Add your second HOOP from the Device page."))
+            // 9-0 00B · the second NEXTBODY is not paired here. One line says where it goes;
+            // Device › Add your second NEXTBODY does the work later.
+            Text(L("KEEP WEARING. CHARGE THE OTHER.") + "\n" + L("Add your second NEXTBODY from the Device page."))
                 .font(NBFont.dot(500, 10.5)).tracking(0.16 * 10.5)
                 .multilineTextAlignment(.center)
                 .lineSpacing(5)
                 .foregroundStyle(NB.white.opacity(0.28))
                 .frame(width: w, alignment: .center)
-                .offset(y: Chrome.boardY(lowBattery == nil ? 684 : 706))
+                .offset(y: Chrome.boardY(lowBattery == nil ? 674 : 694))
                 .opacity(footer)
                 .accessibilityIdentifier("connect.secondHoopHint")
 
@@ -931,13 +1053,13 @@ private struct Connected: View {
                     .font(NBFont.dot(600, 11)).tracking(0.2 * 11)
                     .foregroundStyle(NB.ember1)
                     .frame(width: w, alignment: .center)
-                    .offset(y: Chrome.boardY(684))
+                    .offset(y: Chrome.boardY(672))
                     .opacity(footer)
             }
 
             // No header, no back key, one button — pairing to profile is a straight line.
             LimePillButton(title: L("Now let me get to know you"), action: onNext)
-                .offset(x: 16, y: Chrome.boardY(700) + 14 * (1 - footer))
+                .offset(x: 16, y: Chrome.boardY(lowBattery == nil ? 728 : 746) + 14 * (1 - footer))
                 .opacity(footer)
                 .allowsHitTesting(footer > 0.9)
 

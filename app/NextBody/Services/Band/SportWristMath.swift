@@ -2,13 +2,13 @@ import Foundation
 
 /// What a sport-mode report is allowed to say about the wrist.
 ///
-/// HOOP's sport packet is `heartRate = 0` until the optical lock lands — often
+/// NEXTBODY's sport packet is `heartRate = 0` until the optical lock lands — often
 /// about twenty seconds after the mode opens. That zero is "not yet", not a
 /// loose strap. The same path already learned this on the heart *test*
 /// (`VPTestHeartStateStart`); the live report used to treat every empty beat
 /// as `noContact` and paint TIGHTEN THE BAND for the whole lock.
 enum SportWristMath: Sendable {
-    /// First optical lock after the mode is running. Longer than the ~20 s HOOP
+    /// First optical lock after the mode is running. Longer than the ~20 s NEXTBODY
     /// typically needs, short enough that a band on the table still gets said.
     static let acquireGrace: TimeInterval = 30
     /// After a lock, a brief zero is a dropout. Same window as a live beat.

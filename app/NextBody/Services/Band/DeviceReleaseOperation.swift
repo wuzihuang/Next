@@ -19,16 +19,16 @@ enum DeviceReleaseError: Error {
     static func message(for error: Error) -> String {
         if let failure = error as? Self {
             switch failure {
-            case .busy: return "The HOOP is switching or finishing a command. Try again shortly."
+            case .busy: return "The NEXTBODY is switching or finishing a command. Try again shortly."
             case .pendingChanges: return "Your last wear change is still being saved. Try again shortly."
             case .bindingUnavailable: return "The pairing details are not loaded yet. Reopen Device and try again."
             }
         }
         if case SupabaseFailure.http(let status, let body) = error {
             if status == 404 || body.contains("PGRST202") {
-                return "HOOP removal is temporarily unavailable. Please try again later."
+                return "NEXTBODY removal is temporarily unavailable. Please try again later."
             }
-            if status == 401 { return "Your session has expired. Sign in again to remove this HOOP." }
+            if status == 401 { return "Your session has expired. Sign in again to remove this NEXTBODY." }
             if status == 403 { return "The pairing has changed. Reopen Device to refresh it." }
         }
         let underlying: Error

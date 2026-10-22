@@ -53,7 +53,7 @@ enum LegalText {
 
     static let termsEN: [Section] = [
         Section(heading: "1. These terms", paragraphs: [
-            "These Terms of Service (\"Terms\") are a binding agreement between you and NextBody (\"NextBody\", \"we\", \"us\") for the NextBody app, your account, and any HOOP band you pair with the app (together, the \"Service\"). Our Privacy Policy explains how we handle your data and forms part of these Terms.",
+            "These Terms of Service (\"Terms\") are a binding agreement between you and NextBody (\"NextBody\", \"we\", \"us\") for the NextBody app, your account, and any NEXTBODY band you pair with the app (together, the \"Service\"). Our Privacy Policy explains how we handle your data and forms part of these Terms.",
             "By creating an account, signing in, or using the Service, you confirm that you have read and accept these Terms. If you do not accept them, do not use the Service.",
             "PLEASE READ SECTIONS 4, 5, 13, 14 AND 17 CAREFULLY. THEY LIMIT OUR LIABILITY, DESCRIBE THE RISKS YOU ACCEPT, AND EXPLAIN HOW DISPUTES ARE RESOLVED.",
         ]),
@@ -81,8 +81,8 @@ enum LegalText {
             "AI output is for general information only. It is not medical, nutritional, dietetic, psychological, fitness-coaching, legal or other professional advice, and it does not create any professional relationship. You are solely responsible for checking it and for any decision you make based on it.",
             "Do not ask the AI for, or rely on it in, an emergency. Do not submit other people's personal information, or anything unlawful. AI features are subject to fair-use limits, including daily allowances, and may be slowed, limited or unavailable at any time.",
         ]),
-        Section(heading: "7. The HOOP band and other devices", paragraphs: [
-            "A HOOP band bought from us is covered by the shop's Terms of Service, Refund Policy and any written warranty that came with it; these Terms cover how the band works with the app. The band's hardware and firmware are made by a third-party manufacturer.",
+        Section(heading: "7. The NEXTBODY band and other devices", paragraphs: [
+            "A NEXTBODY band bought from us is covered by the shop's Terms of Service, Refund Policy and any written warranty that came with it; these Terms cover how the band works with the app. The band's hardware and firmware are made by a third-party manufacturer.",
             "Readings depend on fit, skin, movement, battery, Bluetooth, the phone's operating system and the band's firmware. We do not promise that every reading will be captured, synced, or kept, and readings not yet synced from the band can be lost.",
             "Follow the band's safety and charging instructions. Stop wearing it if your skin becomes irritated. Remove it before MRI scans and anywhere metal or electronics are not allowed.",
         ]),
@@ -110,7 +110,7 @@ enum LegalText {
         ]),
         Section(heading: "14. Limitation of liability", paragraphs: [
             "TO THE FULLEST EXTENT PERMITTED BY LAW, NEXTBODY AND ITS AFFILIATES, OFFICERS, EMPLOYEES, CONTRACTORS, SUPPLIERS AND LICENSORS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL OR HEALTH OUTCOME, OR COST OF SUBSTITUTE SERVICES, ARISING OUT OF OR RELATING TO THE SERVICE OR THESE TERMS, WHETHER IN CONTRACT, TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY OR ANY OTHER THEORY, EVEN IF WE WERE TOLD SUCH DAMAGES WERE POSSIBLE.",
-            "TO THE FULLEST EXTENT PERMITTED BY LAW, OUR TOTAL LIABILITY FOR ALL CLAIMS ARISING OUT OF OR RELATING TO THE SERVICE OR THESE TERMS IS LIMITED TO USD 50. A HOOP BAND YOU BOUGHT IS SUBJECT TO THE LIMITS IN THE SHOP'S TERMS.",
+            "TO THE FULLEST EXTENT PERMITTED BY LAW, OUR TOTAL LIABILITY FOR ALL CLAIMS ARISING OUT OF OR RELATING TO THE SERVICE OR THESE TERMS IS LIMITED TO USD 50. A NEXTBODY BAND YOU BOUGHT IS SUBJECT TO THE LIMITS IN THE SHOP'S TERMS.",
             "Some places do not allow certain warranties to be excluded or liability to be limited. Nothing in these Terms excludes or limits liability for death or personal injury caused by our negligence, for fraud, for intentional misconduct or gross negligence, or any other liability or consumer right that cannot be excluded or limited by law. In those places, our liability is limited to the smallest extent the law permits.",
         ]),
         Section(heading: "15. Indemnity", paragraphs: [
@@ -144,7 +144,7 @@ enum LegalText {
 
     static let termsZH: [Section] = [
         Section(heading: "1. 关于本条款", paragraphs: [
-            "本《服务条款》（「本条款」）是你与 NextBody（「NextBody」「我们」）之间就 NextBody App、你的账户及你与 App 配对的 HOOP 手环（合称「本服务」）订立的具有约束力的协议。《隐私政策》说明我们如何处理你的数据，是本条款的组成部分。",
+            "本《服务条款》（「本条款」）是你与 NextBody（「NextBody」「我们」）之间就 NextBody App、你的账户及你与 App 配对的 NEXTBODY 手环（合称「本服务」）订立的具有约束力的协议。《隐私政策》说明我们如何处理你的数据，是本条款的组成部分。",
             "你创建账户、登录或使用本服务，即表示你已阅读并接受本条款。如不接受，请不要使用本服务。",
             "请特别注意第 4、5、13、14、17 条。这些条款限制了我们的责任，说明了你自行承担的风险以及争议的解决方式。",
         ]),
@@ -172,8 +172,8 @@ enum LegalText {
             "AI 输出仅供一般参考，不构成医疗、营养、膳食、心理、健身指导、法律或其他任何专业意见，也不在你与任何人之间建立专业服务关系。核实 AI 输出以及据此作出的任何决定，均由你自行负责。",
             "紧急情况下不要向 AI 求助或依赖 AI。不要提交他人的个人信息或任何违法内容。AI 功能设有合理使用限制（包括每日额度），可能随时被降速、限制或暂停。",
         ]),
-        Section(heading: "7. HOOP 手环及其他设备", paragraphs: [
-            "从我们这里购买的 HOOP 手环适用商店的《服务条款》《退款政策》以及随附的书面保修说明；本条款约束的是手环与 App 配合使用的部分。手环的硬件与固件由第三方制造商生产。",
+        Section(heading: "7. NEXTBODY 手环及其他设备", paragraphs: [
+            "从我们这里购买的 NEXTBODY 手环适用商店的《服务条款》《退款政策》以及随附的书面保修说明；本条款约束的是手环与 App 配合使用的部分。手环的硬件与固件由第三方制造商生产。",
             "读数受佩戴松紧、皮肤、动作、电量、蓝牙、手机操作系统和手环固件等因素影响。我们不保证每一条读数都会被采集、同步或保存；尚未从手环同步的数据可能丢失。",
             "请遵守手环的安全和充电说明。如皮肤出现不适，请停止佩戴。进行核磁共振检查前，以及在禁止携带金属或电子设备的场所，请取下手环。",
         ]),
@@ -201,7 +201,7 @@ enum LegalText {
         ]),
         Section(heading: "14. 责任限制", paragraphs: [
             "在法律允许的最大范围内，对于因本服务或本条款引起或与之相关的任何间接、附带、特殊、后果性、惩戒性或惩罚性损害，或任何利润、收入、数据、商誉、健康结果的损失或替代服务的费用，无论基于合同、侵权（包括过失）、产品责任或其他任何理由，即使我们已被告知可能发生此类损害，NextBody 及其关联方、管理人员、员工、承包商、供应商和许可方均不承担责任。",
-            "在法律允许的最大范围内，我们因本服务或本条款引起或与之相关的全部索赔所承担的责任总额不超过 50 美元。你购买的 HOOP 手环适用商店条款中的责任限制。",
+            "在法律允许的最大范围内，我们因本服务或本条款引起或与之相关的全部索赔所承担的责任总额不超过 50 美元。你购买的 NEXTBODY 手环适用商店条款中的责任限制。",
             "部分国家或地区不允许排除某些保证或限制责任。本条款不排除或限制我们对因我们的过失造成的人身伤亡、欺诈、故意或重大过失造成的财产损失所应承担的责任，也不排除或限制法律规定不得排除或限制的任何其他责任或消费者权利。在这些地区，我们的责任在法律允许的范围内予以最大限度的限制。",
         ]),
         Section(heading: "15. 赔偿", paragraphs: [
@@ -235,7 +235,7 @@ enum LegalText {
 
     static let privacyEN: [Section] = [
         Section(heading: "1. Who we are", paragraphs: [
-            "This Privacy Policy explains how NextBody (\"we\", \"us\") collects, uses, shares and protects personal information when you use the NextBody app, your account and a paired HOOP band. NextBody is the controller of that information. It also serves as our consumer health data privacy notice. Questions: privacy@nextbody.ai.",
+            "This Privacy Policy explains how NextBody (\"we\", \"us\") collects, uses, shares and protects personal information when you use the NextBody app, your account and a paired NEXTBODY band. NextBody is the controller of that information. It also serves as our consumer health data privacy notice. Questions: privacy@nextbody.ai.",
             "Before the app reads any health data, it shows you a separate consent screen listing exactly what it collects. You can change that decision at any time in Profile › Data & Legal › Collecting health data.",
         ]),
         Section(heading: "2. What we collect", paragraphs: [
@@ -271,7 +271,7 @@ enum LegalText {
             "TypeSafe (Jev): when enabled for an AI feature, relevant request text and application context are sent to TypeSafe to select actions or interpret requests. This decision service is separate from the model that writes the answer.",
             "Apple and Google: when you sign in with them, and Apple for Apple Health.",
             "GitHub: problem reports you send are filed in our private issue tracker; attached screenshots are stored under an unlisted link.",
-            "The HOOP band's software kit runs inside the app on your phone to talk to the band over Bluetooth.",
+            "The NEXTBODY band's software kit runs inside the app on your phone to talk to the band over Bluetooth.",
             "We may also disclose information when required by law or legal process, to protect the rights, property or safety of our users, the public or us, in connection with a merger, acquisition, financing or sale of assets (subject to this Policy), or with your direction or consent.",
         ]),
         Section(heading: "6. International transfers", paragraphs: [
@@ -306,7 +306,7 @@ enum LegalText {
 
     static let privacyZH: [Section] = [
         Section(heading: "1. 我们是谁", paragraphs: [
-            "本《隐私政策》说明你使用 NextBody App、你的账户及已配对的 HOOP 手环时，NextBody（「我们」）如何收集、使用、共享和保护你的个人信息。NextBody 是这些信息的处理者（控制者）。本政策同时作为我们的消费者健康数据隐私声明。如有问题，请写信至 privacy@nextbody.ai。",
+            "本《隐私政策》说明你使用 NextBody App、你的账户及已配对的 NEXTBODY 手环时，NextBody（「我们」）如何收集、使用、共享和保护你的个人信息。NextBody 是这些信息的处理者（控制者）。本政策同时作为我们的消费者健康数据隐私声明。如有问题，请写信至 privacy@nextbody.ai。",
             "在 App 读取任何健康数据之前，会先向你展示一个单独的同意页面，完整列出将收集的内容。你可以随时在「个人资料 › 数据与法律 › 正在采集健康数据」中更改这一决定。",
         ]),
         Section(heading: "2. 我们收集什么", paragraphs: [
@@ -342,7 +342,7 @@ enum LegalText {
             "TypeSafe（Jev）：在 AI 功能启用此服务时，相关请求文字及应用上下文会发送给 TypeSafe，用于选择操作或理解请求。它与撰写回答的模型是不同的服务。",
             "Apple 和 Google：当你通过它们登录时；以及 Apple 用于 Apple 健康。",
             "GitHub：你提交的问题反馈会记录在我们的私有问题跟踪系统中；附带的截图存储在不公开列出的链接下。",
-            "HOOP 手环的软件开发包在你手机上的 App 内运行，用于通过蓝牙与手环通信。",
+            "NEXTBODY 手环的软件开发包在你手机上的 App 内运行，用于通过蓝牙与手环通信。",
             "此外，在法律或法律程序要求时，为保护用户、公众或我们的权利、财产或安全时，在合并、收购、融资或资产出售时（仍受本政策约束），或经你指示或同意时，我们也可能披露信息。",
         ]),
         Section(heading: "6. 跨境传输", paragraphs: [

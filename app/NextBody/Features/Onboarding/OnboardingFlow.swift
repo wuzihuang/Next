@@ -35,6 +35,9 @@ struct OnboardingFlow: View {
         if DebugEdge.on("nothingsynced") || DebugEdge.on("outofrange") { return .confirm }
         if DebugEdge.on("lowbattery") { return .fingersOn }
         if DebugEdge.on("lifted") || DebugEdge.on("banddropped") || DebugEdge.on("nocontact") { return .scanning }
+        #if DEBUG
+        if FlowRehearsal.on { return .consent }
+        #endif
         return ConsentStore.shared.decided ? .healthSync : .consent
     }()
     /// 03 rule 02 · which of the four fields has a value at all, and where each came from.
@@ -70,6 +73,9 @@ struct OnboardingFlow: View {
     /// 06 rule 09 · the baseline is stored like any other scan — a weigh-in that re-anchors
     /// the EMA, today's fat and lean, and a body_composition row on the server.
     private func store(_ r: BodyCompositionReading) {
+        #if DEBUG
+        if FlowRehearsal.on { return }
+        #endif
         data.addWeighIn(WeighIn(id: UUID(), date: Date(), weightKg: r.inputWeightKg,
                                 bodyFatPercent: r.bodyFatPercent, source: .measured, origin: .band))
         data.today.fatKg = r.fatMassKg
@@ -170,6 +176,16 @@ struct OnboardingFlow: View {
     /// 02 · the system sheet, then one read. Only the values that came back are marked as
     /// Health's; the rest keep the defaults and the dot that says "tap to correct".
     private func syncFromHealth() async {
+        #if DEBUG
+        if FlowRehearsal.on {
+            await FlowRehearsal.pause(1.2)
+            sex = "Female"; sexFromHealth = true; born = DateComponents(year: 1998, month: 6, day: 12)
+            bornFromHealth = true; heightCm = 172; heightFromHealth = true; weightKg = 63; weightFromHealth = true
+            filled = ["sex", "born", "height", "weight"]; synced = true
+            step = .confirm
+            return
+        }
+        #endif
         await HealthService.shared.requestRead()
         let b = await HealthService.shared.readBaseline()
         if let m = b.sexIsMale { sex = m ? "Male" : "Female"; sexFromHealth = true; filled.insert("sex") }
@@ -185,6 +201,9 @@ struct OnboardingFlow: View {
     private func enter() {
         guard !didEnter else { return }
         didEnter = true
+        #if DEBUG
+        if FlowRehearsal.on { session.stage = .root; return }
+        #endif
         Task { await Analytics.shared.track("ONBOARD_DONE", [:]) }
         data.profile.heightCm = heightCm
         data.profile.goal = goal
@@ -220,6 +239,9 @@ struct OnboardingFlow: View {
     /// row, lands on ABOUT YOU 02 with the values still in. A finished profile should
     /// not be here — Connect already sent those users home.
     private func restoreProgress() async {
+        #if DEBUG
+        if FlowRehearsal.on { return }
+        #endif
         await session.ensureSession()
         await Analytics.shared.track("ONBOARD_ENTER", [:])
         if DebugEdge.name != nil { return }
@@ -260,6 +282,9 @@ struct OnboardingFlow: View {
     }
 
     private func persistDraft() {
+        #if DEBUG
+        if FlowRehearsal.on { return }
+        #endif
         Task {
             guard let userId = await SupabaseClient.shared.currentUserId else { return }
             let persistStep = step == .scanning ? Step.fingersOn : step
@@ -441,31 +466,9 @@ private struct HealthSync: View {
 
 private struct HealthMark: View {
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.white)
-            HeartShape()
-                .fill(LinearGradient(colors: [Color(hex: 0xFB6E7E), Color(hex: 0xF23A54)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 50, height: 46)
-        }
-        .frame(width: 92, height: 92)
-    }
-}
-
-private struct HeartShape: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        let w = r.width, h = r.height
-        p.move(to: CGPoint(x: w / 2, y: h))
-        p.addCurve(to: CGPoint(x: 0, y: h * 0.32),
-                   control1: CGPoint(x: -w * 0.1, y: h * 0.72), control2: CGPoint(x: 0, y: h * 0.52))
-        p.addArc(center: CGPoint(x: w * 0.25, y: h * 0.32), radius: w * 0.25,
-                 startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
-        p.addArc(center: CGPoint(x: w * 0.75, y: h * 0.32), radius: w * 0.25,
-                 startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
-        p.addCurve(to: CGPoint(x: w / 2, y: h),
-                   control1: CGPoint(x: w, y: h * 0.52), control2: CGPoint(x: w * 1.1, y: h * 0.72))
-        return p
+        Image("AppleHealthIcon")
+            .resizable().scaledToFit()
+            .frame(width: 92, height: 92)
     }
 }
 
@@ -905,6 +908,7 @@ private struct ScanningScreen: View {
             // `banddropped` loses the band at 2 s.
             #if DEBUG
             if applyDebugScanPin() { return }
+            if FlowRehearsal.on { await rehearseScan(); return }
             #endif
             if DebugEdge.on("lifted") {
                 model.remaining = 30; model.contact = true; model.measuring = true
@@ -934,6 +938,29 @@ private struct ScanningScreen: View {
     }
 
     #if DEBUG
+    /// Rehearsal · the full S1 → S2 → computing arc on the band's own timings, 12 s instead of 30.
+    @MainActor private func rehearseScan() async {
+        model.remaining = 30; model.startedAt = Date()
+        try? await Task.sleep(for: .seconds(2.5))
+        withAnimation { model.contact = true }
+        try? await Task.sleep(for: .seconds(1))
+        for left in stride(from: 29, through: 0, by: -1) {
+            guard !Task.isCancelled else { return }
+            model.beatAt = Date()
+            withAnimation {
+                model.measuring = true
+                model.remaining = left
+                model.fields = min(14, Int(14 * Double(30 - left) / 30))
+                model.halfway = left <= 15
+            }
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        withAnimation { model.measuring = false; model.computing = true }
+        try? await Task.sleep(for: .milliseconds(650))
+        guard !Task.isCancelled else { return }
+        onDone(FlowRehearsal.reading)
+    }
+
     /// `NB_DEBUG_SCAN_LEFT=24` freezes the body-fill figure at that remaining second.
     /// `NB_DEBUG_SCAN_HOLD=1` paints the amber lift; `nocontact` puts S1 in its nudge state.
     private func applyDebugScanPin() -> Bool {

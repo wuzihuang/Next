@@ -3,7 +3,7 @@ import SwiftUI
 /// Paper 12Y · 04 SWITCH (KUV-0 list, L0H-0 edit).
 /// Full-width row layout inside the DEVICE sheet gutter (`DeviceSheet`). No outer card container.
 /// Times + custom 68x40 mechanical rocker. First row has no top hairline.
-/// Adding is one capsule key: filled lime on an empty HOOP, outlined under a list.
+/// Adding is one capsule key: filled lime on an empty NEXTBODY, outlined under a list.
 /// Capacity is never shown as `2 / ?` — only a real refusal prints both numbers.
 struct AlarmsSheet: View {
     var onCount: (Int) -> Void = { _ in }
@@ -24,7 +24,7 @@ struct AlarmsSheet: View {
                 SheetHeader(
                     eyebrow: L("CLOCK"),
                     title: L("Alarms"),
-                    subtitle: L("This HOOP has no screen. An alarm is a buzz on your wrist.")
+                    subtitle: L("This NEXTBODY has no screen. An alarm is a buzz on your wrist.")
                 )
                 if didRead, alarms.isEmpty {
                     emptyState
@@ -46,7 +46,7 @@ struct AlarmsSheet: View {
         }
     }
 
-    /// No alarms on this HOOP. The header already said what an alarm is; the face is
+    /// No alarms on this NEXTBODY. The header already said what an alarm is; the face is
     /// one word and one key — nothing to read, nothing to count.
     private var emptyState: some View {
         VStack(spacing: 0) {
@@ -72,7 +72,7 @@ struct AlarmsSheet: View {
     private var list: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !didRead {
-                Text(L("ASKING THIS HOOP…"))
+                Text(L("ASKING THIS NEXTBODY…"))
                     .font(NBFont.dot(600, 10))
                     .tracking(0.16 * 10)
                     .foregroundStyle(NB.white.opacity(0.38))
@@ -131,7 +131,7 @@ struct AlarmsSheet: View {
 
     /// Only when the band actually refused. Both numbers are real by then.
     private var fullLine: some View {
-        SheetNote(text: L("This HOOP is full · %d / %d", alarms.count, capacity ?? BandAlarm.demoCeiling))
+        SheetNote(text: L("This NEXTBODY is full · %d / %d", alarms.count, capacity ?? BandAlarm.demoCeiling))
             .accessibilityIdentifier("alarms.full")
     }
 

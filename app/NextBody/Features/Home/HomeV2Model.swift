@@ -871,7 +871,7 @@ enum HomeV2Model {
         guard let night = metrics.sleep else { return [] }
         if let start = night.sleepStart, let wake = night.wakeAt, wake <= start { return [] }
         let source = night.isUserReported ? L("Manually logged sleep")
-            : night.isCorrected ? L("Edited sleep times") : L("Recorded by HOOP")
+            : night.isCorrected ? L("Edited sleep times") : L("Recorded by NEXTBODY")
         var items: [TimelineItem] = []
         if let start = night.sleepStart {
             items.append(TimelineItem(

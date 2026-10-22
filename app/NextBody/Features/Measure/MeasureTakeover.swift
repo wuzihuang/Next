@@ -60,7 +60,7 @@ struct MeasureTakeover: View {
     /// 06 · the balance check. ⚠️ The kind is still `.ecg` because that is the SDK command
     /// underneath; nothing the user reads ever says so — see `measurePulseStudy`.
     private var isBalance: Bool { kind == .ecg }
-    /// Measured on a real HOOP: the balance check runs 40 s, the body scan 30, the heart leg 60.
+    /// Measured on a real NEXTBODY: the balance check runs 40 s, the body scan 30, the heart leg 60.
     private var total: Int { isBodyScan ? 30 : isBalance ? 40 : 60 }
 
     private enum BodyScanScreen: Equatable {
@@ -573,7 +573,7 @@ struct MeasureTakeover: View {
                 ZStack {
                     // E05 · the band stays for the recovery check — the reading is happening
                     // at the wrist, and the pulse trace is written over it at 14 %.
-                    // ⚠️ Not an ECG channel: this HOOP's Battery Check is PPG heart rate
+                    // ⚠️ Not an ECG channel: this NEXTBODY's Battery Check is PPG heart rate
                     // (F5), shaped into a monitor sweep from the measured BPM.
                     HoopFigure(mode: .lit).opacity(0.14)
                     LiveECG(bpm: reading?.heartRate,
@@ -769,7 +769,7 @@ struct MeasureTakeover: View {
     /// The panel grows to full screen, then waits for a finger. Everything after that is
     /// driven by what the band actually reports — not by a timer pretending to be one.
     /// ⚠️ Closing used to call `done()` and nothing else. The task reading the measurement was
-    /// never held onto, so it was never cancelled — on a real HOOP the test kept running after
+    /// never held onto, so it was never cancelled — on a real NEXTBODY the test kept running after
     /// the screen was gone, and F3 §06's queue allows one native command in flight, so the next
     /// one came back DEVICE_BUSY against a measurement nobody was watching.
     private func cancelMeasurement() {

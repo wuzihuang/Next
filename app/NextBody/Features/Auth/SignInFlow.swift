@@ -104,7 +104,25 @@ struct SignInFlow: View {
     /// The same shape as Apple, one endpoint later: the account picker mints an identity
     /// token, Supabase turns it into the session the whole app reads, and the wordmark plays.
     /// Cancelling the picker is silent (01 edge 5); only a real token failure moves email up.
+    #if DEBUG
+    /// Rehearsal · a door that always opens: the wait is real, the token is not.
+    private func rehearseSignIn(_ door: Door, after seconds: Double = 1.4) {
+        guard busy == nil else { return }
+        beginWait(door)
+        Task {
+            await FlowRehearsal.pause(seconds)
+            email = email.isEmpty ? FlowRehearsal.email : email
+            nextStage = .gateConnect
+            endWait()
+            playingWordmark = true
+        }
+    }
+    #endif
+
     private func signInWithGoogle() {
+        #if DEBUG
+        if FlowRehearsal.on { rehearseSignIn(.google); return }
+        #endif
         if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
         guard busy == nil else { return }
         beginWait(.google)
@@ -130,6 +148,9 @@ struct SignInFlow: View {
     /// session that comes back is the one the whole app then reads — the same wordmark and
     /// the same `finish()` as the six-digit path, so the server decides new vs returning here too.
     private func signInWithApple() {
+        #if DEBUG
+        if FlowRehearsal.on { rehearseSignIn(.apple); return }
+        #endif
         if DebugEdge.on("authfail") { withAnimation { authFailed = true }; return }
         guard busy == nil else { return }
         beginWait(.apple)
@@ -232,6 +253,18 @@ struct SignInFlow: View {
 
     private func sendCode() {
         codeError = nil
+        #if DEBUG
+        if FlowRehearsal.on {
+            sending = true
+            Task {
+                await FlowRehearsal.pause(0.9)
+                sending = false
+                withAnimation { step = .code }
+                resendIn = 60
+            }
+            return
+        }
+        #endif
         if AuthLock.isLocked(email) {
             withAnimation { codeError = .locked }
             step = .code
@@ -307,6 +340,9 @@ struct SignInFlow: View {
     /// The code is checked against Supabase auth (`/auth/v1/verify`, type email); the demo
     /// account signs in with its password instead, since it has no mailbox.
     private func verify() {
+        #if DEBUG
+        if FlowRehearsal.on { rehearseSignIn(.email, after: 1.0); return }
+        #endif
         guard busy == nil else { return }
         if AuthLock.isLocked(email) {
             withAnimation { codeError = .locked }
@@ -402,7 +438,7 @@ private struct GateScreen: View {
                         Text(L("Find your next body."))
                             .font(NBFont.ui(300, 21)).tracking(0.02 * 21)
                             .foregroundStyle(NB.white.opacity(0.82))
-                        Text(L("TRAIN · RECOVER · REPEAT"))
+                        Text(L("SLEEP · LOAD · READINESS"))
                             .font(NBFont.dot(600, 11)).tracking(0.3 * 11)
                             .foregroundStyle(NB.white.opacity(0.62))
                     }

@@ -35,7 +35,7 @@ struct BandSyncProgress: Equatable, Sendable {
 
         var label: String {
             switch self {
-            case .searching: "SEARCHING FOR HOOP"
+            case .searching: "SEARCHING FOR NEXTBODY"
             case .connecting: "ESTABLISHING BLUETOOTH"
             case .verifying: "VERIFYING DEVICE"
             case .identity: "READING DEVICE INFO"

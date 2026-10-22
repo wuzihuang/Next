@@ -1,13 +1,13 @@
 import XCTest
 
 /// Run on a paired phone with -only-testing:NextBodyUITests/BandConnectionStressTests.
-/// Requires an unlocked, signed-in physical iPhone and its paired HOOP nearby.
+/// Requires an unlocked, signed-in physical iPhone and its paired NEXTBODY nearby.
 /// Uses the existing account, consent, clock, and real Bluetooth transport unchanged.
 final class BandConnectionStressTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         #if targetEnvironment(simulator)
-        throw XCTSkip("Requires a physical iPhone and its paired HOOP")
+        throw XCTSkip("Requires a physical iPhone and its paired NEXTBODY")
         #endif
     }
 

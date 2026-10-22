@@ -10,7 +10,7 @@ import Foundation
 // MARK: - device_capabilities
 
 extension Repository {
-    /// 12 · what this HOOP reports it can do. Stored so the device page and 07's
+    /// 12 · what this NEXTBODY reports it can do. Stored so the device page and 07's
     /// capabilities() gate work before the band has answered — or when it is out of range.
     func loadCapabilities(into store: DataStore) async {
         let account = SupabaseClient.currentUserIdSnapshot()

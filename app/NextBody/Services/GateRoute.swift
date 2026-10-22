@@ -10,7 +10,7 @@ enum GateDecision: Sendable {
             ?? .gateConnect
     }
 
-    /// First time through the product: no HOOP on file and About You not finished.
+    /// First time through the product: no NEXTBODY on file and About You not finished.
     static func isFirstRun(hasBoundBand: Bool, profileComplete: Bool) -> Bool {
         LaunchGate.isFirstRun(hasBoundBand: hasBoundBand, profileComplete: profileComplete)
     }

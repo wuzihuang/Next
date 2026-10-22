@@ -11,7 +11,7 @@ enum HoopSlot: String, Codable, CaseIterable, Sendable {
     case a = "A", b = "B"
 
     var other: HoopSlot { self == .a ? .b : .a }
-    var displayName: String { "HOOP \(rawValue)" }
+    var displayName: String { "NEXTBODY \(rawValue)" }
 }
 
 /// What this phone knows about one slot. `identifier` is the durable binding key the whole

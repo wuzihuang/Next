@@ -493,7 +493,7 @@ struct BodyBatteryDetailView: View {
             return
         }
         guard SupabaseClient.currentUserIdSnapshot() != nil else {
-            refreshMessage = L("Sign in to sync this HOOP.")
+            refreshMessage = L("Sign in to sync this NEXTBODY.")
             return
         }
         guard LiveSessionStore.shared.session == nil, !BandLiveLifecycle.shared.hasExclusiveOperation else {
@@ -505,7 +505,7 @@ struct BodyBatteryDetailView: View {
         let result = await OriginDataSync.refreshNow(into: data, request: .latest)
         guard !Task.isCancelled else { return }
         if Band.live.state != .connected {
-            refreshMessage = L("Could not reach this HOOP. Keep it nearby, check Bluetooth, then tap Sync to try again.")
+            refreshMessage = L("Could not reach this NEXTBODY. Keep it nearby, check Bluetooth, then tap Sync to try again.")
         } else if result.status == .partial {
             refreshMessage = L("Some readings could not sync. Tap Sync to try again.")
         } else if result.status == .failed {

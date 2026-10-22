@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -16,6 +17,9 @@ struct HomeV2Shell: View {
     @State private var historyOpen = false
     @State private var historyLoading = false
     @State private var trackedFace: HomeV2Model.FoodFace?
+    @State private var models = HomeV2Models()
+    /// `router.homePage`, mirrored: the pager publishes on its own (see `Router.homePage`).
+    @State private var homePage = 0
 
     private var screen: CGSize { ScreenMetrics.size }
     private var planet: HomeV2Model.Planet {
@@ -84,12 +88,30 @@ struct HomeV2Shell: View {
 
     var body: some View {
         let width = screen.width
+        let pages = models.pages(data: data, recaps: recaps) {
+            HomeV2Models.Pages(planet: planet, body: bodyPage, events: events, stamp: contentStamp,
+                               flame: data.wearFlame)
+        }
         ZStack(alignment: .topLeading) {
-            HomeDeck(planet: planet, bodyModel: bodyPage, events: events,
+            HomeDeck(planet: pages.planet, bodyModel: pages.body, events: pages.events,
                      today: data.today, history: data.history, vitals: data.vitals,
-                     earlier: false, stamp: contentStamp,
+                     deckHeader: DeckHeader(name: data.profile.displayName,
+                                            initials: data.profile.initials,
+                                            batteryPercent: data.band.batteryPercent,
+                                            chargeState: data.band.connected ? data.band.displayedCharge : .unknown,
+                                            flame: pages.flame,
+                                            onProfile: { router.open(.profile, from: .home) },
+                                            onDevice: { router.open(.device, from: .home) }),
+                     bodyContext: BodyPageContext(
+                         scanSupported: !data.capabilities.knownUnsupported(.bodyComposition),
+                         latestWeighIn: data.weighIns.first?.date,
+                         takeoverOpen: router.takeover != nil),
+                     onScanWeighIn: { router.sheet = .scanWeighIn },
+                     onBodyScan: { router.takeover = .measure(.bodyComposition) },
+                     onComposition: { router.open(.composition(date: pages.body.scannedAt), from: .home) },
+                     earlier: false, stamp: pages.stamp,
                      width: width, height: screen.height,
-                     routerPage: router.homePage,
+                     routerPage: homePage,
                      blocked: zone != nil || guide || historyOpen,
                      onPage: { router.homePage = routerSlot($0) },
                      onGuide: openGuide,
@@ -128,6 +150,7 @@ struct HomeV2Shell: View {
         }
         .frame(width: width, height: screen.height, alignment: .topLeading)
         .clipped()
+        .onReceive(router.pager.$page) { homePage = $0 }
         // A pushed page keeps Home alive underneath; its art must not keep drawing there.
         .environment(\.homeArtActive, router.path.isEmpty && router.takeover == nil)
         .onAppear {
@@ -140,9 +163,9 @@ struct HomeV2Shell: View {
             case "legs": zone = .legs
             default: break
             }
-            trackFood(planet.food.face)
+            trackFood(pages.planet.food.face)
         }
-        .onChange(of: planet.food.face) { _, face in trackFood(face) }
+        .onChange(of: pages.planet.food.face) { _, face in trackFood(face) }
         .task(id: historyOpen) {
             guard historyOpen, !Band.allowsSeed else { return }
             historyLoading = true
@@ -220,20 +243,67 @@ struct HomeV2Shell: View {
     }
 }
 
+/// ⚠️ Performance. The page models walk the history, the meals and the timeline, and the
+/// stamp hashes all of it. Built in `body`, they were paid for again on every render of the
+/// shell — and the shell renders on every router write: the `homePage` a page turn sets cost
+/// two to three full frames as the turn landed, which a pull right after the turn ran into.
+/// They are built once per change of the stores they read, and once a minute for the
+/// timeline's clock.
+@MainActor
+private final class HomeV2Models {
+    struct Pages {
+        let planet: HomeV2Model.Planet
+        let body: HomeV2Model.Body
+        let events: [HomeV2Model.TimelineItem]
+        let stamp: Int
+        /// `wearFlame` scans today's samples twice and searches the history for yesterday.
+        let flame: WearRun.Flame
+    }
+
+    private var cached: Pages?
+    private var minute = 0
+    private var watching: [ObjectIdentifier: AnyCancellable] = [:]
+
+    func pages(data: DataStore, recaps: SportRecapStore, build: () -> Pages) -> Pages {
+        watch(data)
+        watch(recaps)
+        let now = Int(VitalsClock.now.timeIntervalSinceReferenceDate / 60)
+        if let cached, now == minute { return cached }
+        let fresh = build()
+        cached = fresh
+        minute = now
+        return fresh
+    }
+
+    /// `objectWillChange` fires before the write; the render that follows it rebuilds.
+    private func watch<Store: ObservableObject>(_ store: Store)
+        where Store.ObjectWillChangePublisher == ObservableObjectPublisher {
+        let id = ObjectIdentifier(store)
+        guard watching[id] == nil else { return }
+        watching[id] = store.objectWillChange.sink { [weak self] _ in self?.cached = nil }
+    }
+}
+
 // MARK: - Deck
 
 /// Owns the finger. Page models stay on the shell, so a swipe only moves layers
 /// that were already drawn.
+/// ⚠️ Performance. Nothing below the shell observes a store. A `@EnvironmentObject` here
+/// re-rendered the deck, the body page and its figure on every DataStore or Router publish —
+/// and a phone with a band on publishes all the time, in the middle of page turns. The shell
+/// reads the stores and hands values down; equal values draw nothing.
 private struct HomeDeck: View {
-    @EnvironmentObject private var data: DataStore
-    @EnvironmentObject private var router: Router
-
     let planet: HomeV2Model.Planet
     let bodyModel: HomeV2Model.Body
     let events: [HomeV2Model.TimelineItem]
     let today: DailyMetrics
     let history: [DailyMetrics]
     let vitals: LiveVitals
+    let deckHeader: DeckHeader
+    let bodyContext: BodyPageContext
+    var onScanWeighIn: () -> Void
+    var onBodyScan: () -> Void
+    var onComposition: () -> Void
     let earlier: Bool
     let stamp: Int
     let width: CGFloat
@@ -260,18 +330,35 @@ private struct HomeDeck: View {
     @State private var more: CGFloat = 0
     @State private var moreAtTouch: CGFloat = 0
     @Environment(\.homeArtActive) private var artActive
+    /// A finger is on the deck. Resets on its own if the system cancels the touch.
+    @GestureState private var dragging = false
+    /// A deck animation is still running. Cleared by its completion, or after its duration
+    /// has passed, so an interrupted animation can never leave the art standing still.
+    @State private var settling = false
+    @State private var settleGeneration = 0
+    /// ⚠️ Performance. While the deck moves, the planets and the body cloud stand still: their
+    /// shader and canvas re-render on the main thread every frame they animate, and that was
+    /// most of what a drag or a pull still cost per frame. A planet turns once a minute or
+    /// more slowly — half a second of stillness under a finger does not show.
+    private var moving: Bool { dragging || settling }
 
     private enum DragAxis { case horizontal, vertical }
     private enum VerticalTarget { case timeline, more }
 
     /// The body page also moves its own grid, so its cache key includes that pull.
+    /// ⚠️ Whether the body is the page, not which page it is. The page index changes at the
+    /// axis lock and again as a turn lands; hashed in here it rebuilt the whole body page —
+    /// figure, leaders, captions — on both, in the first frames of every turn.
     private var bodyStamp: Int {
         var hasher = Hasher()
         hasher.combine(stamp)
         hasher.combine(more)
-        hasher.combine(pageAtTouch)
+        hasher.combine(onBody)
+        hasher.combine(bodyContext)
         return hasher.finalize()
     }
+
+    private var onBody: Bool { pageAtTouch == -1 }
 
     private var safe: UIEdgeInsets { ScreenMetrics.safeArea }
     private var contentHeight: CGFloat {
@@ -291,7 +378,10 @@ private struct HomeDeck: View {
                     .padding(.horizontal, NB.Layout.gutter)
                 HStack(spacing: 0) {
                     CachedLayer(stamp: bodyStamp) {
-                        HomeBodyPage(model: bodyModel, more: more, page: pageAtTouch,
+                        HomeBodyPage(model: bodyModel, more: more, page: onBody ? -1 : 0,
+                                     context: bodyContext,
+                                     onScanWeighIn: onScanWeighIn, onBodyScan: onBodyScan,
+                                     onComposition: onComposition,
                                      onGlow: { zone, point in
                                          onZone(zone, CGPoint(x: point.x,
                                                               y: point.y + safe.top + HomeHeader.height))
@@ -299,6 +389,7 @@ private struct HomeDeck: View {
                                      onCloseMore: closeMore)
                     }
                     .equatable()
+                    .environment(\.homeArtActive, artActive && !moving)
                     .frame(width: width, height: contentHeight, alignment: .top)
                     CachedLayer(stamp: stamp) {
                         HomePlanetPage(model: planet, events: events.filter { $0.day == today.day }.count,
@@ -309,7 +400,7 @@ private struct HomeDeck: View {
                                        onFood: { onCard(.fuel, "FUEL") })
                     }
                     .equatable()
-                    .environment(\.homeArtActive, artActive && abs(offset) < width - 0.5 && timeline < 0.999)
+                    .environment(\.homeArtActive, artActive && !moving && abs(offset) < width - 0.5 && timeline < 0.001)
                     .frame(width: width, height: contentHeight, alignment: .top)
                     CachedLayer(stamp: stamp) {
                         HomeInstrumentsPage(metrics: today, history: history, vitals: vitals,
@@ -334,13 +425,14 @@ private struct HomeDeck: View {
                                   onWorkout: onWorkout,
                                   onOpen: onTimelineItem,
                                   onClose: closeTimeline,
-                                  pull: $timeline,
+                                  readPull: { timeline },
+                                  writePull: { timeline = $0 },
                                   onPullEnd: { velocity, startedAt in
                                       settleTimeline(velocity: velocity, startedAt: startedAt)
                                   })
             }
                 .equatable()
-                .environment(\.homeArtActive, artActive && timeline > 0.001)
+                .environment(\.homeArtActive, artActive && !moving && timeline > 0.001)
                 .frame(width: width, height: height, alignment: .top)
                 .offset(y: (1 - timeline) * height)
                 .allowsHitTesting(timeline > 0.04)
@@ -367,6 +459,7 @@ private struct HomeDeck: View {
 
     private var pager: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .updating($dragging) { _, state, _ in state = true }
             .onChanged { value in
                 let dx = value.translation.width
                 let dy = value.translation.height
@@ -446,12 +539,15 @@ private struct HomeDeck: View {
     }
 
     private func commit(page target: Int, from: Int) {
-        withAnimation(.easeOut(duration: 0.32)) {
+        // ⚠️ `onPage` writes `router.homePage`, which re-renders everything observing the
+        // router — the root, its NavigationStack, HomeView, the shell. Written as the turn
+        // began, that work landed on the turn's first frames; once it has landed, nothing on
+        // screen is moving.
+        settle(.easeOut(duration: 0.32), {
             offset = CGFloat(-target) * width
             pageAtTouch = target
-        }
+        }, landed: { if target != from { onPage(target) } })
         guard target != from else { return }
-        onPage(target)
         Haptics.selection()
         let name = target < 0 ? "body" : (target > 0 ? "instruments" : "planet")
         Task { await Analytics.shared.track("HOME_PAGE_TURN", ["PAGE": name]) }
@@ -464,7 +560,7 @@ private struct HomeDeck: View {
         case .more:
             let open = more > 0.32 || velocity < -650
             let was = moreAtTouch > 0.5
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { more = open ? 1 : 0 }
+            settle(.spring(response: 0.38, dampingFraction: 0.86)) { more = open ? 1 : 0 }
             if open, !was {
                 Haptics.impact(.soft)
                 Task { await Analytics.shared.track("BODY_MORE_DATA", [:]) }
@@ -491,7 +587,7 @@ private struct HomeDeck: View {
         } else {
             open = velocity > 500 ? false : (timeline > 0.35 || velocity < -500)
         }
-        withAnimation(.easeOut(duration: 0.32)) { timeline = open ? 1 : 0 }
+        settle(.easeOut(duration: 0.32)) { timeline = open ? 1 : 0 }
         if open, !closing {
             Haptics.impact(.soft)
             Task { await Analytics.shared.track("TIMELINE_OPEN", [:]) }
@@ -501,27 +597,37 @@ private struct HomeDeck: View {
     }
 
     private func openTimeline() {
-        withAnimation(.easeOut(duration: 0.32)) { timeline = 1 }
+        settle(.easeOut(duration: 0.32)) { timeline = 1 }
         Task { await Analytics.shared.track("TIMELINE_OPEN", [:]) }
     }
 
     private func closeTimeline() {
-        withAnimation(.easeOut(duration: 0.32)) { timeline = 0 }
+        settle(.easeOut(duration: 0.32)) { timeline = 0 }
         Haptics.impact(.soft)
     }
 
     private func closeMore() {
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { more = 0 }
+        settle(.spring(response: 0.38, dampingFraction: 0.86)) { more = 0 }
+    }
+
+    /// Animates a deck move and keeps the art still until it has landed.
+    private func settle(_ animation: Animation, _ change: () -> Void,
+                        landed: @escaping () -> Void = {}) {
+        settleGeneration &+= 1
+        let generation = settleGeneration
+        settling = true
+        withAnimation(animation, change, completion: {
+            if settleGeneration == generation { settling = false }
+            landed()
+        })
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(700))
+            if settleGeneration == generation { settling = false }
+        }
     }
 
     private var header: some View {
-        HomeHeader(name: data.profile.displayName,
-                   initials: data.profile.initials,
-                   batteryPercent: data.band.batteryPercent,
-                   chargeState: data.band.connected ? data.band.displayedCharge : .unknown,
-                   flame: data.wearFlame,
-                   onProfile: { router.open(.profile, from: .home) },
-                   onDevice: { router.open(.device, from: .home) })
+        deckHeader.equatable()
     }
 
     private func pageIndex(_ value: CGFloat) -> Int {
@@ -563,6 +669,38 @@ private struct HomeDeck: View {
     }
 }
 
+/// The deck re-renders on every frame of a drag or a pull. The header's closures are new each
+/// time, so a plain `HomeHeader` redrew with it; equal values here keep the last one.
+private struct DeckHeader: View, Equatable {
+    let name: String
+    let initials: String
+    let batteryPercent: Int?
+    let chargeState: BandBattery.ChargeState
+    let flame: WearRun.Flame
+    let onProfile: () -> Void
+    let onDevice: () -> Void
+
+    static func == (lhs: DeckHeader, rhs: DeckHeader) -> Bool {
+        lhs.name == rhs.name && lhs.initials == rhs.initials
+            && lhs.batteryPercent == rhs.batteryPercent && lhs.chargeState == rhs.chargeState
+            && lhs.flame == rhs.flame
+    }
+
+    var body: some View {
+        HomeHeader(name: name, initials: initials, batteryPercent: batteryPercent,
+                   chargeState: chargeState, flame: flame,
+                   onProfile: onProfile, onDevice: onDevice)
+    }
+}
+
+/// What the body page reads from the stores, as values. It re-renders when these change
+/// and on nothing else.
+private struct BodyPageContext: Hashable {
+    var scanSupported: Bool
+    var latestWeighIn: Date?
+    var takeoverOpen: Bool
+}
+
 /// One integer decides whether a page is drawn again. Equal stamps keep the last texture.
 private struct CachedLayer<Content: View>: View, Equatable {
     let stamp: Int
@@ -601,11 +739,13 @@ private struct HomePlanetPage: View {
 // MARK: - Body
 
 private struct HomeBodyPage: View {
-    @EnvironmentObject private var data: DataStore
-    @EnvironmentObject private var router: Router
     let model: HomeV2Model.Body
     let more: CGFloat
     let page: Int
+    let context: BodyPageContext
+    let onScanWeighIn: () -> Void
+    let onBodyScan: () -> Void
+    let onComposition: () -> Void
     /// The tapped zone and the body part it belongs to, in this page's coordinates.
     let onGlow: (HomeV2Model.Zone, CGPoint) -> Void
     let onCloseMore: () -> Void
@@ -654,7 +794,7 @@ private struct HomeBodyPage: View {
             .frame(height: 28)
             GeometryReader { proxy in
                 let stage = BodyStage(height: proxy.size.height)
-                let showsScanEntry = !data.capabilities.knownUnsupported(.bodyComposition)
+                let showsScanEntry = context.scanSupported
                 VStack(spacing: 0) {
                     ZStack(alignment: .bottom) {
                         figure
@@ -700,8 +840,8 @@ private struct HomeBodyPage: View {
         .onChange(of: page) { _, next in
             if next == -1 { scanEntryAnimating = false }
         }
-        .onChange(of: router.takeover) { _, takeover in
-            if takeover == nil { scanEntryAnimating = false }
+        .onChange(of: context.takeoverOpen) { _, open in
+            if !open { scanEntryAnimating = false }
         }
     }
 
@@ -739,7 +879,7 @@ private struct HomeBodyPage: View {
                 // 14 · the same slot collapsed to bare text: no capsule, because a frame reads
                 // "executable" and a scan against a stale weight changes nothing. The small
                 // line says what is missing. Tapping it calls the number up, not the scan.
-                Button { router.sheet = .scanWeighIn } label: {
+                Button(action: onScanWeighIn) {
                     VStack(alignment: .trailing, spacing: 5) {
                         Text(model.scannedAt == nil ? L("SCAN") : L("SCAN AGAIN"))
                             .font(NBFont.dot(600, 11)).tracking(0.14 * 11)
@@ -760,8 +900,8 @@ private struct HomeBodyPage: View {
     /// 14 · the gate is the weight, not the clock: a fresh weigh-in is one recorded after the
     /// last scan. Never scanned → any weigh-in on record counts, no weigh-in → the dial.
     private var weightFresh: Bool {
-        guard let at = model.scannedAt else { return data.weighIns.first != nil }
-        guard let latest = data.weighIns.first?.date else { return false }
+        guard let at = model.scannedAt else { return context.latestWeighIn != nil }
+        guard let latest = context.latestWeighIn else { return false }
         return latest > at
     }
 
@@ -788,7 +928,7 @@ private struct HomeBodyPage: View {
         withAnimation(.easeIn(duration: 0.3)) { scanEntryAnimating = true }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
-            router.takeover = .measure(.bodyComposition)
+            onBodyScan()
         }
     }
 
@@ -1112,7 +1252,7 @@ private struct HomeBodyPage: View {
     private func metricCell(_ metric: HomeV2Model.BodyMetric) -> some View {
         Button {
             Task { await Analytics.shared.track("PAGE2_CARD_TAP", ["CARD": "COMPOSITION"]) }
-            router.open(.composition(date: model.scannedAt), from: .home)
+            onComposition()
         } label: {
             VStack(alignment: .center, spacing: 4) {
                 Text(metric.label)

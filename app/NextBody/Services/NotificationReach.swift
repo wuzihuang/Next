@@ -387,11 +387,11 @@ enum NotificationReach {
             content.title = L("READINESS")
             content.body = L("Readiness is low.")
         case .bandBattery:
-            content.title = L("HOOP")
-            content.body = L("Charge HOOP.")
+            content.title = L("NEXTBODY")
+            content.body = L("Charge NEXTBODY.")
         case .bandAway:
-            content.title = L("HOOP")
-            content.body = L("HOOP has been away for 4 hours.")
+            content.title = L("NEXTBODY")
+            content.body = L("NEXTBODY has been away for 4 hours.")
         }
         let soon = max(fire, Date().addingTimeInterval(2))
         let comps = Calendar.current.dateComponents(

@@ -32,7 +32,7 @@ final class DeviceReleaseOperationTests: XCTestCase {
             XCTFail("Missing RPC must fail")
         } catch {
             XCTAssertEqual(DeviceReleaseError.message(for: error),
-                           "HOOP removal is temporarily unavailable. Please try again later.")
+                           "NEXTBODY removal is temporarily unavailable. Please try again later.")
         }
         await Task.yield()
         XCTAssertFalse(published)

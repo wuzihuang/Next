@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import PhotosUI
 import UIKit
@@ -65,6 +66,10 @@ struct HomeView: View {
     /// page one drew at −width for one frame and then slid in from the left. Two publishers,
     /// two frames. One number cannot disagree with itself.
     @State private var pageX: CGFloat = 0
+    /// `router.homePage`, mirrored: the pager publishes on its own (see `Router.homePage`).
+    @State private var homePage = 0
+    /// Page two's card-state analytics, pending until the page has been held for a moment.
+    @State private var pageTwoTrack: Task<Void, Never>?
     /// Where `pageX` stood when the finger went down, so the drag is added to a fixed base
     /// instead of to a value the same drag is changing.
     @State private var pageXAtTouch: CGFloat = 0
@@ -159,7 +164,7 @@ struct HomeView: View {
     @State private var readoutHeldOnPageTwo = false
     @State private var readoutHold: Task<Void, Never>?
     private var liveReadoutWanted: Bool {
-        liveReadoutAllowed && (router.homePage == 0 || readoutHeldOnPageTwo)
+        liveReadoutAllowed && (homePage == 0 || readoutHeldOnPageTwo)
     }
     /// 04D · chevron, the two page dots, then PLAN. Drops further than the dock
     /// so PLAN sits over the Home Indicator instead of a void, and the chevron
@@ -331,7 +336,9 @@ struct HomeView: View {
 
     private var homeRouting: some View {
         homeGestured
-        .onChange(of: router.homePage) { _, p in
+        .onAppear { homePage = router.homePage }
+        .onReceive(router.pager.$page.removeDuplicates().dropFirst()) { p in
+            homePage = p
             // The page can also be set from outside the gesture — a detail page returning the
             // user to the page they left. The offset follows it there, without an animation:
             // the turn's own spring has already put `pageX` where it belongs before it sets
@@ -356,6 +363,7 @@ struct HomeView: View {
                 pageTwoSince = Date()
                 trackPageTwoOpen()
             } else if let since = pageTwoSince {
+                pageTwoTrack?.cancel()
                 pageTwoSince = nil
                 let ms = Int(Date().timeIntervalSince(since) * 1000)
                 Task { await Analytics.shared.track("HOME_PAGE2_DWELL", ["MS": ms]) }
@@ -539,7 +547,7 @@ struct HomeView: View {
                         isPercent: true, percent: 64, level: 3, chargeState: .charging))
                 }
             }
-            if let f = debugDragFraction, router.homePage == 0, pageX == 0 {
+            if let f = debugDragFraction, homePage == 0, pageX == 0 {
                 pageX = -min(1, f) * screen.width
             }
             // `SIMCTL_CHILD_NB_DEBUG_ASR_FILE=/path/clip.wav` · push one known clip through the
@@ -844,7 +852,7 @@ struct HomeView: View {
                        lastSync: data.lastSync, vitals: data.vitals,
                        widget: widget, firstRun: firstRun,
                        idleAnimationActive: scenePhase == .active && router.path.isEmpty
-                           && router.takeover == nil && router.homePage == 0
+                           && router.takeover == nil && homePage == 0
                            && !planSettledOpen && !plusOpen && keyboard.height == 0
                            && dockMode == .idle && liveSession.session == nil,
                        size: full ? screen
@@ -1008,7 +1016,7 @@ struct HomeView: View {
         withTransaction(transaction) {
             switch drag {
             case .horizontal:
-                pageX = -CGFloat(router.homePage) * screen.width
+                pageX = -CGFloat(homePage) * screen.width
             case .plan:
                 planY = planSettledOpen ? -screen.height : 0
                 planDragDy = 0
@@ -1235,13 +1243,20 @@ struct HomeView: View {
     /// otherwise leave no trace: never synced, and an off-wrist gap of an hour or more
     /// (the same one the foot line prints, once per user day).
     private func trackPageTwoOpen() {
-        let m = data.today, vitals = data.vitals, lastSync = data.lastSync
-        let states = VitalsPage.cardStates(
-            m: m, vitals: vitals, history: data.history,
-            mealResponsePoints: data.mealResponsePoints,
-            mealResponseZerosToday: data.mealResponseZerosToday)
-        let gap = VitalsMath.offWrist(m.vitalsCurve)
-        Task {
+        // ⚠️ `cardStates` walks the whole history (the skin-temperature range sorts it) — about
+        // ten milliseconds on a phone, and it used to run on the main thread as the page turn
+        // landed, or 0.6 s later, in the middle of the next turn. Now it waits for the page to
+        // be held; a turn away cancels it.
+        pageTwoTrack?.cancel()
+        pageTwoTrack = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            let m = data.today, vitals = data.vitals, lastSync = data.lastSync
+            let states = VitalsPage.cardStates(
+                m: m, vitals: vitals, history: data.history,
+                mealResponsePoints: data.mealResponsePoints,
+                mealResponseZerosToday: data.mealResponseZerosToday)
+            let gap = VitalsMath.offWrist(m.vitalsCurve)
             for card in ["SLEEP", "HEART", "BODY_BATTERY", "STRESS", "TEMP", "STEPS", "DISTANCE", "ACTIVE"] {
                 await Analytics.shared.track("PAGE2_CARD_STATE", ["CARD": card, "STATE": states[card] ?? "EMPTY"])
             }

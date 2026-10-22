@@ -45,15 +45,16 @@ select set_config('nb.calculation_day','2026-09-15',true);
 
 -- #1 · a CUT pinned to its floor must stay pinned to it. The carbohydrate floor used to
 -- hand back its own shortfall as calories: this body was served 1455 against a basal
--- 1239. What may remain is the 0.5 g/kg fat floor, one fat step wide. (Since #29 the
--- floor is the female 1200, which for this body lands in the same place.)
+-- 1239. What may remain is one rounding step. (Since #29 the floor is the female 1200,
+-- which for this body lands in the same place; since ADR 0033 protein is asked by the
+-- BMI-25 reference kilo, 64 kg here, so fat stops where the budget runs out.)
 select ok((select (select target_in from nb.compute_fuel('0a0a0a0a-0000-4000-8000-000000000001','2026-09-15'))
                 - (select bmr_full from nb.fuel_components('0a0a0a0a-0000-4000-8000-000000000001','2026-09-15')) <= 45),
   'a budget pinned to basal does not climb to whatever the floored macros add up to');
-select is((select carb_g from nb.compute_fuel('0a0a0a0a-0000-4000-8000-000000000001','2026-09-15')), 100,
+select cmp_ok((select carb_g from nb.compute_fuel('0a0a0a0a-0000-4000-8000-000000000001','2026-09-15')), '>=', 100,
   'carbohydrate still never goes below a hundred grams');
 select is((select fat_g from nb.compute_fuel('0a0a0a0a-0000-4000-8000-000000000001','2026-09-15')), 35,
-  'fat gives way to that floor but stops at half a gram per kilo');
+  'fat gives way to that floor, rounded down so the budget does not climb');
 
 -- #2 · a whole day of basal was being added to the activity of a part day. An eighteen
 -- hour day now measures as what it is: the same day, worn for eighteen hours.

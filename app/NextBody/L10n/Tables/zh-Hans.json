@@ -3033,5 +3033,18 @@
   "SUPPORTING MEASUREMENTS · NOT SCORED": "辅助指标 · 不参与评分",
   "TIMING USES SLEEP MIDPOINT, NOT BEDTIME REGULARITY": "入睡时机依据睡眠中点，不依据作息规律性",
   "No supported calorie estimate for this activity or profile. Heart rate is still recorded.": "当前运动类型或身体资料不适用热量估算，心率仍会记录。",
-  "Active calories over %.0f observed seconds only. Resting energy and missing intervals are excluded.": "活动热量仅覆盖 %.0f 秒有效观测，不含静息消耗，不补算缺失时段。"
+  "Active calories over %.0f observed seconds only. Resting energy and missing intervals are excluded.": "活动热量仅覆盖 %.0f 秒有效观测，不含静息消耗，不补算缺失时段。",
+  "ABOUT THIS SLEEP SCORE": "关于这次睡眠评分",
+  "%.0f OUT OF 100": "%.0f 分 / 100",
+  "SCAN": "扫描",
+  "SCAN AGAIN": "再次扫描",
+  "NEEDS A NEW WEIGH-IN": "需要更新体重",
+  "FIRST WEIGH-IN": "先录第一次体重",
+  "Weigh-in first.": "先称一次重。",
+  "BODY SCAN · ONE NUMBER FIRST": "BODY SCAN · 先给一个数",
+  "The band reads you against a weight. Give it today's.": "手环要拿体重当分母，给它今天的数。",
+  "SCAN AT %@ %@": "按 %@ %@ 扫描",
+  "LAST · %@": "上次 · %@",
+  "KEY METRICS": "主要指标",
+  "DETAILS": "详情"
 }

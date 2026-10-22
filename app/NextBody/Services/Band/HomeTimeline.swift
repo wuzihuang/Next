@@ -10,6 +10,7 @@ enum HomeTimeline {
         var protein: Int
         var carb: Int
         var fat: Int
+        var photoPath: String? = nil
     }
 
     struct Item: Equatable, Identifiable {

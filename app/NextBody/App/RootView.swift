@@ -302,6 +302,7 @@ struct SheetHost: View {
         Group {
             switch route {
             case .weighIn:        WeighInSheet()
+            case .scanWeighIn:    WeighInDialSheet()
             case .plusMenu:       PlusMenuSheet()
             case .measurement(let id): MeasurementSheet(id: id)
             case .findHoop:       FindHoopSheet()
@@ -327,6 +328,7 @@ enum SheetChrome {
         switch route {
         case .plusMenu:                     return 430   // 06 · two groups, five rows
         case .weighIn:                      return 500   // 10S · the keypad, and no more
+        case .scanWeighIn:                  return 462   // 14 · dial + one confirm, no keypad
         case .signOut:                      return 360
         // 11's delete sheet has room for the sentence that counts out what is lost *and*
         // the line that says nothing was deleted when the endpoint cannot be reached.

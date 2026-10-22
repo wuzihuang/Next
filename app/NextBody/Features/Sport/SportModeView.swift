@@ -36,7 +36,7 @@ struct SportModeView: View {
         .task {
             await Analytics.shared.track("SPORT_MODE_OPEN", ["CONNECTED": connected])
             if Band.live.state != .connected { await Band.live.reconnectIfBound() }
-            data.band.connected = Band.live.state == .connected
+            data.setBandConnected(Band.live.state == .connected)
         }
     }
 

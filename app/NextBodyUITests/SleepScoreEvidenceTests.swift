@@ -7,6 +7,30 @@ final class SleepScoreEvidenceTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testSevenContributorsOpenTheirOwnExplanation() {
+        let app = launchSleep(range: "DAY", sevenContributors: true)
+        let hero = app.otherElements["vitals.hero"]
+        XCTAssertTrue(hero.waitForExistence(timeout: 30))
+        XCTAssertTrue((hero.value as? String ?? "").hasPrefix("56 "))
+        for key in ["total_sleep", "efficiency", "restfulness", "rem", "deep", "latency", "timing"] {
+            XCTAssertTrue(app.buttons["sleep.contributor.\(key)"].exists)
+        }
+        let latency = app.buttons["sleep.contributor.latency"]
+        reveal(latency, in: app)
+        capture(app, name: "sleep-seven-contributors")
+        latency.tap()
+        let explanation = app.staticTexts[
+            "Time from trying to sleep to falling asleep. The band does not record this. Time to first deep sleep is not latency. This factor is excluded."]
+        XCTAssertTrue(explanation.waitForExistence(timeout: 5))
+        capture(app, name: "sleep-latency-unmeasured")
+        app.buttons["sleep.factor.close"].tap()
+        let info = app.buttons["sleep.scoringInfo"]
+        reveal(info, in: app)
+        info.tap()
+        XCTAssertTrue(app.staticTexts["6 OF 7 FACTORS SCORED"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["sleep.factor.close"].exists)
+    }
+
     func testDayExplainsEffectiveWeightsCoverageAndTheFourRecoveryNumbers() {
         let app = launchSleep(range: "DAY")
         let hero = app.otherElements["vitals.hero"]
@@ -70,7 +94,7 @@ final class SleepScoreEvidenceTests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "NIGHTS STILL LEARNING PERSONAL BASELINES")).firstMatch.exists)
     }
 
-    private func launchSleep(range: String) -> XCUIApplication {
+    private func launchSleep(range: String, sevenContributors: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["NB_DEBUG_STAGE"] = "root"
         app.launchEnvironment["NB_DEBUG_CONSENT"] = "granted"
@@ -78,6 +102,7 @@ final class SleepScoreEvidenceTests: XCTestCase {
         app.launchEnvironment["NB_DEBUG_ROUTE"] = "vitals.sleep"
         app.launchEnvironment["NB_DEBUG_SLEEP_RANGE"] = range
         app.launchEnvironment["NB_DEBUG_SLEEP_EVIDENCE"] = "1"
+        if sevenContributors { app.launchEnvironment["NB_DEBUG_SLEEP_CONTRIBUTORS"] = "1" }
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         // A fresh simulator can present the notification primer above the route.

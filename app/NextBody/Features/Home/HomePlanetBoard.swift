@@ -364,7 +364,7 @@ struct HomePlanetBoard: View {
             .padding(.top, 14)
             .padding(.bottom, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1)
+            .overlay(alignment: .trailing) { Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1) }
             VStack(alignment: .trailing, spacing: 4) {
                 Text(L("LEFT"))
                     .font(jost(600, 10))

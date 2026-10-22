@@ -1,5 +1,41 @@
 # NEXTBODY · build status
 
+## 2026-10-22 — Macros follow activity and the body (ADR 0033) · local only
+
+Protein and carbohydrate targets now move with today's measured activity; fat follows sex,
+goal, weight and the latest band scan's lean mass. One pure function, `nb.macro_split`,
+called from `nb.compute_fuel`; the phone, AI and MCP keep reading `day_fuel` unchanged.
+`fuel-2.0 → fuel-2.1`, every day marked stale for replay.
+
+Verified on a throwaway local stack (all migrations from zero): new
+`macros_follow_activity_and_body.sql` 12/12, `fuel_budget_deficit`, `fuel_goal_offsets`,
+`fuel_target_resting_plus_activity`, `measured_burn_target` pass. The full `supabase test db`
+run fails the same 20 files with and without this migration (pre-existing).
+Not yet pushed to production.
+
+## 2026-10-21 — Seven sleep factors · backend verified live, UI prepared
+
+Production `gkgzwcxivnffsecshvfs` already records migration `20261021100000`.
+A live read confirmed all 98 `night_score` rows use `sleep-v3.0` with
+`contributor_policy=3`: zero out-of-range scores, duration-cap violations,
+invented latency scores or populated retired groups. No duplicate migration or
+unnecessary historical recomputation was submitted during this verification.
+
+The sleep UI now presents seven spacious rows with measured values, full-width
+score bars and a fixed trailing chevron. Each row opens an explanation sheet;
+coverage and formula notes live under “About this sleep score.” Normal factors
+use white, factors below 70 use amber, and unmeasured factors retain an empty
+track. Existing HOOP typography and color tokens remain in use.
+
+Verified: score model and real loader diagnostics, iOS SDK typechecking of the
+actual contributor views, syntax checks, localization keys and scoped diff check.
+`screenshots/sleep-contributors-preview.png` is a real SwiftUI component render
+with synthetic fixture data, not a full-app or device-install screenshot.
+`SleepScoreEvidenceTests.testSevenContributorsOpenTheirOwnExplanation` is prepared,
+using the simulator-only `NB_DEBUG_SLEEP_CONTRIBUTORS=1` fixture.
+Full-app build, UI-test execution and installation remain pending explicit owner
+permission for the compiler to read the two AI directories protected by AGENTS.md.
+
 ## 2026-10-18 — AI assistants over MCP · production (ADR 0032)
 
 Live on `gkgzwcxivnffsecshvfs`:

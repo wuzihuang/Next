@@ -57,7 +57,7 @@ final class BandPresence {
                 && SupabaseClient.currentUserIdSnapshot() == account
                 && BoundBand.identifier == binding && Band.live.state == .connected
         }
-        store.band.connected = true
+        store.setBandConnected(true)
         let valid = prepared.flatMap { $0.account == account && $0.binding == binding ? $0 : nil }
         let identity: BandIdentity?
         let battery: BandBattery?

@@ -16,6 +16,9 @@ struct HomeTimelineBoard: View {
 
     @State private var pulling = false
     @State private var pullAtTouch: CGFloat = 1
+    /// When the last pull lifted. The sheet rides the finger, so the row under it is still
+    /// under it at lift-off, and its plain `Button` (which the pull never cancels) would fire.
+    @State private var pullEndedAt = Date.distantPast
 
     private var rows: [HomeV2Model.TimelineItem] {
         #if DEBUG
@@ -95,7 +98,7 @@ struct HomeTimelineBoard: View {
                         }
                         let entries = rows.filter { $0.day == day }
                         ForEach(Array(entries.enumerated()), id: \.element.id) { index, event in
-                            TimelineRailRow(event: event, continues: index < entries.count - 1, onOpen: { onOpen(event) })
+                            TimelineRailRow(event: event, continues: index < entries.count - 1, onOpen: { open(event) })
                         }
                     }
                     Button(action: onHistory) {
@@ -147,6 +150,12 @@ struct HomeTimelineBoard: View {
             .onEnded { value in endSheet(value.velocity.height) }
     }
 
+    /// A pull is never a tap: drop the row's lift-off whichever of the two lands first.
+    private func open(_ event: HomeV2Model.TimelineItem) {
+        guard !pulling, Date().timeIntervalSince(pullEndedAt) > 0.35 else { return }
+        onOpen(event)
+    }
+
     private func dragSheet(_ translation: CGFloat) {
         if !pulling {
             pulling = true
@@ -159,6 +168,7 @@ struct HomeTimelineBoard: View {
     private func endSheet(_ velocity: CGFloat) {
         let started = pullAtTouch
         pulling = false
+        pullEndedAt = Date()
         onPullEnd(velocity, started)
     }
 
@@ -276,7 +286,9 @@ private struct TimelineRailRow: View {
 
     private func mealCard(_ meal: HomeV2Model.TimelineMeal) -> some View {
         HStack(spacing: 12) {
-            PlateThumb()
+            if let path = meal.photoPath {
+                MealThumbnail(path: path, side: 64, radius: 12)
+            }
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(meal.kcal)")
@@ -286,34 +298,33 @@ private struct TimelineRailRow: View {
                         .font(.custom("Jost-Regular", size: 12))
                         .foregroundStyle(Color.white.opacity(0.56))
                 }
-                HStack(spacing: 2) {
-                    Rectangle().fill(NB.lime1).frame(maxWidth: .infinity)
-                    Rectangle().fill(Color.white.opacity(0.56)).frame(maxWidth: .infinity)
-                    Rectangle().fill(Color.white.opacity(0.24)).frame(maxWidth: .infinity)
+                GeometryReader { geo in
+                    let segments = [(meal.protein, NB.optimal2), (meal.carb, NB.lime1), (meal.fat, NB.run1)]
+                        .filter { $0.0 > 0 }
+                    let total = segments.reduce(0) { $0 + $1.0 }
+                    let width = geo.size.width - CGFloat(max(segments.count - 1, 0)) * 2
+                    HStack(spacing: 2) {
+                        if segments.isEmpty {
+                            Capsule().fill(NB.barTrack)
+                        } else {
+                            ForEach(segments.indices, id: \.self) { i in
+                                Rectangle()
+                                    .fill(segments[i].1)
+                                    .frame(width: width * CGFloat(segments[i].0) / CGFloat(total))
+                            }
+                        }
+                    }
                 }
                 .frame(height: 4)
                 Text(L("Protein %dg · Carbs %dg · Fat %dg", meal.protein, meal.carb, meal.fat))
                     .font(.custom("Jost-Regular", size: 12))
                     .foregroundStyle(Color.white.opacity(0.72))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(10)
         .background(Color(hex: 0x141418), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.06), lineWidth: 1))
-    }
-}
-
-private struct PlateThumb: View {
-    var body: some View {
-        ZStack {
-            Circle().fill(Color(hex: 0xE9E1D0)).frame(width: 44, height: 44).offset(y: 2)
-            Circle().fill(Color(hex: 0xF6F1E6)).frame(width: 34, height: 34).offset(y: 2)
-            Ellipse().fill(Color(hex: 0xC98A4B)).frame(width: 16, height: 10).offset(x: -7, y: -2)
-            Circle().fill(Color(hex: 0x6FA44A)).frame(width: 8, height: 8).offset(x: 6, y: 6)
-            Circle().fill(Color(hex: 0xE2543B)).frame(width: 5, height: 5).offset(x: 10, y: 2)
-        }
-        .frame(width: 64, height: 64)
-        .background(Color(hex: 0x2A241C), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -352,9 +363,10 @@ private struct PlayMark: View {
 /// Same stroke as the planet's up-chevron, turned down.
 private struct ChevronDownMark: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.homeArtActive) private var artActive
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: reduceMotion || !artActive)) { timeline in
             let wave = reduceMotion ? 0.0 : sin(timeline.date.timeIntervalSinceReferenceDate * 2.4)
             stroke.offset(y: CGFloat(wave) * 2)
         }

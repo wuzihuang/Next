@@ -86,7 +86,7 @@ final class OriginDataSync {
                 guard refreshState().rejection(expected: scope) == nil,
                       Band.live.state == .connected else { return false }
                 BandPresence.shared.start(store: store)
-                store.band.connected = true
+                store.setBandConnected(true)
                 let metadataStarted = Date()
                 await BandPresence.shared.refresh(store: store, prepared: BandReadiness.shared.snapshot)
                 NightDiagnostics.shared.record("sync.prepare", fields: [
@@ -1266,7 +1266,7 @@ final class OriginDataSync {
     private static func apply(_ latest: LiveVitals?, to store: DataStore) {
         guard let latest, let at = latest.at else { return }
         if let current = store.vitals.at, current >= at { return }
-        store.vitals = latest
+        if store.vitals != latest { store.vitals = latest }
     }
 
     // MARK: what has already been sent

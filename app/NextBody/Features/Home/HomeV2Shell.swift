@@ -128,6 +128,8 @@ struct HomeV2Shell: View {
         }
         .frame(width: width, height: screen.height, alignment: .topLeading)
         .clipped()
+        // A pushed page keeps Home alive underneath; its art must not keep drawing there.
+        .environment(\.homeArtActive, router.path.isEmpty && router.takeover == nil)
         .onAppear {
             switch ProcessInfo.processInfo.environment["NB_DEBUG_HOME_SLOT"] {
             case "guide": guide = true
@@ -257,6 +259,7 @@ private struct HomeDeck: View {
     @State private var timelineAtTouch: CGFloat = 0
     @State private var more: CGFloat = 0
     @State private var moreAtTouch: CGFloat = 0
+    @Environment(\.homeArtActive) private var artActive
 
     private enum DragAxis { case horizontal, vertical }
     private enum VerticalTarget { case timeline, more }
@@ -306,6 +309,7 @@ private struct HomeDeck: View {
                                        onFood: { onCard(.fuel, "FUEL") })
                     }
                     .equatable()
+                    .environment(\.homeArtActive, artActive && abs(offset) < width - 0.5 && timeline < 0.999)
                     .frame(width: width, height: contentHeight, alignment: .top)
                     CachedLayer(stamp: stamp) {
                         HomeInstrumentsPage(metrics: today, history: history, vitals: vitals,
@@ -336,6 +340,7 @@ private struct HomeDeck: View {
                                   })
             }
                 .equatable()
+                .environment(\.homeArtActive, artActive && timeline > 0.001)
                 .frame(width: width, height: height, alignment: .top)
                 .offset(y: (1 - timeline) * height)
                 .allowsHitTesting(timeline > 0.04)
@@ -708,30 +713,56 @@ private struct HomeBodyPage: View {
                     .foregroundStyle(NB.white.opacity(0.55))
                 Text(lastScanLabel)
                     .font(NBFont.dot(700, 13)).tracking(0.08 * 13)
-                    .foregroundStyle(scanEntryDue ? NB.lime1.opacity(0.85) : NB.white.opacity(0.9))
+                    .foregroundStyle(weightFresh ? NB.lime1.opacity(0.85) : NB.white.opacity(0.9))
             }
             Spacer(minLength: 0)
-            Button(action: beginBodyScan) {
-                ZStack {
-                    Capsule()
-                        .stroke(scanEntryDue ? NB.lime1.opacity(0.8) : NB.white.opacity(0.28),
-                                lineWidth: 1)
-                    Capsule()
-                        .fill(NB.lime1)
-                        .frame(height: 1)
-                        .opacity(scanEntryAnimating ? 1 : 0)
-                    Text(scanEntryDue ? L("SCAN NOW →") : L("SCAN AGAIN →"))
-                        .font(NBFont.dot(600, 11)).tracking(0.14 * 11)
-                        .foregroundStyle(scanEntryDue ? NB.lime1 : NB.white.opacity(0.6))
-                        .opacity(scanEntryAnimating ? 0 : 1)
+            if weightFresh {
+                Button(action: beginBodyScan) {
+                    ZStack {
+                        Capsule().fill(NB.lime1)
+                        Text(model.scannedAt == nil || scanEntryDue ? L("SCAN NOW →") : L("SCAN AGAIN →"))
+                            .font(NBFont.dot(600, 11)).tracking(0.14 * 11)
+                            .foregroundStyle(NB.carbon)
+                            .opacity(scanEntryAnimating ? 0 : 1)
+                        Capsule()
+                            .fill(NB.lime1)
+                            .frame(height: 1)
+                            .opacity(scanEntryAnimating ? 1 : 0)
+                    }
+                    .frame(width: 136, height: 32)
+                    .scaleEffect(x: scanEntryAnimating ? 1.3 : 1,
+                                 y: scanEntryAnimating ? 0.04 : 1)
                 }
-                .frame(width: 136, height: 32)
-                .scaleEffect(x: scanEntryAnimating ? 1.3 : 1,
-                             y: scanEntryAnimating ? 0.04 : 1)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("body-scan-entry")
+            } else {
+                // 14 · the same slot collapsed to bare text: no capsule, because a frame reads
+                // "executable" and a scan against a stale weight changes nothing. The small
+                // line says what is missing. Tapping it calls the number up, not the scan.
+                Button { router.sheet = .scanWeighIn } label: {
+                    VStack(alignment: .trailing, spacing: 5) {
+                        Text(model.scannedAt == nil ? L("SCAN") : L("SCAN AGAIN"))
+                            .font(NBFont.dot(600, 11)).tracking(0.14 * 11)
+                            .foregroundStyle(NB.white.opacity(0.6))
+                        Rectangle().fill(NB.white.opacity(0.22)).frame(width: 96, height: 1)
+                        Text(model.scannedAt == nil ? L("FIRST WEIGH-IN") : L("NEEDS A NEW WEIGH-IN"))
+                            .font(NBFont.dot(600, 8.5)).tracking(0.12 * 8.5)
+                            .foregroundStyle(NB.white.opacity(0.38))
+                    }
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("body-scan-entry")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("body-scan-entry")
         }
+    }
+
+    /// 14 · the gate is the weight, not the clock: a fresh weigh-in is one recorded after the
+    /// last scan. Never scanned → any weigh-in on record counts, no weigh-in → the dial.
+    private var weightFresh: Bool {
+        guard let at = model.scannedAt else { return data.weighIns.first != nil }
+        guard let latest = data.weighIns.first?.date else { return false }
+        return latest > at
     }
 
     private var scanEntryDue: Bool {
@@ -741,7 +772,7 @@ private struct HomeBodyPage: View {
     }
 
     private var lastScanLabel: String {
-        guard let at = model.scannedAt else { return L("DUE") }
+        guard let at = model.scannedAt else { return L("NEVER") }
         let days = max(0, Calendar.current.dateComponents([.day], from: at, to: Date()).day ?? 0)
         if days >= 7 { return L("DUE") }
         if days == 0 { return L("TODAY") }

@@ -9,8 +9,9 @@ import SwiftUI
 // one line on a 375-wide phone, and a wrapped read-out is the defect the board was drawn
 // against.
 
-/// The hero. `value` is the only thing on its line — the unit sits beside it, the zone
-/// name after that, the dial under it, and the two facts that qualify it below a hairline.
+/// The hero. `value` is the only thing on its line — the zone name and the unit sit at
+/// its baseline, the dial under it, the two facts that qualify it below that, and the
+/// sensor caption last.
 struct VitalsHero: View {
     /// What measured it, not what it means.
     let sensor: String
@@ -26,27 +27,24 @@ struct VitalsHero: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(sensor)
-                .font(NBFont.ui(400, 10)).tracking(0.12 * 10)
-                .foregroundStyle(NB.white.opacity(0.45))
-                .lineLimit(1).minimumScaleFactor(0.8)
-
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
+            HStack(alignment: .lastTextBaseline, spacing: 10) {
                 Text(value ?? Fmt.dash)
-                    .font(NBFont.dot(800, 52)).tracking(-0.04 * 52)
+                    .font(NBFont.dot(800, 64))
                     .foregroundStyle(value == nil ? NB.text3Prod : figureTint)
                     .lineLimit(1).minimumScaleFactor(0.6)
-                if let unit {
-                    Text(unit)
-                        .font(NBFont.ui(600, 14))
-                        .foregroundStyle(value == nil ? NB.text3Prod : NB.text1)
-                        .lineLimit(1)
-                }
-                if let name = dial?.zoneName, value != nil {
-                    Text("· \(name)")
-                        .font(NBFont.ui(600, 14))
-                        .foregroundStyle(figureTint)
-                        .lineLimit(1).minimumScaleFactor(0.8)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let name = dial?.zoneName, value != nil {
+                        Text(name)
+                            .font(NBFont.ui(600, 15))
+                            .foregroundStyle(figureTint)
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    if let unit {
+                        Text(unit)
+                            .font(NBFont.ui(500, 13))
+                            .foregroundStyle(NB.text3Prod)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -55,21 +53,22 @@ struct VitalsHero: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(footLeft)
-                    .font(NBFont.ui(400, 10))
-                    .foregroundStyle(NB.white.opacity(0.50))
+                    .font(NBFont.ui(400, 13))
+                    .foregroundStyle(NB.text2)
                     .lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
                 if let footRight {
                     Text(footRight)
-                        .font(NBFont.ui(400, 10))
-                        .foregroundStyle(NB.white.opacity(0.35))
+                        .font(NBFont.ui(400, 12))
+                        .foregroundStyle(NB.text3Prod)
                         .lineLimit(1).minimumScaleFactor(0.8)
                 }
             }
-            .padding(.top, 10)
-            .overlay(alignment: .top) {
-                Rectangle().fill(NB.white.opacity(0.06)).frame(height: 1)
-            }
+
+            Text(sensor)
+                .font(NBFont.ui(400, 11))
+                .foregroundStyle(NB.text3Prod)
+                .lineLimit(1).minimumScaleFactor(0.8)
         }
         .padding(.bottom, 4)
         .frame(width: NB.Layout.contentWidth, alignment: .leading)
@@ -252,7 +251,7 @@ struct VitalsScaleRail: View {
                         .offset(x: -Self.gap - 3, y: y)
 
                     Text(label)
-                        .font(NBFont.ui(500, 9))
+                        .font(NBFont.ui(500, 10))
                         .foregroundStyle(NB.white.opacity(0.52))
                         .lineLimit(1).minimumScaleFactor(0.7)
                         // Half the cap height, so the label reads level with its own tick
@@ -279,7 +278,7 @@ struct VitalsAxis: View {
             ForEach(Array(labels.enumerated()), id: \.offset) { i, label in
                 let last = highlightsLast && i == labels.count - 1
                 Text(label)
-                    .font(NBFont.ui(last ? 500 : 400, 9))
+                    .font(NBFont.ui(last ? 500 : 400, 10))
                     .foregroundStyle(last ? tint : NB.white.opacity(0.45))
                     .lineLimit(1)
                 if i < labels.count - 1 { Spacer(minLength: 0) }
@@ -320,7 +319,7 @@ struct VitalsChartLegend: View {
                         } ?? AnyShapeStyle(item.tint.opacity(item.isArea ? 0.14 : 0.85)))
                         .frame(width: item.isArea ? 12 : 3, height: 11)
                     Text(item.text)
-                        .font(NBFont.ui(400, 9))
+                        .font(NBFont.ui(400, 11))
                         .foregroundStyle(NB.white.opacity(0.50))
                         .lineLimit(1).minimumScaleFactor(0.75)
                 }
@@ -328,7 +327,7 @@ struct VitalsChartLegend: View {
             Spacer(minLength: 0)
             if let trailing {
                 Text(trailing)
-                    .font(NBFont.ui(500, 9))
+                    .font(NBFont.ui(500, 11))
                     .foregroundStyle(trailingTint)
                     .lineLimit(1).minimumScaleFactor(0.8)
             }
@@ -384,7 +383,7 @@ struct VitalsSplit: View {
                         HStack(spacing: 4) {
                             Circle().fill(b.tint).frame(width: 5, height: 5)
                             Text("\(b.name) \(b.detail)")
-                                .font(NBFont.ui(400, 9))
+                                .font(NBFont.ui(400, 11))
                                 .foregroundStyle(NB.text2)
                                 .lineLimit(1).minimumScaleFactor(0.75)
                         }
@@ -396,8 +395,8 @@ struct VitalsSplit: View {
     }
 }
 
-/// The board's two closing tiles. Always exactly two, always the same height — they are the
-/// page's footnotes, and a single wide one would read as a third conclusion.
+/// The page's key-metrics pair: two separate tiles, always exactly two, always the same
+/// height. They draw `cardBleed` into the gutter on both sides, like the card sections.
 struct VitalsStatPair: View {
     struct Model: Identifiable {
         var id: String { label }
@@ -412,38 +411,42 @@ struct VitalsStatPair: View {
     let right: Model
 
     var body: some View {
-        HStack(spacing: 0) {
-            tile(left).padding(.trailing, 14)
-            Rectangle().fill(NB.hairline).frame(width: 1)
-            tile(right).padding(.leading, 14)
+        HStack(spacing: 8) {
+            tile(left)
+            tile(right)
         }
-        .frame(width: NB.Layout.contentWidth)
-        .lineSkin()
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: NB.Layout.contentWidth + 2 * NB.Layout.cardBleed)
+        .padding(.horizontal, -NB.Layout.cardBleed)
     }
 
     private func tile(_ m: Model) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(m.label)
-                .font(NBFont.ui(400, 9)).tracking(0.1 * 9)
-                .foregroundStyle(NB.white.opacity(0.45))
+                .font(NBFont.ui(500, 13))
+                .foregroundStyle(NB.text2)
                 .lineLimit(1).minimumScaleFactor(0.8)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(m.value ?? Fmt.dash)
-                    .font(NBFont.dot(700, 18))
+                    .font(NBFont.dot(700, 22))
                     .foregroundStyle(m.value == nil ? NB.text3Prod : (m.tint ?? NB.text1))
                     .lineLimit(1).minimumScaleFactor(0.7)
                 if let unit = m.unit, m.value != nil {
                     Text(unit)
-                        .font(NBFont.ui(500, 9))
-                        .foregroundStyle(NB.white.opacity(0.40))
+                        .font(NBFont.ui(500, 12))
+                        .foregroundStyle(NB.text3Prod)
                 }
             }
             Text(m.foot)
-                .font(NBFont.ui(400, 9))
-                .foregroundStyle(m.value == nil ? NB.text3Prod : (m.tint ?? NB.text2))
+                .font(NBFont.ui(400, 11))
+                .foregroundStyle(m.value == nil ? NB.text3Prod : (m.tint ?? NB.text3Prod))
                 .lineLimit(1).minimumScaleFactor(0.75)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 84, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(NB.white.opacity(0.06)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(m.label)
         .accessibilityValue(m.value.map { "\($0) \(m.unit ?? ""), \(m.foot)" } ?? "no reading, \(m.foot)")

@@ -92,7 +92,7 @@ struct PlusMenuSheet: View {
             }
             #endif
             if Band.live.state != .connected { await Band.live.reconnectIfBound() }
-            data.band.connected = Band.live.state == .connected
+            data.setBandConnected(Band.live.state == .connected)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 14)

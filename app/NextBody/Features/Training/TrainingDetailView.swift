@@ -128,6 +128,7 @@ struct TrainingDetailView: View {
     private var dayBoard: some View {
         VStack(alignment: .leading, spacing: 14) {
             ringCard(load: m.trainingLoad, caption: "OF 21", foot: dayRingFoot)
+            SectionLabel(L("DETAILS"))
             lastSessionCard
             sessionHistoryCard
             todayBuildCard
@@ -870,12 +871,18 @@ struct SegmentedPills: View {
                     selection = o
                 } label: {
                     Text(L(o))
-                        .font(NBFont.dot(selected ? 700 : 500, 12)).tracking(0.16 * 12)
+                        .font(NBFont.ui(selected ? 600 : 500, 15))
                         .foregroundStyle(selected ? NB.text1 : NB.text3Prod)
-                        .frame(maxWidth: .infinity, minHeight: Self.height)
+                        .lineLimit(1)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 10)
                         .overlay(alignment: .bottom) {
-                            Rectangle().fill(selected ? NB.text1 : Color.clear).frame(height: 1.5)
+                            Capsule()
+                                .fill(selected ? NB.text1 : Color.clear)
+                                .frame(height: 2)
                         }
+                        .fixedSize()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -919,24 +926,22 @@ struct SegmentedPills: View {
 struct CardSkin: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(NB.carbon4, in: RoundedRectangle(cornerRadius: NB.R.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: NB.R.card, style: .continuous)
-                .stroke(NB.hairline, lineWidth: 1))
+            .background(NB.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 extension View { func cardSkin() -> some View { modifier(CardSkin()) } }
 
-/// 线条方案 · a section on the ground: one hairline across its top, no fill, no frame.
-/// The gap above the next hairline is the parent stack's spacing, so the rhythm is
-/// rule · breathing room · content · breathing room · rule.
+/// The card skin every section wears: a white-6 % fill reaching 12pt into the gutter, so
+/// the card draws 4pt from the screen edges while the layout width stays `contentWidth`.
 struct LineSkin: ViewModifier {
     var top: CGFloat = 14
     func body(content: Content) -> some View {
         content
-            .padding(.top, top)
-            .overlay(alignment: .top) {
-                Rectangle().fill(NB.hairline).frame(height: 1)
-            }
+            .padding(.vertical, max(top, 16))
+            .padding(.horizontal, NB.Layout.cardBleed)
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(NB.white.opacity(0.06)))
+            .padding(.horizontal, -NB.Layout.cardBleed)
     }
 }
 extension View { func lineSkin(top: CGFloat = 14) -> some View { modifier(LineSkin(top: top)) } }
@@ -946,10 +951,10 @@ struct SectionLabel: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         Text(text)
-            .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-            .foregroundStyle(Color(hex: 0x8A8A96))
-            .padding(.leading, 2)
-            .padding(.top, 8)
+            .font(NBFont.ui(600, 21))
+            .foregroundStyle(NB.text1)
+            .padding(.top, 14)
+            .frame(width: NB.Layout.contentWidth, alignment: .leading)
     }
 }
 
@@ -961,16 +966,16 @@ struct CardBlock<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
-                    .font(NBFont.ui(500, 11)).tracking(0.2 * 11)
-                    .foregroundStyle(NB.text1)
+                    .font(NBFont.ui(500, 13))
+                    .foregroundStyle(NB.text2)
                 Spacer(minLength: 0)
                 if let trailing {
                     Text(trailing)
-                        .font(trailingIsDot ? NBFont.dot(700, 12) : NBFont.ui(500, 11))
-                        .tracking((trailingIsDot ? 0.04 : 0.06) * (trailingIsDot ? 12 : 11))
+                        .font(trailingIsDot ? NBFont.dot(700, 12) : NBFont.ui(500, 12))
+                        .tracking(trailingIsDot ? 0.04 * 12 : 0)
                         .foregroundStyle(trailingTint ?? (trailingIsDot ? NB.macroValue : NB.text3Prod))
                 }
             }

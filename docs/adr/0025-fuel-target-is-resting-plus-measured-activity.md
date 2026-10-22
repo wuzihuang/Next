@@ -12,6 +12,6 @@
 
 三处 TARGET 仍只有一个来源。手机上的活动值本来就来自 `day_fuel.active_kcal`，每次手环同步后 `settle_now` 重算，所以手机不需要第二套公式，只印服务端发布的分量（`bmr_full_kcal`、`active_kcal`、`goal_offset_kcal`、`resting_source`）；AI 的 `find day` 读同一列，并带回 restingKcal / activeKcal / goalOffsetKcal / restingSource 供解释。「实时」的粒度是一次同步：目标随下一次结算上涨，不在两次同步之间自己爬。
 
-宏量拆分不变。目标仍由取整后的蛋白、脂肪、碳水拼回来，落在公式值的一个 20 kcal 台阶之内；被安全线顶住的日子，2.0 g/kg 蛋白和 0.5 g/kg 脂肪装不进 1500 时会高出安全线，那部分显示在 FAT_G 里，不藏在目标里（20260908160000）。BULK 下这个数是「至少吃到」，不是上限；「今天最多能吃多少」这个问法只对 CUT 成立。
+宏量拆分不变（2026-10-22 起由 ADR 0033 改为跟活动和体成分走）。目标仍由取整后的蛋白、脂肪、碳水拼回来，落在公式值的一个 20 kcal 台阶之内；被安全线顶住的日子，2.0 g/kg 蛋白和 0.5 g/kg 脂肪装不进 1500 时会高出安全线，那部分显示在 FAT_G 里，不藏在目标里（20260908160000）。BULK 下这个数是「至少吃到」，不是上限；「今天最多能吃多少」这个问法只对 CUT 成立。
 
 `calculation_version` fuel-1.2 → fuel-2.0、energy-1.1 → energy-1.2，全量标脏按序重放。测试在 `supabase/tests/fuel_target_resting_plus_activity.sql`；`fuel_goal_offsets` / `measured_burn_target` / `daily_activity_load` 里与旧口径相反的断言同步改了。

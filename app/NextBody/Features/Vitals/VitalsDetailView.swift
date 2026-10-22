@@ -479,17 +479,32 @@ struct VitalsDetailView: View {
 
                 // The score explains itself on the screenful it appears on.
                 if metric == .sleep, range == .day, let score = todayScore {
-                    CardBlock(title: L(score.usesContributors ? "SLEEP CONTRIBUTORS" : "SCORE BREAKDOWN"), trailing: L("OUT OF 100")) {
-                        SleepScoreBreakdown(score: score)
-                    }
-                    CardBlock(title: L("NIGHT DATA COVERAGE")) {
-                        if score.usesContributors {
-                            SleepContributorCoverage(score: score)
-                        } else {
+                    if score.usesContributors {
+                        VStack(alignment: .leading, spacing: 18) {
+                            SectionLabel(L("SLEEP CONTRIBUTORS"))
+                            SleepContributorBreakdown(score: score)
+                        }
+                        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+                        .padding(.top, 12)
+                    } else {
+                        CardBlock(title: L("SCORE BREAKDOWN"), trailing: L("OUT OF 100")) {
+                            SleepScoreBreakdown(score: score)
+                        }
+                        CardBlock(title: L("NIGHT DATA COVERAGE")) {
                             SleepScoreCoverage(score: score)
                         }
                     }
                 }
+
+                // Oura order — score, then the key metrics, then the details. Sleep keeps
+                // its own pairs inside its board; ACTIVE's day board has no shared pair.
+                if metric != .sleep,
+                   !(metric == .active && !isMetricWindow) {
+                    SectionLabel(L("KEY METRICS"))
+                    VitalsStatPair(left: r.statLeft, right: r.statRight)
+                }
+
+                SectionLabel(L("DETAILS"))
 
                 if metric == .sleep {
                     if range == .day { sleepBoard(r) } else { multiNightBoard }
@@ -521,17 +536,13 @@ struct VitalsDetailView: View {
                 }
 
                 // Sleep owns its own order: the board below is organised by the score's
-                // four groups, so the shared split card and stat pairs are placed inside it.
+                // four groups, so the shared split card is placed inside it.
                 if metric != .sleep,
                    metric != .heart || range == .day,
                    !(metric == .active && !isMetricWindow) {
                     CardBlock(title: r.splitTitle, trailing: r.splitTrailing) {
                         VitalsSplit(bands: r.bands)
                     }
-                    VitalsStatPair(left: r.statLeft, right: r.statRight)
-                }
-                if metric == .heart, range != .day {
-                    VitalsStatPair(left: r.statLeft, right: r.statRight)
                 }
 
                 footer

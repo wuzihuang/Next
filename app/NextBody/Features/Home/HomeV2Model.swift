@@ -354,12 +354,11 @@ enum HomeV2Model {
         let rem = night?.remMinutes ?? 0
         if rem > 0 { nightBits.append(L("REM %@", sleepHours(rem))) }
         if !nightBits.isEmpty { details.append(nightBits.joined(separator: " · ")) }
-        if let stress { details.append(L("STRESS %d", stress)) }
         return BodyGlow(
             lit: lit,
             intensity: glowIntensity(lit: lit, status: status),
             eyebrow: L("HEAD"),
-            value: minutes.map { $0 > 0 ? L("SLEPT %@", sleepHours($0)) : Fmt.dash } ?? Fmt.dash,
+            value: stress.map { L("STRESS %d", $0) } ?? Fmt.dash,
             details: details,
             status: status)
     }
@@ -787,7 +786,8 @@ enum HomeV2Model {
                 meal: TimelineMeal(kcal: Int(plate.kcal.rounded()),
                                    protein: Int(plate.protein.rounded()),
                                    carb: Int(plate.carb.rounded()),
-                                   fat: Int(plate.fat.rounded())),
+                                   fat: Int(plate.fat.rounded()),
+                                   photoPath: plate.photoPath),
                 trailing: nil))
         }
         for recap in recaps where recap.isValid {

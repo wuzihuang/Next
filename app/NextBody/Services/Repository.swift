@@ -719,6 +719,7 @@ final class Repository {
     /// that make a night legible — per-minute overnight SpO2 and the respiration series
     /// buried in `sleep_nights.raw` — never leave the database.
     func loadSleepScores(days: Int, endingAt day: UserDay, into store: DataStore) async {
+        await PushSettle.wait()
         guard let account = SupabaseClient.currentUserIdSnapshot() else { return }
         sleepScoreGeneration &+= 1
         let request = sleepScoreGeneration
@@ -893,6 +894,7 @@ final class Repository {
     /// does not pick a loader.
     func hydrate(_ window: DetailWindow, endingAt day: UserDay, focus: UserDay? = nil,
                  into store: DataStore) async {
+        await PushSettle.wait()
         switch window.load {
         case .none:
             break

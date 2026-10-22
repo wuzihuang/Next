@@ -142,6 +142,9 @@ enum NB {
         static var screenWidth: CGFloat { ScreenMetrics.size.width }
         static let gutter: CGFloat = 16          // 390 - 358 = 32 → 16 each side
         static var contentWidth: CGFloat { screenWidth - 2 * gutter }
+        /// How far a card's fill reaches into the gutter — the card draws 4pt from the
+        /// screen edges while its content keeps the 16pt column.
+        static let cardBleed: CGFloat = 12
         static let panelHeight: CGFloat = 470    // F0/04: 390 → 470 after the strip shrank · the canvas height
         static let stripHeight: CGFloat = 136
         static var cardWidth: CGFloat { (contentWidth - cardGap) / 2 }

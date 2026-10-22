@@ -93,11 +93,26 @@ opening either AI folder without the owner's permission.
   internal `Friend` (`d62d8979-1adc-45e2-85c4-964b58a7c896`) and `Internal Testers`
   (`8598b996-8b7b-4d9c-9f6a-82e6b6df538a`); external `Public`
   (`9e585745-be37-48cb-bf27-a16a79b0dd81`) with public link
-  `https://testflight.apple.com/join/x4yW7mJQ`. Latest public build is `1.0` (6)
-  (`20ef55fb-1f5c-4e01-a1e0-2beb037942b1`, uploaded 2026-09-19, encryption exempt,
-  `IN_BETA_TESTING` / `APPROVED`). Previous public builds `1.0` (5) and `1.0` (4)
-  remain approved. Local `CURRENT_PROJECT_VERSION` is 6. The public link can
-  be used to join and install.
+  `https://testflight.apple.com/join/x4yW7mJQ`. Latest public build is `1.0` (8)
+  (`20e016f7-6475-4a12-adca-5f5e2944aa09`, archived+uploaded 2026-10-21 from the
+  live working tree, encryption exempt, beta review `APPROVED`; What to Test
+  rewritten for the build — seven-factor sleep, home planet deck, scan-gated
+  weigh-in — en-US + zh-Hans). Earlier (7) was pushed to public by mistake on
+  the same day: it was a month-old upload, NOT a fresh archive. Release flow:
+  `asc builds next-build-number` → `asc xcode version edit --build-number N
+  --target NextBody --target... ` (bump BOTH NextBody and NextBodyLiveActivity —
+  mismatched CFBundleVersion fails embedded-binary validation) → `asc xcode
+  archive --project app/NextBody.xcodeproj --scheme NextBody --configuration
+  Release -destination generic/platform=iOS -allowProvisioningUpdates` → `asc
+  xcode export` with `.asc/artifacts/NextBody-ExportOptions-*.plist` (method
+  app-store-connect, destination export) → `asc builds upload --wait` → `asc
+  builds add-groups` to `Public` → `asc testflight review submit --build-id ...
+  --confirm` (group add alone does not create the beta review submission) →
+  `asc builds test-notes update` per localization. pbxproj commits lag: it held
+  version 5 while ASC had 6-7 — always use `next-build-number`, never the
+  checked-in number. ASC API flaked 403
+  REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED intermittently after a fresh agreement
+  signing — retrying over ~1 min works.
   Do not confuse with the older phone bundle
   `com.walnutechnology.nextbody.app`.
 - App Store screenshots live on Paper `NEXTBODY-HOOP` page `screenshot` (`S-0`): one
@@ -210,7 +225,7 @@ opening either AI folder without the owner's permission.
   benchmark. Diagnostics now separate device metadata, publication wait, settlement,
   reload and receipts; `sync.settlement` is nested within `settlement_and_reload`,
   so do not sum both. Diagnostic recording still follows the existing 48-hour lease.
-- **Seven sleep contributors (sleep-v3.0, local 2026-10-21)** —
+- **Seven sleep contributors (sleep-v3.0, backend verified live 2026-10-21)** —
   `20261021100000_sleep_seven_contributors.sql` replaces four-group scoring with
   total sleep / efficiency / restfulness / REM / deep / latency / timing,
   nominal weights 40/10/10/15/15/5/5. These are HOOP rules inspired by Oura's public
@@ -224,7 +239,7 @@ opening either AI folder without the owner's permission.
   windows and missing-stage evidence, and do not invent naps or zero REM.
   Numeric `inputs.score_*` / `weight_*` plus `contributor_policy=3` carry the contract;
   legacy group columns except duration are null. `SleepContributor` in Metrics
-  and the contributor views in SleepRangeBoard render seven expandable rows,
+  and the contributor views in SleepRangeBoard render seven tappable rows,
   coverage, cap and version-aware day/week/month breakdowns. Older caches retain
   their four-group explanation. Training target v3 path uses the final sleep score
   (`target-1.1`), not retired columns; legacy target path is unchanged.
@@ -241,7 +256,16 @@ opening either AI folder without the owner's permission.
   numeric evidence, null latency, account isolation and offline preservation.
   Cached v3 schedules use `sleep_elapsed_minutes`, not `duration_min`, to recover
   the actual wake clock after excluding awake time from the scored duration.
-  No hosted database migration or app release has been performed.
+  Production readback on `gkgzwcxivnffsecshvfs` confirmed the migration was already
+  applied and all 98 night scores were v3, with no cap/range/latency violations or
+  retired group values; no duplicate deployment was needed. Follow-up UI uses
+  spacious white/amber score rows with fixed chevrons, factor explanation sheets,
+  and a separate scoring-info sheet. `NB_DEBUG_SLEEP_CONTRIBUTORS=1` seeds only
+  simulator UI fixtures; the new interaction test is in SleepScoreEvidenceTests.
+  `screenshots/sleep-contributors-preview.png` renders actual components with
+  fixture data. Full app build/install and UI-test execution are pending explicit
+  compiler-read permission for the protected AI directories; the standalone
+  component preview and typechecks did not read those directories.
 
 - **HOOP body scan particles** — `app/NextBody/Features/Measure/HoopFigure.swift`
   draws the screenless side-key device as precomputed Canvas particles; the S1
@@ -943,7 +967,7 @@ opening either AI folder without the owner's permission.
   policy accepts an explicit lookback so today's list remains today-only.
   1Y is visible but unavailable until a bounded annual summary read exists;
   loading a year of raw ticks through the detail loader would be excessive.
-- `HomeBodyParticles` (`Features/Home/HomeBodyParticles.swift`): the body-page figure is a live point cloud, not the `HomeBody` PNG. `BodyCloud.shared` samples the PNG once (150 columns, about 4,400 points, seeded so it is the same every launch) and one `Canvas` draws it in about 30 batched paths: (1 + 4 spot) tones × 6 opacity levels, additive blend. The first time the body page becomes active the points gather from scatter (nothing is drawn before that). Every later visit plays an outward ripple and restarts the scan sweep. It also breathes at the torso, twinkles, sheds rising dust and shows occasional flares. Head, heart, gut and legs spots (intensity + status tint, `Zone.allCases` order) colour points inside narrow zone rects, so the hands stay untinted. Animation pauses when the page is off screen or Reduce Motion is on. A blurred static halo `Canvas` sits underneath. `BodyLens` either fits the whole figure or enlarges it around a focus point. `Zone.anchor` is each part's centre in artwork units, and `Zone.closeUp` frames `HomeZoneDetail` as a head-and-shoulders, chest, torso or legs close-up. Close-ups use `BodyCloud.dense` (260 columns) and draw only the points on screen. On the body page, `BodyStage` splits the space under the status line into figure, handle, and rows: the row is 17 % of the room, clamped to 84…112 pt. Pulling up trades figure height for two more rows, so three rows fill the space exactly with no gap. Each caption has a leader line from its body part (a dot and ring) to a rail under the caption. The line is solid in the part's five-stop status colour (green → lime → yellow → orange → red) when it has data; head, heart and legs fall back to a dashed dim leader, while the gut's caption and leader hide entirely until food is logged.
+- `HomeBodyParticles` (`Features/Home/HomeBodyParticles.swift`): the body-page figure is a live point cloud, not the `HomeBody` PNG. `BodyCloud.shared` samples the PNG once (150 columns, about 4,400 points, seeded so it is the same every launch) and one `Canvas` draws it in about 30 batched paths: (1 + 4 spot) tones × 6 opacity levels. The scan sweep remains additive; point colours use normal blending so orange hues stay saturated. The first time the body page becomes active the points gather from scatter (nothing is drawn before that). Every later visit plays an outward ripple and restarts the scan sweep. It also breathes at the torso, twinkles, sheds rising dust and shows occasional flares. Head, heart, gut and legs spots (intensity + tint, `Zone.allCases` order) colour up to 80% of eligible points inside narrow zone rects, so the hands stay untinted. Shared status colours run green → lime → yellow → amber orange → orange-red, avoiding signal-red for these non-diagnostic scores. The gut blends the protein / carbohydrate / fat palette by their recorded calorie shares (4 / 4 / 9 kcal per gram); missing macros do not become zeros. Legs are an activity-volume heat ramp rather than a low-step warning: dim gray at zero, progressively green up to 8k, yellow at 10k, orange at 20k and orange-red at 30k+. Animation pauses when the page is off screen or Reduce Motion is on. A blurred static halo `Canvas` sits underneath. `BodyLens` either fits the whole figure or enlarges it around a focus point. `Zone.anchor` is each part's centre in artwork units, and `Zone.closeUp` frames `HomeZoneDetail` as a head-and-shoulders, chest, torso or legs close-up. Close-ups use `BodyCloud.dense` (260 columns) and draw only the points on screen. On the body page, `BodyStage` splits the space under the status line into figure, handle, and rows: the row is 17 % of the room, clamped to 84…112 pt. Pulling up trades figure height for two more rows, so three rows fill the space exactly with no gap. Each caption has a leader line from its body part (a dot and ring) to a rail under the caption. The gut's caption and leader hide entirely until food is logged.
 - `AIPanel`: renders STANDBY when no widget exists, THINKING during a request, and a completed personalized widget frame.
 - `StreamHaptics`: typing ticks + a line tap while THINKING; when the turn lands,
   `settled()` is one Core Haptics needle (intensity 0.9, sharpness 1.0). No continuous
@@ -1218,8 +1242,22 @@ opening either AI folder without the owner's permission.
   low-step red/orange warning. Their status copy stays neutral. Gut's tint is
   the weighted blend of recorded protein/carbohydrate/fat calories, while its
   calorie-allowance status still controls glow intensity.
+- Hairline dividers between stack children go in `.overlay`, never inline:
+  a bare `Rectangle().frame(width: 1)` inside an HStack is height-flexible and
+  makes its whole ancestor chain flexible, so a parent VStack splits leftover
+  space into the card. The Home planet `.logged` food card's dead band between
+  header and macro strip was exactly this (`loggedHeader`); fixed by overlaying
+  the divider on the leading column. Same class of bug: a `GeometryReader`
+  inside an uncapped stack.
 
 ## Verification
+- Home body colour ramp and macro tint: `cd app && swift test --filter NextBodyHomeTests`.
+  The math is pure in `Features/Home/BodyTintMath.swift` (SwiftPM target
+  `NextBodyHomeCore`; `HomeV2Model.legsTint/gutTint` only bridge `Color`). Tests check
+  low/missing steps stay neutral, 8k green, 10k yellow, 20k orange, 30k+ orange-red,
+  and protein/carb/fat at 4/4/9 kcal per g with gut colours `optimal2`/`lime1`/`run1`
+  (the same macro colours as the timeline and planet). UI test bundles cannot
+  `@testable import NextBody`, so model logic tests belong in a SwiftPM core target.
 - Back-swipe snapshot geometry: `python3 app/Tests/diagnostics/backdrop_geometry.py`
   (requires a booted iOS simulator; `--device <UDID>` selects one). It compiles the
   actual `BackdropSnapshot` container against UIKit and checks first layout,
@@ -1231,10 +1269,3 @@ opening either AI folder without the owner's permission.
 - iOS UI behavior: run the `NextBody` Xcode scheme/UI test target on an available simulator or device.
 - Edge Function lint: `pnpm run lint`.
 - Edge Function tests: `deno test --node-modules-dir=auto --allow-all supabase/functions`.
-- Home body colour ramp and macro tint: `cd app && swift test --filter NextBodyHomeTests`.
-  The math is pure in `Features/Home/BodyTintMath.swift` (SwiftPM target
-  `NextBodyHomeCore`; `HomeV2Model.legsTint/gutTint` only bridge `Color`). Tests check
-  low/missing steps stay neutral, 8k green, 10k yellow, 20k orange, 30k+ orange-red,
-  and protein/carb/fat at 4/4/9 kcal per g with gut colours `optimal2`/`lime1`/`run1`
-  (the same macro colours as the timeline and planet). UI test bundles cannot
-  `@testable import NextBody`, so model logic tests belong in a SwiftPM core target.

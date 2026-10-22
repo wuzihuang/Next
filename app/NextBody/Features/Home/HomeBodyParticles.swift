@@ -12,6 +12,7 @@ struct HomeBodyParticles: View {
     /// false: the figure is already standing on first show, only the ripple and sweep play.
     var gathers = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.homeArtActive) private var artActive
     /// Set the first time the page is shown. Until then nothing is drawn, so the first visit
     /// watches the figure assemble; later visits get a ripple and a fresh sweep instead.
     @State private var gatheredAt: Date?
@@ -24,8 +25,11 @@ struct HomeBodyParticles: View {
             BodyCloudHalo(cloud: cloud, lens: lens)
                 .opacity(shown ? 1 : 0)
                 .animation(.easeOut(duration: 1.4).delay(gathers ? 0.6 : 0), value: shown)
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !active || reduceMotion)) { timeline in
-                Canvas(rendersAsynchronously: false) { context, size in
+            // ⚠️ Thousands of motes are rebuilt into paths every frame. Drawn on the main thread
+            // at 60 Hz this competed with the finger for every page turn and push.
+            TimelineView(.animation(minimumInterval: 1.0 / 30,
+                                    paused: !active || !artActive || reduceMotion)) { timeline in
+                Canvas(rendersAsynchronously: true) { context, size in
                     let frame = BodyCloud.Frame(now: timeline.date,
                                                 gatheredAt: reduceMotion ? .distantPast : gatheredAt,
                                                 pulsedAt: pulsedAt,
@@ -309,11 +313,11 @@ struct BodyCloud: Sendable {
                                                startPoint: CGPoint(x: left, y: lineY),
                                                endPoint: CGPoint(x: right, y: lineY)))
         }
+        context.blendMode = .normal
         for tone in 0...frame.spots.count {
             let tint = tone == 0 ? Self.base : frame.spots[tone - 1].tint
             for level in 0..<levels {
                 let path = paths[tone * levels + level]
-        context.blendMode = .normal
                 guard !path.isEmpty else { continue }
                 let opacity = (Double(level) + 0.5) / Double(levels)
                 context.fill(path, with: .color(tint.opacity(opacity)))

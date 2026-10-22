@@ -128,6 +128,13 @@ final class DataStore: ObservableObject {
     /// 04 · the HR / STRESS row under the readout, and the tick it came from. 13 · the age
     /// of that tick is what decides whether the numbers are shown, dimmed, or dashed.
     @Published var vitals: LiveVitals = Band.allowsSeed ? .mock : LiveVitals()
+
+    /// Every write to a @Published property republishes the whole store to its ~40 observers,
+    /// equal value or not. Band sync confirms the link many times a minute; only a flip counts.
+    func setBandConnected(_ connected: Bool) {
+        guard band.connected != connected else { return }
+        band.connected = connected
+    }
     /// 12 · what this HOOP reports it can do, as last stored. The device page and 07's
     /// capabilities() gate read this so they are right before the band answers, and still
     /// right when it is out of range.
@@ -232,11 +239,47 @@ final class DataStore: ObservableObject {
         if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_EVIDENCE"] == "1" {
             seedSleepEvidenceForUITests()
         }
+        if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_SLEEP_CONTRIBUTORS"] == "1" {
+            seedSleepContributorsForUITests()
+        }
         #endif
         WidgetGlancePublisher.publish(from: self)
     }
 
     #if DEBUG
+    private func seedSleepContributorsForUITests() {
+        let wake = Calendar.current.date(bySettingHour: 4, minute: 25, second: 0, of: Date()) ?? Date()
+        let start = wake.addingTimeInterval(-325 * 60)
+        let score = SleepScore(score: 56, duration: 41, inputs: [
+            "contributor_policy": 3, "duration_min": 289, "duration_recorded": 1,
+            "sleep_elapsed_minutes": 325, "sleep_recorded_minutes": 325,
+            "unstaged_minutes": 0, "stage_coverage": 1, "bed_offset": 300,
+            "efficiency_pct": 88.92, "awake_min": 36, "wakes": 1,
+            "deep_min": 66, "deep_pct": 22.8, "rem_min": 59, "rem_pct": 20.4,
+            "light_pct": 56.7, "midpoint_min": 102.5,
+            "score_total_sleep": 40.83, "score_efficiency": 100,
+            "score_restfulness": 77.85, "score_rem": 65.56,
+            "score_deep": 100, "score_timing": 100,
+            "weight_total_sleep": 40, "weight_efficiency": 10,
+            "weight_restfulness": 10, "weight_rem": 15, "weight_deep": 15,
+            "weight_latency": 5, "weight_timing": 5,
+            "duration_score_cap": 56.33, "duration_cap_applied": 1
+        ], version: "sleep-v3.0", computedAt: Date())
+        today.sleep = SleepSummary(totalMinutes: 325, deepMinutes: 66, lightMinutes: 164,
+            wakeCount: 1, line: [
+                .init(stage: 0, minutes: 66, offsetMinutes: 0),
+                .init(stage: 1, minutes: 100, offsetMinutes: 66),
+                .init(stage: 4, minutes: 36, offsetMinutes: 166),
+                .init(stage: 1, minutes: 64, offsetMinutes: 202),
+                .init(stage: 2, minutes: 59, offsetMinutes: 266)
+            ], sleepStart: start, wakeAt: wake)
+        for back in 0..<30 where back != 11 && back != 19 {
+            sleepScores[today.day.adding(days: -back).key] = score
+        }
+        today.sleepScore = score
+        sleepScoreLoadState = .ready
+    }
+
     /// Deterministic simulator fixture for missing evidence and peaks above the old ruler.
     /// It never runs on a physical band or uploads measurements.
     private func seedSleepEvidenceForUITests() {

@@ -6,6 +6,19 @@ import simd
 /// smooth neon halo blooms past the limb. Everything draws additively (`.plusLighter`), so the
 /// night side and the sky simply vanish into the page. `lit` sets how much of the face the sun
 /// reaches.
+extension EnvironmentValues {
+    /// False while a home art layer cannot be seen: its page is off to the side, the timeline
+    /// covers it, or a detail page / takeover sits on top. Animated art pauses on it.
+    var homeArtActive: Bool {
+        get { self[HomeArtActiveKey.self] }
+        set { self[HomeArtActiveKey.self] = newValue }
+    }
+}
+
+private struct HomeArtActiveKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 struct ParticlePlanet: View {
     enum Kind: Sendable { case terra, luna, mars }
 
@@ -26,11 +39,17 @@ struct ParticlePlanet: View {
     var stars: Int = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.homeArtActive) private var artActive
     @State private var onScreen = false
 
+    /// ⚠️ Performance. Three of these share the planet page and every grain runs several fbm
+    /// octaves. Unthrottled, `.animation` ran them at 120 Hz on ProMotion — for a body that
+    /// turns once a minute — and kept going while the page sat off screen behind an offset
+    /// or under a pushed detail page (`onDisappear` fires for neither). 30 Hz reads the same.
     var body: some View {
         GeometryReader { geometry in
-            TimelineView(.animation(paused: reduceMotion || !onScreen)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 30,
+                                    paused: reduceMotion || !onScreen || !artActive)) { timeline in
                 layer(size: geometry.size,
                       time: reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate)
             }

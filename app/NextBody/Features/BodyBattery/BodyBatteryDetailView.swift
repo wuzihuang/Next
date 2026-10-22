@@ -144,6 +144,7 @@ struct BodyBatteryDetailView: View {
             footer
         } else {
             heroCard
+            SectionLabel(L("DETAILS"))
             if drivers != nil && hasScore { ledgerCard }
             if hasNight { inputsCard }
             vitalsCard

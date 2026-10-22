@@ -23,7 +23,7 @@ final class BandReadiness {
               let binding = BoundBand.identifier, allowed(account: account, binding: binding) else { return false }
         if reuseRecentLiveReceipt, Band.live.state == .connected,
            LiveReadout.shared.hasRecentReceipt(maxAge: 3) {
-            store.band.connected = true
+            store.setBandConnected(true)
             log.notice("readiness reuse real-live-receipt")
             return true
         }
@@ -49,7 +49,7 @@ final class BandReadiness {
                     let battery = try await Band.live.readBattery()
                     guard allowed(account: account, binding: binding), Band.live.state == .connected else { return false }
                     snapshot = Snapshot(account: account, binding: binding, identity: identity, battery: battery)
-                    store.band.connected = true
+                    store.setBandConnected(true)
                     store.applyBandObservation(identity: identity, battery: battery)
                     log.notice("readiness battery elapsed=\(ProcessInfo.processInfo.systemUptime - start)")
                     return true

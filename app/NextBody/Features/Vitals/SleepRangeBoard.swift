@@ -427,43 +427,45 @@ struct SleepWindowBreakdown: View {
 
 struct SleepContributorBreakdown: View {
     let score: SleepScore
+    @State private var selected: SleepContributor?
+    @State private var showsMethod = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             ForEach(SleepContributor.allCases, id: \.self) { contributor in
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(contributor.explanation)
-                        if let weight = score.contributorWeight(contributor) {
-                            Text(L("WEIGHT %.1f%%", weight))
-                        } else {
-                            Text(L("NOT MEASURED · EXCLUDED FROM SCORE"))
-                        }
-                    }
-                    .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
+                Button {
+                    selected = contributor
                 } label: {
                     SleepContributorRow(
                         title: contributor.title, value: measured(contributor),
-                        score: score.contributorScore(contributor))
+                        score: score.contributorScore(contributor), showsChevron: true)
                 }
-                .tint(NB.text3Prod)
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("sleep.contributor.\(contributor.rawValue)")
             }
-            Text(L("HOOP scoring inspired by Oura's public contributors, not Oura's proprietary formula. Missing factors are excluded and remaining weights are normalized."))
-                .font(NBFont.ui(400, 10)).foregroundStyle(NB.text3Prod)
-                .fixedSize(horizontal: false, vertical: true)
             if let cap = score.appliedDurationCap {
                 Text(L("SHORT SLEEP · SCORE CAPPED AT %d", cap))
                     .font(NBFont.dot(500, 10)).foregroundStyle(NB.compareAmber)
                     .accessibilityIdentifier("sleep.durationCap")
             }
+            Button { showsMethod = true } label: {
+                HStack {
+                    Text(L("ABOUT THIS SLEEP SCORE")).font(NBFont.ui(500, 11))
+                    Spacer()
+                    Image(systemName: "info.circle").font(.system(size: 15))
+                }
+                .foregroundStyle(NB.text3Prod)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sleep.scoringInfo")
         }
+        .sheet(item: $selected) { contributor in factorSheet(contributor) }
+        .sheet(isPresented: $showsMethod) { methodSheet }
     }
 
-    private func measured(_ contributor: SleepContributor) -> String {
+    private func measured(_ contributor: SleepContributor, detailed: Bool = false) -> String {
         func number(_ key: String) -> Double? {
             guard let value = score.inputs[key], value.isFinite, value >= 0, value <= 100_000 else { return nil }
             return value
@@ -474,7 +476,7 @@ struct SleepContributorBreakdown: View {
         switch contributor {
         case .totalSleep: return duration("duration_min")
         case .efficiency:
-            return number("efficiency_pct").map { L("%.0f%% · RECORDED", $0) } ?? L("NOT MEASURED")
+            return number("efficiency_pct").map { String(format: "%.0f%%", $0) } ?? L("NOT MEASURED")
         case .restfulness:
             return score.contributorScore(contributor).map(SleepContributor.rating) ?? L("NOT MEASURED")
         case .rem, .deep:
@@ -483,8 +485,73 @@ struct SleepContributorBreakdown: View {
             return duration("\(key)_min") + (number("\(key)_pct").map { String(format: " · %.0f%%", $0) } ?? "")
         case .latency: return L("NOT MEASURED")
         case .timing:
+            if !detailed {
+                return score.contributorScore(contributor).map(SleepContributor.rating) ?? L("NOT MEASURED")
+            }
             guard let midpoint = number("midpoint_min"), midpoint < 1440 else { return L("NOT MEASURED") }
             return L("MIDPOINT %@", SleepScoreMath.bedClock(offset: midpoint - 1080))
+        }
+    }
+
+    private func factorSheet(_ contributor: SleepContributor) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                sheetHeader(contributor.title) { selected = nil }
+                Text(measured(contributor, detailed: true))
+                    .font(NBFont.dot(700, 28)).foregroundStyle(NB.white)
+                if let value = score.contributorScore(contributor) {
+                    HStack {
+                        Text(SleepContributor.rating(value))
+                        Spacer()
+                        Text(L("%.0f OUT OF 100", value))
+                    }
+                    .font(NBFont.dot(600, 12)).foregroundStyle(SleepContributorRow.tint(value))
+                }
+                Text(contributor.explanation)
+                    .font(NBFont.ui(400, 15)).foregroundStyle(NB.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(score.contributorWeight(contributor).map { L("WEIGHT %.1f%%", $0) }
+                     ?? L("NOT MEASURED · EXCLUDED FROM SCORE"))
+                    .font(NBFont.dot(500, 11)).foregroundStyle(NB.text3Prod)
+            }
+            .padding(24)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(NB.carbon)
+        .preferredColorScheme(.dark)
+    }
+
+    private var methodSheet: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                sheetHeader(L("ABOUT THIS SLEEP SCORE")) { showsMethod = false }
+                Text(L("HOOP scoring inspired by Oura's public contributors, not Oura's proprietary formula. Missing factors are excluded and remaining weights are normalized."))
+                    .font(NBFont.ui(400, 14)).foregroundStyle(NB.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                SleepContributorCoverage(score: score)
+            }
+            .padding(24)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(NB.carbon)
+        .preferredColorScheme(.dark)
+    }
+
+    private func sheetHeader(_ title: String, close: @escaping () -> Void) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(title).font(NBFont.ui(600, 21)).foregroundStyle(NB.text1)
+                .padding(.top, 8)
+            Spacer(minLength: 0)
+            Button(action: close) {
+                Image(systemName: "xmark").font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(NB.text2).frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L("CLOSE"))
+            .accessibilityIdentifier("sleep.factor.close")
         }
     }
 }
@@ -493,6 +560,7 @@ struct SleepContributorRow: View {
     let title: String
     let value: String
     let score: Double?
+    var showsChevron = false
 
     static func tint(_ score: Double?) -> Color {
         guard let score else { return NB.text3Prod }
@@ -505,27 +573,39 @@ struct SleepContributorRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title).font(NBFont.ui(500, 12)).foregroundStyle(NB.text1)
+                Text(title).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
                 Spacer(minLength: 4)
-                Text(value).font(NBFont.dot(600, 12)).foregroundStyle(Self.tint(score))
+                Text(value).font(NBFont.dot(600, 14)).foregroundStyle(readingTint)
                     .multilineTextAlignment(.trailing)
+                if showsChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(NB.text3Prod).frame(width: 12)
+                        .fixedSize()
+                }
             }
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule().fill(NB.barTrack)
                     if let score, score.isFinite {
-                        Capsule().fill(Self.tint(score))
+                        Capsule().fill(readingTint)
                             .frame(width: geometry.size.width * CGFloat(min(100, max(0, score))) / 100)
                     }
                 }
             }
             .frame(height: 4)
         }
-        .frame(minHeight: 44)
+        .frame(minHeight: 52)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityValue(score.map { L("%@ · %.0f OUT OF 100", SleepContributor.rating($0), $0) } ?? L("NOT MEASURED"))
+    }
+
+    private var readingTint: Color {
+        guard let score else { return NB.text3Prod }
+        return score < 70 ? NB.compareAmber : NB.white
     }
 }
 

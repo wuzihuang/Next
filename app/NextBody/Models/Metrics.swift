@@ -298,9 +298,11 @@ enum SleepScoreGroup: String, CaseIterable, Hashable {
     }
 }
 
-enum SleepContributor: String, CaseIterable, Hashable {
+enum SleepContributor: String, CaseIterable, Hashable, Identifiable {
     case totalSleep = "total_sleep"
     case efficiency, restfulness, rem, deep, latency, timing
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {

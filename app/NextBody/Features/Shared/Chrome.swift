@@ -411,10 +411,9 @@ enum ScreenMetrics {
 
 // MARK: detail page chrome · shared by 08 · 09 · 10 · 11 · 12 · 13
 
-/// Invisible 热区 around `‹ TITLE`. Tall enough to hit without drawing a disc.
+/// The edge drag's own geometry — how wide the grab strip is and how far or how fast a
+/// drag has to travel before it commits to leaving the page.
 enum DetailBack {
-    static let hitHeight: CGFloat = 56
-    static let hitMinWidth: CGFloat = 48
     static let edgeWidth: CGFloat = 32
     static let commitFraction: CGFloat = 0.4
     static let commitVelocity: CGFloat = 300
@@ -438,24 +437,22 @@ extension EnvironmentValues {
     }
 }
 
-/// Every detail page is one scroll with a coloured bloom behind the top, and **one** title.
-/// At rest it is the headline the boards drew: `‹ TRAINING`, big, the chevron and the word
-/// one button. As the page scrolls that row lifts off — the eyebrow and the trailing
-/// figure go with it — and the word itself shrinks and slides into the centre of the
-/// 44pt bar. The chevron stays pinned at the bar's left so every second level keeps a
-/// back mark in the top-left, including after the title has docked. One title, not two
-/// copies that cut. The bar is glass at rest; a carbon ground fades in so a headline
-/// never collides with the clock.
+/// Every detail page is one scroll under a pinned header washed in the pillar's tint.
+/// The header is a 52pt bar — a glass back disc on the left, the page's name centred —
+/// with a 36pt context row under it whenever the page has something to say there: an
+/// eyebrow, a headline, or a trailing figure. A tinted gradient falls from the top of the
+/// screen behind everything; the header paints the same slice opaque so content scrolling
+/// under it disappears cleanly, and a hairline fades in at its foot as the page moves.
 struct DetailScroll<Trailing: View, Content: View>: View {
     let glow: Color
-    /// The page's own name — what the bar prints once the page has scrolled.
+    /// The page's own name — centred in the bar.
     let title: String
-    /// What the big row prints when it is not the name: 10's date, 09's closed day.
-    /// The name then sits above it as the eyebrow.
+    /// The context row's headline when the page leads with something other than its name:
+    /// 10's date, 09's closed day.
     let headline: String?
-    /// An eyebrow of its own. Defaults to the name whenever the headline is something else.
+    /// An eyebrow of its own, left of the headline in the context row.
     let eyebrow: String?
-    /// The right end of the big row: 08's `2.1 TO GO`, 10's pager, 12's CONNECTED pill.
+    /// The right end of the context row: 08's `2.1 TO GO`, 10's pager, 12's CONNECTED pill.
     let trailing: Trailing
     let content: Content
     let onBack: () -> Void
@@ -473,36 +470,28 @@ struct DetailScroll<Trailing: View, Content: View>: View {
         self.onBack = onBack
     }
 
-    private let barHeight: CGFloat = 44
-    private let topPad: CGFloat = 14
-    private let rowHeight: CGFloat = 34
-    private let bottomPad: CGFloat = 14
+    private let barHeight: CGFloat = 52
+    private let contextHeight: CGFloat = 36
     /// how far the page has scrolled, in points; 0 at rest
     @State private var scrolled: CGFloat = 0
-    /// Centre of the large title in chrome-space at rest. Read off the placeholder so the
-    /// morph starts on the same baseline the chevron was drawn against.
-    @State private var restTitleCenter: CGPoint = .zero
 
-    private var largeWord: String { headline ?? title }
-    private var sameWord: Bool { largeWord == title }
-    private var eyebrowText: String? { eyebrow ?? (headline == nil ? nil : title) }
-    private var eyebrowSlot: CGFloat { eyebrowText == nil ? 0 : 22 }
-    private var expandedHeight: CGFloat { topPad + eyebrowSlot + rowHeight + bottomPad }
-    private var largeRowTop: CGFloat { topPad + eyebrowSlot }
-    private var largeRowCenterY: CGFloat { largeRowTop + rowHeight / 2 }
+    /// The context row exists only when something would print in it.
+    private var showsContextRow: Bool {
+        eyebrow != nil || (headline != nil && headline != title) || Trailing.self != EmptyView.self
+    }
+    private var headerHeight: CGFloat { barHeight + (showsContextRow ? contextHeight : 0) }
 
-    /// 0 at rest, 1 once the large row has handed the title to the bar.
-    private var collapse: CGFloat { min(1, max(0, scrolled / 52)) }
-    /// At rest the bar is glass: the bloom runs straight through it and the page reads as
-    /// one surface. A carbon ground fades in as the page goes under it.
-    private var ground: CGFloat { max(min(1, scrolled / 36), collapse) }
-
-    private let largeSize: CGFloat = 28
-    private let compactSize: CGFloat = 15
-    private var largeChevronH: CGFloat { 19 }
-    private var largeChevronW: CGFloat { 8 * largeChevronH / 13 }
-    private var titleLeading: CGFloat { NB.Layout.gutter + largeChevronW + 10 }
-    private var largeTitleWidth: CGFloat { Self.measure(largeWord, size: largeSize, tracking: -0.02 * largeSize) }
+    /// The pillar wash the whole top of the page shares. The backdrop and the header
+    /// ground draw this same gradient anchored at the same screen top, so at rest the
+    /// seam between them is invisible.
+    private var tintGradient: some View {
+        LinearGradient(stops: [
+            .init(color: glow.opacity(0.22), location: 0),
+            .init(color: glow.opacity(0.08), location: 0.45),
+            .init(color: glow.opacity(0), location: 1),
+        ], startPoint: .top, endPoint: .bottom)
+        .frame(height: 460)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -511,7 +500,7 @@ struct DetailScroll<Trailing: View, Content: View>: View {
             ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Color.clear.frame(height: expandedHeight).id("detail-top")
+                    Color.clear.frame(height: headerHeight + 6).id("detail-top")
                     content
                     Color.clear.frame(height: 1).id("detail-bottom")
                 }
@@ -526,17 +515,11 @@ struct DetailScroll<Trailing: View, Content: View>: View {
                 }
             }
             .coordinateSpace(name: "detail")
-            // ⚠️ A background, not a sibling in the ZStack: the bloom is 430pt wide, and as a
-            // sibling it made the stack 430pt too, so every page sat 14pt left of centre.
+            // ⚠️ A background, not a sibling in the ZStack: a sibling this wide made the
+            // stack itself wider, and every page sat 14pt left of centre.
             .background(alignment: .top) {
-                Ellipse()
-                    .fill(RadialGradient(stops: [
-                        .init(color: glow.opacity(0.13), location: 0),
-                        .init(color: glow.opacity(0.035), location: 0.6),
-                        .init(color: glow.opacity(0), location: 1),
-                    ], center: .center, startRadius: 0, endRadius: 215))
-                    .frame(width: 430, height: 370)
-                    .offset(y: -60)
+                tintGradient
+                    .frame(maxWidth: .infinity)
                     .ignoresSafeArea(edges: .top)
                     .allowsHitTesting(false)
             }
@@ -563,181 +546,103 @@ struct DetailScroll<Trailing: View, Content: View>: View {
             #endif
             }
 
-            departingRow
-            barGround
-            chrome
-                .zIndex(1)
+            // The header's opaque ground: carbon plus the same tint slice the backdrop
+            // draws behind it — status-bar plus header tall, so the page slides under
+            // it without showing through.
+            ZStack(alignment: .top) {
+                NB.carbon
+                tintGradient
+            }
+            .frame(height: ScreenMetrics.safeArea.top + headerHeight, alignment: .top)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+
+            header
         }
-        .coordinateSpace(name: "chrome")
-        .onPreferenceChange(TitleCenterKey.self) { restTitleCenter = $0 }
         .ignoresSafeArea(.container, edges: .bottom)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden()
         .detailEdgeBack(onBack)
     }
 
-    /// The sticky title. One word, interpolating from the large-left slot into the bar's
-    /// centre. Trailing lives in `departingRow`, under the ground; the chevron stays here
-    /// so the top-left back mark never leaves with the large row.
-    private var chrome: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let t = collapse
-            chromeLayers(width: w, t: t)
+    /// The pinned header: the bar, then the context row when the page has one. Its ground
+    /// is carbon plus the same tint slice the backdrop draws behind it — opaque, so the
+    /// page slides under it without showing through.
+    private var header: some View {
+        VStack(spacing: 0) {
+            bar
+            if showsContextRow { contextRow }
         }
-        .frame(height: expandedHeight)
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(NB.hairline)
+                .frame(height: 1)
+                .opacity(min(1, scrolled / 24))
+        }
     }
 
-    private func chromeLayers(width w: CGFloat, t: CGFloat) -> some View {
-        let startX = restTitleCenter == .zero ? titleLeading + largeTitleWidth / 2 : restTitleCenter.x
-        let startY = restTitleCenter == .zero ? largeRowCenterY : restTitleCenter.y
-        let endX = w / 2
-        let endY = barHeight / 2
-        // At rest the ‹ and the word are one 热区, as the boards drew. Docked, it
-        // shrinks to the mark on the bar's left — never a second disc.
-        let hitW = mix(titleLeading + largeTitleWidth, DetailBack.hitMinWidth, t)
+    /// The 52pt bar: back disc on the left, title centred, right side empty.
+    private var bar: some View {
+        ZStack {
+            Text(title)
+                .font(NBFont.brand(700, 16)).tracking(0.02 * 16)
+                .foregroundStyle(NB.text1)
+                .lineLimit(1)
+                .padding(.horizontal, 68)
+                .frame(maxWidth: .infinity)
+            DetailBackButton(title: title, onBack: onBack)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, NB.Layout.gutter + 20 - 22)
+        }
+        .frame(height: barHeight)
+    }
 
-        let chevronH = mix(largeChevronH, 13, t)
-        let chevronW = 8 * chevronH / 13
-
-        return ZStack(alignment: .top) {
-            if sameWord {
-                morphingTitle(t: t, startX: startX, startY: startY, endX: endX, endY: endY)
-            } else {
-                Text(title)
-                    .font(NBFont.brand(700, compactSize)).tracking(0.04 * compactSize)
+    /// The context row — Oura's date-pager slot: eyebrow, headline, trailing, centred.
+    private var contextRow: some View {
+        HStack(spacing: 10) {
+            if let eyebrow {
+                Text(eyebrow)
+                    .font(NBFont.ui(500, 11))
+                    .foregroundStyle(NB.text3Prod)
+                    .lineLimit(1)
+            }
+            if let headline, headline != title {
+                Text(headline)
+                    .font(NBFont.ui(600, 15))
                     .foregroundStyle(NB.text1)
                     .lineLimit(1)
-                    .padding(.horizontal, 56)
-                    .position(x: endX, y: endY)
-                    .opacity(t)
-                    .allowsHitTesting(false)
             }
-
-            BackChevron(height: chevronH, line: mix(2.2, 1.6, t))
-                .offset(y: mix(1, 0, t))
-                .allowsHitTesting(false)
-                .position(x: NB.Layout.gutter + chevronW / 2, y: mix(startY, endY, t))
-
-            DetailBackButton(hitW: hitW, title: title, onBack: onBack)
-                .position(x: hitW / 2, y: mix(startY, endY, t))
+            trailing
         }
-    }
-
-    /// Eyebrow, trailing, and (when it is a different word) the large headline.
-    /// They scroll away with the page; the docked title and the back chevron are not
-    /// among them. Drawn under the bar ground so they never paint over the clock.
-    private var departingRow: some View {
-        let t = collapse
-        return VStack(alignment: .leading, spacing: 8) {
-            if let eyebrowText {
-                Text(eyebrowText)
-                    .font(NBFont.ui(500, 11)).tracking(0.24 * 11)
-                    .foregroundStyle(NB.text3Prod)
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                HStack(spacing: 10) {
-                    Color.clear
-                        .frame(width: largeChevronW, height: largeChevronH)
-                    if sameWord {
-                        Text(largeWord)
-                            .font(NBFont.brand(700, largeSize)).tracking(-0.02 * largeSize)
-                            .lineLimit(1)
-                            .fixedSize()
-                            .opacity(0)
-                            .overlay {
-                                GeometryReader { g in
-                                    Color.clear.preference(
-                                        key: TitleCenterKey.self,
-                                        value: CGPoint(
-                                            x: g.frame(in: .named("chrome")).midX,
-                                            y: g.frame(in: .named("chrome")).midY + scrolled
-                                        )
-                                    )
-                                }
-                            }
-                            .accessibilityHidden(true)
-                    } else {
-                        Text(largeWord)
-                            .font(NBFont.brand(700, largeSize)).tracking(-0.02 * largeSize)
-                            .foregroundStyle(NB.text1)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-                trailing
-            }
-        }
-        .frame(width: NB.Layout.contentWidth, alignment: .leading)
-        .padding(.horizontal, NB.Layout.gutter)
-        .padding(.top, topPad)
-        .offset(y: -scrolled)
-        .opacity(max(0, 1 - t * 1.2))
-        .allowsHitTesting(t < 0.35)
-        .accessibilityHidden(t > 0.5)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    private func morphingTitle(t: CGFloat, startX: CGFloat, startY: CGFloat,
-                               endX: CGFloat, endY: CGFloat) -> some View {
-        Text(largeWord)
-            .font(NBFont.brand(700, largeSize)).tracking(-0.02 * largeSize)
-            .foregroundStyle(NB.text1)
-            .lineLimit(1)
-            .fixedSize()
-            .scaleEffect(mix(1, compactSize / largeSize, t), anchor: .center)
-            .position(x: mix(startX, endX, t), y: mix(startY, endY, t))
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-
-    /// Carbon from the clock down through the 44pt bar, then a short fade so the edge is
-    /// not a line. The 44pt slot stays in the safe area; the fill climbs into the status
-    /// bar as a background so the inset is not eaten out of the 44.
-    private var barGround: some View {
-        VStack(spacing: 0) {
-            Color.clear
-                .frame(height: barHeight)
-                .frame(maxWidth: .infinity)
-                .background(NB.carbon.ignoresSafeArea(edges: .top))
-            LinearGradient(colors: [NB.carbon, NB.carbon.opacity(0)],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: 22)
-                .frame(maxWidth: .infinity)
-        }
-        .opacity(ground)
-        .allowsHitTesting(false)
-    }
-
-    private func mix(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }
-
-    /// The large title's own face at the large size, so the morph starts on the same width
-    /// the placeholder holds open in the large row. It measures what NBFont.brand actually
-    /// draws — Fusion Pixel since 2026-09-07 — not the Inter Tight it used to draw; a
-    /// measurement taken in the wrong face reserves the wrong width and the title lands
-    /// off its placeholder.
-    private static func measure(_ s: String, size: CGFloat, tracking: CGFloat) -> CGFloat {
-        let font = UIFont(name: NBFont.cjkPixel, size: size)
-            ?? UIFont(name: "InterTight-Bold", size: size)
-            ?? .systemFont(ofSize: size, weight: .bold)
-        return ceil((s as NSString).size(withAttributes: [.font: font, .kern: tracking]).width)
+        .frame(maxWidth: .infinity)
+        .frame(height: contextHeight)
     }
 }
 
-/// The ‹ key. The host's slide-out arrives through the environment the edge-back
-/// modifier injects *inside* the page's own body — so the read lives on this child
-/// view; a property on the page itself would only ever see the environment above it.
+/// The back disc — a 40pt glass circle holding the chevron inside a 44pt hit area. The
+/// host's slide-out arrives through the environment the edge-back modifier injects
+/// *inside* the page's own body — so the read lives on this child view; a property on
+/// the page itself would only ever see the environment above it.
 private struct DetailBackButton: View {
-    let hitW: CGFloat
     let title: String
     let onBack: () -> Void
     @Environment(\.detailBackSlide) private var detailBackSlide
 
     var body: some View {
         Button { detailBackSlide?() ?? onBack() } label: {
-            Color.white.opacity(0.001)
-                .frame(width: max(hitW, DetailBack.hitMinWidth), height: DetailBack.hitHeight)
-                .contentShape(Rectangle())
+            ZStack {
+                Circle()
+                    .fill(NB.white.opacity(0.08))
+                    .overlay(Circle().strokeBorder(NB.white.opacity(0.14), lineWidth: 1))
+                BackChevron(height: 15, line: 1.8, color: NB.text1)
+                    .offset(x: -1)
+            }
+            .frame(width: 40, height: 40)
+            .padding(2)
+            .contentShape(Rectangle())
         }
         .buttonStyle(HotZoneTap(pressedOpacity: 1, pressedScale: 1))
         .accessibilityLabel(L("Back"))
@@ -776,11 +681,6 @@ struct DetailOffsetKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-private struct TitleCenterKey: PreferenceKey {
-    static let defaultValue: CGPoint = .zero
-    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) { value = nextValue() }
-}
-
 /// Keep the previous page visible beneath the custom edge drag. NavigationStack's
 /// inactive hosting view is not a drawable backdrop until its route is popped.
 extension View {
@@ -798,8 +698,10 @@ private struct InteractiveEdgeBack: ViewModifier {
     @State private var backdrop: UIView?
 
     func body(content: Content) -> some View {
+        // ⚠️ No `.compositingGroup()` here. It flattened the whole detail page, charts and
+        // all, into one offscreen texture on every redraw — scrolling included — and nothing
+        // on these pages blends against what is under them.
         content
-            .compositingGroup()
             .offset(x: x)
             .environment(\.detailBackSlide, slideOff)
             .background {
@@ -1074,8 +976,8 @@ private final class LeftEdgePan: UIPanGestureRecognizer {
     }
 }
 
-/// The back chevron. The 8 × 13 mark the boards drew, scaled. 19pt tall beside the
-/// large headline; it stays in the 44pt bar's left once the title has docked.
+/// The back chevron. The 8 × 13 mark the boards drew, scaled — 15pt inside the detail
+/// pages' glass back disc.
 struct BackChevron: View {
     var height: CGFloat = 13
     var line: CGFloat = 1.6

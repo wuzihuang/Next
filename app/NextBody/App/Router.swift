@@ -91,6 +91,9 @@ enum SheetRoute: Hashable, Identifiable {
     case height, weightBaseline, birthday
     // 10S
     case weighIn
+    /// 14 · the scale dial in front of a body scan — opens only from the body page's
+    /// text-state scan entry, and confirming it both writes the weigh-in and fires the scan.
+    case scanWeighIn
     // 11 · profile
     case profileEdit, goal, units, notifications, appleHealth, language, about, privacy, deleteAccount, signOut
     /// The two home-screen faces and how to put one there. It is also the only place the app
@@ -123,6 +126,23 @@ enum SheetRoute: Hashable, Identifiable {
     // dock
     case plusMenu
     var id: String { String(describing: self) }
+}
+
+/// A detail page asks for its data in `.task`, which starts on the push. A reply landing
+/// mid-slide republishes DataStore and every observer, Home included, re-renders inside the
+/// transition. Reads wait out what is left of the push; any later read starts at once.
+@MainActor
+enum PushSettle {
+    private static var pushedAt = Date.distantPast
+    private static let transition: TimeInterval = 0.4
+
+    static func mark() { pushedAt = Date() }
+
+    static func wait() async {
+        let left = transition - Date().timeIntervalSince(pushedAt)
+        guard left > 0 else { return }
+        try? await Task.sleep(for: .seconds(left))
+    }
 }
 
 @MainActor
@@ -210,6 +230,7 @@ final class Router: ObservableObject {
         var dest = d
         if case .vitals(.hrv) = dest { dest = .vitals(.sleep) }
         returnBackdrops.append(captureReturnBackdrop())
+        PushSettle.mark()
         path.append(dest)
     }
 

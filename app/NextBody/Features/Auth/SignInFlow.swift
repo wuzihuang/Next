@@ -273,7 +273,7 @@ struct SignInFlow: View {
         // 01 edge 3 · five a hour per email; the sixth sends nothing and explains nothing more.
         let key = "nb.auth.sends.\(email.lowercased())"
         let sends = (UserDefaults.standard.array(forKey: key) as? [Double] ?? []).filter { Date().timeIntervalSince1970 - $0 < 3600 }
-        if sends.count >= 5 || DebugEdge.on("ratelimited") { withAnimation { codeError = .rateLimited }; return }
+        if (sends.count >= 5 && !Self.hasNoMailbox(email)) || DebugEdge.on("ratelimited") { withAnimation { codeError = .rateLimited }; return }
         // 01 edge 4 · no network: the button turns to Sending in place, 8 s, then one line.
         if !Reachability.shared.isOnline || DebugEdge.on("nonetwork") {
             sending = true
@@ -284,9 +284,9 @@ struct SignInFlow: View {
             }
             return
         }
-        // The seeded demo account has no mailbox: it skips the mail and any six digits
-        // open it (verify signs in with its password). Everyone else gets a real code.
-        if Self.isDemo(email) {
+        // The seeded demo account and the App Review account have no mailbox: they skip the
+        // mail and verify signs in with a password. Everyone else gets a real code.
+        if Self.hasNoMailbox(email) {
             recordSend(key: key, previous: sends)
             Task { await Analytics.shared.track("AUTH_CODE_SENT", [:]) }
             step = .code; resendIn = 60
@@ -323,6 +323,10 @@ struct SignInFlow: View {
         Band.allowsSeed && DemoAccount.matches(email)
     }
 
+    static func hasNoMailbox(_ email: String) -> Bool {
+        isDemo(email) || ReviewAccount.matches(email)
+    }
+
     /// 01 edge 1 · red outline, a 6 px shake, one haptic, then back to the first cell.
     /// The digits are cleared, the email is not.
     private func rejectCode() {
@@ -352,7 +356,10 @@ struct SignInFlow: View {
         beginWait(.email)
         Task {
             do {
-                if Self.isDemo(email) {
+                if ReviewAccount.matches(email) {
+                    // The six digits are the review account's password.
+                    try await SupabaseClient.shared.signIn(email: ReviewAccount.email, password: code)
+                } else if Self.isDemo(email) {
                     try await SupabaseClient.shared.signIn(email: DemoAccount.email, password: DemoAccount.password)
                 } else {
                     try await SupabaseClient.shared.verifyCode(email: email, token: code)

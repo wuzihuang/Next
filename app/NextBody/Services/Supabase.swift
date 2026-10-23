@@ -36,6 +36,18 @@ enum DemoAccount {
     }
 }
 
+/// The App Review account, reachable on a real phone. It has no mailbox: no code is mailed,
+/// and the six digits typed on the code screen are its password (`202610`, given to Apple in
+/// the review notes). The app holds no secret for it; a wrong code is refused by the server.
+/// Its data is synthetic and `nb.reset_review_account()` rebuilds it every night.
+enum ReviewAccount {
+    static let email = "demo@nextbody.ai"
+
+    static func matches(_ email: String) -> Bool {
+        email.lowercased().trimmingCharacters(in: .whitespaces) == Self.email
+    }
+}
+
 actor SupabaseClient {
     static let shared = SupabaseClient()
     private static let snapshotLock = NSLock()

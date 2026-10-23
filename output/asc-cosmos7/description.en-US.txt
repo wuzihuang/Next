@@ -1,0 +1,26 @@
+NextBody is the companion app for the HOOP band. It helps you read your body's daily state and keep track of food and training.
+
+KNOW IF TODAY'S A GO
+Wake up to a 0-100 readiness score, with a breakdown of how last night's sleep, awake fatigue, training and physiological strain each moved it.
+
+SEE YOUR SLEEP CLEARLY
+Duration, efficiency, restfulness, REM, deep sleep, bedtime and routine regularity. Seven sleep factors, each with its own score bar and explanation.
+
+TRAIN AROUND RECOVERY
+Training load builds up through the day, and your suggested range moves with your recovery. Easy days count too.
+
+ALL-DAY STRESS
+The band reads stress around the clock. See when it rises, how high it gets and how long recovery takes.
+
+FOOD LOG
+Log meals and see the day's calories, protein, carbs and fat, and how much is left. You can also connect your own AI assistant to log a meal into today with one sentence.
+
+BODY COMPOSITION
+Rest a finger on the band's side key for about 30 seconds to get 14 estimates, including body fat, lean mass, muscle and body water.
+
+Some measurements and logging require a compatible HOOP band and the relevant permissions.
+
+NextBody provides general wellness and fitness information. It is not a medical device and is not intended to diagnose, treat or replace professional medical advice.
+
+Privacy Policy: https://nextbody.ai/collections/all?view=app-privacy
+Terms of Use: https://nextbody.ai/collections/all?view=app-terms

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NEXTBODY HOOP · one ring</title>
+<style>
+html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#0B0B0D}
+#c{position:absolute;left:0;top:0;width:1920px;height:1080px}
+#hud{position:absolute;right:14px;bottom:10px;font:13px ui-monospace,monospace;color:#c00;display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<script src="look.js"></script>
+<script src="fonts.js"></script>
+<script src="motion.js"></script>
+<script>
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+// NEXTBODY HOOP · "one ring" — the band is a ring, the day is a ring, the load is a ring, the O is a ring.
+// Everything below is a pure function of t. Contract: __seek / __ready / __meta / __track / __motion / __events.
+// ═════════════════════════════════════════════════════════════════════════════════════════════
+const W=1920,H=1080, DUR=13.6, FPS=30;
+window.__meta={dur:DUR,fps:FPS,w:W,h:H};
+const {clamp,lerp,seg,sstep,ssstep,ease}=OM;
+
+// ── world geometry ─────────────────────────────────────────────────────────────────────────
+const C={x:960,y:540};          // the ring's centre
+const R=240, BW=54;             // the band: mid radius, width (world px)
+const RT=257;                   // where the pip and the 96 slot dots ride (on the band's outer surface)
+const NT=96;                    // one dot per 15-minute slot — the product's envelope slot
+const UI_W=39;                  // the UI ring track width in world px (14 pt × S)
+const S=R/85.5;                 // page pt → world px: the training page's ring is 85.5 pt mid radius
+const PX=C.x-201*S, PY=C.y-322*S;   // the page's origin: its ring centre lands on the world ring
+const PAGE_W=402, PAGE_H=874;
+
+// ── the day (real numbers from the product) ────────────────────────────────────────────────
+const SLEEP_END=7+12/60, STR0=14, STR1=15, NOW=20+40/60;   // sleep 7h 12m · strength 14:00 · now 20:40
+const LOAD=12.4, LOAD_MAX=21, AIM=[13.0,16.0];
+const CAPS=[ {h:SLEEP_END, text:'SLEEP · 7H 12M', color:()=>LOOK.color.accent2},
+             {h:STR1,      text:'STRENGTH · +3.2', color:()=>LOOK.color.accent},
+             {h:NOW,       text:'ALL DAY · +9.2',  color:()=>'rgba(255,255,255,.82)'} ];
+
+// ── timeline ───────────────────────────────────────────────────────────────────────────────
+const BLINKS=[0.50,0.64,1.04,1.18];           // lub-dub, twice
+const PULL0=1.30, PULL1=2.70;                 // 28× → 1.25×, lands with a shake
+const SWEEP0=3.30, SWEEP1=5.54;               // the pip runs the day: 00:00 → 20:40
+const FILL0=5.62, FILL1=6.17;                 // the lime arc: 0 → 12.4 / 21
+const PAGE0=7.55, PAGE1=8.60;                 // 1.25× → 0.5×, the page builds around the ring
+const HITS=[[9.80,'KNOW'],[10.03,'YOUR'],[10.26,'NUMBERS.']], HITS_END=10.50;
+const LOCK0=10.50, TYPE1=10.56, FLY0=10.56, FLY1=11.10, TYPE2=11.16, PIP_T=11.36, LINE_T=11.58;
+const CPS=1/0.028;                            // the app's launch mark types at 28 ms a character
+window.__meta.cuts=[9.80,10.03,10.26,10.50];  // the hits: hard cuts by design, in a burst
+window.__meta.inFrame={pip:[0.1,1.25], ring:[2.75,9.7,'whole'], mark:[12.2,13.5,'whole']};
+
+// sweep progress: 0 → NOW/24 on a smooth curve; label times found by bisection in __ready
+const SWEEP_FRAC=NOW/24;
+const sweepP=t=>SWEEP_FRAC*ease.smooth(seg(t,SWEEP0,SWEEP1));
+function sweepTimeAt(frac){ let lo=SWEEP0,hi=SWEEP1; for(let i=0;i<40;i++){const m=(lo+hi)/2; if(sweepP(m)<frac) lo=m; else hi=m;} return (lo+hi)/2; }
+let CAP_T=[], TICK_T=[];
+const ang=frac=>-Math.PI/2+frac*Math.PI*2;                       // 00:00 at the top, clockwise
+const onRing=(frac,r)=>[C.x+Math.cos(ang(frac))*r, C.y+Math.sin(ang(frac))*r];
+const slotColor=i=>{ const h=i/NT*24; if(h<SLEEP_END) return LOOK.color.accent2; if(h>=STR0&&h<STR1) return LOOK.color.accent; return 'rgba(255,255,255,.55)'; };
+
+// ── camera ─────────────────────────────────────────────────────────────────────────────────
+const KEYS=[
+  {t:0,     x:C.x, y:C.y-RT, zoom:28},
+  {t:PULL0, x:C.x, y:C.y-RT, zoom:28},
+  {t:PULL1, x:C.x, y:C.y,    zoom:1.25, curve:ease.quintInOut},
+  {t:PAGE0, x:C.x, y:C.y,    zoom:1.25},
+  {t:PAGE1, x:C.x, y:C.y+60, zoom:0.5,  curve:ease.cubicInOut},
+  {t:LOCK0-0.001, x:C.x, y:C.y+60, zoom:0.5},
+  {t:LOCK0, x:C.x, y:C.y, zoom:1},
+];
+const SHAKES=[[PULL1,10,9],[SWEEP1,6,11],[FLY1,5,12]];
+const handEnv=t=>sstep(PULL0,PULL0+0.4,t)*(1-sstep(PULL1+0.6,PULL1+0.9,t)) + sstep(SWEEP0,SWEEP0+0.3,t)*(1-sstep(SWEEP1-0.3,SWEEP1,t));
+const followEnv=t=>sstep(SWEEP0,SWEEP0+0.5,t)*(1-sstep(SWEEP1-0.2,SWEEP1+0.5,t));
+function camAt(t){
+  const c=OM.camera(t,KEYS); let x=c.x,y=c.y,rot=0;
+  const e=handEnv(t)*3.0; x+=e*(Math.sin(1.7*t)+0.6*Math.sin(2.9*t+1))/c.zoom; y+=e*(Math.sin(1.3*t+2)+0.5*Math.sin(3.3*t))/c.zoom;
+  const f=followEnv(t); if(f>0){ const [px,py]=onRing(sweepP(t-0.1),RT); x+=f*0.18*(px-C.x); y+=f*0.18*(py-C.y); }   // the operator trails the pip
+  for(const [th,amp,decay] of SHAKES){ const s=OM.shake(t,th,{amp,decay,seed:Math.round(th*100)}); x+=s.x/c.zoom; y+=s.y/c.zoom; rot+=s.rot; }
+  return {x,y,zoom:c.zoom,rot};
+}
+let CAM=camAt(0), VIEW=OM.view(CAM);
+const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1], A[1]*B[0]+A[3]*B[1], A[0]*B[2]+A[2]*B[3], A[1]*B[2]+A[3]*B[3], A[0]*B[4]+A[2]*B[5]+A[4], A[1]*B[4]+A[3]*B[5]+A[5]];
+
+// ── canvas ─────────────────────────────────────────────────────────────────────────────────
+const cv=document.getElementById('c'), DPR=window.devicePixelRatio||1; cv.width=W*DPR; cv.height=H*DPR;
+const g=cv.getContext('2d');
+const mat=M=>g.setTransform(DPR*M[0],DPR*M[1],DPR*M[2],DPR*M[3],DPR*M[4],DPR*M[5]);
+const SCREEN=[1,0,0,1,0,0];
+function rr(x,y,w,h,r){ r=Math.min(r,w/2,h/2); g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+const hexa=(h,a)=>{ const n=parseInt(h.slice(1),16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; };
+// a fixed noise pattern so the dark ground does not band after encoding
+let NOISE=null;
+function makeNoise(){ const n=256, cvs=document.createElement('canvas'); cvs.width=cvs.height=n; const x=cvs.getContext('2d'), im=x.createImageData(n,n), r=OM.rng(11);
+  for(let i=0;i<n*n;i++){ const v=r()<0.5?0:255; im.data[i*4]=im.data[i*4+1]=im.data[i*4+2]=v; im.data[i*4+3]=Math.floor(r()*7); } x.putImageData(im,0,0); NOISE=g.createPattern(cvs,'repeat'); }
+
+// text measurements taken in __ready, after the faces load
+const M={};
+function measure(){
+  g.font=LOOK.font('mono',104); const all=g.measureText('NEXTBODY'), nb=g.measureText('NEXTB'), o=g.measureText('O');
+  M.wAll=all.width; M.wNB=nb.width; M.wO=o.width; M.capH=o.actualBoundingBoxAscent; M.x0=C.x-M.wAll/2;
+  M.oCx=M.x0+M.wNB+M.wO/2; M.base=C.y+M.capH/2; M.oCy=M.base-M.capH/2; M.oR=M.capH/2;
+  for(const c of CAPS) CAP_T.push(sweepTimeAt(c.h/24));
+  for(let i=0;i<NT;i++) TICK_T.push(sweepTimeAt(i/NT+1e-4));
+}
+
+// ── drawing ────────────────────────────────────────────────────────────────────────────────
+function ground(){
+  mat(SCREEN); g.fillStyle=LOOK.color.ground; g.fillRect(0,0,W,H);
+  const v=g.createRadialGradient(960,540,300,960,540,1250); v.addColorStop(0,'rgba(7,7,9,0)'); v.addColorStop(1,'rgba(5,5,7,.85)'); g.fillStyle=v; g.fillRect(0,0,W,H);
+  g.save(); g.setTransform(1,0,0,1,0,0); g.fillStyle=NOISE; g.fillRect(0,0,W*DPR,H*DPR); g.restore();
+}
+function latticeDots(){
+  const L=OM.lattice(CAM,{depth:1.2,spacing:48,px:1.4}); mat(L.matrix); g.fillStyle='rgba(255,255,255,.07)';
+  if((L.x1-L.x0)/L.spacing*(L.y1-L.y0)/L.spacing>12000) return;
+  for(let x=L.x0;x<=L.x1;x+=L.spacing) for(let y=L.y0;y<=L.y1;y+=L.spacing){ g.beginPath(); g.arc(x,y,L.r,0,Math.PI*2); g.fill(); }
+}
+function band(t){
+  // the band thins and greys into the UI's track as the page arrives — one element, one place
+  const k=ssstep(PAGE0+0.05,PAGE0+0.8,t), vis=t<LOCK0;
+  if(!vis) return;
+  const w=lerp(BW,UI_W,k);
+  g.lineWidth=w; g.strokeStyle=k<1?mixc('#1D1D23','#23232B',k):'#23232B'; g.beginPath(); g.arc(C.x,C.y,R,0,Math.PI*2); g.stroke();
+  if(k<1){ g.lineWidth=1.5*(1-k); g.strokeStyle='rgba(255,255,255,.13)'; g.beginPath(); g.arc(C.x,C.y,R+w/2-0.75,0,Math.PI*2); g.stroke();
+    g.strokeStyle='rgba(0,0,0,.5)'; g.beginPath(); g.arc(C.x,C.y,R-w/2+0.75,0,Math.PI*2); g.stroke(); }
+}
+function mixc(a,b,k){ const A=parseInt(a.slice(1),16),B=parseInt(b.slice(1),16); const ch=s=>Math.round(lerp(A>>s&255,B>>s&255,k)); return `rgb(${ch(16)},${ch(8)},${ch(0)})`; }
+function dots(t){
+  // the 96 slots: unlit until the pip passes, then popped in the colour of what happened
+  const fade=1-ssstep(PAGE0,PAGE0+0.35,t); if(fade<=0||t>=LOCK0) return;
+  const p=sweepP(t), pop=t>=SWEEP0;
+  for(let i=0;i<NT;i++){ const fr=i/NT; const [x,y]=onRing(fr,RT); const lit=pop&&p>=fr+1e-4;
+    let s=1, col='rgba(255,255,255,.10)';
+    if(lit){ const tk=OM.tick(t,TICK_T[i]); s=tk.s; col=slotColor(i); }
+    g.globalAlpha=fade*(lit?1:sstep(SWEEP0-0.3,SWEEP0,t)); g.fillStyle=col; const d=8*s; rr(x-d/2,y-d/2,d,d,2); g.fill(); }
+  g.globalAlpha=1;
+}
+function pipPos(t){ if(t<SWEEP0) return onRing(0,RT); return onRing(sweepP(t),RT); }
+function pip(t){
+  if(t>=PAGE0+0.35||t>=LOCK0) return;
+  const [x,y]=pipPos(t); let a=1;
+  for(let i=0;i<BLINKS.length;i+=2){ const d=t-BLINKS[i]; if(d>=0&&d<0.09) a=0.25; const d2=t-BLINKS[i+1]; if(d2>=0&&d2<0.07) a=0.35; }
+  a*=1-ssstep(PAGE0,PAGE0+0.35,t);
+  const im=OM.impact(t,SWEEP1,{sqx:0.3,sqy:0.3});
+  const glow=g.createRadialGradient(x,y,0,x,y,14); glow.addColorStop(0,hexa(LOOK.color.accent,0.55*a)); glow.addColorStop(1,hexa(LOOK.color.accent,0));
+  g.fillStyle=glow; g.beginPath(); g.arc(x,y,14,0,Math.PI*2); g.fill();
+  g.globalAlpha=a; g.fillStyle=LOOK.color.accent; g.save(); g.translate(x,y); g.scale(im.sx,im.sy); rr(-3,-3,6,6,1.5); g.fill(); g.restore(); g.globalAlpha=1;
+}
+function captions(t){
+  const out=OM.liftOut(t,PAGE0,{dur:0.25,dist:40});
+  if(t>=PAGE0+0.3) return;
+  g.font=LOOK.font('text',34); g.letterSpacing=LOOK.track('text',34); g.textBaseline='middle';
+  CAPS.forEach((c,i)=>{ const w=OM.wordRise(t,CAP_T[i],{dist:22}); if(w.op<=0) return;
+    const fr=c.h/24, [x,y]=onRing(fr,RT+78); const right=Math.cos(ang(fr))>=0;
+    g.textAlign=right?'left':'right'; g.globalAlpha=w.op*out.op; g.fillStyle=c.color();
+    g.save(); g.translate(x,y+w.y+out.dy); g.scale(w.s,w.s); g.fillText(c.text,0,0); g.restore(); });
+  g.globalAlpha=1; g.letterSpacing='0px';
+}
+function loadArc(t){
+  // the training ring: the lime arc from the top, clockwise, to 12.4 / 21 — the product's own ring
+  if(t<FILL0||t>=LOCK0) return;
+  const k=ease.expoOut(seg(t,FILL0,FILL1)), frac=LOAD/LOAD_MAX*k;
+  const a0=-Math.PI/2, a1=a0+frac*Math.PI*2;
+  // the aim range, a thinner lime-2 arc with a dot at its start
+  const pi=OM.popIn(t,FILL0,{rise:0,s0:1,ds:0});
+  g.globalAlpha=pi.op; g.strokeStyle='#A3E635'; g.lineWidth=10; g.lineCap='round'; g.beginPath(); g.arc(C.x,C.y,R,a0+AIM[0]/LOAD_MAX*Math.PI*2,a0+AIM[1]/LOAD_MAX*Math.PI*2); g.stroke();
+  { const [x,y]=onRing(AIM[0]/LOAD_MAX,R); g.fillStyle='#A3E635'; g.beginPath(); g.arc(x,y,9,0,Math.PI*2); g.fill(); }
+  g.globalAlpha=1;
+  if(frac>0.001){ g.strokeStyle=LOOK.color.accent; g.lineWidth=UI_W; g.lineCap='round'; g.beginPath(); g.arc(C.x,C.y,R,a0,a1); g.stroke(); }
+  g.lineCap='butt';
+  // the number inside, counting up in Doto
+  const n=(LOAD*k).toFixed(1);
+  g.textAlign='center'; g.textBaseline='middle'; g.fillStyle=LOOK.color.accent;
+  g.font=LOOK.font('mono',40*S); g.letterSpacing=LOOK.track('mono',40*S); g.fillText(n,C.x,C.y-14*S);
+  g.font=LOOK.font('mono',13*S); g.letterSpacing=LOOK.track('mono',13*S); g.fillStyle=LOOK.color.mute; g.fillText('/ '+LOAD_MAX,C.x,C.y+30*S);
+  g.letterSpacing='0px';
+  // the caption that is only there until the page's own title arrives
+  const cap=OM.wordRise(t,FILL0+0.1,{dist:14}), capOut=OM.liftOut(t,PAGE0,{dur:0.25,dist:30});
+  if(t<PAGE0+0.3){ g.globalAlpha=cap.op*capOut.op; g.fillStyle=LOOK.color.mute; g.font=LOOK.font('text',12*S); g.letterSpacing=LOOK.track('text',12*S);
+    g.fillText('TRAINING LOAD',C.x,C.y-52*S+cap.y+capOut.dy); g.globalAlpha=1; g.letterSpacing='0px'; }
+}
+// ── the page (the product's training page, rebuilt in its own pt frame) ─────────────────────
+const ROWS=[ // [stagger index, draw]
+  [0,()=>{ g.fillStyle='#fff'; g.font=LOOK.font('text',17); g.letterSpacing=LOOK.track('text',17); g.textAlign='center'; g.textBaseline='middle'; g.fillText('TRAINING LOAD',201,88);
+           g.fillStyle='rgba(255,255,255,.08)'; g.beginPath(); g.arc(36,88,22,0,Math.PI*2); g.fill();
+           g.strokeStyle='#fff'; g.lineWidth=2; g.lineCap='round'; g.lineJoin='round'; g.beginPath(); g.moveTo(40,80); g.lineTo(32,88); g.lineTo(40,96); g.stroke(); }],
+  [1,()=>{ g.textAlign='center'; g.textBaseline='middle'; g.font=LOOK.font('text',13); g.letterSpacing=LOOK.track('text',13); g.fillStyle=LOOK.color.mute;
+           const a='BELOW RANGE  ', wa=g.measureText(a).width; g.font=LOOK.font('mono',13); const wb=g.measureText('0.6').width; const x=201-(wa+wb)/2;
+           g.textAlign='left'; g.font=LOOK.font('text',13); g.fillText(a,x,131); g.font=LOOK.font('mono',13); g.fillStyle=LOOK.color.accent; g.fillText('0.6',x+wa,131); }],
+  [2,()=>{ g.textAlign='center'; g.textBaseline='middle'; g.font=LOOK.font('text',15); g.letterSpacing=LOOK.track('text',15);
+           [['DAY',78,'#fff'],['WEEK',201,LOOK.color.mute],['MONTH',324,LOOK.color.mute]].forEach(([s,x,c])=>{ g.fillStyle=c; g.fillText(s,x,181); });
+           g.fillStyle='rgba(255,255,255,.08)'; g.fillRect(16,200,370,1); g.fillStyle='#fff'; g.fillRect(58,199,40,2); }],
+  [3,()=>{ g.textAlign='center'; g.textBaseline='middle'; g.fillStyle=LOOK.color.mute; g.font=LOOK.font('text',13); g.letterSpacing=LOOK.track('text',13);
+           const a='AIM  ', wa=g.measureText(a).width; g.font=LOOK.font('mono',13); const b='13.0–16.0', wb=g.measureText(b).width; const x=201-(wa+wb)/2;
+           g.textAlign='left'; g.font=LOOK.font('text',13); g.fillText(a,x,448); g.font=LOOK.font('mono',13); g.fillText(b,x+wa,448); }],
+  [4,()=>{ g.textAlign='left'; g.textBaseline='middle'; g.fillStyle='#fff'; g.font=LOOK.font('text',21); g.letterSpacing=LOOK.track('text',21); g.fillText('DETAILS',24,500); }],
+  [5,()=>{ g.fillStyle=LOOK.color.card; rr(16,525,370,150,26); g.fill(); g.textBaseline='middle';
+           g.font=LOOK.font('text',13); g.letterSpacing=LOOK.track('text',13); g.fillStyle=LOOK.color.mute; g.textAlign='left'; g.fillText("TODAY'S MAKEUP",36,553); g.textAlign='right'; g.fillText('ADDED LOAD',366,553);
+           g.font=LOOK.font('text',15); g.fillStyle='#fff'; g.textAlign='left'; g.fillText('STRENGTH',36,590); g.fillText('ALL DAY',36,640);
+           g.font=LOOK.font('text',12); g.fillStyle=LOOK.color.mute; g.fillText('14:00',36,610); g.fillText('ALL DAY ACTIVITY',36,660);
+           g.font=LOOK.font('mono',17); g.letterSpacing=LOOK.track('mono',17); g.fillStyle=LOOK.color.accent; g.textAlign='right'; g.fillText('+3.2',366,590); g.fillText('+9.2',366,640); }],
+  [6,()=>{ g.fillStyle=LOOK.color.card; rr(16,695,370,150,26); g.fill(); g.textBaseline='middle';
+           g.font=LOOK.font('text',13); g.letterSpacing=LOOK.track('text',13); g.fillStyle=LOOK.color.mute; g.textAlign='left'; g.fillText('TARGET BASIS',36,723); g.textAlign='right'; g.fillText('BY THE RULE',366,723);
+           g.font=LOOK.font('text',15); g.fillStyle='#fff'; g.textAlign='left'; g.fillText('SLEEP SCORE',36,760); g.fillText('RECENT LOAD',36,810);
+           g.font=LOOK.font('mono',17); g.letterSpacing=LOOK.track('mono',17); g.fillStyle=LOOK.color.accent2; g.textAlign='right'; g.fillText('82',366,760); g.fillStyle=LOOK.color.mute; g.fillText('——',366,810); }],
+];
+function page(t){
+  if(t<PAGE0||t>=LOCK0) return;
+  const ka=sstep(PAGE0,PAGE0+0.45,t);
+  const P=mul(VIEW,[S,0,0,S,PX,PY]); mat(P);
+  // phone: a dark slab with a hairline rim, then the screen
+  g.globalAlpha=ka; g.fillStyle='#000'; rr(-14,-14,PAGE_W+28,PAGE_H+28,58); g.fill();
+  g.strokeStyle='rgba(255,255,255,.16)'; g.lineWidth=1.2; rr(-14,-14,PAGE_W+28,PAGE_H+28,58); g.stroke();
+  g.fillStyle=LOOK.color.ground; rr(0,0,PAGE_W,PAGE_H,47); g.fill();
+  g.save(); rr(0,0,PAGE_W,PAGE_H,47); g.clip();
+  const tint=g.createLinearGradient(0,0,0,330); tint.addColorStop(0,'rgba(170,190,40,.16)'); tint.addColorStop(1,'rgba(170,190,40,0)'); g.fillStyle=tint; g.fillRect(0,0,PAGE_W,330);
+  // status bar + island
+  g.fillStyle='#fff'; g.font=LOOK.font('text',17); g.letterSpacing=LOOK.track('text',17); g.textAlign='left'; g.textBaseline='middle'; g.fillText('9:41',34,30);
+  g.fillStyle='#000'; rr(139,8,124,37,18.5); g.fill(); g.strokeStyle='rgba(255,255,255,.08)'; g.lineWidth=1; rr(139,8,124,37,18.5); g.stroke();
+  g.strokeStyle='rgba(255,255,255,.55)'; g.lineWidth=1.2; rr(348,22,24,12,3); g.stroke(); g.fillStyle='#A3E635'; rr(350,24,16,8,2); g.fill();
+  g.restore();
+  g.globalAlpha=1;
+  // the page's rows rise in, staggered; the ring is already there
+  ROWS.forEach(([i,draw])=>{ const m=OM.maskRise(t,PAGE0+0.12,i,{stagger:0.09,dist:28}); if(!m.visible) return;
+    g.save(); mat(mul(P,[1,0,0,1,0,m.y])); g.globalAlpha=clamp(m.k*1.4,0,1)*ka; draw(); g.restore(); g.globalAlpha=1; });
+  g.letterSpacing='0px'; mat(VIEW);
+}
+// ── the hits (screen space, hard cuts) ─────────────────────────────────────────────────────
+function hits(t){
+  if(t<HITS[0][0]||t>=HITS_END) return;
+  const {word}=OM.staccato(t,HITS); mat(SCREEN); g.fillStyle=LOOK.color.ground; g.fillRect(0,0,W,H);
+  g.save(); g.setTransform(1,0,0,1,0,0); g.fillStyle=NOISE; g.fillRect(0,0,W*DPR,H*DPR); g.restore();
+  g.font=LOOK.font('display',190); g.letterSpacing=LOOK.track('display',190); g.textAlign='center'; g.textBaseline='middle';
+  if(word.endsWith('.')){ const a=word.slice(0,-1), wa=g.measureText(a).width, wd=g.measureText('.').width; g.textAlign='left'; const x=960-(wa+wd)/2;
+    g.fillStyle='#fff'; g.fillText(a,x,540); g.fillStyle=LOOK.color.accent; g.fillText('.',x+wa,540); }
+  else { g.fillStyle='#fff'; g.fillText(word,960,540); }
+  g.letterSpacing='0px';
+}
+// ── the lockup: the ring folds into the O of NEXTBODY, then the launch mark types ────────────
+function lockup(t){
+  if(t<LOCK0) return;
+  mat(VIEW);
+  const k=ease.quintInOut(seg(t,FLY0,FLY1));
+  const cx=lerp(C.x,M.oCx,k), cy=lerp(C.y,M.oCy,k), r=lerp(RT,M.oR+2,k), d=lerp(8,10,k);
+  const im=OM.impact(t,FLY1,{sqx:0.12,sqy:0.14});
+  const ringOp=1-sstep(FLY1+0.02,FLY1+0.12,t);
+  if(ringOp>0){ g.save(); g.translate(cx,cy); g.scale(im.sx,im.sy); g.globalAlpha=ringOp; g.fillStyle=LOOK.color.accent;
+    const n=NT; for(let i=0;i<n;i++){ const a=ang(i/n); const x=Math.cos(a)*r, y=Math.sin(a)*r; rr(x-d/2,y-d/2,d,d,2.5); g.fill(); }
+    g.restore(); g.globalAlpha=1; }
+  // the letters
+  g.font=LOOK.font('mono',104); g.letterSpacing=LOOK.track('mono',104); g.textAlign='left'; g.textBaseline='alphabetic'; g.fillStyle='#fff';
+  const t1=OM.typeOn(t,TYPE1,'NEXTB',{cps:CPS}); g.fillText(t1.str,M.x0,M.base);
+  const oOp=sstep(FLY1+0.02,FLY1+0.10,t); if(oOp>0){ g.globalAlpha=oOp; g.fillStyle=LOOK.color.accent; g.save(); g.translate(M.oCx,M.oCy); g.scale(im.sx,im.sy); g.translate(-M.oCx,-M.oCy); g.fillText('O',M.x0+M.wNB,M.base); g.restore(); g.globalAlpha=1; }
+  const t2=OM.typeOn(t,TYPE2,'DY',{cps:CPS}); g.fillStyle='#fff'; g.fillText(t2.str,M.x0+M.wNB+M.wO,M.base);
+  // the pip, then the second line — the app's own launch mark
+  const pw=OM.wordRise(t,PIP_T,{dist:14,omega:24}); if(pw.op>0){ g.globalAlpha=pw.op; g.fillStyle=LOOK.color.accent; const px=M.x0+M.wAll+32, py=M.oCy+pw.y; g.save(); g.translate(px,py); g.scale(pw.s,pw.s); rr(-12,-12,24,24,5); g.fill(); g.restore(); g.globalAlpha=1; }
+  const t3=OM.typeOn(t,LINE_T,'BUILD YOUR NEXTBODY',{cps:CPS});
+  g.font=`400 42px ${LOOK.type.mono.stack.replace("'LookDoto'","'LookDotoRegular'")}`; g.letterSpacing='9px'; g.textAlign='center'; g.fillStyle='rgba(255,255,255,.72)';
+  g.fillText(t3.str,C.x+4,M.base+88);
+  g.letterSpacing='0px';
+}
+
+// ── seek ───────────────────────────────────────────────────────────────────────────────────
+let TRACK={};
+function seek(t){
+  CAM=camAt(t); VIEW=OM.view(CAM);
+  ground();
+  if(t<LOCK0) latticeDots();
+  mat(VIEW);
+  page(t);
+  band(t); dots(t); loadArc(t); captions(t); pip(t);
+  lockup(t);
+  hits(t);
+  // what the probe should follow, as screen boxes
+  const P=b=>OM.projectBox(VIEW,b);
+  const [px,py]=pipPos(t);
+  TRACK={};
+  if(t<PAGE0+0.35) TRACK.pip=P({x:px-3,y:py-3,w:6,h:6});
+  if(t<LOCK0&&!(t>=HITS[0][0]&&t<HITS_END)) TRACK.ring=P({x:C.x-R-BW/2,y:C.y-R-BW/2,w:2*R+BW,h:2*R+BW});
+  if(t>=FILL0&&t<LOCK0&&!(t>=HITS[0][0]&&t<HITS_END)) TRACK.num=P({x:C.x-120,y:C.y-100,w:240,h:200});
+  if(t>=PAGE0&&t<HITS[0][0]) TRACK.phone=P({x:PX-14*S,y:PY-14*S,w:(PAGE_W+28)*S,h:(PAGE_H+28)*S});
+  if(t>=HITS[0][0]&&t<HITS_END) TRACK['word'+OM.staccato(t,HITS).i]={x:560,y:420,w:800,h:240,op:1};
+  if(t>=LOCK0){ const k=ease.quintInOut(seg(t,FLY0,FLY1)); const cx=lerp(C.x,M.oCx,k), cy=lerp(C.y,M.oCy,k), r=lerp(RT,M.oR+2,k); TRACK.ring=P({x:cx-r,y:cy-r,w:2*r,h:2*r}); }
+  if(t>=TYPE1) TRACK.mark=P({x:M.x0,y:M.base-M.capH,w:M.wAll+60,h:M.capH+100});
+  document.getElementById('hud').textContent='t='+t.toFixed(3)+' zoom='+CAM.zoom.toFixed(2);
+}
+window.__seek=async t=>{ seek(t); return true; };
+window.__track=t=>TRACK;
+window.__motion=(t0,t1)=>{ const c0=camAt(t0),c1=camAt(t1),cm=camAt((t0+t1)/2); let d=OM.screenTravel(c0,c1,cm);
+  const V0=OM.view(c0),V1=OM.view(c1); const p0=OM.project(V0,...pipPos(t0)), p1=OM.project(V1,...pipPos(t1)); d=Math.max(d,Math.hypot(p0[0]-p1[0],p0[1]-p1[1]));
+  if(t1>FLY0&&t0<FLY1+0.2&&M.oCx){ const k0=ease.quintInOut(seg(t0,FLY0,FLY1)),k1=ease.quintInOut(seg(t1,FLY0,FLY1)); const e=k=>[lerp(C.x,M.oCx,k)+lerp(RT,M.oR,k),lerp(C.y,M.oCy,k)]; const a=e(k0),b=e(k1); d=Math.max(d,Math.hypot(a[0]-b[0],a[1]-b[1])); }
+  return d; };
+window.__events=()=>{ const ev=[]; const pan=x=>clamp((x-960)/960,-1,1);
+  BLINKS.forEach((t,i)=>ev.push({t,kind:i%2?'dub':'lub',pan:0,v:0.5}));
+  ev.push({t:PULL0,kind:'pull',pan:0,v:1},{t:PULL1,kind:'land',pan:0,v:1});
+  TICK_T.forEach((t,i)=>{ const [x]=onRing(i/NT,RT); ev.push({t,kind:'slot',pan:pan(x),v:slotColor(i)===LOOK.color.accent?1:0.6}); });
+  CAP_T.forEach((t,i)=>{ const [x]=onRing(CAPS[i].h/24,RT+78); ev.push({t,kind:'caption',pan:pan(x),v:1}); });
+  ev.push({t:SWEEP1,kind:'stop',pan:pan(onRing(SWEEP_FRAC,RT)[0]),v:1},{t:FILL0,kind:'fill',pan:0,v:1},{t:FILL1,kind:'filled',pan:0,v:1});
+  ev.push({t:PAGE0,kind:'page',pan:0,v:1}); ROWS.forEach(([i])=>ev.push({t:PAGE0+0.12+i*0.09,kind:'row',pan:0,v:0.5}));
+  HITS.forEach(([t])=>ev.push({t,kind:'hit',pan:0,v:1})); ev.push({t:HITS_END,kind:'hit',pan:0,v:0.8});
+  for(let i=0;i<5;i++) ev.push({t:TYPE1+i/CPS,kind:'key',pan:-0.2,v:1}); ev.push({t:FLY1,kind:'oland',pan:0.1,v:1}); for(let i=0;i<2;i++) ev.push({t:TYPE2+i/CPS,kind:'key',pan:0.25,v:1});
+  ev.push({t:PIP_T,kind:'pip',pan:0.4,v:1}); 'BUILD YOUR NEXTBODY'.split('').forEach((ch,i)=>{ if(ch!==' ') ev.push({t:LINE_T+i/CPS,kind:'key2',pan:0,v:0.6}); });
+  return {T:{PULL0,PULL1,SWEEP0,SWEEP1,FILL0,FILL1,PAGE0,PAGE1,HITS_END,LOCK0,FLY1,PIP_T,LINE_T,DUR},events:ev.sort((a,b)=>a.t-b.t)}; };
+window.__ready=Promise.all([LOOK.ready,window.FONTS_READY||Promise.resolve()]).then(()=>document.fonts.ready).then(()=>{ makeNoise(); measure(); seek(0); return true; });
+const q=new URLSearchParams(location.search);
+if(q.has('t')) __ready.then(()=>seek(parseFloat(q.get('t'))));
+if(q.has('hud')) document.getElementById('hud').style.display='block';
+if(q.has('play')) __ready.then(()=>{const t0=performance.now();(function loop(){seek(((performance.now()-t0)/1000)%DUR);requestAnimationFrame(loop);})();});
+</script>
+</body>
+</html>

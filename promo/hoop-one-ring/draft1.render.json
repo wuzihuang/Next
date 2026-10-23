@@ -1,0 +1,40 @@
+{
+ "comp": "/tmp/claude-0/-root-next/c9f80fc5-cb99-434b-a8ae-e06a2a602f78/scratchpad/film/comp.html",
+ "fps": 30,
+ "scale": 1,
+ "size": [
+  1920,
+  1080
+ ],
+ "shutter": 180.0,
+ "samples": "adaptive",
+ "gap_px": 6.0,
+ "samples_per_moving_frame": {
+  "4": 241,
+  "5": 4,
+  "6": 3,
+  "7": 4,
+  "8": 3,
+  "10": 2,
+  "13": 2,
+  "16": 2,
+  "20": 1,
+  "21": 1,
+  "24": 1,
+  "26": 1,
+  "29": 1,
+  "32": 1,
+  "34": 1,
+  "36": 1,
+  "40": 1,
+  "43": 1,
+  "48": 1
+ },
+ "workers": 2,
+ "frames": 408,
+ "still_frames": 136,
+ "cut_frames": 45,
+ "captures": 1757,
+ "seconds": 410.5,
+ "final": false
+}

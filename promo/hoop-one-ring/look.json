@@ -1,0 +1,32 @@
+{
+  "name": "hoop",
+  "from": "the NEXTBODY HOOP app's own tokens (DesignSystem/Tokens.swift) and faces",
+  "mood": "carbon ground, one lime pip, Doto dot-matrix numbers, Jost labels \u2014 the app itself",
+  "color": {
+    "ground": "#0B0B0D",
+    "deep": "#070709",
+    "card": "#101014",
+    "line": "#1B1B20",
+    "mute": "#8A8A92",
+    "ink": "#FFFFFF",
+    "accent": "#EFF65A",
+    "accent2": "#A78BFA"
+  },
+  "type": {
+    "display": {
+      "face": "Inter Tight",
+      "weight": 800,
+      "tracking": -0.03
+    },
+    "text": {
+      "face": "Jost",
+      "weight": 500,
+      "tracking": 0.02
+    },
+    "mono": {
+      "face": "Doto",
+      "weight": 700,
+      "tracking": 0.04
+    }
+  }
+}

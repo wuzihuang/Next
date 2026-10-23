@@ -13,6 +13,17 @@ struct HomePlanetBoard: View {
     let onFood: () -> Void
 
     @AppStorage("nb.home.mcpGuideDismissed") private var guideDismissed = false
+    @AppStorage("nb.home.mcpConnected") private var mcpConnected = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    private func refreshMCPConnected() async {
+        guard let rows = try? await SupabaseClient.shared.select("mcp_grants", query: [
+            URLQueryItem(name: "select", value: "client_id"),
+            URLQueryItem(name: "revoked_at", value: "is.null"),
+            URLQueryItem(name: "limit", value: "1"),
+        ]) else { return }
+        mcpConnected = !rows.isEmpty
+    }
 
     private var face: Face { Face(model, events: events) }
 
@@ -28,6 +39,10 @@ struct HomePlanetBoard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(NB.carbon)
+        .task { await refreshMCPConnected() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refreshMCPConnected() } }
+        }
     }
 
     private var hero: some View {
@@ -247,7 +262,7 @@ struct HomePlanetBoard: View {
                 }
                 .buttonStyle(HotZoneTap(pressedScale: 1))
                 .accessibilityIdentifier("FOOD")
-                if !guideDismissed {
+                if !guideDismissed && !mcpConnected {
                 Button(action: onGuide) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text(guide)

@@ -923,9 +923,9 @@ opening either AI folder without the owner's permission.
   CUT / RECOMP / BULK), DEVICE, NOTIFICATIONS (real auth; denied is
   `OFF IN SETTINGS` in amber), APPLE HEALTH (`ACCESS OFF` amber until linked),
   the MCP card says “Connect your AI” and opens the three-step page:
-  one address, copy, add it, sign in, turn on meal logging. UNITS · HAPTICS (units sheet, haptics
-  toggle lives on that sheet), LANGUAGE · WIDGETS (language sheet links to
-  widgets), COLLECTING HEALTH DATA, PRIVACY · TERMS (date from
+  one address, copy, add it, sign in, turn on meal logging. UNITS (units sheet,
+  weight + height only), HAPTICS (an inline switch on the row itself),
+  LANGUAGE, WIDGETS (opens the widgets sheet), COLLECTING HEALTH DATA, PRIVACY · TERMS (date from
   `LegalText.revised`; the sheet links to the other document), REPORT,
   DELETE ACCOUNT in `#F87171`. SIGN OUT is text. The build line reads
   `CFBundleShortVersionString` and `CFBundleVersion`. AI MEMORY stays behind

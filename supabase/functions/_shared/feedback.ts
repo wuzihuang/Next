@@ -3,6 +3,9 @@
 // holds the GitHub token — only the function does — and the issue body carries the build,
 // the phone and the band so the report can be reproduced without a reply.
 
+/** Screenshots sent with REPORT A PROBLEM, under `<user id>/`. account-delete empties it too. */
+export const FEEDBACK_BUCKET = "feedback-images";
+
 export const MAX_TITLE = 120;
 export const MAX_BODY = 4000;
 export const MAX_IMAGES = 3;

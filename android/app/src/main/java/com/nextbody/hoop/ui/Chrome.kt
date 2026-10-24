@@ -3,6 +3,7 @@ package com.nextbody.hoop.ui
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -494,6 +495,12 @@ object DetailBack {
 val LocalDetailBackSlide = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 /**
+ * The stack slot a page sits in. [DetailEdgeBack] slides the whole slot, its carbon fill
+ * included, so the page underneath shows through instead of a black screen.
+ */
+val LocalStackSlot = staticCompositionLocalOf<Animatable<Float, AnimationVector1D>?> { null }
+
+/**
  * Every detail page is one scroll under a pinned header washed in the pillar's tint.
  * The header is a 52 bar — a glass back disc on the left, the page's name centred — with a
  * 36 context row under it whenever the page has something to say there: an eyebrow, a
@@ -667,7 +674,9 @@ fun rememberScrollOffset(state: LazyListState, cap: Dp = 52.dp): androidx.compos
 fun DetailEdgeBack(onBack: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val density = LocalDensity.current
     val widthPx = with(density) { ScreenMetrics.width.toPx() }
-    val x = remember { Animatable(0f) }
+    val slot = LocalStackSlot.current
+    val own = remember { Animatable(0f) }
+    val x = slot ?: own
     var committing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val back by rememberUpdatedState(onBack)
@@ -703,7 +712,7 @@ fun DetailEdgeBack(onBack: () -> Unit, modifier: Modifier = Modifier, content: @
     Box(
         modifier
             .fillMaxSize()
-            .offset { IntOffset(x.value.roundToInt(), 0) }
+            .offset { IntOffset(if (slot == null) x.value.roundToInt() else 0, 0) }
             .pointerInput(widthPx) {
                 val edge = DetailBack.edgeWidth.toPx()
                 val slop = viewConfiguration.touchSlop

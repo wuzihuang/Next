@@ -5,10 +5,19 @@ import android.app.TimePickerDialog
 import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,16 +53,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.ui.text.drawText
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -74,11 +83,13 @@ import com.nextbody.hoop.band.UserDay
 import com.nextbody.hoop.data.DataStore
 import com.nextbody.hoop.data.Defaults
 import com.nextbody.hoop.data.Ports
+import com.nextbody.hoop.data.Profile
 import com.nextbody.hoop.data.WeighIn
 import com.nextbody.hoop.design.NB
 import com.nextbody.hoop.design.NBFont
 import com.nextbody.hoop.design.ScreenMetrics
 import com.nextbody.hoop.design.tracking
+import com.nextbody.hoop.features.device.InteractiveDismissDisabled
 import com.nextbody.hoop.features.measurements.MeasurementSheet
 import com.nextbody.hoop.features.weighin.WeighInDialSheet
 import com.nextbody.hoop.features.weighin.WeighInSheet
@@ -88,20 +99,15 @@ import com.nextbody.hoop.l10n.L
 import com.nextbody.hoop.model.Fmt
 import com.nextbody.hoop.model.Goal
 import com.nextbody.hoop.model.MeasurementSource
-import com.nextbody.hoop.data.Profile
 import com.nextbody.hoop.services.Analytics
 import com.nextbody.hoop.services.HealthService
 import com.nextbody.hoop.services.SupabaseClient
 import com.nextbody.hoop.services.saveProfile
 import com.nextbody.hoop.ui.Hairline
-import com.nextbody.hoop.ui.HapticsSetting
-import com.nextbody.hoop.ui.HoldHaptics
+import com.nextbody.hoop.ui.SwiftEaseInOut
+import com.nextbody.hoop.ui.SwiftEaseOut
 import com.nextbody.hoop.ui.cardSkin
 import com.nextbody.hoop.ui.hotZoneTap
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -110,6 +116,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Work that has to outlive the sheet that started it (the band's personal-info push). */
 private val detached = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -545,7 +557,7 @@ fun NBSwitch(isOn: Boolean, modifier: Modifier = Modifier, enabled: Boolean = tr
 // MARK: Units
 
 /**
- * 06 · two segmented rows plus a language row. Instant, no Save.
+ * 06 · two segmented rows. Instant, no Save.
  * ⚠️ The unit is a display preference only: the SDK's own unit flag is never written to the band.
  */
 @Composable
@@ -554,7 +566,7 @@ fun UnitsSheet() {
     var weightUnit by remember { mutableStateOf(if (data.profile.usesMetric) "KG" else "LB") }
     var heightUnit by remember { mutableStateOf(if (data.profile.usesMetric) "CM" else "FT") }
 
-    SheetFrame(title = L("Units & language"), footer = {
+    SheetFrame(title = L("Units"), footer = {
         Text(L("Changes everywhere, straight away"), style = NBFont.ui(300, 12.5f).tracking(0.02f),
             color = NB.white.copy(alpha = 0.38f))
     }) {
@@ -569,18 +581,7 @@ fun UnitsSheet() {
                     }
                 }
             }
-            UnitRow(L("Height")) { ProfileUnitToggle(listOf("CM", "FT"), heightUnit) { heightUnit = it } }
-            UnitRow(L("HAPTICS")) {
-                NBSwitch(HapticsSetting.enabled) { on ->
-                    HapticsSetting.enabled = on
-                    if (on) HoldHaptics.release()
-                }
-            }
-            UnitRow(L("Language"), last = true) {
-                Text(AppLanguage.locale.nativeName, style = NBFont.ui(400, 13f), color = NB.text3Prod)
-                Spacer(Modifier.width(8.dp))
-                Chevron()
-            }
+            UnitRow(L("Height"), last = true) { ProfileUnitToggle(listOf("CM", "FT"), heightUnit) { heightUnit = it } }
         }
     }
 }
@@ -616,14 +617,16 @@ fun LanguageSheet(close: () -> Unit) {
             textAlign = TextAlign.Center)
     }) {
         Column(Modifier.width(NB.Layout.contentWidth).cardSkin()) {
-            AppLocale.entries.forEach { loc ->
+            AppLocale.entries.forEachIndexed { i, loc ->
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .height(58.dp)
                         .drawBehind {
-                            val inset = 16.dp.toPx()
-                            drawRect(NB.hairline, Offset(inset, size.height - 1.dp.toPx()), Size(size.width - inset, 1.dp.toPx()))
+                            if (i < AppLocale.entries.size - 1) {
+                                val inset = 16.dp.toPx()
+                                drawRect(NB.hairline, Offset(inset, size.height - 1.dp.toPx()), Size(size.width - inset, 1.dp.toPx()))
+                            }
                         }
                         .hotZoneTap(pressedScale = 1f) { AppLanguage.set(loc); close() }
                         .padding(horizontal = 16.dp),
@@ -633,20 +636,6 @@ fun LanguageSheet(close: () -> Unit) {
                     Spacer(Modifier.width(16.dp))
                     if (AppLanguage.locale == loc) Box(Modifier.size(10.dp).background(NB.lime1, CircleShape))
                 }
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(58.dp)
-                    .hotZoneTap(pressedScale = 1f) { Router.sheet = SheetRoute.Widgets }
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(L("WIDGETS"), style = NBFont.ui(500, 15f), color = NB.text1, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(16.dp))
-                Text(L("HOW TO ADD"), style = NBFont.dot(500, 11f).tracking(0.08f), color = NB.text3Prod)
-                Spacer(Modifier.width(8.dp))
-                Chevron()
             }
         }
     }
@@ -884,6 +873,8 @@ fun DeleteAccountSheet(close: () -> Unit) {
     var weeks by remember { mutableStateOf<Int?>(null) }
     var nights by remember { mutableStateOf<Int?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
+    var phase by remember { mutableStateOf(DeletePhase.Idle) }
+    val progress = remember { Animatable(0f) }
 
     // ⚠️ 1BAY · exact counts off the server, each "——" until it arrives rather than guessed.
     val losses = L(
@@ -900,23 +891,53 @@ fun DeleteAccountSheet(close: () -> Unit) {
         Analytics.track("ACCOUNT_DELETE_SHOWN")
     }
 
+    InteractiveDismissDisabled(phase != DeletePhase.Idle)
+
+    suspend fun fail(ref: String) {
+        phase = DeletePhase.Idle
+        failure = deleteFailureCopy(ref)
+        progress.animateTo(0f, tween(350, easing = SwiftEaseOut))
+    }
+
     /**
      * ⚠️ 1DPG · account/delete failing is a legal event, not a toast. If the endpoint cannot be
      * reached the account is still there, and the sheet has to say so.
+     *
+     * The tap used to look like nothing: no state, no progress, and the request ran past the
+     * 30 s the phone waits. The key now fills while the server works — eased toward 90 %, since
+     * the endpoint reports no progress of its own — and only its answer finishes it.
      */
-    suspend fun deleteEverything() {
-        val owner = SupabaseClient.currentUserIdSnapshot() ?: return
+    suspend fun deleteEverything() = coroutineScope {
+        if (phase != DeletePhase.Idle) return@coroutineScope
+        failure = null
+        // A signed-out snapshot used to return here silently — the tap that did nothing.
+        val owner = SupabaseClient.currentUserIdSnapshot() ?: run {
+            failure = deleteFailureCopy("UNAUTHENTICATED")
+            return@coroutineScope
+        }
+        phase = DeletePhase.Deleting
+        progress.snapTo(0f)
+        val creep = launch {
+            progress.animateTo(0.6f, tween(1200, easing = SwiftEaseOut))
+            progress.animateTo(0.9f, tween(12_000, easing = SwiftEaseOut))
+        }
         Analytics.track("ACCOUNT_DELETE_CONFIRMED")
         try {
             // ⚠️ The confirmation is a literal the server checks, so a mis-routed call cannot
             // delete an account.
-            val row = SupabaseClient.callFunction("account-delete", mapOf("confirm" to "DELETE"), expectedOwner = owner)
+            val row = SupabaseClient.callFunction("account-delete", mapOf("confirm" to "DELETE"),
+                expectedOwner = owner, longRunning = true)
+            creep.cancel()
             if (row.opt("deleted") != true) {
                 val err = row.opt("error")?.toString() ?: "unknown"
-                failure = deleteFailureCopy(err)
+                fail(err)
                 Analytics.track("ACCOUNT_DELETE_FAILED", mapOf("ERROR" to err))
-                return
+                return@coroutineScope
             }
+            phase = DeletePhase.Deleted
+            progress.animateTo(1f, tween(300, easing = SwiftEaseInOut))
+            // Long enough to read DELETED on a full bar before the gate replaces the sheet.
+            delay(700)
             // Not reset() — that is the sign-out, and it leaves the band paired and every nb.*
             // key on the phone. The sheet just promised there is no undo.
             session.purgeAfterAccountDelete()
@@ -924,7 +945,8 @@ fun DeleteAccountSheet(close: () -> Unit) {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            failure = deleteFailureCopy(e.toString())
+            creep.cancel()
+            fail(e.toString())
             Analytics.track("ACCOUNT_DELETE_FAILED", mapOf("ERROR" to e.toString()))
         }
     }
@@ -939,16 +961,51 @@ fun DeleteAccountSheet(close: () -> Unit) {
             Text(it, style = NBFont.ui(400, 12f).tracking(0.02f), color = NB.alert2)
         }
         Spacer(Modifier.weight(1f))
-        LimePill(L("Keep my account")) { close() }
+        LimePill(L("Keep my account"), enabled = phase == DeletePhase.Idle) { close() }
+        // ⚠️ Not disabled while it runs: this key is the progress bar, and a disabled tap fades.
+        DeleteProgressKey(phase, progress.value) { scope.launch { deleteEverything() } }
+    }
+}
+
+enum class DeletePhase { Idle, Deleting, Deleted }
+
+/**
+ * DELETE EVERYTHING doubles as its own progress bar: the capsule fills from the left while the
+ * request runs, and the label breathes so a slow server still reads as working.
+ */
+@Composable
+private fun DeleteProgressKey(phase: DeletePhase, progress: Float, onTap: () -> Unit) {
+    val breathing = rememberInfiniteTransition(label = "delete.breathe")
+    val breath by breathing.animateFloat(
+        initialValue = 1f, targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(tween(800, easing = SwiftEaseInOut), RepeatMode.Reverse),
+        label = "delete.breath",
+    )
+    val fill by animateFloatAsState(if (phase == DeletePhase.Deleted) 0.28f else 0.18f, label = "delete.fill")
+    val title = when (phase) {
+        DeletePhase.Idle -> L("DELETE EVERYTHING")
+        DeletePhase.Deleting -> L("DELETING…")
+        DeletePhase.Deleted -> L("DELETED")
+    }
+    Box(
+        Modifier
+            .width(NB.Layout.contentWidth)
+            .height(52.dp)
+            .clip(CircleShape)
+            .border(1.dp, NB.alert2.copy(alpha = 0.6f), CircleShape)
+            .hotZoneTap(pressedScale = 1f, onClick = onTap),
+        contentAlignment = Alignment.Center,
+    ) {
         Box(
-            Modifier
-                .width(NB.Layout.contentWidth)
-                .height(52.dp)
-                .border(1.dp, NB.alert2.copy(alpha = 0.6f), CircleShape)
-                .hotZoneTap(pressedScale = 1f) { scope.launch { deleteEverything() } },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(L("DELETE EVERYTHING"), style = NBFont.ui(500, 12f).tracking(0.2f), color = NB.alert2, maxLines = 1)
+            Modifier.align(Alignment.CenterStart).fillMaxHeight()
+                .width(NB.Layout.contentWidth * progress)
+                .background(NB.alert2.copy(alpha = fill)),
+        )
+        Crossfade(title, label = "delete.title") {
+            Text(
+                it, style = NBFont.ui(500, 12f).tracking(0.2f), color = NB.alert2, maxLines = 1,
+                modifier = Modifier.alpha(if (phase == DeletePhase.Deleting) breath else 1f),
+            )
         }
     }
 }

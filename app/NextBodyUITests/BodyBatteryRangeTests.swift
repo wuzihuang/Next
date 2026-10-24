@@ -15,7 +15,7 @@ final class BodyBatteryRangeTests: XCTestCase {
         XCTAssertTrue(app.buttons["range.DAY"].exists)
         XCTAssertTrue(app.buttons["range.WEEK"].exists)
         XCTAssertTrue(app.buttons["range.MONTH"].exists)
-        XCTAssertTrue(app.staticTexts["LAST NIGHT'S INPUTS"].exists)
+        XCTAssertTrue(app.staticTexts["KEY METRICS"].exists)
         XCTAssertFalse(app.staticTexts["LAST 7 DAYS"].exists)
         capture(app, name: "body-battery-day")
         XCTAssertFalse(app.staticTexts["A typical morning peak. Not a 30-day sum."].exists)

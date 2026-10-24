@@ -2,6 +2,11 @@
 
 NextBody-Hoop. See `README.md` for the project, `docs/STATUS.md` for current state.
 
+## Ship both platforms
+
+Every app code change lands in both iOS (`app/NextBody/`) and Android (`android/`) in the
+same task. A change is done only when both sides behave the same.
+
 ## AI folders are off limits
 
 App AI is hidden, not deleted. Its code lives in two folders:

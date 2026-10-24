@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nextbody.hoop.band.UserDay
 import com.nextbody.hoop.design.NB
 import com.nextbody.hoop.design.NBFont
@@ -471,7 +472,7 @@ fun SleepContributorBreakdown(score: SleepScore) {
     }
 }
 
-private fun contributorMeasured(score: SleepScore, contributor: SleepContributor, detailed: Boolean = false): String {
+internal fun contributorMeasured(score: SleepScore, contributor: SleepContributor, detailed: Boolean = false): String {
     fun number(key: String): Double? {
         val value = score.inputs[key] ?: return null
         return if (value.isFinite() && value >= 0 && value <= 100_000) value else null
@@ -676,61 +677,68 @@ object SleepInputLabel {
     }
 }
 
-// MARK: - a section of the board
+// MARK: - the night's verdict
 
-/** One of the score's four groups, used as a heading for the charts that feed it. */
+/**
+ * Oura's headline under the score: one title and one sentence, both read off the seven
+ * factors. It names the factor that moved the score and prints its own value, so the line is
+ * never advice the night's data cannot back.
+ */
 @Composable
-fun SleepSectionHeader(group: SleepScoreGroup, score: Int?, effectiveWeight: Double? = null) {
-    Row(
-        Modifier.fillMaxWidth().padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(group.title, style = NBFont.ui(600, 13f).tracking(0.18f), color = NB.text1, maxLines = 1)
-        Box(Modifier.weight(1f).height(1.dp).background(NB.hairline))
-        Text(score?.toString() ?: Fmt.dash, style = NBFont.dot(700, 13f),
-            color = if (score == null) NB.text3Prod else NB.violet1, maxLines = 1)
-        Text(effectiveWeight?.let { L("WEIGHT %.1f%%", it) } ?: L("NOT SCORED"),
-            style = NBFont.dot(500, 9f).tracking(0.05f), color = NB.text3Prod, maxLines = 1)
+fun SleepNightVerdict(score: SleepScore) {
+    val (title, line) = SleepNightVerdict.text(score)
+    Column(Modifier.width(NB.Layout.contentWidth).testTag("sleep.verdict"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = NBFont.ui(600, 19f), color = NB.text1)
+        Text(line, style = NBFont.ui(400, 14f).copy(lineHeight = (14 + 3).sp), color = NB.text2)
     }
 }
 
-// MARK: - duration
-
-/** The only chart DURATION can honestly have: the night against the line it is scored on. */
-object SleepDurationBar {
-    /** 7.5h earns full marks and 9.5h is where the mild oversleep penalty starts. */
-    const val fullFrom = 450.0
-    const val fullTo = 570.0
-    internal const val scale = 720.0 // twelve hours of track
+object SleepNightVerdict {
+    fun text(score: SleepScore): Pair<String, String> {
+        val scored = SleepContributor.entries.mapNotNull { c -> score.contributorScore(c)?.let { c to it } }
+        val weakest = scored.minByOrNull { it.second }
+            ?: return L("No factors measured") to L("The band filed too little of this night to score its factors.")
+        score.appliedDurationCap?.let { cap ->
+            return L("Short night") to L("Total sleep was %@, so the score is capped at %d.",
+                contributorMeasured(score, SleepContributor.totalSleep), cap)
+        }
+        val value = contributorMeasured(score, weakest.first)
+        return when {
+            weakest.second >= 85 -> L("Well rested") to L("All %d measured factors are optimal.", scored.size)
+            weakest.second < 70 -> L("%@ held the score back", weakest.first.title) to
+                L("%@ was %@, the lowest of the %d measured factors.", weakest.first.title, value, scored.size)
+            else -> L("A solid night") to
+                L("Every measured factor is fair or better. The lowest was %@ at %@.", weakest.first.title, value)
+        }
+    }
 }
 
+/**
+ * WHOOP's stage list: each stage on its own row with its share and minutes, instead of one
+ * capsule split four ways. Bars share one scale (the whole night), so they compare directly.
+ */
 @Composable
-fun SleepDurationBar(minutes: Int) {
-    Column(
-        Modifier.fillMaxWidth().clearAndSetSemantics {
-            contentDescription = L("TOTAL"); stateDescription = Fmt.duration(minutes)
-        },
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        BoxWithConstraints(Modifier.fillMaxWidth().height(14.dp)) {
-            val w = maxWidth.value
-            val s = SleepDurationBar.scale
-            Box(Modifier.fillMaxSize().background(NB.barTrack, CircleShape))
-            // The full-marks band, drawn behind the night so the night sits in or out of it.
-            Box(Modifier.offset(x = (w * SleepDurationBar.fullFrom / s).toFloat().dp)
-                .width((w * (SleepDurationBar.fullTo - SleepDurationBar.fullFrom) / s).toFloat().dp)
-                .fillMaxHeight().background(NB.optimal2.copy(alpha = 0.16f)))
-            Box(Modifier.width(max(3.0, w * min(minutes.toDouble(), s) / s).toFloat().dp)
-                .fillMaxHeight().background(NB.violet1, CircleShape))
-            Box(Modifier.offset(x = (w * SleepDurationBar.fullFrom / s).toFloat().dp).width(1.5.dp)
-                .fillMaxHeight().background(NB.optimal2))
-        }
-        Row(Modifier.fillMaxWidth()) {
-            Text(Fmt.duration(minutes), style = NBFont.dot(700, 11f), color = NB.violet1)
-            Spacer(Modifier.weight(1f))
-            Text(L("FULL MARKS FROM %@", Fmt.duration(SleepDurationBar.fullFrom.toInt())),
-                style = NBFont.dot(500, 9f).tracking(0.05f), color = NB.text3Prod)
+fun SleepStageRows(bands: List<VitalsSplit.Band>) {
+    val present = bands.filter { it.share > 0 }
+    val total = present.sumOf { it.share }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        for (band in present) {
+            val fraction = if (total > 0) band.share / total else 0.0
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).background(band.tint, CircleShape))
+                    Text(band.name, style = NBFont.ui(500, 13f), color = NB.text1, maxLines = 1)
+                    Text("${(fraction * 100).roundedInt()}%", style = NBFont.dot(600, 12f), color = NB.text3Prod, maxLines = 1)
+                    Spacer(Modifier.weight(1f))
+                    Text(band.detail, style = NBFont.dot(700, 14f), color = NB.text1, maxLines = 1)
+                }
+                BoxWithConstraints(Modifier.fillMaxWidth().height(6.dp)) {
+                    Box(Modifier.fillMaxSize().background(NB.barTrack, CircleShape))
+                    Box(Modifier.width(max(3f, maxWidth.value * fraction.toFloat()).dp)
+                        .fillMaxHeight().background(band.tint, CircleShape))
+                }
+            }
         }
     }
 }

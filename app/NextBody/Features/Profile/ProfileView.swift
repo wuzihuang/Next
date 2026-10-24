@@ -51,11 +51,15 @@ struct ProfileView: View {
                         line(L("APPLE HEALTH"), value: healthValue, valueTint: healthTint, id: "APPLE_HEALTH") {
                             router.sheet = .appleHealth
                         }
-                        line(L("UNITS · HAPTICS"), value: unitsValue, id: "UNITS") {
+                        line(L("UNITS"), value: unitsValue, id: "UNITS") {
                             router.sheet = .units
                         }
-                        line(L("LANGUAGE · WIDGETS"), value: language.locale.nativeName, id: "LANGUAGE") {
+                        toggleLine(L("HAPTICS"), isOn: hapticsBinding, id: "HAPTICS")
+                        line(L("LANGUAGE"), value: language.locale.nativeName, id: "LANGUAGE") {
                             router.sheet = .language
+                        }
+                        line(L("WIDGETS"), value: L("HOW TO ADD"), id: "WIDGETS") {
+                            router.sheet = .widgets
                         }
                     }
 
@@ -390,6 +394,28 @@ struct ProfileView: View {
         .accessibilityIdentifier(id)
     }
 
+    /// Same height and hairline as `line`, but the trailing side is a switch, not a chevron.
+    private func toggleLine(_ title: String, isOn: Binding<Bool>, id: String) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(NBFont.ui(500, 14)).tracking(0.08 * 14)
+                .foregroundStyle(NB.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: 8)
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .tint(NB.lime1)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 54)
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(NB.hairline).frame(height: 1).padding(.leading, 16)
+        }
+        .accessibilityIdentifier(id)
+    }
+
     private func gauge(_ label: String, value: String, unit: String? = nil,
                        tint: Color = NB.white, caption: String? = nil,
                        inset: CGFloat) -> some View {
@@ -488,8 +514,15 @@ struct ProfileView: View {
     }
 
     private var unitsValue: String {
-        let unit = data.profile.usesMetric ? L("METRIC") : L("IMPERIAL")
-        return L("%@ · %@", unit, haptics.enabled ? L("ON") : L("OFF"))
+        data.profile.usesMetric ? L("METRIC") : L("IMPERIAL")
+    }
+
+    private var hapticsBinding: Binding<Bool> {
+        Binding(get: { haptics.enabled }, set: { on in
+            haptics.enabled = on
+            track("HAPTICS")
+            if on { HoldHaptics.shared.release() }
+        })
     }
 
     private var notifyValue: String {

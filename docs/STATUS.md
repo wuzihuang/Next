@@ -1,5 +1,29 @@
 # NEXTBODY · build status
 
+## 2026-10-24 — DELETE EVERYTHING in one statement · production
+
+account-delete timed out on accounts with a month of band data: deleting raw_samples table by
+table over PostgREST fired a day invalidation per row (43 s on the review account; the phones
+give up at 30 s). Migration `20261024120000` adds `purge_account`, which deletes the auth user
+inside a calculation-maintenance window and lets every user table cascade (0.74 s on the same
+account). The endpoint still empties storage first, now including the REPORT A PROBLEM
+screenshots (`feedback-images`). iOS and Android call it on the 120 s session and show
+DELETING… / DELETED.
+
+Production `gkgzwcxivnffsecshvfs` carries both `20261024120000` and `20261024150000`;
+`account-delete` and `feedback` match this source. Still behind HEAD in production:
+`meal-commit` and `meal-operation` (decimal nutrients and plate fields from 367ea241; the
+database side has been live since 2026-10-18) and `export` (day boundary wording). The AI
+functions were not compared or deployed.
+
+Also in this change: Profile settings split UNITS (weight + height only), HAPTICS (inline
+switch), LANGUAGE and WIDGETS into their own rows; the readiness, training and vitals detail
+pages open with a verdict line and key metrics, on both platforms.
+
+Verified: deno test 452/454 (the two failures are in `_shared/ai` and fail identically on
+HEAD), deno lint, `swift test` 1032/1032, Android `testDebugUnitTest` + `assembleDebug`,
+iOS simulator Debug build.
+
 ## 2026-10-24 — Training target target-1.3 · production
 
 Audit of the daily training target found four defects, each reproduced on the full local

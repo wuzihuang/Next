@@ -71,7 +71,9 @@ import com.nextbody.hoop.design.NBFont
 import com.nextbody.hoop.design.hex
 import com.nextbody.hoop.design.tracking
 import com.nextbody.hoop.features.training.SegmentedPills
+import com.nextbody.hoop.features.home.HomeV2Model
 import com.nextbody.hoop.features.vitals.MetricTrendMath
+import com.nextbody.hoop.features.vitals.VitalsStatPair
 import com.nextbody.hoop.services.Repository
 import com.nextbody.hoop.band.OriginDataSync
 import com.nextbody.hoop.band.BandRefreshRequest
@@ -256,10 +258,12 @@ fun BodyBatteryDetailView() {
                         NeedsCard()
                         footer()
                     } else {
-                        HeroCard(m, hasNight)
+                        HeroCard(m)
+                        DayVerdict(m, hasScore)
+                        SectionLabel(L("KEY METRICS"))
+                        DayKeyMetrics(m)
                         SectionLabel(L("DETAILS"))
                         if (m.reserveDrivers != null && hasScore) LedgerCard(m)
-                        if (hasNight) InputsCard(m.nightInputs ?: NightInputs())
                         VitalsCard(m)
                         ConfidenceCard(m)
                         footer()
@@ -318,40 +322,101 @@ private fun observationLabel(m: DailyMetrics): String {
 
 // MARK: DAY
 
+/** The home page's own bands (<50 recover · 50–79 steady · ≥80 peak), so the word here is
+ *  the word the planet board already says. */
+private fun readinessBand(m: DailyMetrics): HomeV2Model.ReadinessBand =
+    if (m.bodyBatteryFreshness(Instant.now()) != TickFreshness.fresh) HomeV2Model.ReadinessBand.unknown
+    else HomeV2Model.readinessBand(m.bodyBatteryForDisplay(Instant.now()))
+
+private fun bandTint(band: HomeV2Model.ReadinessBand): Color = when (band) {
+    HomeV2Model.ReadinessBand.recover -> NB.ember1
+    HomeV2Model.ReadinessBand.steady, HomeV2Model.ReadinessBand.peak -> NB.lime1
+    HomeV2Model.ReadinessBand.unknown -> NB.text3Prod
+}
+
 /** The curve colours observed increases and decreases, with its actual last timestamp. */
 @Composable
-private fun HeroCard(m: DailyMetrics, hasNight: Boolean) {
+private fun HeroCard(m: DailyMetrics) {
     val isDim = m.bodyBatteryFreshness(Instant.now()) != TickFreshness.fresh
-    val drivers = m.reserveDrivers
-    // Wake time comes from the recorded night, never from the day's highest score.
-    val wakeTime = m.bodyBatteryWakeAt?.let { Fmt.clock(it) }
-    val morning = m.bbWake
-    val wakeLine = if (wakeTime != null && morning != null) L("WAKE %@ · MORNING %d", wakeTime, morning)
-    else if (hasNight) L("MORNING READING") else L("LIVE ESTIMATE")
+    val band = readinessBand(m)
     Column(
         Modifier.width(NB.Layout.contentWidth).padding(bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                BText(Fmt.int(m.bodyBatteryForDisplay(Instant.now())), NBFont.dot(800, 64f),
-                    if (isDim) NB.text3Prod else NB.text1, Modifier.alignByBaseline())
-                BText(L("OF 100"), NBFont.dot(600, 12f).tracking(0.18f), NB.white.copy(alpha = 0.42f),
-                    Modifier.alignByBaseline())
-            }
-            // 8 + 0 + 8, as SwiftUI spaces around the Spacer
-            Spacer(Modifier.width(16.dp))
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                BText(wakeLine, NBFont.dot(600, 10f).tracking(0.18f), NB.white.copy(alpha = 0.42f))
-                BText(
-                    drivers?.nightCharge?.let { L("%@ OVERNIGHT", Fmt.signed(it)) }
-                        ?: if (hasNight) L("OVERNIGHT RECOVERY UNAVAILABLE") else L("FROM WRIST DATA"),
-                    NBFont.dot(700, 12f).tracking(0.12f), NB.lime1,
-                )
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            BText(Fmt.int(m.bodyBatteryForDisplay(Instant.now())), NBFont.dot(800, 64f),
+                if (isDim) NB.text3Prod else NB.text1, Modifier.alignByBaseline())
+            Column(Modifier.alignByBaseline(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (band != HomeV2Model.ReadinessBand.unknown) {
+                    BText(HomeV2Model.status(band).first, NBFont.ui(600, 15f), bandTint(band))
+                }
+                BText(L("OF 100"), NBFont.dot(600, 12f).tracking(0.18f), NB.white.copy(alpha = 0.42f))
             }
         }
         BatteryCurve(m.reserveCurve, m.day, isDim, modifier = Modifier.fillMaxWidth().height(120.dp))
         BodyBatteryTimeAxis(m.day)
+    }
+}
+
+/**
+ * Oura's headline / WHOOP's recovery sentence: the band as a title, and one line read off the
+ * ledger below — where the day started, what sleep and rest added, and which drain has cost
+ * the most since. Nothing here is advice the ledger cannot back.
+ */
+@Composable
+private fun DayVerdict(m: DailyMetrics, hasScore: Boolean) {
+    val band = readinessBand(m)
+    val title = when (band) {
+        HomeV2Model.ReadinessBand.recover -> L("REST TODAY")
+        HomeV2Model.ReadinessBand.steady -> L("READY TO TRAIN")
+        HomeV2Model.ReadinessBand.peak -> L("FULL CHARGE")
+        HomeV2Model.ReadinessBand.unknown -> L("NO RECENT READINESS READING")
+    }
+    val d = m.reserveDrivers
+    val observed = m.bodyBatteryObservedAt
+    val line = when {
+        band == HomeV2Model.ReadinessBand.unknown && observed != null ->
+            L("The last reading was at %@. Wear the band and sync for a current one.", Fmt.clock(observed))
+        d != null && hasScore -> {
+            val worst = listOf(
+                BodyBatteryLedgerRow.Term.awake to d.awake,
+                BodyBatteryLedgerRow.Term.movement to d.movement,
+                BodyBatteryLedgerRow.Term.stress to d.stress,
+            ).minBy { it.second }
+            if (worst.second <= -0.5)
+                L("Started the day at %d and sleep & rest added %@. %@ has cost the most since: %@.",
+                    d.anchor, Fmt.signed(d.chargeForDay), ledgerName(worst.first), Fmt.signed(worst.second))
+            else L("Started the day at %d and sleep & rest added %@. Nothing has drained it noticeably since.",
+                d.anchor, Fmt.signed(d.chargeForDay))
+        }
+        m.bbWake != null -> L("Morning reading %d. The breakdown appears once today's readings line up.", m.bbWake!!)
+        else -> L("Estimated from recent wrist readings. A recorded night adds a morning reading.")
+    }
+    Column(Modifier.width(NB.Layout.contentWidth).testTag("bodyBattery.verdict"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = NBFont.ui(600, 19f), color = bandTint(band))
+        Text(line, style = NBFont.ui(400, 14f).copy(lineHeight = 17.sp), color = NB.text2)
+    }
+}
+
+/** WHOOP's recovery statistics: what the night left, and the two measurements it was charged
+ *  through, each against this person's own 14-night baseline. */
+@Composable
+private fun DayKeyMetrics(m: DailyMetrics) {
+    val n = m.nightInputs ?: NightInputs()
+    val pace = n.multiplier?.let { BodyBatteryLedgerMath.pace(it) }
+    Column(Modifier.testTag("bodyBattery.keyMetrics"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        VitalsStatPair(
+            VitalsStatPair.Model(L("MORNING READINESS"), m.bbWake?.toString(), null,
+                m.bodyBatteryWakeAt?.let { L("WAKE %@", Fmt.clock(it)) } ?: L("NO MORNING READING"), NB.lime1),
+            VitalsStatPair.Model(L("OVERNIGHT RECOVERY"), m.reserveDrivers?.nightCharge?.let { Fmt.signed(it) }, null,
+                pace?.let { paceWord(it) } ?: L("NO BASELINE YET"), null),
+        )
+        VitalsStatPair(
+            VitalsStatPair.Model(L("NIGHT HRV"), n.hrv?.roundedInt()?.toString(), "MS",
+                baselineNote(n.hrv, n.hrvBase) ?: L("NO BASELINE YET"), null),
+            VitalsStatPair.Model(L("Resting heart rate"), n.rhr?.roundedInt()?.toString(), "BPM",
+                baselineNote(n.rhr, n.rhrBase) ?: L("NO BASELINE YET"), null),
+        )
     }
 }
 
@@ -434,37 +499,6 @@ private fun ledgerReason(term: BodyBatteryLedgerRow.Term, d: ReserveDrivers, m: 
     }
 }
 
-/**
- * HRV and resting heart rate are allowed on screen because we measure them and they have
- * a unit. Sleep duration and stages are not. Each is printed against its own 14-night
- * baseline, and the multiplier they produce closes the card.
- */
-@Composable
-private fun InputsCard(n: NightInputs) {
-    val pace = n.multiplier?.let { BodyBatteryLedgerMath.pace(it) }
-    CardBlock(title = L("LAST NIGHT'S INPUTS"), trailing = L("%d OF 3", n.present)) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            InputRow("HRV", Fmt.kg(n.hrv, 0), if (n.hrv == null) null else "MS", baselineNote(n.hrv, n.hrvBase))
-            Hairline()
-            InputRow("Resting heart rate", Fmt.kg(n.rhr, 0), if (n.rhr == null) null else "BPM",
-                baselineNote(n.rhr, n.rhrBase))
-            Hairline()
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                BText(L("Recovery pace"), NBFont.brand(400, 13f), NB.text2)
-                Spacer(Modifier.weight(1f))
-                BText(n.multiplier?.let { swiftFormat("%.2f", it) } ?: Fmt.dash,
-                    NBFont.dot(700, 14f).tracking(0.04f), NB.text1)
-                if (pace != null) {
-                    BText(paceWord(pace), NBFont.dot(600, 9f).tracking(0.14f),
-                        if (pace == BodyBatteryLedgerMath.Pace.usual) NB.white.copy(alpha = 0.42f) else NB.lime1)
-                }
-            }
-        }
-        Prose(L("Nightly baselines guide sleep recovery. Each interval also uses its heart rate, HRV and stress. Daytime rest uses a separate daytime baseline."),
-            13f, 6f, NB.white.copy(alpha = 0.62f))
-    }
-}
-
 /** "BASE 61 · −7": the baseline and how far last night sat from it. */
 private fun baselineNote(value: Double?, base: Double?): String? {
     if (base == null) return null
@@ -502,7 +536,6 @@ private fun VitalsCard(m: DailyMetrics) {
         Row {
             VitalReading(L("HEART"), hr?.toString(), "BPM", NB.lime1, stale)
             VitalReading(L("STRESS"), stress?.toString(), L("INDEX"), NB.white.copy(alpha = 0.55f), stale)
-            VitalReading(L("RESTING"), m.nightInputs?.rhr?.toInt()?.toString(), "BPM", NB.white.copy(alpha = 0.42f), false)
         }
         if (hrs.isNotEmpty() || stresses.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -668,17 +701,17 @@ private fun WeekBoard(days: List<BodyBatteryDayFacts>, facts: (Int) -> List<Body
                 NBFont.ui(400, 11f).tracking(0.04f), NB.text3Prod, maxLines = Int.MAX_VALUE)
             WindowSummary(avg, delta, days.count { it.hasWake }, days.size)
         }
-        CardBlock(title = L("MORNING READINESS"), trailing = L("TYPICAL DAY"), trailingIsDot = true) {
-            WeekStat(L("AVERAGE"), Fmt.int(avg?.rounded()?.toInt()), NB.lime1)
-            Hairline()
-            WeekStat(L("HIGHEST"),
-                peak?.let { p -> p.wake?.let { L("%d · %@", it, Fmt.weekday(p.day.date)) } } ?: Fmt.dash,
-                NB.lime1)
-            Hairline()
-            WeekStat(L("OVERNIGHT RECOVERY"), night?.let { L("%@ / DAY", Fmt.signed(it)) } ?: Fmt.dash, NB.macroValue)
-            Hairline()
-            WeekStat(L("NO MORNING READING"), L("%d DAYS", BodyBatteryWindowMath.emptyCount(days)), NB.text3Prod)
-        }
+        SectionLabel(L("KEY METRICS"))
+        VitalsStatPair(
+            VitalsStatPair.Model(L("MORNING READINESS"), avg?.rounded()?.toInt()?.toString(), null, L("AVERAGE"), NB.lime1),
+            VitalsStatPair.Model(L("HIGHEST"), peak?.wake?.toString(), null,
+                peak?.let { Fmt.weekday(it.day.date) } ?: Fmt.dash, null),
+        )
+        VitalsStatPair(
+            VitalsStatPair.Model(L("OVERNIGHT RECOVERY"), night?.let { Fmt.signed(it) }, null, L("TYPICAL DAY"), null),
+            VitalsStatPair.Model(L("NO MORNING READING"), "${BodyBatteryWindowMath.emptyCount(days)}",
+                L("OF %d", days.size), L("A gap is not a zero."), null),
+        )
     }
 }
 
@@ -708,6 +741,13 @@ private fun MonthBoard(days: List<BodyBatteryDayFacts>) {
             // where the month's drift reads.
             WindowSummary(typical, null, mornings, days.size)
         }
+        SectionLabel(L("KEY METRICS"))
+        VitalsStatPair(
+            VitalsStatPair.Model(L("TYPICAL MORNING"), typical?.rounded()?.toInt()?.toString(), null,
+                L("%d OF %d MORNINGS", mornings, days.size), NB.lime1),
+            VitalsStatPair.Model(L("OVERNIGHT RECOVERY"), night?.let { Fmt.signed(it) }, null, L("TYPICAL DAY"), null),
+        )
+        SectionLabel(L("DETAILS"))
         CardBlock(title = L("WHAT THE MONTH LOOKED LIKE")) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 BText(L("WEEK BY WEEK"), NBFont.ui(500, 11f).tracking(0.2f), NB.text1, Modifier.weight(1f))
@@ -723,10 +763,6 @@ private fun MonthBoard(days: List<BodyBatteryDayFacts>) {
                         if (i == rolls.size - 1) NB.lime1 else hex(0x8A8A96), Modifier.weight(1f), align = TextAlign.Center)
                 }
             }
-            Hairline()
-            WeekStat(L("TYPICAL MORNING"), Fmt.int(typical?.rounded()?.toInt()), NB.lime1)
-            Hairline()
-            WeekStat(L("OVERNIGHT RECOVERY"), night?.let { L("%@ / DAY", Fmt.signed(it)) } ?: Fmt.dash, NB.macroValue)
             BText(L("Two days, then four weeks."), NBFont.ui(400, 11f).tracking(0.04f), NB.text3Prod)
         }
     }
@@ -763,14 +799,6 @@ private fun WindowSummary(headline: Double?, delta: Double?, recorded: Int, tota
     }
 }
 
-@Composable
-private fun WeekStat(label: String, value: String, tint: Color) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        BText(label, NBFont.ui(500, 12f).tracking(0.06f), NB.text2, Modifier.weight(1f))
-        Spacer(Modifier.width(16.dp))
-        BText(value, NBFont.dot(700, 14f), tint)
-    }
-}
 
 private fun weekTrend(rolls: List<BodyBatteryWeekRoll>): String {
     val values = rolls.mapNotNull { it.average }
@@ -833,17 +861,6 @@ private fun LedgerEdge(label: String, value: Int, note: String?, tint: Color) {
     }
 }
 
-@Composable
-private fun InputRow(name: String, value: String, unit: String?, base: String?) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        BText(L(name), NBFont.brand(400, 13f), NB.text2)
-        Spacer(Modifier.weight(1f))
-        BText(value, NBFont.dot(700, 14f).tracking(0.04f), NB.text1)
-        if (unit != null) BText(unit, NBFont.dot(600, 10f).tracking(0.16f), NB.white.copy(alpha = 0.42f))
-        if (base != null) BText(base, NBFont.dot(500, 9f).tracking(0.14f), NB.white.copy(alpha = 0.28f))
-    }
-}
 
 /**
  * Each observed rise is lime; flat or falling segments are white. Missing ticks

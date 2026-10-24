@@ -806,14 +806,19 @@ object SupabaseClient {
         return this
     }
 
-    suspend fun callFunction(name: String, payload: Any, expectedOwner: String? = null): JSONObject {
+    /**
+     * [longRunning] takes the 120 s client: account-delete empties three buckets before it
+     * answers, and 30 s is a timeout the server never hears about.
+     */
+    suspend fun callFunction(name: String, payload: Any, expectedOwner: String? = null,
+                             longRunning: Boolean = false): JSONObject {
         if (expectedOwner != null && userId != expectedOwner) throw SessionChangedException()
         val body = Json.obj(payload).toString()
         val url = functionUrl(name)
         val reply = try {
             authenticated({
                 Request.Builder().url(url).functionHeaders(name, it).post(body.toRequestBody(JSON)).build()
-            })
+            }, longRunning = longRunning)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SupabaseFailure) {

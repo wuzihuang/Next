@@ -92,6 +92,7 @@ import com.nextbody.hoop.services.ConsentStore
 import com.nextbody.hoop.ui.BackChevron
 import com.nextbody.hoop.ui.DetailEdgeBack
 import com.nextbody.hoop.ui.HapticsSetting
+import com.nextbody.hoop.ui.HoldHaptics
 import com.nextbody.hoop.ui.LocalDetailBackSlide
 import com.nextbody.hoop.ui.cardSkin
 import com.nextbody.hoop.ui.hotZoneTap
@@ -179,12 +180,21 @@ fun ProfileView() {
                             valueTint = if (profile.appleHealthLinked) null else ProfileTint.amber,
                             id = "HEALTH_CONNECT", track = ::track,
                         ) { Router.sheet = SheetRoute.HealthConnect }
-                        ProfileLine(L("UNITS · HAPTICS"), value = unitsValue(), id = "UNITS", track = ::track) {
+                        ProfileLine(L("UNITS"), value = unitsValue(), id = "UNITS", track = ::track) {
                             Router.sheet = SheetRoute.Units
                         }
-                        ProfileLine(L("LANGUAGE · WIDGETS"), value = AppLanguage.locale.nativeName, id = "LANGUAGE",
-                            last = true, track = ::track) {
+                        ProfileToggleLine(L("HAPTICS"), isOn = HapticsSetting.enabled, id = "HAPTICS",
+                            track = ::track) { on ->
+                            HapticsSetting.enabled = on
+                            if (on) HoldHaptics.release()
+                        }
+                        ProfileLine(L("LANGUAGE"), value = AppLanguage.locale.nativeName, id = "LANGUAGE",
+                            track = ::track) {
                             Router.sheet = SheetRoute.Language
+                        }
+                        ProfileLine(L("WIDGETS"), value = L("HOW TO ADD"), id = "WIDGETS",
+                            last = true, track = ::track) {
+                            Router.sheet = SheetRoute.Widgets
                         }
                     }
 
@@ -577,6 +587,40 @@ private fun ProfileLine(
     }
 }
 
+/** Same height and hairline as [ProfileLine], but the trailing side is a switch, not a chevron. */
+@Composable
+private fun ProfileToggleLine(
+    title: String,
+    isOn: Boolean,
+    id: String,
+    last: Boolean = false,
+    track: (String) -> Unit,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .drawBehind {
+                if (!last) {
+                    val inset = 16.dp.toPx()
+                    drawRect(NB.hairline, Offset(inset, size.height - 1.dp.toPx()), Size(size.width - inset, 1.dp.toPx()))
+                }
+            }
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            FitText(title, NBFont.ui(500, 14f).tracking(0.08f), NB.white, minScale = 0.7f)
+        }
+        Spacer(Modifier.width(12.dp + 8.dp + 12.dp))
+        NBSwitch(isOn) { on ->
+            track(id)
+            onChange(on)
+        }
+    }
+}
+
 /** The row chevron: a 6 × 10 open angle in #5A5A66. */
 @Composable
 fun Chevron(color: Color = hex(0x5A5A66), modifier: Modifier = Modifier) {
@@ -684,10 +728,8 @@ private fun deviceValue(): String {
     return if (percent != null) L("NEXTBODY · %d%%", percent) else L("NEXTBODY · %@", Fmt.dash)
 }
 
-private fun unitsValue(): String {
-    val unit = if (DataStore.profile.usesMetric) L("METRIC") else L("IMPERIAL")
-    return L("%@ · %@", unit, if (HapticsSetting.enabled) L("ON") else L("OFF"))
-}
+private fun unitsValue(): String =
+    if (DataStore.profile.usesMetric) L("METRIC") else L("IMPERIAL")
 
 private fun notifyValue(lamp: NotificationAccess.Lamp): String = when (lamp) {
     NotificationAccess.Lamp.On -> L("ON")

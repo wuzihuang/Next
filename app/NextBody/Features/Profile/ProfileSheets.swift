@@ -415,16 +415,15 @@ struct SwitchRow: View {
     }
 }
 
-/// 06 · two segmented rows plus a language row. Instant, no Save.
+/// 06 · two segmented rows. Instant, no Save.
 /// ⚠️ The unit is a display preference only: the SDK's own unit flag is never written to the band.
 struct UnitsSheet: View {
     @EnvironmentObject private var data: DataStore
-    @ObservedObject private var haptics = HapticsSetting.shared
     @State private var weightUnit = "KG"
     @State private var heightUnit = "CM"
 
     var body: some View {
-        SheetFrame(title: L("Units & language")) {
+        SheetFrame(title: L("Units")) {
             VStack(spacing: 0) {
                 HStack {
                     Text(L("Weight")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
@@ -438,27 +437,6 @@ struct UnitsSheet: View {
                     Text(L("Height")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
                     Spacer(minLength: 0)
                     UnitToggle(options: ["CM", "FT"], selection: $heightUnit)
-                }
-                .padding(.horizontal, 16).frame(height: 62)
-                .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
-
-                HStack {
-                    Text(L("HAPTICS")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
-                    Spacer(minLength: 0)
-                    Toggle("", isOn: $haptics.enabled)
-                        .labelsHidden()
-                        .tint(NB.lime1)
-                }
-                .padding(.horizontal, 16).frame(height: 62)
-                .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
-
-                HStack {
-                    Text(L("Language")).font(NBFont.ui(500, 14)).foregroundStyle(NB.text1)
-                    Spacer(minLength: 0)
-                    Text(AppLanguage.shared.locale.nativeName)
-                        .font(NBFont.ui(400, 13))
-                        .foregroundStyle(NB.text3Prod)
-                    Chevron()
                 }
                 .padding(.horizontal, 16).frame(height: 62)
             }
@@ -482,15 +460,11 @@ struct UnitsSheet: View {
             let saved = data.profile
             Task { await Repository.shared.saveProfile(saved, editedFields: ["units_metric"]) }
         }
-        .onChange(of: haptics.enabled) { _, on in
-            if on { HoldHaptics.shared.release() }
-        }
     }
 }
 
 struct LanguageSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var router: Router
     @ObservedObject private var language = AppLanguage.shared
 
     var body: some View {
@@ -507,21 +481,10 @@ struct LanguageSheet: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .overlay(alignment: .bottom) { Hairline().padding(.leading, 16) }
-                }
-                Button { router.sheet = .widgets } label: {
-                    HStack {
-                        Text(L("WIDGETS")).font(NBFont.ui(500, 15)).foregroundStyle(NB.text1)
-                        Spacer(minLength: 0)
-                        Text(L("HOW TO ADD"))
-                            .font(NBFont.dot(500, 11)).tracking(0.08 * 11)
-                            .foregroundStyle(NB.text3Prod)
-                        Chevron()
+                    .overlay(alignment: .bottom) {
+                        if loc != AppLocale.allCases.last { Hairline().padding(.leading, 16) }
                     }
-                    .padding(.horizontal, 16).frame(height: 58)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
             .frame(width: NB.Layout.contentWidth)
             .cardSkin()
@@ -641,6 +604,8 @@ struct DeleteAccountSheet: View {
     @State private var weeks: Int?
     @State private var nights: Int?
     @State private var failure: String?
+    @State private var phase: DeletePhase = .idle
+    @State private var progress: Double = 0
 
     /// ⚠️ 1BAY · the second ask must count out what is about to be lost. Counting what is in
     /// memory counts the page size — the list is fetched 60 at a time — so these are exact
@@ -671,15 +636,14 @@ struct DeleteAccountSheet: View {
             Spacer(minLength: 0)
 
             LimePillButton(title: L("Keep my account")) { dismiss() }
+                .disabled(phase != .idle)
 
+            // ⚠️ Not .disabled while it runs: a disabled .plain button fades, and this key is
+            // the progress bar. The action guards on the phase instead.
             Button {
                 Task { await deleteEverything() }
             } label: {
-                Text(L("DELETE EVERYTHING"))
-                    .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
-                    .foregroundStyle(NB.alert2)
-                    .frame(width: NB.Layout.contentWidth, height: 52)
-                    .overlay(Capsule().stroke(NB.alert2.opacity(0.6), lineWidth: 1))
+                DeleteProgressKey(phase: phase, progress: progress)
             }
             .buttonStyle(.plain)
         }
@@ -687,6 +651,7 @@ struct DeleteAccountSheet: View {
         .padding(.top, 26)
         .padding(.bottom, 26)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .interactiveDismissDisabled(phase != .idle)
         .task {
             weighIns = await SupabaseClient.shared.count("weigh_ins")
             nights = await SupabaseClient.shared.count("sleep_nights")
@@ -701,28 +666,57 @@ struct DeleteAccountSheet: View {
     /// call session.reset(), which signs the user out and deletes nothing — under a sentence
     /// promising there is no undo. If the endpoint cannot be reached the account is still
     /// there, and the sheet has to say so rather than look like it worked.
+    ///
+    /// The tap used to look like nothing: no state, no progress, and the request ran past
+    /// the 30 s the phone waits. The key now fills while the server works — eased toward 90 %,
+    /// since the endpoint reports no progress of its own — and only its answer finishes it.
     private func deleteEverything() async {
-        guard let owner = SupabaseClient.currentUserIdSnapshot() else { return }
+        guard phase == .idle else { return }
+        failure = nil
+        // A signed-out snapshot used to return here silently — the tap that did nothing.
+        guard let owner = SupabaseClient.currentUserIdSnapshot() else {
+            failure = Self.failureCopy(ref: "UNAUTHENTICATED")
+            return
+        }
+        phase = .deleting
+        progress = 0
+        withAnimation(.easeOut(duration: 1.2)) { progress = 0.6 }
+        let creep = Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 12)) { progress = 0.9 }
+        }
+        defer { creep.cancel() }
         await Analytics.shared.track("ACCOUNT_DELETE_CONFIRMED", [:])
         do {
             // ⚠️ The confirmation is a literal the server checks, so a mis-routed call
             // cannot delete an account. It is the same second ask this sheet just made.
-            let row = try await SupabaseClient.shared.callFunction("account-delete", payload: ["confirm": "DELETE"], expectedOwner: owner)
+            let row = try await SupabaseClient.shared.callFunction("account-delete", payload: ["confirm": "DELETE"],
+                                                                   expectedOwner: owner, longRunning: true)
             guard row["deleted"] as? Bool == true else {
                 // F5 C8 · the failure sentence is fixed, and the same whichever half failed.
-                failure = Self.failureCopy(ref: "\(row["error"] ?? "unknown")")
+                fail(ref: "\(row["error"] ?? "unknown")")
                 await Analytics.shared.track("ACCOUNT_DELETE_FAILED",
                                              ["ERROR": "\(row["error"] ?? "unknown")"])
                 return
             }
+            creep.cancel()
+            withAnimation(.easeInOut(duration: 0.3)) { progress = 1; phase = .deleted }
+            // Long enough to read DELETED on a full bar before the gate replaces the sheet.
+            try? await Task.sleep(for: .milliseconds(700))
             // Not reset() — that is the sign-out, and it leaves the band paired and every
             // nb.* key on the phone. The sheet just promised there is no undo.
             session.purgeAfterAccountDelete()
             dismiss()
         } catch {
-            failure = Self.failureCopy(ref: "\(error)")
+            fail(ref: "\(error)")
             await Analytics.shared.track("ACCOUNT_DELETE_FAILED", ["ERROR": "\(error)"])
         }
+    }
+
+    private func fail(ref: String) {
+        withAnimation(.easeOut(duration: 0.35)) { progress = 0; phase = .idle }
+        failure = Self.failureCopy(ref: ref)
     }
 
     /// 11 edge 5 · ALL OR NOTHING. The sentence is the board's, and the reference is something a
@@ -733,6 +727,48 @@ struct DeleteAccountSheet: View {
         for b in ref.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
         let ref = String(format: "%04X-%02X", h & 0xFFFF, (h >> 16) & 0xFF)
         return L("DELETION FAILED\nNothing was removed. Your account is exactly as it was. Try again, or write to us.\nREF %@", ref)
+    }
+}
+
+enum DeletePhase { case idle, deleting, deleted }
+
+/// DELETE EVERYTHING doubles as its own progress bar: the capsule fills from the left while
+/// the request runs, and the label breathes so a slow server still reads as working.
+private struct DeleteProgressKey: View {
+    let phase: DeletePhase
+    let progress: Double
+    @State private var breathe = false
+
+    private var title: String {
+        switch phase {
+        case .idle:     L("DELETE EVERYTHING")
+        case .deleting: L("DELETING…")
+        case .deleted:  L("DELETED")
+        }
+    }
+
+    var body: some View {
+        Text(title)
+            .font(NBFont.ui(500, 12)).tracking(0.2 * 12)
+            .foregroundStyle(NB.alert2)
+            .opacity(phase == .deleting && breathe ? 0.45 : 1)
+            .contentTransition(.opacity)
+            .frame(width: NB.Layout.contentWidth, height: 52)
+            .background(alignment: .leading) {
+                Rectangle()
+                    .fill(NB.alert2.opacity(phase == .deleted ? 0.28 : 0.18))
+                    .frame(width: NB.Layout.contentWidth * progress)
+            }
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(NB.alert2.opacity(0.6), lineWidth: 1))
+            .onChange(of: phase) { _, now in
+                if now == .deleting {
+                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { breathe = true }
+                } else {
+                    withAnimation(.easeOut(duration: 0.2)) { breathe = false }
+                }
+            }
+            .accessibilityValue(phase == .deleting ? Text("\(Int(progress * 100))%") : Text(""))
     }
 }
 

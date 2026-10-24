@@ -41,12 +41,6 @@ struct BodyBatteryDetailView: View {
 
     /// Wake time comes from the recorded night, never from the day's highest score.
     private var wakeTime: String? { m.bodyBatteryWakeAt.map(Fmt.clock) }
-    private var wakeLine: String {
-        if let wakeTime, let morning = m.bbWake {
-            return L("WAKE %@ · MORNING %d", wakeTime, morning)
-        }
-        return hasNight ? L("MORNING READING") : L("LIVE ESTIMATE")
-    }
 
     private var weekFacts: [BodyBatteryDayFacts] { facts(count: DetailWindow(.bodyBattery, .week).days) }
     private var monthFacts: [BodyBatteryDayFacts] { facts(count: DetailWindow(.bodyBattery, .month).days) }
@@ -144,13 +138,96 @@ struct BodyBatteryDetailView: View {
             footer
         } else {
             heroCard
+            dayVerdict
+            SectionLabel(L("KEY METRICS"))
+            dayKeyMetrics
             SectionLabel(L("DETAILS"))
             if drivers != nil && hasScore { ledgerCard }
-            if hasNight { inputsCard }
             vitalsCard
             confidenceCard
             footer
         }
+    }
+
+    /// The home page's own bands (<50 recover · 50–79 steady · ≥80 peak), so the word here
+    /// is the word the planet board already says.
+    private var band: HomeV2Model.ReadinessBand {
+        isDim ? .unknown : HomeV2Model.readinessBand(m.bodyBatteryForDisplay(at: Date()))
+    }
+
+    private var bandTint: Color {
+        switch band {
+        case .recover: NB.ember1
+        case .steady, .peak: NB.lime1
+        case .unknown: NB.text3Prod
+        }
+    }
+
+    /// Oura's headline / WHOOP's recovery sentence: the band as a title, and one line read
+    /// off the ledger below — where the day started, what sleep and rest added, and which
+    /// drain has cost the most since. Nothing here is advice the ledger cannot back.
+    private var dayVerdict: some View {
+        let text = dayVerdictText
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(text.title)
+                .font(NBFont.ui(600, 19)).foregroundStyle(bandTint)
+            Text(text.line)
+                .font(NBFont.ui(400, 14)).lineSpacing(3)
+                .foregroundStyle(NB.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bodyBattery.verdict")
+    }
+
+    private var dayVerdictText: (title: String, line: String) {
+        let title: String
+        switch band {
+        case .recover: title = L("REST TODAY")
+        case .steady:  title = L("READY TO TRAIN")
+        case .peak:    title = L("FULL CHARGE")
+        case .unknown: title = L("NO RECENT READINESS READING")
+        }
+        if band == .unknown, let at = m.bodyBatteryObservedAt {
+            return (title, L("The last reading was at %@. Wear the band and sync for a current one.", Fmt.clock(at)))
+        }
+        if let d = drivers, hasScore {
+            let drains = [(BodyBatteryLedgerRow.Term.awake, d.awake),
+                          (.movement, d.movement), (.stress, d.stress)]
+            if let worst = drains.min(by: { $0.1 < $1.1 }), worst.1 <= -0.5 {
+                return (title, L("Started the day at %d and sleep & rest added %@. %@ has cost the most since: %@.",
+                                 d.anchor, Fmt.signed(d.chargeForDay), ledgerName(worst.0), Fmt.signed(worst.1)))
+            }
+            return (title, L("Started the day at %d and sleep & rest added %@. Nothing has drained it noticeably since.",
+                             d.anchor, Fmt.signed(d.chargeForDay)))
+        }
+        if let morning = m.bbWake {
+            return (title, L("Morning reading %d. The breakdown appears once today's readings line up.", morning))
+        }
+        return (title, L("Estimated from recent wrist readings. A recorded night adds a morning reading."))
+    }
+
+    /// WHOOP's recovery statistics: what the night left, and the two measurements it was
+    /// charged through, each against this person's own 14-night baseline.
+    private var dayKeyMetrics: some View {
+        let n = m.nightInputs ?? NightInputs()
+        let pace = n.multiplier.map(BodyBatteryLedgerMath.pace)
+        return VStack(spacing: 8) {
+            VitalsStatPair(
+                left: .init(label: L("MORNING READINESS"), value: m.bbWake.map(String.init), unit: nil,
+                            foot: wakeTime.map { L("WAKE %@", $0) } ?? L("NO MORNING READING"),
+                            tint: NB.lime1),
+                right: .init(label: L("OVERNIGHT RECOVERY"), value: drivers?.nightCharge.map(Fmt.signed), unit: nil,
+                             foot: pace.map(paceWord) ?? L("NO BASELINE YET"), tint: nil))
+            VitalsStatPair(
+                left: .init(label: L("NIGHT HRV"), value: n.hrv.map { String(Int($0.rounded())) }, unit: "MS",
+                            foot: baselineNote(n.hrv, n.hrvBase) ?? L("NO BASELINE YET"), tint: nil),
+                right: .init(label: L("Resting heart rate"), value: n.rhr.map { String(Int($0.rounded())) }, unit: "BPM",
+                             foot: baselineNote(n.rhr, n.rhrBase) ?? L("NO BASELINE YET"), tint: nil))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bodyBattery.keyMetrics")
     }
 
     /// The curve colours observed increases and decreases, with its actual last timestamp.
@@ -161,20 +238,17 @@ struct BodyBatteryDetailView: View {
                     Text(Fmt.int(m.bodyBatteryForDisplay(at: Date())))
                         .font(NBFont.dot(800, 64))
                         .foregroundStyle(isDim ? NB.text3Prod : NB.text1)
-                    Text(L("OF 100"))
-                        .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
-                        .foregroundStyle(NB.white.opacity(0.42))
+                    VStack(alignment: .leading, spacing: 2) {
+                        if band != .unknown {
+                            Text(HomeV2Model.status(band: band).word)
+                                .font(NBFont.ui(600, 15)).foregroundStyle(bandTint)
+                        }
+                        Text(L("OF 100"))
+                            .font(NBFont.dot(600, 12)).tracking(0.18 * 12)
+                            .foregroundStyle(NB.white.opacity(0.42))
+                    }
                 }
                 Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(wakeLine)
-                        .font(NBFont.dot(600, 10)).tracking(0.18 * 10)
-                        .foregroundStyle(NB.white.opacity(0.42))
-                    Text(drivers?.nightCharge.map { L("%@ OVERNIGHT", Fmt.signed($0)) }
-                         ?? (hasNight ? L("OVERNIGHT RECOVERY UNAVAILABLE") : L("FROM WRIST DATA")))
-                        .font(NBFont.dot(700, 12)).tracking(0.12 * 12)
-                        .foregroundStyle(NB.lime1)
-                }
             }
             BatteryCurve(samples: m.reserveCurve, day: m.day, dim: isDim).frame(height: 120)
             BodyBatteryTimeAxis(day: m.day)
@@ -276,45 +350,6 @@ struct BodyBatteryDetailView: View {
         }
     }
 
-    /// HRV and resting heart rate are allowed on screen because we measure them and they have
-    /// a unit. Sleep duration and stages are not, here or anywhere. Each is printed against
-    /// its own 14-night baseline, and the multiplier they produce closes the card — it is the
-    /// number the Recovery row above was charged through.
-    private var inputsCard: some View {
-        let n = m.nightInputs ?? NightInputs()
-        let pace = n.multiplier.map(BodyBatteryLedgerMath.pace)
-        return CardBlock(title: L("LAST NIGHT'S INPUTS"), trailing: L("%d OF 3", n.present)) {
-            VStack(spacing: 12) {
-                InputRow(name: "HRV", value: Fmt.kg(n.hrv, decimals: 0), unit: n.hrv == nil ? nil : "MS",
-                         base: baselineNote(n.hrv, n.hrvBase))
-                Hairline()
-                InputRow(name: "Resting heart rate", value: Fmt.kg(n.rhr, decimals: 0),
-                         unit: n.rhr == nil ? nil : "BPM",
-                         base: baselineNote(n.rhr, n.rhrBase))
-                Hairline()
-                HStack(spacing: 8) {
-                    Text(L("Recovery pace"))
-                        .font(NBFont.brand(400, 13))
-                        .foregroundStyle(NB.text2)
-                    Spacer(minLength: 0)
-                    Text(n.multiplier.map { String(format: "%.2f", $0) } ?? Fmt.dash)
-                        .font(NBFont.dot(700, 14)).tracking(0.04 * 14)
-                        .foregroundStyle(NB.text1)
-                    if let pace {
-                        Text(paceWord(pace))
-                            .font(NBFont.dot(600, 9)).tracking(0.14 * 9)
-                            .foregroundStyle(pace == .usual ? NB.white.opacity(0.42) : NB.lime1)
-                    }
-                }
-            }
-            Text(L("Nightly baselines guide sleep recovery. Each interval also uses its heart rate, HRV and stress. Daytime rest uses a separate daytime baseline."))
-                .font(NBFont.brand(400, 13))
-                .lineSpacing(6)
-                .foregroundStyle(NB.white.opacity(0.62))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
     /// "BASE 61 · −7": the baseline and how far last night sat from it.
     private func baselineNote(_ value: Double?, _ base: Double?) -> String? {
         guard let base else { return nil }
@@ -352,8 +387,6 @@ struct BodyBatteryDetailView: View {
                              tint: NB.lime1, dim: stale)
                 VitalReading(label: L("STRESS"), value: stress.map(String.init), unit: L("INDEX"),
                              tint: NB.white.opacity(0.55), dim: stale)
-                VitalReading(label: L("RESTING"), value: m.nightInputs?.rhr.map { String(Int($0)) },
-                             unit: "BPM", tint: NB.white.opacity(0.42), dim: false)
             }
             if !hrs.isEmpty || !stresses.isEmpty {
                 VStack(spacing: 10) {
@@ -578,19 +611,17 @@ struct BodyBatteryDetailView: View {
                 windowSummary(headline: avg, delta: delta,
                               recorded: days.filter(\.hasWake).count, of: days.count)
             }
-            CardBlock(title: L("MORNING READINESS"), trailing: L("TYPICAL DAY"), trailingIsDot: true) {
-                weekStat(L("AVERAGE"), Fmt.int(avg.map { Int($0.rounded()) }), NB.lime1)
-                Hairline()
-                weekStat(L("HIGHEST"),
-                         peak.flatMap { p in p.wake.map { L("%d · %@", $0, Fmt.weekday(p.day.date)) } } ?? Fmt.dash,
-                         NB.lime1)
-                Hairline()
-                weekStat(L("OVERNIGHT RECOVERY"),
-                         night.map { L("%@ / DAY", Fmt.signed($0)) } ?? Fmt.dash,
-                         NB.macroValue)
-                Hairline()
-                weekStat(L("NO MORNING READING"), L("%d DAYS", BodyBatteryWindowMath.emptyCount(days)), NB.text3Prod)
-            }
+            SectionLabel(L("KEY METRICS"))
+            VitalsStatPair(
+                left: .init(label: L("MORNING READINESS"), value: avg.map { String(Int($0.rounded())) }, unit: nil,
+                            foot: L("AVERAGE"), tint: NB.lime1),
+                right: .init(label: L("HIGHEST"), value: peak?.wake.map(String.init), unit: nil,
+                             foot: peak.map { Fmt.weekday($0.day.date) } ?? Fmt.dash, tint: nil))
+            VitalsStatPair(
+                left: .init(label: L("OVERNIGHT RECOVERY"), value: night.map(Fmt.signed), unit: nil,
+                            foot: L("TYPICAL DAY"), tint: nil),
+                right: .init(label: L("NO MORNING READING"), value: "\(BodyBatteryWindowMath.emptyCount(days))",
+                             unit: L("OF %d", days.count), foot: L("A gap is not a zero."), tint: nil))
         }
     }
 
@@ -626,6 +657,13 @@ struct BodyBatteryDetailView: View {
                 // where the month's drift reads.
                 windowSummary(headline: typical, delta: nil, recorded: mornings, of: days.count)
             }
+            SectionLabel(L("KEY METRICS"))
+            VitalsStatPair(
+                left: .init(label: L("TYPICAL MORNING"), value: typical.map { String(Int($0.rounded())) }, unit: nil,
+                            foot: L("%d OF %d MORNINGS", mornings, days.count), tint: NB.lime1),
+                right: .init(label: L("OVERNIGHT RECOVERY"), value: night.map(Fmt.signed), unit: nil,
+                             foot: L("TYPICAL DAY"), tint: nil))
+            SectionLabel(L("DETAILS"))
             CardBlock(title: L("WHAT THE MONTH LOOKED LIKE")) {
                 HStack {
                     Text(L("WEEK BY WEEK"))
@@ -648,12 +686,6 @@ struct BodyBatteryDetailView: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
-                Hairline()
-                weekStat(L("TYPICAL MORNING"), Fmt.int(typical.map { Int($0.rounded()) }), NB.lime1)
-                Hairline()
-                weekStat(L("OVERNIGHT RECOVERY"),
-                         night.map { L("%@ / DAY", Fmt.signed($0)) } ?? Fmt.dash,
-                         NB.macroValue)
                 Text(L("Two days, then four weeks."))
                     .font(NBFont.ui(400, 11)).tracking(0.04 * 11)
                     .foregroundStyle(NB.text3Prod)
@@ -693,18 +725,6 @@ struct BodyBatteryDetailView: View {
         .padding(.top, 10)
         .overlay(alignment: .top) {
             Rectangle().fill(NB.white.opacity(0.06)).frame(height: 1)
-        }
-    }
-
-    private func weekStat(_ label: String, _ value: String, _ tint: Color) -> some View {
-        HStack {
-            Text(label)
-                .font(NBFont.ui(500, 12)).tracking(0.06 * 12)
-                .foregroundStyle(NB.text2)
-            Spacer(minLength: 0)
-            Text(value)
-                .font(NBFont.dot(700, 14))
-                .foregroundStyle(tint)
         }
     }
 
@@ -812,35 +832,6 @@ private struct LedgerEdge: View {
             Text("\(value)")
                 .font(NBFont.dot(700, 16)).tracking(0.02 * 16)
                 .foregroundStyle(tint)
-        }
-    }
-}
-
-private struct InputRow: View {
-    let name: String
-    let value: String
-    let unit: String?
-    let base: String?
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(L(name))
-                .font(NBFont.brand(400, 13))
-                .foregroundStyle(NB.text2)
-            Spacer(minLength: 0)
-            Text(value)
-                .font(NBFont.dot(700, 14)).tracking(0.04 * 14)
-                .foregroundStyle(NB.text1)
-            if let unit {
-                Text(unit)
-                    .font(NBFont.dot(600, 10)).tracking(0.16 * 10)
-                    .foregroundStyle(NB.white.opacity(0.42))
-            }
-            if let base {
-                Text(base)
-                    .font(NBFont.dot(500, 9)).tracking(0.14 * 9)
-                    .foregroundStyle(NB.white.opacity(0.28))
-            }
         }
     }
 }

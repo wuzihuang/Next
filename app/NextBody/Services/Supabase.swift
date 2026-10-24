@@ -725,12 +725,15 @@ actor SupabaseClient {
         return r
     }
 
-    func callFunction(_ name: String, payload: [String: Any], expectedOwner: String? = nil) async throws -> [String: Any] {
+    /// `longRunning` takes the 120 s session: account-delete empties three buckets before it
+    /// answers, and 30 s is a timeout the server never hears about.
+    func callFunction(_ name: String, payload: [String: Any], expectedOwner: String? = nil,
+                      longRunning: Bool = false) async throws -> [String: Any] {
         if let expectedOwner, userId != expectedOwner { throw CancellationError() }
         let data = try JSONSerialization.data(withJSONObject: payload)
         let req = try request(name, method: "POST", body: data, isFunction: true)
         do {
-            let (out, resp) = try await authenticatedData(for: req)
+            let (out, resp) = try await authenticatedData(for: req, longRunning: longRunning)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(code) else {
                 throw Failure.http(code, String(data: out, encoding: .utf8) ?? "")

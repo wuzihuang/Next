@@ -69,6 +69,7 @@ import com.nextbody.hoop.features.vitals.FitText
 import com.nextbody.hoop.features.vitals.MetricTrendMath
 import com.nextbody.hoop.services.Repository
 import com.nextbody.hoop.features.vitals.VitalsScaleRail
+import com.nextbody.hoop.features.vitals.VitalsStatPair
 import com.nextbody.hoop.l10n.AppLanguage
 import com.nextbody.hoop.l10n.L
 import com.nextbody.hoop.model.DailyMetrics
@@ -247,21 +248,89 @@ private class TrainingPage(
 
     // MARK: DAY
 
+    /**
+     * WHOOP / Oura order: the number and what it means, the four facts behind it, then the
+     * details from today's own activities down to how the target was set.
+     */
     @Composable
     fun DayBoard(onRecap: (SportSessionRecap) -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            RingCard(m.trainingLoad, "OF 21", dayRingFoot)
+            RingCard(m.trainingLoad, "OF 21")
+            DayVerdict()
+            SectionLabel(L("KEY METRICS"))
+            DayKeyMetrics()
             SectionLabel(L("DETAILS"))
-            LastSessionCard(onRecap)
-            SessionHistoryCard(onRecap)
             TodayBuildCard()
-            EvidenceCard()
+            LastSessionCard(onRecap)
             ThroughTheDayCard()
-            DayIngredients()
             TimeInZoneCard()
             DayMoveCard()
+            EvidenceCard()
+            SessionHistoryCard(onRecap)
         }
     }
+
+    @Composable
+    fun DayVerdict() {
+        val (title, line) = dayVerdictText
+        Column(Modifier.width(NB.Layout.contentWidth), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = NBFont.ui(600, 19f), color = headerTint)
+            Text(line, style = NBFont.ui(400, 14f).copy(lineHeight = lineHeightFor(14f, 3f)), color = NB.text2)
+        }
+    }
+
+    val dayVerdictText: Pair<String, String>
+        get() {
+            val zone = m.optimalZone
+            val span = zone?.let { swiftFormat("%.1f–%.1f", it.start, it.endInclusive) } ?: Fmt.dash
+            return when (val s = rangeStatus) {
+                TrainingRangeStatus.NoLoad ->
+                    L("ACTIVITY DATA NEEDED") to L("Movement and sessions the band records build today's load.")
+                TrainingRangeStatus.NoTarget ->
+                    L("NO TARGET YET") to L("No suggested range yet. Recorded activity is still shown below.")
+                is TrainingRangeStatus.Below ->
+                    L("Below range") to L("%.1f more reaches today's suggested range of %@. Everyday movement and sessions both count.", s.by, span)
+                TrainingRangeStatus.InRange ->
+                    L("In range") to L("Today's load is inside the suggested range of %@. Staying under %.1f keeps it there.", span, zone?.endInclusive ?: 0.0)
+                is TrainingRangeStatus.Above ->
+                    L("Above range") to L("%.1f above the suggested range of %@. Rest is the better choice for the rest of today.", s.by, span)
+                TrainingRangeStatus.Capped ->
+                    L("SCALE LIMIT") to L("Already above the suggested range. Nothing left to fill.")
+            }
+        }
+
+    /** Today against this person's own finished days, the way WHOOP prints "vs previous 30 days". */
+    @Composable
+    fun DayKeyMetrics() {
+        val past = monthFacts
+        val zone = m.optimalZone
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            VitalsStatPair(
+                left = VitalsStatPair.Model(
+                    L("SUGGESTED RANGE"),
+                    zone?.let { swiftFormat("%.1f–%.1f", it.start, it.endInclusive) }, null,
+                    m.targetLoad?.let { L("TARGET %@", Fmt.load(it)) } ?: L("NO TARGET YET"), NB.lime1,
+                ),
+                right = VitalsStatPair.Model(
+                    L("HR ZONES 4–5"), hardMinutes?.let { Fmt.duration(it) }, null,
+                    typicalFoot(zoneMinutes(TrainingWindowMath.typicalZones(past), hard = true)?.let { Fmt.duration(it) }), null,
+                ),
+            )
+            VitalsStatPair(
+                left = VitalsStatPair.Model(
+                    L("ACTIVE BURN"), m.eActive?.let { Fmt.kcal(it) }, "KCAL",
+                    typicalFoot(TrainingWindowMath.typicalActiveKcal(past)?.let { Fmt.kcal(it) }), null,
+                ),
+                right = VitalsStatPair.Model(
+                    L("STEPS"), m.steps?.let { Fmt.kcal(it.toDouble()) }, null,
+                    typicalFoot(TrainingWindowMath.typicalSteps(past)?.let { Fmt.kcal(it) }), null,
+                ),
+            )
+        }
+    }
+
+    fun typicalFoot(value: String?): String =
+        value?.let { L("30-DAY TYPICAL %@", it) } ?: L("NO 30-DAY BASELINE YET")
 
     @Composable
     fun LastSessionCard(onRecap: (SportSessionRecap) -> Unit) {
@@ -379,12 +448,6 @@ private class TrainingPage(
         }
     }
 
-    val dayRingFoot: String
-        get() {
-            val zone = m.optimalZone ?: return L("No suggested range yet. Recorded activity is still shown below.")
-            return L("SUGGESTED RANGE %@", swiftFormat("%.1f–%.1f", zone.start, zone.endInclusive))
-        }
-
     @Composable
     fun EvidenceCard() {
         // TimelineView(.periodic(from: .now, by: 60))
@@ -496,25 +559,16 @@ private class TrainingPage(
             if (last != null) {
                 Text(L("LATEST LOAD SAMPLE %@", Fmt.clock(last.ts)), style = NBFont.ui(400, 10f), color = NB.text3Prod)
             }
+            Hairline()
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(L("ELEVATED HR PERIOD"), style = NBFont.ui(500, 12f), color = NB.text1,
+                    maxLines = 1, modifier = Modifier.weight(1f))
+                Text(elevatedHRLine, style = NBFont.dot(700, 14f), color = NB.lime1, maxLines = 1)
+            }
+            Note(L("The largest elevated-heart-rate period. No sport is inferred."))
         }
     }
 
-    @Composable
-    fun DayIngredients() {
-        TrainingIngredientsCard(
-            trailing = L("FEED THE RING"),
-            rows = listOf(
-                TrainingIngredient(L("HR ZONES 1–3"), durationLine(easyMinutes)),
-                TrainingIngredient(L("HR ZONES 4–5"), durationLine(hardMinutes), NB.ember1),
-                TrainingIngredient(L("STEPS"), Fmt.kcal(m.steps?.toDouble())),
-                TrainingIngredient(L("KCAL EST"), Fmt.kcal(m.eActive)),
-                TrainingIngredient(L("ELEVATED HR PERIOD"), elevatedHRLine),
-            ),
-            note = L("The largest elevated-heart-rate period. No sport is inferred."),
-        )
-    }
-
-    val easyMinutes: Int? get() = m.zoneMinutes?.take(3)?.sum()
     val hardMinutes: Int? get() = m.zoneMinutes?.drop(3)?.sum()
 
     val elevatedHRLine: String
@@ -620,7 +674,9 @@ private class TrainingPage(
                     style = NBFont.ui(400, 11f).tracking(0.04f), color = NB.text3Prod)
                 WindowSummary(avg, delta, days)
             }
-            WeekIngredients(days)
+            SectionLabel(L("KEY METRICS"))
+            WindowKeyMetrics(days)
+            SectionLabel(L("DETAILS"))
             CardBlock(title = L("HOW THE ZONES STACK"), trailing = L("MINUTES / DAY"), trailingIsDot = true) {
                 TrainingZoneStack(days)
                 Text(
@@ -638,19 +694,44 @@ private class TrainingPage(
         }
     }
 
+    /** A typical finished day of the window, as tiles: never a window sum. */
     @Composable
-    fun WeekIngredients(days: List<TrainingDayFacts>) {
+    fun WindowKeyMetrics(days: List<TrainingDayFacts>) {
         val zones = TrainingWindowMath.typicalZones(days)
-        TrainingIngredientsCard(
-            trailing = L("TYPICAL DAY"),
-            rows = listOf(
-                TrainingIngredient(L("HR ZONES 1–3"), durationLine(zoneMinutes(zones, hard = false))),
-                TrainingIngredient(L("HR ZONES 4–5"), durationLine(zoneMinutes(zones, hard = true)), NB.ember1),
-                TrainingIngredient(L("STEPS"), Fmt.kcal(TrainingWindowMath.typicalSteps(days))),
-                TrainingIngredient(L("KCAL EST"), Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))),
-                TrainingIngredient(L("HARD DAYS"), "${TrainingWindowMath.sessionDays(days)}"),
-            ),
-        )
+        val counts = TrainingWindowMath.bandCounts(days)
+        val finished = counts.light + counts.steady + counts.heavy + counts.over + counts.unknown
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            VitalsStatPair(
+                left = VitalsStatPair.Model(
+                    L("DAYS IN RANGE"), if (finished == 0) null else "${counts.steady}", L("OF %d", finished),
+                    L("FINISHED DAYS ONLY"), NB.lime1,
+                ),
+                right = VitalsStatPair.Model(
+                    L("HARD DAYS"), "${TrainingWindowMath.sessionDays(days)}", null,
+                    L("20 MIN OR MORE IN Z4–5"), null,
+                ),
+            )
+            VitalsStatPair(
+                left = VitalsStatPair.Model(
+                    L("HR ZONES 4–5"), zoneMinutes(zones, hard = true)?.let { Fmt.duration(it) }, null,
+                    L("TYPICAL DAY"), null,
+                ),
+                right = VitalsStatPair.Model(
+                    L("HR ZONES 1–3"), zoneMinutes(zones, hard = false)?.let { Fmt.duration(it) }, null,
+                    L("TYPICAL DAY"), null,
+                ),
+            )
+            VitalsStatPair(
+                left = VitalsStatPair.Model(
+                    L("STEPS"), TrainingWindowMath.typicalSteps(days)?.let { Fmt.kcal(it) }, null,
+                    L("TYPICAL DAY"), null,
+                ),
+                right = VitalsStatPair.Model(
+                    L("ACTIVE BURN"), TrainingWindowMath.typicalActiveKcal(days)?.let { Fmt.kcal(it) }, "KCAL",
+                    L("TYPICAL DAY"), null,
+                ),
+            )
+        }
     }
 
     @Composable
@@ -677,7 +758,6 @@ private class TrainingPage(
         val typical = TrainingWindowMath.typicalLoad(days)
         val counts = TrainingWindowMath.bandCounts(days)
         val rolls = TrainingWindowMath.weekRolls(days)
-        val zones = TrainingWindowMath.typicalZones(days)
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             CardBlock(title = L("THIRTY DAYS"), trailing = L("LOAD VS TARGET · ROLLING"), trailingIsDot = true) {
                 TrainingTargetBars(days)
@@ -699,16 +779,9 @@ private class TrainingPage(
                 // printed; the five groups below are where the month's drift reads.
                 WindowSummary(typical, null, days)
             }
-            TrainingIngredientsCard(
-                trailing = L("TYPICAL DAY"),
-                rows = listOf(
-                    TrainingIngredient(L("HR ZONES 1–3"), durationLine(zoneMinutes(zones, hard = false))),
-                    TrainingIngredient(L("HR ZONES 4–5"), durationLine(zoneMinutes(zones, hard = true)), NB.ember1),
-                    TrainingIngredient(L("STEPS"), Fmt.kcal(TrainingWindowMath.typicalSteps(days))),
-                    TrainingIngredient(L("KCAL EST"), Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))),
-                    TrainingIngredient(L("HARD DAYS"), "${TrainingWindowMath.sessionDays(days)}"),
-                ),
-            )
+            SectionLabel(L("KEY METRICS"))
+            WindowKeyMetrics(days)
+            SectionLabel(L("DETAILS"))
             CardBlock(title = L("WHAT THE MONTH LOOKED LIKE")) {
                 MonthBandRow(L("LIGHT"), counts.light, 30, NB.lime1.copy(alpha = 0.33f))
                 MonthBandRow(L("STEADY"), counts.steady, 30, NB.lime1)
@@ -843,7 +916,7 @@ private class TrainingPage(
     }
 
     @Composable
-    fun RingCard(load: Double?, caption: String, foot: String) {
+    fun RingCard(load: Double?, caption: String) {
         val day = range == RollingPills.day
         Column(
             Modifier.width(NB.Layout.contentWidth).padding(top = 8.dp, bottom = 4.dp),
@@ -860,7 +933,6 @@ private class TrainingPage(
                 caption = caption,
             )
             if (day) DayEdges()
-            Text(foot, style = NBFont.ui(400, 12f), color = NB.text3Prod, textAlign = TextAlign.Center)
         }
     }
 
@@ -872,9 +944,6 @@ private class TrainingPage(
                 text = if (data.lastSync == null) L("No sync time yet. Records may be incomplete.")
                 else L("Synced %@. Later activity may be missing.", lastSyncClock),
             )
-        }
-        if (isOver) {
-            EdgeNote(line = headerStatus, text = L("Already above the suggested range. Nothing left to fill."))
         }
         if (autoHROff) {
             EdgeNote(
@@ -906,8 +975,6 @@ private class TrainingPage(
         while (mins.size < 5) mins.add(0)
         return mins.take(5)
     }
-
-    fun durationLine(minutes: Int?): String = minutes?.let { Fmt.duration(it) } ?: Fmt.dash
 
     fun coverageLine(minutes: Int, elapsed: Int): String {
         if (elapsed <= 0) return Fmt.dash

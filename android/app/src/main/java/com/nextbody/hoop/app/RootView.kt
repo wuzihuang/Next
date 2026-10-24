@@ -121,8 +121,10 @@ private fun StackHost(path: List<Destination>) {
         key(d.key) {
             val isLeaving = d in leaving && d !in shown
             val x = remember { Animatable(widthPx) }
+            val edge = remember { Animatable(0f) }
             LaunchedEffect(isLeaving) {
                 if (isLeaving) {
+                    x.snapTo(kotlin.math.max(x.value, edge.value))
                     x.animateTo(widthPx, tween(320, easing = FastOutSlowInEasing))
                     leaving.remove(d)
                 } else {
@@ -132,10 +134,12 @@ private fun StackHost(path: List<Destination>) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { translationX = x.value }
+                    .graphicsLayer { translationX = kotlin.math.max(x.value, edge.value) }
                     .background(NB.carbon)
             ) {
-                Screens.Detail(d)
+                androidx.compose.runtime.CompositionLocalProvider(com.nextbody.hoop.ui.LocalStackSlot provides edge) {
+                    Screens.Detail(d)
+                }
             }
         }
     }
@@ -176,10 +180,16 @@ private fun TakeoverHost() {
 @Composable
 private fun SheetHost() {
     val route = Router.sheet ?: return
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // `.interactiveDismissDisabled`: a sheet in the middle of something it must not abandon
+    // (an account delete in flight) refuses the drag, the scrim and back.
+    val lock = remember(route) { androidx.compose.runtime.mutableStateOf(false) }
+    val state = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { it != androidx.compose.material3.SheetValue.Hidden || !lock.value },
+    )
     val scope = rememberCoroutineScope()
     ModalBottomSheet(
-        onDismissRequest = { Router.sheet = null },
+        onDismissRequest = { if (!lock.value) Router.sheet = null },
         sheetState = state,
         // iOS 26 floats the sheet as a card: 8pt in from the sides and the bottom, every
         // corner rounded. The system container is cleared and the card is drawn here.
@@ -200,8 +210,11 @@ private fun SheetHost() {
                 .clip(SheetChrome.cardShape)
                 .background(NB.carbon2)
         ) {
-            Screens.Sheet(route) {
-                scope.launch { state.hide() }.invokeOnCompletion { Router.sheet = null }
+            CompositionLocalProvider(com.nextbody.hoop.features.device.LocalSheetDismissLock provides lock) {
+                Screens.Sheet(route) {
+                    lock.value = false
+                    scope.launch { state.hide() }.invokeOnCompletion { Router.sheet = null }
+                }
             }
             Box(
                 Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 5.dp)

@@ -7,6 +7,7 @@ import { enforceRequestBudget } from "../_shared/rate-limit.ts";
 
 import { ARCHIVE_BUCKET } from "../_shared/archive.ts";
 import { MEAL_PHOTO_BUCKET } from "../_shared/meal-estimate.ts";
+import { FEEDBACK_BUCKET } from "../_shared/feedback.ts";
 import {
   cors,
   currentUserId,
@@ -36,9 +37,10 @@ Deno.serve(async (req) => {
   // Tombstoning blocks new archive preparation and authenticated object writes.
   // Remove prefix contents, including a pending worker's uploaded object, before
   // removing manifests/user. A racing worker compensates if finalization fails.
-  // The header's promise, kept literally: the evidence archive and the meal photos are the
-  // two places this account's bytes live outside PostgreSQL, and both empty before the rows.
-  for (const bucket of [ARCHIVE_BUCKET, MEAL_PHOTO_BUCKET]) {
+  // The header's promise, kept literally: the evidence archive, the meal photos and the
+  // screenshots sent with REPORT A PROBLEM are where this account's bytes live outside
+  // PostgreSQL, and all of them empty before the rows.
+  for (const bucket of [ARCHIVE_BUCKET, MEAL_PHOTO_BUCKET, FEEDBACK_BUCKET]) {
     while (true) {
       const objects = await db.storage.from(bucket).list(userId, {
         limit: 100,
@@ -52,41 +54,14 @@ Deno.serve(async (req) => {
     }
   }
 
-  for (
-    const table of [
-      "sample_archives",
-      "band_rr_evidence",
-      "screen_frames",
-      "ai_turns",
-      "analytics_events",
-      "call_changes",
-      "meals",
-      "meal_favorites",
-      "weigh_ins",
-      "body_composition",
-      "balance_checks",
-      "sport_heart_rate_samples",
-      "oxygen_samples",
-      "response_samples",
-      "raw_samples",
-      "reserve_samples",
-      "night_score",
-      "sleep_nights",
-      "night_hrv",
-      "daily_results",
-      "sync_runs",
-      "device_capabilities",
-      "devices",
-      "push_tokens",
-    ]
-  ) {
-    const result = await db.from(table).delete().eq("user_id", userId);
-    if (result.error) return json({ error: "DELETE_RETRY_REQUIRED" }, 503);
+  // Every user table cascades from auth.users. The RPC deletes the user inside a
+  // calculation-maintenance window, so raw_samples does not invalidate a day per row —
+  // table by table over PostgREST that took longer than the phones wait.
+  const purged = await db.rpc("purge_account", { p_owner: userId });
+  if (purged.error || purged.data?.deleted !== true) {
+    console.error("account-delete: purge failed", purged.error?.message);
+    return json({ error: "DELETE_RETRY_REQUIRED" }, 503);
   }
-
-  await db.auth.admin.signOut(userId, "global").catch(() => {});
-  const deleted = await db.auth.admin.deleteUser(userId);
-  if (deleted.error) return json({ error: "DELETE_RETRY_REQUIRED" }, 503);
 
   return json({ deleted: true });
 });

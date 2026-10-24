@@ -10,12 +10,11 @@ import { enforceRequestBudget } from "../_shared/rate-limit.ts";
 import {
   createGithubIssue,
   decodeBase64,
+  FEEDBACK_BUCKET,
   FeedbackSchemaError,
   issueBody,
   parseFeedback,
 } from "../_shared/feedback.ts";
-
-export const FEEDBACK_BUCKET = "feedback-images";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });

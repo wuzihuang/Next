@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,7 +50,6 @@ import com.nextbody.hoop.model.DailyMetrics
 import com.nextbody.hoop.model.Fmt
 import com.nextbody.hoop.model.OvernightOxygenPoint
 import com.nextbody.hoop.model.SleepScore
-import com.nextbody.hoop.model.SleepScoreGroup
 import com.nextbody.hoop.model.SleepScoreLoadState
 import com.nextbody.hoop.model.addingTimeInterval
 import com.nextbody.hoop.model.roundedInt
@@ -58,6 +58,7 @@ import com.nextbody.hoop.model.timeIntervalSince
 import com.nextbody.hoop.services.Analytics
 import com.nextbody.hoop.services.Repository
 import com.nextbody.hoop.ui.CardBlock
+import com.nextbody.hoop.ui.Hairline
 import com.nextbody.hoop.ui.DetailScroll
 import com.nextbody.hoop.ui.SectionLabel
 import com.nextbody.hoop.ui.hotZoneTap
@@ -186,7 +187,7 @@ fun VitalsDetailView(metric: VitalsMetric) {
                     tint = metric.tint,
                     dial = VitalsReadout.sleepDial(todayScore.score, todayScore.usesContributors),
                     footLeft = if (todayScore.usesContributors) com.nextbody.hoop.model.SleepContributor.rating(todayScore.score.toDouble()) else r.footLeft,
-                    footRight = if (todayScore.usesContributors) L("7 SLEEP FACTORS") else r.footRight,
+                    footRight = if (todayScore.usesContributors) null else r.footRight,
                 )
             } else if (metric == VitalsMetric.active && !memo.isMetricWindow) {
                 ActiveEnergyHero(memo.activeModel, memo.heroSensor)
@@ -197,6 +198,7 @@ fun VitalsDetailView(metric: VitalsMetric) {
             // The score explains itself on the screenful it appears on.
             if (metric == VitalsMetric.sleep && range == RollingPills.day && todayScore != null) {
                 if (todayScore.usesContributors) {
+                    SleepNightVerdict(todayScore)
                     Column(
                         Modifier.width(NB.Layout.contentWidth).padding(top = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -214,14 +216,19 @@ fun VitalsDetailView(metric: VitalsMetric) {
                 }
             }
 
-            // Oura order — score, then the key metrics, then the details. Sleep keeps its own
-            // pairs inside its board; ACTIVE's day board has no shared pair.
-            if (metric != VitalsMetric.sleep && !(metric == VitalsMetric.active && !memo.isMetricWindow)) {
+            // Oura order — score, then the key metrics, then the details. ACTIVE's day board has
+            // no shared pair; sleep's multi-night board labels its own sections.
+            if (metric == VitalsMetric.sleep && range == RollingPills.day) {
+                SectionLabel(L("KEY METRICS"))
+                memo.SleepKeyMetrics(r)
+            } else if (metric != VitalsMetric.sleep && !(metric == VitalsMetric.active && !memo.isMetricWindow)) {
                 SectionLabel(L("KEY METRICS"))
                 VitalsStatPair(r.statLeft, r.statRight)
             }
 
-            SectionLabel(L("DETAILS"))
+            if (!(metric == VitalsMetric.sleep && range != RollingPills.day)) {
+                SectionLabel(L("DETAILS"))
+            }
 
             if (metric == VitalsMetric.sleep) {
                 if (range == RollingPills.day) memo.SleepBoard(r) { correctingNight = true }
@@ -639,46 +646,49 @@ private class VitalsDetailMemo(
             return (0..4).map { i -> if (i == 0) "0H" else Fmt.duration(night.totalMinutes * i / 4) }
         }
 
-    // MARK: sleep board — the score's four groups, each followed by the charts that feed it
+    // MARK: sleep board — key metrics, the night's stages, overnight vitals, the week
 
-    /** ADR 0008 · the day board is laid out as the score's four groups, in the order the
-     *  breakdown lists them, each heading followed by the charts that actually feed it. */
+    /** Oura's four tiles under the factors: what the night measured, each against this
+     *  person's own last 30 settled nights (WHOOP's "vs previous 30 days"). */
+    @Composable
+    fun SleepKeyMetrics(r: VitalsReadout) {
+        val night = m.sleep
+        val scored = todayScore?.inputs?.get("duration_min")?.takeIf { it.isFinite() && it > 0 && it <= 2880 }?.roundedInt()
+        val asleep = scored ?: night?.totalMinutes?.takeIf { it > 0 }
+        val start = night?.sleepStart
+        val wake = night?.wakeAt
+        val inBed = if (start != null && wake != null && wake > start) (wake.timeIntervalSince(start) / 60).toInt() else null
+        val efficiency = todayScore?.inputs?.get("efficiency_pct")?.takeIf { it.isFinite() && it > 0 && it <= 100 }
+        Column(Modifier.testTag("sleep.keyMetrics"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            VitalsStatPair(
+                VitalsStatPair.Model(L("TOTAL SLEEP"), asleep?.let { Fmt.duration(it) }, null,
+                    nightMedianFoot("duration_min") { Fmt.duration(it.roundedInt()) }, metric.tint),
+                VitalsStatPair.Model(L("TIME IN BED"), inBed?.let { Fmt.duration(it) }, null, r.footLeft, null),
+            )
+            VitalsStatPair(
+                VitalsStatPair.Model(L("SLEEP EFFICIENCY"), efficiency?.let { swiftFormat("%.0f", it) }, "%",
+                    nightMedianFoot("efficiency_pct") { swiftFormat("%.0f%%", it) }, null),
+                r.heartLow ?: VitalsStatPair.Model(L("SLEEP LOW HR"), null, "BPM", L("WEAR IT TONIGHT"), null),
+            )
+        }
+    }
+
+    /** The median of one settled input over the 30 nights before this one. Fewer than three
+     *  nights is not a baseline and says so rather than printing one. */
+    fun nightMedianFoot(key: String, format: (Double) -> String): String {
+        val values = (1..30).mapNotNull { offset ->
+            sleepScores[m.day.adding(-offset).key]?.inputs?.get(key)?.takeIf { it.isFinite() && it > 0 }
+        }
+        val median = if (values.size >= 3) SleepScoreMath.median(values) else null
+        return median?.let { L("30-NIGHT MEDIAN %@", format(it)) } ?: L("30-NIGHT BASELINE BUILDING")
+    }
+
+    /** The details, Oura/WHOOP order: how the night was spent (the staircase and each stage on
+     *  its own row), the window it was counted over, what the body did meanwhile, and the week
+     *  of nights it sits in. Every number appears once on the page. */
     @Composable
     fun SleepBoard(r: VitalsReadout, correct: () -> Unit) {
-        val score = todayScore
-        val contributors = score?.usesContributors == true
-
-        // ---- DURATION · the night against the line it is scored on
-        if (!contributors) {
-            SleepSectionHeader(SleepScoreGroup.duration, score?.duration, score?.effectiveWeight(SleepScoreGroup.duration))
-        }
-        CardBlock(title = L("TOTAL SLEEP"), trailing = if (contributors) null else r.footLeft) {
-            val minutes = score?.inputs?.get("duration_min")
-            val night = m.sleep
-            if (minutes != null && minutes.isFinite() && minutes > 0 && minutes <= 2880) {
-                SleepDurationBar(minutes.roundedInt())
-            } else if (night != null && night.totalMinutes > 0) {
-                SleepDurationBar(night.totalMinutes)
-            } else {
-                VitalsChartEmpty(L("NO NIGHT ON RECORD"), L("WEAR IT TONIGHT"))
-            }
-        }
-        // Existing and missing nights use the same time wheels and evidence refresh.
-        val night = m.sleep
-        if (night != null && night.sleepStart != null && night.wakeAt != null) {
-            SleepWindowCard(night, editable = SleepCorrection.canCorrect(m.day), edit = correct)
-        } else if (night == null && SleepCorrection.canCorrect(m.day)) {
-            CardBlock(title = L("SLEEP WINDOW")) {
-                Text(L("ADD SLEEP"), Modifier.testTag("sleep.addNight").hotZoneTap { correct() },
-                    style = NBFont.dot(600, 11f), color = NB.lime1)
-            }
-        }
-
-        // ---- STRUCTURE · how the night was spent, and how broken it was
-        if (!contributors) {
-            SleepSectionHeader(SleepScoreGroup.architecture, score?.architecture, score?.effectiveWeight(SleepScoreGroup.architecture))
-        }
-        CardBlock(title = metric.chartTitle, trailing = r.chartNote) {
+        CardBlock(title = L("SLEEP STAGES"), trailing = r.value?.let { L("ASLEEP %@", it) }, trailingIsDot = true) {
             val line = m.sleep?.line
             if (!line.isNullOrEmpty()) {
                 VitalsHypnogram(line, metric.tint, windowMinutes = window.span / 60, probeClock = window::clock)
@@ -693,25 +703,48 @@ private class VitalsDetailMemo(
                 )
             }
             VitalsAxis(axisLabels, false, metric.tint, Modifier.padding(start = VitalsHypnogram.labelGutter))
+            if (r.bands.isNotEmpty()) {
+                Hairline()
+                SleepStageRows(r.bands)
+            }
+            val wakes = r.extraRight
+            val count = wakes?.value
+            if (wakes != null && count != null) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(wakes.label, style = NBFont.ui(500, 13f), color = NB.text1, maxLines = 1, modifier = Modifier.weight(1f))
+                    Text(count, style = NBFont.dot(700, 14f), color = NB.text1, maxLines = 1)
+                }
+            }
         }
-        CardBlock(title = r.splitTitle, trailing = r.splitTrailing) {
-            VitalsSplit(r.bands)
-        }
-        val wakes = r.extraRight
-        if (wakes != null) {
-            VitalsStatPair(wakes, VitalsStatPair.Model(
-                L("DEEP EPISODES"),
-                m.sleep?.let { if (it.line.isEmpty()) null else it.line.count { run -> run.stage == 0 }.toString() },
-                null, L("RUNS OF DEEP SLEEP"), null))
+        // Existing and missing nights use the same time wheels and evidence refresh.
+        val night = m.sleep
+        if (night != null && night.sleepStart != null && night.wakeAt != null) {
+            SleepWindowCard(night, editable = SleepCorrection.canCorrect(m.day), edit = correct)
+        } else if (night == null && SleepCorrection.canCorrect(m.day)) {
+            CardBlock(title = L("SLEEP WINDOW")) {
+                Text(L("ADD SLEEP"), Modifier.testTag("sleep.addNight").hotZoneTap { correct() },
+                    style = NBFont.dot(600, 11f), color = NB.lime1)
+            }
         }
 
-        // ---- RECOVERY · what the body did while it was down there
-        if (contributors) {
-            Text(L("SUPPORTING MEASUREMENTS · NOT SCORED"), style = NBFont.ui(600, 12f), color = NB.text3Prod)
-        } else {
-            SleepSectionHeader(SleepScoreGroup.recovery, score?.recovery, score?.effectiveWeight(SleepScoreGroup.recovery))
+        // ---- OVERNIGHT VITALS · what the body did while it was down there
+        SectionLabel(L("OVERNIGHT VITALS"))
+        if (todayScore?.usesContributors != false) {
+            Text(L("SUPPORTING MEASUREMENTS · NOT SCORED"), style = NBFont.ui(400, 12f), color = NB.text3Prod,
+                modifier = Modifier.offset(y = (-6).dp))
         }
-        CardBlock(title = L("NIGHT SPO2"), trailing = L("FIXED 85–100 %")) {
+        // ⚠️ Night HRV is a tile, not a trace: one night mean, read against this person's own
+        // baseline, is the whole of what those scattered readings support.
+        VitalsStatPair(
+            r.statLeft,
+            r.respirationLeft ?: VitalsStatPair.Model(L("MEAN RESPIRATION"), null, L("BREATHS / MIN"), L("WEAR IT TONIGHT"), null),
+        )
+        val spo2Mean = r.statRight.value
+        CardBlock(
+            title = L("NIGHT SPO2"),
+            trailing = spo2Mean?.let { L("AVG %@", "$it%") } ?: L("FIXED 85–100 %"),
+            trailingIsDot = spo2Mean != null,
+        ) {
             val points = (m.sleep?.spo2 ?: emptyList()).filter { m.sleep?.containsSleepTimestamp(it.ts) == true }
             if (points.isNotEmpty()) {
                 val series = points.map { TimedValue(it.ts, it.percent.toDouble()) }
@@ -752,24 +785,13 @@ private class VitalsDetailMemo(
                 VitalsAxis(window.labels, false, NB.violet2)
             }
         }
-        // ⚠️ Night HRV is a tile, not a trace: one night mean, read against this person's own
-        // baseline, is the whole of what those scattered readings support. The recovery section
-        // closes on four numbers: what it carried, how it breathed, how it recovered, how low.
-        val respiration = r.respirationLeft
-        val heartLow = r.heartLow
-        if (respiration != null && heartLow != null) {
-            VitalsStatPair(r.statRight, respiration)
-            VitalsStatPair(r.statLeft, heartLow)
-        }
 
-        // ---- REGULARITY · only definable against this person's own habit
-        if (!contributors) {
-            SleepSectionHeader(SleepScoreGroup.regularity, score?.regularity, score?.effectiveWeight(SleepScoreGroup.regularity))
-        }
+        // ---- the week this night sits in
+        SectionLabel(L("SLEEP SCHEDULE"))
         CardBlock(title = L("SLEEP BY NIGHT"), trailing = bedtimeTrailing) {
             ScheduleChart(
-                scheduleNights(7), score?.inputs?.get("bed_median"),
-                if (score?.inputs?.get("bed_offset") == null) L("NO BEDTIME RECORDED") else L("NO NIGHTS ON RECORD"),
+                scheduleNights(7), todayScore?.inputs?.get("bed_median"),
+                if (todayScore?.inputs?.get("bed_offset") == null) L("NO BEDTIME RECORDED") else L("NO NIGHTS ON RECORD"),
             )
         }
     }
@@ -831,14 +853,30 @@ private class VitalsDetailMemo(
         val summary = sleepWindow
         if (summary.recorded > 0) {
             val contributors = summary.contributorScores.isNotEmpty()
+            SectionLabel(L("SLEEP CONTRIBUTORS"))
             CardBlock(
-                title = L(if (contributors) "SLEEP CONTRIBUTORS" else "SCORE BREAKDOWN"),
-                trailing = L(if (contributors) "FACTOR MEDIANS" else "GROUP MEDIANS"),
+                title = L(if (contributors) "FACTOR MEDIANS" else "GROUP MEDIANS"),
+                trailing = L("%d OF %d NIGHTS", summary.recorded, summary.slots.size),
             ) {
                 SleepWindowBreakdown(summary)
             }
         }
 
+        SectionLabel(L("KEY METRICS"))
+        VitalsStatPair(
+            VitalsStatPair.Model(L("TOTAL SLEEP"), summary.durationMinutes?.let { Fmt.duration(it) }, null,
+                L("MEDIAN PER NIGHT"), metric.tint),
+            VitalsStatPair.Model(L("MEDIAN BEDTIME"), summary.bedClock, null,
+                L("ACROSS %d NIGHTS", summary.recorded), null),
+        )
+        VitalsStatPair(
+            VitalsStatPair.Model(L("MEDIAN WAKES"), summary.wakes?.roundedInt()?.toString(), null,
+                L("PER NIGHT"), null),
+            VitalsStatPair.Model(L("NIGHTS SCORED"), "${summary.recorded}", L("OF %d NIGHTS", summary.slots.size),
+                L("SETTLED SCORES ONLY"), null),
+        )
+
+        SectionLabel(L("DETAILS"))
         CardBlock(title = L("STAGE PROPORTIONS"),
             trailing = summary.durationMinutes?.let { L("MEDIAN %@", Fmt.duration(it)) } ?: Fmt.dash) {
             val bands = summary.bands
@@ -849,13 +887,6 @@ private class VitalsDetailMemo(
         CardBlock(title = L("SLEEP BY NIGHT"), trailing = summary.bedClock?.let { L("USUALLY %@", it) } ?: Fmt.dash) {
             ScheduleChart(scheduleNights(summary.slots.size), summary.bedOffset, L("NO NIGHTS ON RECORD"))
         }
-
-        VitalsStatPair(
-            VitalsStatPair.Model(L("MEDIAN BEDTIME"), summary.bedClock, null,
-                L("ACROSS %d NIGHTS", summary.recorded), metric.tint),
-            VitalsStatPair.Model(L("MEDIAN WAKES"), summary.wakes?.roundedInt()?.toString(), null,
-                L("PER NIGHT"), null),
-        )
     }
 
     val chartHasScaleRail: Boolean

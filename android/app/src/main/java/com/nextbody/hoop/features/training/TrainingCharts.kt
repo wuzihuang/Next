@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -70,8 +69,6 @@ import com.nextbody.hoop.l10n.L
 import com.nextbody.hoop.model.Fmt
 import com.nextbody.hoop.model.LoadPoint
 import com.nextbody.hoop.model.swiftFormat
-import com.nextbody.hoop.ui.CardBlock
-import com.nextbody.hoop.ui.Hairline
 import com.nextbody.hoop.ui.Haptics
 import com.nextbody.hoop.ui.SwiftEaseOut
 import com.nextbody.hoop.ui.rememberReduceMotion
@@ -385,30 +382,6 @@ fun TrainingStepBars(bins: List<Double>, modifier: Modifier = Modifier, sessionI
             val h = max(2 * d, (size.height * value / peak).toFloat())
             drawRoundRect(color, Offset(x, size.height - h), Size(w, h), CornerRadius(3 * d, 3 * d))
             x += w + gap
-        }
-    }
-}
-
-data class TrainingIngredient(val label: String, val value: String, val tint: Color = NB.lime1) {
-    val id: String get() = label
-}
-
-@Composable
-fun TrainingIngredientsCard(trailing: String, rows: List<TrainingIngredient>, note: String? = null) {
-    CardBlock(title = L("INGREDIENTS"), trailing = trailing, trailingIsDot = true) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            for ((i, row) in rows.withIndex()) {
-                if (i > 0) Hairline()
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(row.label, style = NBFont.ui(500, 12f).tracking(0.06f), color = NB.text1, maxLines = 1,
-                        modifier = Modifier.weight(1f))
-                    Spacer(Modifier.width(16.dp))
-                    Text(row.value, style = NBFont.dot(700, 14f).tracking(0.02f), color = row.tint, maxLines = 1)
-                }
-            }
-        }
-        if (note != null) {
-            Text(note, style = NBFont.ui(400, 11f), color = NB.text3Prod)
         }
     }
 }

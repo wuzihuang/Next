@@ -746,9 +746,7 @@ struct VitalsDetailView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(wakes.label).font(NBFont.ui(500, 13)).foregroundStyle(NB.text1)
                     Spacer(minLength: 8)
-                    Text("\(count) \(wakes.unit ?? "") · \(wakes.foot)")
-                        .font(NBFont.dot(600, 12)).foregroundStyle(NB.text3Prod)
-                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Text(count).font(NBFont.dot(700, 14)).foregroundStyle(NB.text1)
                 }
             }
         }

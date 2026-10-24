@@ -3,6 +3,7 @@
 来源：设计节点 `1CC9-0`、Paper `13A` / `13B`，见 ADR 0017。
 2026-09-15 用户确认：全天按生理状态充放电，并在睡眠 / 恢复给出的基础训练目标上增加当前电量限制。
 当前模型为 `bb-3.0`，组合训练目标为 `target-1.1`。本次裁决替代“清醒只能慢放电”和“目标固定取晨值”的旧规则。
+2026-10-24：组合训练目标升为 `target-1.3`，规则见「睡眠 / 恢复基础目标 + 当前电量限制」。
 实现与审计记录见 [2026-09-15 审计](../plans/2026-09-15-body-battery-audit.md)。
 
 ## 页面与时间窗口
@@ -114,10 +115,13 @@
 
 采用用户确认的整合方式，服务端在同次结算发布全部输入：
 
-1. `nb.training_recovery_target` 保留睡眠、恢复、既有晨值和合格近期训练历史给出的基础目标 `T₀`。
-2. `nb.reserve_training_target` 使用 `min(当前电量, 最近15分钟已观测电量均值)` 生成连续电量限制 `C`。
-3. 最终建议为 `min(T₀, C)`。下降立即生效，电量恢复后逐渐回升，不能高于当前基础目标。
-4. 已完成负荷是独立累计事实，不被目标变化修改；还可增加的负荷为 `max(0, 最终建议−已完成负荷)`，不要求继续凑数。
+1. `nb.training_recovery_target` 保留睡眠、恢复、既有晨值和合格近期训练历史给出的基础目标 `T₀`。短睡保护是连续的：睡眠 ≤ 4 小时时 `T₀ ≤ 8`，之后线性升到 7.5 小时的 16（时长分在此到 100），没有 6 小时的阶跃。
+2. 疲劳读数 `F` = 电量 + 最终醒来以来已记录活动的消耗（WHY 的 movement 项）。下降取最新值，上升取最近 15 分钟均值。今天已记录的活动已经算进负荷环，不再从同一天的目标里再扣一次；睡眠、静休、清醒时长和生理负担照常改变 `F`。
+3. `nb.reserve_training_target` 在 `F` 处给出连续电量限制 `C`（下表）。
+4. 权重 `w`：`F ≥ 60` 且比晨值低不超过 8 时为 0；越过任一界限后，在 5 个准备度点内线性升到 1。最终建议为 `T₀ − w × max(0, T₀ − C)`，`w = 1` 时就是 `min(T₀, C)`。准备度变化一点不会让目标跳变，也不能高于当前基础目标。
+5. 已完成负荷是独立累计事实，不被目标变化修改；还可增加的负荷为 `max(0, 最终建议−已完成负荷)`，不要求继续凑数。
+
+`target-1.2`（2026-10-17）在 60 / 8 两个界限上直接切换，并把运动本身的消耗也当成疲劳：照建议练一次 zone-3 跑，目标从 14.6 被压到 12.8，练到 14.7 反而显示超标；准备度 60 → 59 一点能让目标 14.2 → 11.4。`target-1.3` 修正了这两处，界限以外的结果与 `target-1.2` 相同。
 
 电量限制在以下节点之间线性插值，没有旧晨值分档的阶跃：
 
@@ -125,7 +129,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|
 | 目标限制 | 0 | 4 | 6 | 8 | 10 | 11.5 | 13 | 14.5 | 16 | 18 |
 
-`daily_training.evidence.target` 是训练页与 AI 的权威建议，包含 `base_target`、`current_reserve`、`reserve_limit`、`reserve_adjustment`、`remaining`、`observed_at`、`reserve_fresh`。
+`daily_training.evidence.target` 是训练页与 AI 的权威建议，包含 `base_target`、`current_reserve`、`reserve_limit`、`reserve_adjustment`、`remaining`、`observed_at`、`reserve_fresh`，以及 `fatigue_reserve`（`F`）、`movement_cost`（醒来以来加回的活动消耗）和 `limit_weight`（`w`）。
 缺基础目标则最终建议为空；旧客户端缓存完全没有目标字段时才允许兼容旧分档，明确发布的空值不能被手机覆盖。
 读数超过 90 分钟后保留已观测的限制并标记过期，不能因缺测解除疲劳限制、退回更高的基础目标。
 UI 展示基础目标、身体电量读数、剩余负荷与实际观测时间；旧读数不称为当前实时电量，AI 读取也标记 stale。
@@ -153,7 +157,7 @@ HIGH 还要求已启用个人白天 HR / HRV 基线和充分白天覆盖；MEDIU
 
 ## 验证与发布约束
 
-- SQL 场景：`supabase/tests/body_battery_adaptive.sql`、`body_battery_training_target.sql`，以及现有校准、归档、版本、权限与结算时限门槛。
+- SQL 场景：`supabase/tests/body_battery_adaptive.sql`、`body_battery_training_target.sql`、`training_target_composition.sql`，以及现有校准、归档、版本、权限与结算时限门槛。
 - Swift：`BodyBatteryAdaptiveTests`、原有电量校准与窗口测试、`TrainingSettlementTests`。
 - 页面逻辑：`python3 app/Tests/diagnostics/body_battery_ui_repro.py`；另做 App 编译。
 - AI 查询：`metric-query.test.ts` 验证发布建议、真实 0、缺值、账户隔离与旧观测标记。

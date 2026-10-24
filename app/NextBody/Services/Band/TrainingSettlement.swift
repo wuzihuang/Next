@@ -24,7 +24,8 @@ struct TrainingTargetEvidence: Codable, Hashable, Sendable {
     var reserveFresh: Bool? = nil
 
     var hasReserveLimit: Bool {
-        (version == "target-1.1" || version == "target-1.2") && reserveLimit != nil && currentReserve != nil
+        version.hasPrefix("target-") && version.compare("target-1.1", options: .numeric) != .orderedAscending
+            && reserveLimit != nil && currentReserve != nil
     }
 
     /// The server may deliberately retain a limit from an older observation.

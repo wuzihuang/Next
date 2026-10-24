@@ -38,7 +38,7 @@ insert into targets select 'rested',t.evidence->'target',d.training_load,r.wake_
  join daily_results d on d.id=t.result_id join reserve_daily r on r.result_id=d.id
  where d.user_id='30303000-0000-4000-8000-000000000001' and d.user_day='2026-09-07';
 select diag(string_agg(label||': target='||(target->>'target')||', base='||(target->>'base_target')||', reserve='||(target->>'current_reserve'),'; ')) from targets;
-select ok((select bool_and(target->>'version'='target-1.2') from targets),'settlement publishes the composed target model');
+select ok((select bool_and(target->>'version'='target-1.3') from targets),'settlement publishes the composed target model');
 select is((select count(distinct wake) from targets),1::bigint,'the actual morning reserve is not rewritten during the day');
 select is((select count(distinct target->>'base_target') from targets),1::bigint,'the sleep/recovery base survives all daytime adjustments');
 select cmp_ok((select (target->>'target')::numeric from targets where label='strained'),'<',

@@ -87,6 +87,19 @@ opening either AI folder without the owner's permission.
   require staff login. Old Whoop chrome (`HomeLanding`, `public/band/`)
   remains for Shop routes.
 - `docs/STATUS.md`: current implementation and verification record.
+- Deploy and device install (verified 2026-10-24). DB: `supabase db push --linked --dry-run`,
+  then `--yes`; the CLI is linked to `gkgzwcxivnffsecshvfs` and mints its own login role, no
+  password needed. Read-only checks: `supabase db query --linked -f file.sql`.
+  `supabase functions list` shows deployed versions. iOS device: `xcodebuild -project
+  app/NextBody.xcodeproj -scheme NextBody -configuration Debug -destination 'id=<hardware
+  UDID from -showdestinations>' -allowProvisioningUpdates build`, then `xcrun devicectl device
+  install app --device <CoreDevice id from devicectl list devices> <.app>`. Use Debug: Release
+  entitlements carry `aps-environment=production`, which a development-signed install rejects.
+  Both configurations talk to production Supabase. A full app build compiles the AI folders, so
+  it needs the owner's go-ahead (AGENTS.md). Android: `. ~/.nb-android-env`, then
+  `ANDROID_SERIAL=<serial> ./gradlew :app:installDebug` in `android/`. On a physical phone the
+  debug build uses the real band and account; only emulators or debug extras load the seed.
+  Release has no signing config.
 - `CONTEXT.md` plus `docs/adr/`: domain vocabulary and architectural decisions.
 - App Store Connect: NextBody `6799623125` (`com.nextbody.hoop`, SKU `nextbody-hoop-ios`,
   team `BP7F7PYU33`, widget `com.nextbody.hoop.LiveActivity`). TestFlight groups:
@@ -512,8 +525,24 @@ opening either AI folder without the owner's permission.
   Light daily movement (HRR < 0.30, MET < 2, no session) costs 0. Awake fatigue is 0.02
   per five minutes for the first 10 hours after a night of at least 6.5h, and 0 during
   sustained quiet rest. Server settlement is `nb.compute_reserve` at `readiness-1.0`;
-  training composition is `target-1.2` (no target cut unless readiness falls more than
-  8 from morning or the current score is under 60). Tables stay `reserve_*`.
+  training composition is `target-1.3` (see Training target composition). Tables stay `reserve_*`.
+- **Training target composition (target-1.3, 2026-10-24, production)** — migration
+  `20261024100000_training_does_not_lower_its_own_target.sql`. `nb.training_target` reads
+  fatigue = readiness + movement cost (replay `d_active`) since the final wake bucket; falls
+  follow the latest row, rises the 15-minute average. Pure `nb.compose_training_target(base,
+  morning, fatigue)`: weight 0 while fatigue ≥ 60 and within 8 of morning, ramps to 1 over 5
+  points past either; target = base − w·max(0, base − C(fatigue)). Base short-night guard is
+  8 at ≤4h rising linearly to 16 at 7.5h (was a 6h step). Evidence adds `fatigue_reserve`,
+  `movement_cost`, `limit_weight`. Fixed: a followed zone-3 run cut 14.6 → 12.8 and showed
+  "over target"; readiness 60 → 59 moved 14.2 → 11.4; 5h59 → 6h00 jumped 11.0 → 13.2.
+  HR strain kept during exercise still counts (~0.4 / 10 min zone 3). iOS
+  `TrainingTargetEvidence.hasReserveLimit` accepts any `target-1.1`+ (was an exact
+  whitelist, so new versions hid BASE TARGET / REMAINING); Android `TrainingSettlement.kt`
+  got the same fix (`TrainingSettlementTest`). Tests:
+  `supabase/tests/training_target_composition.sql`; Swift via
+  `python3 app/Tests/diagnostics/training_settlement.py` (disposable package; the main
+  package compiles AI targets). Pre-existing HEAD failures, unrelated: `body_battery_adaptive` #18,
+  `reserve_and_load_calibration` #1/#4/#5 (readiness-1.0 recalibration), `operation_receipts`.
 - **G70 capability sweep** — DEBUG `NB_DEBUG_PROBE=capsweep` (or Device → Capability sweep)
   dumps `VPPeripheralModel` types, reads female mode 2, listens 6s GSensor + 3s ADC, then
   `readFuncAssessment`. Results persist to `Documents/capsweep.txt`. 2026-09-06 wrist:

@@ -132,6 +132,19 @@ final class TrainingSettlementTests: XCTestCase {
         }
     }
 
+    func testEveryComposedRevisionKeepsItsReadinessExplanation() {
+        for (version, composed) in [("target-1.0", false), ("target-1.1", true), ("target-1.2", true),
+                                    ("target-1.3", true), ("target-1.10", true), ("target-2.0", true),
+                                    ("", false), ("readiness-1.3", false)] {
+            var evidence = target
+            evidence["version"] = version
+            evidence["base_target"] = 14.6
+            evidence["current_reserve"] = 67
+            evidence["reserve_limit"] = 14.1
+            XCTAssertEqual(TrainingSettlement(evidence: ["target": evidence]).target?.hasReserveLimit, composed, version)
+        }
+    }
+
     func testAnOpenPageCannotKeepAnOldReserveCurrentWithoutNewEvidence() throws {
         let observed = Date(timeIntervalSince1970: 1_789_473_600)
         var evidence = target

@@ -1,5 +1,41 @@
 # NEXTBODY · build status
 
+## 2026-10-24 — Training target target-1.3 · production
+
+Audit of the daily training target found four defects, each reproduced on the full local
+migration chain before fixing:
+
+- Recorded movement lowered its own target. A 14.6 base followed with one zone-3 run was cut
+  to 13.0 at load 13.3 and finished at load 14.7 against 12.8, shown as over target.
+- The `target-1.2` limit switched on at one point: readiness 60 → 59 moved 14.2 → 11.4.
+- That switch read the instantaneous reading, skipping the 15-minute average for rises.
+- The base short-night guard stopped at six hours: 5h59 gave 11.0, 6h00 gave 13.2.
+
+Migration `20261024100000` reads fatigue with the movement cost since waking added back,
+phases the limit in over 5 readiness points past the existing 60 / −8 thresholds, and makes
+the short-night guard linear from 8 at four hours to 16 at 7.5 hours (PRD 13, ADR 0004).
+`target-1.2 → target-1.3`, every day marked stale for replay. iOS `hasReserveLimit` now
+accepts any composed revision instead of an exact version list.
+
+Verified: new `training_target_composition.sql` 19/19 (red before the migration); all 61
+SQL test files run with and without the migration differ only in the two target files.
+Pre-existing failures on HEAD, unchanged: `body_battery_adaptive` #18,
+`reserve_and_load_calibration` #1/#4/#5 (expectations from before readiness-1.0),
+`operation_receipts` (pgTAP signature), `sleep_duration_guardrail` (historical, needs
+`--through 20261020160000`). `TrainingSettlementTests` 14/14 via
+`python3 app/Tests/diagnostics/training_settlement.py`; the new case fails on the old whitelist.
+The Android port had the same whitelist in `TrainingSettlement.kt`; fixed with
+`TrainingSettlementTest` (Android unit suite 167/167).
+
+Deployed with `supabase db push --linked` (the only migration missing on
+`gkgzwcxivnffsecshvfs`; Edge Functions had no pending change). Before the push, a read-only
+check confirmed production carried the exact text the migration patches. Readback: version
+string, continuous guard, ramp 59 → 13.6, private helpers, a real day publishing `target-1.3`
+with the new fields, all 6 accounts queued for replay. The owner's iPhone 17 Pro Max (Debug,
+development-signed) and Android phone (debug APK) run the fixed clients. Public App Store /
+TestFlight builds hide the BASE TARGET / REMAINING rows for `target-1.3` until the next build;
+the target number itself is unaffected.
+
 ## 2026-10-22 — Detail pages follow Oura's structure (code in 5208d172)
 
 Every second-level page now uses Oura's detail-page layout (reference screenshots in

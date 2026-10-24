@@ -18,7 +18,7 @@ object ServicesBootstrap {
 
     fun install(context: Context) {
         // The gate writes through the same repository the rest of the app uses.
-        com.nextbody.hoop.features.auth.GateRepository.registerDeviceHook = { id, battery -> Repository.registerDevice(id, battery) }
+        com.nextbody.hoop.features.auth.GateRepository.registerDeviceHook = { id, battery -> Repository.registerDevice(id, battery, pairing = true) }
         com.nextbody.hoop.features.auth.GateRepository.saveCapabilitiesHook = { caps, deviceId, userId, days ->
             Repository.saveCapabilities(caps, deviceId, userId, days)
         }
@@ -28,6 +28,8 @@ object ServicesBootstrap {
         installed = true
         val app = context.applicationContext
         SupabaseClient.init(app)
+        // Before anything reads a binding or a consent: both are filed per account.
+        com.nextbody.hoop.band.BoundBand.adoptUnownedBindings(SessionKeychain.userId)
         LocalDataStore.init(app)
         Reachability.init(app)
         ConsentStore.init(app)

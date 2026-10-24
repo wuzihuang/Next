@@ -111,6 +111,7 @@ interface BandLivePort {
 interface NotificationReachPort {
     fun evaluate(store: DataStore)
     fun stampDisconnect(connected: Boolean)
+    fun clearAccount() {}
 }
 
 /** Services/HomeSnapshot.swift — the account's on-disk copy of the home board. */

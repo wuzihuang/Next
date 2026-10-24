@@ -17,7 +17,11 @@ object Analytics {
 
     suspend fun track(name: String, props: Map<String, Any?> = emptyMap()) {
         val size = mutex.withLock {
+            // The account is the one signed in when it happened, not when the batch goes out:
+            // an event left in the buffer at a sign-out must never post as the next account's.
+            // Events from before any sign-in (the gate's funnel) belong to whoever signs in.
             pending += mutableMapOf(
+                "owner" to SupabaseClient.currentUserIdSnapshot(),
                 "name" to name,
                 "props" to props,
                 "client_ts" to Iso.string(Instant.now()),
@@ -37,14 +41,16 @@ object Analytics {
         val batch = mutex.withLock {
             if (flushing || pending.isEmpty()) return
             flushing = true
-            val b = pending.map { it.toMutableMap().also { r -> r["user_id"] = userId } }
+            // Another account's leftovers are dropped, not re-attributed.
+            val b = pending.filter { (it["owner"] as String?)?.let { o -> o == userId } ?: true }
+                .map { it.toMutableMap().also { r -> r.remove("owner"); r["user_id"] = userId } }
             pending.clear()
             b
         }
         // Write-only by design: no select policy, so nothing may be asked for in return.
         val ok = runCatching { SupabaseClient.insert("analytics_events", batch, returning = false) }.isSuccess
         mutex.withLock {
-            if (!ok) pending.addAll(0, batch.map { it.toMutableMap().also { r -> r.remove("user_id") } })
+            if (!ok) pending.addAll(0, batch.map { it.toMutableMap().also { r -> r.remove("user_id"); r["owner"] = userId } })
             flushing = false
         }
     }

@@ -47,10 +47,26 @@ data class LiveSessionGate(
  * The slice of `Repository.shared` the device set and presence use. Server rows come back as
  * `[String: Any]` on iOS; here a map whose arrays are `List<Map<String, Any?>>`.
  */
+/** How the server took a band. A band is held by one account (`20261024150000`). */
+enum class DeviceRegistration {
+    saved,
+    /** Bound to another account; it has to be released there first. */
+    ownedElsewhere,
+    /** Already this account's, in its other slot. */
+    alreadyInSet,
+    failed,
+}
+
+/** The firmware's MAC, the band's identity on the server — not a phone's alias. */
+fun isBandMac(value: String?): Boolean =
+    value != null && Regex("^[0-9A-Fa-f]{2}([:-]?[0-9A-Fa-f]{2}){5}$").matches(value)
+
 interface BandRepositoryPort {
     val deviceId: String?
     fun adoptTransportDevice(id: String?)
-    suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = null): Boolean
+    /** Only `pairing` may create a row or point one at a different band. */
+    suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = null,
+                               pairing: Boolean = false): DeviceRegistration
     suspend fun saveCapabilities(caps: BandCapabilities, deviceId: String, userId: String, holdsDays: Int?): Boolean
     suspend fun releaseDevice(id: String): Map<String, Any?>
     suspend fun loadDeviceSet(): Map<String, Any?>
@@ -64,7 +80,8 @@ interface BandRepositoryPort {
         private var adopted: String? = null
         override val deviceId: String? get() = adopted
         override fun adoptTransportDevice(id: String?) { adopted = id }
-        override suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot?): Boolean = false
+        override suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot?,
+                                            pairing: Boolean): DeviceRegistration = DeviceRegistration.failed
         override suspend fun saveCapabilities(caps: BandCapabilities, deviceId: String, userId: String, holdsDays: Int?): Boolean = false
         override suspend fun releaseDevice(id: String): Map<String, Any?> = throw IllegalStateException("Repository not wired")
         override suspend fun loadDeviceSet(): Map<String, Any?> = throw IllegalStateException("Repository not wired")
@@ -83,8 +100,9 @@ object ServicesBandRepository : BandRepositoryPort {
 
     override val deviceId: String? get() = r.deviceId
     override fun adoptTransportDevice(id: String?) = r.adoptTransportDevice(id)
-    override suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot?): Boolean =
-        r.registerDevice(identity, battery, slot)
+    override suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot?,
+                                        pairing: Boolean): DeviceRegistration =
+        r.registerDevice(identity, battery, slot, pairing)
     override suspend fun saveCapabilities(caps: BandCapabilities, deviceId: String, userId: String, holdsDays: Int?): Boolean =
         r.saveCapabilities(caps, deviceId, userId, holdsDays)
     override suspend fun releaseDevice(id: String): Map<String, Any?> = map(r.releaseDevice(id))

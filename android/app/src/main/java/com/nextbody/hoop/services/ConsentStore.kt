@@ -31,27 +31,63 @@ object ConsentStore {
 
     private const val KEY = "nb.consent"
     private const val PENDING_KEY = "nb.consent.pendingUpload"
+    private fun key(owner: String) = "$KEY.$owner"
+    private fun pendingKey(owner: String) = "$PENDING_KEY.$owner"
     private var prefs: SharedPreferences? = null
+
+    /** A decision is one account's. Another account signing in on this phone has made none
+     *  and sees the screen; its band reads stay closed until it answers. The account that
+     *  signed out finds its own decision again when it returns. */
+    @Volatile private var owner: String? = null
+    private val isCurrentOwner: Boolean
+        get() = SupabaseClient.currentUserIdSnapshot()?.let { it == owner } ?: true
 
     /** Compose-observable. */
     var choice: Choice? by mutableStateOf(null)
         private set
-    val granted: Boolean get() = choice == Choice.Granted
+    val granted: Boolean get() = choice == Choice.Granted && isCurrentOwner
     /** True once the screen has been answered at all. */
-    val decided: Boolean get() = choice != null
+    val decided: Boolean get() = choice != null && isCurrentOwner
 
     fun init(context: Context) {
         val p = context.applicationContext.getSharedPreferences("nb", Context.MODE_PRIVATE)
         prefs = p
-        val raw = p.getString(KEY, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
-        if (raw?.optString("version") == version) choice = Choice.of(raw.optString("choice"))
+        owner = SupabaseClient.currentUserIdSnapshot() ?: SessionKeychain.userId
+        adoptUnownedDecision(p, owner)
+        load()
+        SupabaseClient.accountListeners += {
+            val next = SupabaseClient.currentUserIdSnapshot()
+            if (next != owner) { owner = next; load() }
+        }
+    }
+
+    /** Builds before this kept one decision for the whole phone. It is the decision of
+     *  whoever is signed in when this build first runs; with nobody signed in it is no
+     *  one's, and the next account answers the screen itself. */
+    private fun adoptUnownedDecision(p: SharedPreferences, owner: String?) {
+        val edit = p.edit()
+        p.getString(KEY, null)?.let { legacy ->
+            if (owner != null && !p.contains(key(owner))) edit.putString(key(owner), legacy)
+            edit.remove(KEY)
+        }
+        if (p.contains(PENDING_KEY)) {
+            if (owner != null && !p.contains(pendingKey(owner))) edit.putBoolean(pendingKey(owner), p.getBoolean(PENDING_KEY, false))
+            edit.remove(PENDING_KEY)
+        }
+        edit.apply()
+    }
+
+    private fun load() {
+        val raw = owner?.let { prefs?.getString(key(it), null) }?.let { runCatching { JSONObject(it) }.getOrNull() }
+        choice = if (raw?.optString("version") == version) Choice.of(raw.optString("choice")) else null
     }
 
     suspend fun record(c: Choice, msOnScreen: Int?) {
         choice = c
+        owner = SupabaseClient.currentUserIdSnapshot() ?: owner
         val stored = JSONObject().put("version", version).put("choice", c.raw).put("at", Iso.string(Instant.now()))
         if (msOnScreen != null) stored.put("msOnScreen", msOnScreen)
-        prefs?.edit()?.putString(KEY, stored.toString())?.putBoolean(PENDING_KEY, true)?.apply()
+        owner?.let { prefs?.edit()?.putString(key(it), stored.toString())?.putBoolean(pendingKey(it), true)?.apply() }
         // Rule 05 · on the phone first, on the server as soon as it can be; pending until taken.
         flushPending()
         when (c) {
@@ -64,10 +100,11 @@ object ConsentStore {
     /** Called after a decision and every time the app comes forward. */
     suspend fun flushPending() {
         val p = prefs ?: return
-        if (!p.getBoolean(PENDING_KEY, false)) return
-        val raw = p.getString(KEY, null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
-        val choice = raw.optStringOrNull("choice") ?: return
+        // Only the signed-in account's own decision, under its own id.
         val uid = SupabaseClient.currentUserId ?: return
+        if (!p.getBoolean(pendingKey(uid), false)) return
+        val raw = p.getString(key(uid), null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
+        val choice = raw.optStringOrNull("choice") ?: return
         val row = mutableMapOf<String, Any?>(
             "user_id" to uid,
             "consent_version" to (raw.optStringOrNull("version") ?: version),
@@ -79,7 +116,7 @@ object ConsentStore {
         if (raw.has("msOnScreen")) row["ms_on_screen"] = raw.optInt("msOnScreen")
         try {
             SupabaseClient.insert("consents", listOf(row), returning = false)
-            p.edit().putBoolean(PENDING_KEY, false).apply()
+            p.edit().putBoolean(pendingKey(uid), false).apply()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -90,7 +127,8 @@ object ConsentStore {
     /** 11 · DELETE EVERYTHING. The pending flag goes with it. */
     fun purge() {
         choice = null
-        prefs?.edit()?.remove(KEY)?.remove(PENDING_KEY)?.apply()
+        val owner = owner ?: return
+        prefs?.edit()?.remove(key(owner))?.remove(pendingKey(owner))?.apply()
     }
 
     /** The hash of exactly what was on the screen, so a later edit to the copy is a new consent. */

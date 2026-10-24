@@ -168,7 +168,11 @@ actor Analytics {
     private var flushing = false
 
     func track(_ name: String, _ props: [String: Any] = [:]) async {
+        // The account is the one signed in when it happened, not when the batch goes out:
+        // an event left in the buffer at a sign-out must never post as the next account's.
+        // Events from before any sign-in (the gate's funnel) belong to whoever signs in.
         pending.append([
+            "owner": SupabaseClient.currentUserIdSnapshot() ?? NSNull(),
             "name": name,
             "props": props,
             "client_ts": ISO8601DateFormatter().string(from: Date()),
@@ -187,8 +191,9 @@ actor Analytics {
     func flush() async {
         guard !flushing, !pending.isEmpty, let userId = await db.currentUserId else { return }
         flushing = true
-        let batch = pending.map { row -> [String: Any] in
-            var r = row; r["user_id"] = userId; return r
+        // Another account's leftovers are dropped, not re-attributed.
+        let batch = pending.filter { ($0["owner"] as? String).map { $0 == userId } ?? true }.map { row -> [String: Any] in
+            var r = row; r.removeValue(forKey: "owner"); r["user_id"] = userId; return r
         }
         pending.removeAll()
         // A dropped analytics batch is never worth surfacing to the user; it is also never
@@ -197,7 +202,7 @@ actor Analytics {
         if (try? await db.insert("analytics_events", rows: batch, returning: false)) == nil {
             // put them back, once — a flat network blip should not lose a session
             pending.insert(contentsOf: batch.map { r in
-                var c = r; c.removeValue(forKey: "user_id"); return c
+                var c = r; c.removeValue(forKey: "user_id"); c["owner"] = userId; return c
             }, at: 0)
         }
         flushing = false

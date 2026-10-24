@@ -59,6 +59,22 @@ enum NotificationReach {
         UIApplication.shared.registerForRemoteNotifications()
     }
 
+    /// The APNs token this phone last registered, for the sign-out to take off the account.
+    nonisolated static var deviceToken: String? { UserDefaults.standard.string(forKey: "nb.notif.deviceToken") }
+
+    /// Sign-out. Every scheduled or delivered notification was written from the departing
+    /// account's numbers, and the edge memory compares against them; none of it may reach
+    /// the next account on this phone. The preferences are the phone's and stay.
+    static func clearAccount(defaults: UserDefaults = .standard) {
+        let center = UNUserNotificationCenter.current()
+        center.removeAllPendingNotificationRequests()
+        center.removeAllDeliveredNotifications()
+        for key in [disconnectAtKey, dayKey, countKey, deliveredKey, prevKcalKey, prevActiveKey,
+                    prevReserveKey, highReserveKey, wrapOpenedKey] {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     static func rememberToken(_ data: Data) async {
         let hex = data.map { String(format: "%02.2hhx", $0) }.joined()
         UserDefaults.standard.set(hex, forKey: tokenKey)

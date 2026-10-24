@@ -26,14 +26,46 @@ final class ConsentStore: ObservableObject {
     enum Choice: String { case granted, declined, withdrawn }
 
     @Published private(set) var choice: Choice?
-    var granted: Bool { choice == .granted }
+    var granted: Bool { choice == .granted && isCurrentOwner }
     /// True once the screen has been answered at all — an account that predates the screen
     /// has nil here and is shown it as a delta (edge 3).
-    var decided: Bool { choice != nil }
+    var decided: Bool { choice != nil && isCurrentOwner }
+    /// A decision stored on this phone for the signed-in account (seed previews ask).
+    var hasStoredDecision: Bool {
+        owner.flatMap { UserDefaults.standard.dictionary(forKey: Self.key($0)) } != nil
+    }
+
+    /// A decision is one account's. Another account signing in on this phone has made none
+    /// and sees the screen; its band reads stay closed until it answers. The account that
+    /// signed out finds its own decision again when it returns.
+    private var owner: String?
+    private var accountObserver: NSObjectProtocol?
+    private var isCurrentOwner: Bool {
+        SupabaseClient.currentUserIdSnapshot().map { $0 == owner } ?? true
+    }
 
     private static let key = "nb.consent"
+    private nonisolated static func key(_ owner: String) -> String { "\(key).\(owner)" }
+
     private init() {
-        let raw = UserDefaults.standard.dictionary(forKey: Self.key)
+        owner = SupabaseClient.currentUserIdSnapshot() ?? SessionKeychain.userId
+        load()
+        accountObserver = NotificationCenter.default.addObserver(
+            forName: SupabaseClient.accountDidChange, object: nil, queue: .main) { _ in
+            Task { @MainActor in ConsentStore.shared.accountDidChange() }
+        }
+    }
+
+    private func accountDidChange() {
+        let next = SupabaseClient.currentUserIdSnapshot()
+        guard next != owner else { return }
+        owner = next
+        load()
+    }
+
+    private func load() {
+        choice = nil
+        let raw = owner.flatMap { UserDefaults.standard.dictionary(forKey: Self.key($0)) }
         if raw?["version"] as? String == Self.version, let c = raw?["choice"] as? String {
             choice = Choice(rawValue: c)
         }
@@ -50,16 +82,17 @@ final class ConsentStore: ObservableObject {
 
     func record(_ c: Choice, msOnScreen: Int?) async {
         choice = c
+        owner = SupabaseClient.currentUserIdSnapshot() ?? owner
         var stored: [String: Any] = ["version": Self.version, "choice": c.rawValue,
                                      "at": ISO8601DateFormatter().string(from: Date())]
         if let msOnScreen { stored["msOnScreen"] = msOnScreen }
-        UserDefaults.standard.set(stored, forKey: Self.key)
+        if let owner { UserDefaults.standard.set(stored, forKey: Self.key(owner)) }
         // Rule 05 · the decision is on the phone first and on the server as soon as it can
         // be. ⚠️ The row used to be sent once, behind a `try?`, and the account that found
         // the band bug had two decisions in analytics and none in consents: a write that
         // failed for any reason — no session yet, the radio, the table not there — was gone.
         // Now it stays pending until the server has taken it.
-        UserDefaults.standard.set(true, forKey: Self.pendingKey)
+        if let owner { UserDefaults.standard.set(true, forKey: Self.pendingKey(owner)) }
         await flushPending()
         switch c {
         case .granted, .declined:
@@ -71,16 +104,30 @@ final class ConsentStore: ObservableObject {
     }
 
     private static let pendingKey = "nb.consent.pendingUpload"
+    private nonisolated static func pendingKey(_ owner: String) -> String { "\(pendingKey).\(owner)" }
+
+    /// Builds before this kept one decision for the whole phone. It is the decision of
+    /// whoever is signed in when this build first runs; with nobody signed in it is no
+    /// one's, and the next account answers the screen itself.
+    nonisolated static func adoptUnownedDecision(owner: String?) {
+        let defaults = UserDefaults.standard
+        for (legacy, scoped) in [(key, owner.map { key($0) }), (pendingKey, owner.map { pendingKey($0) })] {
+            guard let value = defaults.object(forKey: legacy) else { continue }
+            if let scoped, defaults.object(forKey: scoped) == nil { defaults.set(value, forKey: scoped) }
+            defaults.removeObject(forKey: legacy)
+        }
+    }
 
     /// The stored decision, sent to the server if it has not been taken yet. Called right
     /// after a decision and every time the app comes forward, so a decision made before the
     /// session existed still lands. Append-only table: the row carries the moment it was
     /// decided, not the moment it finally uploaded.
     func flushPending() async {
-        guard UserDefaults.standard.bool(forKey: Self.pendingKey),
-              let raw = UserDefaults.standard.dictionary(forKey: Self.key),
-              let choice = raw["choice"] as? String,
-              let uid = await SupabaseClient.shared.currentUserId else { return }
+        // Only the signed-in account's own decision, under its own id.
+        guard let uid = await SupabaseClient.shared.currentUserId,
+              UserDefaults.standard.bool(forKey: Self.pendingKey(uid)),
+              let raw = UserDefaults.standard.dictionary(forKey: Self.key(uid)),
+              let choice = raw["choice"] as? String else { return }
         var row: [String: Any] = [
             "user_id": uid,
             "consent_version": raw["version"] as? String ?? Self.version,
@@ -92,7 +139,7 @@ final class ConsentStore: ObservableObject {
         if let ms = raw["msOnScreen"] as? Int { row["ms_on_screen"] = ms }
         do {
             _ = try await SupabaseClient.shared.insert("consents", rows: [row], returning: false)
-            UserDefaults.standard.set(false, forKey: Self.pendingKey)
+            UserDefaults.standard.set(false, forKey: Self.pendingKey(uid))
         } catch {
             BandLog.shared.record("insert consents", error: error)
         }
@@ -105,8 +152,9 @@ final class ConsentStore: ObservableObject {
     /// whichever account signs in next on this phone.
     func purge() {
         choice = nil
-        UserDefaults.standard.removeObject(forKey: Self.key)
-        UserDefaults.standard.removeObject(forKey: Self.pendingKey)
+        guard let owner else { return }
+        UserDefaults.standard.removeObject(forKey: Self.key(owner))
+        UserDefaults.standard.removeObject(forKey: Self.pendingKey(owner))
     }
 
     /// The hash of exactly what was on the screen, so a later edit to the copy is a new consent.

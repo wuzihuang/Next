@@ -3,6 +3,7 @@ package com.nextbody.hoop.features.auth
 import com.nextbody.hoop.band.BandBattery
 import com.nextbody.hoop.band.BandCapabilities
 import com.nextbody.hoop.band.BandIdentity
+import com.nextbody.hoop.band.DeviceRegistration
 import com.nextbody.hoop.band.BodyCompositionReading
 import com.nextbody.hoop.band.LaunchGate
 import com.nextbody.hoop.band.Band
@@ -150,7 +151,7 @@ object GateRepository {
     /** `Repository.deviceId` — the bound devices row, remembered by [fetchAccountGate]. */
     @Volatile var deviceId: String? = null
 
-    var registerDeviceHook: (suspend (BandIdentity?, BandBattery?) -> Boolean)? = null
+    var registerDeviceHook: (suspend (BandIdentity?, BandBattery?) -> DeviceRegistration)? = null
     var saveCapabilitiesHook: (suspend (BandCapabilities, String, String, Int) -> Unit)? = null
     var recordBodyCompositionHook: (suspend (BodyCompositionReading) -> Unit)? = null
 
@@ -181,8 +182,9 @@ object GateRepository {
     suspend fun saveProfile(profile: Profile, editedFields: List<String>): Boolean =
         com.nextbody.hoop.services.Repository.saveProfile(profile, editedFields)
 
-    suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?): Boolean =
-        registerDeviceHook?.invoke(identity, battery) ?: false
+    /** The pairing screen's registration: the person chose this band. */
+    suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?): DeviceRegistration =
+        registerDeviceHook?.invoke(identity, battery) ?: DeviceRegistration.failed
 
     suspend fun saveCapabilities(caps: BandCapabilities, deviceId: String, userId: String, holdsDays: Int) {
         saveCapabilitiesHook?.invoke(caps, deviceId, userId, holdsDays)

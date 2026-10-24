@@ -142,23 +142,48 @@ class WearTimeline(events: List<WearEvent> = emptyList(), val bindings: List<Slo
 
 /** Prefs-backed slot store. `BoundBand` reads the transport slot through here so the
  *  call sites that key readiness, refresh scope and evidence by `BoundBand.identifier`
- *  keep working unchanged. */
+ *  keep working unchanged.
+ *
+ *  A band is held by one account (ADR 0003, `20261024150000`), so every key is filed under
+ *  the account that bound it. A sign-out leaves that account's bands on the phone for when
+ *  it signs back in; the next account starts with none of them and cannot sync, register
+ *  or claim a band it never paired. With nobody signed in there are no bands. */
 object DeviceSlots {
     private const val bindingsKey = "nb.band.slots.v1"
     private const val transportKey = "nb.band.transportSlot.v1"
     private const val wearingKey = "nb.band.wearingSlot.v1"
     private const val timelineKey = "nb.band.wearEvents.v1"
     private const val pendingOpsKey = "nb.band.wearEvents.pending.v1"
+    private val allKeys = listOf(bindingsKey, transportKey, wearingKey, timelineKey, pendingOpsKey)
 
-    private fun <T> readList(key: String, parse: (JSONObject) -> T): List<T> {
-        val raw = BandPrefs.string(key) ?: return emptyList()
+    /** The signed-in account. The session sets it the moment it changes, before anyone is
+     *  told the account changed. */
+    @Volatile var owner: String? = null
+
+    private fun key(base: String): String? = owner?.let { "$base.$it" }
+    private fun string(base: String): String? = key(base)?.let { BandPrefs.string(it) }
+    private fun store(base: String, value: String) { key(base)?.let { BandPrefs.setString(it, value) } }
+
+    /** Builds before one band, one account kept a single set for the whole phone. It
+     *  belongs to whoever is signed in when this build first runs; with nobody signed in it
+     *  belongs to no one and goes — the server still holds the binding for its account. */
+    fun adoptUnownedBindings(owner: String?) {
+        for (base in allKeys) {
+            val value = BandPrefs.string(base) ?: continue
+            if (owner != null && BandPrefs.string("$base.$owner") == null) BandPrefs.setString("$base.$owner", value)
+            BandPrefs.remove(base)
+        }
+    }
+
+    private fun <T> readList(base: String, parse: (JSONObject) -> T): List<T> {
+        val raw = string(base) ?: return emptyList()
         return runCatching { JSONArray(raw).let { a -> (0 until a.length()).map { parse(a.getJSONObject(it)) } } }
             .getOrDefault(emptyList())
     }
 
     var bindings: List<SlotBinding>
         get() = readList(bindingsKey, SlotBinding::fromJson)
-        set(value) = BandPrefs.setString(bindingsKey, JSONArray(value.map { it.toJson() }).toString())
+        set(value) = store(bindingsKey, JSONArray(value.map { it.toJson() }).toString())
 
     fun binding(slot: HoopSlot): SlotBinding? = bindings.firstOrNull { it.slot == slot }
 
@@ -176,28 +201,29 @@ object DeviceSlots {
 
     /** Which band the SDK link targets right now. */
     var transport: HoopSlot
-        get() = HoopSlot.fromRaw(BandPrefs.string(transportKey)) ?: HoopSlot.a
-        set(value) = BandPrefs.setString(transportKey, value.raw)
+        get() = HoopSlot.fromRaw(string(transportKey)) ?: HoopSlot.a
+        set(value) = store(transportKey, value.raw)
 
     /** Which band the person declared on the wrist. */
     var wearing: HoopSlot
-        get() = HoopSlot.fromRaw(BandPrefs.string(wearingKey)) ?: HoopSlot.a
-        set(value) = BandPrefs.setString(wearingKey, value.raw)
+        get() = HoopSlot.fromRaw(string(wearingKey)) ?: HoopSlot.a
+        set(value) = store(wearingKey, value.raw)
 
     var events: List<WearEvent>
         get() = readList(timelineKey, WearEvent::fromJson)
-        set(value) = BandPrefs.setString(timelineKey, JSONArray(value.map { it.toJson() }).toString())
+        set(value) = store(timelineKey, JSONArray(value.map { it.toJson() }).toString())
 
     /** Declarations made offline, replayed on the next successful network call. */
     var pendingOps: List<WearEvent>
         get() = readList(pendingOpsKey, WearEvent::fromJson)
-        set(value) = BandPrefs.setString(pendingOpsKey, JSONArray(value.map { it.toJson() }).toString())
+        set(value) = store(pendingOpsKey, JSONArray(value.map { it.toJson() }).toString())
 
     val timeline: WearTimeline get() = WearTimeline(events, bindings)
 
     val hasSecond: Boolean get() = bindings.size >= 2
 
+    /** The signed-in account's bands only; another account's set on this phone stays. */
     fun forgetAll() {
-        for (key in listOf(bindingsKey, transportKey, wearingKey, timelineKey, pendingOpsKey)) BandPrefs.remove(key)
+        for (base in allKeys) key(base)?.let { BandPrefs.remove(it) }
     }
 }

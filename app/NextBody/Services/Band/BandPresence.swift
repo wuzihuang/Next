@@ -79,7 +79,7 @@ final class BandPresence {
         // initialization, not something to repeat on every automatic health-data pull.
         guard metadata.needsRefresh(metadataKey()) else { return }
         BandSyncActivity.shared.show(.saving)
-        guard await Repository.shared.registerDevice(identity: identity, battery: battery) else { return }
+        guard await Repository.shared.registerDevice(identity: identity, battery: battery) == .saved else { return }
 
         guard isCurrent() else { return }
         BandSyncActivity.shared.show(.capabilities)

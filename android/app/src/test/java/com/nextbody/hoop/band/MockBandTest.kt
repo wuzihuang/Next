@@ -13,7 +13,11 @@ import java.time.Instant
 import java.time.ZoneId
 
 class MockBandTest {
-    @Before fun setUp() { BandMain.dispatcher = Dispatchers.Unconfined }
+    @Before fun setUp() {
+        BandMain.dispatcher = Dispatchers.Unconfined
+        // Bands are filed per account; with nobody signed in nothing binds.
+        DeviceSlots.owner = "mock-band-test"
+    }
 
     @Test fun readsAreRefusedUntilConnected() = runTest {
         val band = MockBand()

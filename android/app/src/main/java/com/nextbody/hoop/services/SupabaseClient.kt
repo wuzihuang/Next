@@ -226,6 +226,8 @@ object SupabaseClient {
     }
 
     private fun storeSnapshot(userId: String?, userEmail: String?, generation: String) {
+        // Bands are filed per account; the next reader of a binding must already see the new one.
+        com.nextbody.hoop.band.DeviceSlots.owner = userId
         val changed: Boolean
         val sessionChanged: Boolean
         synchronized(lock) {
@@ -396,7 +398,6 @@ object SupabaseClient {
      * the stored copy goes either way, so the next launch starts at the gate.
      */
     suspend fun signOut() {
-        appContext?.let { runCatching { GoogleAuth.signOut(it) } }
         val departing = accessToken
         synchronized(lock) {
             sessionGeneration = UUID.randomUUID().toString()
@@ -405,6 +406,9 @@ object SupabaseClient {
         }
         clearKeychain()
         storeSnapshot(null, null, sessionGeneration)
+        // After the local session is gone, not before: the credential manager is an IPC, and
+        // an account that signed in while it was answering must not be signed out by it.
+        appContext?.let { runCatching { GoogleAuth.signOut(it) } }
         if (departing != null) {
             val req = Request.Builder().url("${SupabaseConfig.URL}/auth/v1/logout")
                 .header("apikey", SupabaseConfig.PUBLISHABLE_KEY)

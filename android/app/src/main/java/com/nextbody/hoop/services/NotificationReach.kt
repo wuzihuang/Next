@@ -342,6 +342,20 @@ object NotificationReach : NotificationReachPort {
             intent ?: Intent(ctx, NotificationReachReceiver::class.java).setAction(ACTION),
             flags or PendingIntent.FLAG_IMMUTABLE)
 
+    /** Sign-out. Every scheduled or posted notification was written from the departing
+     *  account's numbers, and the edge memory compares against them; none of it may reach
+     *  the next account on this phone. The preferences are the phone's and stay. */
+    override fun clearAccount() {
+        val all = NotifyKind.values().toList()
+        removePending(all)
+        removeDelivered(all)
+        val d = defaults ?: return
+        d.edit().apply {
+            for (key in listOf(disconnectAtKey, dayKey, countKey, deliveredKey, prevKcalKey, prevActiveKey,
+                               prevReserveKey, highReserveKey, wrapOpenedKey)) remove(key)
+        }.apply()
+    }
+
     private fun removePending(kinds: Collection<NotifyKind>) {
         val ctx = context ?: return
         val alarms = ctx.getSystemService(AlarmManager::class.java) ?: return

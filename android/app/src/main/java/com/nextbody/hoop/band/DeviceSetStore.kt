@@ -180,6 +180,27 @@ class DeviceSetStore private constructor() {
 
     init {
         hydrateFromLocal()
+        BandMain.launch { SupabaseClient.accountDidChange.collect { accountDidChange() } }
+        restoreIfEmpty()
+    }
+
+    /** Bands are filed per account. Whatever was on screen, in flight or about to replay
+     *  belonged to the account that left; the one that arrives sees only its own set, and
+     *  one this phone has never held for it is read from the server. */
+    private fun accountDidChange() {
+        handover?.cancel()
+        handover = null
+        landed = null
+        lastError = null
+        bindingRevision += 1
+        slots = emptyMap()
+        hydrateFromLocal()
+        restoreIfEmpty()
+    }
+
+    private fun restoreIfEmpty() {
+        if (DeviceSlots.owner == null || DeviceSlots.bindings.isNotEmpty()) return
+        BandMain.launch { load() }
     }
 
     // MARK: loading
@@ -233,7 +254,10 @@ class DeviceSetStore private constructor() {
             val raw = row["slot"] as? String ?: continue
             val slot = HoopSlot.entries.firstOrNull { it.raw == raw } ?: continue
             val key = row["device_key"] as? String ?: continue
-            var binding = DeviceSlots.binding(slot) ?: SlotBinding(slot = slot, identifier = key)
+            // A band this phone has not held for the account (a new phone, or a set from
+            // before one band, one account) is found by its MAC, which every phone sees.
+            val restored = (row["ble_identifier"] as? String)?.takeIf(::isBandMac) ?: key
+            var binding = DeviceSlots.binding(slot) ?: SlotBinding(slot = slot, identifier = restored)
             binding = binding.copy(
                 deviceId = row["id"] as? String,
                 boundAt = (row["bound_at"] as? String)?.let(::timestamp) ?: binding.boundAt)
@@ -554,9 +578,15 @@ class DeviceSetStore private constructor() {
                 progress(0.85)
                 stage(ActivationStage.activate)
                 val battery = Band.live.readBattery()
-                if (!repository.registerDevice(identity = identity, battery = battery, slot = slot) ||
-                    DeviceSlots.binding(slot)?.deviceId == null) {
-                    throw BandError.Rejected(L("Pairing could not be saved. Check your connection and try again."))
+                when (repository.registerDevice(identity = identity, battery = battery, slot = slot, pairing = true)) {
+                    DeviceRegistration.saved -> if (DeviceSlots.binding(slot)?.deviceId == null)
+                        throw BandError.Rejected(L("Pairing could not be saved. Check your connection and try again."))
+                    DeviceRegistration.ownedElsewhere ->
+                        throw BandError.Rejected(L("This NEXTBODY belongs to another account. Remove it there first."))
+                    DeviceRegistration.alreadyInSet ->
+                        throw BandError.Rejected(L("This NEXTBODY is already in your set."))
+                    DeviceRegistration.failed ->
+                        throw BandError.Rejected(L("Pairing could not be saved. Check your connection and try again."))
                 }
                 val deviceId = DeviceSlots.binding(slot)?.deviceId
                 val userId = SupabaseClient.currentUserId

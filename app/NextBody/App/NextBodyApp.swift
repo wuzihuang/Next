@@ -13,6 +13,10 @@ struct NextBodyApp: App {
     @Environment(\.scenePhase) private var phase
 
     init() {
+        // Before anything reads a binding or a consent: both are filed per account.
+        let account = SessionKeychain.userId
+        BoundBand.adoptUnownedBindings(owner: account)
+        ConsentStore.adoptUnownedDecision(owner: account)
         _ = LaunchFilmPolicy.processStart
         Logger(subsystem: "com.nextbody.hoop", category: "lifecycle").notice("app initialized")
         NightDiagnostics.shared.record("app.launch", fields: NightDiagnostics.shared.status)
@@ -47,6 +51,8 @@ struct NextBodyApp: App {
                 .task {
                     BandLiveLifecycle.shared.start()
                     BandLiveLifecycle.shared.setPhase(phase)
+                    // Listens for account changes from the first one on (bands are per account).
+                    _ = DeviceSetStore.shared
                     SessionActivity.clearOrphans()
                     // Restoring the local account gates BLE, not cloud homepage hydration.
                     if await session.ensureSession() {

@@ -103,21 +103,64 @@ struct WearTimeline: Equatable, Sendable {
 /// UserDefaults-backed slot store. `BoundBand` reads the transport slot through here so the
 /// thirty-odd call sites that key readiness, refresh scope and evidence by
 /// `BoundBand.identifier` keep working unchanged.
+///
+/// A band is held by one account (ADR 0003, `20261024150000`), so every key is filed under
+/// the account that bound it. A sign-out leaves that account's bands on the phone for when
+/// it signs back in; the next account starts with none of them and cannot sync, register
+/// or claim a band it never paired. With nobody signed in there are no bands.
 enum DeviceSlots {
     private static let bindingsKey = "nb.band.slots.v1"
     private static let transportKey = "nb.band.transportSlot.v1"
     private static let wearingKey = "nb.band.wearingSlot.v1"
     private static let timelineKey = "nb.band.wearEvents.v1"
     private static let pendingOpsKey = "nb.band.wearEvents.pending.v1"
+    private static let allKeys = [bindingsKey, transportKey, wearingKey, timelineKey, pendingOpsKey]
+
+    private static let ownerLock = NSLock()
+    nonisolated(unsafe) private static var currentOwner: String?
+
+    /// The signed-in account. The session sets it the moment it changes, before anyone is
+    /// told the account changed.
+    static var owner: String? {
+        get { ownerLock.lock(); defer { ownerLock.unlock() }; return currentOwner }
+        set { ownerLock.lock(); currentOwner = newValue; ownerLock.unlock() }
+    }
+
+    private static func key(_ base: String) -> String? { owner.map { "\(base).\($0)" } }
+
+    private static func data(_ base: String) -> Data? {
+        key(base).flatMap { UserDefaults.standard.data(forKey: $0) }
+    }
+
+    private static func string(_ base: String) -> String? {
+        key(base).flatMap { UserDefaults.standard.string(forKey: $0) }
+    }
+
+    private static func store(_ value: Any?, _ base: String) {
+        guard let key = key(base) else { return }
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
+    /// Builds before one band, one account kept a single set for the whole phone. It
+    /// belongs to whoever is signed in when this build first runs; with nobody signed in it
+    /// belongs to no one and goes — the server still holds the binding for its account.
+    static func adoptUnownedBindings(owner: String?) {
+        let defaults = UserDefaults.standard
+        for base in allKeys {
+            guard let value = defaults.object(forKey: base) else { continue }
+            if let owner, defaults.object(forKey: "\(base).\(owner)") == nil {
+                defaults.set(value, forKey: "\(base).\(owner)")
+            }
+            defaults.removeObject(forKey: base)
+        }
+    }
 
     static var bindings: [SlotBinding] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: bindingsKey) else { return [] }
+            guard let data = data(bindingsKey) else { return [] }
             return (try? JSONDecoder().decode([SlotBinding].self, from: data)) ?? []
         }
-        set {
-            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: bindingsKey)
-        }
+        set { store(try? JSONEncoder().encode(newValue), bindingsKey) }
     }
 
     static func binding(_ slot: HoopSlot) -> SlotBinding? { bindings.first { $0.slot == slot } }
@@ -136,40 +179,41 @@ enum DeviceSlots {
 
     /// Which band the SDK link targets right now.
     static var transport: HoopSlot {
-        get { HoopSlot(rawValue: UserDefaults.standard.string(forKey: transportKey) ?? "") ?? .a }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: transportKey) }
+        get { HoopSlot(rawValue: string(transportKey) ?? "") ?? .a }
+        set { store(newValue.rawValue, transportKey) }
     }
 
     /// Which band the person declared on the wrist.
     static var wearing: HoopSlot {
-        get { HoopSlot(rawValue: UserDefaults.standard.string(forKey: wearingKey) ?? "") ?? .a }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: wearingKey) }
+        get { HoopSlot(rawValue: string(wearingKey) ?? "") ?? .a }
+        set { store(newValue.rawValue, wearingKey) }
     }
 
     static var events: [WearEvent] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: timelineKey) else { return [] }
+            guard let data = data(timelineKey) else { return [] }
             return (try? JSONDecoder().decode([WearEvent].self, from: data)) ?? []
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: timelineKey) }
+        set { store(try? JSONEncoder().encode(newValue), timelineKey) }
     }
 
     /// Declarations made offline, replayed on the next successful network call.
     static var pendingOps: [WearEvent] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: pendingOpsKey) else { return [] }
+            guard let data = data(pendingOpsKey) else { return [] }
             return (try? JSONDecoder().decode([WearEvent].self, from: data)) ?? []
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: pendingOpsKey) }
+        set { store(try? JSONEncoder().encode(newValue), pendingOpsKey) }
     }
 
     static var timeline: WearTimeline { WearTimeline(events: events, bindings: bindings) }
 
     static var hasSecond: Bool { bindings.count >= 2 }
 
+    /// The signed-in account's bands only; another account's set on this phone stays.
     static func forgetAll() {
-        for key in [bindingsKey, transportKey, wearingKey, timelineKey, pendingOpsKey] {
-            UserDefaults.standard.removeObject(forKey: key)
+        for base in allKeys {
+            if let key = key(base) { UserDefaults.standard.removeObject(forKey: key) }
         }
     }
 }

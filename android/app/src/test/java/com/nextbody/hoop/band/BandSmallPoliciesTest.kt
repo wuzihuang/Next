@@ -88,6 +88,7 @@ class BandSmallPoliciesTest {
     }
 
     @Test fun deviceSlotsPersist() {
+        DeviceSlots.owner = "slots-test"
         DeviceSlots.forgetAll()
         DeviceSlots.set(SlotBinding(HoopSlot.b, "band-B", name = "B"))
         DeviceSlots.set(SlotBinding(HoopSlot.a, "band-A", boundAt = Instant.ofEpochSecond(100)))
@@ -99,6 +100,34 @@ class BandSmallPoliciesTest {
         assertEquals(HoopSlot.a, DeviceSlots.transport)
         DeviceSlots.forgetAll()
         assertTrue(DeviceSlots.bindings.isEmpty())
+        DeviceSlots.owner = null
+    }
+
+    /** One band, one account: a band one account bound is not there for the next account
+     *  on the same phone, and comes back when its own account signs in again. */
+    @Test fun bandsAreFiledPerAccount() {
+        try {
+            DeviceSlots.owner = "account-a"
+            DeviceSlots.set(SlotBinding(HoopSlot.a, "band-of-a"))
+            DeviceSlots.pendingOps = listOf(WearEvent(HoopSlot.a, Instant.ofEpochSecond(1), Instant.ofEpochSecond(1), "op-a"))
+
+            DeviceSlots.owner = null
+            assertTrue("nobody signed in holds no band", DeviceSlots.bindings.isEmpty())
+            DeviceSlots.set(SlotBinding(HoopSlot.a, "written-while-signed-out"))
+            assertTrue("nothing is written without an account", DeviceSlots.bindings.isEmpty())
+
+            DeviceSlots.owner = "account-b"
+            assertTrue(DeviceSlots.bindings.isEmpty())
+            assertTrue("another account's declarations never replay", DeviceSlots.pendingOps.isEmpty())
+            DeviceSlots.set(SlotBinding(HoopSlot.a, "band-of-b"))
+
+            DeviceSlots.owner = "account-a"
+            assertEquals("band-of-a", DeviceSlots.binding(HoopSlot.a)?.identifier)
+            assertEquals(listOf("op-a"), DeviceSlots.pendingOps.map { it.clientOpId })
+        } finally {
+            for (account in listOf("account-a", "account-b")) { DeviceSlots.owner = account; DeviceSlots.forgetAll() }
+            DeviceSlots.owner = null
+        }
     }
 
     @Test fun releaseErrorMessages() {

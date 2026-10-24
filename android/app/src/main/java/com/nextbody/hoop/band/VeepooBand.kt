@@ -2292,9 +2292,10 @@ object BoundBand {
     private const val legacyPeripheralKey = "nb.band.peripheralIdentifier"
     private const val legacyPeripheralOwnerKey = "nb.band.peripheralBinding"
 
-    /** A phone that bound one NEXTBODY before slots existed keeps it, in slot A. */
+    /** A phone that bound one NEXTBODY before slots existed keeps it, in slot A — for the
+     *  account signed in now. With nobody signed in it waits for `adoptUnownedBindings`. */
     private fun migrateIfNeeded() {
-        if (DeviceSlots.bindings.isNotEmpty()) return
+        if (DeviceSlots.owner == null || DeviceSlots.bindings.isNotEmpty()) return
         val legacy = BandPrefs.string(legacyKey) ?: return
         val peripheral = if (BandPrefs.string(legacyPeripheralOwnerKey) == legacy) BandPrefs.string(legacyPeripheralKey) else null
         DeviceSlots.set(SlotBinding(slot = HoopSlot.a, identifier = legacy, peripheralIdentifier = peripheral))
@@ -2353,6 +2354,14 @@ object BoundBand {
         }
         val binding = DeviceSlots.binding(slot) ?: return
         DeviceSlots.set(binding.copy(peripheralIdentifier = peripheralIdentifier))
+    }
+
+    /** Launch, before anything reads a binding: bands stored before one band, one account
+     *  go to the account the stored session says is signed in, or nowhere. */
+    fun adoptUnownedBindings(owner: String?) {
+        DeviceSlots.owner = owner
+        DeviceSlots.adoptUnownedBindings(owner)
+        if (owner == null) for (key in listOf(legacyKey, legacyPeripheralKey, legacyPeripheralOwnerKey)) BandPrefs.remove(key)
     }
 
     /** Forget only the app bindings — both slots; server history stays. */

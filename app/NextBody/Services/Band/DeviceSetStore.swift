@@ -124,8 +124,34 @@ final class DeviceSetStore: ObservableObject {
     /// on is not a reason to read it again.
     private var landed: (slot: HoopSlot, at: Date)?
 
+    private var accountObserver: NSObjectProtocol?
+
     private init() {
         hydrateFromLocal()
+        accountObserver = NotificationCenter.default.addObserver(
+            forName: SupabaseClient.accountDidChange, object: nil, queue: .main) { _ in
+            Task { @MainActor in DeviceSetStore.shared.accountDidChange() }
+        }
+        restoreIfEmpty()
+    }
+
+    /// Bands are filed per account. Whatever was on screen, in flight or about to replay
+    /// belonged to the account that left; the one that arrives sees only its own set, and
+    /// one this phone has never held for it is read from the server.
+    private func accountDidChange() {
+        handover?.cancel()
+        handover = nil
+        landed = nil
+        lastError = nil
+        bindingRevision += 1
+        slots = [:]
+        hydrateFromLocal()
+        restoreIfEmpty()
+    }
+
+    private func restoreIfEmpty() {
+        guard DeviceSlots.owner != nil, DeviceSlots.bindings.isEmpty else { return }
+        Task { await load() }
     }
 
     // MARK: loading
@@ -203,7 +229,11 @@ final class DeviceSetStore: ObservableObject {
         for row in devices {
             guard let raw = row["slot"] as? String, let slot = HoopSlot(rawValue: raw),
                   let key = row["device_key"] as? String else { continue }
-            var binding = DeviceSlots.binding(slot) ?? SlotBinding(slot: slot, identifier: key)
+            // A band this phone has not held for the account (a new phone, or a set from
+            // before one band, one account) is found by its MAC, which every phone sees; the
+            // alias another phone filed it under means nothing here.
+            let restored = (row["ble_identifier"] as? String).flatMap { Repository.isMAC($0) ? $0 : nil } ?? key
+            var binding = DeviceSlots.binding(slot) ?? SlotBinding(slot: slot, identifier: restored)
             binding.deviceId = row["id"] as? String
             binding.boundAt = (row["bound_at"] as? String).flatMap(Self.timestamp) ?? binding.boundAt
             DeviceSlots.set(binding)
@@ -506,8 +536,13 @@ final class DeviceSetStore: ObservableObject {
             progress(0.85)
             stage(.activate)
             let battery = try await Band.live.readBattery()
-            guard await Repository.shared.registerDevice(identity: identity, battery: battery, slot: slot),
-                  DeviceSlots.binding(slot)?.deviceId != nil else {
+            switch await Repository.shared.registerDevice(identity: identity, battery: battery, slot: slot, pairing: true) {
+            case .saved where DeviceSlots.binding(slot)?.deviceId != nil: break
+            case .ownedElsewhere:
+                throw BandError.rejected(L("This NEXTBODY belongs to another account. Remove it there first."))
+            case .alreadyInSet:
+                throw BandError.rejected(L("This NEXTBODY is already in your set."))
+            default:
                 throw BandError.rejected(L("Pairing could not be saved. Check your connection and try again."))
             }
             if let deviceId = DeviceSlots.binding(slot)?.deviceId,

@@ -2905,10 +2905,12 @@ enum BoundBand {
     private static let legacyPeripheralKey = "nb.band.peripheralIdentifier"
     private static let legacyPeripheralOwnerKey = "nb.band.peripheralBinding"
 
-    /// A phone that bound one NEXTBODY before slots existed keeps it, in slot A.
+    /// A phone that bound one NEXTBODY before slots existed keeps it, in slot A — for the
+    /// account signed in now. With nobody signed in it waits for `adoptUnownedBindings`.
     private static func migrateIfNeeded() {
         let defaults = UserDefaults.standard
-        guard DeviceSlots.bindings.isEmpty, let legacy = defaults.string(forKey: legacyKey) else { return }
+        guard DeviceSlots.owner != nil, DeviceSlots.bindings.isEmpty,
+              let legacy = defaults.string(forKey: legacyKey) else { return }
         let peripheral = defaults.string(forKey: legacyPeripheralOwnerKey) == legacy
             ? defaults.string(forKey: legacyPeripheralKey) : nil
         DeviceSlots.set(SlotBinding(slot: .a, identifier: legacy, peripheralIdentifier: peripheral))
@@ -2973,6 +2975,18 @@ enum BoundBand {
         guard var binding = DeviceSlots.binding(slot) else { return }
         binding.peripheralIdentifier = peripheralIdentifier
         DeviceSlots.set(binding)
+    }
+
+    /// Launch, before anything reads a binding: bands stored before one band, one account
+    /// go to the account the Keychain says is signed in, or nowhere.
+    static func adoptUnownedBindings(owner: String?) {
+        DeviceSlots.owner = owner
+        DeviceSlots.adoptUnownedBindings(owner: owner)
+        if owner == nil {
+            for key in [legacyKey, legacyPeripheralKey, legacyPeripheralOwnerKey] {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
     }
 
     /// Forget only the app bindings — both slots; server history stays.

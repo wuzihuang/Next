@@ -1622,9 +1622,14 @@ class SessionStore {
     fun reset() {
         stage = Stage.gateSignIn; isSignedIn = false; email = ""
         DataStore.clearAccountDisplay()
+        Ports.notificationReach.clearAccount()
         // The Keychain copy of the session goes too, or the next launch would restore it
         // straight past the gate.
         scope.launch { Ports.supabase.signOut() }
+        // The band stays this account's — on the server and in its own slots, back on the
+        // next sign-in — but the link goes. The next account on this phone must not find it
+        // connected, and with the session gone no binding is left to reconnect it.
+        scope.launch { Ports.bandLive.disconnect() }
     }
 
     /**

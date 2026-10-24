@@ -1450,11 +1450,16 @@ final class SessionStore: ObservableObject {
     func reset() {
         stage = .gateSignIn; isSignedIn = false; email = ""
         DataStore.shared.clearAccountDisplay()
+        NotificationReach.clearAccount()
         // The Keychain copy of the session goes too, or the next launch would restore it
         // straight past the gate.
         Task {
             await SupabaseClient.shared.signOut()
         }
+        // The band stays this account's — on the server and in its own slots, back on the
+        // next sign-in — but the link goes. The next account on this phone must not find it
+        // connected, and with the session gone no binding is left to reconnect it.
+        Task { await Band.live.disconnect() }
     }
 
     /// 11 · DELETE EVERYTHING, the phone half of it. reset() is a sign-out, and a sign-out

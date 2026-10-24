@@ -401,25 +401,40 @@ final class Repository {
         return facts
     }
 
+    /// How the server took a band. A band is held by one account (`20261024150000`).
+    enum DeviceRegistration: Equatable {
+        case saved
+        /// Bound to another account; it has to be released there first.
+        case ownedElsewhere
+        /// Already this account's, in its other slot.
+        case alreadyInSet
+        case failed
+    }
+
     /// The transport NEXTBODY's row. Written at the end of pairing, not only after Home reconnects
     /// — a kill on the onboarding screens used to leave the account with no devices row.
     /// One bound row per slot (unbound_at is null). Since two HOOPs, one wearer a slot is
     /// assigned at activation and a new BLE alias in the same slot is the same band on a
     /// different phone: the row is patched, never unbound and re-inserted.
+    ///
+    /// Only `pairing` — the person choosing this band on the pairing screen — may create a
+    /// row or point one at a different band. A refresh only updates the facts of the row it
+    /// already has; it never binds the band it happens to be connected to.
     @discardableResult
-    func registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = nil) async -> Bool {
+    func registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = nil,
+                        pairing: Bool = false) async -> DeviceRegistration {
         #if DEBUG
         // Rebind UI fixtures must never register mock hardware against a saved session.
         if Band.allowsSeed, ProcessInfo.processInfo.environment["NB_DEBUG_RELEASED_SLOT"] != nil {
             if ProcessInfo.processInfo.environment["NB_DEBUG_ACTIVATION_SAVE"] == "success" {
                 rememberDevice(id: "00000000-0000-0000-0000-000000000001", slot: slot ?? BoundBand.transportSlot,
                                boundAt: Date(), name: identity?.name)
-                return true
+                return .saved
             }
-            return false
+            return .failed
         }
         #endif
-        guard let userId = await db.currentUserId else { return false }
+        guard let userId = await db.currentUserId else { return .failed }
         let slot = slot ?? BoundBand.transportSlot
         var row: [String: Any] = [:]
         if let identity {
@@ -448,27 +463,41 @@ final class Repository {
             if let id = bound?["id"] as? String {
                 let existingBle = bound?["ble_identifier"] as? String
                 // Simulator seed must not steal a real binding and reset companionship.
-                if let ble, ble != BoundBand.seedIdentifier, existingBle != ble { row["ble_identifier"] = ble }
+                // Outside pairing the only move allowed is an old row's alias becoming the MAC.
+                if let ble, ble != BoundBand.seedIdentifier, existingBle != ble,
+                   pairing || !Self.isMAC(existingBle) {
+                    row["ble_identifier"] = ble
+                    row["ble_identifier_kind"] = Self.isMAC(ble) ? "mac" : "uuid"
+                }
                 if !row.isEmpty { _ = try await db.patch("devices", id: id, row: row) }
                 rememberDevice(id: id, slot: slot, boundAt: bound?["bound_at"], name: identity?.name)
-            } else if let ble {
+            } else if pairing, let ble {
                 row["user_id"] = userId
                 row["ble_identifier"] = ble
-                row["ble_identifier_kind"] = "uuid"
+                row["ble_identifier_kind"] = Self.isMAC(ble) ? "mac" : "uuid"
                 row["slot"] = slot.rawValue
                 let inserted = try await db.insert("devices", row: row).first
-                guard let id = inserted?["id"] as? String else { return false }
+                guard let id = inserted?["id"] as? String else { return .failed }
                 rememberDevice(id: id, slot: slot, boundAt: inserted?["bound_at"] ?? Date(),
                                name: identity?.name)
-            } else { return false }
+            } else { return .failed }
             await loadCompanionSince(into: DataStore.shared)
-            return true
+            return .saved
         } catch {
             #if DEBUG
             NSLog("Repository.registerDevice failed: %@", "\(error)")
             #endif
-            return false
+            let reason = String(describing: error)
+            if reason.contains("DEVICE_OWNED_ELSEWHERE") { return .ownedElsewhere }
+            if reason.contains("DEVICE_ALREADY_IN_SET") { return .alreadyInSet }
+            return .failed
         }
+    }
+
+    /// The firmware's MAC, the band's identity on the server — not a CoreBluetooth alias.
+    static func isMAC(_ value: String?) -> Bool {
+        guard let value else { return false }
+        return value.range(of: "^[0-9A-Fa-f]{2}([:-]?[0-9A-Fa-f]{2}){5}$", options: .regularExpression) != nil
     }
 
     /// Release exactly the selected binding. Failure must leave the phone paired.

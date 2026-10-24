@@ -142,7 +142,7 @@ struct RootView: View {
             // show its delta before readiness can resume collecting from the bound band.
             // Seed-only previews have no saved decision to migrate.
             guard !ConsentStore.shared.decided,
-                  !Band.allowsSeed || UserDefaults.standard.dictionary(forKey: "nb.consent") != nil,
+                  !Band.allowsSeed || ConsentStore.shared.hasStoredDecision,
                   router.takeover == nil, router.sheet == nil else { return }
             router.takeover = .consent
         }

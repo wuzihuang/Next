@@ -64,6 +64,8 @@ import com.nextbody.hoop.band.BandCapabilities
 import com.nextbody.hoop.band.BandError
 import com.nextbody.hoop.band.BandEvent
 import com.nextbody.hoop.band.BluetoothState
+import com.nextbody.hoop.band.BoundBand
+import com.nextbody.hoop.band.DeviceRegistration
 import com.nextbody.hoop.band.DiscoveredBand
 import com.nextbody.hoop.band.FunctionStatus
 import com.nextbody.hoop.data.BandState
@@ -229,13 +231,28 @@ fun ConnectFlow() {
                 else if (!battery.isPercent) { if ((battery.level ?: 4) <= 1) lowBatteryLine = "BATTERY LOW" }
                 else battery.percent?.let { if (it < 10) lowBatteryLine = "BATTERY $it%" }
 
+                // A band is one account's (20261024150000). Only a binding the server took
+                // counts: anything else leaves this phone holding nothing, link down.
+                when (GateRepository.registerDevice(identity, battery)) {
+                    DeviceRegistration.saved -> Unit
+                    DeviceRegistration.ownedElsewhere, DeviceRegistration.alreadyInSet -> {
+                        BoundBand.identifier = null
+                        Band.live.disconnect()
+                        throw PairingRefusal(PairEdge.owned)
+                    }
+                    DeviceRegistration.failed -> {
+                        BoundBand.identifier = null
+                        Band.live.disconnect()
+                        throw PairingRefusal(PairEdge.unsaved)
+                    }
+                }
+
                 DataStore.band = BandState(
                     connected = true, name = identity.name, mac = identity.bleIdentifier,
                     batteryPercent = battery.percent, chargeState = battery.chargeState,
                     firmware = identity.firmware, lastBattery = battery, lastSync = Instant.now(),
                     capabilities = capabilitySet(caps))
                 DataStore.applyBandObservation(identity = identity, battery = battery)
-                GateRepository.registerDevice(identity, battery)
                 val deviceId = GateRepository.deviceId
                 val userId = SupabaseClient.currentUserId
                 if (deviceId != null && userId != null) {
@@ -251,8 +268,18 @@ fun ConnectFlow() {
                 ServiceLog.record("pairing", e)
                 // 02 edge 4 / 5 · the arms stop, the number freezes, two lines say what happened.
                 pairFailures += 1
-                pairEdge = if (e is BandError.Rejected) PairEdge.taken else PairEdge.stopped
-                track("PAIR_FAIL", mapOf("REASON" to if (pairEdge == PairEdge.taken) "TAKEN" else "STOPPED",
+                pairEdge = when {
+                    e is PairingRefusal -> e.edge
+                    e is BandError.Rejected -> PairEdge.taken
+                    else -> PairEdge.stopped
+                }
+                val reason = when (pairEdge) {
+                    PairEdge.taken -> "TAKEN"
+                    PairEdge.owned -> "OWNED"
+                    PairEdge.unsaved -> "UNSAVED"
+                    else -> "STOPPED"
+                }
+                track("PAIR_FAIL", mapOf("REASON" to reason,
                     "STEP" to STAGES[min(pairStage, 3)]))
             }
         }
@@ -309,6 +336,7 @@ fun ConnectFlow() {
             pairStage = 2
             if (DebugEdgeFlag.on("stopped")) { pairEdge = PairEdge.stopped; pairFailures = 1 }
             if (DebugEdgeFlag.on("taken")) pairEdge = PairEdge.taken
+            if (DebugEdgeFlag.on("owned")) pairEdge = PairEdge.owned
         }
         if (st == ConnectStep.connected && DebugEdgeFlag.on("lowbattery")) lowBatteryLine = "BATTERY 8%"
     }
@@ -353,7 +381,10 @@ fun ConnectFlow() {
 
 internal enum class ConnectStep(val raw: Int) { turnOn(1), searching(2), found(3), pairing(4), connected(5) }
 internal enum class ScanEdge { nothingFound, bluetoothOff, permission }
-internal enum class PairEdge { stopped, taken }
+internal enum class PairEdge { stopped, taken, owned, unsaved }
+
+/** The band answered, but the server did not take it as this account's. */
+private class PairingRefusal(val edge: PairEdge) : Exception(edge.name)
 
 /** 04 · the percentage maps to four real steps; the number moves when the band answers. */
 private val STAGES = listOf("CONNECT", "AUTHORISE", "READ CAPABILITIES", "READ FIRMWARE")
@@ -689,6 +720,15 @@ private fun Pairing(
                     Hairline()
                     GText(L("1 · Disconnect it on that phone\n2 · Or hold the side button to restart the band"),
                         NBFont.ui(300, 13.5f).lineSpacing(8f), NB.white.copy(alpha = 0.60f))
+                } else if (edge == PairEdge.owned) {
+                    // One band, one account: the only way through is the other account.
+                    GText(L("BOUND TO ANOTHER ACCOUNT"), NBFont.dot(600, 12f).tracking(0.22f), NB.ember1.copy(alpha = 0.85f))
+                    GText(L("This band belongs to another NEXTBODY account."), NBFont.brand(400, 13.5f), NB.white.copy(alpha = 0.70f))
+                    Hairline()
+                    GText(L("1 · Sign in to that account and remove it on the device page\n2 · Or pair a band of your own"),
+                        NBFont.ui(300, 13.5f).lineSpacing(8f), NB.white.copy(alpha = 0.60f))
+                } else if (edge == PairEdge.unsaved) {
+                    GText(L("Pairing could not be saved. Check your connection and try again."), NBFont.brand(400, 13.5f), NB.white.copy(alpha = 0.70f))
                 } else {
                     GText(L("The band stopped answering. Nothing you did wrong."), NBFont.brand(400, 13.5f), NB.white.copy(alpha = 0.70f))
                 }

@@ -97,7 +97,7 @@ class BandPresence private constructor() {
         // initialization, not something to repeat on every automatic health-data pull.
         if (!metadata.needsRefresh(metadataKey())) return
         BandSyncActivity.shared.show(BandSyncProgress.Stage.saving)
-        if (!repository.registerDevice(identity = identity, battery = battery)) return
+        if (repository.registerDevice(identity = identity, battery = battery) != DeviceRegistration.saved) return
 
         if (!isCurrent()) return
         BandSyncActivity.shared.show(BandSyncProgress.Stage.capabilities)

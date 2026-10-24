@@ -324,6 +324,16 @@ actor SupabaseClient {
         SessionKeychain.userEmail = nil
         Self.storeSnapshot(userId: nil, userEmail: nil, generation: sessionGeneration)
         if let token = departingToken {
+            // This phone's push token leaves with the account, so a push meant for it can
+            // never reach whoever signs in here next.
+            if let device = NotificationReach.deviceToken {
+                var d = URLRequest(url: SupabaseConfig.url.appendingPathComponent("rest/v1/push_tokens")
+                    .appending(queryItems: [URLQueryItem(name: "token", value: "eq.\(device)")]))
+                d.httpMethod = "DELETE"
+                d.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
+                d.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                _ = try? await session.data(for: d)
+            }
             var r = URLRequest(url: SupabaseConfig.url.appendingPathComponent("auth/v1/logout"))
             r.httpMethod = "POST"
             r.setValue(SupabaseConfig.publishableKey, forHTTPHeaderField: "apikey")
@@ -362,6 +372,8 @@ actor SupabaseClient {
     nonisolated static let requestSessionDidChange = Notification.Name("NextBody.requestSessionDidChange")
 
     private nonisolated static func storeSnapshot(userId: String?, userEmail: String?, generation: UUID) {
+        // Bands are filed per account; the next reader of a binding must already see the new one.
+        DeviceSlots.owner = userId
         snapshotLock.lock()
         let changed = snapshotUserId != userId
         let nextSession = RequestSession(owner: userId, generation: generation)

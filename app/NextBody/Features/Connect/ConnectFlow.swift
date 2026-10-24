@@ -15,7 +15,9 @@ struct ConnectFlow: View {
     @State private var scanTask: Task<Void, Never>?
     /// 02 edges · every failure degrades on the screen it happened on: colour and two lines.
     enum ScanEdge { case nothingFound, bluetoothOff, permission }
-    enum PairEdge { case stopped, taken }
+    enum PairEdge { case stopped, taken, owned, unsaved }
+    /// The band answered, but the server did not take it as this account's.
+    private enum PairingRefusal: Error { case owned, unsaved }
     @State private var scanEdge: ScanEdge?
     @State private var pairEdge: PairEdge?
     @State private var pairFailures = 0
@@ -81,6 +83,7 @@ struct ConnectFlow: View {
                     pairStage = 2
                     if DebugEdge.on("stopped") { pairEdge = .stopped; pairFailures = 1 }
                     if DebugEdge.on("taken") { pairEdge = .taken }
+                    if DebugEdge.on("owned") { pairEdge = .owned }
                 }
                 if st == .connected, DebugEdge.on("lowbattery") {
                     lowBatteryLine = "BATTERY 8%"
@@ -223,6 +226,17 @@ struct ConnectFlow: View {
                 else if !battery.isPercent { if (battery.level ?? 4) <= 1 { lowBatteryLine = "BATTERY LOW" } }
                 else if let p = battery.percent, p < 10 { lowBatteryLine = "BATTERY \(p)%" }
 
+                // A band is one account's (20261024150000). Only a binding the server took
+                // counts: anything else leaves this phone holding nothing, link down.
+                switch await Repository.shared.registerDevice(identity: identity, battery: battery, pairing: true) {
+                case .saved: break
+                case let refused:
+                    BoundBand.identifier = nil
+                    await Band.live.disconnect()
+                    throw refused == .ownedElsewhere || refused == .alreadyInSet
+                        ? PairingRefusal.owned : PairingRefusal.unsaved
+                }
+
                 data.band = BandState(
                     connected: true, name: identity.name, mac: identity.bleIdentifier,
                     batteryPercent: battery.percent, chargeState: battery.chargeState,
@@ -231,7 +245,6 @@ struct ConnectFlow: View {
                     lastSync: Date(),
                     capabilities: Self.capabilitySet(caps))
                 data.applyBandObservation(identity: identity, battery: battery)
-                await Repository.shared.registerDevice(identity: identity, battery: battery)
                 if let deviceId = Repository.shared.deviceId,
                    let userId = await SupabaseClient.shared.currentUserId {
                     await Repository.shared.saveCapabilities(caps, deviceId: deviceId, userId: userId,
@@ -249,8 +262,19 @@ struct ConnectFlow: View {
                 // 02 edge 4 / 5 · the arms stop, the number freezes where it was, and the two
                 // lines say what happened. TAKEN is the one failure with a named cause.
                 pairFailures += 1
-                if case BandError.rejected = error { pairEdge = .taken } else { pairEdge = .stopped }
-                await Analytics.shared.track("PAIR_FAIL", ["REASON": pairEdge == .taken ? "TAKEN" : "STOPPED", "STEP": Self.stages[min(pairStage, 3)]])
+                switch error {
+                case PairingRefusal.owned: pairEdge = .owned
+                case PairingRefusal.unsaved: pairEdge = .unsaved
+                case BandError.rejected: pairEdge = .taken
+                default: pairEdge = .stopped
+                }
+                let reason = switch pairEdge {
+                case .taken: "TAKEN"
+                case .owned: "OWNED"
+                case .unsaved: "UNSAVED"
+                default: "STOPPED"
+                }
+                await Analytics.shared.track("PAIR_FAIL", ["REASON": reason, "STEP": Self.stages[min(pairStage, 3)]])
             }
         }
     }
@@ -749,6 +773,19 @@ private struct Pairing: View {
                         Hairline()
                         Text(L("1 · Disconnect it on that phone\n2 · Or hold the side button to restart the band"))
                             .font(NBFont.ui(300, 13.5)).lineSpacing(8).foregroundStyle(NB.white.opacity(0.60))
+                    } else if edge == .owned {
+                        // One band, one account: the only way through is the other account.
+                        Text(L("BOUND TO ANOTHER ACCOUNT"))
+                            .font(NBFont.dot(600, 12)).tracking(0.22 * 12)
+                            .foregroundStyle(NB.ember1.opacity(0.85))
+                        Text(L("This band belongs to another NEXTBODY account."))
+                            .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
+                        Hairline()
+                        Text(L("1 · Sign in to that account and remove it on the device page\n2 · Or pair a band of your own"))
+                            .font(NBFont.ui(300, 13.5)).lineSpacing(8).foregroundStyle(NB.white.opacity(0.60))
+                    } else if edge == .unsaved {
+                        Text(L("Pairing could not be saved. Check your connection and try again."))
+                            .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))
                     } else {
                         Text(L("The band stopped answering. Nothing you did wrong."))
                             .font(NBFont.brand(400, 13.5)).foregroundStyle(NB.white.opacity(0.70))

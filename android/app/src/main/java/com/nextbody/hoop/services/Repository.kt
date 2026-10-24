@@ -419,9 +419,14 @@ object Repository : RepositoryPort {
     /**
      * The transport NEXTBODY's row, written at the end of pairing. One bound row per slot; a new
      * BLE alias in the same slot is the same band on a different phone: patched, never re-inserted.
+     *
+     * Only `pairing` — the person choosing this band on the pairing screen — may create a row
+     * or point one at a different band. A refresh only updates the facts of the row it already
+     * has; it never binds the band it happens to be connected to.
      */
-    suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = null): Boolean = main {
-        val userId = db.currentUserId ?: return@main false
+    suspend fun registerDevice(identity: BandIdentity?, battery: BandBattery?, slot: HoopSlot? = null,
+                               pairing: Boolean = false): DeviceRegistration = main {
+        val userId = db.currentUserId ?: return@main DeviceRegistration.failed
         val slot = slot ?: BoundBand.transportSlot
         val row = mutableMapOf<String, Any?>()
         if (identity != null) {
@@ -448,24 +453,34 @@ object Repository : RepositoryPort {
             if (id != null) {
                 val existingBle = bound.optStringOrNull("ble_identifier")
                 // Emulator seed must not steal a real binding and reset companionship.
-                if (ble != null && ble != BoundBand.seedIdentifier && existingBle != ble) row["ble_identifier"] = ble
+                // Outside pairing the only move allowed is an old row's alias becoming the MAC.
+                if (ble != null && ble != BoundBand.seedIdentifier && existingBle != ble &&
+                    (pairing || !isBandMac(existingBle))) {
+                    row["ble_identifier"] = ble
+                    row["ble_identifier_kind"] = if (isBandMac(ble)) "mac" else "uuid"
+                }
                 if (row.isNotEmpty()) db.patch("devices", id, row)
                 rememberDevice(id, slot, bound.opt("bound_at"), identity?.name)
-            } else if (ble != null) {
+            } else if (pairing && ble != null) {
                 row["user_id"] = userId
                 row["ble_identifier"] = ble
-                row["ble_identifier_kind"] = "uuid"
+                row["ble_identifier_kind"] = if (isBandMac(ble)) "mac" else "uuid"
                 row["slot"] = slot.raw
                 val inserted = db.insert("devices", row).firstOrNull()
-                val newId = inserted?.optStringOrNull("id") ?: return@main false
+                val newId = inserted?.optStringOrNull("id") ?: return@main DeviceRegistration.failed
                 rememberDevice(newId, slot, inserted.opt("bound_at")?.takeIf { it != JSONObject.NULL } ?: Instant.now(), identity?.name)
-            } else return@main false
+            } else return@main DeviceRegistration.failed
             loadCompanionSince(DataStore)
-            true
+            DeviceRegistration.saved
         } catch (e: Exception) {
             if (e is CancellationException && e !is SessionChangedException) throw e
             ServiceLog.record("Repository.registerDevice failed", e)
-            false
+            val reason = e.message.orEmpty()
+            when {
+                "DEVICE_OWNED_ELSEWHERE" in reason -> DeviceRegistration.ownedElsewhere
+                "DEVICE_ALREADY_IN_SET" in reason -> DeviceRegistration.alreadyInSet
+                else -> DeviceRegistration.failed
+            }
         }
     }
 

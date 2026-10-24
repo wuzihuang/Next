@@ -63,13 +63,11 @@ final class WearTimelineTests: XCTestCase {
     }
 
     func testRemovingEitherSlotPreservesTheOtherBindingAndCanRefillTheVacancy() {
-        let savedBindings = DeviceSlots.bindings
-        let savedTransport = DeviceSlots.transport
-        let savedWearing = DeviceSlots.wearing
+        let savedOwner = DeviceSlots.owner
+        DeviceSlots.owner = "wear-timeline-tests"
         defer {
-            DeviceSlots.bindings = savedBindings
-            DeviceSlots.transport = savedTransport
-            DeviceSlots.wearing = savedWearing
+            DeviceSlots.forgetAll()
+            DeviceSlots.owner = savedOwner
         }
         for removed in HoopSlot.allCases {
             for worn in HoopSlot.allCases {
@@ -89,5 +87,56 @@ final class WearTimelineTests: XCTestCase {
                 XCTAssertEqual(DeviceSlots.wearing, removed.other)
             }
         }
+    }
+
+    /// One band, one account: a band one account bound is not there for the next account
+    /// on the same phone, and comes back when its own account signs in again.
+    func testBandsAreFiledPerAccount() {
+        let savedOwner = DeviceSlots.owner
+        defer {
+            for account in ["account-a", "account-b"] { DeviceSlots.owner = account; DeviceSlots.forgetAll() }
+            DeviceSlots.owner = savedOwner
+        }
+        DeviceSlots.owner = "account-a"
+        DeviceSlots.set(SlotBinding(slot: .a, identifier: "band-of-a", boundAt: at(0)))
+        DeviceSlots.transport = .a
+        DeviceSlots.pendingOps = [WearEvent(slot: .a, effectiveAt: at(1), recordedAt: at(1), clientOpId: "op-a")]
+
+        DeviceSlots.owner = nil
+        XCTAssertTrue(DeviceSlots.bindings.isEmpty, "nobody signed in holds no band")
+        DeviceSlots.set(SlotBinding(slot: .a, identifier: "written-while-signed-out"))
+        XCTAssertTrue(DeviceSlots.bindings.isEmpty, "nothing is written without an account")
+
+        DeviceSlots.owner = "account-b"
+        XCTAssertTrue(DeviceSlots.bindings.isEmpty)
+        XCTAssertTrue(DeviceSlots.pendingOps.isEmpty, "another account's offline declarations never replay")
+        DeviceSlots.set(SlotBinding(slot: .a, identifier: "band-of-b"))
+
+        DeviceSlots.owner = "account-a"
+        XCTAssertEqual(DeviceSlots.binding(.a)?.identifier, "band-of-a")
+        XCTAssertEqual(DeviceSlots.pendingOps.map(\.clientOpId), ["op-a"])
+    }
+
+    /// The set from before per-account filing belongs to whoever is signed in at the
+    /// first launch of this build, or to no one.
+    func testUnownedBindingsGoToTheSignedInAccountOrNowhere() {
+        let savedOwner = DeviceSlots.owner
+        let defaults = UserDefaults.standard
+        let legacy = try! JSONEncoder().encode([SlotBinding(slot: .a, identifier: "legacy-band")])
+        defer {
+            defaults.removeObject(forKey: "nb.band.slots.v1")
+            DeviceSlots.owner = "account-a"; DeviceSlots.forgetAll()
+            DeviceSlots.owner = savedOwner
+        }
+        defaults.set(legacy, forKey: "nb.band.slots.v1")
+        DeviceSlots.adoptUnownedBindings(owner: nil)
+        XCTAssertNil(defaults.object(forKey: "nb.band.slots.v1"))
+        DeviceSlots.owner = "account-a"
+        XCTAssertTrue(DeviceSlots.bindings.isEmpty, "signed out at upgrade: no one inherits it")
+
+        defaults.set(legacy, forKey: "nb.band.slots.v1")
+        DeviceSlots.adoptUnownedBindings(owner: "account-a")
+        XCTAssertNil(defaults.object(forKey: "nb.band.slots.v1"))
+        XCTAssertEqual(DeviceSlots.binding(.a)?.identifier, "legacy-band")
     }
 }

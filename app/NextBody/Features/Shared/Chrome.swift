@@ -626,7 +626,7 @@ struct DetailScroll<Trailing: View, Content: View>: View {
 /// host's slide-out arrives through the environment the edge-back modifier injects
 /// *inside* the page's own body — so the read lives on this child view; a property on
 /// the page itself would only ever see the environment above it.
-private struct DetailBackButton: View {
+struct DetailBackButton: View {
     let title: String
     let onBack: () -> Void
     @Environment(\.detailBackSlide) private var detailBackSlide

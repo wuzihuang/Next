@@ -10,9 +10,9 @@ struct HomeV2Shell: View {
     @ObservedObject private var recaps = SportRecapStore.shared
 
     @State private var zone: HomeV2Model.Zone?
-    /// The tapped body part on screen. The body map zooms in around it and the zone page
-    /// grows out of it; back plays the same move in reverse.
-    @State private var zoomAnchor = UnitPoint.center
+    /// The zone page's interactive back drag, in points. The deck underneath follows it
+    /// with the system push's parallax.
+    @State private var zoneDrag: CGFloat = 0
     @State private var guide = false
     @State private var historyOpen = false
     @State private var historyLoading = false
@@ -120,15 +120,16 @@ struct HomeV2Shell: View {
                      onTimelineItem: openTimelineItem,
                      onCard: openCard,
                      onHistory: { withAnimation(.easeOut(duration: 0.32)) { historyOpen = true } })
-                .scaleEffect(zone == nil ? 1 : 2.6, anchor: zoomAnchor)
-                .opacity(zone == nil ? 1 : 0)
+                .offset(x: zone == nil ? 0 : -width * 0.3 * (1 - min(1, zoneDrag / max(1, width))))
 
             if let zone {
                 HomeZoneDetail(model: HomeV2Model.detail(zone: zone, metrics: data.today,
                                                          history: data.history, meals: data.meals),
+                               drag: $zoneDrag,
                                onBack: closeZone)
                     .frame(width: width, height: screen.height, alignment: .top)
-                    .transition(.scale(scale: 0.4, anchor: zoomAnchor).combined(with: .opacity))
+                    .offset(x: zoneDrag)
+                    .transition(.move(edge: .trailing))
                     .zIndex(2)
             }
             if guide {
@@ -179,16 +180,20 @@ struct HomeV2Shell: View {
         Task { await Analytics.shared.track("MCP_GUIDE_OPEN", [:]) }
     }
 
-    /// PRD 10: the camera pushes into the tapped part, then the zone page settles.
-    private func openZone(_ zone: HomeV2Model.Zone, at point: CGPoint) {
+    /// TF 2026-10-23: the zone page is a plain horizontal push, 300ms ease-out, no zoom and
+    /// no bounce. Back plays the same move in reverse.
+    private func openZone(_ zone: HomeV2Model.Zone, at _: CGPoint) {
         Task { await Analytics.shared.track("BODY_GLOW_TAP", ["ZONE": zone.rawValue]) }
-        zoomAnchor = UnitPoint(x: point.x / max(1, screen.width), y: point.y / max(1, screen.height))
         Haptics.impact(.soft)
-        withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.45)) { self.zone = zone }
+        zoneDrag = 0
+        withAnimation(.easeOut(duration: 0.3)) { self.zone = zone }
     }
 
     private func closeZone() {
-        withAnimation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.4)) { zone = nil }
+        withAnimation(.easeOut(duration: 0.3)) {
+            zone = nil
+            zoneDrag = 0
+        }
     }
 
     private func openTimelineItem(_ item: HomeV2Model.TimelineItem) {
@@ -1617,19 +1622,23 @@ private struct HomeTimelineRow: View {
 
 private struct HomeZoneDetail: View {
     let model: HomeV2Model.Detail
+    @Binding var drag: CGFloat
     let onBack: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
+                DetailBackButton(title: title, onBack: onBack)
+                    .accessibilityIdentifier("ZONE_BACK")
                 Spacer()
                 HStack(spacing: 6) {
                     Circle().fill(tint).frame(width: 6, height: 6)
                     Text(title).font(NBFont.dot(600, 12)).tracking(0.1 * 12).foregroundStyle(tint)
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.top, ScreenMetrics.safeArea.top + 8)
+            .padding(.leading, NB.Layout.gutter + 20 - 22)
+            .padding(.trailing, 18)
+            .padding(.top, ScreenMetrics.safeArea.top + 4)
             .zIndex(1)
             ZStack(alignment: .bottomLeading) {
                 HomeBodyParticles(spots: HomeV2Model.Zone.allCases.map {
@@ -1716,9 +1725,22 @@ private struct HomeZoneDetail: View {
         .padding(.bottom, ScreenMetrics.safeArea.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(NB.carbon)
-        .gesture(DragGesture(minimumDistance: 24).onEnded { value in
-            if value.translation.width > 80 || value.translation.height > 110 { onBack() }
-        })
+        .gesture(DragGesture(minimumDistance: 24)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                var follow = Transaction()
+                follow.disablesAnimations = true
+                withTransaction(follow) { drag = max(0, value.translation.width) }
+            }
+            .onEnded { value in
+                let pops = drag > 0 && DetailBack.shouldPop(translation: drag, velocity: value.velocity.width,
+                                                            width: ScreenMetrics.size.width)
+                if pops || value.translation.height > 110 {
+                    onBack()
+                } else {
+                    withAnimation(.easeOut(duration: 0.25)) { drag = 0 }
+                }
+            })
     }
 
     /// The close-up takes the top of the screen; the grid and the note keep the rest.

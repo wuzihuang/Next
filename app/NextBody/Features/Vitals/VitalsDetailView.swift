@@ -468,7 +468,7 @@ struct VitalsDetailView: View {
                                value: String(score.score), unit: score.usesContributors ? L("OUT OF 100") : r.value ?? L("OUT OF 100"),
                                tint: metric.tint, dial: VitalsReadout.sleepDial(score: score.score, contributors: score.usesContributors),
                                footLeft: score.usesContributors ? SleepContributor.rating(Double(score.score)) : r.footLeft,
-                               footRight: score.usesContributors ? L("7 SLEEP FACTORS") : r.footRight)
+                               footRight: score.usesContributors ? nil : r.footRight)
                 } else if metric == .active, !isMetricWindow {
                     ActiveEnergyHero(model: activeModel, sensor: heroSensor)
                 } else {
@@ -480,6 +480,7 @@ struct VitalsDetailView: View {
                 // The score explains itself on the screenful it appears on.
                 if metric == .sleep, range == .day, let score = todayScore {
                     if score.usesContributors {
+                        SleepNightVerdict(score: score)
                         VStack(alignment: .leading, spacing: 18) {
                             SectionLabel(L("SLEEP CONTRIBUTORS"))
                             SleepContributorBreakdown(score: score)
@@ -496,15 +497,20 @@ struct VitalsDetailView: View {
                     }
                 }
 
-                // Oura order — score, then the key metrics, then the details. Sleep keeps
-                // its own pairs inside its board; ACTIVE's day board has no shared pair.
-                if metric != .sleep,
+                // Oura order — score, then the key metrics, then the details. ACTIVE's day
+                // board has no shared pair; sleep's multi-night board labels its own sections.
+                if metric == .sleep, range == .day {
+                    SectionLabel(L("KEY METRICS"))
+                    sleepKeyMetrics(r)
+                } else if metric != .sleep,
                    !(metric == .active && !isMetricWindow) {
                     SectionLabel(L("KEY METRICS"))
                     VitalsStatPair(left: r.statLeft, right: r.statRight)
                 }
 
-                SectionLabel(L("DETAILS"))
+                if !(metric == .sleep && range != .day) {
+                    SectionLabel(L("DETAILS"))
+                }
 
                 if metric == .sleep {
                     if range == .day { sleepBoard(r) } else { multiNightBoard }
@@ -669,28 +675,81 @@ struct VitalsDetailView: View {
         }
     }
 
-    // MARK: sleep board — hypnogram, then the two overnight traces, then four numbers
+    // MARK: sleep board — key metrics, the night's stages, overnight vitals, the week
 
-    /// ADR 0008 · the day board is laid out as the score's four groups, in the order the
-    /// breakdown lists them, each heading followed by the charts that actually feed it. The
-    /// earlier layout put the score at the top and a flat run of charts underneath with
-    /// nothing tying them together, so "recovery 52" and the three traces that produced it
-    /// were on the same page without ever being on the same subject.
+    /// Oura's four tiles under the factors: what the night measured, each against this
+    /// person's own last 30 settled nights (WHOOP's "vs previous 30 days").
+    @ViewBuilder
+    private func sleepKeyMetrics(_ r: VitalsReadout) -> some View {
+        let night = m.sleep
+        let scored = todayScore?.inputs["duration_min"].flatMap { $0.isFinite && $0 > 0 && $0 <= 2880 ? Int($0.rounded()) : nil }
+        let asleep = scored ?? night.flatMap { $0.totalMinutes > 0 ? $0.totalMinutes : nil }
+        let inBed: Int? = night.flatMap { night in
+            guard let start = night.sleepStart, let wake = night.wakeAt, wake > start else { return nil }
+            return Int(wake.timeIntervalSince(start) / 60)
+        }
+        let efficiency = todayScore?.inputs["efficiency_pct"].flatMap { $0.isFinite && $0 > 0 && $0 <= 100 ? $0 : nil }
+        VStack(spacing: 8) {
+            VitalsStatPair(
+                left: .init(label: L("TOTAL SLEEP"), value: asleep.map(Fmt.duration), unit: nil,
+                            foot: nightMedianFoot("duration_min") { Fmt.duration(Int($0.rounded())) },
+                            tint: metric.tint),
+                right: .init(label: L("TIME IN BED"), value: inBed.map(Fmt.duration), unit: nil,
+                             foot: r.footLeft, tint: nil))
+            VitalsStatPair(
+                left: .init(label: L("SLEEP EFFICIENCY"), value: efficiency.map { String(format: "%.0f", $0) }, unit: "%",
+                            foot: nightMedianFoot("efficiency_pct") { String(format: "%.0f%%", $0) }, tint: nil),
+                right: r.heartLow ?? .init(label: L("SLEEP LOW HR"), value: nil, unit: "BPM",
+                                           foot: L("WEAR IT TONIGHT"), tint: nil))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("sleep.keyMetrics")
+    }
+
+    /// The median of one settled input over the 30 nights before this one. Fewer than three
+    /// nights is not a baseline and says so rather than printing one.
+    private func nightMedianFoot(_ key: String, _ format: (Double) -> String) -> String {
+        let values = (1...30).compactMap { offset -> Double? in
+            guard let value = data.sleepScores[m.day.adding(days: -offset).key]?.inputs[key],
+                  value.isFinite, value > 0 else { return nil }
+            return value
+        }
+        guard values.count >= 3, let median = SleepScoreMath.median(values) else {
+            return L("30-NIGHT BASELINE BUILDING")
+        }
+        return L("30-NIGHT MEDIAN %@", format(median))
+    }
+
+    /// The details, Oura/WHOOP order: how the night was spent (the staircase and each stage
+    /// on its own row), the window it was counted over, what the body did meanwhile, and the
+    /// week of nights it sits in. Every number appears once on the page.
     @ViewBuilder
     private func sleepBoard(_ r: VitalsReadout) -> some View {
-        let score = todayScore
-
-        // ---- DURATION · the night against the line it is scored on
-        if score?.usesContributors != true {
-            SleepSectionHeader(group: .duration, score: score?.duration, effectiveWeight: score?.effectiveWeight(of: .duration))
-        }
-        CardBlock(title: L("TOTAL SLEEP"), trailing: score?.usesContributors == true ? nil : r.footLeft) {
-            if let minutes = score?.inputs["duration_min"], minutes.isFinite, minutes > 0, minutes <= 2880 {
-                SleepDurationBar(minutes: Int(minutes.rounded()))
-            } else if let night = m.sleep, night.totalMinutes > 0 {
-                SleepDurationBar(minutes: night.totalMinutes)
+        CardBlock(title: L("SLEEP STAGES"), trailing: r.value.map { L("ASLEEP %@", $0) }, trailingIsDot: true) {
+            if let line = m.sleep?.line, !line.isEmpty {
+                VitalsHypnogram(runs: line, tint: metric.tint,
+                                windowMinutes: window.span / 60,
+                                probeClock: window.clock(atFraction:))
             } else {
-                VitalsChartEmpty(line: L("NO NIGHT ON RECORD"), sub: L("WEAR IT TONIGHT"))
+                VitalsChartEmpty(line: m.sleep == nil ? L("NO NIGHT ON RECORD")
+                                 : (m.sleep?.unstagedMinutes ?? 0) > 0 ? L("STAGES NOT MEASURED") : L("TOTALS ONLY"),
+                                 sub: m.sleep == nil ? L("WEAR IT TONIGHT")
+                                                     : L("THE BAND FILED NO STAGE LINE"))
+            }
+            VitalsAxis(labels: axisLabels, highlightsLast: false, tint: metric.tint)
+                .padding(.leading, VitalsHypnogram.labelGutter)
+            if !r.bands.isEmpty {
+                Hairline()
+                SleepStageRows(bands: r.bands)
+            }
+            if let wakes = r.extraRight, let count = wakes.value {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(wakes.label).font(NBFont.ui(500, 13)).foregroundStyle(NB.text1)
+                    Spacer(minLength: 8)
+                    Text("\(count) \(wakes.unit ?? "") · \(wakes.foot)")
+                        .font(NBFont.dot(600, 12)).foregroundStyle(NB.text3Prod)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
             }
         }
         // Existing and missing nights use the same time wheels and evidence refresh.
@@ -707,42 +766,24 @@ struct VitalsDetailView: View {
             }
         }
 
-        // ---- STRUCTURE · how the night was spent, and how broken it was
-        if score?.usesContributors != true {
-            SleepSectionHeader(group: .architecture, score: score?.architecture, effectiveWeight: score?.effectiveWeight(of: .architecture))
-        }
-        CardBlock(title: metric.chartTitle, trailing: r.chartNote) {
-            if let line = m.sleep?.line, !line.isEmpty {
-                VitalsHypnogram(runs: line, tint: metric.tint,
-                                windowMinutes: window.span / 60,
-                                probeClock: window.clock(atFraction:))
-            } else {
-                VitalsChartEmpty(line: m.sleep == nil ? L("NO NIGHT ON RECORD")
-                                 : (m.sleep?.unstagedMinutes ?? 0) > 0 ? L("STAGES NOT MEASURED") : L("TOTALS ONLY"),
-                                 sub: m.sleep == nil ? L("WEAR IT TONIGHT")
-                                                     : L("THE BAND FILED NO STAGE LINE"))
-            }
-            VitalsAxis(labels: axisLabels, highlightsLast: false, tint: metric.tint)
-                .padding(.leading, VitalsHypnogram.labelGutter)
-        }
-        CardBlock(title: r.splitTitle, trailing: r.splitTrailing) {
-            VitalsSplit(bands: r.bands)
-        }
-        if let wakes = r.extraRight {
-            VitalsStatPair(left: wakes, right: .init(
-                label: L("DEEP EPISODES"),
-                value: m.sleep.flatMap { $0.line.isEmpty ? nil : String($0.line.filter { $0.stage == 0 }.count) },
-                unit: nil, foot: L("RUNS OF DEEP SLEEP"), tint: nil))
-        }
-
-        // ---- RECOVERY · what the body did while it was down there
-        if score?.usesContributors == true {
+        // ---- OVERNIGHT VITALS · what the body did while it was down there
+        SectionLabel(L("OVERNIGHT VITALS"))
+        if todayScore?.usesContributors != false {
             Text(L("SUPPORTING MEASUREMENTS · NOT SCORED"))
-                .font(NBFont.ui(600, 12)).foregroundStyle(NB.text3Prod)
-        } else {
-            SleepSectionHeader(group: .recovery, score: score?.recovery, effectiveWeight: score?.effectiveWeight(of: .recovery))
+                .font(NBFont.ui(400, 12)).foregroundStyle(NB.text3Prod)
+                .padding(.top, -6)
         }
-        CardBlock(title: L("NIGHT SPO2"), trailing: L("FIXED 85–100 %")) {
+        // ⚠️ Night HRV is a tile, not a trace. The band files RMSSD only at the minutes it
+        // caught a clean RR run — a scattering of readings across seven hours — and a curve
+        // drawn through them invents every slope between them. One night mean, read against
+        // this person's own baseline, is the whole of what those readings support.
+        VitalsStatPair(left: r.statLeft,
+                       right: r.respirationLeft ?? .init(label: L("MEAN RESPIRATION"), value: nil,
+                                                         unit: L("BREATHS / MIN"),
+                                                         foot: L("WEAR IT TONIGHT"), tint: nil))
+        CardBlock(title: L("NIGHT SPO2"),
+                  trailing: r.statRight.value.map { L("AVG %@", "\($0)%") } ?? L("FIXED 85–100 %"),
+                  trailingIsDot: r.statRight.value != nil) {
             let points = (m.sleep?.spo2 ?? []).filter { m.sleep?.containsSleepTimestamp($0.ts) == true }
             if !points.isEmpty {
                 let series = points.map { (ts: $0.ts, value: Double($0.percent)) }
@@ -792,25 +833,12 @@ struct VitalsDetailView: View {
                 VitalsAxis(labels: window.labels, highlightsLast: false, tint: NB.violet2)
             }
         }
-        // ⚠️ Night HRV is a tile, not a trace. The band files RMSSD only at the minutes it
-        // caught a clean RR run — a scattering of readings across seven hours — and a curve
-        // drawn through them invents every slope between them. One night mean, read against
-        // this person's own baseline, is the whole of what those readings support.
-        //
-        // So the recovery section closes on four numbers, in the order the body gives them
-        // up: what it carried, how it breathed, how it recovered, how low it went.
-        if let respiration = r.respirationLeft, let heartLow = r.heartLow {
-            VitalsStatPair(left: r.statRight, right: respiration)
-            VitalsStatPair(left: r.statLeft, right: heartLow)
-        }
 
-        // ---- REGULARITY · only definable against this person's own habit
-        if score?.usesContributors != true {
-            SleepSectionHeader(group: .regularity, score: score?.regularity, effectiveWeight: score?.effectiveWeight(of: .regularity))
-        }
+        // ---- the week this night sits in
+        SectionLabel(L("SLEEP SCHEDULE"))
         CardBlock(title: L("SLEEP BY NIGHT"), trailing: bedtimeTrailing) {
-            scheduleChart(nights: scheduleNights(count: 7), baseline: score?.inputs["bed_median"],
-                          empty: score?.inputs["bed_offset"] == nil ? L("NO BEDTIME RECORDED") : L("NO NIGHTS ON RECORD"))
+            scheduleChart(nights: scheduleNights(count: 7), baseline: todayScore?.inputs["bed_median"],
+                          empty: todayScore?.inputs["bed_offset"] == nil ? L("NO BEDTIME RECORDED") : L("NO NIGHTS ON RECORD"))
         }
     }
 
@@ -877,12 +905,28 @@ struct VitalsDetailView: View {
     private var multiNightBoard: some View {
         let summary = sleepWindow
         if summary.recorded > 0 {
-            CardBlock(title: L(summary.contributorScores.isEmpty ? "SCORE BREAKDOWN" : "SLEEP CONTRIBUTORS"),
-                      trailing: L(summary.contributorScores.isEmpty ? "GROUP MEDIANS" : "FACTOR MEDIANS")) {
+            SectionLabel(L("SLEEP CONTRIBUTORS"))
+            CardBlock(title: L(summary.contributorScores.isEmpty ? "GROUP MEDIANS" : "FACTOR MEDIANS"),
+                      trailing: L("%d OF %d NIGHTS", summary.recorded, summary.slots.count)) {
                 SleepWindowBreakdown(summary: summary)
             }
         }
 
+        SectionLabel(L("KEY METRICS"))
+        VitalsStatPair(
+            left: .init(label: L("TOTAL SLEEP"), value: summary.durationMinutes.map(Fmt.duration), unit: nil,
+                        foot: L("MEDIAN PER NIGHT"), tint: metric.tint),
+            right: .init(label: L("MEDIAN BEDTIME"), value: summary.bedClock, unit: nil,
+                         foot: L("ACROSS %d NIGHTS", summary.recorded), tint: nil))
+        VitalsStatPair(
+            left: .init(label: L("MEDIAN WAKES"),
+                        value: summary.wakes.map { String(Int($0.rounded())) }, unit: nil,
+                        foot: L("PER NIGHT"), tint: nil),
+            right: .init(label: L("NIGHTS SCORED"), value: "\(summary.recorded)",
+                         unit: L("OF %d NIGHTS", summary.slots.count),
+                         foot: L("SETTLED SCORES ONLY"), tint: nil))
+
+        SectionLabel(L("DETAILS"))
         CardBlock(title: L("STAGE PROPORTIONS"),
                   trailing: summary.durationMinutes.map { L("MEDIAN %@", Fmt.duration($0)) }
                       ?? Fmt.dash) {
@@ -899,13 +943,6 @@ struct VitalsDetailView: View {
             scheduleChart(nights: scheduleNights(count: summary.slots.count),
                           baseline: summary.bedOffset, empty: L("NO NIGHTS ON RECORD"))
         }
-
-        VitalsStatPair(
-            left: .init(label: L("MEDIAN BEDTIME"), value: summary.bedClock, unit: nil,
-                        foot: L("ACROSS %d NIGHTS", summary.recorded), tint: metric.tint),
-            right: .init(label: L("MEDIAN WAKES"),
-                         value: summary.wakes.map { String(Int($0.rounded())) }, unit: nil,
-                         foot: L("PER NIGHT"), tint: nil))
     }
 
     private var chartHasScaleRail: Bool {

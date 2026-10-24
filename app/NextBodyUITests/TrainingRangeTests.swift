@@ -17,11 +17,13 @@ final class TrainingRangeTests: XCTestCase {
         XCTAssertTrue(app.buttons["range.MONTH"].exists)
         XCTAssertFalse(app.staticTexts["LAST 7 DAYS"].exists)
         XCTAssertFalse(app.staticTexts["A typical finished day. Not a 30-day sum."].exists)
-        reveal(app.staticTexts["TARGET BASIS"], in: app)
+        XCTAssertTrue(app.otherElements["training.verdict"].exists)
+        reveal(app.staticTexts["KEY METRICS"], in: app)
         reveal(app.staticTexts["THROUGH THE DAY"], in: app)
-        reveal(app.staticTexts["INGREDIENTS"], in: app)
         reveal(app.staticTexts["STEPS AND BURN"], in: app)
+        reveal(app.staticTexts["TARGET BASIS"], in: app)
         reveal(app.buttons["START A SESSION"], in: app)
+        XCTAssertFalse(app.staticTexts["INGREDIENTS"].exists)
     }
 
     func testWeekAndMonthSwapThePeriodWord() {
@@ -29,7 +31,7 @@ final class TrainingRangeTests: XCTestCase {
         XCTAssertTrue(week.staticTexts["LAST 7 DAYS"].waitForExistence(timeout: 30),
                       "WEEK should open the last 7 user days")
         XCTAssertTrue(week.staticTexts["SEVEN DAYS"].waitForExistence(timeout: 6))
-        XCTAssertTrue(week.staticTexts["INGREDIENTS"].exists)
+        XCTAssertTrue(week.staticTexts["KEY METRICS"].exists)
         XCTAssertTrue(week.staticTexts["Rolling 7 days · lime is today."].exists)
         XCTAssertFalse(week.staticTexts["THROUGH THE DAY"].exists)
         XCTAssertFalse(week.staticTexts["A typical finished day. Not a 30-day sum."].exists)
@@ -67,9 +69,8 @@ final class TrainingRangeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "LATEST LOAD SAMPLE")).firstMatch.exists)
         XCTAssertFalse(app.staticTexts["Shaded intervals are missing data."].exists)
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "DATA MISSING")).firstMatch.exists)
-        reveal(app.staticTexts["INGREDIENTS"], in: app)
-        XCTAssertTrue(app.staticTexts["1,652"].exists, "the real day total survives a missing target")
-        XCTAssertTrue(app.staticTexts["ELEVATED HR PERIOD"].exists)
+        reveal(app.staticTexts["ELEVATED HR PERIOD"], in: app)
+        reveal(app.staticTexts["1,652 STEPS"], in: app)
         XCTAssertFalse(app.staticTexts["STRENGTH"].exists)
         reveal(app.staticTexts["TIME IN EACH ZONE"], in: app)
     }

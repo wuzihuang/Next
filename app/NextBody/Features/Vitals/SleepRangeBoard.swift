@@ -466,6 +466,10 @@ struct SleepContributorBreakdown: View {
     }
 
     private func measured(_ contributor: SleepContributor, detailed: Bool = false) -> String {
+        Self.measured(contributor, in: score, detailed: detailed)
+    }
+
+    static func measured(_ contributor: SleepContributor, in score: SleepScore, detailed: Bool = false) -> String {
         func number(_ key: String) -> Double? {
             guard let value = score.inputs[key], value.isFinite, value >= 0, value <= 100_000 else { return nil }
             return value
@@ -609,6 +613,83 @@ struct SleepContributorRow: View {
     }
 }
 
+/// Oura's headline under the score: one title and one sentence, both read off the seven
+/// factors. It names the factor that moved the score and prints its own value, so the line
+/// is never advice the night's data cannot back.
+struct SleepNightVerdict: View {
+    let score: SleepScore
+
+    var body: some View {
+        let text = Self.text(score)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(text.title)
+                .font(NBFont.ui(600, 19)).foregroundStyle(NB.text1)
+            Text(text.line)
+                .font(NBFont.ui(400, 14)).lineSpacing(3)
+                .foregroundStyle(NB.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("sleep.verdict")
+    }
+
+    static func text(_ score: SleepScore) -> (title: String, line: String) {
+        let scored = SleepContributor.allCases.compactMap { c in score.contributorScore(c).map { (c, $0) } }
+        guard let weakest = scored.min(by: { $0.1 < $1.1 }) else {
+            return (L("No factors measured"), L("The band filed too little of this night to score its factors."))
+        }
+        let value = SleepContributorBreakdown.measured(weakest.0, in: score)
+        if let cap = score.appliedDurationCap {
+            return (L("Short night"), L("Total sleep was %@, so the score is capped at %d.",
+                                         SleepContributorBreakdown.measured(.totalSleep, in: score), cap))
+        }
+        if weakest.1 >= 85 {
+            return (L("Well rested"), L("All %d measured factors are optimal.", scored.count))
+        }
+        if weakest.1 < 70 {
+            return (L("%@ held the score back", weakest.0.title),
+                    L("%@ was %@, the lowest of the %d measured factors.", weakest.0.title, value, scored.count))
+        }
+        return (L("A solid night"), L("Every measured factor is fair or better. The lowest was %@ at %@.", weakest.0.title, value))
+    }
+}
+
+/// WHOOP's stage list: each stage on its own row with its share and minutes, instead of one
+/// capsule split four ways. Bars share one scale (the whole night), so they compare directly.
+struct SleepStageRows: View {
+    let bands: [VitalsSplit.Band]
+
+    private var present: [VitalsSplit.Band] { bands.filter { $0.share > 0 } }
+    private var total: Double { present.reduce(0) { $0 + $1.share } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(present) { band in
+                let fraction = total > 0 ? band.share / total : 0
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Circle().fill(band.tint).frame(width: 7, height: 7)
+                        Text(band.name).font(NBFont.ui(500, 13)).foregroundStyle(NB.text1)
+                        Text("\(Int((fraction * 100).rounded()))%")
+                            .font(NBFont.dot(600, 12)).foregroundStyle(NB.text3Prod)
+                        Spacer(minLength: 0)
+                        Text(band.detail).font(NBFont.dot(700, 14)).foregroundStyle(NB.text1)
+                    }
+                    GeometryReader { g in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(NB.barTrack)
+                            Capsule().fill(band.tint).frame(width: max(3, g.size.width * fraction))
+                        }
+                    }
+                    .frame(height: 6)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+}
+
 struct SleepContributorCoverage: View {
     let score: SleepScore
 
@@ -696,80 +777,6 @@ enum SleepInputLabel {
         case "bed_offset":   SleepScoreMath.bedClock(offset: measured)
         default:             "\(Int(measured.rounded()))"
         }
-    }
-}
-
-// MARK: - a section of the board
-
-/// One of the score's four groups, used as a heading for the charts that feed it. The page
-/// is organised by what the score is made of rather than by what the band happens to store,
-/// so a reader who wants to know why recovery scored 52 scrolls to RECOVERY and finds the
-/// four traces underneath it.
-struct SleepSectionHeader: View {
-    let group: SleepScoreGroup
-    let score: Int?
-    var effectiveWeight: Double? = nil
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(group.title)
-                .font(NBFont.ui(600, 13)).tracking(0.18 * 13)
-                .foregroundStyle(NB.text1)
-            Rectangle().fill(NB.hairline).frame(height: 1)
-            Text(score.map(String.init) ?? Fmt.dash)
-                .font(NBFont.dot(700, 13))
-                .foregroundStyle(score == nil ? NB.text3Prod : NB.violet1)
-            Text(effectiveWeight.map { L("WEIGHT %.1f%%", $0) } ?? L("NOT SCORED"))
-                .font(NBFont.dot(500, 9)).tracking(0.05 * 9)
-                .foregroundStyle(NB.text3Prod)
-        }
-        .padding(.top, 4)
-    }
-}
-
-// MARK: - duration
-
-/// The only chart DURATION can honestly have: the night against the line it is scored on.
-/// A number beside a full-marks mark answers "why 74" in one look, which a bare 7H 12M
-/// cannot. Stages are deliberately not drawn here — they score under STRUCTURE, and putting
-/// the hypnogram under DURATION would suggest deep sleep moved this number.
-struct SleepDurationBar: View {
-    let minutes: Int
-    /// 7.5h earns full marks and 9.5h is where the mild oversleep penalty starts.
-    static let fullFrom = 450.0
-    static let fullTo = 570.0
-    private static let scale = 720.0   // twelve hours of track
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { geo in
-                let w = geo.size.width
-                ZStack(alignment: .leading) {
-                    Capsule().fill(NB.barTrack)
-                    // The full-marks band, drawn behind the night so the night sits in or out of it.
-                    Rectangle().fill(NB.optimal2.opacity(0.16))
-                        .frame(width: w * (Self.fullTo - Self.fullFrom) / Self.scale)
-                        .offset(x: w * Self.fullFrom / Self.scale)
-                    Capsule().fill(NB.violet1)
-                        .frame(width: max(3, w * min(Double(minutes), Self.scale) / Self.scale))
-                    Rectangle().fill(NB.optimal2)
-                        .frame(width: 1.5)
-                        .offset(x: w * Self.fullFrom / Self.scale)
-                }
-            }
-            .frame(height: 14)
-            HStack(spacing: 0) {
-                Text(Fmt.duration(minutes))
-                    .font(NBFont.dot(700, 11)).foregroundStyle(NB.violet1)
-                Spacer(minLength: 0)
-                Text(L("FULL MARKS FROM %@", Fmt.duration(Int(Self.fullFrom))))
-                    .font(NBFont.dot(500, 9)).tracking(0.05 * 9)
-                    .foregroundStyle(NB.text3Prod)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L("TOTAL"))
-        .accessibilityValue(Fmt.duration(minutes))
     }
 }
 

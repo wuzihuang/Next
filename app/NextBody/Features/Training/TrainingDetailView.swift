@@ -125,19 +125,88 @@ struct TrainingDetailView: View {
 
     // MARK: DAY
 
+    /// WHOOP / Oura order: the number and what it means, the four facts behind it, then the
+    /// details from today's own activities down to how the target was set.
     private var dayBoard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ringCard(load: m.trainingLoad, caption: "OF 21", foot: dayRingFoot)
+            ringCard(load: m.trainingLoad, caption: "OF 21")
+            dayVerdict
+            SectionLabel(L("KEY METRICS"))
+            dayKeyMetrics
             SectionLabel(L("DETAILS"))
-            lastSessionCard
-            sessionHistoryCard
             todayBuildCard
-            evidenceCard
+            lastSessionCard
             throughTheDayCard
-            dayIngredients
             timeInZoneCard
             dayMoveCard
+            evidenceCard
+            sessionHistoryCard
         }
+    }
+
+    private var dayVerdict: some View {
+        let verdict = dayVerdictText
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(verdict.title)
+                .font(NBFont.ui(600, 19))
+                .foregroundStyle(headerTint)
+            Text(verdict.line)
+                .font(NBFont.ui(400, 14)).lineSpacing(3)
+                .foregroundStyle(NB.text2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: NB.Layout.contentWidth, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("training.verdict")
+    }
+
+    private var dayVerdictText: (title: String, line: String) {
+        let zone = m.optimalZone
+        let span = zone.map { String(format: "%.1f–%.1f", $0.lowerBound, $0.upperBound) } ?? Fmt.dash
+        switch rangeStatus {
+        case .noLoad:
+            return (L("ACTIVITY DATA NEEDED"), L("Movement and sessions the band records build today's load."))
+        case .noTarget:
+            return (L("NO TARGET YET"), L("No suggested range yet. Recorded activity is still shown below."))
+        case .below(let delta):
+            return (L("Below range"), L("%.1f more reaches today's suggested range of %@. Everyday movement and sessions both count.", delta, span))
+        case .inRange:
+            return (L("In range"), L("Today's load is inside the suggested range of %@. Staying under %.1f keeps it there.", span, zone?.upperBound ?? 0))
+        case .above(let delta):
+            return (L("Above range"), L("%.1f above the suggested range of %@. Rest is the better choice for the rest of today.", delta, span))
+        case .capped:
+            return (L("SCALE LIMIT"), L("Already above the suggested range. Nothing left to fill."))
+        }
+    }
+
+    /// Today against this person's own finished days, the way WHOOP prints "vs previous 30 days".
+    private var dayKeyMetrics: some View {
+        let past = monthFacts
+        let zone = m.optimalZone
+        return VStack(spacing: 8) {
+            VitalsStatPair(
+                left: .init(label: L("SUGGESTED RANGE"),
+                            value: zone.map { String(format: "%.1f–%.1f", $0.lowerBound, $0.upperBound) },
+                            unit: nil,
+                            foot: m.targetLoad.map { L("TARGET %@", Fmt.load($0)) } ?? L("NO TARGET YET"),
+                            tint: NB.lime1),
+                right: .init(label: L("HR ZONES 4–5"), value: hardMinutes.map(Fmt.duration), unit: nil,
+                             foot: typicalFoot(zoneMinutes(TrainingWindowMath.typicalZones(past), hard: true).map(Fmt.duration)),
+                             tint: nil))
+            VitalsStatPair(
+                left: .init(label: L("ACTIVE BURN"), value: m.eActive.map { Fmt.kcal($0) }, unit: "KCAL",
+                            foot: typicalFoot(TrainingWindowMath.typicalActiveKcal(past).map { Fmt.kcal($0) }),
+                            tint: nil),
+                right: .init(label: L("STEPS"), value: m.steps.map { Fmt.kcal(Double($0)) }, unit: nil,
+                             foot: typicalFoot(TrainingWindowMath.typicalSteps(past).map { Fmt.kcal($0) }),
+                             tint: nil))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("training.keyMetrics")
+    }
+
+    private func typicalFoot(_ value: String?) -> String {
+        value.map { L("30-DAY TYPICAL %@", $0) } ?? L("NO 30-DAY BASELINE YET")
     }
 
     @ViewBuilder private var lastSessionCard: some View {
@@ -254,13 +323,6 @@ struct TrainingDetailView: View {
         .padding(.vertical, 4)
     }
 
-    private var dayRingFoot: String {
-        guard let zone = m.optimalZone else {
-            return L("No suggested range yet. Recorded activity is still shown below.")
-        }
-        return L("SUGGESTED RANGE %@", String(format: "%.1f–%.1f", zone.lowerBound, zone.upperBound))
-    }
-
     private var evidenceCard: some View {
         TimelineView(.periodic(from: .now, by: 60)) { clock in
             evidenceCard(at: clock.date)
@@ -364,20 +426,20 @@ struct TrainingDetailView: View {
                 Text(L("LATEST LOAD SAMPLE %@", Fmt.clock(last.ts)))
                     .font(NBFont.ui(400, 10)).foregroundStyle(NB.text3Prod)
             }
+            Hairline()
+            HStack {
+                Text(L("ELEVATED HR PERIOD"))
+                    .font(NBFont.ui(500, 12)).foregroundStyle(NB.text1)
+                Spacer(minLength: 0)
+                Text(elevatedHRLine)
+                    .font(NBFont.dot(700, 14)).foregroundStyle(NB.lime1)
+            }
+            Text(L("The largest elevated-heart-rate period. No sport is inferred."))
+                .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private var dayIngredients: some View {
-        TrainingIngredientsCard(trailing: L("FEED THE RING"), rows: [
-            .init(label: L("HR ZONES 1–3"), value: durationLine(easyMinutes)),
-            .init(label: L("HR ZONES 4–5"), value: durationLine(hardMinutes), tint: NB.ember1),
-            .init(label: L("STEPS"), value: Fmt.kcal(m.steps.map(Double.init))),
-            .init(label: L("KCAL EST"), value: Fmt.kcal(m.eActive)),
-            .init(label: L("ELEVATED HR PERIOD"), value: elevatedHRLine),
-        ], note: L("The largest elevated-heart-rate period. No sport is inferred."))
-    }
-
-    private var easyMinutes: Int? { m.zoneMinutes.map { $0.prefix(3).reduce(0, +) } }
     private var hardMinutes: Int? { m.zoneMinutes.map { $0.dropFirst(3).reduce(0, +) } }
 
     private var elevatedHRLine: String {
@@ -473,7 +535,9 @@ struct TrainingDetailView: View {
                     .foregroundStyle(NB.text3Prod)
                 windowSummary(average: avg, delta: delta, days: days)
             }
-            weekIngredients(days)
+            SectionLabel(L("KEY METRICS"))
+            windowKeyMetrics(days)
+            SectionLabel(L("DETAILS"))
             CardBlock(title: L("HOW THE ZONES STACK"), trailing: L("MINUTES / DAY"), trailingIsDot: true) {
                 TrainingZoneStack(days: days)
                 Text(days.contains(where: { $0.zoneMinutes != nil })
@@ -489,15 +553,35 @@ struct TrainingDetailView: View {
         }
     }
 
-    private func weekIngredients(_ days: [TrainingDayFacts]) -> some View {
+    /// A typical finished day of the window, as tiles: never a window sum.
+    private func windowKeyMetrics(_ days: [TrainingDayFacts]) -> some View {
         let zones = TrainingWindowMath.typicalZones(days)
-        return TrainingIngredientsCard(trailing: L("TYPICAL DAY"), rows: [
-            .init(label: L("HR ZONES 1–3"), value: durationLine(zoneMinutes(zones, hard: false))),
-            .init(label: L("HR ZONES 4–5"), value: durationLine(zoneMinutes(zones, hard: true)), tint: NB.ember1),
-            .init(label: L("STEPS"), value: Fmt.kcal(TrainingWindowMath.typicalSteps(days))),
-            .init(label: L("KCAL EST"), value: Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))),
-            .init(label: L("HARD DAYS"), value: "\(TrainingWindowMath.sessionDays(days))"),
-        ])
+        let counts = TrainingWindowMath.bandCounts(days)
+        let finished = counts.light + counts.steady + counts.heavy + counts.over + counts.unknown
+        return VStack(spacing: 8) {
+            VitalsStatPair(
+                left: .init(label: L("DAYS IN RANGE"),
+                            value: finished == 0 ? nil : "\(counts.steady)", unit: L("OF %d", finished),
+                            foot: L("FINISHED DAYS ONLY"), tint: NB.lime1),
+                right: .init(label: L("HARD DAYS"), value: "\(TrainingWindowMath.sessionDays(days))", unit: nil,
+                             foot: L("20 MIN OR MORE IN Z4–5"), tint: nil))
+            VitalsStatPair(
+                left: .init(label: L("HR ZONES 4–5"),
+                            value: zoneMinutes(zones, hard: true).map(Fmt.duration), unit: nil,
+                            foot: L("TYPICAL DAY"), tint: nil),
+                right: .init(label: L("HR ZONES 1–3"),
+                             value: zoneMinutes(zones, hard: false).map(Fmt.duration), unit: nil,
+                             foot: L("TYPICAL DAY"), tint: nil))
+            VitalsStatPair(
+                left: .init(label: L("STEPS"),
+                            value: TrainingWindowMath.typicalSteps(days).map { Fmt.kcal($0) }, unit: nil,
+                            foot: L("TYPICAL DAY"), tint: nil),
+                right: .init(label: L("ACTIVE BURN"),
+                             value: TrainingWindowMath.typicalActiveKcal(days).map { Fmt.kcal($0) }, unit: "KCAL",
+                             foot: L("TYPICAL DAY"), tint: nil))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("training.keyMetrics")
     }
 
     private func weekMoveCard(_ days: [TrainingDayFacts]) -> some View {
@@ -526,7 +610,6 @@ struct TrainingDetailView: View {
         let typical = TrainingWindowMath.typicalLoad(days)
         let counts = TrainingWindowMath.bandCounts(days)
         let rolls = TrainingWindowMath.weekRolls(days)
-        let zones = TrainingWindowMath.typicalZones(days)
         return VStack(alignment: .leading, spacing: 14) {
             CardBlock(title: L("THIRTY DAYS"),
                       trailing: L("LOAD VS TARGET · ROLLING"), trailingIsDot: true) {
@@ -549,16 +632,9 @@ struct TrainingDetailView: View {
                 // printed; the five groups below are where the month's drift reads.
                 windowSummary(average: typical, delta: nil, days: days)
             }
-            TrainingIngredientsCard(trailing: L("TYPICAL DAY"), rows: [
-                .init(label: L("HR ZONES 1–3"),
-                      value: durationLine(zoneMinutes(zones, hard: false))),
-                .init(label: L("HR ZONES 4–5"),
-                      value: durationLine(zoneMinutes(zones, hard: true)),
-                      tint: NB.ember1),
-                .init(label: L("STEPS"), value: Fmt.kcal(TrainingWindowMath.typicalSteps(days))),
-                .init(label: L("KCAL EST"), value: Fmt.kcal(TrainingWindowMath.typicalActiveKcal(days))),
-                .init(label: L("HARD DAYS"), value: "\(TrainingWindowMath.sessionDays(days))"),
-            ])
+            SectionLabel(L("KEY METRICS"))
+            windowKeyMetrics(days)
+            SectionLabel(L("DETAILS"))
             CardBlock(title: L("WHAT THE MONTH LOOKED LIKE")) {
                 monthBandRow(L("LIGHT"), counts.light, 30, NB.lime1.opacity(0.33))
                 monthBandRow(L("STEADY"), counts.steady, 30, NB.lime1)
@@ -702,7 +778,7 @@ struct TrainingDetailView: View {
         }
     }
 
-    private func ringCard(load: Double?, caption: String, foot: String) -> some View {
+    private func ringCard(load: Double?, caption: String) -> some View {
         VStack(spacing: 18) {
             BigTrainingRing(load: load, target: range == .day ? m.targetLoad : nil,
                             zone: range == .day ? m.optimalZone : nil,
@@ -713,12 +789,6 @@ struct TrainingDetailView: View {
                 .frame(width: 200, height: 200)
 
             if range == .day { dayEdges }
-
-            Text(foot)
-                .font(NBFont.ui(400, 12))
-                .foregroundStyle(NB.text3Prod)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 8)
         .padding(.bottom, 4)
@@ -732,10 +802,6 @@ struct TrainingDetailView: View {
                      text: data.lastSync == nil
                         ? L("No sync time yet. Records may be incomplete.")
                         : L("Synced %@. Later activity may be missing.", lastSyncClock))
-        }
-        if isOver {
-            EdgeNote(line: headerStatus,
-                     text: L("Already above the suggested range. Nothing left to fill."))
         }
         if autoHROff {
             EdgeNote(line: L("AUTO HR IS OFF"),
@@ -809,10 +875,6 @@ struct TrainingDetailView: View {
         var mins = zones ?? []
         while mins.count < 5 { mins.append(0) }
         return Array(mins.prefix(5))
-    }
-
-    private func durationLine(_ minutes: Int?) -> String {
-        minutes.map(Fmt.duration) ?? Fmt.dash
     }
 
     private func coverageLine(_ minutes: Int, elapsed: Int) -> String {

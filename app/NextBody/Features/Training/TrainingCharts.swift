@@ -319,43 +319,6 @@ struct TrainingStepBars: View {
     }
 }
 
-struct TrainingIngredient: Identifiable {
-    var id: String { label }
-    let label: String
-    let value: String
-    var tint: Color = NB.lime1
-}
-
-struct TrainingIngredientsCard: View {
-    let trailing: String
-    let rows: [TrainingIngredient]
-    var note: String? = nil
-
-    var body: some View {
-        CardBlock(title: L("INGREDIENTS"), trailing: trailing, trailingIsDot: true) {
-            VStack(spacing: 10) {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
-                    if i > 0 { Hairline() }
-                    HStack {
-                        Text(row.label)
-                            .font(NBFont.ui(500, 12)).tracking(0.06 * 12)
-                            .foregroundStyle(NB.text1)
-                        Spacer(minLength: 0)
-                        Text(row.value)
-                            .font(NBFont.dot(700, 14)).tracking(0.02 * 14)
-                            .foregroundStyle(row.tint)
-                    }
-                }
-            }
-            if let note {
-                Text(note)
-                    .font(NBFont.ui(400, 11)).foregroundStyle(NB.text3Prod)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
 /// WEEK and MONTH lead with this instead of a number: one column a user day for the load
 /// that day reached, against the target that day was set. The target is a tick across the
 /// column and the optimal zone a faint band behind it, so "did I hit it" is read column by

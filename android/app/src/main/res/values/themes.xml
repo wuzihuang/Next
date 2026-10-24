@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="carbon">#FF0B0B0D</color>
+    <color name="launch">#FF000000</color>
+
+    <style name="Theme.NextBody" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/carbon</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:colorAccent">#FFEFF65A</item>
+    </style>
+
+    <!-- LaunchScreen.storyboard is a black field; the in-app LaunchMark takes over from it. -->
+    <style name="Theme.NextBody.Launch" parent="Theme.NextBody">
+        <item name="android:windowBackground">@color/launch</item>
+    </style>
+</resources>

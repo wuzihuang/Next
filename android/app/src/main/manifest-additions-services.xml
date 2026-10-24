@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Services layer (com.nextbody.hoop.services) — entries to merge into AndroidManifest.xml.
+  Already present in the manifest and required by services (keep them):
+    INTERNET, ACCESS_NETWORK_STATE (Reachability), POST_NOTIFICATIONS (NotificationReach),
+    health.READ_HEIGHT / health.READ_WEIGHT, <queries> com.google.android.apps.healthdata and
+    the CustomTabsService intent (Google browser OAuth fallback), the nextbody:// VIEW filter
+    on MainActivity (notification deep links + nextbody://auth-callback), the
+    ACTION_SHOW_PERMISSIONS_RATIONALE filter and the VIEW_PERMISSION_USAGE activity-alias.
+  MainActivity must route:
+    - nextbody://auth-callback?...  → SupabaseClient.handleAuthRedirect(uri)  (suspend)
+    - androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE / VIEW_PERMISSION_USAGE → the privacy text
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- NotificationReach: AlarmManager target that posts scheduled edges (ADR 0019). -->
+        <receiver
+            android:name=".services.NotificationReachReceiver"
+            android:exported="false" />
+    </application>
+</manifest>

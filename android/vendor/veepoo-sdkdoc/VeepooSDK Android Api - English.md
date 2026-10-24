@@ -1,0 +1,15924 @@
+# Android SDK API Document
+
+
+| Version | Modifications                                                | Modified Date |
+| ------- | ------------------------------------------------------------ | ------------- |
+| 1.0.0   | SDK initial release                                          | 2023.05.15    |
+| 1.0.1   | Added K-series watch faces and OTA documentation             | 2023.05.26    |
+| 1.0.2   | Add language setting function API                            | 2023.05.26    |
+| 1.0.3   | Add contact function                                         | 2023.06.25    |
+| 1.0.4   | 1. Added sports enumeration, added language enumeration<br />2. 30 minutes daily data added ''date'' return<br />3. Added the functions of adding contacts in batches and controlling the volume of the phone<br />4. Improve the description of OTA upgrade process | 2023.09.08    |
+| 1.0.5   | Added OTA and power description for dial transmission        | 2023.09.11    |
+| 1.0.6   | Added reading and setting of blood glucose multi-calibration mode | 2023.09.19    |
+| 1.0.7   | 1. Twitter renamed to X (original Twitter)<br />2. Added body composition and blood composition related function description<br />3. Added blood composition detection switch, uric acid/blood lipid unit function setting<br />4. Added ecg reporting interface | 2023.09.27    |
+| 1.0.8   | 1.Body composition increase unit display                     | 2023.10.25    |
+| 1.0.9   | 1.Read body composition data interface returns the added measurement time, measurement seconds, etc. | 2023.11.24    |
+| 1.1.0   | 1. Added instructions for obtaining blood sugar risk level;<br/>2. Added 05 flag judgment for body temperature reading. | 2024.04.15    |
+| 1.1.1   | 1. Synchronize personal information API to add weight parameter description;<br />2. Multi-level skin color setting (device support required). | 2024.11.30    |
+| 1.1.2   | 1.Read the comments related to recording the packet position required for deleting sports mode data. | 2024.12.12    |
+| 1.1.3   | 1.Add description for the automatic measurement read/set interface (0xB3); <br />2.Add relevant interfaces for reading manual measurement data (blood pressure) | 2025.06.10    |
+| 1.1.4   | Fixed an issue with the blood glucose function - blood glucose measurement - stop measurement interface. | 2025.06.16    |
+| 1.1.5   | Add Text&Image push function                                 | 2025.10.27    |
+| 1.1.6   | Add JH58 PPG Function                                        | 2025.10.31    |
+| 1.1.7   | Add Mini-checkup function                                    | 2025.11.04    |
+| 1.1.8   | A new device function reporting interface has been added, and the old onFunctionSupportDataChange method has been discarded. | 2025.11.19    |
+| 1.1.9   | Added Start/Stop APIs for GSR Measurement (or New Interfaces for Starting and Stopping GSR Detection). | 2025.11.24    |
+| 1.2.0   | Added ZT163 project device always off screen function        | 2025.12.27    |
+| 1.2.1   | Micro-Physical-Exam V2 data response: added interfaces for Health Reminders and 4G functionality. | 2025.01.09    |
+| 1.2.2   | Added 12 data return documents for manual measurements, as well as a list of manual measurement types supported by the device. | 2025.04.08    |
+| 1.2.3   | And connection confirmation function                         | 2025.04.16    |
+| 1.2.4   | And Nordic OTA Upgrade Function                              | 2025.04.17    |
+| 1.2.5   | And SDK Import                                            | 2026.04.21 |
+| 1.2.6   | Added sport control (set/read/report listener) and BLE device rename interfaces | 2026.04.22    |
+| 1.2.7 | Add  Ecg Diagnosis interface | 2026.04.22 |
+| 1.2.8 | Add app hrv detect function | 2026.04.23 |
+| 1.2.9 | Added QX17 data acquisition flow control (IMU/GPS/HR real-time acquisition) and vibration motor control interfaces | 2026.04.29 |
+| 1.3.0 | Add Bluetrum Device OTA Upgrade | 2026.05.21 |
+| 1.3.1 | Added QH15 health data function | 2026.05.28 |
+| 1.3.2 | Added Remind event function, sport status function | 2026.06.16 |
+| 1.3.3 | Add read device IMEI Info function | 2026.06.18 |
+| 1.3.4 | Added Health ligth function | 2026.06.30 |
+| 1.3.5 | Modify the pre-conditions supported by 'Read Device Manual Measurement Data', and add new APIs for MET, Emotion, and Fatigue related features. | 2026.07.02 |
+| 1.3.6 | **JH58 adds active measurement-related interfaces, and adds data collection and reporting (MODE3) for reading raw PPG signals.** | 2026.07.27 |
+| 1.3.7 | Added AI Function related interfaces and process descriptions | 2026.08.18 |
+| 1.3.8 | 1.Added GPS ephemeris related flow and interfaces<br/>2.Improved the callback descriptions for reading sports mode data in Sports function | 2026.08.27 |
+| 1.3.9 | Instructions for Integrating the New Logging Module | 2026.09.15 |
+| 1.4.0 | 1. Added Start/Stop APIs for Pressure (Stress) Measurement<br />2. Added device control functions: Reset, Power Off, Factory Reset (Clear Data) | 2026.09.18 |
+| 1.4.1 | Added JH76 customized SN code function (Read/Set/Modify/Delete) | 2026.09.23 |
+| 1.4.2 | Added YM23PRO customized wear status report and test status functions | 2026.09.24 |
+| 1.4.3 | Added QH15 custom family guardian feature interfaces | 2026.09.29 |
+| 1.4.4 | Added JH151 customized ECG single-lead test duration function (Set/Read) | 2026.10.22 |
+## Import SDK
+### Add Dependency
+
+```groovy
+/* Goodix Protocol Library - Optional */
+implementation files('libs/libcomx-0.5.jar')
+
+/* VPSDK Core Dependencies ----- Start */
+// Core Bluetooth communication and protocol handling for Veepoo devices
+implementation files('libs/vpbluetooth-1.20.aar') 
+implementation files('libs/vpprotocol-2.3.55.15.aar') 
+// JSON parsing library
+implementation files('libs/gson-2.2.4.jar')
+/* VPSDK Core Dependencies ----- End */
+
+// AutoNavi (AMap) Map, Search, and Location services (2022-10-26 version)
+implementation files('libs/AMap2DMap_6.0.0_AMapSearch_9.4.5_AMapLocation_6.2.0_20221026.jar')
+
+/* Jerry (Zhuhai Jieli) BLE Platform Libraries ----- Start */
+// Watch UI, RCSP Protocol, OTA updates, and Bitmap conversion tools
+implementation files('libs/JL_Watch_V1.13.1_11214-release.aar')
+implementation files('libs/jl_rcsp_V0.7.2_527-release.aar')
+implementation files('libs/jl_bt_ota_V1.10.0_10931-release.aar')
+implementation files('libs/BmpConvert_V1.6.0_10604-release.aar')
+/* Jerry (Zhuhai Jieli) BLE Platform Libraries ----- End */
+
+/* Bluetrum (Zhongke Lanxun) BLE Platform Libraries ----- Start */
+// Partition and firmware management tools for Bluetrum chips
+implementation files('libs/abpartool-release.aar')
+/* Bluetrum (Zhongke Lanxun) BLE Platform Libraries ----- End */
+
+/* Nordic Semiconductor Platform Libraries ----- Start */
+// Official McuManager implementation for firmware updates (DFU) over BLE
+implementation 'no.nordicsemi.android:mcumgr-core:2.7.4'
+implementation 'no.nordicsemi.android:mcumgr-ble:2.7.4'
+// Legacy support for local broadcasts (required by older McuMgr versions)
+implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
+// Advanced BLE scanner library with better support for different Android versions
+implementation 'no.nordicsemi.android.support.v18:scanner:1.4.2'
+/* Nordic Semiconductor Platform Libraries ----- End */
+```
+
+## Public interface class
+
+**VPOperateManager**（SDK main entry）  
+Main operation class
+
+**Get an instance**
+
+```kotlin
+VPOperateManager.getInstance()
+```
+Get the singleton object. The SDK interface exists in the form of a singleton.
+
+Note: **The device does not support asynchronous operations. When multiple time-consuming operations are performed at the same time, data anomalies may occur. Therefore, when interacting with the device, try to avoid performing multiple operations at the same time**
+
+
+
+## SDK Initialization
+
+```kotlin
+init(context)
+```
+| Parameter name | Type    | Describe                                    |
+| -------------- | ------- | ------------------------------------------- |
+| context        | Context | It is recommended to use ApplicationContext |
+
+Note: All interfaces can only be called after the SDK is initialized. During the running of the App, it only needs to be initialized once, and there is no need to initialize it repeatedly.
+
+
+
+## Log Monitoring and Sharing
+
+**Enabling log monitoring assists us in analyzing the causes of issues—such as data synchronization errors or connectivity problems—encountered by users with their smartwatches or fitness trackers, thereby facilitating troubleshooting and resolution. Please note that the submission of logs is required when reporting such issues.**。
+
+#### Enable log monitoring (recommended to call during SDK initialization).
+
+###### Interface
+
+```
+VPLocalLogger.startMonitor(this);
+```
+
+#### Stop log monitoring (recommended to call when the app exits).
+
+###### Interface
+
+```
+VPLocalLogger.stopMonitor();
+```
+
+#### Log storage path
+
+Android\data\your app packageName\files\VpSDK\....
+
+#### Share log  
+
+###### Interface
+
+```
+ /**
+     * share sdk log
+     * @param activity  The activity page when your share log
+     * @param authority The authority of a FileProvider defined in a <provider> element in your app's manifest.
+     */
+    public void shareLogFile(Activity activity, @NonNull String authority)
+```
+
+
+
+## Scan Device
+
+#### Start Scan
+
+###### Interface
+
+```kotlin
+startScanDevice(searchResponse)
+```
+Start Bluetooth scanning, and non-company devices will be filtered out. If you need to stop scanning, call stopScan.
+
+Note: When Bluetooth is turned off, the scanning interface will not take effect
+
+###### Parameter Explanation
+
+| Parameter name | Type           | Describe             |
+| -------------- | -------------- | -------------------- |
+| searchResponse | SearchResponse | Scan result callback |
+###### Return data
+
+**SearchResponse**--Scan result callback
+
+```kotlin
+/**
+* Start scanning devices
+*/
+fun onSearchStarted()
+
+/**
+* Discover scanning devices
+*
+* @param device Currently discovered device
+*/
+fun onDeviceFounded(device:SearchResult)
+
+/**
+* Stop scanning device callback
+*/
+fun onSearchStopped()
+
+/**
+* Cancel scanning device callback
+*/
+fun onSearchCanceled()
+```
+
+**SearchResult**--Currently discovered devices
+
+| Parameter name | Type            | Describe                      |
+| -------------- | --------------- | ----------------------------- |
+| device         | BluetoothDevice | Bluetooth device (system)     |
+| rssi           | Int             | Bluetooth signal value rssi   |
+| scanRecord     | byteArray       | Scanned device broadcast data |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance()
+            .startScanDevice(object : SearchResponse {
+                override fun onSearchStarted() {
+
+                }
+
+                override fun onDeviceFounded(p0: SearchResult) {
+                    
+                }
+
+                override fun onSearchStopped() {
+                    
+                }
+
+                override fun onSearchCanceled() {
+                }
+            })
+```
+
+
+
+#### End Scan
+
+###### Interface
+
+```kotlin
+stopScanDevice()
+```
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().stopScanDevice()
+```
+
+
+
+
+
+## Connect
+
+#### Connect device
+
+```kotlin
+connectDevice(mac,connectResponse,bleNotifyResponse)
+```
+###### Parameter Explanation
+
+| Parameter name    | Type             | Describe                                                     |
+| ----------------- | ---------------- | ------------------------------------------------------------ |
+| mac               | String           | The address of the device to be connected                    |
+| connectResponse   | IConnectResponse | Connection status callback, first return the connection status, after the connection is successful, it will return the Bluetooth communication status callback |
+| bleNotifyResponse | INotifyResponse  | Bluetooth communication status callback, this callback is called after connectResponse |
+
+###### Return data
+
+**IConnectResponse** -- Connection status callback
+
+```kotlin
+/**
+* Return of connection status
+*
+* @param code Connection status, only when the value is Code.REQUEST_SUCCESS, it means the connection is successful
+* @param profile Bluetooth properties of the device
+* @param isOadModel The device has two modes [normal mode/firmware upgrade mode]. In most cases, it is in normal mode. Only when the device fails to perform a firmware upgrade operation, it will enter the firmware upgrade mode
+*/
+fun connectState(code:Int, profile:BleGattProfile, isOadModel:boolean);
+```
+
+**INotifyResponse** - Set the callback for data monitoring
+
+```kotlin
+/**
+* Set the return of data monitoring
+*
+* @param state is successful only when the value is equal to Code.REQUEST_SUCCESS
+*/
+fun notifyState(state:Int);
+```
+
+#### Connection Confirmation Settings
+
+By default, the `deviceShowConfirm` parameter for device connections is set to `true`. When set to `true`, if the device supports connection confirmation, the user is required to manually tap to confirm the connection directly on the device. When this value is set to `false`, the connection will be established immediately, regardless of whether the device supports the connection confirmation feature.
+
+###### Interface
+
+```java
+    /**
+     * Whether the device requires connection confirmation
+     * @return whether to display connection confirmation on the device
+     */
+    public boolean isDeviceShowConfirm() {
+        return deviceShowConfirm;
+    }
+
+    /**
+     * Set whether the device needs to display a connection confirmation
+     * User manual connection: set to true, device displays connection confirmation
+     * Automatic reconnection: set to false, device connects directly without confirmation
+     * @param deviceShowConfirm whether to display connection confirmation on the device
+     */
+    public void setDeviceShowConfirm(boolean deviceShowConfirm) {
+        this.deviceShowConfirm = deviceShowConfirm;
+    }
+
+/**
+ * Get the connection confirmation timeout (default 12 seconds)
+ * @return connection confirmation timeout
+ */
+public int getConnectionConfirmTimeout() {
+    return connectionConfirmTimeout;
+}
+
+/**
+ * Set the connection confirmation timeout
+ * If the set value is less than or equal to 10, it will be forced to 10
+ * @param connectionConfirmTimeout connection confirmation timeout
+ */
+public void setConnectionConfirmTimeout(int connectionConfirmTimeout) {
+    if (connectionConfirmTimeout <= 10) {
+        connectionConfirmTimeout = 10;
+    }
+    this.connectionConfirmTimeout = connectionConfirmTimeout;
+}
+```
+
+
+
+#### Verify password operation
+
+###### Interface
+
+```kotlin
+confirmDevicePwd(bleWriteResponse,pwdDataListener,deviceFuctionDataListener，socialMsgDataListener，customSettingDataListener，pwd，mModelIs24)  
+```
+
+```kotlin
+confirmDevicePwd(bleWriteResponse,pwdDataListener,deviceFuctionDataListener，socialMsgDataListener，customSettingDataListener，pwd，mModelIs24,deviceTimeSetting)
+```
+
+Note: **The first step after successful connection is to perform other Bluetooth operations only when [Connection is successful] and [Bluetooth communication is possible]**
+
+###### Parameter Explanation 
+
+
+| Parameter name            | Type                       | Describe                                                     |
+| ------------------------- | -------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse          | IBleWriteResponse          | code Return Code.REQUEST_SUCCESS means that the command is sent to the device successfully, but the successful sending of the command does not necessarily mean that there will be no data returned. The successful return only means that the device has received the command. If the device cannot process the command, there may be no data returned. This interface is used by developers to find problems |
+| pwdDataListener           | IPwdDataListener           | Password operation data return monitoring, the data returned here includes: device number, device release version number, device test version number, drinking data status, wrist flip screen status, phone search function status, wearing detection function status |
+| deviceFuctionDataListener | IDeviceFuctionDataListener | The returned monitoring of the functions included in the device. The data returned here includes: The status of each device function [whether supported]: blood pressure, drinking, sedentary, high heart rate reminder, WeChat sports, shake-shake photography, fatigue, blood oxygen |
+| socialMsgDataListener     | ISocialMsgDataListener     | The returned monitoring of phone calls, text messages, and social software messages. The data returned here includes: whether to support receiving reminders from social software, whether to open phone calls, text messages, and social software reminders |
+| customSettingDataListener | ICustomSettingDataListener | Listening for Personalized Settings Operations               |
+| pwd                       | String                     | The password length is 4, the initial value is 0000, before entering the password, please make sure it is a 4-digit number |
+| mModelIs24                | boolean                    | Time format, if you choose to display the 24-hour system, pass true, if you choose the 12-hour system, pass false |
+| deviceTimeSetting         | DeviceTimeSetting          | The default is the phone system time, you can customize the time, accurate to the second |
+
+###### Data return
+
+**IPwdDataListener** -- Data return
+
+```kotlin
+  /**
+     * 密码操作数据发生变化时回调
+     * Callback when password operation data changes
+     *
+     * @param pwdData 密码操作相关数据
+     *                Password operation related data
+     */
+    void onPwdDataChange(PwdData pwdData);
+
+    /**
+     * 连接确认超时回调
+     * 设备在规定时间内未完成连接确认，用户需在此回调中手动断开蓝牙连接
+     *
+     * Callback for connection confirmation timeout
+     * The device does not complete connection confirmation within the specified time,
+     * the user needs to manually disconnect the Bluetooth connection in this callback
+     */
+    void onConnectionConfirmTimeout();
+```
+
+**PwdData** -- Data for Password verfiy operations
+
+| Parameter name        | Type            | Describe                                                     |
+| --------------------- | --------------- | ------------------------------------------------------------ |
+| mStatus               | EPwdStatus      | Returns the status of the current cryptographic operation    |
+| pwd                   | String          | Password                                                     |
+| deviceNumber          | Int             | Device number                                                |
+| deviceVersion         | String          | The official version of the device. The official version number is only displayed on the APP |
+| deviceTestVersion     | String          | Device test version. The test version number will be used for firmware upgrades. The firmware upgrade requires the device number and the test version number. |
+| isHaveDrinkData       | Boolean         | Is there any drinking data?                                  |
+| isOpenNightTurnWriste | EFunctionStatus | Night-time wrist-raising screen-lighting function, supported/unsupported/on/off/unknown |
+| findPhoneFunction     | EFunctionStatus | Find phone function, supported/unsupported/enabled/disabled/unknown |
+| wearDetectFunction    | EFunctionStatus | Wearing monitoring function, support/not support/on/off/unknown |
+
+**EFunctionStatus** -- Functional status
+
+| Parameter name | Describe           |
+| -------------- | ------------------ |
+| UNSUPPORT      | function unsupport |
+| SUPPORT        | function support   |
+| SUPPORT_OPEN   | function open      |
+| SUPPORT_CLOSE  | function close     |
+| UNKONW         | unknow state       |
+
+**IDeviceFunctionDataListener** -- Device function status listener. Listening once may trigger the `onFunctionSupportDataChange` callback multiple times, with the last callback being the most significant, depending on the device. It is recommended to directly listen to the corresponding device function package reporting interface: First package device function package report: `onDeviceFunctionPackage1Report`; Second package device function package report (if the device supports the second package function, it will be reported; otherwise, this method will not be called): `onDeviceFunctionPackage2Report`; Third package device function package report (if the device supports the third package function, it will be reported; otherwise, this method will not be called): `onDeviceFunctionPackage3Report`; Fourth package device function package report (if the device supports the fourth package function, it will be reported; otherwise, this method will not be called): `onDeviceFunctionPackage4Report`; Fifth package device function package report (if the device supports the fifth package function, it will be reported; otherwise, this method will not be called): `onDeviceFunctionPackage5Report`.
+
+```java
+/**
+ * 设备功能状态上报监听
+ * Device function status report
+ */
+public interface IDeviceFuctionDataListener extends IListener {
+    /**
+     * 设备功能的上报 (Device function data report)
+     *
+     * @param functionSupport 设备所支持的所有功能列表，因为设备功能比较多，该方法会一次性回调多次，以最后一次为准（非最后一次则有部分功能数据还未初始化）。
+     * The list of all functions supported by the device. Since there are many functions, this method
+     * may be called back multiple times; the last call should be considered final (non-final calls mean
+     * some function data has not yet been initialized).
+     *
+     * 建议直接监听{@link #onDeviceFunctionPackage1Report}
+     * It is recommended to directly listen to {@link #onDeviceFunctionPackage1Report}
+     * {@link #onDeviceFunctionPackage2Report}
+     * {@link #onDeviceFunctionPackage3Report}
+     * {@link #onDeviceFunctionPackage4Report}
+     * {@link #onDeviceFunctionPackage5Report}分别监听对应的功能包数据上报
+     * to monitor the reporting of the corresponding function package data separately.
+     */
+    @Deprecated
+    void onFunctionSupportDataChange(FunctionDeviceSupportData functionSupport);
+
+    /**
+     * 设备功能第一包上报 (Device function Package 1 report)
+     * @param functionPackage1 第一包的设备功能详情。 (Details of the device functions in the first package.)
+     */
+    void onDeviceFunctionPackage1Report(DeviceFunctionPackage1 functionPackage1);
+
+    /**
+     * 设备功能第二包上报 (Device function Package 2 report)
+     * @param functionPackage2 第二包的设备功能详情。（如果设备支持第二包功能则会上报，否则不会有该方法的回调）
+     * Details of the device functions in the second package. (If the device supports the second package
+     * of functions, this will be reported; otherwise, this method will not be called back.)
+     */
+    void onDeviceFunctionPackage2Report(DeviceFunctionPackage2 functionPackage2);
+
+    /**
+     * 设备功能第三包上报 (Device function Package 3 report)
+     * @param functionPackage3 第三包的设备功能详情。（如果设备支持第三包功能则会上报，否则不会有该方法的回调）
+     * Details of the device functions in the third package. (If the device supports the third package
+     * of functions, this will be reported; otherwise, this method will not be called back.)
+     */
+    void onDeviceFunctionPackage3Report(DeviceFunctionPackage3 functionPackage3);
+
+    /**
+     * 设备功能第四包上报 (Device function Package 4 report)
+     * @param functionPackage4 第四包的设备功能详情。（如果设备支持第四包功能则会上报，否则不会有该方法的回调）
+     * Details of the device functions in the fourth package. (If the device supports the fourth package
+     * of functions, this will be reported; otherwise, this method will not be called back.)
+     */
+    void onDeviceFunctionPackage4Report(DeviceFunctionPackage4 functionPackage4);
+
+    /**
+     * 设备功能第五包上报 (Device function Package 5 report)
+     * @param functionPackage5 第五包的设备功能详情。（如果设备支持第五包功能则会上报，否则不会有该方法的回调）
+     * Details of the device functions in the fifth package. (If the device supports the fifth package
+     * of functions, this will be reported; otherwise, this method will not be called back.)
+     */
+    void onDeviceFunctionPackage5Report(DeviceFunctionPackage5 functionPackage5);
+}
+```
+
+**FunctionDeviceSupportData** --Each device function status [supported or not]
+
+| Parameter name        | Type            | Describe                                                 |
+| --------------------- | --------------- | -------------------------------------------------------- |
+| Bp                    | EFunctionStatus | Blood pressure function status                           |
+| Drink                 | EFunctionStatus | Drinking function status                                 |
+| Longseat              | EFunctionStatus | Sedentary function status                                |
+| HeartWaring           | EFunctionStatus | Heart rate warning function status                       |
+| WeChatSport           | EFunctionStatus | WeChat sports function status                            |
+| Camera                | EFunctionStatus | Photo function status                                    |
+| Fatigue               | EFunctionStatus | Fatigue function status                                  |
+| SpoH                  | EFunctionStatus | Blood oxygen function status                             |
+| SpoHAdjuster          | EFunctionStatus | Blood oxygen calibration function status                 |
+| SpoHBreathBreak       | EFunctionStatus | Blood oxygen apnea reminder function status              |
+| Woman                 | EFunctionStatus | Female function status                                   |
+| Alarm2                | EFunctionStatus | New alarm function status                                |
+| newCalcSport          | EFunctionStatus | New function for step calculation                        |
+| CountDown             | EFunctionStatus | Countdown function status                                |
+| AngioAdjuster         | EFunctionStatus | Dynamic blood pressure adjustment function status        |
+| ScreenLight           | EFunctionStatus | Screen brightness adjustment function status             |
+| HeartDetect           | EFunctionStatus | Heart rate detection function status, enabled by default |
+| SportModel            | EFunctionStatus | Sport mode function status                               |
+| NightTurnSetting      | EFunctionStatus | Turn wrist to light up screen setting function status    |
+| hidFuction            | EFunctionStatus | HID function status                                      |
+| screenStyleFunction   | EFunctionStatus | Screen style function                                    |
+| beathFunction         | EFunctionStatus | Respiration rate function                                |
+| hrvFunction           | EFunctionStatus | HRV function status                                      |
+| weatherFunction       | EFunctionStatus | Weather function status                                  |
+| screenLightTime       | EFunctionStatus | Screen on time function status                           |
+| precisionSleep        | EFunctionStatus | Precision sleep function status                          |
+| resetData             | EFunctionStatus | Reset device/data function status                        |
+| ecg                   | EFunctionStatus | ECG function status                                      |
+| multSportModel        | EFunctionStatus | Multi-sport function status                              |
+| lowPower              | EFunctionStatus | Low power function status                                |
+| findDeviceByPhone     | EFunctionStatus | Phone find device function status                        |
+| agps                  | EFunctionStatus | AGPS function status                                     |
+| temperatureFunction   | EFunctionStatus | Body temperature function status                         |
+| textAlarm             | EFunctionStatus | Text alarm function status                               |
+| bloodGlucose          | EFunctionStatus | Blood glucose function status                            |
+| bloodGlucoseAdjusting | EFunctionStatus | Blood glucose calibration function                       |
+| sleepTag              | Int             | Sleep flag                                               |
+| musicStyle            | Int             | Music band information 0x99, value 1                     |
+| WathcDay              | Int             | Maximum number of days the watch can save                |
+| contactMsgLength      | Int             | Contact message length                                   |
+| allMsgLength          | Int             | Maximum number of message reminder packets               |
+| sportmodelday         | Int             | Maximum number of days in sports mode                    |
+| screenstyle           | Int             | Screen style selection                                   |
+| weatherStyle          | Int             | Weather type                                             |
+| originProtcolVersion  | Int             | Protocol version of original data                        |
+| bitDataTranType       | Int             | Bulk data transmission type                              |
+| watchUiServerCount    | Int             | Number of watch face markets                             |
+| watchUiCoustomCount   | Int             | Number of custom watch faces                             |
+| temptureType          | Int             | Temperature type                                         |
+| cpuType               | Int             | cpu type                                                 |
+| ecgType               | Int             | ecg type                                                 |
+
+
+
+
+
+**DeviceFunctionPackage1** -- The first package of devices has the following functional status [Supported/Unsupported].
+
+| Parameter name         | Type            | Describe                                                 |
+| ---------------------- | --------------- | -------------------------------------------------------- |
+| bloodPressure          | EFunctionStatus | Blood pressure function status                           |
+| drinking               | EFunctionStatus | Drinking function status                                 |
+| sedentaryRemind        | EFunctionStatus | Sedentary function status                                |
+| heartRateWarning       | EFunctionStatus | Heart rate warning function status                       |
+| WeChatSport            | EFunctionStatus | WeChat sports function status                            |
+| camera                 | EFunctionStatus | Photo function status                                    |
+| fatigue                | EFunctionStatus | Fatigue function status                                  |
+| spoH                   | EFunctionStatus | Blood oxygen function status                             |
+| spo2HAdjustment        | EFunctionStatus | Blood oxygen calibration function status                 |
+| spoHBreathBreak        | EFunctionStatus | Blood oxygen apnea reminder function status              |
+| woman                  | EFunctionStatus | Female function status                                   |
+| alarm                  | EFunctionStatus | New alarm function status                                |
+| newCalcSport           | EFunctionStatus | New function for step calculation                        |
+| ambulatoryBPAdjustment | EFunctionStatus | Dynamic blood pressure adjustment function status        |
+| screenLight            | EFunctionStatus | Screen brightness adjustment function status             |
+| heartRateDetect        | EFunctionStatus | Heart rate detection function status, enabled by default |
+| nightTurnSetting       | EFunctionStatus | Turn wrist to light up screen setting function status    |
+| textAlarm              | EFunctionStatus | Text alarm function status                               |
+| screenLight            | EFunctionStatus | Screen brightness adjustment function status             |
+
+**DeviceFunctionPackage2** -- Second package device functionality status  [Supported/Unsupported].
+
+| Parameter name        | Type            | Describe                                   |
+| --------------------- | --------------- | ------------------------------------------ |
+| countDown             | EFunctionStatus | Countdown function status                  |
+| sportModelFunction    | EFunctionStatus | Sport mode function status                 |
+| hidFunction           | EFunctionStatus | HID function status                        |
+| screenStyleFunction   | EFunctionStatus | Screen style function                      |
+| breathFunction        | EFunctionStatus | Respiration rate function                  |
+| hrvFunction           | EFunctionStatus | HRV function status                        |
+| weatherFunction       | EFunctionStatus | Weather function status                    |
+| screenLightTime       | EFunctionStatus | Screen on time function status             |
+| precisionSleep        | EFunctionStatus | Precision sleep function status            |
+| ecgFunction           | EFunctionStatus | ECG function status                        |
+| multSportMode         | EFunctionStatus | Multi-sport function status                |
+| lowPower              | EFunctionStatus | Low power function status                  |
+| sleepTag              | Int             | Sleep flag                                 |
+| watchDataDayNumber    | Int             | Maximum number of days the watch can save  |
+| contactMsgLength      | Int             | Contact message length                     |
+| allMsgLength          | Int             | Maximum number of message reminder packets |
+| sportModelDay         | Int             | Maximum number of days in sports mode      |
+| screenStyle           | Int             | Screen style selection                     |
+| weatherStyle          | Int             | Weather type                               |
+| originProtocolVersion | Int             | Protocol version of original data          |
+| ecgType               | Int             | ECG type                                   |
+
+**DeviceFunctionPackage3** -- Third-party device functionality status [Supported/Unsupported].
+
+| Parameter name                | Type            | Describe                                        |
+| ----------------------------- | --------------- | ----------------------------------------------- |
+| bigDataTranType               | Int             | Bulk data transmission type                     |
+| watchUiServerCount            | Int             | Number of watch face markets                    |
+| watchUiCustomCount            | Int             | Number of custom watch faces                    |
+| temperatureFunction           | EFunctionStatus | Temperature function status                     |
+| temperatureType               | Int             | Temperature type                                |
+| cpuType                       | Int             | CPU type                                        |
+| stressFunction                | EFunctionStatus | Stress Function status                          |
+| stressType                    | Int             | Stress tye                                      |
+| contactFunction               | EFunctionStatus | Contact function status                         |
+| contactType                   | Int             | Contact type                                    |
+| musicStyle                    | Int             | Music type                                      |
+| screenStyleFunction           | EFunctionStatus | Screen Style function status                    |
+| findDeviceByPhoneFunction     | EFunctionStatus | Find Device By Phone Function status            |
+| agpsFunction                  | EFunctionStatus | AGPS  function status                           |
+| bloodGlucoseTag               | Int             | Blood Glucose type                              |
+| bloodGlucose                  | Int             | Blood Glucose function status                   |
+| bloodGlucoseAdjusting         | EFunctionStatus | Blood glucose calibration function status       |
+| bloodGlucoseMultipleAdjusting | EFunctionStatus | Blood glucose multiple function function status |
+| bloodGlucoseRiskAssessment    | EFunctionStatus | Blood glucose Risk Assessment  function status  |
+
+**DeviceFunctionPackage4** -- Fourth package device functional status[Supported/Unsupported].
+
+| Parameter name                  | Type            | Describe                                           |
+| ------------------------------- | --------------- | -------------------------------------------------- |
+| bloodComponent                  | EFunctionStatus | Blood Component Function Status                    |
+| bloodComponentSingleCalibration | EFunctionStatus | Blood Component Single Calibration Function Status |
+| bodyComponent                   | EFunctionStatus | Body Component Function Status                     |
+| worldClock                      | EFunctionStatus | World Clock Function Status                        |
+| autoMeasure                     | EFunctionStatus | Auto Measure Function Status                       |
+| temperatureAlarm                | EFunctionStatus | Temperature Alarm Function Status                  |
+| wallet                          | EFunctionStatus | Wallet Function Status                             |
+| postcard                        | EFunctionStatus | Postcard  Function Status                          |
+| gameSetting                     | EFunctionStatus | Game Setting Function Status                       |
+| aiQA                            | EFunctionStatus | AI Q&A Function Status                             |
+| aiDial                          | EFunctionStatus | AI Watch Face Function Status                      |
+| distanceCalorieGoal             | EFunctionStatus | Distance&Calorie goal setting  Function Status     |
+| videoDial                       | EFunctionStatus | Video Dial Function Status                         |
+| photoAlbum                      | EFunctionStatus | Photo Album Function Status                        |
+| miniCheckup                     | EFunctionStatus | Mini Check-up Function Status                      |
+
+**DeviceFunctionPackage5** -- Fifth package device functional status[Supported/Unsupported].
+
+| Parameter name               | Type            | Describe                                                     |
+| ---------------------------- | --------------- | ------------------------------------------------------------ |
+| textImagePush                | EFunctionStatus | Text$Image push function status                              |
+| GSR                          | EFunctionStatus | GSR function status                                          |
+| safetyProtection             | EFunctionStatus | Safety Protection function status                            |
+| screenType                   | Int             | The type of screen(0x01 Screenless wristband<br/>0x02 Ring<br/>0x03 Square screen<br/>0x04 Round screen) |
+| barometer                    | EFunctionStatus | barometer                                                    |
+| touchICType                  | EFunctionStatus | Touch IC Functional Types                                    |
+| newProductionTestProtocolTag | EFunctionStatus | /                                                            |
+| pttControl                   | EFunctionStatus | PTT Control function                                         |
+| sportStatus                  | EFunctionStatus | Sport status function status                                 |
+| remindEvent                  | EFunctionStatus | remind event function status                                 |
+
+
+
+**ISocialMsgDataListener** --Message notification switch callback monitoring Details return to view【[Message Notification](#Message Notification)】
+
+**ICustomSettingDataListener** -- Personalized callback monitoring View details【[Personalization](#Personalization)】
+
+###### Example Code
+
+```kotlin
+// kotlin code
+VPOperateManager.getInstance()
+    .confirmDevicePwd({
+        //                连接失败
+        if (it != Code.REQUEST_SUCCESS) {
+            Log.e("TAG", "confirmDevicePwd fail:check fail")
+        }
+    },
+        {
+            val message =
+                "PwdData:$it"
+            if (it.getmStatus() != EPwdStatus.CHECK_FAIL) {
+               Log.e("TAG", "confirmDevicePwd fail:check fail")
+            } else {
+                Log.e("TAG", "confirmDevicePwd fail:check fail")
+                VPOperateManager.getInstance()
+                    .disconnectWatch { }
+            }
+        },
+        {
+            val message =
+                "FunctionSupport:$it"
+            Log.e("TAG", message)
+        }, object : ISocialMsgDataListener {
+            override fun onSocialMsgSupportDataChange(p0: FunctionSocailMsgData?) {
+                val message =
+                    "FunctionSocailMsgData:${p0.toString()}"
+                Log.e("TAG", message)
+            }
+
+            override fun onSocialMsgSupportDataChange2(p0: FunctionSocailMsgData?) {
+                val message =
+                    "FunctionSocailMsgData2:${p0.toString()}"
+                Log.e("TAG", message)
+            }
+
+        }, customSettingDataListener, "0000", false
+    )
+```
+
+
+
+## Disconnect Device
+
+###### Interface
+
+```
+disconnectWatch(bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type              | Describe                       |
+| ---------------- | ----------------- | ------------------------------ |
+| bleWriteResponse | IBleWriteResponse | Listening for write operations |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().disconnectWatch {
+
+}
+```
+
+
+
+
+
+## Synchronize personal information
+
+The settings of height and weight will affect the calorie calculation results
+
+###### Interface
+
+```kotlin
+syncPersonInfo(bleWriteResponse, personInfoDataListener, personInfoData)
+```
+
+###### Parameter Explanation
+
+| Parameter name         | Type                    | Describe                                                     |
+| ---------------------- | ----------------------- | ------------------------------------------------------------ |
+| bleWriteResponse       | IBleWriteResponse       | Listening for write operations                               |
+| personInfoDataListener | IPersonInfoDataListener | The callback of personal information operation. The returned data only contains the status of the operation. |
+| personInfoData         | PersonInfoData          | Personal information data                                    |
+
+**PersonInfoData** --Personal information data
+
+| Parameter name | Type | Describe                    |
+| -------------- | ---- | --------------------------- |
+| ESex           | ESex | Gender                      |
+| height         | Int  | Height                      |
+| weight         | Int  | Weight                      |
+| age            | Int  | Age                         |
+| stepAim        | Int  | Target number of steps      |
+| sleepAim       | Int  | Target sleep time (minutes) |
+
+###### Return data
+
+**IPersonInfoDataListener** -- Callback for personal information operations
+
+```kotlin
+/**
+* Return the status of the operation
+*
+* @param EOprateStauts: OPRATE_SUCCESS: operation successful, OPRATE_FAIL: operation failed, UNKNOW: unknown
+*/
+fun OnPersoninfoDataChange(eOprateStauts:EOprateStauts)
+```
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().syncPersonInfo(writeResponse,
+    { EOprateStauts ->
+        val message = "syncPersonInfo:\n$EOprateStauts"
+
+    }, PersonInfoData(ESex.MAN, 178, 60, 20, 8000)
+)
+```
+
+
+
+
+
+## Language setting function
+
+###### Interface
+
+```kotlin
+settingDeviceLanguage(bleWriteResponse, languageDataListener, language)
+```
+
+###### Parameter Explanation
+
+| Parameter name       | Type                  | Describe                       |
+| -------------------- | --------------------- | ------------------------------ |
+| bleWriteResponse     | IBleWriteResponse     | Listening for write operations |
+| languageDataListener | ILanguageDataListener | Set language callback          |
+| language             | ELanguage             | Types of languages             |
+
+**ELanguage** Language Enumeration
+
+| Parameter name    | Describe             |
+| ----------------- | -------------------- |
+| CHINA             | Chinese Simplified   |
+| CHINA_TRADITIONAL | Chinese Traditional  |
+| ENGLISH           | English              |
+| JAPAN             | Japanese             |
+| KOREA             | Korean               |
+| DEUTSCH           | German               |
+| RUSSIA            | Russian              |
+| SPANISH           | Spanish              |
+| ITALIA            | Italian              |
+| FRENCH            | French               |
+| VIETNAM           | Vietnamese           |
+| PORTUGUESA        | Portuguese           |
+| THAI              | Thai                 |
+| POLISH            | Polish               |
+| SWEDISH           | Swedish              |
+| TURKISH           | Turkish              |
+| DUTCH             | Dutch                |
+| CZECH             | Czech                |
+| ARABIC            | Arabic               |
+| HUNGARY           | Hungarian            |
+| GREEK             | Greek                |
+| ROMANIAN          | Romanian             |
+| SLOVAK            | Slovak               |
+| INDONESIAN        | Indonesian           |
+| BRAZIL_PORTUGAL   | Brazilian Portuguese |
+| CROATIAN          | Croatian             |
+| LITHUANIAN        | Lithuanian           |
+| UKRAINE           | Ukrainian            |
+| HINDI             | Hindi                |
+| HEBREW            | Hebrew               |
+| DANISH            | Danish               |
+| PERSIAN           | Persian              |
+| FINNISH           | Finnish              |
+| MALAY             | Malay                |
+| UNKONW            | Unknown              |
+
+###### Return data
+
+**ILanguageDataListener** --Set language callback
+
+```kotlin
+/**
+* Returns the state of the language
+*
+* @param languageData language data
+*/
+fun onLanguageDataChange( languageData:LanguageData)
+```
+
+**languageData ** -- Language data
+
+| Parameter name | Type          | Describe                               |
+| -------------- | ------------- | -------------------------------------- |
+| stauts         | EOprateStauts | Status of the operation                |
+| language       | ELanguage     | Get the language of the current device |
+
+**Note:**
+
+[System language] &&[Female function prompt language] are not consistent on the device. Female function supports multiple languages, while system language is only Chinese and English. Therefore, the following normal situation may occur (on a device that only supports Chinese and English [System language], when setting Japanese, the device will prompt that Japanese setting is successful, and [System language] is still displayed as English, but [Female function prompt language] is Japanese)
+
+
+
+
+
+## Read current step count
+
+Read current step count. Step count involves distance and calorie calculations, which are related to height. Therefore, before reading step count, you should first call [[Synchronize Personal Information](#Synchronize Personal Information)] to set personal information
+
+**Note**: This refers to the device's step count, distance, and calories. The data returned by this interface is real-time, which is different from the number of steps in daily data. The number of steps in daily data is a summary every 5 minutes, which has a lag. If the application layer needs to synchronously obtain the number of steps on the device side, it needs to call this interface at a fixed frequency to obtain data.
+
+###### Interface
+
+```kotlin
+readSportStep(bleWriteResponse, sportDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name    | Type               | Describe                       |
+| ----------------- | ------------------ | ------------------------------ |
+| bleWriteResponse  | IBleWriteResponse  | Listening for write operations |
+| sportDataListener | ISportDataListener | Read motion data monitoring    |
+
+###### Return data
+
+**ISportDataListener** -- Read motion data monitoring
+
+```kotlin
+/**
+* Returns step counting data
+*
+* @param sportData Current sport data
+*/
+fun onSportDataChange(sportData:SportData)
+```
+
+**SportData** -- Current exercise data
+
+| Parameter name                  | Type   | Describe                                                     |
+| ------------------------------- | ------ | ------------------------------------------------------------ |
+| step                            | Int    | Current step count                                           |
+| dis                             | Double | Current distance in km                                       |
+| kcal                            | Double | Current calories in kcal                                     |
+| calcType                        | Int    | Calculation method, 0 indicates the traditional algorithm, 1 indicates the new algorithm formula, and 2 indicates the table of the motion mode table |
+| triaxialX, triaxialY, triaxialZ | Int    | Triaxial position                                            |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().readSportStep({
+    if (it != Code.REQUEST_SUCCESS) {
+        Log.e("Test", "write cmd failed")
+    }
+}) { sportData ->  }
+```
+
+
+
+
+
+## Read device power
+
+1. Special attention⚠️: The dial transmission and OTA process will consume a lot of power, and the power limit needs to be increased. When the watch battery is very low, if the dial transmission is initiated, the watch may shut down due to low power during the transmission process. After recharging, the dial will turn black. It is recommended to read the current power of the watch before each transmission. If the power status is low, the transmission is prohibited.
+
+The OTA process is long, and it is recommended that the battery power is above 30% before the upgrade is allowed.
+
+###### Prerequisites
+
+The device is connected
+
+###### Interface
+
+```kotlin
+readBattery(bleWriteResponse, batteryDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name      | Type                 | Describe                       |
+| ------------------- | -------------------- | ------------------------------ |
+| bleWriteResponse    | IBleWriteResponse    | Listening for write operations |
+| batteryDataListener | IBatteryDataListener | Read power monitoring          |
+
+###### Return data
+
+**IBatteryDataListener** -- Read power monitoring
+
+```kotlin
+/**
+ * 返回电量的数据
+ */
+fun onDataChange(batteryData:BatteryData)
+```
+
+**BatteryData** -- Power data
+
+| Parameter name | Type    | Describe                                                     |
+| -------------- | ------- | ------------------------------------------------------------ |
+| batteryLevel   | Int     | Current battery level of the device [1-4], 4 represents full power |
+| batteryPercent | Int     | Battery percentage [1-100]                                   |
+| powerModel     | Int     | Power mode: 0x00 normal, 0x01 charging state, 0x02 low voltage state, 0x03 full power state |
+| state          | Int     | Sleep state: 0 wake up 1 sleep                               |
+| bat            | Byte    | Current battery level of BAT                                 |
+| isLowBattery   | Boolean | Is the battery level low: 0x01 represents normal, 0x02 represents low battery |
+| isPercent      | Boolean | Whether the battery percentage can be displayed, true represents the battery level in batteryPercent, false represents the battery level in batteryLevel |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().readBattery({
+    if (it != Code.REQUEST_SUCCESS) { 
+        
+    }
+}, {
+    
+})
+```
+
+
+
+
+
+## Read daily data function
+
+#### Read health data（Sleep data + 5 minutes of original data)
+
+###### Interface
+
+If the watch stores data for 3 days, read all the health data in the order of [sleep data (today - yesterday - day before yesterday)] - [5 minutes of raw data (today - yesterday - day before yesterday)], then you can customize the position of the day and the position of the number of items for the raw data. For example, if you pass in [yesterday, 150], then the reading order is [sleep data (today - yesterday - day before yesterday)] - [5 minutes of raw data (yesterday (150) - day before yesterday)]
+
+```
+readAllHealthDataBySettingOrigin(allHealthDataListener,day,position,watchday)
+```
+
+###### Parameter Explanation
+
+| Parameter name        | Type                   | Describe                                                     |
+| --------------------- | ---------------------- | ------------------------------------------------------------ |
+| allHealthDataListener | IAllHealthDataListener | Callback for reading all data, returning the reading progress and health data: sleep data, step data [5 minutes, 30 minutes], heart rate data [5 minutes, 30 minutes], blood pressure data [5 minutes, 30 minutes] |
+| watchday              | Int                    | The data capacity that the watch can store (unit: day) depends on the device. After verifying the password, you can get the return value through getWatchday() in the IDeviceFuctionDataListener callback data FunctionDeviceSupportData. |
+| day                   | Int                    | Read the day, 0 means today, 1 means yesterday, 2 means the day before yesterday, and so on. |
+| position              | Int                    | The position of reading the number of records. The maximum number of records per day is 288 (5 minutes per record). You can define the position of the number of records to be read. The value of this parameter must be greater than or equal to 1. |
+
+###### Return data
+
+IAllHealthDataListener
+
+```kotlin
+/**
+* Read progress callback
+*
+* @param progress progress value, range [0-1]
+*/
+void onProgress(float progress);
+
+/**
+* Returns sleep data
+*
+* @param day indicates the day of the data being read 0: today, 1: yesterday, 2: the day before yesterday.
+* @param sleepData sleep data
+*/
+void onSleepDataChange(String day, SleepData sleepData);
+
+/**
+* callback for reading the end of sleep
+*/
+void onReadSleepComplete();
+
+/**
+* callback for reading 5 minutes of raw data
+*
+* @param originData 5 minutes of raw data
+*/
+void onOringinFiveMinuteDataChange(OriginData originData);
+
+/**
+* callback for 30 minutes of raw data, from 5 minutes of raw data, but data processing is done internally
+*
+* @param originHalfHourData
+*/
+void onOringinHalfHourDataChange(OriginHalfHourData originHalfHourData);
+
+/**
+* end of reading all data
+*/
+void onReadOriginComplete();
+```
+
+**SleepData** -- Sleep data
+
+| Parameter name | Type     | Describe                                                     |
+| -------------- | -------- | ------------------------------------------------------------ |
+| Date           | String   | Sleep date                                                   |
+| cali_flag      | Int      | Sleep calibration value, currently this value is useless     |
+| sleepQulity    | Int      | Sleep quality                                                |
+| wakeCount      | Int      | Number of times you wake up during sleep                     |
+| deepSleepTime  | Int      | Deep sleep duration (in min)                                 |
+| lowSleepTime   | Int      | Light sleep duration (in min)                                |
+| allSleepTime   | Int      | Total sleep duration                                         |
+| sleepLine      | String   | Sleep curve is mainly used to display sleep status in a more concrete UI. If your sleep interface has no special requirements for UI, you can ignore it. Sleep curve is divided into normal sleep and precise sleep. Normal sleep is a string composed of 0, 1, 2. Each character represents a duration of 5 minutes, where 0 represents light sleep, 1 represents deep sleep, and 2 represents awakening. For example, "201112" has a length of 6, which means a total of 30 minutes of sleep, 5 minutes of awakening at the beginning and end, 5 minutes of light sleep in the middle, and 15 minutes of deep sleep. For precise sleep, the sleep curve is a string composed of 0, 1, 2, 3, 4. Each character represents a duration of 1 minute, where 0 represents deep sleep, 1 represents light sleep, 2 represents rapid eye movement, 3 represents insomnia, and 4 represents awakening. |
+| sleepDown      | TimeData | Time to fall asleep                                          |
+| sleepUp        | TimeData | Time to wake up                                              |
+
+**OriginData** -- 5 minutes of original data
+
+| Parameter name  | Type     | Describe                                                     |
+| --------------- | -------- | ------------------------------------------------------------ |
+| date            | String   | Sleep date                                                   |
+| allPackage      | Int      | Total number of packages of data for the day                 |
+| packageNumber   | Int      | The location of this data on the day                         |
+| mTime           | TimeData | Precise time                                                 |
+| rateValue       | Int      | Heart rate value, range [30-200]                             |
+| sportValue      | Int      | Exercise value [0-65536], the larger the value, the more intense the exercise. It is divided into 5 levels, namely [0-220], [201-700], [701-1400], [1401-3200], [3201-65535] |
+| stepValue       | Int      | Step count value                                             |
+| highValue       | Int      | High pressure value, range [60-300]                          |
+| lowValue        | Int      | Low pressure value, range [20-200]                           |
+| wear            | Int      | Wear flag                                                    |
+| tempOne         | Int      | Reserved value                                               |
+| tempTwo         | Int      | Reserved value                                               |
+| calValue        | Double   | Calories consumed                                            |
+| disValue        | Double   | Total distance in km                                         |
+| calcType        | Int      | Calculation method: 0 indicates the traditional algorithm, 1 indicates the new algorithm formula, and 2 indicates the device in exercise mode |
+| drankPartOne    | String   | Temporarily reserved                                         |
+| baseTemperature | Double   | Body surface temperature, the value is valid when VpSpGetUtil.isSupportReadTempture && VpSpGetUtil.getTemperatureType == |
+| temperature     | Double   | Body temperature, the value is valid when VpSpGetUtil.isSupportReadTempture && VpSpGetUtil.getTemperatureType == |
+
+**OriginHalfHourData** -- half hour of original data
+
+| Parameter name     | Type                    | Describe                                                     |
+| ------------------ | ----------------------- | ------------------------------------------------------------ |
+| halfHourRateDatas  | List<HalfHourRateData>  | 30 minutes of heart rate data                                |
+| halfHourBps        | List<HalfHourBpData>    | 30 minutes of blood pressure data                            |
+| halfHourSportDatas | List<HalfHourSportData> | 30 minutes of exercise data                                  |
+| allStep            | Int                     | Total number of steps in the current 30 minutes (5*6) of raw data |
+| date               | String                  | Date ("yyyy-MM-dd HH:mm:ss)                                  |
+
+**HalfHourRateData** -- half hour of heart rate data
+
+| Parameter name | Type     | Describe                                                     |
+| -------------- | -------- | ------------------------------------------------------------ |
+| date           | String   | Date                                                         |
+| time           | TimeData | Specific time, up to the minute, such as 10:00 means the average value of the period 10:00-10:30 |
+| rateValue      | Int      | Heart rate value                                             |
+| ecgCount       | Int      | Total ecg counts                                             |
+| ppgCount       | Int      | Total ppg counts                                             |
+
+**HalfHourBpData**-- 30-minute blood pressure data
+
+| Parameter name | Type     | Describe                                                     |
+| -------------- | -------- | ------------------------------------------------------------ |
+| date           | String   | The date                                                     |
+| time           | TimeData | The specific time, which can be accurate to the minute at most. For example, 10:00 means the average value of the period from 10:00 to 10:30 |
+| highValue      | Int      | The highest blood pressure value                             |
+| lowValue       | Int      | The lowest blood pressure value                              |
+
+**HalfHourSportData** -- 30-minute sport data
+
+| Parameter name | Type     | Describe                                                     |
+| -------------- | -------- | ------------------------------------------------------------ |
+| date           | String   | Date                                                         |
+| time           | TimeData | Specific time, up to the minute, such as 10:00 means the average value of the period 10:00-10:30 |
+| sportValue     | Int      | Total exercise in 30 minutes                                 |
+| disValue       | Double   | Total distance in 30 minutes                                 |
+| calValue       | Double   | Total calories in 30 minutes                                 |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().readAllHealthData(object :IAllHealthDataListener{
+    override fun onProgress(progress: Float) {
+		
+    }
+
+    override fun onSleepDataChange(day: String?, sleepData: SleepData?) {
+
+    }
+
+    override fun onReadSleepComplete() {
+
+    }
+
+    override fun onOringinFiveMinuteDataChange(originData: OriginData?) {
+
+    }
+
+    override fun onOringinHalfHourDataChange(originHalfHourData: OriginHalfHourData?) {
+
+    }
+
+    override fun onReadOriginComplete() {
+
+    }
+
+},3)
+```
+
+
+
+#### Read daily data (5 minutes of original data)
+
+###### Interface
+
+If the watch stores data for 3 days, read the original data every 5 minutes, including steps, heart rate, blood pressure, exercise volume, and read in the order of today-yesterday-the day before yesterday. Theoretically, there are 288 data in one day.
+
+```kotlin
+readOriginData(bleWriteResponse, originDataListener, watchday)
+```
+
+Read the original data. This method allows you to customize which day to read and which record to start reading from, and whether to read only the current day.
+
+```
+readOriginDataBySetting(bleWriteResponse, originDataListener,readOriginSetting)
+```
+
+Read raw data. This method allows you to customize the reading date and the number of records to start reading to avoid duplicate reading. For example, if [yesterday, 150] is set, the reading order is [yesterday {150} - end of yesterday - the day before yesterday]
+
+```kotlin
+readOriginDataFromDay(bleWriteResponse, originDataListener, day, position, watchday)
+```
+
+Read the raw data of a single day. This method allows you to customize the day to read and the number of records to start reading from, and only read the current day. For example, if [yesterday, 150] is set, the reading order is [yesterday {150} - end of yesterday]
+
+```kotlin
+readOriginDataSingleDay(bleWriteResponse, originDataListener, day, position, watchday)
+```
+
+###### Parameter Explanation
+
+| Parameter name     | Type                                     | Describe                                                     |
+| ------------------ | ---------------------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse   | IBleWriteResponse                        | Listening for write operations                               |
+| originDataListener | IOriginDataListener/IOriginData3Listener | Callback of raw data. The returned data includes steps, heart rate, blood pressure, and exercise volume. |
+| watchday           | Int                                      | Data storage capacity of the watch (unit: day)               |
+| day                | Int                                      | Read position. 0 means today, 1 means yesterday, 2 means the day before yesterday, and so on. The reading order is today-yesterday-the day before yesterday |
+| position           | Int                                      | The number of read positions. This value must be greater than or equal to 1 |
+| readOriginSetting  | ReadOriginSetting                        | Read raw data settings                                       |
+
+Note: **When reading daily data, you need to determine the device protocol version. When the device protocol version is 3 or 5, you need to pass in IOriginData3Listener. In other cases, use IOriginDataListener**
+
+The judgment conditions are as follows:
+
+```kotlin
+val originProtocolVersion = VpSpGetUtil.getVpSpVariInstance(mContext).getOriginProtocolVersion()
+if(originProtocolVersion==3 || originProtocolVersion == 5){
+//Read daily data and use IOriginData3Listener for data monitoring
+}else{
+//Read daily data and use IOriginDataListener for data monitoring
+}
+```
+
+**ReadOriginSetting** -- Reading original data settings
+
+| Parameter name | Type    | Describe                                                     |
+| -------------- | ------- | ------------------------------------------------------------ |
+| day            | Int     | Read position, 0 means today, 1 means yesterday, 2 means the day before yesterday, and so on. The reading order is today-yesterday-the day before yesterday |
+| position       | Int     | The position of the number of reads, this value must be greater than or equal to 1 |
+| onlyReadOneDay | Boolean | true means read only today, false means read in order        |
+| watchday       | Int     | The number of days stored in the watch                       |
+
+###### Return data
+
+**IOriginDataListener** -- Daily data return monitoring
+
+```kotlin
+/**
+* Return 5 minutes of raw data
+*
+* @param originData 5 minutes of raw data
+*/
+fun onOringinFiveMinuteDataChange(originData:OriginData)
+
+/**
+* Return 30 minutes of raw data, the data comes from 5 minutes of raw data, but it is returned after internal processing
+*
+* @param originHalfHourData 30 minutes of raw data
+*/
+fun onOringinHalfHourDataChange(originHalfHourData:OriginHalfHourData )
+
+/***
+* Return the details of the reading. The location of this package needs to be remembered. When reading data next time, pass in the location of this package to avoid repeated reading
+*
+* @param day The flag of the data in the watch [0=today, 1=yesterday, 2=the day before yesterday]
+* @param date The date of the data, in the format of yyyy-mm-dd
+* @param allPackage The total number of packages of data on the day
+* @param currentPackage The location of this package
+*/
+fun onReadOriginProgressDetail(day: Int,date: String?,allPackage: Int,currentPackage: Int)
+
+/**
+* Returns the reading progress
+*
+* @param progress progress value, range [0-1]
+*/
+fun onReadOriginProgress(progress:Float)
+
+/**
+* Reading completed
+*/
+fun onReadOriginComplete();
+```
+
+**IOriginData3Listener** -- Daily data return listener (inherited from IOriginDataListener)
+
+```kotlin
+/**
+* This interface will be called back after the data reading for that day is completed. (An OriginData3 data represents a five-minute raw data, and a day is at most 24 hours * 60 minutes / 5 minutes = 288 five-minute raw data)
+* For example, reading three days of raw data will return a list of five-minute raw data from today, yesterday, and the day before yesterday.
+* Specifically, it depends on how many days of raw data are read. The interface will be called several times for each day of reading.
+*
+* @param originDataList returns a list of 5-minute data. The heart rate value is an array. The corresponding field is getPpgs(), not getRateValue().
+*/
+fun onOriginFiveMinuteListDataChange(originDataList:List<OriginData3>)
+
+/**
+* When the raw data of the day is finished reading, the five-minute raw data bureau list is counted to produce a 30-minute data list.
+*
+* @param originHalfHourDataList returns an object of 30-minute data.
+*/
+fun onOriginHalfHourDataChange(originHalfHourDataList:OriginHalfHourData)
+
+/**
+* After reading the original data of the day, the statistics are generated to generate the HRV data list of the day
+*
+* @param originHrvDataList returns a list of hrv data
+*/
+fun onOriginHRVOriginListDataChange(originHrvDataList:List<HRVOriginData>)
+
+/**
+* After reading the original data of the day, the statistics are generated to generate the blood oxygen data list of the day
+*
+* @param originSpo2hDataList returns a list of blood oxygen data
+*/
+fun onOriginSpo2OriginListDataChange(originSpo2hDataList:List<Spo2hOriginData>)
+```
+
+**OriginData3** -- 5-minute daily data (inherited from OriginData, with more data returned)
+
+| Parameter name | Type           | Describe                                   |
+| -------------- | -------------- | ------------------------------------------ |
+| gesture        | IntArray       | Wearing gesture type                       |
+| ppgs           | IntArray       | 5-minute pulse rate value                  |
+| ecgs           | IntArray       | 5-minute heart rate value                  |
+| resRates       | IntArray       | 5-minute respiration rate value            |
+| sleepStates    | IntArray       | 5-minute sleep state value                 |
+| oxygens        | IntArray       | 5-minute blood oxygen value                |
+| apneaResults   | IntArray       | Apnea times array                          |
+| hypoxiaTimes   | IntArray       | Hypoxia time array                         |
+| cardiacLoads   | IntArray       | Cardiac load array                         |
+| isHypoxias     | IntArray       | Apnea results array                        |
+| corrects       | IntArray       | Blood oxygen correction value string array |
+| bloodGlucose   | Int            | Blood glucose value                        |
+| bloodComponent | BloodComponent | Blood components                           |
+| met            | float          | met value                                  |
+| pressure       | int            | pressure value                             |
+
+**BloodComponent** --Blood components
+
+| Parameter name | Type  | Describe                                                     |
+| -------------- | ----- | ------------------------------------------------------------ |
+| uricAcid       | Float | Uric acid value: unit μmol/L, value range [90.0, 1000.0], reported value range [900, 10000] |
+| tCHO           | Float | Total cholesterol: unit mmol/L, value range [0.01, 100.00], reported value range [1, 10000] |
+| tAG            | Float | Triglyceride: unit mmol/L, value range [0.01, 100.00]        |
+| hDL            | Float | High-density lipoprotein: unit mmol/L, value range [0.01, 100.00] |
+| lDL            | Float | Low-density lipoprotein: unit mmol/L, value range [0.01, 100.00] |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().readOriginData({
+                                              
+},object :IOriginDataListener{
+    override fun onReadOriginProgressDetail(
+        day: Int,
+        date: String?,
+        allPackage: Int,
+        currentPackage: Int
+    ) {
+    }
+
+    override fun onReadOriginProgress(progress: Float) {
+    }
+
+    override fun onReadOriginComplete() {
+    }
+
+    override fun onOringinFiveMinuteDataChange(originData: OriginData?) {
+    }
+
+    override fun onOringinHalfHourDataChange(originHalfHourData: OriginHalfHourData?) {
+    }
+
+},3)
+```
+
+
+
+
+
+## Personalization
+
+#### Read Personalization Settings
+
+Read Personalization Settings,Personalized settings include the metric system function, the metric system switch status, the time system status, the automatic heart rate detection switch status, the automatic blood pressure detection switch status, etc.
+
+```kotlin
+readCustomSetting(bleWriteResponse,customSettingDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name            | Type                       | Describe                                                     |
+| ------------------------- | -------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse          | IBleWriteResponse          | Listening for write operations                               |
+| customSettingDataListener | ICustomSettingDataListener | Listen to the personalized settings operation and return the personalized settings data |
+
+###### Return data
+
+ICustomSettingDataListener
+
+```kotlin
+/**
+* Returns the personalized setting data
+*
+* @param customSettingData Personalized setting data
+*/
+fun OnSettingDataChange(customSettingData: CustomSettingData?)
+```
+
+**CustomSettingData**
+
+| Parameter name        | Type              | Describe                                                     |
+| --------------------- | ----------------- | ------------------------------------------------------------ |
+| status                | ECustomStatus     | Get the status of the operation                              |
+| is24Hour              | boolean           | Is the time format 24 hours?                                 |
+| metricSystem          | EFunctionStatus   | Metric and imperial: [SUPPORT_OPEN for metric, SUPPORT_CLOSE for imperial, UNSOUPRT for unsupported] |
+| autoHeartDetect       | EFunctionStatus   | Automatic heart rate measurement                             |
+| autoBpDetect          | EFunctionStatus   | Automatic blood pressure detection                           |
+| sportOverRemain       | EFunctionStatus   | Excessive exercise reminder                                  |
+| voiceBpHeart          | EFunctionStatus   | Blood pressure/heart rate broadcast                          |
+| findPhoneUi           | EFunctionStatus   | Control the search for mobile phone UI                       |
+| secondsWatch          | EFunctionStatus   | Stopwatch                                                    |
+| lowSpo2hRemain        | EFunctionStatus   | Low oxygen alarm                                             |
+| skin                  | EFunctionStatus   | Skin color function                                          |
+| autoHrv               | EFunctionStatus   | HRV automatic detection                                      |
+| autoIncall            | EFunctionStatus   | Automatic answering of incoming calls                        |
+| disconnectRemind      | EFunctionStatus   | Disconnection reminder                                       |
+| SOS                   | EFunctionStatus   | SOS                                                          |
+| ppg                   | EFunctionStatus   | ppg function: automatic pulse rate monitoring--> scientific sleep--> ppg |
+| musicControl          | EFunctionStatus   | Music control                                                |
+| longClickLockScreen   | EFunctionStatus   | Long press lock screen                                       |
+| messageScreenLight    | EFunctionStatus   | Message screen light function                                |
+| autoTemperatureDetect | EFunctionStatus   | Automatic temperature detection                              |
+| temperatureUnit       | ETemperatureUnit  | Temperature unit setting                                     |
+| ecgAlwaysOpen         | EFunctionStatus   | ecg always open                                              |
+| bloodGlucoseDetection | EFunctionStatus   | Blood glucose detection                                      |
+| METDetect             | EFunctionStatus   | MET detection                                                |
+| stressDetect          | EFunctionStatus   | Stress detection                                             |
+| bloodGlucoseUnit      | EBloodGlucoseUnit | Blood glucose unit                                           |
+| skinLevel             | Int               | Skin color level                                             |
+| bloodComponentDetect  | EFunctionStatus   | Blood component switch                                       |
+| uricAcidUnit          | EUricAcidUnit     | Uric acid unit                                               |
+| bloodFatUnit          | EBloodFatUnit     | Blood fat unit                                               |
+
+**EBloodGlucoseUnit**
+
+| Parameter name | Describe                                                 |
+| -------------- | -------------------------------------------------------- |
+| NONE           | No unit, indicating that unit settings are not supported |
+| mmol_L         | mmol/L                                                   |
+| mg_dl          | mg/dl                                                    |
+
+**EUricAcidUnit**
+
+| Parameter name | Describe                                                 |
+| -------------- | -------------------------------------------------------- |
+| NONE           | No unit, indicating that unit settings are not supported |
+| umol_L         | umol/L                                                   |
+| mg_dl          | mg/dl                                                    |
+
+**EBloodFatUnit**
+
+| Parameter name | Describe                                                 |
+| -------------- | -------------------------------------------------------- |
+| NONE           | No unit, indicating that unit settings are not supported |
+| mmol_L         | mmol/L                                                   |
+| mg_dl          | mg/dl                                                    |
+
+**ETemperatureUnit**
+
+| Parameter name | Describe                                                 |
+| -------------- | -------------------------------------------------------- |
+| NONE           | No unit, indicating that unit settings are not supported |
+| CELSIUS        | Celsius                                                  |
+| FAHRENHEIT     | Fahrenheit                                               |
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().readCustomSetting({
+
+},object :ICustomSettingDataListener{
+    override fun OnSettingDataChange(customSettingData: CustomSettingData?) {
+
+    }
+
+})
+```
+
+
+
+#### Modify personalization settings
+
+Modify personalization settings,Personalized settings include the metric system function, the metric system switch status, the time system status, the automatic heart rate detection switch status, the automatic blood pressure detection switch status, etc.
+
+```kotlin
+changeCustomSetting(bleWriteResponse, customSettingDataListener, customSetting)
+```
+
+###### Parameter Explanation
+
+| Parameter name            | Type                       | Describe                                                     |
+| ------------------------- | -------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse          | IBleWriteResponse          | Listening for write operations                               |
+| customSettingDataListener | ICustomSettingDataListener | Listen to the personalized settings operation and return the personalized settings data |
+| customSetting             | CustomSetting              | Personalized settings data                                   |
+
+**CustomSetting**
+
+| Parameter name              | Type              | Describe                                                     |
+| --------------------------- | ----------------- | ------------------------------------------------------------ |
+| isHaveMetricSystem          | boolean           | Set the function status of the metric system. Return true to indicate that this function is available and the metric system can be set; return false to indicate that this function is not available and the metric system cannot be set |
+| isMetricSystem              | boolean           | Set the value of the metric system. Return true to indicate the metric system and return false to indicate the imperial system. The device language must be set to [English or Traditional] to reflect the imperial system |
+| is24Hour                    | boolean           | Set the value of the time system. Return true to indicate the 24-hour system and false to indicate the 12-hour system |
+| isOpenAutoHeartDetect       | boolean           | Set the status of automatic heart rate measurement. Return true to indicate that the automatic heart rate measurement function is turned on and return false to indicate that the automatic heart rate measurement function is turned off |
+| isOpenAutoBpDetect          | boolean           | Set the status of automatic blood pressure measurement. Return true to indicate that the automatic blood pressure measurement function is turned on and return false to indicate that the automatic blood pressure measurement function is turned off |
+| temperatureUnit             | ETemperatureUnit  | Set the temperature unit                                     |
+| isOpenSportRemain           | EFunctionStatus   | Set the status of excessive exercise, SUPPORT_OPEN means the excessive exercise reminder function is turned on, SUPPORT_CLOSE means the excessive exercise reminder function is turned off; UNSUPPORT means not supported |
+| isOpenVoiceBpHeart          | EFunctionStatus   | Set the status of heart rate/blood oxygen/blood pressure, SUPPORT_OPEN means the heart rate/blood oxygen/blood pressure broadcast function is turned on, SUPPORT_CLOSE means the heart rate/blood oxygen/blood pressure broadcast function is turned off; UNSUPPORT means not supported |
+| isOpenFindPhoneUI           | EFunctionStatus   | Set the status of mobile phone search, SUPPORT_OPEN means the mobile phone search function is turned on, SUPPORT_CLOSE means the mobile phone search function is turned off; UNSUPPORT means not supported |
+| isOpenStopWatch             | EFunctionStatus   | Set whether to turn on the stopwatch function, SUPPORT_OPEN means the stopwatch function is turned on, SUPPORT_CLOSE means the stopwatch function is turned off; UNSUPPORT means not supported |
+| isOpenSpo2hLowRemind        | EFunctionStatus   | Set low oxygen reminder, SUPPORT_OPEN means low oxygen reminder function is turned on, SUPPORT_CLOSE means low oxygen reminder function is turned off; UNSUPPORT means not supported |
+| isOpenWearDetectSkin        | EFunctionStatus   | Set skin color wear monitoring, SUPPORT_OPEN means white skin color, SUPPORT_CLOSE means black skin color; UNSUPPORT means not supported |
+| skinType                    | Int               | Skin color level setting, range 0-6, gradually increasing from white skin color to black skin color. Only set when VpSpGetUtil.getVpSpVariInstance(mContext).getSkinType() == 2, other skin color type settings are invalid |
+| isOpenAutoHRV               | EFunctionStatus   | Set HRV automatic detection function                         |
+| isOpenAutoInCall            | EFunctionStatus   | Set automatic answer call function                           |
+| isOpenDisconnectRemind      | EFunctionStatus   | Set disconnection reminder function                          |
+| isOpenSOS                   | EFunctionStatus   | Set SOS function                                             |
+| isOpenAutoTemperatureDetect | EFunctionStatus   | Set body temperature automatic detection function            |
+| ecgAlwaysOpen               | EFunctionStatus   | Set ecg normally open function                               |
+| METDetect                   | EFunctionStatus   | Set met detection function                                   |
+| stressDetect                | EFunctionStatus   | Set stress detection function                                |
+| isOpenPPG                   | EFunctionStatus   | Set ppg function, ppg switch is also a precise sleep switch  |
+| isOpenMusicControl          | EFunctionStatus   | Set music control function                                   |
+| isOpenLongClickLockScreen   | EFunctionStatus   | Set long press lock screen                                   |
+| isOpenMessageScreenLight    | EFunctionStatus   | Set message screen light                                     |
+| isOpenBloodGlucoseDetect    | EFunctionStatus   | Set blood sugar automatic detection function                 |
+| bloodGlucoseUnit            | EBloodGlucoseUnit | Set blood sugar unit                                         |
+| isOpenBloodComponentDetect  | EFunctionStatus   | Blood component automatic detection function                 |
+| uricAcidUnit                | EUricAcidUnit     | Uric acid unit setting                                       |
+| bloodFatUnit                | EBloodFatUnit     | Blood fat unit settings                                      |
+
+Note: **If you want to set a function on or off, you need to read Personalization Settings first to determine whether the function is supported. If it is supported, you can set the on/off status. If it is not supported, you still need to send the unsupported command. **
+
+###### Return data
+
+ICustomSettingDataListener  Same as the data returned by [[Read Personalization Settings](#Read Personalization Settings-readCustomSetting)]
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().changeCustomSetting({
+
+},object :ICustomSettingDataListener{
+    override fun OnSettingDataChange(customSettingData: CustomSettingData?) {
+
+    }
+
+},customSetting)
+```
+
+
+
+
+
+## Flip wrist to light up the screen
+
+#### Premise
+
+The device must support the wrist-turning screen-lighting function, and the judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportNightturnSetting
+```
+
+#### Read wrist flip screen
+
+The device needs to support the wrist-turning screen-lighting function
+
+###### Interface
+
+```
+readNightTurnWriste(bleWriteResponse, nightTurnWristeDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name              | Type                         | Describe                                                |
+| --------------------------- | ---------------------------- | ------------------------------------------------------- |
+| bleWriteResponse            | IBleWriteResponse            | Listening for write operations                          |
+| nightTurnWristeDataListener | INightTurnWristeDataListener | Flip your wrist to light up the screen and monitor data |
+
+###### Return data
+
+**INightTurnWristeDataListener** -- Flip your wrist to light up the screen and monitor data
+
+```kotlin
+/**
+* Returns the data of turning the wrist to light up the screen [also known as raising the hand to light up the screen]
+*
+* @param nightTurnWristeData Data of raising the hand to light up the screen
+*/
+fun onNightTurnWristeDataChange(nightTurnWristeData:NightTurnWristeData)
+```
+
+**NightTurnWristeData** -- Data on screen lighting when hand is raised
+
+| Parameter name             | Type                   | Describe                                                    |
+| -------------------------- | ---------------------- | ----------------------------------------------------------- |
+| OprateStauts               | ENightTurnWristeStatus | Status of wrist-turning screen lighting                     |
+| isSupportCustomSettingTime | Boolean                | Whether to support custom time settings, true means support |
+| nightTureWirsteStatusOpen  | Boolean                | Whether wrist-turning screen lighting is turned on          |
+| startTime                  | TimeData               | Start time                                                  |
+| endTime                    | TimeData               | End time                                                    |
+| level                      | Int                    | Sensitivity level                                           |
+| defaultLevel               | Int                    | Default level                                               |
+
+**ENightTurnWristeStatus** -- Status
+
+| Parameter name | Type           |
+| -------------- | -------------- |
+| SUCCESS        | Success        |
+| FAIL           | Failure        |
+| UNKONW         | Unknown status |
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().readNightTurnWriste({
+    if (it != Code.REQUEST_SUCCESS) {
+        // "write cmd failed"
+    }
+}, { nightTurnWristeData ->
+    //success
+})
+```
+
+
+
+#### Set the screen to turn on by wrist flip
+
+The device needs to support the wrist-turning screen-lighting function
+
+###### Interface
+
+```
+settingNightTurnWriste(IBleWriteResponse bleWriteResponse, INightTurnWristeDataListener nightTurnWristeDataListener, NightTurnWristSetting nightTurnWristSetting)
+```
+
+###### Parameter Explanation
+
+| Parameter name              | Type                         | Describe                            |
+| --------------------------- | ---------------------------- | ----------------------------------- |
+| bleWriteResponse            | IBleWriteResponse            | Listening for write operations      |
+| nightTurnWristeDataListener | INightTurnWristeDataListener | Wrist-turning screen data listening |
+| nightTurnWristSetting       | NightTurnWristSetting        | Wrist-turning screen setting        |
+
+**NightTurnWristSetting** -- Wrist-turn screen-on setting
+
+| Parameter name | Type     | Describe                                      |
+| -------------- | -------- | --------------------------------------------- |
+| isOpen         | Boolean  | Is it open?                                   |
+| startTime      | TimeData | Start time                                    |
+| endTime        | TimeData | End time                                      |
+| level          | Int      | Wrist flip level: range [1-10.], default is 5 |
+
+###### Return data
+
+Same as the data returned by [[Read wrist flip screen](#Read wrist flip screen)]
+
+###### Example Code
+
+```kotlin
+//kotlin code
+val nightTurnWristSetting = NightTurnWristSetting(
+    true,
+    TimeData(20, 0), TimeData
+        (8, 0), 5
+)
+VPOperateManager.getInstance().settingNightTurnWriste({
+    if (it != Code.REQUEST_SUCCESS) {
+
+    }
+}, {
+
+}, nightTurnWristSetting)
+```
+
+
+
+
+
+## Screen adjustment function
+
+#### Premise
+
+The device needs to support the screen adjustment function. The judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportScreenlight
+```
+
+
+
+#### Read screen adjustment data
+
+Need to support screen adjustment function
+
+###### Interface
+
+```kotlin
+readScreenLight(bleWriteResponse, screenLightListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name      | Type                 | Describe                          |
+| ------------------- | -------------------- | --------------------------------- |
+| bleWriteResponse    | IBleWriteResponse    | Listening for write operations    |
+| screenLightListener | IScreenLightListener | Screen adjustment data monitoring |
+
+###### Return data
+
+**IScreenLightListener** -- Screen adjustment data monitoring
+
+```kotlin
+/**
+ * 屏幕亮度调节的回调
+ *
+ * @param screenLightData
+ */
+fun onScreenLightDataChange(screenLightData:ScreenLightData);
+```
+
+**ScreenLightData** -- Screen adjustment data
+
+| Parameter name | Type          | Describe                  |
+| -------------- | ------------- | ------------------------- |
+| status         | EScreenLight  | Operational Status        |
+| screenSetting  | ScreenSetting | Screen brightness setting |
+
+**EScreenLight** -- Operational Status
+
+| Parameter name  | Describe        |
+| --------------- | --------------- |
+| SETTING_SUCCESS | Setting success |
+| SETTING_FAIL    | Setting failure |
+| READ_SUCCESS    | Read success    |
+| READ_FAIL       | Read failure    |
+| UNKONW          | Unknown status  |
+
+**ScreenSetting** -- Screen brightness setting
+
+| Parameter name | Type | Describe                                                  |
+| -------------- | ---- | --------------------------------------------------------- |
+| startHour      | Int  | Hour when the first gear starts to work                   |
+| startMinute    | Int  | Minute when the first gear starts to work                 |
+| endHour        | Int  | Hour when the first gear ends to work                     |
+| endMinute      | Int  | Minute when the first gear ends to work                   |
+| level          | Int  | Set the first gear of the time period                     |
+| otherLeverl    | Int  | Brightness level of other time periods                    |
+| auto           | Int  | Automatic adjustment: 1 automatic 2 manual 0 old protocol |
+| maxLevel       | Int  | Maximum brightness adjustment level                       |
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().readScreenLight(
+    writeResponse
+) { screenLightData ->
+    val message = "屏幕调节数据-读取:$screenLightData"
+}
+```
+
+
+
+#### Setting screen adjustment data
+
+The device must support screen adjustment
+
+###### Interface
+
+```kotlin
+settingScreenLight(bleWriteResponse, screenLightListener, screensetting)
+```
+
+###### Parameter Explanation
+
+| Parameter name      | Type                 | Describe                         |
+| ------------------- | -------------------- | -------------------------------- |
+| bleWriteResponse    | IBleWriteResponse    | Listening for write operations   |
+| screenLightListener | IScreenLightListener | Screen adjustment data listening |
+| screensetting       | ScreenSetting        | Screen setting parameters        |
+
+###### Return data
+
+The same data as returned by [[Read screen adjustment data](#Read screen adjustment data)]
+
+###### Example Code
+
+```kotlin
+//The default setting is [22:00-07:00] is set to level 2, and other times are set to level 4. Users can customize
+VPOperateManager.getInstance().settingScreenLight(writeResponse,
+{ screenLightData ->
+val message = "Screen adjustment data-setting: $screenLightData"
+}, ScreenSetting(22, 0, 7, 0, 2, 4)
+)
+```
+
+
+
+
+
+## Screen brightness duration function
+
+#### Premise
+
+The device needs to support the screen brightness and duration adjustment function. The judgment code is as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportScreenlightTime
+```
+
+#### Read the screen on time
+
+The device needs to support the screen on time adjustment function
+
+###### Interface
+
+```kotlin
+readScreenLightTime(bleWriteResponse, screenLightTimeListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name          | Type                     | Describe                       |
+| ----------------------- | ------------------------ | ------------------------------ |
+| bleWriteResponse        | IBleWriteResponse        | Listening for write operations |
+| screenLightTimeListener | IScreenLightTimeListener | Monitor screen on time         |
+
+###### Return data
+
+**IScreenLightTimeListener** -- Monitor screen on time
+
+```kotlin
+/**
+ * 屏幕亮屏时长的回调
+ *
+ * @param screenLightTimeData
+ */
+fun onScreenLightTimeDataChange(screenLightTimeData:ScreenLightTimeData)
+```
+
+**screenLightTimeData** --Screen on time data
+
+| Parameter name    | Type             | Describe             |
+| ----------------- | ---------------- | -------------------- |
+| screenLightState  | EScreenLightTime | callback status      |
+| currentDuration   | Int              | current duration     |
+| recommendDuration | Int              | recommended duration |
+| maxDuration       | Int              | maximum duration     |
+| minDuration       | Int              | minimum duration     |
+
+**EScreenLightTime** -- Callback status
+
+| Parameter name  | Describe        |
+| --------------- | --------------- |
+| SETTING_SUCCESS | Setting success |
+| SETTING_FAIL    | Setting failure |
+| READ_SUCCESS    | Read success    |
+| READ_FAIL       | Read failure    |
+| UNKONW          | Unknown status  |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance()
+    .readScreenLightTime(writeResponse, object : IScreenLightTimeListener {
+        override fun onScreenLightTimeDataChange(screenLightTimeData: ScreenLightTimeData?) {
+        
+        }
+    }
+    )
+```
+
+
+
+#### Set the screen on time
+
+The device needs to support screen brightness and duration adjustment function
+
+###### Interface
+
+```kotlin
+setScreenLightTime(IBleWriteResponse bleWriteResponse, IScreenLightTimeListener screenLightTimeListener, int time) 
+```
+
+###### Parameter Explanation
+
+| Parameter name          | Type                     | Describe                             |
+| ----------------------- | ------------------------ | ------------------------------------ |
+| bleWriteResponse        | IBleWriteResponse        | Listening for write operations       |
+| screenLightTimeListener | IScreenLightTimeListener | Listening for screen light duration  |
+| time                    | Int                      | Screen light duration, unit: seconds |
+
+###### Return data
+
+Same as the data returned by [[Read the screen on time](#Read the screen on time)]
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance()
+    .setScreenLightTime(
+        writeResponse, object : IScreenLightTimeListener {
+            override fun onScreenLightTimeDataChange(screenLightTimeData: ScreenLightTimeData?) {
+
+            }
+        }, 10
+    )
+```
+
+
+
+
+
+## Health reminder
+
+#### Read health reminders
+
+###### Interface
+
+```kotlin
+readHealthRemind(healthRemindType, listener, bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                  | Describe                      |
+| ---------------- | --------------------- | ----------------------------- |
+| healthRemindType | HealthRemindType      | Health reminder type          |
+| listener         | IHealthRemindListener | Health reminder data listener |
+| bleWriteResponse | IBleWriteResponse     | Write operation listener      |
+
+**HealthRemindType** --- Health reminder type
+
+| Parameter name | Describe      |
+| -------------- | ------------- |
+| ALL            | All reminders |
+| SEDENTARY      | Sedentary     |
+| DRINK_WATER    | Drink water   |
+| OVERLOOK       | Overlook      |
+| SPORTS         | Sports        |
+| TAKE_MEDICINE  | Take medicine |
+| READING        | Reading       |
+| GOING_OUT      | Going out     |
+| WASH           | Wash hands    |
+
+###### Return data
+
+**IHealthRemindListener** -- Health reminder data monitoring
+
+```kotlin
+/**
+* This function is not supported
+*/
+fun functionNotSupport()
+
+/**
+* Health reminder read callback
+* @param healthRemind health reminder
+*/
+fun onHealthRemindRead(healthRemind: HealthRemind)
+
+/**
+* Health reminder read failed
+*/
+fun onHealthRemindReadFailed()
+
+/**
+* Health reminder active reporting callback
+* @param healthRemind health reminder
+*/
+fun onHealthRemindReport(healthRemind: HealthRemind)
+
+/**
+* Health reminder active reporting failed
+*/
+fun onHealthRemindReportFailed()
+
+/**
+* Health reminder setting success
+* @param healthRemind health reminder
+*/
+fun onHealthRemindSettingSuccess(healthRemind: HealthRemind)
+
+/**
+* Health reminder setting failed
+* @param healthRemindType Setting failed health reminder type
+*/
+fun onHealthRemindSettingFailed(healthRemindType: HealthRemindType)
+```
+
+**HealthRemind** -- Health Remind
+
+| Parameter name | Type             | Describe             |
+| -------------- | ---------------- | -------------------- |
+| remindtype     | HealthRemindType | Health reminder type |
+| startTime      | TimeData         | Reminder start time  |
+| endTime        | TimeData         | Reminder end time    |
+| interval       | Int              | Reminder interval    |
+| status         | Boolean          | Status               |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance()
+    .readHealthRemind(HealthRemindType.ALL, object : IHealthRemindListener {
+        override fun functionNotSupport() {
+        }
+
+        override fun onHealthRemindRead(healthRemind: HealthRemind) {
+        }
+
+        override fun onHealthRemindReadFailed() {
+        }
+
+        override fun onHealthRemindReport(healthRemind: HealthRemind) {
+        }
+
+        override fun onHealthRemindReportFailed() {
+        }
+
+        override fun onHealthRemindSettingSuccess(healthRemind: HealthRemind) {
+        }
+
+        override fun onHealthRemindSettingFailed(healthRemindType: HealthRemindType) {
+        }
+
+    }, {
+        
+    })
+```
+
+
+
+#### Set health reminders
+
+###### Interface
+
+```kotlin
+settingHealthRemind(healthRemind, listener, bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                  | Describe                      |
+| ---------------- | --------------------- | ----------------------------- |
+| healthRemind     | HealthRemind          | Health Reminder               |
+| listener         | IHealthRemindListener | Health Reminder Data Listener |
+| bleWriteResponse | IBleWriteResponse     | Write Operation Listener      |
+
+###### Return data
+
+**IHealthRemindListener** Same as [[Read health reminders](#Read health reminders)]
+
+###### Example Code
+
+```kotlin
+//kotlin code
+val healthRemind =
+    HealthRemind(HealthRemindType.ALL, TimeData(8, 0), TimeData(20, 0), 20, true)
+VPOperateManager.getInstance()
+    .settingHealthRemind(healthRemind, object : IHealthRemindListener {
+        override fun functionNotSupport() {
+        }
+
+        override fun onHealthRemindRead(healthRemind: HealthRemind) {
+        }
+
+        override fun onHealthRemindReadFailed() {
+        }
+
+        override fun onHealthRemindReport(healthRemind: HealthRemind) {
+        }
+
+        override fun onHealthRemindReportFailed() {
+        }
+
+        override fun onHealthRemindSettingSuccess(healthRemind: HealthRemind) {
+        }
+
+        override fun onHealthRemindSettingFailed(healthRemindType: HealthRemindType) {
+        }
+
+    }) {
+        
+    }
+```
+
+
+
+
+
+## Heart rate function
+
+#### Start manual heart rate measurement-startDetectHeart
+
+```kotlin
+startDetectHeart(bleWriteResponse,heartDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name    | Type               | Describe                            |
+| ----------------- | ------------------ | ----------------------------------- |
+| bleWriteResponse  | IBleWriteResponse  | Listening for write operations      |
+| heartDataListener | IHeartDataListener | Listener for heart rate data return |
+
+###### Return data
+
+**IHeartDataListener**
+
+```kotlin
+/**
+* Return heart rate data
+*
+* @param heartData heart rate data
+*/
+fun onDataChange(heartData:HeartData);
+```
+
+**HeartData**
+
+| Parameter name | Type         | Describe                                                     |
+| -------------- | ------------ | ------------------------------------------------------------ |
+| data           | Int          | Get heart rate value, range [20-300]                         |
+| heartStatus    | EHeartStatus | The status that the device may return when measuring heart rate |
+
+**EHeartStatus**
+
+| Parameter name         | Describe                        |
+| ---------------------- | ------------------------------- |
+| STATE_INIT             | Initialization                  |
+| STATE_HEART_BUSY       | Device is busy                  |
+| STATE_HEART_DETECT     | Device is detecting             |
+| STATE_HEART_WEAR_ERROR | Detecting, but wearing is wrong |
+| STATE_HEART_NORMAL     | Detecting                       |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().startDetectHeart({
+
+},object :IHeartDataListener{
+    override fun onDataChange(heartData: HeartData?) {
+        
+    }
+
+})
+```
+
+
+
+#### End manual heart rate measurement-stopDetectHeart
+
+```
+stopDetectHeart(bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type              | Describe                       |
+| ---------------- | ----------------- | ------------------------------ |
+| bleWriteResponse | IBleWriteResponse | Listening for write operations |
+
+###### Return data
+
+None
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().stopDetectHeart(){
+    
+}
+```
+
+
+
+#### Set Heart Rate Alarm-settingHeartWarning
+
+```kotlin
+settingHeartWarning(bleWriteResponse, heartWaringDataListener, heartWaringSetting)
+```
+
+###### Parameter Explanation
+
+| Parameter name          | Type                     | Describe                       |
+| ----------------------- | ------------------------ | ------------------------------ |
+| bleWriteResponse        | IBleWriteResponse        | Listening for write operations |
+| heartWaringDataListener | IHeartWaringDataListener | Heart rate alarm callback      |
+| heartWaringSetting      | HeartWaringSetting       | Heart rate alarm settings      |
+
+**HeartWaringSetting**
+
+| Parameter name | Type    | Describe                            |
+| -------------- | ------- | ----------------------------------- |
+| heartHigh      | Int     | Upper limit of heart rate alarm     |
+| heartLow       | Int     | Lower limit of heart rate alarm     |
+| isOpen         | boolean | true means open, false means closed |
+
+###### Return data
+
+IHeartWaringDataListener
+
+```kotlin
+/**
+* Returns the heart rate alarm data
+*
+* @param heartWaringData Heart rate alarm data
+*/
+fun onHeartWaringDataChange(heartWaringData:HeartWaringData);
+```
+
+**HeartWaringData**
+
+| Parameter name | Type               | Describe                                                |
+| -------------- | ------------------ | ------------------------------------------------------- |
+| status         | EHeartWaringStatus | Upper limit of heart rate alarm                         |
+| ...            | --                 | Other parameters are the same as **HeartWaringSetting** |
+
+**EHeartWaringStatus**
+
+| Parameter name | Describe           |
+| -------------- | ------------------ |
+| OPEN_SUCCESS   | Open successfully  |
+| OPEN_FAIL      | Open failed        |
+| CLOSE_SUCCESS  | Close successfully |
+| CLOSE_FAIL     | Close failed       |
+| READ_SUCCESS   | Read successfully  |
+| READ_FAIL      | Read failed        |
+| UNSUPPORT      | Unsupported        |
+| UNKONW         | Unknown            |
+
+###### Example Code
+
+```kotlin
+// kotlin code
+val heartWaringSetting = HeartWaringSetting(120,40,true)
+VPOperateManager.getInstance().settingHeartWarning({
+
+},object :IHeartWaringDataListener{
+    override fun onHeartWaringDataChange(heartWaringData: HeartWaringData?) {
+        
+    }
+
+},heartWaringSetting)
+```
+
+
+
+#### Read Heart Rate Alarm-readHeartWarning
+
+```kotlin
+readHeartWarning(bleWriteResponse,heartWaringDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name          | Type                     | Describe                       |
+| ----------------------- | ------------------------ | ------------------------------ |
+| bleWriteResponse        | IBleWriteResponse        | Listening for write operations |
+| heartWaringDataListener | IHeartWaringDataListener | Heart Rate Alarm Callback      |
+
+###### Return data
+
+IHeartWaringDataListener is the same as [Set Heart Rate Alarm-settingHeartWarning](#Set Heart Rate Alarm-settingHeartWarning)
+###### Example Code
+
+```kotlin
+// kotlin code
+VPOperateManager.getInstance().readHeartWarning({
+
+},object :IHeartWaringDataListener{
+    override fun onHeartWaringDataChange(heartWaringData: HeartWaringData?) {
+
+    }
+
+})
+```
+
+
+
+#### Read daily heart rate data
+
+In [Read daily data function](#Read daily data function), the daily heart rate data will be returned.
+
+#### Heart rate detection switch
+
+In [Modify personalization settings](#Modify personalization settings-changeCustomSetting), you can set the heart rate detection switch.
+
+## Body temperature function
+
+#### Premise
+
+Before using the body temperature function, you need to determine whether the device supports the body temperature function. After confirming that the setting supports the body temperature function, you can use the body temperature function related interfaces
+
+Judgment conditions:
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportReadTempture
+```
+
+
+
+#### Start manual temperature measurement
+
+###### Premise
+
+1. The device must support body temperature;
+
+2. The device must support body temperature measurement.
+
+```kotlin
+1.VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportReadTempture 2.VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportCheckTemptureByApp
+```
+
+###### Interface
+
+```kotlin
+startDetectTempture(bleWriteResponse, responseListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                        | Describe                             |
+| ---------------- | --------------------------- | ------------------------------------ |
+| bleWriteResponse | IBleWriteResponse           | Listening for write operations       |
+| responseListener | ITemptureDetectDataListener | Return listener for temperature data |
+
+###### Return data
+
+**ITemptureDetectDataListener**
+
+```kotlin
+/**
+* Return temperature data
+*
+* @param temptureDetectData Temperature data
+*/
+fun onDataChange(temptureDetectData:TemptureDetectData)
+```
+
+**TemptureDetectData**
+
+| Parameter name | Type  | Describe                                                     |
+| -------------- | ----- | ------------------------------------------------------------ |
+| oprate         | Int   | 0x00 Not supported, 0x01 Enabled, 0x02 Disabled              |
+| deviceState    | Int   | 0x00 Available, 0x01-0x07 Device busy, 0x08 Device low power, 0x09 Sensor abnormality |
+| progress       | Int   | Read progress                                                |
+| tempture       | Float | Body temperature value                                       |
+| temptureBase   | Float | Original body temperature value, base value                  |
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+        VPOperateManager.getInstance().startDetectTempture({
+
+        },object :ITemptureDetectDataListener{
+            override fun onDataChange(temptureDetectData: TemptureDetectData?) {
+
+            }
+        })
+```
+
+
+
+#### End manual temperature measurement
+
+###### Premise
+
+The device must support temperature and body temperature measurement and manual temperature measurement has been enabled
+
+###### Interface
+
+```
+stopDetectTempture(bleWriteResponse, responseListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                        | Describe                                                     |
+| ---------------- | --------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse           | Listening for write operations                               |
+| responseListener | ITemptureDetectDataListener | Return monitoring of temperature data, this interface can pass null |
+
+###### Return data
+
+None
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().stopDetectTempture({
+
+},null)
+```
+
+
+
+#### Daily temperature data reading
+
+###### Premise
+
+The device needs to support temperature and the automatic temperature detection function needs to be turned on to return data (turn it on through [Personalization Settings](#Modify personalization settings-changeCustomSetting))
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(requireContext()).isSupportReadTempture
+```
+
+**Note:** When the device supports temperature reading and the device temperature type is 5, the device obtains it through [Read daily data function](#Read daily data function) without calling the following readTemptureDataBySetting interface. The judgment is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(requireContext()).isSupportReadTempture && VpSpGetUtil.getVpSpVariInstance(requireContext()).getTemperatureType == 5
+```
+
+###### Interface
+
+```kotlin
+readTemptureDataBySetting(bleWriteResponse, temptureDataListener, readOriginSetting)
+```
+
+If the watch stores data for 3 days, read all the temperature data in the order of [temperature data (today - yesterday - the day before yesterday)]. For the temperature data, you can customize the position of the day and the position of the number of bars.
+###### Parameter Explanation
+
+| Parameter name       | Type                  | Describe                                                     |
+| -------------------- | --------------------- | ------------------------------------------------------------ |
+| bleWriteResponse     | IBleWriteResponse     | Listening for write operations                               |
+| temptureDataListener | ITemptureDataListener | Callback for reading temperature data, returning the progress temperature data |
+| readOriginSetting    | ReadOriginSetting     | Read daily data settings                                     |
+
+**ReadOriginSetting** Same parameters as [Read daily data function](#Interface-Read raw health data (5 minutes raw data) readOriginDataBySetting)
+
+###### Return data
+
+**ITemptureDataListener**
+
+```kotlin
+//kotlin code
+/**
+* Callback for reading daily temperature data
+*
+* @param temptureDataList Temperature data list
+*/
+fun onTemptureDataListDataChange(temptureDataList:List<TemptureData>)
+
+/***
+* Returns the details of the reading. The location of this package needs to be remembered. When reading data next time, pass in the location of this package to avoid repeated reading
+*
+* @param day Data flag in the watch [0=today, 1=yesterday, 2=the day before yesterday]
+* @param date Data date, format is yyyy-mm-dd
+* @param allPackage Total number of packages of data for the day
+* @param currentPackage Location of this package
+*/
+fun onReadOriginProgressDetail(day:Int, date:String, allPackage:Int, currentPackage：Int)
+
+/**
+* Returns the progress of reading
+*
+* @param progress Progress value, range [0-1]
+*/
+fun onReadOriginProgress(progress:Float)
+
+/**
+* Reading completed
+*/
+fun onReadOriginComplete()
+```
+
+**TemptureData**
+
+| Parameter name | Type     | Describe                               |
+| -------------- | -------- | -------------------------------------- |
+| allPackage     | Int      | Total number of packages               |
+| packageNumber  | Int      | Current number of packages             |
+| mTime          | TimeData | Time                                   |
+| isFromHandler  | Boolean  | Whether it is manual measurement       |
+| tempture       | Float    | Temperature value                      |
+| baseTempture   | Float    | Original temperature value, base value |
+###### Example Code
+
+```kotlin
+//        kotlin code
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportReadTempture){
+    return
+}
+VPOperateManager.getInstance().readTemptureDataBySetting({
+
+},object :ITemptureDataListener{
+    override fun onReadOriginProgressDetail(
+        day: Int,
+        date: String?,
+        allPackage: Int,
+        currentPackage: Int
+    ) {
+    }
+
+    override fun onReadOriginProgress(progress: Float) {
+    }
+
+    override fun onReadOriginComplete() {
+    }
+
+    override fun onTemptureDataListDataChange(temptureDataList: MutableList<TemptureData>?) {
+    }
+
+}, readOriginSetting)
+```
+
+
+#### Temperature detection switch
+
+In [Modify personalization settings](#Modify personalization settings-changeCustomSetting), you can set the temperature detection switch.
+
+
+
+
+
+## ECG function
+
+#### Premise
+
+The device needs to support the ECG function and be idle. The judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG
+```
+
+All the following interfaces are called on the premise that the device supports the ECG function.
+
+#### Start manual ECG measurement
+
+###### Premise
+
+The device supports the ECG function
+
+###### Interface
+
+```kotlin
+startDetectECG(bleWriteResponse, isNeedCurve, ecgDetectListener) 
+```
+
+###### Parameter Explanation
+
+| Parameter name    | Type               | Describe                          |
+| ----------------- | ------------------ | --------------------------------- |
+| bleWriteResponse  | IBleWriteResponse  | Listening for write operations    |
+| isNeedCurve       | Boolean            | Do you want to return curve data? |
+| ecgDetectListener | IECGDetectListener | ECG measurement callback          |
+
+###### Return data
+
+**IECGDetectListener**
+
+```java
+    /**
+     * Callback when basic ECG measurement configuration changes
+     * Includes waveform frequency and sampling frequency
+     *
+     * @param ecgDetectInfo ECG basic measurement information
+     */
+    void onEcgDetectInfoChange(EcgDetectInfo ecgDetectInfo);
+
+    /**
+     * Callback when ECG measurement status changes during the process
+     * Such as measuring, ready, error, lead off, finished, etc.
+     *
+     * @param ecgDetectState Current ECG measurement state
+     */
+    void onEcgDetectStateChange(EcgDetectState ecgDetectState);
+
+    /**
+     * Callback for the final standard ECG diagnosis result
+     * Only triggered when an abnormality (disease) is detected
+     * This method is called after measurement ONLY IF ecgType != 6
+     *
+     * @param ecgDetectResult Standard ECG diagnosis result
+     */
+    void onEcgDetectResultChange(EcgDetectResult ecgDetectResult);
+
+    /**
+     * Callback for multi-ECG diagnosis result
+     * Only triggered when an abnormality (disease) is detected
+     * This method is called after measurement ONLY IF ecgType == 6
+     *
+     * @param ecgDiagnosis Multi-mode ECG diagnosis result
+     */
+    void onEcgDetectDiagnosisChange(EcgDiagnosis ecgDiagnosis);
+
+    /**
+     * Callback for real-time ECG raw ADC waveform data
+     * Used to draw ECG waveform on the UI
+     *
+     * @param data ECG raw waveform data array:
+     *             <ul>
+     *                 <li>Convert to mV using {@link com.veepoo.protocol.util.EcgUtil#convertToMvWithValue(int, int, boolean, int)}</li>
+     *                 <li>Empty array means no valid waveform data available yet</li>
+     *                 <li>Value = Integer.MAX_VALUE (0x7FFFFFFF) should be filtered and not drawn</li>
+     *             </ul>
+     * @param power Fatigue-related data including support status, switch state, progress, and fatigue value
+     */
+    void onEcgADCChange(int[] data, int[] power);
+```
+
+**EcgDetectInfo**
+
+| Parameter name | Type | Describe           |
+| -------------- | ---- | ------------------ |
+| frequency      | Int  | Sampling frequency |
+| drawFrequency  | Int  | Waveform frequency |
+
+**EcgDetectState**
+
+| Parameter name | Type          | Describe                                                     |
+| -------------- | ------------- | ------------------------------------------------------------ |
+| ecgType        | Int           | ECG measurement type, obtained through VpSpGetUtil.getVpSpVariInstance(applicationContext).ecgType |
+| con            | Int           | ECG operation value                                          |
+| dataType       | Int           | Data type (0-sampling frequency) (1-real-time device status) (2-diagnosis results) (3-test failure) (4-test normal end), only 1 will appear at this time |
+| deviceState    | EDeviceStatus | Device status                                                |
+| hr1            | Int           | Heart rate per second                                        |
+| hr2            | Int           | Average heart rate per second                                |
+| hrv            | Int           | hrv value, 255 is an invalid value and does not need to be displayed |
+| rr1            | Int           | RR value per second                                          |
+| rr2            | Int           | Average RR value per 6 seconds                               |
+| br1            | Int           | Respiration rate value per second                            |
+| br2            | Int           | Average respiration rate value per minute                    |
+| wear           | Int           | Lead wearing value, 0 means wearing passed, 1 means wearing failed, if wearing failed, app should close measurement |
+| mid            | Int           | mid value                                                    |
+| qtc            | Int           | qtc value                                                    |
+| progress       | Int           | Progress                                                     |
+
+**EDeviceStatus**
+
+| Parameter name   | Describe                                               |
+| ---------------- | ------------------------------------------------------ |
+| FREE             | Device idle                                            |
+| BUSY             | Device busy                                            |
+| DETECT_BP        | Device busy, measuring blood pressure                  |
+| DETECT_HEART     | Device busy, measuring heart rate                      |
+| DETECT_AUTO_FIVE | Device busy, automatically measuring 5 minutes of data |
+| DETECT_SP        | The device is busy and measuring blood oxygen          |
+| DETECT_FTG       | The device is busy and measuring fatigue               |
+| DETECT_PPG       | The device is busy and measuring pulse rate            |
+| CHARGING         | The device is charging                                 |
+| CHARG_LOW        | The device is low in power                             |
+| UNPASS_WEAR      | The device cannot be worn                              |
+| UNKONW           | Unknown                                                |
+
+**EcgDetectResult**
+
+| Parameter name      | Type           | Describe                                  |
+| ------------------- | -------------- | ----------------------------------------- |
+| isSuccess           | Boolean        | Whether the measurement is successful     |
+| type                | EECGResultType | Data source of ECG result                 |
+| timeBean            | TimeData       | Measurement date                          |
+| frequency           | Int            | Sampling frequency                        |
+| drawfrequency       | Int            | Waveform frequency                        |
+| duration            | Int            | Total seconds                             |
+| leadSign            | Int            | Lead signal                               |
+| originSign          | IntArray       | Original signal                           |
+| powers              | IntArray       | Gain corresponding to the original signal |
+| filterSignals       | IntArray       | Original signal                           |
+| result8             | IntArray       | 8 diagnostic data                         |
+| diseaseResult       | IntArray       | Diagnosis result                          |
+| aveHeart            | Int            | Average heart rate                        |
+| aveResRate          | Int            | Average respiration rate                  |
+| aveHrv              | Int            | Average HRV                               |
+| aveQT               | Int            | Average QT                                |
+| progress            | Int            | Progress                                  |
+| detectHeartIntArray | IntArray       | Measured heart rate data                  |
+| detectBreath        | IntArray       | Respiration rate data                     |
+| detectHrv           | IntArray       | HRV data                                  |
+| detectQT            | IntArray       | Array of measured QT values               |
+
+**EcgDiagnosis**
+
+| 变量               | 类型     | 英文备注                                                     |
+| ------------------ | -------- | ------------------------------------------------------------ |
+| isSuccess          | Boolean  | Whether the measurement is successful                        |
+| type               | Int      | 2: Manual measurement by ECG bracelet3: Auto measurement by ECG bracelet4: Manual test on App side |
+| timeBean           | TimeData | Measurement date                                             |
+| frequency          | Int      | Sampling frequency                                           |
+| drawfrequency      | Int      | Waveform frequency                                           |
+| duration           | Int      | Total measurement duration in seconds                        |
+| leadOffType        | Int      | Lead type0: Lead I1: Lead V1                                 |
+| state              | Int      | 0: Deleted by user1: Normal usage                            |
+| powers             | IntArray | Gain corresponding to the raw signal                         |
+| filterSignals      | IntArray | Raw ECG signal                                               |
+| diagnosis8         | IntArray | Disease diagnosis result2 bits per disease, level [0,3]0: No disease, 1: Mild, 2: Moderate, 3: Severe |
+| diseaseResult      | IntArray | Diagnosis result                                             |
+| heartRate          | Int      | Heart rate                                                   |
+| respRate           | Int      | Average respiration rate                                     |
+| hrv                | Int      | Average HRV                                                  |
+| qtTime             | Int      | Average QT interval                                          |
+| diseaseRisk        | Int      | Disease risk, range [1,99]                                   |
+| pressureIndex      | Int      | Pressure index, range [1,99]                                 |
+| fatigueIndex       | Int      | Fatigue index, range [1,99]                                  |
+| myocarditisRisk    | Int      | Myocarditis risk, range [1,99]                               |
+| chdRisk            | Int      | Coronary heart disease (CHD) risk, range [1,99]              |
+| angioscleroticRisk | Int      | Angiosclerosis risk, range [1,99]                            |
+| qrsTime            | Int      | QRS duration, unit: msStored as integer (float value ×100)   |
+| qrsAmp             | Int      | QRS amplitude, unit: mvStored as integer (float value ×100)  |
+| pwvMeanVal         | Int      | Real-time average PWV valueRange: [6,20] m/sAbnormal: >15 m/sStored as integer (float value ×100) |
+| stMeanAmp          | Int      | Average ST-segment amplitude, unit: mvNormal range: [-0.05, 0.1] mvStored as integer (float value ×100) |
+| diseaseSdnn        | Int      | SDNN (Standard deviation of normal-to-normal intervals)Normal: (141±39) ms |
+| diseaseRmssd       | Int      | RMSSD (Root mean square of successive RR interval differences)Normal range: (27±12) ms |
+| detectHeart        | IntArray | Heart rate array measured during the process                 |
+| detectBreath       | IntArray | Respiration rate array measured during the process           |
+| detectHrv          | IntArray | HRV value array measured during the process                  |
+| detectQT           | IntArray | QT interval array measured during the process                |
+| risk32             | IntArray | Risk levels of 32 diseases                                   |
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG){
+    return
+}
+VPOperateManager.getInstance().startDetectECG({
+
+},true,object :IECGDetectListener{
+    override fun onEcgDetectInfoChange(ecgDetectInfo: EcgDetectInfo?) {
+    }
+
+    override fun onEcgDetectStateChange(ecgDetectState: EcgDetectState?) {
+    }
+
+    override fun onEcgDetectResultChange(ecgDetectResult: EcgDetectResult?) {
+    }
+
+    override fun onEcgADCChange(data: IntArray?) {
+    }
+})
+```
+
+
+
+#### End manual ECG measurement
+
+###### Premise
+1. The device supports ECG
+2. The device is idle
+3. The device has started manual ECG measurement
+
+###### Interface
+
+```kotlin
+stopDetectECG(bleWriteResponse, isNeedCurve, ecgDetectListener)
+```
+
+###### Parameter Explanation
+
+Required parameters are the same as [Start manual ECG measurement-startDetectECG](#Start manual ECG measurement-startDetectECG)
+
+###### Return data
+
+Return data is the same as [Start manual ECG measurement-startDetectECG](#Start manual ECG measurement-startDetectECG)
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance()
+    .stopDetectECG(bleWriteResponse, isNeedCurve, ecgDetectListener)
+```
+
+
+
+#### ECG new data report listener
+
+###### Premise
+
+Device supports ecg function
+
+###### Interface
+
+```
+setNewEcgDataReportListener(listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name | Type                      | Describe                     |
+| -------------- | ------------------------- | ---------------------------- |
+| listener       | INewECGDataReportListener | New ecg data report callback |
+
+###### Return data
+
+**INewECGDataReportListener** -- New ecg data report callback
+
+```java
+/**
+* New ECG measurement data report data listener interface
+* As long as there is new measurement data on the device side, it is triggered by {@link VPOperateManager#readECGData(BleWriteResponse bleWriteResponse, TimeData timeData, EEcgDataType eEcgDataType, IECGReadDataListener onReadDataIdFinishCallBack)} interface to read ecg data details
+*/
+void onNewECGDetectDataReport();
+```
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().setNewEcgDataReportListener(new INewECGDataReportListener() {
+                @Override
+                public void onNewECGDetectDataReport() {
+                    showToast("监听到设备有新的ecg测量数据上报，请读取ECG数据获取详细信息");
+                }
+            });
+```
+
+
+
+#### ECG data reading
+
+###### Premise
+
+1. The device supports ecg
+
+###### Interface
+
+```kotlin
+readECGData(bleWriteResponse, timeData, eEcgDataType, onReadDataIdFinishCallBack)
+```
+
+###### Parameter Explanation
+
+| Parameter name             | Type                 | Describe                                                     |
+| -------------------------- | -------------------- | ------------------------------------------------------------ |
+| bleWriteResponse           | IBleWriteResponse    | Listening for write operations                               |
+| timeData                   | TimeData             | The time when data starts to be read. When eEcgDataType==ALL, year, month, day, hour, minute, and second are passed as 0 |
+| eEcgDataType               | EEcgDataType         | ECG data type                                                |
+| onReadDataIdFinishCallBack | IECGReadDataListener | Data callback for reading ECG data                           |
+
+**EEcgDataTypeEEcgDataType**
+
+| Parameter name | Describe                      |
+| -------------- | ----------------------------- |
+| MANUALLY       | Device manual measurement     |
+| AUTO           | Device active measurement     |
+| ALL            | Device manual + device active |
+
+###### Return data
+
+**IECGReadDataListener**
+
+```kotlin
+/**
+* Data reading completed
+*
+* @param resultList ecg measurement array
+*/
+fun readDataFinish(resultList:List<EcgDetectResult>)
+```
+
+**EcgDetectResult**
+
+Same as the EcgDetectResult returned by [Start Manual ECG Measurement-startDetectECG](#Start Manual ECG Measurement-startDetectECG)
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG){
+    return
+}
+val timedata = TimeData(0,0,0,0,0,0,0)
+VPOperateManager.getInstance().readECGData({
+
+},timedata,EEcgDataType.ALL,object :IECGReadDataListener{
+    override fun readDataFinish(resultList: MutableList<EcgDetectResult>?) {
+
+    }
+
+})
+```
+
+
+
+#### Read ECG data ID
+
+###### Premise
+
+1. The device supports ecg
+
+###### Interface
+
+```kotlin
+readECGId(bleWriteResponse, timeData, eEcgDataType, onReadIdFinishCallBack)
+```
+
+###### Parameter Explanation
+
+| Parameter name         | Type               | Describe                                                     |
+| ---------------------- | ------------------ | ------------------------------------------------------------ |
+| bleWriteResponse       | IBleWriteResponse  | Listening for write operations                               |
+| timeData               | TimeData           | The time when data starts to be read. When eEcgDataType==ALL, the year, month, day, hour, minute, and second are transmitted as 0 |
+| eEcgDataType           | EEcgDataType       | ECG data type                                                |
+| onReadIdFinishCallBack | IECGReadIdListener | Callback for the end of reading data ID                      |
+
+###### Return data
+
+IECGReadIdListener
+
+```kotlin
+/**
+* Callback for the end of reading data ID
+* @param ids ecg data id list
+*/
+fun readIdFinish(ids:IntArray?)
+```
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG){
+    return
+}
+val timedata = TimeData(0,0,0,0,0,0,0)
+VPOperateManager.getInstance().readECGId({
+
+},timedata,EEcgDataType.ALL,object :IECGReadIdListener{
+    override fun readIdFinish(ids: IntArray?) {
+
+    }
+})
+```
+
+
+
+#### ECG chest function reading
+
+###### Premise
+
+1. The device supports ecg
+
+###### Interface
+
+```
+readECGSwitchStatus(bleWriteResponse, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type               | Describe                       |
+| ---------------- | ------------------ | ------------------------------ |
+| bleWriteResponse | IBleWriteResponse  | Listening for write operations |
+| listener         | IECGSwitchListener | ECG switch listening           |
+
+###### Return data
+
+**IECGSwitchListener**
+
+```kotlin
+/**
+* ECG switch status changed
+*
+* @param ecgFunctionStatus ecg function status: UNSUPPORT not supported, SUPPORT supported, SUPPORT_OPEN open, SUPPORT_CLOSE closed, UNKONW unknown
+*/
+fun onECGSwitchStatusChanged(ecgFunctionStatus:EFunctionStatus)
+```
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG){
+    return
+}
+VPOperateManager.getInstance().readECGSwitchStatus({
+
+},object :IECGSwitchListener{
+    override fun onECGSwitchStatusChanged(ecgFunctionStatus: EFunctionStatus?) {
+
+    }
+})
+```
+
+
+#### Open ECG chest function
+
+###### Premise
+
+1. The device supports ecg
+
+2. The device supports chest function: judge whether it is supported by [[ECG chest function reading](# ECG chest function reading-readECGSwitchStatus)]
+
+###### Interface
+
+```
+openECGSwitch(bleWriteResponse, listener)
+```
+
+###### Parameter Explanation
+
+Same as [ECG chest function reading](# ECG chest function reading-readECGSwitchStatus)] parameter
+
+###### Return data
+
+Same as [ECG chest function reading](# ECG chest function reading-readECGSwitchStatus)] return data
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG){
+    return
+}
+VPOperateManager.getInstance().openECGSwitch({
+
+},object :IECGSwitchListener{
+    override fun onECGSwitchStatusChanged(ecgFunctionStatus: EFunctionStatus?) {
+
+    }
+})
+```
+
+
+
+#### Turn off ECG chest function
+
+###### Premise
+
+1. The device supports ecg
+2. The device supports chest function: judge whether it is supported by [ECG chest function reading](# ECG chest function reading-readECGSwitchStatus)]
+
+###### Interface
+
+```
+openECGSwitch(bleWriteResponse, listener)
+```
+
+###### Parameter Explanation
+
+Same as [ECG chest function reading](# ECG chest function reading-readECGSwitchStatus)] Parameters
+
+###### Return data
+
+Same as [ECG chest function reading](# ECG chest function reading-readECGSwitchStatus)] Return data
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG){
+    return
+}
+VPOperateManager.getInstance().closeECGSwitch({
+
+},object :IECGSwitchListener{
+    override fun onECGSwitchStatusChanged(ecgFunctionStatus: EFunctionStatus?) {
+
+    }
+})
+```
+
+
+
+#### Start reading PTT data
+
+###### Premise
+
+1. The device supports ecg;
+
+2. The device supports ECG chest function;
+
+3. The device has turned on the ECG chest function.
+
+###### Interface
+
+```
+startReadPttSignData(bleWriteResponse, isNeedCurve, ecgDetectListener)
+```
+
+###### Parameter Explanation
+
+Same as [[Start manual ECG measurement-startDetectECG](#Start manual ECG measurement-startDetectECG)] parameters
+
+###### Return data
+
+Same as [[Start manual ECG measurement-startDetectECG](#Start manual ECG measurement-startDetectECG)] return data
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG){
+    return
+}
+VPOperateManager.getInstance().startReadPttSignData({
+
+},true,object :IECGDetectListener{
+    override fun onEcgDetectInfoChange(ecgDetectInfo: EcgDetectInfo?) {
+    }
+
+    override fun onEcgDetectStateChange(ecgDetectState: EcgDetectState?) {
+    }
+
+    override fun onEcgDetectResultChange(ecgDetectResult: EcgDetectResult?) {
+    }
+
+    override fun onEcgADCChange(data: IntArray?) {
+    }
+})
+```
+
+
+
+#### End reading PTT data - stopReadPttSignData
+
+###### Premise
+
+1. The device supports ecg;
+
+2. The device supports ECG chest function;
+
+3. The device has turned on the ECG chest function;
+
+4. The device has started reading PTT data.
+
+###### Interface
+
+```
+stopReadPttSignData(bleWriteResponse, isNeedCurve, ecgDetectListener)
+```
+
+###### Parameter Explanation
+
+Same as [[End manual ECG measurement-stopDetectECG](#End manual ECG measurement-stopDetectECG)] parameter
+
+###### Return data
+
+Same as [[End manual ECG measurement-stopDetectECG](#End manual ECG measurement-stopDetectECG)] return data
+
+###### Example Code
+
+```kotlin
+if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportECG){
+    return
+}
+VPOperateManager.getInstance().stopReadPttSignData({
+
+},true,object :IECGDetectListener{
+    override fun onEcgDetectInfoChange(ecgDetectInfo: EcgDetectInfo?) {
+    }
+
+    override fun onEcgDetectStateChange(ecgDetectState: EcgDetectState?) {
+    }
+
+    override fun onEcgDetectResultChange(ecgDetectResult: EcgDetectResult?) {
+    }
+
+    override fun onEcgADCChange(data: IntArray?) {
+    }
+})
+```
+
+
+
+
+
+## HRV function
+
+#### Premise
+
+The device needs to support the HRV function and be idle. The judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportHRV
+```
+
+All the following interfaces are called on the premise that the device supports the HRV function.
+
+#### Read HRV daily data
+
+HRV daily data is obtained through [[Read daily data function](#Read daily data function)]
+
+#### HRV APP Measurement
+
+The device must support the HRV measurement function via the app and be in an idle state; the conditions for this determination are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportHrvAppDetect
+```
+
+##### Start hrv measurement
+
+```java
+public void startDetectHrv(BleWriteResponse bleWriteResponse, IHrvDetectListener detectListener)
+```
+
+##### Stop hrv measurement
+
+```java
+public void stopDetectHrv(BleWriteResponse bleWriteResponse, IHrvDetectListener detectListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name        | Type                 | Describe                       |
+| --------------------- | -------------------- | ------------------------------ |
+| bleWriteResponse      | IBleWriteResponseInt | Listening for write operations |
+| sleepReadDatalistener | IHrvDetectListener   | Listening for hrv measurement  |
+
+###### IHrvDetectListener   listener of  app hrv measurement
+
+```
+    /**
+     * * Callback for HRV (Heart Rate Variability) measurement values.
+     * * @param hrv The current HRV measurement value in milliseconds.
+     */
+    fun onHrvDetect(hrv: Int)
+
+    /**
+     * * Callback for measurement failure.
+     * * @param detectState  The specific state indicating the reason for failure.
+     */
+    fun onDetectFailed(detectState: HrvDetectState)
+
+    /**
+     * * Callback when the measurement is stopped.
+     * * This is triggered when the measurement process is manually or automatically terminated.
+     */
+    fun onDetectStop()
+```
+
+
+
+## Sleep function
+
+#### Read sleep data
+
+###### Interface
+
+Read sleep data, read from the beginning and read to the end
+
+```kotlin
+readSleepData(bleWriteResponse, sleepReadDatalistener, watchday)
+```
+
+Read sleep data, this method means you can define your reading position and read in the order of reading
+
+```kotlin
+readSleepDataFromDay(bleWriteResponse, sleepReadDatalistener, day, watchday)
+```
+
+Read sleep data, this method means you can define your reading position and read only the day
+
+```kotlin
+readSleepDataSingleDay(bleWriteResponse, sleepReadDatalistener, day, watchday)
+```
+
+Read sleep data, this method means you can set your reading position and whether to read only the day
+
+```kotlin
+readSleepDataBySetting(bleWriteResponse, sleepReadDatalistener, readSleepSetting)
+```
+
+###### Parameter Explanation
+
+| Parameter name        | Type                 | Describe                                                     |
+| --------------------- | -------------------- | ------------------------------------------------------------ |
+| bleWriteResponse      | IBleWriteResponseInt | Listening for write operations                               |
+| sleepReadDatalistener | ISleepDataListener   | Listening for sleep data, returning the progress of sleep reading and the corresponding sleep data |
+| day                   | Int                  | Reading day, 0 means today, 1 means yesterday, 2 means the day before yesterday, and so on |
+| watchday              | Int                  | Number of days stored in the watch                           |
+| readSleepSetting      | ReadSleepSetting     | Reading settings for sleep                                   |
+
+**ReadSleepSetting**
+
+| Parameter name | Type    | Describe                                                     |
+| -------------- | ------- | ------------------------------------------------------------ |
+| dayInt         | Int     | Reading day, 0 means today, 1 means yesterday, 2 means the day before yesterday, and so on |
+| watchDataDay   | Int     | Number of days stored in the watch                           |
+| onlyReadOneDay | Boolean | true means read only today, false means read in order        |
+
+###### Return data
+
+**ISleepDataListener**
+
+```kotlin
+/**
+* Return data, sleep may be normal sleep or precision sleep,
+* If it is precision sleep, it needs to be forced to convert to SleepPrecisionData
+* There are two ways to judge:
+* 1. According to the function flag after the password is passed;
+* 2. According to the instanceof keyword, if (sleepData instanceof SleepPrecisionData)
+*
+* @param day indicates the data of which day is being read 0: today, 1: yesterday, 2: the day before yesterday.
+* @param sleepData sleep data
+*/
+fun onSleepDataChange(day: String?, sleepData: SleepData?)
+
+/**
+* Returns the progress of sleep reading, range [0-1]
+*
+* @param progress progress
+*/
+fun onSleepProgress(progress: Float)
+
+/**
+* Returns the details of reading sleep. This interface is only used for testing, which is convenient for developers to view the reading progress
+*
+* @param day indicates the data of the day being read. The data of three days in a day is read in the order of today-yesterday-the day before yesterday
+* @param packagenumber indicates the package number. The data of a day is returned starting from the largest package and decreasing in sequence
+*/
+fun onSleepProgressDetail(day: String?, packagenumber: Int)
+
+/**
+* Sleep reading ends
+*/
+fun onReadSleepComplete()
+```
+
+**SleepData**
+
+| Parameter name | Type     | Describe                                                     |
+| -------------- | -------- | ------------------------------------------------------------ |
+| Date           | String   | Sleep date                                                   |
+| cali_flag      | Int      | Sleep calibration value, currently this value is useless     |
+| sleepQulity    | Int      | Sleep quality                                                |
+| wakeCount      | Int      | Number of times you wake up during sleep                     |
+| deepSleepTime  | Int      | Deep sleep duration (in min)                                 |
+| lowSleepTime   | Int      | Light sleep duration (in min)                                |
+| allSleepTime   | Int      | Total sleep duration                                         |
+| sleepLine      | String   | Sleep curve is mainly used to display sleep status in a more concrete UI. If your sleep interface has no special requirements for UI, you can ignore it. Sleep curve is divided into normal sleep and precise sleep. Normal sleep is a string composed of 0, 1, 2. Each character represents a duration of 5 minutes, where 0 represents light sleep, 1 represents deep sleep, and 2 represents awakening. For example, "201112" has a length of 6, which means a total of 30 minutes of sleep, 5 minutes of awakening at the beginning and end, 5 minutes of light sleep in the middle, and 15 minutes of deep sleep. For precise sleep, the sleep curve is a string composed of 0, 1, 2, 3, 4. Each character represents a duration of 1 minute, where 0 represents deep sleep, 1 represents light sleep, 2 represents rapid eye movement, 3 represents insomnia, and 4 represents awakening. |
+| sleepDown      | TimeData | Time to fall asleep                                          |
+| sleepUp        | TimeData | Time to wake up                                              |
+
+**SleepPrecisionData**
+
+| Variable             | Type                   | Remarks                                                      |
+| -------------------- | ---------------------- | ------------------------------------------------------------ |
+| Date                 | String                 | Sleep date                                                   |
+| cali_flag            | Int                    | Sleep calibration flag; this value is not currently in use   |
+| sleepQulity          | Int                    | Sleep quality                                                |
+| wakeCount            | Int                    | Number of wake‑ups during sleep                              |
+| deepSleepTime        | Int                    | Deep sleep duration (unit: minute)                           |
+| lowSleepTime         | Int                    | Light sleep duration (unit: minute)                          |
+| allSleepTime         | Int                    | Total sleep duration                                         |
+| sleepLine            | String                 | Sleep curve, used for visualized UI display. Can be ignored if no special UI requirement.Two curve modes:1. Normal sleep: string composed of `0,1,2`. Each character represents 5 minutes. `0`‑Light sleep, `1`‑Deep sleep, `2`‑Awake.Example: `"201112"` means total 30 minutes; awake for first & last 5 min, light sleep 5 min, deep sleep 15 min.2. Precision sleep: string composed of `0,1,2,3,4`. Each character represents 1 minute. `0`‑Deep sleep, `1`‑Light sleep, `2`‑REM sleep, `3`‑Insomnia, `4`‑Awake |
+| sleepDown            | TimeData               | Sleep onset time                                             |
+| sleepUp              | TimeData               | Wake‑up time                                                 |
+| sleepTag             | int                    | Sleep tag flag                                               |
+| getUpScore           | int                    | Night‑wakening score                                         |
+| deepScore            | int                    | Deep sleep score                                             |
+| sleepEfficiencyScore | int                    | Sleep efficiency score; efficiency from night‑wakening back to deep sleep |
+| fallAsleepScore      | int                    | Sleep‑onset efficiency score; time from sleep start to first deep‑sleep entry |
+| sleepTimeScore       | int                    | Sleep duration score                                         |
+| exitSleepMode        | int                    | Mode of exiting sleep state                                  |
+| deepAndLightMode     | int                    | Deep‑light sleep mode                                        |
+| otherDuration        | int                    | Other sleep‑related duration (unit: minute)                  |
+| firstDeepDuration    | int                    | Time duration until entering the first deep sleep            |
+| getUpDuration        | int                    | Total night‑wakening duration (unit: minute)                 |
+| getUpToDeepAve       | int                    | Average duration from night‑wakening to returning to deep sleep |
+| onePointDuration     | int                    | Time represented by one point on curve (unit: second; fixed to 60 s currently) |
+| accurateType         | int                    | Sleep accuracy type                                          |
+| insomniaTag          | int                    | Insomnia flag                                                |
+| insomniaScore        | int                    | Insomnia score                                               |
+| insomniaTimes        | int                    | Count of insomnia episodes                                   |
+| insomniaLength       | int                    | Total length of insomnia                                     |
+| insomniaBeanList     | List<InsomniaTimeData> | List of insomnia time segments                               |
+| startInsomniaTime    | String                 | Insomnia start time                                          |
+| stopInsomniaTime     | String                 | Insomnia end time                                            |
+| insomniaDuration     | int                    | Insomnia duration calculated from count of `3` in sleepLine (unit: minute) |
+| sleepSourceStr       | String                 | Raw sleep string; generally not used                         |
+| laster               | int                    | Previous‑segment flag. Default `0`(no previous segment). `1` means previous sleep segment exists |
+| next                 | int                    | Next‑segment flag. Default `255`(unknown). `1` means next sleep segment exists |
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().readSleepData({
+
+},object :ISleepDataListener{
+    override fun onSleepDataChange(day: String?, sleepData: SleepData?) {
+    }
+
+    override fun onSleepProgress(progress: Float) {
+    }
+
+    override fun onSleepProgressDetail(day: String?, packagenumber: Int) {
+    }
+
+    override fun onReadSleepComplete() {
+    }
+
+},3)
+```
+
+
+
+
+
+## Jieli device authentication
+
+#### Premise
+
+It needs to be a Jieli device, and the judgment conditions are as follows:
+
+```java
+VpSpGetUtil.getVpSpVariInstance(mContext).isJieLiDevice()
+Or
+VPOperateManager.getInstance().isJLDevice()
+```
+
+When the device chip platform is Jieli, the following functions need to be implemented through Jieli SDK (Weiyipo watch SDK also integrates Jieli SDK):
+
+1. Photo dial transmission (only dial photos and preview photos are transmitted, and dial element settings are not included)
+
+2. Market dial transmission
+
+3. OTA upgrade
+
+Note: ** The premise of operating these functions is that Jieli device authentication must be completed first. After the App is started, Jieli device authentication only needs to be completed once. **
+
+To complete Jieli device authentication, you need to open Jieli service notification first, and then perform device authentication.
+
+#### Open Jieli service notification
+
+###### Example Code
+
+```java
+private void openJLNotify() {
+    VPOperateManager.getInstance().openJLDataNotify(new BleNotifyResponse() {
+        @Override
+        public void onNotify(UUID service, UUID character, byte[] value) {
+
+        }
+
+        @Override
+        public void onResponse(int code) {
+            tvOpenInfo.setText("已开启通知");
+            VPOperateManager.getInstance().changeMTU(247, new IMtuChangeListener() {
+                @Override
+                public void onChangeMtuLength(int cmdLength) {
+
+                }
+            });
+
+        }
+    });
+}
+```
+
+
+
+#### Start JieLi equipment certification
+
+###### Example Code
+
+```java
+private void startDeviceAuth() {
+    VPOperateManager.getInstance().startJLDeviceAuth(new RcspAuthResponse() {
+        @Override
+        public void onRcspAuthStart() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    loadingDialog.showNoTips();
+                    tvAuthInfo.setText("Start device certification");
+                }
+            });
+        }
+
+        @Override
+        public void onRcspAuthSuccess() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    loadingDialog.disMissDialog();
+                    tvAuthInfo.setText("Device certification has passed");
+                }
+            });
+        }
+
+        @Override
+        public void onRcspAuthFailed() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    loadingDialog.disMissDialog();
+                    tvAuthInfo.setText("Device certification failed");
+                }
+            });
+        }
+    });
+}
+```
+
+
+
+
+
+## Open JieLi file system
+
+When the device chip platform is JieLi, **before each operation of the following functions, you need to open the JieLi file system**:
+
+1. Photo dial transfer (only transfer dial photos and preview photos, not including dial element settings)
+
+2. Market dial transfer
+
+3. OTA upgrade
+
+#### Premise
+
+You must first complete [[Start JieLi equipment certification](#Start JieLi equipment certification)], and after completing the certification, you can open the JieLi file system
+
+###### Example Code
+
+```java
+private void getJLFileSystem() {
+       //Jie Li File System
+VPOperateManager.getInstance().listJLWatchList(new JLWatchFaceManager.OnWatchDialInfoGetListener() {
+        @Override
+        public void onGettingWatchDialInfo() {
+            //Getting watch face information... Do not perform other Bluetooth operations at this time
+            loadingDialog.showNoTips();//Pop up the loading box, if the user needs to implement it
+        }
+
+        @Override
+        public void onWatchDialInfoGetStart() {
+            //Start getting watch face information
+            loadingDialog.showNoTips();//Pop up the loading box, if the user needs to implement it
+        }
+
+        @Override
+        public void onWatchDialInfoGetComplete() {
+            //Get watch face information process completed
+            loadingDialog.disMissDialog();//Close the loading box, if the user needs to implement it
+        }
+
+        @Override
+        public void onWatchDialInfoGetSuccess(List<FatFile> systemFatFiles, List<FatFile> serverFatFiles, FatFile picFatFile) {
+            //Get the dial information of the Jie Li platform successfully
+            StringBuilder sb = new StringBuilder("Jie Li dial system update=============================Start");
+            sb.append("\t\t\t\n").append("[Photo dial] picFatFile = ").append(picFatFile == null ? "NULL" : picFatFile.getPath());
+            for (FatFile serverFatFile : serverFatFiles) {
+            sb.append("\t\t\t\n").append("[Server dial] serverFatFile = ").append(serverFatFile == null ? "NULL" : serverFatFile.getPath());
+            }
+            for (FatFile systemFatFile : systemFatFiles) {
+                sb.append("\t\t\t\n").append("[System dial] systemFatFile = ")
+                .append(systemFatFile == null ? "NULL" : systemFatFile.getPath());
+            }
+            sb.append("\t\t\t\n").append("[Current server dial] serverFatFile = ")
+            .append(serverFatFiles.isEmpty() ? "【Not set yet】" : serverFatFiles.get(0).getPath())
+            .append("\n")
+            .append("Jie Li dial system update==============================End");
+            Log.e(TAG, sb.toString());
+            tvFileSystemInfo.setText(sb.toString());
+            for (FatFile systemFatFile : systemFatFiles) {
+                 Logger.t(TAG).e("System dial--->" + systemFatFile.toString());
+            }
+            for (FatFile serverFatFile : serverFatFiles) {
+                Logger.t(TAG).e("Server dial--->" + serverFatFile.toString());
+            }
+            Logger.t(TAG).e("Photo dial--->" + picFatFile.toString());
+            loadingDialog.disMissDialog();
+           }
+
+        @Override
+        public void onWatchDialInfoGetFailed(BaseError error) {
+            //Failed to get dial information
+            tvFileSystemInfo.setText("Get file system list-failed:\n" + error.toString());
+            loadingDialog.disMissDialog();
+        }
+        });
+  }
+```
+
+File system acquisition monitoring
+
+```java
+public interface OnWatchDialInfoGetListener {
+	/**
+	* Getting dial information
+	* (Generally, this method will be called back if it is called again before the acquisition is completed)
+	*/
+	void onGettingWatchDialInfo();
+
+	/**
+	* Start getting dial information
+	*/
+	void onWatchDialInfoGetStart();
+
+	/**
+	* Completed getting dial information
+	*/
+	void onWatchDialInfoGetComplete();
+
+	/**
+	* Successfully obtained watch dial information
+	*
+	* @param systemFatFiles system dial
+	* @param serverFatFiles server dial
+	* @param picFatFile photo dial
+	*/
+	void onWatchDialInfoGetSuccess(List<FatFile> systemFatFiles, List<FatFile> serverFatFiles, FatFile picFatFile);
+
+	/**
+	* Failed to obtain dial
+	*/
+	void onWatchDialInfoGetFailed(BaseError error);
+}
+```
+
+### 
+
+
+
+## Watch face function
+
+#### Premise
+
+The device needs to support screen style reading
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportScreenStyle
+```
+
+All watch face instructions can only be issued after the device supports screen style reading
+
+#### Read screen style - readScreenStyle
+
+Get the watch face style and watch face index of the current screen.
+
+###### Interface
+
+```
+readScreenStyle(bleWriteResponse, screenStyleListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name      | Type                 | Describe                                        |
+| ------------------- | -------------------- | ----------------------------------------------- |
+| bleWriteResponse    | IBleWriteResponse    | Listening for write operations                  |
+| screenStyleListener | IScreenStyleListener | Screen style listening, return operation status |
+
+###### Return data
+
+**IScreenStyleListener**
+
+```kotlin
+/**
+* Screen style setting callback
+*
+* @param screenStyleData Screen style data
+*/
+fun onScreenStyleDataChange(screenStyleData:ScreenStyleData);
+```
+
+**ScreenStyleData**
+
+| Parameter name | Type         | Describe                                                     |
+| -------------- | ------------ | ------------------------------------------------------------ |
+| status         | EScreenStyle | Operation status                                             |
+| screenIndex    | Int          | Dial index The default dial starts from 0, with a maximum of seven default dials. The dial market and custom dials start from 1 |
+| screenType     | EUIFromType  | * Dial style * 0x00 Device default dial * 0x01 Dial market (device support required) * 0x02 Custom dial (device support required) |
+
+**EScreenStyle**
+
+| Parameter name  | Describe        |
+| --------------- | --------------- |
+| SETTING_SUCCESS | Setting success |
+| SETTING_FAIL    | Setting failure |
+| READ_SUCCESS    | Read success    |
+| READ_FAIL       | Read failure    |
+| UNKONW          | Unknown status  |
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().readScreenStyle({
+
+}, object : IScreenStyleListener {
+    override fun onScreenStyleDataChange(screenStyleData: ScreenStyleData?) {
+
+    }
+}
+)
+```
+
+
+
+#### Set screen style - settingScreenStyle
+
+Set the dial style and dial subscript of the current device screen.
+
+###### Interface
+
+Set the subscript of the default dial
+
+```kotlin
+settingScreenStyle(IBleWriteResponse bleWriteResponse, IScreenStyleListener screenStyleListener, int style)
+```
+
+Set the dial style and dial subscript of the current device screen
+
+```
+settingScreenStyle(IBleWriteResponse bleWriteResponse, IScreenStyleListener screenStyleListener, int style, EUIFromType uiFromType)
+```
+
+###### Parameter Explanation
+
+| Parameter name      | Type                 | Describe                                        |
+| ------------------- | -------------------- | ----------------------------------------------- |
+| bleWriteResponse    | IBleWriteResponse    | Listening for write operations                  |
+| screenStyleListener | IScreenStyleListener | Screen style listening, return operation status |
+| style               | Int                  | dial subscript                                  |
+| uiFromType          | EUIFromType          | Watch face type                                 |
+
+**EUIFromType**
+
+| Parameter name | Describe                                |
+| -------------- | --------------------------------------- |
+| DEFAULT        | Watch face that comes with the watch    |
+| CUSTOM         | Custom editable watch face              |
+| SERVER         | Server watch face                       |
+| ...            | No need to pay attention to other types |
+
+###### Return data
+
+**IScreenStyleListener** Same as [[Read screen style - readScreenStyle](#Read screen style - readScreenStyle)] Return data is consistent
+
+###### Example Code
+
+```kotlin
+//kotlin code
+val uiFromType = EUIFromType.DEFAULT
+val style = 2
+VPOperateManager.getInstance().settingScreenStyle(
+    {
+        if (it != Code.REQUEST_SUCCESS) {
+//                    Log.e("Test", "write cmd failed")
+        }
+    }, screenStyleListener, style, uiFromType
+)
+```
+
+
+
+### Local dial
+
+###### Premise
+
+First get the number of local dials, how to get the number of local dials
+
+```
+val defaultUiCount = SpUtil.getInt(applicationContext, SputilVari.COUNT_SCREEN_STYLE_TYPE, 1)
+```
+
+defaultUiCount>1 can set the local dial
+
+###### Interface
+
+Call [[Set screen style-settingScreenStyle](#Set screen style-settingScreenStyle)] method to set, uiFromType = EUIFromType.DEFAULT, style = 0 - (defaultUiCount - 1)
+
+###### Example Code
+
+```kotlin
+//kotlin code
+val uiFromType = EUIFromType.DEFAULT
+val style = 2
+VPOperateManager.getInstance().settingScreenStyle(
+    {
+        if (it != Code.REQUEST_SUCCESS) {
+//                    Log.e("Test", "write cmd failed")
+        }
+    }, screenStyleListener, style, uiFromType
+)
+```
+
+
+
+### Server watch face
+
+#### Premise
+
+1. The device UI transmission mode is 2;
+
+2. The number of server watch faces is greater than 0.
+
+```kotlin
+val bigTranType = VpSpGetUtil.getVpSpVariInstance(applicactionContext).bigTranType
+val serverUICount = VpSpGetUtil.getVpSpVariInstance(applicactionContext).watchuiServer
+var isSupport = (bigTranType == 2 && serverUICount > 0)
+```
+
+**Note⚠️ **: Watch face transmission needs to add an abnormal protection scenario: when the watch battery is very low, if the watch face transmission is initiated, the watch may shut down due to low power during the transmission process. After recharging, the watch face will turn black. We recommend that you read the current battery level of the watch before each transmission. If the battery status is low, the transmission is prohibited.
+
+#### Process
+
+The steps to set the dial UI from the server are roughly divided into the following steps:
+
+>Step 1. Determine whether the dial market is supported
+>Step 2. Get basic information
+>Step 3. Get the supported server UI list
+>Step 4. Download the corresponding UI file
+>Step 5. Set UI
+
+#### Class name
+
+Note: **The class name used for this function operation is different from the previous class name**
+
+```kotlin
+val mUiUpdateUtil = UiUpdateUtil.getInstance();
+val uiUpdateCheckOprate = UiServerHttpUtil();
+```
+
+#### Step 1. Determine whether the dial market is supported
+
+```kotlin
+//Support server dials
+if (mUiUpdateUtil.isSupportChangeServerUi()) {
+mUiUpdateUtil.init(context)
+} else {
+//Does not support server dials
+
+}
+```
+
+#### Step 2. Get basic information
+
+###### Class name
+
+UiUpdateUtil
+
+###### Interface
+
+```
+getServerWatchUiInfo(uiBaseInfoFormServerListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name               | Type                          | Describe                          |
+| ---------------------------- | ----------------------------- | --------------------------------- |
+| uiBaseInfoFormServerListener | IUIBaseInfoFormServerListener | Get basic UI information callback |
+
+###### Return data
+
+**IUIBaseInfoFormServerListener**
+
+```kotlin
+/**
+* Returns basic UI information - server,
+*
+* @param uiDataServer basic UI information - server UI
+*/
+fun onBaseUiInfoFormServer(uiDataServer:UIDataServer);
+```
+
+**UIDataServer**
+
+| Parameter name     | Type | Describe                                   |
+| ------------------ | ---- | ------------------------------------------ |
+| useType            | Int  | Data usage type                            |
+| oprateType         | Int  | Operation type                             |
+| oprateState        | Int  | Operation status                           |
+| dataReceiveAddress | Int  | UI data receiving start address            |
+| dataCanSendLength  | Int  | Receiveable data length                    |
+| binDataType        | Int  | File type, request server to send fields   |
+| deviceAialShape    | Int  | Screen type, request server to send fields |
+| imgCrcId           | Int  | Watch dial CRC checksum                    |
+| dataFileLength     | Long | Length of the file to be sent              |
+| packageIndex       | Int  | Which package                              |
+
+###### Example Code
+
+```kotlin
+UiUpdateUtil.getInstance().getServerWatchUiInfo { uiDataServer ->
+    //"2.服务器的表盘基本信息 uiDataServer:$uiDataServer"
+}
+```
+
+
+
+#### Step 3. Get the supported server UI list
+
+###### Class name
+
+UiServerHttpUtil
+
+###### Interface
+
+```kotlin
+getThemeInfo(uiDataServer, deviceNumber, deviceTestVersion, appPackName, appVersion):List<TUiTheme>
+```
+
+Note: **This interface is a network request and cannot be run in the main thread**
+
+###### Parameter Explanation
+
+| Parameter name    | Type         | Describe                               |
+| ----------------- | ------------ | -------------------------------------- |
+| uiDataServer      | UIDataServer | Basic information of the server's dial |
+| deviceNumber      | String       | Device number                          |
+| deviceTestVersion | String       | Device test version                    |
+| appPackName       | String       | App package name                       |
+| appVersion        | String       | App version                            |
+
+Among them, deviceNumber will be returned when [[connecting device to confirm password](#Verify password operation)], the returned class name is PwdData, the field is deviceNumber, and deviceTestVersion is the deviceTestVersion value in PwdData.
+
+###### Return data
+
+**List<TUiTheme>**
+
+**TUiTheme**
+
+| Parameter name | Type   | Describe                                 |
+| -------------- | ------ | ---------------------------------------- |
+| crc            | String | Server dial CRC                          |
+| binProtocol    | String | Firmware (no need to pay attention here) |
+| dialShape      | String | Dial shape                               |
+| fileUrl        | String | File download path                       |
+| previewUrl     | String | Dial preview image path                  |
+
+###### Example Code
+
+```kotlin
+Thread {
+    val appPackName = "com.timaimee.watch"
+    val appVersion = "3.1.9"
+    val themeInfoList = uiUpdateCheckOprate.getThemeInfo(
+        mUiDataServer,
+        deviceNumber,
+        deviceTestVersion,
+        appPackName,
+        appVersion
+    )
+    //拿到themeInfoList 页面做展示
+    
+}.start()
+```
+
+
+
+#### Step 4. Download the corresponding UI file
+
+###### Class name
+
+UiServerHttpUtil
+
+###### Interface
+
+```
+downloadFile(downUrl, fileSave, onDownLoadListener)
+```
+
+Note: **This interface is a network request and cannot be run in the main thread**
+
+###### Parameter Explanation
+
+| Parameter name     | Type               | Describe                                               |
+| ------------------ | ------------------ | ------------------------------------------------------ |
+| downUrl            | String             | Downloaded dial file link (fileUrl returned in step 3) |
+| fileSave           | String             | Saved local path                                       |
+| onDownLoadListener | OnDownLoadListener | Download callback                                      |
+
+###### Return data
+
+OnDownLoadListener
+
+```kotlin
+/**
+* Return the progress value of downloading firmware, range [0-1]
+* @param progress
+*/
+fun onProgress(progress:Float);
+
+/**
+* Download completed
+*/
+fun onFinish();
+```
+
+###### Example Code
+
+```kotlin
+Thread {
+    uiUpdateCheckOprate.downloadFile(
+        fileUrl,
+        fileSave,
+        object : OnDownLoadListener {
+            override fun onProgress(progress: Float) {
+                Logger.t(TAG).i("下载进度:$progress")
+            }
+
+            override fun onFinish() {
+                Logger.t(TAG).i("下载完成")
+            }
+        })
+}.start()
+```
+
+
+
+#### Step 5. Set up the UI
+
+Note: **When setting up the server dial, you need to pay attention to the platform of the device. The Jie Li platform needs to follow Jie Li's UI setting process separately**
+
+##### Setting up the UI for non-Jie Li platforms
+
+###### Class name
+
+UiUpdateUtil
+
+###### Interface
+
+```
+startSetUiStream(euiFromType, inputStream, uiUpdateListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type              | Describe                                        |
+| ---------------- | ----------------- | ----------------------------------------------- |
+| euiFromType      | EUIFromType       | UI type The default here is: EUIFromType.SERVER |
+| inputStream      | InputStream       | Dashboard file input stream                     |
+| uiUpdateListener | IUiUpdateListener | UI upgrade callback                             |
+
+###### Return data
+
+**IUiUpdateListener**
+
+```kotlin
+/**
+* UI upgrade start callback
+*/
+fun onUiUpdateStart()
+
+/**
+* UI erase starts
+* @param sumCount total erase size
+*/
+fun onStartClearCache(sumCount: Int)
+
+/**
+* UI erase progress callback
+* @param currentCount current erase count
+* @param sumCount total erase size
+* @param progress erase progress
+*/
+fun onClearCacheProgress(currentCount: Int, sumCount: Int, progress: Int)
+
+/**
+* UI erase completes
+*/
+fun onFinishClearCache()
+
+/**
+* UI upgrade progress
+* @param currentBlock current block
+* @param sumBlock total block
+* @param progress upgrade progress
+*/
+fun onUiUpdateProgress(currentBlock: Int, sumBlock: Int, progress: Int)
+
+/**
+* UI upgrade successful
+*/
+fun onUiUpdateSuccess()
+
+/**
+* UI update failed
+* @param eUiUpdateError reason for upgrade failure
+*/
+fun onUiUpdateFail(eUiUpdateError: EUiUpdateError?)
+```
+
+**EUiUpdateError**
+
+| Parameter name          | Describe                                    |
+| ----------------------- | ------------------------------------------- |
+| LISTENTER_IS_NULL       | No listener set                             |
+| NEED_READ_BASE_INFO     | No dial information read first              |
+| FILE_UNEXIST            | File does not exist                         |
+| LOW_BATTERY             | Battery is too low                          |
+| INTO_UPDATE_MODE_FAIL   | Failed to enter UI mode                     |
+| FILE_LENGTH_NOT_4_POWER | File is not 4-byte aligned                  |
+| CHECK_CRC_FAIL          | CRC check failed                            |
+| APP_CRC_SAME_DEVICE_CRC | CRC of app is consistent with CRC of device |
+
+Note: When the CRC of the dial to be transmitted is consistent with the CRC of the device, there is no need to go through the server dial transmission logic, and the server dial can be directly set through the [[Set Screen Style](#Set Screen Style-settingScreenStyle)] interface.
+###### Example Code
+
+```kotlin
+al mUritempFile = Uri.fromFile(mUpdatefile)
+val inputStream: InputStream =
+    getContentResolver().openInputStream(mUritempFile)
+
+/**
+ * Upgrade UI steps: Start upgrade - Clear cache data - Send UI data -End sending
+ */
+UiUpdateUtil.getInstance().startSetUiStream(
+    EUIFromType.SERVER,
+    inputStream, object : IUiUpdateListener {
+        override fun onUiUpdateStart() {
+        }
+
+        override fun onStartClearCache(sumCount: Int) {
+        }
+
+        override fun onClearCacheProgress(
+            currentCount: Int,
+            sumCount: Int,
+            progress: Int
+        ) {
+        }
+
+        override fun onFinishClearCache() {
+        }
+
+        override fun onUiUpdateProgress(
+            currentBlock: Int,
+            sumBlock: Int,
+            progress: Int
+        ) {
+        }
+
+        override fun onUiUpdateSuccess() {
+        }
+
+        override fun onUiUpdateFail(eUiUpdateError: EUiUpdateError?) {
+        }
+
+    }
+)
+```
+
+##### JiLi platform setting UI
+
+###### Premise
+
+The device must be a Jier device and have completed [[Open JieLi file system](#Open JieLi file system)]
+
+###### Interface	
+
+```
+VPOperateManager.getInstance().setJLWatchDial(localServerDialPath, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name      | Type                                   | Describe                                  |
+| ------------------- | -------------------------------------- | ----------------------------------------- |
+| localServerDialPath | String                                 |                                           |
+| listener            | JLWatchHolder.OnSetJLWatchDialListener | JieLi Photo Watch Transmission Monitoring |
+
+###### Return data
+
+OnSetJLWatchDialListener ：JieLi Photo Watch Transmission Monitoring
+
+```java
+/**
+* Listening for the dial transmission market
+*/
+public interface OnSetJLWatchDialListener {
+    /**
+    * Start transmitting the dial
+    */
+    void onStart();
+
+    /**
+    * Dial transmission progress
+    *
+    * @param progress Progress [0-100]
+    */
+    void onProgress(int progress);
+
+    /**
+    * Dial transmission completed
+    *
+    * @param watchPath The path of the dial in the JL file system e.g /WATCH088
+    */
+    void onComplete(String watchPath);
+
+    /**
+    * Dial transmission failed
+    *
+    * @param code Failure code
+    * @param errorMsg Failure reason
+    */
+    void onFiled(int code, String errorMsg);
+}
+```
+
+
+
+
+
+### Photo watch face
+
+#### Premise
+
+The device needs to support photo watch faces
+
+**Note⚠️**: Watch face transmission requires an exception protection scenario: when the watch battery is very low, if the watch face transmission is initiated, the watch may shut down due to low power during the transmission process. After recharging, the watch face will turn black. We recommend that you read the current power of the watch before each transmission. If the power status is low, the transmission is prohibited.
+
+#### Process
+
+>Step 1. Determine whether the photo dial is supported
+>Step 2. Read basic information
+>Step 3. Select the element and the corresponding position of the element
+>Step 4. Use the selected image as the background
+
+#### Class name
+
+**UiUpdateUtil**
+
+#### Step 1. Determine whether the photo dial is supported
+
+```kotlin
+if (mUiUpdateUtil.isSupportChangeCustomUi()) {
+//Support custom dial
+mUiUpdateUtil.init(context);
+} else {
+//Do not support custom dial
+
+}
+```
+
+#### Step 2. Read basic information
+
+###### Interface
+
+```
+getCustomWatchUiInfo( uiBaseInfoFormCustomListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name               | Type                          | Describe                                             |
+| ---------------------------- | ----------------------------- | ---------------------------------------------------- |
+| uiBaseInfoFormCustomListener | IUIBaseInfoFormCustomListener | Callback for reading basic information of photo dial |
+
+###### Return data
+
+**IUIBaseInfoFormCustomListener**
+
+```kotlin
+/**
+* Return ui basic information - custom
+*
+* @param uiDataCustom ui basic information - custom ui
+*/
+fun onBaseUiInfoFormCustom(uiDataCustom:UIDataCustom);
+```
+
+**UIDataCustom**
+
+| Parameter name     | Type                    | Describe                                            |
+| ------------------ | ----------------------- | --------------------------------------------------- |
+| dataReceiveAddress | Int                     | UI data receiving start address                     |
+| dataCanSendLength  | Int                     | Receiveable data length                             |
+| fileLength         | Long                    | Length of the file to be sent                       |
+| customUIType       | EWatchUIType            | Device screen type                                  |
+| isDefalutUI        | Boolean                 | Whether it is the default dial in the customization |
+| timePosition       | EWatchUIElementPosition | Element position                                    |
+| upTimeType         | EWatchUIElementType     | Element type above the time                         |
+| downTimeType       | EWatchUIElementType     | Element type below the time                         |
+| color888           | Int                     | Font display color                                  |
+| crc                | Int                     | CRC value of the dial                               |
+| packageIndex       | Int                     | Which package, starting from 1                      |
+
+###### Example Code
+
+```kotlin
+mUiUpdateUtil.getCustomWatchUiInfo(IUIBaseInfoFormCustomListener { uiDataCustom ->
+	
+})
+```
+
+
+
+#### Step 3. Select the element and its corresponding position
+
+###### Interface
+
+```
+setCustomWacthUi(UICustomSetData uiCustomSetData, final IUIBaseInfoFormCustomListener uiBaseInfoFormCustomListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name               | Type                          | Describe                     |
+| ---------------------------- | ----------------------------- | ---------------------------- |
+| uiCustomSetData              | UICustomSetData               | Photo dial settings          |
+| uiBaseInfoFormCustomListener | IUIBaseInfoFormCustomListener | Photo dial settings callback |
+
+**UICustomSetData**
+
+| Parameter nameimePosition | TypeEWatchUIElementPosition | Describe Element position |
+| ------------------------- | --------------------------- | ------------------------- |
+| timePosition              | EWatchUIElementPosition     | Element position          |
+| upTimeType                | EWatchUIElementType         | Element type above time   |
+| downTimeType              | EWatchUIElementType         | Element type below time   |
+| color888                  | Int                         | Font display color        |
+| isDefalutUI               | Boolean                     | Is it the default photo   |
+
+By querying the interface to return customUIType to get the WatchUIType of the device, you can know the element position, default image, photo ratio and other information supported by the device.
+
+###### Return data
+
+**IUIBaseInfoFormCustomListener**
+
+```kotlin
+/**
+* Returns basic UI information - custom UI
+*
+* @param uiDataCustom basic UI information - custom UI
+*/
+fun onBaseUiInfoFormCustom(uiDataCustom:UIDataCustom);
+```
+
+###### Example Code
+
+```kotlin
+val timePosition: EWatchUIElementPosition = EWatchUIElementPosition.LEFT_TOP
+val upTimeType: EWatchUIElementType = EWatchUIElementType.HEART
+val downTimeType: EWatchUIElementType = EWatchUIElementType.STEP
+val fontColor: Int = 0xffffff
+val uiCustomSetData =
+    UICustomSetData(isDefalutUI, timePosition, upTimeType, downTimeType, fontColor)
+UiUpdateUtil.getInstance().setCustomWacthUi(uiCustomSetData,
+    IUIBaseInfoFormCustomListener { uiDataCustom ->
+        val watchColor = uiDataCustom.color888
+        val hexColor = ColorUtil.intColorToHexStr(watchColor)
+       /**
+        * Although the color on the app and the color on the device have the same color value, there will be a difference in display
+        * Because the App can display RCG_888, and the device can only display RGB_565
+        * So for the display effect, it is best to make a mapping table yourself,
+        * For example, if the color A1 on the app and the color A2 on the device are similar, then the color A1 is displayed on the app, and the color A2 is sent to the device.
+        */
+    })
+```
+
+#### Step 4. Use a self-selected image for the background
+
+##### Non-Jieli platform settings
+
+###### Interface
+
+By querying the interface to return customUIType to get the device's WatchUIType, you can know the element position, default image, photo width and height supported by the device, etc.
+
+Note: The selected image cropping width and height must be consistent with the image width and height returned by the device basic information.
+
+```
+startSetUiStream(euiFromType, inputStream, uiUpdateListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type              | Describe                                 |
+| ---------------- | ----------------- | ---------------------------------------- |
+| euiFromType      | EUIFromType       | UI type Default here: EUIFromType.CUSTOM |
+| inputStream      | InputStream       | Watch face file input stream             |
+| uiUpdateListener | IUiUpdateListener | UI upgrade callback                      |
+
+###### Return data
+
+**IUiUpdateListener**
+
+Same as [[Server watch face - Set Ui](#Step 5. Set UI)]
+
+###### Example Code
+
+```kotlin
+inputStream = resources.assets.open(fileName)
+val bmp = BitmapFactory.decodeStream(inputStream) //原图
+val sendInputStream: InputStream =
+    mWatchUIType.getSendInputStream(context, bmp)
+UiUpdateUtil.getInstance().startSetUiStream(
+    EUIFromType.CUSTOM,
+    sendInputStream,
+    object : IUiUpdateListener {
+        override fun onUiUpdateStart() {
+        }
+
+        override fun onStartClearCache(sumCount: Int) {
+        }
+
+        override fun onClearCacheProgress(
+            currentCount: Int,
+            sumCount: Int,
+            progress: Int
+        ) {
+        }
+
+        override fun onFinishClearCache() {
+        }
+
+        override fun onUiUpdateProgress(
+            currentBlock: Int,
+            sumBlock: Int,
+            progress: Int
+        ) {
+        }
+
+        override fun onUiUpdateSuccess() {
+        }
+
+        override fun onUiUpdateFail(eUiUpdateError: EUiUpdateError) {
+        }
+    })
+```
+
+
+
+##### JL Platform Settings
+
+###### Premise
+
+The device must be a JL device and [[Open JieLi file system](#Open JieLi file system)] must have been completed
+
+###### Interface
+
+```
+VPOperateManager.getInstance().setJLWatchPhotoDial(dialPhotoPath, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name | Type                                         | Description                                                  |
+| -------------- | -------------------------------------------- | ------------------------------------------------------------ |
+| dialPhotoPath  | String                                       | The path of the cropped photo file. (It is recommended to save it in a fixed folder directory. And the cropped size should be consistent with the current watch face size, otherwise it will not be transferred. For example, for a 240x280 watch face, the image needs to be 240x280 in width and height) |
+| listener       | JLWatchFaceManager.JLTransferPicDialListener | Jerry Photo Watch Face Transfer Listener                     |
+
+###### Return data
+
+JLTransferPicDialListener: Jerry Photo Watch Face Transfer Listener
+
+```java
+/**
+ * JieLi photo dial transmission monitoring
+ */
+public interface JLTransferPicDialListener {
+    /**
+    * Start transferring photo dial
+    */
+    void onJLTransferPicDialStart();
+
+    /**
+    * Monitor dial transfer progress
+    *
+    * @param progress Progress [0-100]
+    */
+    void onTransferPicDialProgress(int progress);
+
+    /**
+    * The preview image is transferred, this method can be ignored
+    */
+    void onScaleBGPFileTransferComplete();
+
+    /**
+    * The large dial photo image is transferred, this method can be ignored
+    */
+    void onBigBGPFileTransferComplete();
+
+    /**
+    * The photo dial transfer is completed [the preview image will be transferred first and then the large dial image]
+    */
+    void onTransferComplete();
+
+    /**
+    * Photo dial transfer exception
+    *
+    * @param code Exception code
+    * @param errorMsg Error reason
+    */
+    void onTransferError(int code, String errorMsg);
+}
+```
+
+###### Example Code
+
+```java
+private void setPhotoDial() {
+    String dialPhotoPath = "/storage/emulated/0/Android/data/com.timaimee.vpdemo/files/hband/jlDail/20230413093755.png";
+    tvDialInfo.setText(dialPhotoPath);
+    VPOperateManager.getInstance().setJLWatchPhotoDial(dialPhotoPath, new JLWatchFaceManager.JLTransferPicDialListener() {
+        @Override
+        public void onJLTransferPicDialStart() {
+            tvDialInfo.setText("开始传输照片表盘");
+            Logger.t(TAG).e("【杰理表盘传输】onJLTransferPicDialStart--->" + Thread.currentThread().toString());
+        }
+
+        @Override
+        public void onTransferPicDialProgress(int progress) {
+            Logger.t(TAG).e("【杰理表盘传输】--->progress = " + progress + " : Thread = " + Thread.currentThread().toString());
+            pbPhotoDial.setProgress(progress);
+            tvDialProgress.setText(progress + " %");
+            tvDialInfo.setText("表盘文件传输中");
+        }
+
+        @Override
+        public void onScaleBGPFileTransferComplete() {
+            Logger.t(TAG).e("【杰理表盘传输】--->缩略图传输完成" + " : Thread = " + Thread.currentThread().toString());
+            tvDialInfo.setText("表盘缩略图传输完成");
+        }
+
+        @Override
+        public void onBigBGPFileTransferComplete() {
+            Logger.t(TAG).e("【杰理表盘传输】--->大图传输完成" + " : Thread = " + Thread.currentThread().toString());
+            tvDialInfo.setText("表盘大图传输完成");
+        }
+
+        @Override
+        public void onTransferComplete() {
+            Logger.t(TAG).e("【杰理表盘传输】--->表盘传输完成" + " : Thread = " + Thread.currentThread().toString());
+            tvDialInfo.setText("照片表盘传输成功");
+        }
+
+        @Override
+        public void onTransferError(int code, String errorMsg) {
+            Logger.t(TAG).e("【杰理表盘传输】--->表盘传输失败 code = " + code + ", errorMsg = " + errorMsg + " : Thread = " + Thread.currentThread().toString());
+            tvDialInfo.setText("照片表盘传输失败，code = " + code + " , errorMsg = " + errorMsg);
+        }
+    });
+}
+```
+
+
+
+
+
+## Find device function
+
+#### Premise
+
+The device needs to support the mobile phone device search function. All interfaces of this function must be supported by the device before they can be called. The judgment conditions are as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportFindDeviceByPhone
+```
+
+#### The phone starts searching for devices actively-startFindDeviceByPhone
+
+###### Interface
+
+```
+startFindDeviceByPhone(bleWriteResponse, findDevicelistener)
+```
+
+###### Parameter Explanation
+
+| Parameter name     | Type                 | Describe                       |
+| ------------------ | -------------------- | ------------------------------ |
+| bleWriteResponse   | IBleWriteResponseInt | Listening for write operations |
+| findDevicelistener | IFindDevicelistener  | Find device listening          |
+
+###### Return data
+
+**IFindDevicelistener**
+
+```kotlin
+/**
+* Not supported by mobile phone
+*/
+fun unSupportFindDeviceByPhone()
+/**
+* The device has been found
+*/
+fun foundedDevice()
+/**
+* The search timed out
+*/
+fun unFindDevice()
+/**
+* The device is vibrating and the screen is on, and it is in the search state
+*/
+fun findingDevice()
+```
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+        if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportFindDevice){
+            return
+        }
+        VPOperateManager.getInstance().startFindDeviceByPhone({
+
+        },object :IFindDevicelistener{
+            override fun unSupportFindDeviceByPhone() {
+            }
+
+            override fun findedDevice() {
+            }
+
+            override fun unFindDevice() {
+            }
+
+            override fun findingDevice() {
+            }
+        })
+```
+
+
+
+#### The phone stops searching for devices - stopFindDeviceByPhone
+
+###### Interface
+
+```
+stopFindDeviceByPhone(bleWriteResponse, findDevicelistener)
+```
+
+###### Parameter Explanation
+
+Same as [[The phone starts searching for devices actively - startFindDeviceByPhone](#The phone starts searching for devices actively - startFindDeviceByPhone)] parameters
+
+###### Return data
+
+Same as [[The phone starts searching for devices actively - startFindDeviceByPhone](#The phone starts searching for devices actively - startFindDeviceByPhone)] return data
+###### Example Code
+
+```kotlin
+//        kotlin code
+        if (!VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportFindDevice){
+            return
+        }
+        VPOperateManager.getInstance().stopFindDeviceByPhone({
+
+        },object :IFindDevicelistener{
+            override fun unSupportFindDeviceByPhone() {
+            }
+
+            override fun findedDevice() {
+            }
+
+            override fun unFindDevice() {
+            }
+
+            override fun findingDevice() {
+            }
+        })
+```
+
+
+
+
+
+
+When the device calls password verification, it will trigger the reporting callback of the social message function status. Please refer to [Verify password operation](\#Verify password operation)
+
+The message notification function mainly includes
+
+1. Read and set the message notification switch status
+
+2. Send message notification
+
+### Read and set the message notification switch status
+
+#### Read the message notification switch status
+
+```
+VPOperateManager.getInstance().readSocialMsg(writeResponse, listener)
+```
+
+| Parameter name | Type                   | Describe                                                  |
+| -------------- | ---------------------- | --------------------------------------------------------- |
+| writeResponse  | IBleWriteResponse      | Listening for write operations                            |
+| listener       | ISocialMsgDataListener | Callback listening for message notification switch status |
+
+#### Or use the following method to get the message switch status cached by SDK
+
+```
+VPOperateManager.getInstance().getFunctionSocailMsgData()
+```
+
+This method returns the switch status FunctionSocailMsgData of the message notification. If the entity obtained by this method is null, please call the readSocialMsg method.
+
+#### Setting the message notification switch state
+
+```
+VPOperateManager.getInstance().settingSocialMsg(writeResponse, listener, socailMsgData);
+```
+
+| Parameter name | Type                   | Describe                                            |
+| -------------- | ---------------------- | --------------------------------------------------- |
+| writeResponse  | IBleWriteResponse      | Listening for write operations                      |
+| listener       | ISocialMsgDataListener | Message notification switch state callback listener |
+| socailMsgData  | FunctionSocailMsgData  | Switch state to be set                              |
+
+#### Switch state and listener callback
+
+ISocialMsgDataListener: Message notification switch state change listener, this listener will be called when reading or setting. **Note: Some watches may support less than 17 types of social messages, then this method will not be called back**
+
+```
+/**
+ * Social message status monitoring
+ */
+public interface ISocialMsgDataListener extends IListener {
+   /**
+    * Listening for social message status changes, first package
+    * Note: Some watches may support less than 17 types of social messages, then
+    *
+    * @param socailMsgData Social message switch
+    */
+    void onSocialMsgSupportDataChange(FunctionSocailMsgData socailMsgData);
+
+    /**
+    * Listening for social message status changes, first package
+    * Note: Some watches may support less than 17 types of social messages, then this method will not be called back
+    *
+    * @param socailMsgData Social message switch
+    */
+    void onSocialMsgSupportDataChange2(FunctionSocailMsgData socailMsgData);
+}
+```
+
+FunctionSocailMsgData: Message notification status
+
+| Member name   | Type            | Description              |
+| ------------- | --------------- | ------------------------ |
+| phone         | EFunctionStatus | Phone                    |
+| msg           | EFunctionStatus | SMS                      |
+| wechat        | EFunctionStatus | WeChat                   |
+| qq            | EFunctionStatus | QQ                       |
+| sina          | EFunctionStatus | Sina                     |
+| facebook      | EFunctionStatus | Facebook                 |
+| twitter       | EFunctionStatus | X (original Twitter)     |
+| flickr        | EFunctionStatus | Flickr                   |
+| Linkin        | EFunctionStatus | Linkin                   |
+| whats         | EFunctionStatus | Whats                    |
+| line          | EFunctionStatus | Line                     |
+| instagram     | EFunctionStatus | Instagram                |
+| snapchat      | EFunctionStatus | Snapchat                 |
+| skype         | EFunctionStatus | Skype                    |
+| gmail         | EFunctionStatus | Gmail                    |
+| dingding      | EFunctionStatus | Dingding                 |
+| wxWork        | EFunctionStatus | Enterprise WeChat wxWork |
+| tikTok        | EFunctionStatus | Douyin TikTok            |
+| telegram      | EFunctionStatus | Telegram                 |
+| connected2_me | EFunctionStatus | Connected2Me             |
+| kakaoTalk     | EFunctionStatus | KakaoTalk                |
+| messenger     | EFunctionStatus | Messenger                |
+| other         | EFunctionStatus | Other messages           |
+| shieldPolice  | EFunctionStatus | Police Right             |
+
+EFunctionStatus: Function status (enumeration type)
+
+| Type          | Description                    |
+| ------------- | ------------------------------ |
+| UNSUPPORT     | This function is not supported |
+| SUPPORT       | Supported                      |
+| SUPPORT_OPEN  | Supported and open             |
+| SUPPORT_CLOSE | Supported and closed           |
+| UNKONW        | Unknown status                 |
+
+### Send message notification
+
+Message notifications are divided into three categories
+
+1. Mobile phone call message notification
+
+2. Mobile phone text message notification
+
+3. Social message notification (notification messages from various apps such as WeChat, QQ, X (original Twitter), etc.)
+
+#### Send message
+
+```
+VPOperateManager.getInstance().sendSocialMsgContent(writeResponse, contentSetting)
+```
+
+| Parameter name | Type              | Description                    |
+| -------------- | ----------------- | ------------------------------ |
+| writeResponse  | IBleWriteResponse | Listening for write operations |
+| contentSetting | ContentSetting    | Message content                |
+
+ContentSetting: Message content ESocailMsg is the information type
+```
+public abstract class ContentSetting {
+   /**
+    * Enumeration of information push
+    */
+   private ESocailMsg eSocailMsg;
+  ....
+```
+
+ESocailMsg：社交消息类型枚举
+
+```
+G15MSG((byte) 0XFE), //G15 project exclusive, you can ignore it
+
+/**
+* Phone
+*/
+PHONE((byte) 0x00),
+/**
+* SMS
+*/
+SMS((byte) 0x01),
+/**
+* WeChat
+*/
+WECHAT((byte) 0x02),
+/**
+* QQ [Official version, Light Chat version, International version]
+*/
+QQ((byte) 0x03),
+/**
+* Sina Weibo
+*/
+SINA((byte) 0x04),
+/**
+* Facebook
+*/
+FACEBOOK((byte) 0x05),
+/**
+* X(Original Twitter)
+*/
+TWITTER((byte) 0x06),
+/**
+* Filck
+*/
+FLICKR((byte) 0x07),
+/**
+* Linkin
+*/
+LINKIN((byte) 0x08),
+/**
+* whatapp
+*/
+WHATS((byte) 0x09),
+/**
+* line
+*/
+LINE((byte) 0x0A),
+/**
+* instagram
+*/
+INSTAGRAM((byte) 0x0B),
+/**
+* snapchat
+*/
+SNAPCHAT((byte) 0x0C),
+/**
+* skype
+*/
+SKYPE((byte) 0x0D),
+/**
+* gmail
+*/
+GMAIL((byte) 0x0E),
+/**
+* DingDING
+*/
+DINGDING((byte) 0x0F),
+/**
+* WeChat for Business
+*/
+WXWORK((byte) 0x10),
+
+/**
+* Other notifications other than the above
+*/
+OTHER((byte) 0x11),
+/**
+* com.zhiliaoapp.musically
+*/
+TIKTOK((byte) 0x12),
+/**
+* org.telegram.messenger
+*/
+TELEGRAM((byte) 0x13),
+/**
+* com.connected2.ozzy.c2m
+*/
+CONNECTED2_ME((byte) 0x14),
+/**
+* kakao talk
+*/
+KAKAO_TALK((byte) 0x15),
+/**
+* police right
+*/
+SHIELD_POLICE((byte) 0x16),//Ignore the exclusive project
+/**
+* Messenger under facebook
+*/
+MESSENGER((byte) 0x17),
+```
+
+#### Mobile phone incoming call message notification type
+
+Mobile phone incoming call messages use ContentPhoneSetting, which inherits from ContentSetting. If you pass in both the name and the phone number, the watch will display the name. The contact name can be null
+ContentPhoneSetting
+
+| Member name        | Type   | Describe       |
+| ------------------ | ------ | -------------- |
+| contactName        | String | Contact name   |
+| contectPhoneNumber | String | Contact number |
+
+The following construction method is recommended
+
+```
+ContentPhoneSetting contentSetting = new ContentPhoneSetting(ESocailMsg.PHONE, "张三", "010-6635214");
+```
+
+#### Mobile phone text message notification type
+
+Mobile phone text messages use ContentSmsSetting, which inherits from ContentSetting. If you pass in both the name and the phone number, the watch will display the name
+ContentSmsSetting
+
+| Member name        | Type   | Describe        |
+| ------------------ | ------ | --------------- |
+| contactName        | String | Contact name    |
+| contectPhoneNumber | String | Contact number  |
+| content            | String | Message content |
+
+The following construction method is recommended
+
+```
+ContentPhoneSetting contentSetting = new ContentSmsSetting(ESocailMsg.SMS, "Li Si", "010-6635214", "How's your luck today?");
+```
+
+#### Social message type
+
+Social message type uses ContentSocailSetting, which inherits from ContentSetting
+
+```
+/**
+* @param eSocailMsg Message type
+* @param title Message title
+* @param content Message content
+ */
+public ContentSocailSetting(ESocailMsg eSocailMsg, String title, String content) {
+    super(eSocailMsg);
+    this.title = title;
+    this.content = content;
+}
+```
+
+
+
+
+
+## Music control
+
+#### Premise
+
+The device needs to support music control. The judgment conditions are as follows:
+
+```kotlin
+val musicType == VpSpGetUtil.getVpSpVariInstance(applicationContext).musicType
+if(musicType == 1){
+//The device supports music control
+}else{
+//The device does not support music control
+}
+```
+
+#### Setting music data
+
+The device needs to support music control
+
+###### Interface
+
+```kotlin
+settingMusicData(bleWriteResponse, musicData, iMusicControlListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name        | Type                  | Describe                             |
+| --------------------- | --------------------- | ------------------------------------ |
+| bleWriteResponse      | IBleWriteResponse     | Listening for write operations       |
+| musicData             | MusicData             | Music data (song name, switch, etc.) |
+| iMusicControlListener | IMusicControlListener | Music control listener               |
+
+**MusicData** -- Music data
+
+| Parameter name  | Type   | Describe                                |
+| --------------- | ------ | --------------------------------------- |
+| musicAppId      | String | Music appid                             |
+| musicAlbum      | String | Music album                             |
+| musicName       | String | Music name                              |
+| singerName      | String | Singer name                             |
+| palyStatus      | Int    | Status: 1 Playing status 2 Pause status |
+| musicVoiceLevel | Int    | Volume level [1-100]                    |
+
+###### Return data
+
+**IMusicControlListener** -- Return listener for music control data, flag for music control function
+
+```kotlin
+/**
+* Next song, please perform related operations
+*/
+fun nextMusic()
+
+/**
+* Previous song, please perform related operations
+*/
+
+fun previousMusic()
+
+/**
+* Pause and play, please perform related operations
+*/
+fun pauseAndPlayMusic()
+
+/**
+* Pause, please perform related operations
+*/
+fun pauseMusic()
+
+/**
+* Play, please perform related operations
+*/
+fun playMusic()
+
+/**
+* Increase the volume, please perform related operations
+*/
+fun voiceUp()
+
+/**
+* Volume down, please perform related operations
+*/
+fun voiceDown()
+
+/**
+* Operation successful
+*/
+fun oprateMusicSuccess()
+
+/**
+* Operation failed
+*/
+fun oprateMusicFail()
+```
+
+###### Example Code
+
+```kotlin
+val play = 1 //playing state
+val pause = 2 //pausing state
+val musicData = MusicData("Jay Chou", "Shanghai 1943", "Fantasy", 80, play )
+VPOperateManager.getInstance()
+    .settingMusicData(writeResponse, musicData, object : IMusicControlListener {
+        override fun oprateMusicSuccess() {
+            Logger.t(OperaterActivity.TAG).i("Music-oprateMusicSuccess")
+        }
+
+        override fun oprateMusicFail() {
+            Logger.t(OperaterActivity.TAG).i("Music-oprateMusicFail")
+        }
+
+        override fun nextMusic() {
+            Logger.t(OperaterActivity.TAG).i("Music-nextMusic")
+        }
+
+        override fun previousMusic() {
+            Logger.t(OperaterActivity.TAG).i("Music-previousMusic")
+        }
+
+        override fun pauseAndPlayMusic() {
+            Logger.t(OperaterActivity.TAG).i("Music-pauseAndPlayMusic")
+        }
+
+        override fun pauseMusic() {
+            Logger.t(OperaterActivity.TAG).i("Music-pauseMusic")
+        }
+
+        override fun playMusic() {
+            Logger.t(OperaterActivity.TAG).i("Music-playMusic")
+        }
+
+        override fun voiceUp() {
+            Logger.t(OperaterActivity.TAG).i("Music-voiceUp")
+        }
+
+        override fun voiceDown() {
+            Logger.t(OperaterActivity.TAG).i("Music-voiceDown")
+        }
+    })
+```
+
+#### Set the device volume
+
+The device needs to support music control
+
+###### Interface
+
+```kotlin
+settingVolume(volumeLevel,bleWriteResponse,iMusicControlListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name        | Type                  | Describe                                          |
+| --------------------- | --------------------- | ------------------------------------------------- |
+| bleWriteResponse      | IBleWriteResponse     | Listening for write operations                    |
+| volumeLevel           | Int                   | The volume value to be set, ranging from 0 to 100 |
+| iMusicControlListener | IMusicControlListener | Music control listening                           |
+
+###### Return data
+
+The same as the return data of [[Set music data](#Set music data return)]
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().settingVolume(50,bleWriteResponse,iMusicControlListener)
+```
+
+## Bluetooth call function
+
+#### Register device Bluetooth call function listener-registerBTInfoListener
+
+###### Interface
+
+```
+registerBTInfoListener(iDeviceBTInfoListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name        | Type                  | Describe                                |
+| --------------------- | --------------------- | --------------------------------------- |
+| iDeviceBTInfoListener | IDeviceBTInfoListener | Device Bluetooth call function listener |
+
+###### Return data
+
+**IDeviceBTInfoListener**
+
+```kotlin
+/**
+* The device does not support BT (Bluetooth 3.0 function). The absence of this callback means that the device supports BT
+*/
+fun onDeviceBTFunctionNotSupport()
+
+/**
+* Device classic Bluetooth setting callback
+*
+* @param btInfo BT status details
+*/
+fun onDeviceBTInfoSettingSuccess(btInfo: BTInfo)
+
+/**
+* Device BT status setting failed
+*/
+fun onDeviceBTInfoSettingFailed()
+
+/**
+* Device classic Bluetooth reading callback
+*
+* @param btInfo BT status details
+*/
+fun onDeviceBTInfoReadSuccess(btInfo: BTInfo)
+
+/**
+* Failed to read device BT status
+*/
+fun onDeviceBTInfoReadFailed()
+
+/**
+* Device classic Bluetooth reporting callback
+*
+* @param btInfo BT status details
+*/
+fun onDeviceBTInfoReport(btInfo: BTInfo)
+```
+
+**BTInfo**
+
+| Parameter name | Type    | Describe                                                     |
+| -------------- | ------- | ------------------------------------------------------------ |
+| status         | Int     | Device Bluetooth call status 0: disconnected, 1: connected, 2: pairing. |
+| isBTOpen       | Boolean | Is the device Bluetooth call turned on?                      |
+| isAutoCon      | Boolean | Will the device Bluetooth call automatically reconnect?      |
+| isAudioOpen    | Boolean | Is multimedia audio turned on?                               |
+| isHavePairInfo | Boolean | Is there pairing information?                                |
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+        VPOperateManager.getInstance().registerBTInfoListener(object :IDeviceBTInfoListener{
+            override fun onDeviceBTFunctionNotSupport() {
+            }
+
+            override fun onDeviceBTInfoSettingSuccess(btInfo: BTInfo) {
+            }
+
+            override fun onDeviceBTInfoSettingFailed() {
+            }
+
+            override fun onDeviceBTInfoReadSuccess(btInfo: BTInfo) {
+            }
+
+            override fun onDeviceBTInfoReadFailed() {
+            }
+
+            override fun onDeviceBTInfoReport(btInfo: BTInfo) {
+            }
+
+        })
+```
+
+
+
+#### Register device Bluetooth call connection status monitor-registerBTConnectionListener
+
+###### Interface
+
+```
+registerBTConnectionListener(iDeviceBTConnectionListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name              | Type                        | Describe                                        |
+| --------------------------- | --------------------------- | ----------------------------------------------- |
+| iDeviceBTConnectionListener | IDeviceBTConnectionListener | Device Bluetooth call connection status monitor |
+
+###### Return data
+
+**IDeviceBTConnectionListener**
+
+```kotlin
+/**
+* Start connecting to BT
+*/
+fun onDeviceBTConnecting() {}
+
+/**
+* Device BT is connected
+*/
+fun onDeviceBTConnected() {}
+
+/**
+* Device BT is disconnected
+*/
+fun onDeviceBTDisconnected() {}
+
+/**
+* Device BT connection timeout
+*/
+fun onDeviceBTConnectTimeout() {}
+```
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+        VPOperateManager.getInstance().registerBTConnectionListener(object :IDeviceBTConnectionListener{
+            override fun onDeviceBTConnectTimeout() {
+                super.onDeviceBTConnectTimeout()
+            }
+
+            override fun onDeviceBTConnected() {
+                super.onDeviceBTConnected()
+            }
+
+            override fun onDeviceBTConnecting() {
+                super.onDeviceBTConnecting()
+            }
+
+            override fun onDeviceBTDisconnected() {
+                super.onDeviceBTDisconnected()
+            }
+        })
+```
+
+
+
+#### Manually connect BT-connectBT
+
+###### Premise
+
+After registering the device Bluetooth call function listener, there is no onDeviceBTFunctionNotSupport callback (that is, the device supports BT function)
+
+###### Interface
+
+```
+connectBT(mac, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name | Type                        | Describe                                    |
+| -------------- | --------------------------- | ------------------------------------------- |
+| mac            | String                      | Bluetooth mac of the device to be connected |
+| listener       | IDeviceBTConnectionListener | Device connection listener callback         |
+###### Return data
+
+**IDeviceBTConnectionListener** 
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+        val mac = "F1:F2:F3:F4:F5"
+        VPOperateManager.getInstance().connectBT(mac,object :IDeviceBTConnectionListener{
+            
+        })
+```
+
+
+
+#### Manually disconnect BT connection-disconnectBT
+
+###### Premise
+
+The device supports BT and has been connected to BT
+
+###### Interface
+
+```
+disconnectBT(String mac, IDeviceBTConnectionListener listener)
+```
+
+###### Parameter Explanation
+
+Same as [[Manually connect BT-connectBT](#Manually connect BT-connectBT)] parameters
+
+###### Return data
+
+Same as [[Manually connect BT-connectBT](#Manually connect BT-connectBT)] return data
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+        val mac = "F1:F2:F3:F4:F5"
+        VPOperateManager.getInstance().disconnectBT(mac,object :IDeviceBTConnectionListener{
+
+        })
+```
+
+
+
+#### Read BT information - readBTInfo
+
+```
+readBTInfo(bleWriteResponse, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                  | Describe                             |
+| ---------------- | --------------------- | ------------------------------------ |
+| bleWriteResponse | IBleWriteResponse     | Listening for write operations       |
+| listener         | IDeviceBTInfoListener | Device connection listening callback |
+
+###### Return data
+
+Same as the return data of [[Manually connect BT-connectBT](#Manually connect BT-connectBT)]
+
+###### Example Code
+
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().readBTInfo(
+    {
+        if (it != Code.REQUEST_SUCCESS) {
+            Log.e("Test","write cmd failed")
+        }
+    }, btInfoListener
+)
+```
+
+
+
+#### Set BT status - setBTStatus
+
+###### Premise
+
+The device supports BT and the device BT connection is successful
+
+###### Interface
+
+```kotlin
+setBTStatus(boolean isAutoConnect, boolean isBTOpen, boolean isAudioOpen, isClearPairInfo, bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type              | Describe                                        |
+| ---------------- | ----------------- | ----------------------------------------------- |
+| isAutoConnect    | Boolean           | Whether the device automatically reconnects     |
+| isBTOpen         | Boolean           | Whether the device BT is turned on              |
+| isAudioOpen      | Boolean           | Whether the multimedia switch is turned on      |
+| isClearPairInfo  | Boolean           | Whether to clear the device pairing information |
+| bleWriteResponse | IBleWriteResponse | Listening for write operations                  |
+
+###### Return data
+
+None
+
+###### Example Code
+```kotlin
+//kotlin code
+VPOperateManager.getInstance().setBTStatus(false, isBTOpen, isAudioOpen, false) {
+    if (it != Code.REQUEST_SUCCESS) {
+        Log.e("Test", "write cmd failed")
+    }
+}
+```
+
+
+
+#### Set BT switch status-setBTSwitchStatus
+
+###### Premise
+
+The device supports BT and the device BT connection is successful
+
+###### Interface
+
+```kotlin
+setBTSwitchStatus(isBTOpen, bleWriteResponse)
+```
+
+###### Parameter explanation
+
+| Parameter name   | Type              | Describe                       |
+| ---------------- | ----------------- | ------------------------------ |
+| isBTOpen         | Boolean           | Whether to open BT             |
+| bleWriteResponse | IBleWriteResponse | Listening for write operations |
+
+###### Return data
+
+None
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+        VPOperateManager.getInstance().setBTSwitchStatus(true){
+            
+        }
+```
+
+
+
+
+
+## Sports function
+
+#### Read sports mode data
+
+###### Premise
+
+The device must support sports mode
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportSportModel
+```
+
+###### Interface
+
+```kotlin
+readSportModelOrigin(bleWriteResponse, sportModelOriginListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name           | Type                      | Describe                         |
+| ------------------------ | ------------------------- | -------------------------------- |
+| bleWriteResponse         | IBleWriteResponse         | Listening for write operations   |
+| sportModelOriginListener | ISportModelOriginListener | Read sports mode data monitoring |
+
+###### Return data
+
+**ISportModelOriginListener**
+
+```kotlin
+/**
+* Returns the progress of reading
+*
+* @param progress progress value, range [0-1]
+*/
+fun onReadOriginProgress(progress: Float)
+
+/***
+* Returns the details of reading.
+*
+* @param day data flag in the watch [0=today, 1=yesterday, 2=the day before yesterday]
+* @param date data date, format yyyy-mm-dd
+* @param allPackage total number of data packages for the day
+* @param currentPackage location of this package
+*/
+fun onReadOriginProgressDetail(day: Int, date: String?, allPackage: Int, currentPackage: Int)
+
+/**
+* Callback of sports mode raw data [header information]
+*
+* @param sportModelHeadData sports mode raw data [header information]
+*/
+fun onHeadChangeListListener(sportModelHeadData: SportModelOriginHeadData?)
+
+/**
+* Callback for sports mode raw type 4 [header information]. This interface is only called back when the watch supports GPS sports, otherwise the onHeadChangeListListener interface is called back
+*
+* @param sportModelGPSWatchOriginHeadData sports mode raw type 4 [header information]
+*/
+fun onGPSWatchSportModeHeadChange(sportModelGPSWatchOriginHeadData: SportModelGPSWatchOriginHeadData?)
+
+/**
+* Callback for sports model raw data [details]
+*
+* @param sportModelItemDatas sports model raw data [details]
+*/
+fun onItemChangeListListener(sportModelItemDatas: List<SportModelOriginItemData?>?)
+
+/**
+* Reading completed
+*/
+fun onReadOriginComplete()
+```
+
+**SportModelOriginHeadData**--Head information of sports mode
+
+| Parameter name | Type     | Describe                               |
+| -------------- | -------- | -------------------------------------- |
+| date           | String   | Sports date                            |
+| startTime      | TimeData | Start time                             |
+| stopTime       | TimeData | Stop time                              |
+| sportTime      | Int      | Total sports duration                  |
+| stepCount      | Int      | Total steps in sports                  |
+| sportCount     | Int      | Total sports volume                    |
+| kcals          | Double   | Kilocalories consumed in sports        |
+| distance       | Double   | Sports distance                        |
+| recordCount    | Int      | Total number of records                |
+| pauseCount     | Int      | Number of pauses                       |
+| pauseTime      | Int      | Pause duration                         |
+| crc            | Int      | Data checksum                          |
+| peisu          | Int      | Pace                                   |
+| oxsporttimes   | Int      | Aerobic exercise time                  |
+| averRate       | Int      | Average heart rate                     |
+| sportType      | Int      | Sport type, see ESportType for details |
+
+**SportModelOriginItemData**--Detailed information on sport mode
+
+| Parameter name | Type     | Describe              |
+| -------------- | -------- | --------------------- |
+| date           | String   | Sport date            |
+| startTime      | TimeData | Start time            |
+| minute         | Int      | Sport minute          |
+| allMinute      | Int      | Total minutes         |
+| rate           | Int      | Heart rate            |
+| stepCount      | Int      | Total steps           |
+| sportCount     | Int      | Total exercise volume |
+| distance       | Int      | Sport distance        |
+| kcal           | Int      | Consumed kilocalories |
+| beathPause     | Int      | Pause flag            |
+| crc            | Int      | Verification code     |
+
+**SportModelGPSWatchOriginHeadData**--Head information of GPS sports mode (only called back by watches that support GPS sports)
+
+| Variable        | Type     | Remarks                                                      |
+| --------------- | -------- | ------------------------------------------------------------ |
+| date            | String   | Sport date                                                   |
+| startTime       | TimeData | Precise start time                                           |
+| stopTime        | TimeData | Precise stop time                                            |
+| sportTime       | Int      | Total sport duration (excluding pause duration)              |
+| stepCount       | Int      | Total steps                                                  |
+| sportCount      | Int      | Total sport volume                                           |
+| distance        | Double   | Sport distance, unit m                                       |
+| calories        | Double   | Calories consumed, unit cal                                  |
+| recordCount     | Int      | Total number of records                                      |
+| pauseCount      | Int      | Number of pauses                                             |
+| pauseTime       | Int      | Pause duration                                               |
+| crc             | Int      | Data verification code                                       |
+| oxSportDuration | Int      | Aerobic exercise duration                                    |
+| averRate        | Int      | Average heart rate                                           |
+| sportType       | Int      | Sport type, see ESportType for details                       |
+| hasGpsInfo      | Boolean  | Whether there is GPS information                             |
+| dataType        | Int      | Data display type: 0 unknown; 1 GPS+steps; 2 GPS+no steps; 3 no GPS+steps; 4 no GPS+no steps |
+
+ESportType--Sport type enumeration
+
+```java
+public enum ESportType {
+    /**
+    * Default sport
+    */
+    NONE(0),
+    /**
+    * Outdoor running
+    */
+    OUTDOOR_RUNNING(1),
+    /**
+    * Outdoor walking
+    */
+    OUTDOOR_WALK(2),
+    /**
+    * Indoor running
+    */
+    INDOOR_RUNNING(3),
+    /**
+    * Indoor walking
+    */
+    INDOOR_WALK(4),
+    /**
+    * Hiking
+    */
+    HIKE(5),
+    /**
+    * Stepper
+    */
+    TREADMILLS(6),
+    /**
+    * Outdoor cycling
+    */
+    OUTDOOR_RIDING(7),
+    /**
+    * Indoor cycling
+    */
+    INDOOR_RIDING(8),
+    /**
+    * Elliptical
+    */
+    ELLIPTICAL(9),
+    /**
+    * Rowing machine
+    */
+    ROWING_MACHINE(10),
+    /**
+    * Mountaineering
+    */
+    Mountaineering(11),
+    /**
+    * Swimming
+    */
+    SWIM(12),
+    /**
+    * Sit-Ups
+    */
+    Sit_Ups(13),
+    /**
+    * Skiing
+    */
+    SKI(14),
+    /**
+    * Rope Skipping
+    */
+    JUMP_ROPE(15),
+    /**
+    * Yoga
+    */
+    YOGA(16),
+    /**
+    * Table Tennis
+    */
+    PING_PONG(17),
+    /**
+    * Basketball
+    */
+    BASKETBALL(18),
+    /**
+    * Volleyball
+    */
+    VOLLEYBALL(19),
+    /**
+    * Football
+    */
+    FOOTBALL(20),
+    /**
+    * Badminton
+    */
+    BADMINTON(21),
+    /**
+    * Tennis
+    */
+    TENNIS(22),
+    /**
+    * Stair Climbing
+    */
+    CLIMB_STAIRS(23),
+    /**
+    * Fitness
+    */
+    FITNESS(24),
+    /**
+    * Weightlifting
+    */
+    WEIGHTLIFTING(25),
+    /**
+    * Scuba diving
+    */
+    DIVING(26),
+    /**
+    * Boxing
+    */
+    BOXING(27),
+    /**
+    * Fitness ball
+    */
+    GYM_BALL(28),
+    /**
+    * Squat training
+    */
+    SQUAT_TRAINING(29),
+    /**
+    * Triathlon
+    */
+    TRIATHLON(30),
+    /**
+    * Dance
+    */
+    DANCE(31),
+    /**
+    * HIIT
+    */
+    HIIT(32),
+    /**
+    * Rock climbing
+    */
+    ROCK_CLIMBING(33),
+    /**
+    * Athletics
+    */
+    SPORTS(34),
+    /**
+    * Ball games
+    */
+    BALLS(35),
+    /**
+    * Fitness games
+    */
+    FITNESS_GAME(36),
+    /**
+    * Free time
+    */
+    FREE_TIME(37),
+    /**
+    * Aerobics
+    */
+    AEROBICS(38),
+    /**
+    * Gymnastics
+    */
+    GYMNASTICS(39),
+    /**
+    * Floor exercises
+    */
+    FLOOR_EXERCISE(40),
+    /**
+    * Horizontal bar
+    */
+    HORIZONTALBAR(41),
+    /**
+    * Parallel bars
+    */
+    PARALLELBARS(42),
+    /**
+    * Trampoline
+    */
+    TRAMPOLINE(43),
+    /**
+    * Track and field
+    */
+    TRACKANDFIELD(44),
+    /**
+    * Marathon
+    */
+    MARATHON(45),
+    /**
+    * Push-ups
+    */
+    PUSH_UPS(46),
+    /**
+    * Dumbbells
+    */
+    DUMBBELL(47),
+    /**
+    * Rugby_FOOTBALL(48),
+    /**
+    * Handball
+    */
+    HANDBALL(49),
+    /**
+    * Baseball_SOFTBALL(50),
+    /**
+    * Baseball
+    */
+    BASEBALL(51),
+    /**
+    * Hockey
+    */
+    HOCKEY(52),
+    /**
+    * Golf
+    */
+    GOLF(53),
+    /**
+    * Bowling
+    */
+    BOWLING(54),
+    /**
+    * Billiards
+    */
+    BILLIARDS(55),
+    /**
+    * Rowing
+    */
+    ROWING(56),
+    /**
+    * Sailing
+    */
+    SAILBOAT(57),
+    /**
+    * Ice skating
+    */
+    SKATE(58),
+    /**
+    * Curling
+    */
+    CURLING(59),
+    /**
+    * Ice hockey
+    */
+    PUCK(60),
+    /**
+    * Sledding
+    */
+    SLEIGH(61),
+    /**
+    * Strong Walking
+    */
+    StrongWalk(62),
+    /**
+    * Treadmill
+    */
+    Treadmill(63),
+    /**
+    * Trail Running
+    */
+    TrailRunning(64),
+    /**
+    * Race Walking
+    */
+    RaceWalking(65),
+    /**
+    * Mountain Biking
+    */
+    MountainBiking(66),
+    /**
+    * BMX
+    */
+    BMX(67),
+    /**
+    * Orienteering
+    */
+    Orienteering(68),
+    /**
+    * Fishing
+    */
+    Fishing(69),
+    /**
+    * Hunting
+    */
+    Hunt(70),
+    /**
+    * Skateboarding
+    */
+
+    Skateboard(71),
+    /**
+    * Roller Skating
+    */
+    Roller Skating(72),
+    /**
+    * Parkour
+    */
+    Parkour(73),
+    /**
+    * Beach Car
+    */
+    ATV(74),
+    /**
+    * Motocross(75),
+    /**
+    * Stair Climbing Machine
+    */
+    Climbing Machine(76),
+    /**
+    * Spinning Bike(77),
+    /**
+    * Indoor Fitness
+    */
+    Indoor Fitness(78),
+    /**
+    * Mixed Aerobic
+    */
+    Mixed Aerobic(79),
+    /**
+    * Cross Training
+    */
+
+    Cross Training(80),
+    /**
+    * Aerobics
+    */
+    Bodybuilding Exercise(81),
+    /**
+    * Group Gymnastics(82),
+    /**
+    * Kickboxing
+    */
+    Kickboxing(83),
+    /**
+    * Strength Training
+    */
+    Strength Training(84),
+    /**
+    * Stepping Training
+    */
+    Stepping Training(85),
+    /**
+    * Core Training
+    */
+    Core Training(86),
+    /**
+    * Flexibility Training
+    */
+    Flexibility Training(87),
+    /**
+    * Free Training
+    */
+    Free Training(88),
+    /**
+    * Pilates
+    */
+    Pilates(89),
+    /**
+    * Battle Rope
+    */
+
+    BattleRope(90),
+    /**
+    * Stretch
+    */
+    Stretch(91),
+    /**
+    * Square Dance
+    */
+    SquareDance(92),
+    /**
+    * Ballroom Dance
+    */
+    BallroomDancing(93),
+    /**
+    * Belly Dance
+    */
+    BellyDance(94),
+    /**
+    * Ballet
+    */
+    Ballet(95),
+    /**
+    * Street Dance
+    */
+    HipHop(96),
+    /**
+    * Zumba
+    */
+    Zumba(97),
+    /**
+    * Latin Dance
+    */
+    LatinDance(98),
+    /**
+    * Jazz Dance
+    */
+    Jazz(99),
+    /**
+    * Hip-Hop Dance
+    */
+    HipHopDance(100),
+    /**
+    * Pole Dance
+    */
+    PoleDancing(101),
+    /**
+    * Break Dance
+    */
+    BreakDance(102),
+    /**
+    * National Dance
+    */
+    NationalDance(103),
+    /**
+    * Modern Dance
+    */
+    ModernDance(104),
+    /**
+    * Disco
+    */
+    Disco(105),
+    /**
+    * Tap Dance
+    */
+    TapDance(106),
+    /*
+    /**
+    * Wrestling
+    */
+    Wrestling(107),
+    /**
+    * Martial Arts
+    */
+    Martial Arts(108),
+    /**
+    * Tai Chi
+    */
+    Tai Chi(109),
+    /**
+    * Muay Thai
+    */
+
+    Muay Thai(110),
+    /**
+    * Judo
+    */
+    Judo(111),
+    /**
+    * Taekwondo
+    */
+    Taekwondo(112),
+    /**
+    * Karate
+    */
+    Karate(113),
+    /**
+    * Free Fighting
+    */
+    Free Sparring(114),
+    /**
+    * Swordsmanship
+    */
+    Swordsmanship(115),
+    /**
+    * Jiu-Jitsu
+    */
+    Jujitsu(116),
+    /**
+    * Fencing
+    */
+    Fencing(117),
+    /**
+    * Beach Soccer
+    */
+    BeachSoccer(118),
+    /**
+    * Beach Volleyball
+    */
+    BeachVolleyball(119),
+    /**
+    * Softball
+    */
+
+    Softball(120),
+    /**
+    * Squash
+    */
+    Squash(121),
+    /**
+    * Croquet(122),
+    /**
+    * Cricket
+    */
+    Cricket(123),
+    /**
+    * Polo
+    */
+    Polo(124),
+    /**
+    * Wallball
+    */
+    Wallball(125),
+    /**
+    * Sepak Takraw
+    */
+    TakrawBall(126),
+    /**
+    * Dodgeball
+    */
+    Dodgeball(127),
+    /**
+    * Water Polo
+    */
+    WaterPolo(128),
+    /**
+    * Shuttlecock
+    */
+    Shuttlecock(129),
+    /**
+    * Indoor Soccer
+    */
+
+    IndoorSoccer(130),
+    /**
+    * SandbagBall
+    */
+    SandbagBall(131),
+    /**
+    * BocceBall
+    */
+    BocceBall(132),
+    /**
+    * Jaileyball
+    */
+    Jaileyball(133),
+    /**
+    * Floorball
+    */
+    Floorball(134),
+    /**
+    * Outdoor Rowing
+    */
+    OutdoorBoating(135),
+    /**
+    * Kayaking
+    */
+    Kayak(136),
+    /**
+    * Dragon Boat
+    */
+    DragonBoat(137),
+    /**
+    * PaddleBoard
+    */
+    PaddleBoard(138),
+    /**
+    * IndoorFillingWaves(139),
+    /**
+    * Rafting
+    */
+
+    Drifting(140),
+    /**
+    * Waterskiing
+    */
+    WaterSkiing(141),
+    /**
+    * Skiing
+    */
+    Snowboarding(142),
+    /**
+    * Snowboarding
+    */
+    Snowboard(143),
+    /**
+    * Alpine Skiing
+    */
+    AlpineSkiing(144),
+    /**
+    * Cross-country Skiing
+    */
+    CrossCountrySkiing(145),
+    /**
+    * OrienteeringSki(146),
+    /**
+    * Biathlon
+    */
+    Bathlon(147),
+    /**
+    * Outdoor Skating
+    */
+    OutdoorSkating(148),
+    /**
+    * Indoor Skating
+    */
+    IndoorSkating(149),
+    /**
+    * Snowmobile
+    */
+
+    SnowCar(150),
+    /**
+    * Snowmobile
+    */
+    Snowmobile(151),
+    /**
+    * Snowshoeing
+    */
+    Snowshoeing(152),
+    /**
+    * Hula Hoop
+    */
+    HulaHoop(153),
+    /**
+    * Frisbee
+    */
+    Frisbee(154),
+    /**
+    * Darts
+    */
+    Dart(155),
+    /**
+    * Kite Flying
+    */
+    FlyAKite(156),
+    /**
+    * Tug of War
+    */
+    TugOfWar(157),
+    /**
+    * ShuttlecockKicking(158),
+    /**
+    * E-sports
+    */
+    ESports(159),
+    /**
+    * WanderingMachine
+    */
+    WanderingMachine(160),
+    /**
+    * Swing
+    */
+    Swing(161),
+    /**
+    * Shuffleboard
+    */
+    Shuffleboard(162),
+    /**
+    * Foosball
+    */
+    TableSoccer(163),
+    /**
+    * SomatosensoryGame(164),
+    /**
+    * Chess
+    */
+    InternationalChess(165),
+    /**
+    * Draughts(166),
+    /**
+    * Go
+    */
+    Go(167),
+    /**
+    * Bridge
+    */
+    Bridge(168),
+    /**
+    * BoardGames
+    */
+    BoardGame(169),
+    /**
+    * Archery
+    */
+    Archery(170),
+    /**
+    * EquestrianSports(171),
+    /**
+    * ClimbingStairs
+    */
+    ClimbingTheStairs(172),
+    /**
+    * Driving
+    */
+    Drive(173),
+    /**
+    * SeatedPush(174),
+    /**
+    * Seated Chest Press
+    */
+    SeatedChestPress(175),
+    /**
+    * Barbell
+    */
+    Barbell(176),
+    /**
+    * Long DistanceRunning(177),
+    /**
+    * Full SpeedRunning
+    */
+    FullSpeedRun(178),
+    /**
+    * Variable SpeedRunning
+    */
+    VariableSpeedRun(179),
+    /**
+    * RaceRiding
+    */
+
+    RaceRiding(180),
+    /**
+    * MilitaryChess
+    */
+    MilitaryChess(181),
+    /**
+    * Mahjong
+    */
+    Mahjong(182),
+    /**
+    * Poker
+    */
+    Poker(183),
+    /**
+    * Gobang
+    */
+    Gobang(184),
+    /**
+    * Chinese Chess
+    */
+    ChineseChess(185),
+    /**
+    * High Jump
+    */
+    HighJump(186),
+    /**
+    * Long jump
+    */
+    LongJump(187),
+    /**
+    * Spinning top
+    */
+    SpinningTop(188),
+    ;
+
+    private int value;
+
+    ESportType(int value) {
+        this.value = value;
+    }
+
+    public int getValue() {
+        return value;
+    }
+
+    public void setValue(int value) {
+        this.value = value;
+    }
+}
+
+```
+
+
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().readSportModelOrigin({
+            if (it != Code.REQUEST_SUCCESS) {
+                Log.e("Test", "write cmd failed")
+            }
+        }, object : ISportModelOriginListener {
+            override fun onReadOriginProgress(progress: Float) {
+
+            }
+
+            override fun onReadOriginProgressDetail(
+                day: Int,
+                date: String?,
+                allPackage: Int,
+                currentPackage: Int
+            ) {
+
+            }
+    
+    		override fun onGPSWatchSportModeHeadChange(sportModelGPSWatchOriginHeadData: SportModelGPSWatchOriginHeadData?){
+            	Log.e("Test", "sportModelGPSWatchOriginHeadData:${sportModelGPSWatchOriginHeadData.toString()}")
+        	}
+
+            override fun onHeadChangeListListener(sportModelHeadData: SportModelOriginHeadData?) {
+                Log.e("Test", "sportModelHeadData:${sportModelHeadData.toString()}")
+                
+            }
+
+            override fun onItemChangeListListener(sportModelItemDatas: MutableList<SportModelOriginItemData>?) {
+                Log.e("Test", "sportModelItemDatas:${sportModelItemDatas.toString()}")
+               
+            }
+
+            override fun onReadOriginComplete() {
+                Log.e("Test", "readSportModelOrigin onReadOriginComplete")
+            }
+
+        })
+```
+
+
+
+#### Read sports mode status
+
+###### Premise
+
+The device needs to support sports mode
+
+###### Interface
+
+```
+readSportModelState(IBleWriteResponse bleWriteResponse, ISportModelStateListener sportModelStateListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name          | Type                     | Describe                          |
+| ----------------------- | ------------------------ | --------------------------------- |
+| bleWriteResponse        | IBleWriteResponse        | Listening for write operations    |
+| sportModelStateListener | ISportModelStateListener | Read sports mode status listening |
+
+###### Return data
+
+**ISportModelStateListener**--Sport mode status listening
+
+```kotlin
+/**
+* Return sports mode status data
+*
+* @param sportModelStateData
+*/
+fun onSportModelStateChange(sportModelStateData:SportModelStateData)
+
+/**
+* Sports end monitoring
+*/
+fun onSportStopped()
+```
+
+**SportModelStateData**--Sport mode status data
+
+| Parameter name | Type                   | Describe                     |
+| -------------- | ---------------------- | ---------------------------- |
+| oprateStauts   | ECheckWear             | Sports mode operation status |
+| deviceStauts   | ESportModelStateStauts | Sports mode device status    |
+| sportModeType  | Int                    | Sports mode type             |
+
+**ECheckWear**--Sport mode operation status
+
+| Parameter name | Describe           |
+| -------------- | ------------------ |
+| OPEN_SUCCESS   | Open successfully  |
+| OPEN_FAIL      | Open failed        |
+| CLOSE_SUCCESS  | Close successfully |
+| CLOSE_FAIL     | Close failed       |
+| READ_SUCCESS   | Read successfully  |
+| READ_FAIL      | Read failed        |
+| UNKONW         | Unknown status     |
+
+**ESportModelStateStauts**--Device status of sports mode
+
+| Parameter name          | Describe                  |
+| ----------------------- | ------------------------- |
+| DEVICE_FREE             | Device is free            |
+| DEVICE_BUSY             | Device is busy            |
+| DEVICE_HAD_START_BEFORE | Device has been turned on |
+| UNKNOW                  | Unknown                   |
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance()
+    .readSportModelState({
+
+    }, object : ISportModelStateListener {
+        override fun onSportModelStateChange(sportModelStateData: SportModelStateData) {
+        }
+
+        override fun onSportStopped() {
+        }
+    })
+```
+
+
+
+#### Turn on sports mode
+
+###### Premise
+
+The device must support sports mode
+
+###### Interface
+
+```
+startSportModel(bleWriteResponse, sportModelStateListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name          | Type                     | Describe                        |
+| ----------------------- | ------------------------ | ------------------------------- |
+| bleWriteResponse        | IBleWriteResponse        | Listening for write operations  |
+| sportModelStateListener | ISportModelStateListener | Read sports mode state listener |
+
+###### Return data
+
+Same as [[Read sports mode status](#Read sports mode status)] Return data consistent
+
+###### Example Code
+
+```kotlin
+// kotlin code
+VPOperateManager.getInstance()
+.startSportModel({
+
+}, object : ISportModelStateListener {
+override fun onSportModelStateChange(sportModelStateData: SportModelStateData) {
+}
+
+override fun onSportStopped() {
+}
+})
+```
+
+#### End sports mode
+
+###### Premise
+
+The device must support sports mode and has turned on sports mode
+
+###### Interface
+
+```
+stopSportModel(bleWriteResponse, sportModelStateListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name          | Type                     | Describe                         |
+| ----------------------- | ------------------------ | -------------------------------- |
+| bleWriteResponse        | IBleWriteResponse        | Listening for write operations   |
+| sportModelStateListener | ISportModelStateListener | Read sports mode status listener |
+
+###### Return data
+
+Same as [[Read sports mode status](#Read sports mode status)] Return data one致
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance()
+    .stopSportModel({
+
+    }, object : ISportModelStateListener {
+        override fun onSportModelStateChange(sportModelStateData: SportModelStateData) {
+        }
+
+        override fun onSportStopped() {
+        }
+    })
+```
+
+
+
+#### Start multi-sport mode
+
+###### Premise
+
+The device needs to support sports mode
+
+It takes more than 1 minute from the start to the end of multi-sport mode. No sports data will be saved for sports that are less than 1 minute
+
+###### Interface
+
+```
+startMultSportModel(bleWriteResponse, sportModelStateListener, sportType)
+```
+
+###### Parameter Explanation
+
+| Parameter name          | Type                     | Describe                         |
+| ----------------------- | ------------------------ | -------------------------------- |
+| bleWriteResponse        | IBleWriteResponse        | Listening for write operations   |
+| sportModelStateListener | ISportModelStateListener | Read sports mode status listener |
+| sportType               | ESportType               | Sports type                      |
+
+###### Return data
+
+Same as the return data of [[Read sports mode status](#Read sports mode status)]
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance()
+    .startMultSportModel({
+
+    }, object : ISportModelStateListener {
+        override fun onSportModelStateChange(sportModelStateData: SportModelStateData) {
+        }
+
+        override fun onSportStopped() {
+        }
+    }, ESportType.INDOOR_WALK)
+```
+
+
+
+
+
+## Blood oxygen function
+
+#### Premise
+
+The device needs to support the blood oxygen function, and the judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportSpo2h
+```
+
+#### Start measuring blood oxygen-startDetectSPO2H
+
+The device needs to support the blood oxygen function
+
+###### Interface
+
+```
+startDetectSPO2H(IBleWriteResponse bleWriteResponse, ISpo2hDataListener spo2HDataListener, ILightDataCallBack lightDataCallBack)
+```
+
+###### Parameter Explanation
+
+| Parameter name    | Type               | Describe                                                     |
+| ----------------- | ------------------ | ------------------------------------------------------------ |
+| bleWriteResponse  | IBleWriteResponse  | Listening for write operations                               |
+| spo2HDataListener | ISpo2hDataListener | Blood oxygen operation callback, return blood oxygen data: whether supported, on/off status, blood oxygen value |
+| lightDataCallBack | ILightDataCallBack | Original light signal monitoring                             |
+
+###### Return data
+
+**ISpo2hDataListener**--Blood oxygen operation callback
+
+```kotlin
+/**
+* Return blood oxygen operation data
+* @param spo2HData Blood oxygen operation data
+*/
+fun onSpO2HADataChange(spo2HData:Spo2hData)
+```
+
+**spo2HData**--Blood oxygen operation data
+
+| Parameter name   | Type          | Describe                        |
+| ---------------- | ------------- | ------------------------------- |
+| spState          | ESPO2HStatus  | Blood oxygen function status    |
+| deviceState      | EDeviceStatus | Device status                   |
+| value            | Int           | Blood oxygen value              |
+| isChecking       | Boolean       | Is it being checked             |
+| checkingProgress | Int           | Blood oxygen detection progress |
+| rateValue        | Int           | Heart rate value                |
+
+**ESPO2HStatus**--Blood oxygen function status
+
+| Parameter name | Describe                       |
+| -------------- | ------------------------------ |
+| NOT_SUPPORT    | This function is not supported |
+| CLOSE          | Closed state                   |
+| OPEN           | Opened state                   |
+| UNKONW         | Unknown                        |
+
+###### Example Code
+
+```kotlin
+// kotlin code
+VPOperateManager.getInstance().startDetectSPO2H({
+
+}, { spo2HData ->
+val message = "Blood oxygen-start:\n$spo2HData"
+}) { data ->
+val message = "Blood oxygen-photoelectric signal:${Arrays.toString(data)}".trimIndent()
+}
+```
+
+
+
+#### End blood oxygen measurement-stopDetectSPO2H
+
+The device needs to support blood oxygen function
+
+###### Interface
+
+```kotlin
+stopDetectSPO2H(bleWriteResponse, spo2HDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name    | Type               | Describe                                                     |
+| ----------------- | ------------------ | ------------------------------------------------------------ |
+| bleWriteResponse  | IBleWriteResponse  | Listening for write operations                               |
+| spo2HDataListener | ISpo2hDataListener | Blood oxygen operation callback, return blood oxygen data: support, on/off status, blood oxygen value |
+
+###### Return data
+
+Same as [[Start measuring blood oxygen-startDetectSPO2H](#Start measuring blood oxygen-startDetectSPO2H)] return data
+
+####### Example Code
+
+```kotlin
+// kotlin code
+VPOperateManager.getInstance().stopDetectSPO2H({
+
+}) { spo2HData ->
+val message = "Blood oxygen-end:\n$spo2HData"
+}
+```
+
+#### Read the blood oxygen automatic detection switch status
+
+The device needs to support the blood oxygen function
+
+###### Interface
+
+```
+readSpo2hAutoDetect(bleWriteResponse, allSetDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name     | Type                | Describe                                         |
+| ------------------ | ------------------- | ------------------------------------------------ |
+| bleWriteResponse   | IBleWriteResponse   | Listening for write operations                   |
+| allSetDataListener | IAllSetDataListener | Blood oxygen automatic detection switch callback |
+
+###### Return data
+
+**IAllSetDataListener**--Blood oxygen automatic detection switch callback
+
+```kotlin
+/**
+* Return multiple settings data
+*
+* @param alarmData multiple settings data
+*/
+fun onAllSetDataChangeListener(alarmData:AllSetData);
+```
+
+**AllSetData**--Multiple settings data
+
+| Parameter name | Type          | Describe                                                     |
+| -------------- | ------------- | ------------------------------------------------------------ |
+| type           | EAllSetType   | The setting type 0x00 represents automatic blood oxygen detection |
+| startHour      | Int           | Start hour                                                   |
+| startMinute    | Int           | Start minute                                                 |
+| endHour        | Int           | End hour                                                     |
+| endMinute      | Int           | End minute                                                   |
+| oprate         | Int           | Operation: 0 set, 1 read                                     |
+| openState      | Int           | Switch state: 0 off 1 on                                     |
+| oprateResult   | EAllSetStatus | Setting state                                                |
+| isOpen         | Int           | Whether to open the detection                                |
+
+###### Example Code
+
+```kotlin
+// kotlin code
+VPOperateManager.getInstance().readSpo2hAutoDetect({
+    if (it != Code.REQUEST_SUCCESS) {
+        Log.e("Test", "write cmd failed")
+    }
+}, {allSetData->
+    
+})
+```
+
+
+
+#### Set the blood oxygen automatic detection switch state
+
+The device needs to support the blood oxygen function
+
+###### Interface
+
+```kotlin
+settingSpo2hAutoDetect(bleWriteResponse, allSetDataListener, allSetSetting)
+```
+
+###### Parameter Explanation
+
+| Parameter name     | Type                | Describe                                            |
+| ------------------ | ------------------- | --------------------------------------------------- |
+| bleWriteResponse   | IBleWriteResponse   | Listening for write operations                      |
+| allSetDataListener | IAllSetDataListener | Callback of blood oxygen automatic detection switch |
+| allSetSetting      | AllSetSetting       | Related settings                                    |
+
+**AllSetSetting**--Related settings
+
+| Parameter name | Type        | Describe                                                     |
+| -------------- | ----------- | ------------------------------------------------------------ |
+| type           | EAllSetType | Setting type 0x00 represents blood oxygen automatic detection |
+| startHour      | Int         | Start hour                                                   |
+| startMinute    | Int         | Start minute                                                 |
+| endHour        | Int         | End hour                                                     |
+| endMinute      | Int         | End minute                                                   |
+| oprate         | Int         | Operation: 0 set, 1 read                                     |
+| openState      | Int         | Switch state: 0 off 1 on                                     |
+
+###### Return data
+
+The same data returned by [[Read the blood oxygen automatic detection switch status](#Read the blood oxygen automatic detection switch status)].
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+val setting = 0
+val open = 1
+val startHour = 22
+val startMinute = 0
+val endHour = 8
+val endMinute  = 0
+val allSetSetting = AllSetSetting(EAllSetType.SPO2H_NIGHT_AUTO_DETECT,startHour,startMinute,endHour,endMinute,setting,open)
+VPOperateManager.getInstance().settingSpo2hAutoDetect({
+    if (it != Code.REQUEST_SUCCESS) {
+        Log.e("Test", "write cmd failed")
+    }
+}, { allSetData ->
+
+}, allSetSetting)
+```
+
+#### Read daily blood oxygen data
+
+The reading and writing of daily blood oxygen data are returned in [[Read daily data function](#Read daily data function)]
+
+## Blood glucose function
+
+The blood glucose function mainly includes
+
+1. Blood glucose monitoring switch and unit setting
+2. Reading of blood glucose data generated by daily wearing of the watch
+3. Manual blood glucose measurement
+4. Reading and setting of blood glucose private calibration mode
+5. Reading and setting of blood glucose multi-calibration mode
+
+#### Blood glucose monitoring switch and unit setting
+
+###### Blood glucose switch and unit setting
+
+```
+VPOperateManager.getInstance().changeCustomSetting(writeResponse, ICustomSettingDataListener, customSetting)
+```
+
+###### Blood glucose unit switch status and unit reading
+
+```
+VPOperateManager.getInstance().readCustomSetting(writeResponse,ICustomSettingDataListener);
+```
+
+| Parameter name             | Type                       | Description                             |
+| -------------------------- | -------------------------- | --------------------------------------- |
+| writeResponse              | IBleWriteResponse          | Command write callback                  |
+| ICustomSettingDataListener | ICustomSettingDataListener | Callback for setting success or failure |
+| customSetting              | CustomSetting              | Switch settings for related functions   |
+
+Personalized settings callback ICustomSettingDataListener,
+
+When the settings are changed, the OnSettingDataChange method will be called back and will return all parameter setting states of the current watch, including the switch states of each switch in the customSettingData.
+
+```
+public interface ICustomSettingDataListener extends IListener {
+/**
+* Returns personalized settings data
+*
+* @param customSettingData Personalized settings data
+*/
+void OnSettingDataChange(CustomSettingData customSettingData);
+}
+```
+
+CustomSetting
+
+| Property name         | Type              | Description                                                  |
+| :-------------------- | ----------------- | ------------------------------------------------------------ |
+| bloodGlucoseDetection | EFunctionStatus   | Blood glucose function status: whether it is supported, whether it is turned on. |
+| bloodGlucoseUnit      | EBloodGlucoseUnit | Blood glucose unit: default mmol/L, or mgdl                  |
+
+
+
+#### Daily blood sugar data reading
+
+Daily blood sugar data reading In the daily data reading interface, the following four interfaces can obtain daily blood sugar data. When the blood sugar monitoring switch is turned on and the wearer is wearing the device, up to three days of daily blood sugar data can be read. Blood sugar data is obtained in the interface IOriginData3Listener.onOriginFiveMinuteListDataChange(originDataList)
+
+1. Read the daily data of the number of days (input parameter watchday)
+
+   ```
+    /***
+       * If the watch stores data for 3 days
+       * Read the original data, one record every 5 minutes, including steps, heart rate, blood pressure, and exercise volume. The reading order is today-yesterday-the day before yesterday. Theoretically, there are 288 records for one day
+       *
+       * @param bleWriteResponse Listening for write operations
+       * @param originDataListener callback for original data. The returned data includes steps, heart rate, blood pressure, and exercise volume
+       * @param watchday data storage capacity of the watch (unit: day), depending on the device. After password verification, in the onFunctionSupportDataChange callback, you can get the return value through getWatchday()
+       */
+       public void readOriginData(IBleWriteResponse bleWriteResponse, IOriginData3Listener originDataListener, int watchday)
+   ```
+
+2. Customize differential reading of daily data
+
+   ```
+   /**
+       * Read the original data. This method can customize the day to read and the number of the day to start reading from to avoid repeated reading
+       * , for example, if [yesterday, 150] is set, the reading order is [yesterday {150}-end of yesterday-day before yesterday]
+       *
+       * @param bleWriteResponse Listening for write operations
+       * @param originDataListener callback for original data. The returned data includes step count, heart rate, blood pressure, and exercise volume
+       * @param day which day to read. 0 means today, 1 means yesterday, 2 means the day before yesterday, and so on. If the value passed in is yesterday, the reading order is yesterday-day before yesterday-...,
+       * @param position the position of the number of reads, up to 288 (5 minutes per line) per day, you can define the position of the number of reads, and the value of this parameter must be greater than or equal to 1
+       * @param watchday the data capacity that the watch can store (unit: day), depends on the device. After password verification, in the onFunctionSupportDataChange callback, you can get the return value through getWatchday()
+       */
+       public void readOriginDataFromDay(IBleWriteResponse bleWriteResponse, IOriginData3Listener originDataListener, int day, int position, int watchday)
+   ```
+
+3. Customize the day to read and the number of the day to start reading, and read only the day
+
+   ```
+   /***
+       * Read the original data. This method can customize the day to read and the number of the day to start reading, and only read the day
+       * , for example, if [yesterday, 150] is set, the reading order is [yesterday {150}-end of yesterday]
+       *
+       * @param bleWriteResponse Listening for write operations
+       * @param originDataListener callback for original data. The returned data includes step count, heart rate, blood pressure, and exercise volume
+       * @param day which day to read. 0 means today, 1 means yesterday, 2 means the day before yesterday, and so on.
+       * @param position the position of the number of reads, up to 288 (5 minutes per line) per day, you can define the position of the number of reads, and the value of this parameter must be greater than or equal to 1
+       * @param watchday the data capacity that the watch can store (unit: day), depends on the device. After password verification, in the onFunctionSupportDataChange callback, you can get the return value through getWatchday()
+       */
+       public void readOriginDataSingleDay(IBleWriteResponse bleWriteResponse, IOriginData3Listener originDataListener, int day, int position, int watchday)
+   ```
+
+4. Customize which day to read and which record to start reading from, whether to read only the current day
+
+```
+/***
+    * Read the original data. This method can customize the day to be read and the number of the day to start reading, whether to read only the current day
+    *
+    * @param bleWriteResponse Listening for write operations
+    * @param originDataListener callback for the original data. The returned data includes steps, heart rate, blood pressure, and exercise volume
+    * @param readOriginSetting settings for reading the original data
+    */
+    public void readOriginDataBySetting(IBleWriteResponse bleWriteResponse, IOriginProgressListener originDataListener, ReadOriginSetting readOriginSetting)
+```
+
+##### Daily blood sugar data acquisition callback
+
+This interface will be called back after the data reading for the day is completed. (One OriginData3 data represents a five-minute raw data, and a day has a maximum of 24 hours * 60 minutes / 5 minutes = 288 five-minute raw data), so a maximum of 288 blood sugar data will be generated in a day.
+
+```
+public interface IOriginData3Listener extends IOriginProgressListener {
+
+ /**
+    * This interface will be called back after the data reading for that day is completed. (One OriginData3 data represents a five-minute raw data, and a maximum of 24 hours a day*60 minutes/5 minutes = 288 five-minute raw data)
+    * For example, reading three days of raw data will return a list of five-minute raw data from today, yesterday, and the day before yesterday in sequence.
+    * Specifically, it depends on how many days of raw data are read. How many times will this interface be called for each day of reading
+    *
+    * @param originDataList returns a list of 5-minute data. The heart rate value is an array. The corresponding field is getPpgs(), not getRateValue()
+    */
+    void onOriginFiveMinuteListDataChange(List<OriginData3> originDataList);
+    ...
+}
+```
+
+OriginData3 is the original data. Daily blood sugar values can be obtained in the data structure.
+
+```
+
+public class OriginData3 extends OriginData {
+    ...
+    
+    /**
+    * Blood sugar value
+    */
+    public float bloodGlucose;
+
+    /**
+    * Blood sugar risk level
+    */
+    public EBloodGlucoseRiskLevel bloodGlucoseRiskLevel;
+
+
+  ...
+}
+
+```
+
+| Parameter name        | Type                   | Unit   |
+| --------------------- | ---------------------- | ------ |
+| bloodGlucose          | float                  | mmol/L |
+| bloodGlucoseRiskLevel | EBloodGlucoseRiskLevel | None   |
+
+```java
+public enum EBloodGlucoseRiskLevel {
+    /**
+    * Low risk
+    */
+    LOW,
+    /**
+    * Medium risk
+    */
+    MIDDLE,
+    /**
+    * High risk
+    */
+    HIGH,
+    /**
+    * No level
+    */
+    NONE,
+}
+```
+
+Note: bloodGlucoseRiskLevel is only valid when the device supports blood glucose risk assessment. In other cases, level is useless. Whether the device supports blood glucose risk assessment is determined as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportBloodGlucoseRiskAssessment
+```
+
+
+
+#### Blood glucose measurement
+
+##### Start blood glucose measurement
+
+```
+VPOperateManager.getInstance().startBloodGlucoseDetect(writeResponse,listener)
+```
+
+| Parameter name | Type                        | Describe                                  |
+| -------------- | --------------------------- | ----------------------------------------- |
+| writeResponse  | IBleWriteResponse           | Command write callback                    |
+| listener       | IBloodGlucoseChangeListener | Blood glucose measurement result callback |
+
+##### Stop blood glucose monitoring
+
+```
+VPOperateManager.getInstance().startBloodGlucoseDetect(writeResponse,listener)
+```
+
+| Parameter name | Type                        | Describe                                  |
+| :------------- | --------------------------- | ----------------------------------------- |
+| writeResponse  | IBleWriteResponse           | Command write callback                    |
+| listener       | IBloodGlucoseChangeListener | Blood glucose measurement result callback |
+
+##### Blood glucose measurement result callback
+
+###### Blood glucose measurement in progress
+
+```java
+/**
+* Blood glucose measurement value
+*
+* @param progress Measurement progress
+* @param bloodGlucose Blood glucose value
+* @param bloodGlucose Blood glucose risk level, this value is valid only when the device supports blood glucose risk assessment, otherwise invalid
+*/
+void onBloodGlucoseDetect(int progress, float bloodGlucose,EBloodGlucoseRiskLevel level);
+
+```
+
+###### Blood glucose measurement stopped
+
+```
+/**
+* Blood glucose measurement stopped
+*/
+void onBloodGlucoseStopDetect();
+```
+
+###### Blood glucose measurement abnormality
+
+```
+/**
+* Blood glucose measurement failed
+*
+* @param opt Operation code
+* @param status Error status
+*/
+void onDetectError(int opt, EBloodGlucoseStatus status);
+```
+
+***Blood glucose measurement status enumeration***
+
+```
+EBloodGlucoseStatus
+```
+
+| Definition    | Description                  |
+| ------------- | ---------------------------- |
+| NONSUPPORT    | Not supported                |
+| ENABLE        | Available                    |
+| DETECTING     | Measuring                    |
+| LOW_POWER     | Low power cannot be measured |
+| BUSY          | Device is busy               |
+| WEARING_ERROR | Wearing error                |
+
+#### Blood glucose private mode
+
+##### Blood glucose private mode reading
+
+```
+VPOperateManager.getInstance().readBloodGlucoseAdjustingData(writeResponse,listener)
+```
+
+| Parameter name | Type                        | Describe                                 |
+| -------------- | --------------------------- | ---------------------------------------- |
+| writeResponse  | IBleWriteResponse           | Command write callback                   |
+| listener       | IBloodGlucoseChangeListener | Blood glucose private mode read callback |
+
+###### Read success callback
+
+```
+/**
+* Blood glucose private mode setting read callback
+*
+* @param isOpen Whether it is open
+* @param adjustingValue Private mode blood glucose calibration value
+*/
+void onBloodGlucoseAdjustingReadSuccess(boolean isOpen, float adjustingValue);
+```
+
+###### Read failure callback
+
+```
+/**
+* Blood glucose private mode calibration read failure callback
+*/
+void onBloodGlucoseAdjustingReadFailed();
+```
+
+##### Blood glucose private mode setting
+```
+VPOperateManager.getInstance().setBloodGlucoseAdjustingData(fValue, isOpen, writeResponse, AbsBloodGlucoseChangeListener)
+```
+
+| Parameter name                | Type                        | Description                                     |
+| ----------------------------- | --------------------------- | ----------------------------------------------- |
+| fValue                        | float                       | Private mode blood glucose calibration value    |
+| isOpen                        | boolean                     | Whether to enable private mode of blood glucose |
+| writeResponse                 | IBleWriteResponse           | Command write callback                          |
+| AbsBloodGlucoseChangeListener | IBloodGlucoseChangeListener | Blood glucose operation callback                |
+
+###### Setting success callback
+
+```
+/**
+* Blood glucose private mode setting success callback
+*
+* @param isOpen Whether to enable
+* @param adjustingValue Private mode blood glucose calibration value
+*/
+void onBloodGlucoseAdjustingSettingSuccess(boolean isOpen, float adjustingValue);
+```
+
+###### Setting failure callback
+
+```
+/**
+* Blood glucose private mode calibration setting failure callback
+*/
+void onBloodGlucoseAdjustingSettingFailed();
+```
+
+#### Blood glucose multi-calibration mode
+
+###### Premise
+
+The device needs to support blood glucose multi-calibration mode. The judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportBloodGlucoseMultipleAdjusting
+```
+
+##### Read blood glucose multiple calibration mode data
+
+The device needs to support blood glucose multiple calibration mode
+
+###### Interface
+
+```kotlin
+readMultipleCalibrationBGValue(bleWriteResponse, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                          | Describe                         |
+| ---------------- | ----------------------------- | -------------------------------- |
+| bleWriteResponse | IBleWriteResponse             | Listening for write operations   |
+| listener         | AbsBloodGlucoseChangeListener | Blood glucose operation callback |
+
+###### Successful read callback
+
+```java
+/**
+* Successful reading of multiple calibration mode
+*
+* @param isOpen Whether it is open
+* @param breakfast Breakfast
+* @param lunch Lunch
+* @param dinner Dinner
+*/
+    void onBGMultipleAdjustingReadSuccess(boolean isOpen, MealInfo breakfast, MealInfo lunch, MealInfo dinner);
+```
+
+###### Reading failure callback
+
+```java
+/**
+* Multi-calibration mode reading failed
+*/
+void onBGMultipleAdjustingReadFailed();
+```
+
+**MealInfo** -- Multi-calibration mode data
+
+| Parameter name    | Type    | Describe                                                     |
+| ----------------- | ------- | ------------------------------------------------------------ |
+| index             | Int     | The tag of the current meal. 1: breakfast, 2: lunch, 3: dinner. |
+| bgBeforeMeal      | Float   | Pre-meal blood glucose calibration value, unit mmol/L        |
+| bgAfterMeal       | Float   | Post-meal blood glucose calibration value, unit mmol/L       |
+| bgBeforeMeal_mgDL | Int     | Pre-meal blood glucose calibration value, unit mg/dL         |
+| bgAfterMeal_mgDL  | Int     | Post-meal blood glucose calibration value, unit mg/dL        |
+| beforeMealTime    | Int     | Pre-meal time (minutes): hours + minutes, for example: 08:30 = 8*60+30 |
+| afterMealTime     | Int     | Post-meal time (minutes): hours + minutes                    |
+| isUnitMmolL       | Boolean | Whether the unit is mmol/L, priority setting                 |
+
+##### Set blood glucose multi-calibration mode data
+
+The device needs to support blood glucose multi-calibration mode
+###### Interface
+
+```kotlin
+settingMultipleCalibrationBGValue(isOpen, breakfast, lunch, dinner, bleWriteResponse, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                          | Describe                                   |
+| ---------------- | ----------------------------- | ------------------------------------------ |
+| isOpen           | Boolean                       | Whether to open the multi-calibration mode |
+| breakfast        | MealInfo                      | Breakfast multi-calibration data           |
+| lunch            | MealInfo                      | Lunch multi-calibration data               |
+| dinner           | MealInfo                      | Dinner multi-calibration data              |
+| bleWriteResponse | IBleWriteResponse             | Listening for write operations             |
+| listener         | AbsBloodGlucoseChangeListener | Blood glucose operation callback           |
+
+###### Setting success callback
+
+```java
+/**
+* Multi-calibration mode setting success
+*
+*/
+void onBGMultipleAdjustingSettingSuccess();
+```
+
+###### Setting failure callback
+
+```java
+/**
+* Multi-calibration mode setting failure
+*/
+void onBGMultipleAdjustingSettingFailed();
+```
+
+**Note:**
+
+1. The time interval between meals must be greater than 2 hours;
+2. The time after a meal must be greater than the time before a meal
+
+## Women's function
+
+#### Premise
+
+The device needs to support the women's function. The judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportWomenSetting
+```
+
+#### Set female function
+
+The device needs to support the female function
+###### Interface
+
+```kotlin
+settingWomenState(bleWriteResponse, womenDataListener, womenSetting)
+```
+
+###### Parameter Explanation
+
+| Parameter name    | Type               | Describe                                                     |
+| ----------------- | ------------------ | ------------------------------------------------------------ |
+| bleWriteResponse  | IBleWriteResponse  | Listening for write operations                               |
+| womenDataListener | IWomenDataListener | Listening for women's status operations, returning the status of the operation |
+| womenSetting      | WomenSetting       | Women's status setting class, including 4 states in total [menstrual period, pregnancy preparation period, pregnancy period, motherhood period] |
+
+**WomenSetting**--Women's status settings
+
+| Parameter name | Type         | Describe                                                     |
+| -------------- | ------------ | ------------------------------------------------------------ |
+| menseLength    | Int          | The length of a woman's menstrual period, ranging from [4-28 days] |
+| menesInterval  | Int          | The length of the menstrual cycle                            |
+| menesLasterday | TimeData     | The time of the last menstrual period, accurate to the day   |
+| babyBirthday   | TimeData     | The child's birth date, accurate to the day                  |
+| confinementDay | TimeData     | Pregnant women's due date, accurate to the day               |
+| womenStatus    | EWomenStatus | Women's status                                               |
+| babySex        | ESex         | Child's gender: MAN male, WOMAN female                       |
+
+>1. When the woman's status is [Menstrual period] and [Preparation period], use this constructor WomenSetting(womenStatus, menseLength, menesInterval, menesLasterday)
+>2. When the woman's status is [Mommy period], use this constructor WomenSetting(womenStatus, menseLength, menesInterval, menesLasterday, babySex, babyBirthday)
+>3. When the woman's status is [Pregnancy period], use this constructor WomenSetting(womenStatus, menesLasterday, confinementDay)
+
+**EWomenStatus**
+
+| Parameter name | Describe         |
+| -------------- | ---------------- |
+| NONE           | No status        |
+| MENES          | Menstrual status |
+| PREREADY       | Pregnancy status |
+| PREING         | Pregnancy status |
+| MAMAMI         | Mommy status     |
+
+###### Return data
+
+**IWomenDataListener**--Listening for women's status operations
+
+```kotlin
+/**
+* Returns women's data
+*
+* @param womenData Women's data
+*/
+fun onWomenDataChange(womenData:WomenData)
+```
+
+**WomenData**--Women's status data
+
+| Parameter name | Type               | Describe                      |
+| -------------- | ------------------ | ----------------------------- |
+| oprateStatus   | EWomenOprateStatus | Women's status setting status |
+
+**EWomenOprateStatus**--Setting status
+
+| Parameter name  | Describe                         |
+| --------------- | -------------------------------- |
+| SETTING_SUCCESS | Successfully set women's status  |
+| SETTING_FAIL    | Failed to set women's status     |
+| READ_SUCCESS    | Successfully read women's status |
+| READ_FAIL       | Failed to read female status     |
+| UNKONW          | Unknown status                   |
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().settingWomenState(
+    {
+
+    },
+    { womenData ->
+        val message = "Women Status-Setting:\n$womenData"
+}, WomenSetting(EWomenStatus.PREING, TimeData(2016, 3, 1), TimeData(2017, 1, 14))
+)
+```
+
+#### Read Women Function
+
+The device must support women functions
+
+###### Interface
+
+```kotlin
+readWomenState(IBleWriteResponse bleWriteResponse, IWomenDataListener womenDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name    | Type               | Describe                                                     |
+| ----------------- | ------------------ | ------------------------------------------------------------ |
+| bleWriteResponse  | IBleWriteResponse  | Listening for write operations                               |
+| womenDataListener | IWomenDataListener | Listening for women status operations, returning the status of the operation |
+
+###### Return data
+
+Same as the data returned by [[Set female function](#Set female function)]
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().readWomenState(
+    writeResponse
+) { womenData ->
+    val message = "Female Status - Read:\n$womenData"
+}
+```
+
+
+
+
+
+Female status-read## Blood pressure function
+
+The blood pressure function mainly includes
+
+1. Setting and reading the blood pressure automatic monitoring switch
+
+2. Reading the blood pressure data generated by daily wearing of the watch
+
+3. Manual blood pressure measurement
+
+4. Blood pressure mode setting
+
+5. Setting and reading the blood pressure function
+
+### Setting and reading the blood pressure automatic monitoring switch
+
+The reading and setting of the blood pressure function switch are located in the personalized settings, please refer to the document module [[Personalization](#Personalization)]
+
+### Daily blood pressure data reading
+
+Daily blood pressure data reading is located in daily data reading, please refer to the document module [[Read daily data function](## Read daily data function)]
+
+#### Blood pressure data in five-minute original data
+
+OriginData is the original data generated for five minutes, and the daily blood pressure value can be obtained in the data structure. The changed data will be called back in the daily reading interface
+
+```
+public interface IOriginData3Listener extends IOriginProgressListener {
+
+/**
+* This interface will be called back after the data reading of the day is completed. (One OriginData3 data represents a five-minute raw data, and a maximum of 24 hours a day*60 minutes/5 minutes = 288 five-minute raw data)
+* For example, reading three days of raw data will return a list of five-minute raw data for today, yesterday, and the day before yesterday.
+* Specifically, depending on how many days of raw data are read, this interface will be called several times.
+*
+* @param originDataList returns a list of 5-minute data. The heart rate value is an array. The corresponding field is getPpgs(), not getRateValue().
+*/
+void onOriginFiveMinuteListDataChange(List<OriginData3> originDataList);
+
+...
+}
+```
+
+The blood pressure value is in the class OriginData
+
+```
+public class OriginData {
+    ...
+    
+    /**
+    * High voltage value, range [60-300]
+    */
+    private int highValue;
+    /**
+    * Low voltage value, range [20-200]
+    */
+    private int lowValue;
+    
+  ...
+}
+
+```
+
+| Parameter name | Type | Description                                   |
+| -------------- | ---- | --------------------------------------------- |
+| highValue      | int  | High pressure value, range 60-300 (inclusive) |
+| lowValue       | int  | Low pressure value, range 20-200 (inclusive)  |
+
+#### Thirty-minute blood pressure data
+
+OriginHalfHourData is 30 minutes of raw data, including step counting, heart rate, and blood pressure, which is a summary of the original five-minute data every 30 minutes.
+
+OriginHalfHourData
+
+| Member             | Type                    | Description                         |
+| ------------------ | ----------------------- | ----------------------------------- |
+| halfHourRateDatas  | List<HalfHourRateData>  | 30-minute heart rate data array     |
+| halfHourBps        | List<HalfHourBpData>    | 30-minute blood pressure data array |
+| halfHourSportDatas | List<HalfHourSportData> | 30-minute exercise data array       |
+| allStep            | int                     | 30-minute total step count          |
+
+HalfHourBpData
+
+| Member    | Type     | Description                                                  |
+| --------- | -------- | ------------------------------------------------------------ |
+| highValue | int      | High pressure value, range 60-300 (inclusive)                |
+| lowValue  | int      | Low pressure value, range 20-200 (inclusive)                 |
+| date      | String   | Date, date format yyyy-mm-dd                                 |
+| time      | TimeDate | The specific time can be accurate to the minute at most, such as 10:00 means the average value of the period 10:00-10:30 |
+
+### Manual blood pressure measurement
+
+#### Turn on manual blood pressure measurement
+```
+VPOperateManager.getInstance().startDetectBP(writeResponse, listener, detectModel);
+```
+
+| Parameter name | Type                  | Describe                                                     |
+| -------------- | --------------------- | ------------------------------------------------------------ |
+| writeResponse  | IBleWriteResponse     | Listening for write operations                               |
+| listener       | IBPDetectDataListener | Blood glucose measurement result callback                    |
+| detectModel    | EBPDetectModel        | Blood pressure measurement mode: <br /> Private mode: DETECT_MODEL_PRIVATE <br /> General mode: DETECT_MODEL_PUBLIC |
+
+#### Stop manual blood pressure measurement
+
+```
+VPOperateManager.getInstance().stopDetectBP(writeResponse, detectModel)
+```
+
+| Parameter name | Type              | Describe                                                     |
+| :------------- | ----------------- | ------------------------------------------------------------ |
+| writeResponse  | IBleWriteResponse | Listening for write operations                               |
+| detectModel    | EBPDetectModel    | Blood pressure measurement mode: <br /> Private mode: DETECT_MODEL_PRIVATE <br /> General mode: DETECT_MODEL_PUBLIC |
+
+#### Blood pressure measurement related callbacks and data
+
+Blood pressure manual measurement callback interface
+
+```
+/**
+* Listener for blood pressure data return
+*/
+public interface IBPDetectDataListener extends IListener {
+/**
+* Return blood pressure data
+*
+* @param bpData Blood pressure data
+*/
+void onDataChange(BpData bpData);
+}
+
+```
+
+Blood pressure data BpData
+
+| Member         | Type            | Description                                                  |
+| -------------- | --------------- | ------------------------------------------------------------ |
+| status         | EBPDetectStatus | Blood pressure detection status<br />STATE_BP_BUSY: The device is busy, indicating that blood pressure cannot be measured. When receiving this return, please call End blood pressure measurement<br />STATE_BP_NORMAL: Indicates that blood pressure can be measured |
+| progress       | int             | Blood pressure measurement progress, range [0-100]           |
+| highPressure   | int             | High pressure value, range [60-300]. If it is not in this range, please prompt the user that the measurement is invalid. |
+| lowPressure    | int             | Low pressure value, range [20-200]. If it is not in this range, please prompt the user that the measurement is invalid. |
+| isHaveProgress | boolean         | true means the watch has returned progress, false means no progress. A watch without progress will return data 55 seconds after starting measurement. |
+
+### Blood pressure mode setting
+
+#### Blood pressure measurement mode setting
+
+```
+VPOperateManager.getInstance().settingDetectBP(writeResponse, listener, bpSetting)
+```
+
+| Parameter name | Type                   | Description                                    |
+| -------------- | ---------------------- | ---------------------------------------------- |
+| writeResponse  | IBleWriteResponse      | Listening for write operations                 |
+| listener       | IBPSettingDataListener | Blood pressure mode setting callback           |
+| bpSetting      | BpSetting              | Blood pressure private mode setting parameters |
+
+Blood pressure setting class BpSetting
+
+| Member             | Type    | Description                                                  |
+| ------------------ | ------- | ------------------------------------------------------------ |
+| isOpenPrivateModel | boolean | Whether the private mode is turned on for automatic measurement |
+| high               | int     | User's private high pressure value                           |
+| low                | int     | User's private low pressure value                            |
+| isAngioAdjuste     | boolean | Whether dynamic blood pressure calibration is turned on      |
+
+**When isOpenPrivateModel is set to true and isAngioAdjuste is set to false, it means that the *blood pressure private mode is turned on at this time***
+
+**When isOpenPrivateModel is set to false and isAngioAdjuste is set to true, it means that the *blood pressure dynamic adjustment mode is turned on at this time***
+
+#### Blood pressure measurement mode reading
+
+```
+VPOperateManager.getInstance().readDetectBP(writeResponse, listener)
+```
+
+| Parameter name | Type                   | Description                          |
+| -------------- | ---------------------- | ------------------------------------ |
+| writeResponse  | IBleWriteResponse      | Listening for write operations       |
+| listener       | IBPSettingDataListener | Blood pressure mode reading callback |
+
+#### Cancel blood pressure dynamic debugging mode
+
+```
+boolean isOpenPrivateModel = false;
+boolean isAngioAdjuste = true;
+BpSetting bpSetting = new BpSetting(isOpenPrivateModel, 111, 88);
+//Whether to enable dynamic blood pressure adjustment mode, the function flag is returned in the password verification
+bpSetting.setAngioAdjuste(isAngioAdjuste);
+VPOperateManager.getInstance().cancelAngioAdjust(writeResponse, new IBPSettingDataListener() {
+@Override
+public void onDataChange(BpSettingData bpSettingData) {
+String message = "BpSettingData:\n" + bpSettingData.toString();
+Logger.t(TAG).i(message);
+sendMsg(message, 1);
+}
+}, bpSetting);
+```
+
+Blood pressure mode setting read listener, when setting or reading is successful, IBPSettingDataListener.onDataChange method will be called back
+
+```
+/**
+* Listener returned by device saving private blood pressure data
+*/
+public interface IBPSettingDataListener extends IListener {
+/**
+* Privately saved blood pressure data return
+*
+* @param bpSettingData Privately saved blood pressure data
+*/
+void onDataChange(BpSettingData bpSettingData);
+}
+```
+
+BpSettingData
+
+| Member                | Type           | Description                                                  |
+| --------------------- | -------------- | ------------------------------------------------------------ |
+| status                | EBPStatus      | Status of dynamic blood pressure calibration:                |
+| model                 | EBPDetectModel | Blood pressure measurement mode: <br />DETECT_MODEL_PRIVATE: Private mode <br />DETECT_MODEL_PUBLIC: Universal mode |
+| highPressure          | int            | Private high pressure value saved by the device. If it is 0, it means that private data needs to be set first when measuring in private mode. |
+| lowPressure           | int            | Private low pressure value saved by the device, range [20-200] |
+| angioAdjusterProgress | int            | Progress of dynamic blood pressure adjustment [0-100]        |
+| isAngioAdjuster       | boolean        | Status of dynamic blood pressure adjustment. True means that the current state is dynamic blood pressure adjustment |
+
+Blood pressure calibration status:
+
+EBPStatus
+
+| SETTING_NORMAL_SUCCESS        | Successfully closed private mode [also known as setting universal mode] |
+| ----------------------------- | ------------------------------------------------------------ |
+| SETTING_NORMAL_FAIL           | Failed to turn off private mode [also known as setting general mode] |
+| SETTING_PRIVATE_SUCCESS       | Successfully set private mode                                |
+| SETTING_PRIVATE_FAIL          | Failed to set private mode                                   |
+| READ_SUCCESS                  | Successfully read blood pressure mode                        |
+| READ_FAIL                     | Failed to read blood pressure mode                           |
+| CANCLE_ANGIO_ADJUSTER_SUCCESS | Successfully canceled dynamic blood pressure adjustment      |
+| CANCLE_ANGIO_ADJUSTER_FAIL    | Failed to set private mode                                   |
+| ANGIO_ADJUSTER_ING            | Dynamic blood pressure calibration in progress               |
+| ANGIO_ADJUSTER_FAIL           | Dynamic blood pressure calibration failed                    |
+| ANGIO_ADJUSTER_SUCCESS        | Dynamic blood pressure calibration successful                |
+| ANGIO_ADJUSTER_DEVICE_BUSY    | Device busy during dynamic blood pressure calibration        |
+| UNKONW                        | Unknown status                                               |
+
+### Blood pressure function settings and reading
+
+#### Reading blood pressure function
+
+```
+VPOperateManager.getInstance().readBpFunctionState(writeResponse, IBPFunctionListener)
+```
+
+#### Set the blood pressure function
+
+```
+VPOperateManager.getInstance().settingBpFunctionState(writeResponse, IBPFunctionListener, isOpen)
+```
+
+Function interface and parameter description
+
+| Parameter name      | Type                | Description                                            |
+| ------------------- | ------------------- | ------------------------------------------------------ |
+| writeResponse       | IBleWriteResponse   | Listening for write operations                         |
+| IBPFunctionListener | IBPFunctionListener | Blood pressure function read setting callback listener |
+| isOpen              | boolean             | Whether to open true: open, false: close               |
+
+IBPFunctionListener
+
+```
+/**
+* Blood pressure function status return
+*/
+public interface IBPFunctionListener extends IListener {
+/**
+* Return the status of the blood pressure function
+*
+* @param bpFunctionData Blood pressure function status
+*/
+void onDataChange(BpFunctionData bpFunctionData);
+}
+```
+
+BpFunctionData: Blood pressure function status
+
+| Cost name | Type    | Description                                   |
+| --------- | ------- | --------------------------------------------- |
+| isSupport | boolean | Whether blood pressure detection is supported |
+| isOpen    | boolean | Whether blood pressure function is turned on  |
+
+## Alarm function
+
+Alarms are divided into three categories:
+
+1. Ordinary alarms (only 3 are supported)
+
+2. Scene alarms (20 are supported)
+
+3. Text alarms (10 are supported)
+
+1. The successfully connected device only supports one type of alarm. When the user performs a device password verification operation, the device will update and report the device function support type, including the alarm type. (When the device performs a password verification, the incoming listener [IDeviceFuctionDataListener] will report the alarm type [Please refer to Password Verification](#Verify password operation))
+The alarm includes the functions of adding, deleting, modifying and checking the alarm.
+
+### Ordinary alarm clock
+
+AlarmSetting: Alarm clock entity class
+
+```
+public class AlarmSetting {
+private int alarmTime;
+private boolean isOpen;
+
+/**
+* Hour, minute, whether to switch
+*
+* @param alarmHour
+* @param alarmMinute
+* @param isOpen
+*/
+public AlarmSetting(int alarmHour, int alarmMinute, boolean isOpen) {
+this.alarmTime = alarmHour * 60 + alarmMinute;
+this.isOpen = isOpen;
+}
+```
+
+| Member name | Type    | Description                                                  |
+| ----------- | ------- | ------------------------------------------------------------ |
+| alarmTime   | int     | Alarm time = (hour * 60 + minute)                            |
+| isOpen      | boolean | Whether to open, true means the alarm is on, false means the alarm is off |
+
+#### Read the alarm list
+
+Example:
+
+```
+VPOperateManager.getInstance().readAlarm(writeResponse, new IAlarmDataListener() {
+                @Override
+                public void onAlarmDataChangeListener(AlarmData alarmData) {
+                    String message = "Read Alarm:\n" + alarmData.toString();
+                    Logger.t(TAG).i(message);
+                    sendMsg(message, 1);
+                }
+            });
+```
+
+| Parameter name | Type               | Description                                                  |
+| -------------- | ------------------ | ------------------------------------------------------------ |
+| writeResponse  | IBleWriteResponse  | Command write callback                                       |
+| listener       | IAlarmDataListener | Alarm data callback, this method will be called back when reading, setting and alarm status change |
+
+AlarmData: Alarm list encapsulation class
+
+| Member name      | Type               | Description                                                  |
+| ---------------- | ------------------ | ------------------------------------------------------------ |
+| status           | EAalarmStatus      | Status after operating the alarm: <br />SETTING_SUCCESS: Operation successful <br />SETTING_FAIL: Operation failed <br />READ_SUCCESS: Read successfully <br />READ_FAIL: Read failed <br />UNKONW: Unknown exception |
+| alarmSettingList | List<AlarmSetting> | Alarm list                                                   |
+
+#### Set the alarm
+
+Example:
+
+```
+List<AlarmSetting> alarmSettingList = new ArrayList<>(3);
+
+AlarmSetting alarmSetting1 = new AlarmSetting(14, 10, true);
+AlarmSetting alarmSetting2 = new AlarmSetting(15, 20, true);
+AlarmSetting alarmSetting3 = new AlarmSetting(16, 30, true);
+
+alarmSettingList.add(alarmSetting1);
+alarmSettingList.add(alarmSetting2);
+alarmSettingList.add(alarmSetting3);
+
+VPOperateManager.getInstance().settingAlarm(writeResponse, new IAlarmDataListener() {
+    @Override
+    public void onAlarmDataChangeListener(AlarmData alarmData) {
+        String message = "设置闹钟:\n" + alarmData.toString();
+        Logger.t(TAG).i(message);
+        sendMsg(message, 1);
+    }
+}, alarmSettingList);
+```
+
+
+
+### Scene Alarm (New Alarm)
+
+The difference between scene alarm and ordinary alarm is that the watch can set more alarms (up to 20 scene alarms) and the alarm content is richer, and the watch supports corresponding scene icons.
+
+Alarm2Setting: Scene alarm
+
+| Member name      | Type    | Description                                                  |
+| ---------------- | ------- | ------------------------------------------------------------ |
+| MAFlag           | String  | Alarm unique flag                                            |
+| BluetoothAddress | String  | Alarm Bluetooth address                                      |
+| alarmId          | int     | Alarm serial number, serial number range is [1-20]           |
+| alarmHour        | int     | All saved are 24-hour system, hour                           |
+| alarmMinute      | int     | All saved are 24-hour system, minute                         |
+| repeatStatus     |         | Alarm repeat status (Monday, Tuesday, Wednesday...weekend), <br/> <p><br/> Required format is 7-bit string composed of (0,1), from right to left Monday, Tuesday,...Saturday, Sunday <br/> <p><br/> 1100000-means Sunday, Saturday <br/> <p><br/> 0000011-Tuesday, Monday <br/> <p><br/> If you want to set a non-repeating alarm, set it to 0000000<br/> |
+| unRepeatDate     | String  | When the alarm is in non-repeating state, set the date.<br/> <p><br/> The required format is xxxx-xx-xx,<br/> <p><br/>If you want to set a repeating alarm, set it to 0000-00-00 |
+| scene            | int     | Alarm scene [0-20] There are 21 scenes in total, and the default is the normal alarm icon<br /><br />* 0: Alarm icon * 1: Sleep * 2: Sit up * 3: Drink water * 4: Take medicine * 5: Date * 6: Read * 7: Movie * 8: Music * 9: Shopping * 10: Haircut * 11: Birthday * 12: Propose * 13: Work * 14: Parenting * 15: Parent-child travel * 16: Save money * 17: See a doctor * 18: Dog walking * 19: Fishing * 20: Travel |
+| isOpen           | boolean | Whether it is turned on, true means the alarm is on, false means the alarm is off |
+
+EMultiAlarmOprate: Scene alarm operation status (enumeration type). When the user adds, deletes, modifies, or queries the alarm, the status will be returned in the relevant monitoring.
+
+| Type                             | Description                                                  |
+| -------------------------------- | ------------------------------------------------------------ |
+| SETTING_SUCCESS                  | Setting success [Modify, add]                                |
+| SETTING_FAIL                     | Setting failure [Modify, add]                                |
+| CLEAR_SUCCESS                    | Delete success                                               |
+| CLEAR_FAIL                       | Delete failure                                               |
+| READ_SUCCESS                     | Read success                                                 |
+| READ_FAIL                        | Read failure                                                 |
+| READ_SUCCESS_NULL                | Read success but no alarm                                    |
+| READ_SUCCESS_SAVE                | Read success and save to local                               |
+| READ_SUCCESS_SAME_CRC            | Read CRC is consistent, indicating that the alarm has not changed |
+| ALARM_FULL                       | The number of alarms has reached the upper limit             |
+| ALARM_REPORT                     | Alarm report                                                 |
+| ALARM_REPORT_DATE_ERROR          | Alarm report but data error                                  |
+| DEVICE_ALARM_MODIFY              | Modify the alarm on the device                               |
+| DEVICE_ADD_ONE_TEXT_ALARM        | Add an alarm to the device                                   |
+| DEVICE_DELETE_ONE_TEXT_ALARM,    | Delete an alarm on the device                                |
+| DEVICE_TEXT_ALARM_SWITCH_CHANGED | The device text alarm switch status has changed              |
+| UNKONW                           | Unknown operation                                            |
+
+AlarmData2: Scene alarm list encapsulation class
+
+| Member name       | Type                | Description                         |
+| ----------------- | ------------------- | ----------------------------------- |
+| status            | EMultiAlarmOprate   | Operation status of the scene alarm |
+| alarm2SettingList | List<Alarm2Setting> | Scene alarm list                    |
+
+#### Read scene alarm
+
+Usage example:
+```
+VPOperateManager.getInstance().readAlarm2(writeResponse, new IAlarm2DataListListener() {
+    @Override
+    public void onAlarmDataChangeListListener(AlarmData2 alarmData2) {
+        String message = "读取闹钟[新版]:\n" + alarmData2.toString();
+        Logger.t(TAG).i(message);
+        sendMsg(message, 1);
+    }
+});
+```
+
+#### Set scene alarm
+
+Usage example:
+
+```
+private Alarm2Setting getMultiAlarmSetting() {
+        int hour = 16;
+        int minute = 33;
+        int scene = 1;
+        boolean isOpen = true;
+        String repestStr = "1000010";
+        String unRepeatDdate = "0000-00-00";
+        return new Alarm2Setting(hour, minute, repestStr, scene, unRepeatDdate, isOpen);
+    }
+....
+
+Alarm2Setting alarm2Setting = getMultiAlarmSetting();
+VPOperateManager.getInstance().addAlarm2(writeResponse, new IAlarm2DataListListener() {
+    @Override
+    public void onAlarmDataChangeListListener(AlarmData2 alarmData2) {
+        String message = "添加闹钟[新版]:\n" + alarmData2.toString();
+        Logger.t(TAG).i(message);
+        sendMsg(message, 1);
+    }
+}, alarm2Setting);
+```
+
+#### Delete scene alarm
+
+Usage example:
+
+```
+private Alarm2Setting getMultiAlarmSetting() {
+        int hour = 16;
+        int minute = 33;
+        int scene = 1;
+        boolean isOpen = true;
+        String repestStr = "1000010";
+        String unRepeatDdate = "0000-00-00";
+        return new Alarm2Setting(hour, minute, repestStr, scene, unRepeatDdate, isOpen);
+    }
+
+....
+int deleteID = 1;
+Alarm2Setting alarm2Setting = getMultiAlarmSetting();
+alarm2Setting.setAlarmId(deleteID);
+VPOperateManager.getInstance().deleteAlarm2(writeResponse, new IAlarm2DataListListener() {
+    @Override
+    public void onAlarmDataChangeListListener(AlarmData2 alarmData2) {
+        String message = "删除闹钟[新版]:\n" + alarmData2.toString();
+        Logger.t(TAG).i(message);
+        sendMsg(message, 1);
+    }
+    //String bluetoothAddress, int alarmId, int alarmHour, int alarmMinute, String repeatStatus, int scene, String unRepeatDate, boolean isOpen
+}, alarm2Setting);
+```
+
+
+
+#### Modify scene alarm
+
+Usage example:
+
+```
+private Alarm2Setting getMultiAlarmSetting() {
+        int hour = 16;
+        int minute = 33;
+        int scene = 1;
+        boolean isOpen = true;
+        String repestStr = "1000010";
+        String unRepeatDdate = "0000-00-00";
+        return new Alarm2Setting(hour, minute, repestStr, scene, unRepeatDdate, isOpen);
+    }
+
+
+....
+Alarm2Setting alarm2Setting = getMultiAlarmSetting();
+int modifyID = 2;
+alarm2Setting.setAlarmId(modifyID);
+alarm2Setting.setAlarmHour(10);
+alarm2Setting.setOpen(false);
+VPOperateManager.getInstance().modifyAlarm2(writeResponse, new IAlarm2DataListListener() {
+    @Override
+    public void onAlarmDataChangeListListener(AlarmData2 alarmData2) {
+        String message = "修改闹钟[新版]:\n" + alarmData2.toString();
+        Logger.t(TAG).i(message);
+        sendMsg(message, 1);
+    }
+}, alarm2Setting);
+```
+
+### Text alarm
+
+Text alarm supports up to 10 groups. TextAlarm2Setting (text) inherits from Alarm2Setting (scene) and has an additional alarm prompt text description.
+
+```
+public class TextAlarm2Setting extends Alarm2Setting {
+
+    /**
+     * Alarm information
+     */
+    private String content;
+    ...
+```
+
+TextAlarmData：Text alarm list encapsulation class
+
+| Member name           | Type                    | Description                 |
+| --------------------- | ----------------------- | --------------------------- |
+| oprate                | EMultiAlarmOprate       | Text alarm operation status |
+| textAlarm2SettingList | List<TextAlarm2Setting> | Text alarm list             |
+
+ITextAlarmDataListener: Listener callback for text alarm operation. This listener will be called back when adding, deleting, modifying, or checking text alarms on a watch or mobile phone.
+
+```
+/**
+* Author: YWX
+* Date: 2021/9/24 14:40
+* Description: Text alarm operation callback
+*/
+interface ITextAlarmDataListener : IListener {
+
+    /**
+    * Alarm data callback
+    *
+    * @param textAlarmData alarm data
+    */
+    fun onAlarmDataChangeListListener(textAlarmData: TextAlarmData?)
+}
+```
+
+#### Read text alarm
+
+Usage example:
+
+```
+VPOperateManager.getInstance().readTextAlarm(writeResponse, new ITextAlarmDataListener() {
+    @Override
+    public void onAlarmDataChangeListListener(TextAlarmData textAlarmData) {
+        EMultiAlarmOprate OPT = textAlarmData.getOprate();
+        boolean isOk = OPT == EMultiAlarmOprate.READ_SUCCESS ||
+                OPT == EMultiAlarmOprate.READ_SUCCESS_SAME_CRC ||
+                OPT == EMultiAlarmOprate.READ_SUCCESS_SAVE;
+        if (isOk) {
+            mSettings.clear();
+            mSettings.addAll(textAlarmData.getTextAlarm2SettingList());
+            mAdapter.notifyDataSetChanged();
+        }
+        showMsg(isOk ? "Read text alarm successfully" : "Read text alarm failed");
+    }
+});
+```
+
+| Parameter name         | Type                   | Description                    |
+| ---------------------- | ---------------------- | ------------------------------ |
+| writeResponse          | IBleWriteResponse      | Listening for write operations |
+| ITextAlarmDataListener | ITextAlarmDataListener | Text alarm changed callback    |
+
+#### Add text alarm
+
+Usage example:
+
+```java
+  private TextAlarm2Setting getTextAlarm2Setting() {
+        String content = mEditText.getText().toString();
+        if (TextUtils.isEmpty(content)) {
+            content = "大郎，该吃饭了 @^_^@ !";
+        }
+        String strHour = etHour.getText().toString();
+        String strMinute = etMinute.getText().toString();
+        TextAlarm2Setting setting = new TextAlarm2Setting();
+        setting.setOpen(true);
+        setting.setRepeatStatus("1111111");
+        setting.setUnRepeatDate("0000-00-00");
+        setting.setAlarmHour(TextUtils.isEmpty(strHour) ? new Random().nextInt(24) : Integer.parseInt(strHour));
+        setting.setAlarmMinute(TextUtils.isEmpty(strMinute) ? new Random().nextInt(60) : Integer.parseInt(strMinute));
+        setting.setContent(content);
+        return setting;
+    }
+
+....
+TextAlarm2Setting setting = getTextAlarm2Setting();
+VPOperateManager.getInstance().addTextAlarm(writeResponse, new ITextAlarmDataListener() {
+    @Override
+    public void onAlarmDataChangeListListener(TextAlarmData textAlarmData) {
+        Logger.t(TAG).e("Add alarm --》" + textAlarmData.toString());
+        EMultiAlarmOprate OPT = textAlarmData.getOprate();
+        showMsg("Add alarm --》" + (textAlarmData.getOprate() == EMultiAlarmOprate.SETTING_SUCCESS ? "Success" : "Failure"));
+        if (OPT == EMultiAlarmOprate.ALARM_FULL) {
+        showMsg("Alarms are full (up to ten can be added)");
+        } else if (OPT == EMultiAlarmOprate.SETTING_SUCCESS) {
+        showMsg("Alarms added successfully");
+        mSettings.clear();
+        mSettings.addAll(textAlarmData.getTextAlarm2SettingList());
+        mAdapter.notifyDataSetChanged();
+        } else if (OPT == EMultiAlarmOprate.SETTING_FAIL) {
+        showMsg("Failed to add alarm");
+        }
+    }
+}, setting);
+```
+
+| Parameter name         | Type                   | Description                    |
+| ---------------------- | ---------------------- | ------------------------------ |
+| writeResponse          | IBleWriteResponse      | Listening for write operations |
+| ITextAlarmDataListener | ITextAlarmDataListener | Text alarm change callback     |
+| setting                | TextAlarm2Setting      | Alarm entity to be added       |
+
+#### Delete text alarm
+
+Usage example:
+
+```
+VPOperateManager.getInstance().deleteTextAlarm(writeResponse, new ITextAlarmDataListener() {
+    @Override
+    public void onAlarmDataChangeListListener(TextAlarmData textAlarmData) {
+        EMultiAlarmOprate OPT =  textAlarmData.getOprate();
+        if(OPT == EMultiAlarmOprate.CLEAR_SUCCESS) {
+            showMsg("Alarm deleted successfully");
+            mSettings.clear();
+            mSettings.addAll(textAlarmData.getTextAlarm2SettingList());
+            mAdapter.notifyDataSetChanged();
+        } else {
+            showMsg("Deletion failed");
+        }
+    }
+}, textAlarm);
+```
+
+| Parameter name         | Type                   | Description                    |
+| ---------------------- | ---------------------- | ------------------------------ |
+| writeResponse          | IBleWriteResponse      | Listening for write operations |
+| ITextAlarmDataListener | ITextAlarmDataListener | Text alarm change callback     |
+| textAlarm              | TextAlarm2Setting      | Alarm entity to be deleted     |
+
+#### Modify text alarm
+
+Usage example:
+
+```
+VPOperateManager.getInstance().modifyTextAlarm(writeResponse, new ITextAlarmDataListener() {
+    @Override
+    public void onAlarmDataChangeListListener(TextAlarmData textAlarmData) {
+        showMsg("Modify alarm --》" + (textAlarmData.getOprate() == EMultiAlarmOprate.SETTING_SUCCESS ? "Success" : "Failure"));
+        mSettings.clear();
+        mSettings.addAll(textAlarmData.getTextAlarm2SettingList());
+        mAdapter.notifyDataSetChanged();
+    }
+}, setting);
+```
+
+| Parameter name         | Type                   | Description                    |
+| ---------------------- | ---------------------- | ------------------------------ |
+| writeResponse          | IBleWriteResponse      | Listening for write operations |
+| ITextAlarmDataListener | ITextAlarmDataListener | Text alarm change callback     |
+| textAlarm              | TextAlarm2Setting      | Alarm entity to be modified    |
+
+## Weather function
+
+When the watch supports weather, (the listener [deviceFunctionDataListener] passed in when the device performs password verification will report whether the weather function exists [please refer to Password Verification](#Verify Password Operation))
+Weather includes the following functions
+
+1. Weather data setting
+
+2. Weather switch and unit setting
+
+### Weather data setting
+
+Weather setting call method
+
+```
+VPOperateManager.getInstance().settingWeatherData(writeResponse, weatherData, IWeatherStatusDataListener)
+```
+
+| Parameter name | Type                       | Description                          |
+| -------------- | -------------------------- | ------------------------------------ |
+| writeResponse  | IBleWriteResponse          | Command write callback               |
+| weatherData    | WeatherData                | Weather data                         |
+| listener       | IWeatherStatusDataListener | Weather data setting result callback |
+
+WeatherData: Weather data
+
+| Member name           | Type                    | Description                                                  |
+| --------------------- | ----------------------- | ------------------------------------------------------------ |
+| crc                   | int                     | crc can be spliced into the CRC of the data according to the update time or the entire data, and it is only necessary to ensure that it is unique <br /> (When the crc is the same, there is no need to update the weather data, which can avoid updating the weather data too frequently) |
+| cityName              | String                  | City name, UTF-8 encoding of the specific city               |
+| source                | int                     | The source of weather data, such as Yahoo or Hefeng, (optional) |
+| timeBean              | TimeData                | Last updated time                                            |
+| weatherEvery3HourList | List<WeatherEvery3Hour> | List of weather forecasts every 3 hours                      |
+| weatherEverdayList    | List<WeatherEveryDay>   | Daily weather forecast list                                  |
+
+WeatherEvery3Hour: Three-hour weather forecast
+
+| Member name  | Type     | Description                                                  |
+| ------------ | -------- | ------------------------------------------------------------ |
+| timeBean     | TimeData | Current time, year, month, day, hour, minute, accurate to hour, minute, second |
+| temperatureF | int      | Fahrenheit                                                   |
+| temperatureC | int      | Celsius                                                      |
+| yellowLevel  | int      | Ultraviolet intensity index                                  |
+| weatherState | int      | Weather status, this value is an int value within a specified range, the value range is determined as follows:<br/> 0-4 Sunny<br/> 5-12 Sunny to cloudy<br/> 13-16 Overcast<br/> 17-20 Showers<br/> 21-24 Thunderstorm<br/> 25-32 Hail<br/> 33-40 Light rain<br/> 41-48 Moderate rain<br/> 49-56 Heavy rain<br/> 57-72 Heavy rain<br/> 73-84 Light snow<br/> 85-100 Heavy snow<br/> 101-155 Cloudy |
+| windLevel    | String   | Wind direction level. If the wind force is a range value, please connect it with ‘-’, such as "3-5"; if it is a single value, just "3" |
+| canSeeWay    | double   | Visibility unit m, 3.16                                      |
+
+WeatherEveryDay: Daily weather forecast
+
+| Member name          | Type     | Description                                                  |
+| -------------------- | -------- | ------------------------------------------------------------ |
+| timeBean             | TimeData | Year Month Day Hour Minute                                   |
+| temperatureMaxF      | int      | Maximum Fahrenheit                                           |
+| temperatureMinF      | int      | Minimum Fahrenheit                                           |
+| temperatureMaxC      | int      | Maximum Celsius                                              |
+| temperatureMinC      | int      | Minimum Celsius                                              |
+| yellowLevel          | int      | UV intensity index                                           |
+| weatherStateWhiteDay | int      | Daytime weather status, this value is an int value within a specified range, the value range is as follows:<br/> 0-4 Sunny<br/> 5-12 Sunny to cloudy<br/> 13-16 Overcast<br/> 17-20 Showers<br/> 21-24 Thunderstorm<br/> 25-32 Hail<br/> 33-40 Light rain<br/> 41-48 Moderate rain<br/> 49-56 Heavy rain<br/> 57-72 Torrential rain<br/> 73-84 Light snow<br/> 85-100 Heavy snow<br/> 101-155 Overcast |
+| weatherStateNightDay | int      | Nighttime weather status, this value is an int value within a specified range, the value range is as follows:<br/> 0-4 Sunny<br/> 5-12 Sunny to cloudy<br/> 13-16 Overcast<br/> 17-20 Showers<br/> 21-24 Thunderstorm<br/> 25-32 Hail<br/> 33-40 Light rain<br/> 41-48 Moderate rain<br/> 49-56 Heavy rain<br/> 57-72 Heavy rain<br/> 73-84 Light snow<br/> 85-100 Heavy snow<br/> 101-155 Overcast |
+| windLevel            | String   | Wind direction level. If the wind force is a range value, please connect it with ‘-’, such as "3-5"; if it is a single value, just "3" |
+| canSeeWay            | double   | Visibility unit m, 3.16                                      |
+
+IWeatherStatusDataListener: callback for weather data setting results. This method will be called back when the weather data is set successfully, or the weather switch or weather unit changes.
+
+```
+/**
+* Listening to weather data, returning the status of the operation
+*/
+public interface IWeatherStatusDataListener extends IListener {
+    /**
+    * Callback of weather data
+    *
+    * @param weatherStatusData
+    */
+    void onWeatherDataChange(WeatherStatusData weatherStatusData);
+}
+    /**
+    * Successfully set weather status
+    */
+    SETTING_STATUS_SUCCESS,
+    /**
+    * Failed to set weather status
+    */
+    SETTING_STATUS_FAIL,
+    /**
+    * Successfully set weather data
+    */
+    SETTING_CONTENT_SUCCESS,
+    /**
+    * Failed to set weather data
+    */
+    SETTING_CONTENT_FAIL,
+    /**
+    * Successfully read
+    */
+    READ_SUCCESS,
+    /**
+    * Failed to read
+    */
+    READ_FAIL,
+    /**
+    * Unknown
+    */
+    UNKONW;
+```
+
+WeatherStatusData: Weather status data
+
+| Member name | Type                 | Description                                                  |
+| ----------- | -------------------- | ------------------------------------------------------------ |
+| oprate      | EWeatherOprateStatus | Weather operation status: <br /> SETTING_STATUS_SUCCESS: Successfully set weather status <br /> SETTING_STATUS_FAIL: Failed to set weather status <br /> SETTING_CONTENT_SUCCESS: Successfully set weather data <br /> SETTING_CONTENT_FAIL: Failed to set weather data <br /> READ_SUCCESS: Successfully read <br /> READ_FAIL: Failed to read <br /> UNKONW: Unknown status |
+| crc         | int                  | Current weather crc                                          |
+| isOpen      | boolean              | Whether to open the weather function                         |
+| weatherType | EWeatherType         | Weather type (Fahrenheit, Celsius): <br /> C: Celsius <br /> F: Fahrenheit |
+
+Weather setting code example:
+
+```java
+//CRC
+int crc = 0;
+//城市名称
+String cityName = "深圳";
+//数据来源
+int sourcr = 0;
+//最近更新时间
+int year = TimeData.getSysYear();
+int month = TimeData.getSysMonth();
+int day = TimeData.getSysDay();
+TimeData lasTimeUpdate = new TimeData(year, month, day, 12, 59, 23);
+//天气列表（以小时为单位）
+List<WeatherEvery3Hour> weatherEvery3HourList = new ArrayList<>();
+TimeData every3Hour0 = new TimeData(year, month, day, 12, 59, 23);
+TimeData every3Hour1 = new TimeData(year, month, day, 15, 59, 23);
+TimeData every3Hour2 = new TimeData(year, month, day, 18, 59, 23);
+TimeData every3Hour3 = new TimeData(year, month, day, 21, 59, 23);
+WeatherEvery3Hour weatherEvery3Hour0 =
+        new WeatherEvery3Hour(every3Hour0, 60, -60, 6, 6, "3-4", 5.0);
+WeatherEvery3Hour weatherEvery3Hour1 =
+        new WeatherEvery3Hour(every3Hour1, 70, -70, 7, 7, "10-12", 5.0);
+WeatherEvery3Hour weatherEvery3Hour2 =
+        new WeatherEvery3Hour(every3Hour2, 80, -80, 8, 8, "10", 5.0);
+WeatherEvery3Hour weatherEvery3Hour3 =
+        new WeatherEvery3Hour(every3Hour3, 90, -90, 9, 9, "15", 5.0);
+weatherEvery3HourList.add(weatherEvery3Hour0);
+weatherEvery3HourList.add(weatherEvery3Hour1);
+weatherEvery3HourList.add(weatherEvery3Hour2);
+weatherEvery3HourList.add(weatherEvery3Hour3);
+//天气列表（以天为单位）
+List<WeatherEveryDay> weatherEveryDayList = new ArrayList<>();
+TimeData everyDay0 = new TimeData(year, month, day, 12, 59, 23);
+WeatherEveryDay weatherEveryDay0 = new WeatherEveryDay(everyDay0, 80, -80, 60,
+        -60, 10, 5, 10, "10-12", 5.2);
+weatherEveryDayList.add(weatherEveryDay0);
+WeatherData weatherData = new WeatherData(crc, cityName, sourcr, lasTimeUpdate, weatherEvery3HourList, weatherEveryDayList);
+VPOperateManager.getInstance().settingWeatherData(writeResponse, weatherData, new IWeatherStatusDataListener() {
+    @Override
+    public void onWeatherDataChange(WeatherStatusData weatherStatusData) {
+        String message = "settingWeatherData onWeatherDataChange read:\n" + weatherStatusData.toString();
+        Logger.t(TAG).i(message);
+        sendMsg(message, 1);
+    }
+});
+```
+
+
+
+### Weather switch and unit settings
+
+```
+VPOperateManager.getInstance().settingWeatherStatusInfo(writeResponse, weatherStatusSetting, listener)
+```
+
+| Parameter name       | Type                       | Description                          |
+| -------------------- | -------------------------- | ------------------------------------ |
+| writeResponse        | IBleWriteResponse          | Command write callback               |
+| weatherStatusSetting | WeatherStatusSetting       | Weather switch and unit settings     |
+| listener             | IWeatherStatusDataListener | Weather data setting result callback |
+
+WeatherStatusSetting: Weather unit and switch settings
+
+| Member name | Type         | Description                                                  |
+| ----------- | ------------ | ------------------------------------------------------------ |
+| crc         | int          | Current weather crc, when setting weather, if weather data has not changed crc, please pass in the last saved weather crc value |
+| isOpen      | boolean      | Whether to turn on the weather function, true: on, false: off |
+| eWeather    | EWeatherType | Type of weather (Fahrenheit, Celsius):<br />C: Celsius<br />F: Fahrenheit |
+
+Weather unit and switch code examples:
+```
+WeatherStatusSetting weatherStatusSetting = new WeatherStatusSetting(crc, true, EWeatherType.C);
+VPOperateManager.getInstance().settingWeatherStatusInfo(writeResponse, weatherStatusSetting, new IWeatherStatusDataListener() {
+    @Override
+    public void onWeatherDataChange(WeatherStatusData weatherStatusData) {
+        String message = "settingWeatherStatusInfo onWeatherDataChange read:\n" + weatherStatusData.toString();
+        Logger.t(TAG).i(message);
+    }
+});
+```
+
+
+
+
+
+## Find phone function
+
+#### Set the phone listener
+
+###### Interface
+
+```kotlin
+settingFindPhoneListener(findPhonelistener)
+```
+
+###### Parameter Explanation
+
+| Parameter name    | Type               | Description         |
+| ----------------- | ------------------ | ------------------- |
+| findPhonelistener | IFindPhonelistener | Find phone listener |
+
+###### Return data
+
+**IFindPhonelistener**--Find phone listener
+
+```kotlin
+/**
+* When receiving this callback, the phone should give corresponding feedback to remind the user, such as vibration, ringing, etc.
+*/
+fun findPhone()
+```
+
+###### Example Code
+
+```kotlin
+// kotlin code
+VPOperateManager.getInstance().settingFindPhoneListener {
+val message = "(The bracelet is listening to find the phone)-where is the phone, make some noise!"
+
+}
+```
+
+
+
+
+
+## Long-sit function
+
+#### Premise
+
+The device needs to support the long-sit function, and the judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportLongseat
+```
+
+#### Read long-sit settings
+
+Long-sit support needs to be set
+
+###### Interface
+
+```
+readLongSeat(bleWriteResponse, longSeatDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name       | Type                  | Description                    |
+| -------------------- | --------------------- | ------------------------------ |
+| bleWriteResponse     | IBleWriteResponse     | Listening for write operations |
+| longSeatDataListener | ILongSeatDataListener | Long-sit data listening        |
+
+###### Return data
+
+**ILongSeatDataListener** --Long-sit data listening
+
+```kotlin
+/**
+* Returns sedentary data
+*
+* @param longSeat Sedentary data
+*/
+fun onLongSeatDataChange(longSeat:LongSeatData)
+```
+
+**LongSeatData**--Sedentary data
+
+| Parameter name | Type            | Description                                                  |
+| -------------- | --------------- | ------------------------------------------------------------ |
+| status         | ELongSeatStatus | Sedentary operation status                                   |
+| startHour      | Int             | Start time hour                                              |
+| startMinute    | Int             | Start time minute                                            |
+| endHour        | Int             | End time hour                                                |
+| endMinute      | Int             | End time minute                                              |
+| threshold      | Int             | Threshold: How long does it take for the watch to remind you if you haven't moved |
+| isOpen         | Boolean         | Switch status                                                |
+
+**ELongSeatStatus**--Sedentary operation status
+
+| Parameter name | Description                    |
+| -------------- | ------------------------------ |
+| OPEN_SUCCESS   | Open successfully              |
+| OPEN_FAIL      | Open failed                    |
+| CLOSE_SUCCESS  | Close successfully             |
+| CLOSE_FAIL     | Close failed                   |
+| READ_SUCCESS   | Read successfully              |
+| READ_FAIL      | Read failed                    |
+| UNSUPPORT      | This function is not supported |
+| UNKONW         | Unknown status                 |
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().readLongSeat(
+    writeResponse
+) { longSeat ->
+    val message = "Set Sedentary-Read:\n$longSeat"
+
+}
+```
+
+
+
+#### Setting long sitting
+
+The device needs to support the long sitting function
+
+###### Interface
+
+```
+settingLongSeat(IBleWriteResponse bleWriteResponse, LongSeatSetting longSeatSetting, ILongSeatDataListener longSeatDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name       | Type                  | Description                    |
+| -------------------- | --------------------- | ------------------------------ |
+| bleWriteResponse     | IBleWriteResponse     | Listening for write operations |
+| longSeatSetting      | LongSeatSetting       | Long sitting setting           |
+| longSeatDataListener | ILongSeatDataListener | Long sitting data listening    |
+
+**LongSeatSetting**--Long sitting setting
+
+| Parameter name | Type    | Description                                                  |
+| -------------- | ------- | ------------------------------------------------------------ |
+| startHour      | Int     | Hour of start time                                           |
+| startMinute    | Int     | Minutes of start time                                        |
+| endHour        | Int     | Hours of end time                                            |
+| endMinute      | Int     | Minutes of end time                                          |
+| threshold      | Int     | Threshold: How long does it take for the watch to remind you if you haven't moved |
+| isOpen         | Boolean | Switch status                                                |
+
+###### Return data
+
+Same as the data returned by [[Read long-sit settings](#Read long-sit settings)]
+
+###### Example Code
+
+```kotlin
+// kotlin code
+VPOperateManager.getInstance().settingLongSeat(
+writeResponse, LongSeatSetting(10, 40, 12, 40, 40, false)
+) { longSeat ->
+val message = "Set sedentary settings:\n$longSeat"
+
+}
+```
+
+
+
+
+
+## Photo function
+
+#### Premise
+
+The device needs to support the photo function, and the judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportCamera
+```
+
+#### Enter the photo mode
+
+The device needs to support the photo function
+
+###### Interface
+
+```
+startCamera(bleWriteResponse, cameraDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name     | Type                | Description                                                  |
+| ------------------ | ------------------- | ------------------------------------------------------------ |
+| bleWriteResponse   | IBleWriteResponse   | Listening for write operations                               |
+| cameraDataListener | ICameraDataListener | Callback for photo operation, return success/failure of entering the photo mode, can/cannot take photos, success/failure of exiting the photo mode |
+
+###### Return data
+
+**ICameraDataListener**--Callback of camera operation
+
+```kotlin
+/**
+* Return the camera status
+*
+* @param oprateStatus
+*/
+fun OnCameraDataChange(oprateStatus:ECameraStatus)
+```
+
+**ECameraStatus**--Camera status
+
+| Parameter name    | Description                      |
+| ----------------- | -------------------------------- |
+| OPEN_SUCCESS      | Successfully entered camera mode |
+| OPEN_FALI         | Failed to enter camera mode      |
+| TAKEPHOTO_CAN     | Take a photo                     |
+| TAKEPHOTO_CAN_NOT | Cannot take a photo              |
+| CLOSE_SUCCESS     | Successfully exited camera mode  |
+| CLOSE_FAIL        | Failed to exit camera mode       |
+| UNKONW            | Unknown                          |
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().startCamera(
+    writeResponse
+) { cameraStatus ->
+
+}
+```
+
+#### Exit camera mode
+
+The device must support camera and has entered camera mode
+
+###### Interface
+
+```
+stopCamera(IBleWriteResponse bleWriteResponse, ICameraDataListener cameraDataListener)
+```
+
+###### Parameter Explanation
+
+Same parameters as [[Enter the photo mode](#Enter the photo mode)]
+
+###### Return data
+
+Same return data as [[Enter the photo mode](#Enter the photo mode)]
+
+###### Example Code
+
+```kotlin
+//        kotlin code
+VPOperateManager.getInstance().stopCamera(
+    writeResponse
+) { cameraStatus ->
+
+}
+```
+
+
+
+
+
+## OTA upgrade function
+
+#### Get the current firmware version number
+
+###### Premise
+
+Device connected
+
+**Note:** The OTA process is long. If the battery is low, the transmission process may shut down due to low power. It is recommended that the battery power is above 30% before the upgrade is allowed;
+
+###### Interface
+
+After the [[Verify Password](#Verify Password Operation)] operation, the returned pwdDataListener data contains the current firmware version number
+
+###### Example Code
+
+```
+pwdData.deviceVersion
+```
+
+
+
+#### Get the new firmware version number and upgrade description
+
+###### Premise
+
+The device is connected and the device version number is known
+
+###### Interface
+
+```
+getOadVersion(oadSetting, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name | Type                    | Description             |
+| -------------- | ----------------------- | ----------------------- |
+| oadSetting     | OadSetting              | Verify version settings |
+| listener       | OnGetOadVersionListener | Verify version listener |
+
+**OadSetting**--Verify version settings
+
+| Parameter name      | Type    | Description                                                  |
+| ------------------- | ------- | ------------------------------------------------------------ |
+| deviceAddressString | String  | Device address (required)                                    |
+| deviceVersion       | String  | Device version (required)                                    |
+| deviceTestVersion   | String  | Device test version (required)                               |
+| deviceNumber        | String  | Device number (required)                                     |
+| isOadModel          | Boolean | Firmware upgrade mode (required)                             |
+| isDebug             | Boolean | Debug mode (optional), true means using the debug port of our server, false means using the release port of our server, |
+| hostUrl             | String  | Host address, transmission format: http://www.baidu.com; optional, default is our server; use with caution!!! Contact our developers before use |
+| isAutoDownload      | Boolean | Whether to automatically download after detecting the version |
+
+###### Return data
+
+**OnGetOadVersionListener **-- Verify version callback
+
+```java
+/**
+* Return the latest version information of this device on the server
+*
+* @param deviceNumber Device number
+* @param deviceVersion Latest version
+* @param des Upgrade description
+* @param netIsNew Network version is greater than the local version and needs to be updated
+*/
+void onNetOadInfo(int deviceNumber, String deviceVersion, String des, boolean netIsNew);
+
+void onNetOadDetailInfo(OadFileBean oadFileBean,boolean netIsNew);
+```
+
+**OadFileBean** -- Device upgrade file information
+
+| Parameter name | Type   | Description                     |
+| -------------- | ------ | ------------------------------- |
+| deviceNumber   | String | New firmware device number      |
+| deviceVersion  | String | New firmware version            |
+| downUrl        | String | New firmware download url       |
+| size           | String | New firmware size               |
+| md5            | String | New firmware md5                |
+| des            | String | New version upgrade description |
+
+#### Download new firmware
+
+According to the new firmware download address obtained, perform normal network download
+
+#### JieLi platform device OTA upgrade
+
+Note that the Jier OTA upgrade process is generally longer, about 10-20 minutes. During the upgrade process, the watch phone needs to be fully charged, and the APP is in the foreground during the upgrade. (Some Android systems will regard the Bluetooth operation of the app in the background as power consumption, and may suspend the Bluetooth transmission, resulting in OTA upgrade failure)
+
+The JieLi  OTA process is divided into three stages,
+The first stage: OTA file transfer, the upgrade duration of this process depends on the size of the upgrade file. Under normal circumstances, the progress value of the onProgress method ranges from 0.00 to 99.9
+
+Phase 2: Internal file copy, onProgress will quickly increase from 0.00 to 99.9
+
+Phase 3: This stage is an internal upgrade, the device will actively disconnect and call back the onNeedReconnect method. At this time, the device will automatically change the device name to DFULang, and the device address will be the original device address + 1
+
+The SDK will automatically search for and reconnect the DFULang device. After the connection is successful, the SDK will trigger an internal upgrade, onProgress will quickly increase from 0.00 to 100, and call back the onOTASuccess method
+
+###### Premise
+
+The device must be a JieLi device and has completed [[Open JieLi File System](#Open JieLi File System)], and the new firmware has been downloaded
+
+###### Interface
+
+```
+VPOperateManager.getInstance().startJLDeviceOTAUpgrade(firmwareFilePath, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                              | Description                          |
+| ---------------- | --------------------------------- | ------------------------------------ |
+| firmwareFilePath | String                            | Locally stored OTA upgrade file path |
+| listener         | JLOTAHolder.OnJLDeviceOTAListener | JieLI device OTA listener            |
+
+###### Return data
+
+OnJLDeviceOTAListener: JieLI OTA upgrade listener
+
+```java
+public interface OnJLDeviceOTAListener {
+
+    /**
+    * Start OTA
+    */
+    void onOTAStart();
+
+    /**
+    * Upgrade progress, keep two decimal places
+    *
+    * @param progress Upgrade progress [0.00 - 100]
+    */
+    void onProgress(float progress);
+
+    /**
+    * Callback when reconnection is needed
+    *
+    * @param address Device address
+    * @param dfuLangAddress Device address in dfuLang state: address+1
+    * @param isReconnectBySdk Whether to automatically reconnect from SDK to complete the last stage of OTA
+    */
+    void onNeedReconnect(String address, String dfuLangAddress, boolean isReconnectBySdk);
+
+    /**
+    * OTA success
+    */
+    void onOTASuccess();
+
+    /**
+    * OTA upgrade failed
+    *
+    * @param error Failure reason
+    */
+    void onOTAFailed(BaseError error);
+}
+```
+
+###### Example Code
+
+```java
+private void startOTA() {
+        String firmwareFilePath = "/storage/emulated/0/Android/data/com.timaimee.vpdemo/files/hband/jlOta/KH32_9626_00320800_OTA_UI_230421_19.zip";
+        tvOTAInfo.setText(firmwareFilePath);
+        VPOperateManager.getInstance().startJLDeviceOTAUpgrade(firmwareFilePath, new JLOTAHolder.OnJLDeviceOTAListener() {
+            @Override
+            public void onOTAStart() {
+               Logger.t(TAG).e("【Jie Li OTA】--->OTA upgrade【Start】");
+				tvOTAInfo.setText("Start upgrade");
+            }
+
+            @Override
+            public void onProgress(float progress) {
+                Logger.t(TAG).e("【杰理OTA】--->OTA升级中:" + progress + "%");
+                tvOTAProgress.setText(String.format(Locale.CHINA, "%.2f", progress) + "%");
+                pbOTAProgress.setProgress((int) (progress * 100));
+            }
+
+            @Override
+            public void onNeedReconnect(String address, String dfuLangAddress, boolean isReconnectBySdk) {
+                   Logger.t(TAG).e("【Jie Li OTA】--->OTA upgrade dfuLang reconnecting: address = " + address + ", dfuLangAddress = " + dfuLangAddress + ", whether reconnected by SDK = " + isReconnectBySdk);
+    tvOTAInfo.setText("Data transmission is completed, start searching for DFULang devices->Device internal upgrade");
+            }
+
+            @Override
+            public void onOTASuccess() {
+                Logger.t(TAG).e("【杰理OTA】--->OTA升级【成功】");
+                tvOTAInfo.setText("OTA升级成功");
+                tvOTAProgress.setText("100%");
+            }
+
+            @Override
+            public void onOTAFailed(com.jieli.jl_bt_ota.model.base.BaseError error) {
+                Logger.t(TAG).e("【杰理OTA】--->OTA升级【失败】:" + error.toString());
+                tvOTAInfo.setText("升级失败，error: code = " + error.getSubCode() + " , msg = " + error.getMessage());
+            }
+        });
+    }
+```
+
+#### OTA Upgrades for Nordic Platform Devices
+
+During a Nordic OTA platform upgrade, an internal GATT connection may be established as part of the Nordic update process. If you encounter any anomalies during the OTA, you may try invoking the Nordic OTA upgrade only after the device connection has been disconnected.
+
+###### Add Dependencies
+
+```groovy
+implementation 'no.nordicsemi.android:mcumgr-core:2.7.4'
+implementation 'no.nordicsemi.android:mcumgr-ble:2.7.4'
+implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
+implementation 'no.nordicsemi.android.support.v18:scanner:1.4.2'
+```
+
+
+
+###### Premise
+
+The required device must be a Nordic device. The interface for this check is as follows：
+
+```java
+VpSpGetUtil.getVpSpVariInstance(mContext).isNewNordicDevice()
+```
+
+###### Interface
+
+```
+VPOperateManager.getInstance().startNordicOtaUpgrade(firmwareFilePath, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                | Description                          |
+| ---------------- | ------------------- | ------------------------------------ |
+| firmwareFilePath | String              | Locally stored OTA upgrade file path |
+| listener         | OnMcuMgrOtaListener | Nordic Device OTA listener           |
+
+###### Return data
+
+OnMcuMgrOtaListener：Nordic OTA upgrade listener
+
+```java
+/**
+ * MCU Manager OTA 升级监听器
+ * Listener for MCU Manager OTA upgrade events
+ */
+public interface OnMcuMgrOtaListener {
+
+    /**
+     * 升级开始
+     * Upgrade started
+     * @param controller 固件升级控制器
+     *                   Firmware upgrade controller
+     */
+    void onUpgradeStarted(FirmwareUpgradeController controller);
+
+    /**
+     * 升级状态改变
+     * Upgrade state changed
+     * @param prevState 上一个状态
+     *                  Previous state
+     * @param newState  新状态
+     *                  New state
+     */
+    void onStateChanged(FirmwareUpgradeManager.State prevState, FirmwareUpgradeManager.State newState);
+
+    /**
+     * 升级完成
+     * Upgrade completed successfully
+     */
+    void onUpgradeCompleted();
+
+    /**
+     * 升级失败
+     * Upgrade failed
+     * @param state 失败时所处的状态
+     *              State when failure occurred
+     * @param error 升级异常
+     *              Upgrade exception
+     */
+    void onUpgradeFailed(FirmwareUpgradeManager.State state, McuMgrException error);
+
+    /**
+     * 升级已取消
+     * Upgrade canceled
+     * @param state 取消时所处的状态
+     *              State when canceled
+     */
+    void onUpgradeCanceled(FirmwareUpgradeManager.State state);
+
+    /**
+     * 上传进度改变
+     * Upload progress changed
+     * @param bytesSent 已发送的字节数
+     *                  Bytes sent
+     * @param imageSize 固件总大小
+     *                  Total firmware image size
+     * @param timestamp 时间戳
+     *                  Timestamp
+     */
+    void onUploadProgressChanged(int bytesSent, int imageSize, long timestamp);
+
+}
+```
+
+
+
+#### OTA Upgrades for Bluetrum Platform Devices
+
+###### Premise
+
+The required device must be a Bluetrum device. The interface for this check is as follows：
+
+```java
+VpSpGetUtil.getVpSpVariInstance(mContext).isZKDevice()
+```
+
+###### Interface
+
+```
+VPOperateManager.getInstance().startZkOtaUpgrade(firmwareFilePath, listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                  | Description                          |
+| ---------------- | --------------------- | ------------------------------------ |
+| firmwareFilePath | String                | Locally stored OTA upgrade file path |
+| listener         | IZkOtaUpgradeListener | Bluetrum Device OTA listener         |
+
+###### Return data
+
+IZkOtaUpgradeListener：Bluetrum OTA upgrade listener
+
+```java
+
+
+/**
+ * Bluetrum OTA Upgrade Listener
+ */
+public interface IZkOtaUpgradeListener {
+
+    /**
+     * OTA upgrade is ready
+     */
+    void onOtaUpgradeReady();
+
+    /**
+     * OTA upgrade started
+     */
+    void onOtaUpgradeStart();
+
+    /**
+     * OTA upgrade progress callback
+     *
+     * @param progress 升级进度（0-100）| upgrade progress (0-100)
+     */
+    void onOtaUpgradeUpdating(int progress);
+
+    /**
+     * OTA upgrade paused
+     */
+    void onOtaUpgradePause();
+
+    /**
+     * OTA upgrade continued
+     */
+    void onOtaUpgradeContinue();
+
+    /**
+     * OTA upgrade success
+     */
+    void onOtaUpgradeSuccess();
+
+    /**
+     * OTA upgrade waiting for finish (data transfer completed, device will restart automatically)
+     */
+    void onOtaUpgradeWaitFinish();
+
+    /**
+     * OTA upgrade failed
+     *
+     * @param code 错误码 | error code
+     *             601：未初始化               | Not initialized
+     *             602：读取文件失败            | Read file failed
+     *             1001：设备拒绝升级           | Device refused upgrade
+     *             1003：接收超时              | Receive timeout
+     *             1004：TWS已断开，停止升级     | TWS disconnected, upgrade stopped
+     *             1：固件相同，无需升级         | Firmware version is the same
+     *             2：Key不匹配                | Key mismatch
+     *             3：CRC校验错误              | CRC error
+     *
+     * @param msg 错误描述信息 | error message
+     */
+    void onOtaUpgradeFail(int code, String msg);
+```
+
+
+
+## Contact function
+
+Prerequisite
+
+The device needs to support the contact function, and the judgment conditions are as follows:
+
+```
+boolean isHaveContactFunction = VpSpGetUtil.getVpSpVariInstance(this).isSupportContactFunction();
+```
+
+Whether emergency contacts are supported, the judgment conditions are as follows:
+
+```
+boolean isSupportSOSContact = VpSpGetUtil.getVpSpVariInstance(this).isSupportSOSContactFunction();
+```
+
+Contact encapsulation entity: Contact
+
+```kotlin
+/**
+* Contact
+* @param contactID Contact ID
+* @param name Contact nickname
+* @param phoneNumber Contact number
+* @param isSettingSOS Whether to set as emergency contact
+* @param isSupportSOS Whether to support SOS function
+*/
+data class Contact(
+    var contactID: Int,
+    var name: String,
+    var phoneNumber: String,
+    var isSettingSOS: Boolean = false,
+    var isSupportSOS: Boolean = false
+)
+```
+
+Contact operation enumeration class: EContactOpt
+
+```kotlin
+enum class EContactOpt(var des: String) {
+    /**
+    * Read contacts
+    */
+    READ("read contact list"),
+
+    /**
+    * Set contacts
+    */
+    SETTING("setting contact"),
+
+    /**
+    * Set emergency contacts
+    */
+    SETTING_SOS("setting contact"),
+
+    /**
+    * Move contacts
+    */
+    MOVE("move contact position"),
+
+    /**
+    * Delete contacts
+    */
+    DELETE("delete one contact");
+}
+```
+
+Contact operation callback listener:
+
+```kotlin
+interface IContactOptListener : IListener {
+
+    /**
+    * Contact operation successful
+    * @param opt Current operation type
+    * @param crc CRC after the current operation is successful. CRC and contact list need to be saved after each operation 		  update
+    */
+    fun onContactOptSuccess(opt: EContactOpt, crc: Int)
+
+    /**
+    * Contact operation failed
+    */
+    fun onContactOptFailed(opt: EContactOpt)
+
+    /**
+    * Read contact successfully
+    * @param contactList Contact list. If the list is empty, it means there is no contact on the device
+    */
+    fun onContactReadSuccess(contactList: List<Contact>)
+
+    /**
+    * Indicates that the CRC sent when reading the contact is consistent with the CRC on the device
+    * CRC consistency means that the contact on the device has not changed (note that the contact needs to be saved after each update, and the CRC is used to determine whether the contact needs to be updated)
+    */
+    fun onContactReadASSameCRC()
+
+    /**
+    * Failed to read the contact
+    */
+    fun onContactReadFailed()
+
+}
+```
+
+### Read contacts
+
+Code example:
+
+When reading for the first time, pass in -1 for crc, which means that the complete device-side contacts will be returned. If the user has read contacts before, the CRC value of the contact can be passed in. If the CRC value is consistent with the device-side, onContactReadASSameCRC will be called back to indicate that repeated reading is not required, otherwise a complete contact list will be returned.
+```
+VPOperateManager.getInstance().readContact(-1, IContactOptListener, response);
+```
+
+Or
+
+```java
+/**
+* Read the number of emergency contact calls
+*
+* @param contacts The last saved contact list, used to calculate crc
+* @param listener Emergency contact call count listener
+* @param bleWriteResponse Data write callback
+*/
+public void readContact(List<Contact> contacts, @NotNull IContactOptListener listener, IBleWriteResponse bleWriteResponse) {
+.
+.
+.
+```
+
+
+
+Get Crc value:
+
+```
+int crc = CrcUtil.INSTANCE.getCrcByContactList(contacts);
+```
+
+### Add contact
+
+Pass in a Contact entity with the contact nickname and mobile phone number. **Note: **If the device supports the sos function, isSupportSOS needs to be set to true
+
+```
+VPOperateManager.getInstance().addContact(contact, IContactOptListener, IBleWriteResponse);
+```
+
+Pass in a contact list, which must include nickname, mobile phone number, and whether the sos function is supported
+
+```
+VPOperateManager.getInstance().addContactList(List<Contact>, IContactOptListener, IBleWriteResponse)
+```
+
+### Delete a contact
+
+To delete a contact, you need to pass in a contact with complete information (including contactID) obtained from the device
+
+Code example:
+
+```
+VPOperateManager.getInstance().deleteContact(contact, IContactOptListener, IBleWriteResponse);
+```
+
+### Move a contact
+
+Moving a contact means swapping the order of two contacts on the device.
+
+Code example:
+
+```
+VPOperateManager.getInstance().moveContact(fromContact, toContact, IContactOptListener, IBleWriteResponse);
+```
+
+```java
+VPOperateManager.getInstance().moveContactWithPosition(fromPosition, toPosition, IContactOptListener, IBleWriteResponse);
+```
+
+### Emergency contact
+
+When the device supports emergency contacts, emergency contact operations can be performed. The judgment conditions are as follows:
+
+```
+boolean isSupportSOSContact = VpSpGetUtil.getVpSpVariInstance(this).isSupportSOSContactFunction();
+```
+
+#### Emergency contact on/off settings
+
+Code example:
+
+When isOpen is true, set emergency contacts
+
+When isOpen When false, the emergency contact is cancelled
+
+```
+VPOperateManager.getInstance().setContactSOSState(isOpen, contact, IContactOptListener, IBleWriteResponse);
+```
+
+#### Emergency contact call count
+
+Emergency contact call count operation callback listener:
+
+```kotlin
+/**
+* Contact SOS call count setting
+*/
+interface ISOSCallTimesListener : IListener {
+    /**
+    * Set SOS call count successfully
+    * @param times SOS call count
+    */
+    fun onSOSCallTimesSettingSuccess(times: Int)
+
+    /**
+    * Set SOS call count failed
+    */
+    fun onSOSCallTimesSettingFailed()
+
+    /**
+    * Read SOS call count successfully
+    * @param times SOS call count
+    * @param minTimes Supported minimum SOS call count
+    * @param maxTimes Maximum SOS call count
+    */
+    fun onSOSCallTimesReadSuccess(times: Int, minTimes: Int, maxTimes: Int)
+
+    /**
+    * Failed to read the number of SOS calls
+    */
+    fun onSOSCallTimesReadFailed()
+}
+```
+
+##### Read the number of calls
+
+Code example for reading the number of emergency contact calls：
+
+```java
+VPOperateManager.getInstance().readSOSCallTimes(new ISOSCallTimesListener() {
+    @Override
+    public void onSOSCallTimesSettingSuccess(int times) {
+        etSOSCount.setText(times + "");
+    }
+
+    @Override
+    public void onSOSCallTimesSettingFailed() {
+
+    }
+
+    @Override
+    public void onSOSCallTimesReadSuccess(int times, int minTimes, int maxTimes) {
+        etSOSCount.setText(times + "");
+        tvSOSInfo.setText("Call times setting range：[" + minTimes + "-" + maxTimes + "]");
+    }
+
+    @Override
+    public void onSOSCallTimesReadFailed() {
+
+    }
+}, new IBleWriteResponse() {
+    @Override
+    public void onResponse(int code) {
+
+    }
+});
+```
+
+##### Set the number of calls
+
+Code example for setting the number of emergency contact calls:
+
+```java
+VPOperateManager.getInstance().setSOSCallTimes(callTimes, new ISOSCallTimesListener() {
+
+    @Override
+public void onSOSCallTimesSettingSuccess(int times) {
+	Toast.makeText(AddContactActivity.this, "Setting success:" + times + "times", Toast.LENGTH_SHORT).show();
+}
+
+@Override
+public void onSOSCallTimesSettingFailed() {
+	Toast.makeText(AddContactActivity.this, "Setting failed", Toast.LENGTH_SHORT).show();
+}
+
+@Override
+public void onSOSCallTimesReadSuccess(int times, int minTimes, int maxTimes) {
+	Toast.makeText(AddContactActivity.this, "Read success:" + times + "-Range: [" + minTimes + "-" + maxTimes + "]", 				Toast.LENGTH_SHORT).show(); }
+    
+ @Override 
+ public void onSOSCallTimesReadFailed() { } }, new IBleWriteResponse() { @Override public void onResponse(int code) { } }); ```
+```
+
+
+
+## Body composition function
+
+Prerequisite: The device needs to support the body composition function, and the judgment conditions are as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportBodyComponent
+```
+
+Note: All the following interfaces can only be called if the device supports the body composition function
+
+#### Read body composition ID (device manual measurement data)
+
+###### Premise
+
+The device needs to support the body composition function
+
+###### Interface
+
+```
+readBodyComponentId(bleWriteResponse, readIdListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                         | Description                                                  |
+| ---------------- | ---------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Listening for write operations                               |
+| readIdListener   | IBodyComponentReadIdListener | Body composition read measurement and saved data ID callback |
+
+####### Return data
+
+**IBodyComponentReadIdListener** -- callback for reading and saving body composition measurement data ID
+
+```kotlin
+/**
+* callback for reading ID completion
+* @param ids list of ids read
+*/
+fun readIdFinish(ids: ArrayList<Int>)
+```
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().readBodyComponentId(bleWriteResponse, object:IBodyComponentReadIdListener{
+override fun readIdFinish(ids: ArrayList<Int>) {
+	val msg = "Read body composition data ID list: $ids"
+	}
+})
+```
+
+#### Read body composition data (manual measurement of device)
+
+###### Premise
+
+The device needs to support the body composition function
+
+###### Interface
+
+```kotlin
+readBodyComponentData(bleWriteResponse, readDataListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                           | Description                                     |
+| ---------------- | ------------------------------ | ----------------------------------------------- |
+| bleWriteResponse | IBleWriteResponse              | Listening for write operations                  |
+| readDataListener | IBodyComponentReadDataListener | Data callback for reading body composition data |
+
+###### Return data
+
+**IBodyComponentReadDataListener** --Data callback for reading body composition data
+
+```kotlin
+/**
+* Data reading completed
+*
+* @param bodyComponentList body composition data
+*/
+fun readBodyComponentDataFinish(bodyComponentList: List<BodyComponent>?)
+```
+
+**BodyComponent** -- Body composition data
+
+| Variable name      | Type     | Description                                                  |
+| ------------------ | -------- | ------------------------------------------------------------ |
+| BMI                | Float    | BMI valid range [4.0, 1114.0], retain one decimal place, the reported value is 10 times, the same below |
+| bodyFatRate        | Float    | Body fat percentage, effective range [2.0, 48.0]%            |
+| fatRate            | Float    | Fat mass, effective range [10.0, 248.0]kg                    |
+| FFM                | Float    | Fat-free mass, effective range [1.0, 132.0]kg                |
+| muscleRate         | Float    | Muscle percentage, effective range [39.0, 90.0]%             |
+| muscleMass         | Float    | Muscle mass, effective range [9.0, 248.0]kg                  |
+| subcutaneousFat    | Float    | Subcutaneous fat, effective range [1.0, 47.0]%               |
+| bodyWater          | Float    | Body water, effective range [28.0, 79.0]%                    |
+| waterContent       | Float    | Water content, effective range [7.0, 217.0]kg                |
+| skeletalMuscleRate | Float    | Skeletal muscle rate, valid range [13.0, 69.0]%              |
+| boneMass           | Float    | Bone mass, valid range [2.3, 4.8] kg                         |
+| proteinProportion  | Float    | Protein ratio, valid range [4.0, 26.0]%                      |
+| proteinMass        | Float    | Protein mass, valid range [1.0, 71.0] kg                     |
+| basalMetabolicRate | Float    | Basal metabolic rate, valid range [25, 14995] kcal           |
+| timeBean           | TimeData | Time of this measurement                                     |
+| duration           | Int      | Measurement duration                                         |
+| idType             | Int      | Measurement device type: 1: Device test, 2: App test         |
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().readBodyComponentData(bleWriteResponse, object : IBodyComponentReadDataListener {
+override fun readBodyComponentDataFinish(bodyComponentList: List<BodyComponent>?) {
+	HBLogger.bleConnectLog("[Read body composition data successfully] bodyComponentList+${bodyComponentList.toString()}")
+	}
+})
+```
+
+#### Set body composition (device manual measurement) data reporting listener
+
+####### Interface
+
+```kotlin
+setBodyComponentReportListener(reportListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name | Type                            | Description                                                  |
+| -------------- | ------------------------------- | ------------------------------------------------------------ |
+| reportListener | INewBodyComponentReportListener | New body composition measurement data active reporting listener |
+
+###### Return data
+
+**INewBodyComponentReportListener** --New body composition measurement data active reporting listener
+
+```kotlin
+/**
+* New body composition measurement data Reporting data listening interface
+* Triggered as long as there is new measurement data on the device side, the new body composition measurement data is read through the [VPOperateManager.readBodyComponentData] interface when triggered
+*/
+fun onNewBodyComponentReport()
+```
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().setBodyComponentReportListener(object : INewBodyComponentReportListener {
+override fun onNewBodyComponentReport() {
+	"New body composition data reported-----".logd()
+	}
+})
+```
+
+#### Start measuring body composition
+
+###### Premise
+
+Set support for body composition
+###### Interface
+
+```kotlin
+startDetectBodyComponent(bleWriteResponse, bodyDetectListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                         | Description                           |
+| ---------------- | ---------------------------- | ------------------------------------- |
+| bleWriteResponse | BleWriteResponse             | Listening for write operations        |
+| detectListener   | IBodyComponentDetectListener | Body composition measurement callback |
+
+###### Return data
+
+**IBodyComponentDetectListener** -- Body composition measurement callback
+
+```kotlin
+/**
+* Callback during measurement
+* @param progress Measurement progress
+* @param leadState Lead state: 0-> Lead passed; 1-> Lead dropped. After 4 consecutive leads dropped, the app actively sends a stop measurement to the device
+*/
+fun onDetecting(progress: Int, leadState: Int)
+
+/**
+* Measurement success callback
+* @param bodyComponent This body composition data
+*/
+fun onDetectSuccess(bodyComponent: BodyComponent)
+
+/**
+* Measurement failed
+* @param detectState Failure reason
+*/
+fun onDetectFailed(detectState: DetectState)
+
+/**
+* Stop measuring
+*/
+fun onDetectStop()
+```
+
+**DetectState** -- Measurement state enumeration
+
+```kotlin
+PROGRESS(0, "Measuring"),
+SUCCESS(1, "Measurement success-result package"),
+FAILED(2, "Measurement failure-no result"),
+BUSY(3, "Device is busy"),
+LOW_POWER(4, "Low power")
+```
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().startDetectBodyComponent(bleWriteResponse,object :IBodyComponentDetectListener{
+      override fun onDetecting(progress: Int, leadState: Int) {
+        "【Body Composition Measurement】onDetecting：$progress,$leadState".logd()
+        }
+
+        override fun onDetectSuccess(bodyComponent: BodyComponent) {
+        "【Body Composition Measurement】onDetectSuccess：${bodyComponent}".logd()
+        }
+
+        override fun onDetectFailed(detectState: DetectState) {
+        "【Body Composition Measurement】onDetectFailed：${detectState}".loge()
+        }
+
+        override fun onDetectStop() {
+        "【Body Composition Measurement】onDetectStop".loge()
+        }
+
+})
+```
+
+
+
+#### End body composition measurement
+
+###### Premise
+
+The device supports the body composition function and has started body composition measurement
+
+###### Interface
+
+```
+stopDetectBodyComponent(bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type             | Description                    |
+| ---------------- | ---------------- | ------------------------------ |
+| bleWriteResponse | BleWriteResponse | Listening for write operations |
+
+###### Return data
+
+None
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().stopDetectBodyComponent(bleWriteResponse)
+```
+
+## Blood composition function
+
+The device needs to support the blood composition function. The judgment conditions are as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportBloodComponent
+```
+
+#### Read daily data of blood components
+
+[Read daily data function](##Read daily data function)] contains five minutes of raw data containing blood component related data
+
+#### Read blood component calibration value
+
+###### Premise
+
+The device needs to support blood component function
+
+###### Interface
+
+```
+readBloodComponentCalibration(bleWriteResponse, optListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                       | Description                         |
+| ---------------- | -------------------------- | ----------------------------------- |
+| bleWriteResponse | BleWriteResponse           | Listening for write operations      |
+| optListener      | IBloodComponentOptListener | Blood component operation listening |
+
+###### Return data
+
+**IBloodComponentOptListener** -- Blood component operation callback
+
+```kotlin
+/**
+* Blood component calibration reading success
+* @param isOpen open
+* @param bloodComposition blood component calibration value
+*/
+fun onBloodCompositionReadSuccess(isOpen: Boolean, bloodComposition: BloodComponent)
+
+/**
+* Blood component calibration reading failed
+*/
+fun onBloodCompositionReadFailed()
+
+/**
+* Blood component calibration value setting success
+* @param isOpen open
+* @param bloodComposition blood component calibration value
+*/
+fun onBloodCompositionSettingSuccess(isOpen: Boolean, bloodComposition: BloodComponent)
+
+/**
+* Blood component calibration value setting failed
+*/
+fun onBloodCompositionSettingFailed()
+```
+
+**BloodComponent** -- Blood component calibration value, consistent with the class returned by [Read daily data function](##Read daily data function)]
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().readBloodComponentCalibration(bleWriteResponse, optListener)
+```
+
+#### Setting blood component calibration value
+
+###### Premise
+
+The device supports blood component function
+
+###### Interface
+
+```
+settingBloodComponentCalibration(bleWriteResponse, isOpen, bloodComponent, optListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                       | Description                                   |
+| ---------------- | -------------------------- | --------------------------------------------- |
+| bleWriteResponse | BleWriteResponse           | Listening for write operations                |
+| isOpen           | Boolean                    | Whether to enable blood component calibration |
+| bloodComponent   | BloodComponent             | Blood component calibration value             |
+| optListener      | IBloodComponentOptListener | Blood component operation listener            |
+
+###### Return data
+
+**IBloodComponentOptListener** -- Blood component operation listener, same as [[Read blood component calibration value](####Read blood component calibration value)] return
+
+###### Example Code
+
+```kotlin
+ VPOperateManager.getInstance().settingBloodComponentCalibration(bleWriteResponse, isOpen, bloodComponent, optListener)
+```
+
+
+
+#### Start blood component measurement
+
+###### Premise
+
+The device needs to support blood component function
+
+###### Interface
+
+```kotlin
+startDetectBloodComponent(bleWriteResponse, isUseCalibrationMode, detectListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name       | Type                          | Description                          |
+| -------------------- | ----------------------------- | ------------------------------------ |
+| bleWriteResponse     | BleWriteResponse              | Listening for write operations       |
+| isUseCalibrationMode | Boolean                       | Whether to use calibration mode      |
+| detectListener       | IBloodComponentDetectListener | Blood component measurement callback |
+
+###### Data return
+
+**IBloodComponentDetectListener** -- Blood component measurement callback
+
+```kotlin
+/**
+* Detection failed
+*/
+fun onDetectFailed(errorState: EBloodComponentDetectState)
+
+/**
+* Detecting
+* @param progress Detection progress
+* @param bloodComponent Blood component
+*/
+fun onDetecting(progress: Int, bloodComponent: BloodComponent)
+
+/**
+*
+*/
+fun onDetectStop()
+
+/**
+* Detection completed
+* @param bloodComponent Blood component
+*/
+fun onDetectComplete(bloodComponent: BloodComponent)
+```
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().startDetectBloodComponent(bleWriteResponse, isUseCalibrationMode, detectListener)
+```
+
+
+
+#### Stop blood component measurement
+
+###### Before
+
+The device must support blood and blood component measurement must be enabled
+
+###### Interface
+
+```
+stopDetectBloodComponent(bleWriteResponse)
+```
+
+###### Return data
+
+None
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().stopDetectBloodComponent {
+
+}
+```
+
+
+
+## Reading Device Manual Measurement Data
+
+Supports reading multiple types of data. The following condition must be met for reading:
+
+**Blood Pressure** Whether reading is supported: It must support pneumatic blood pressure to be readable. The judgment code is as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportBumpBp
+```
+
+**Others** Other data types currently do not support reading manual measurement data. Support will be added in the future.
+
+#### Reading Device Manual Measurement Data
+
+###### Prerequisites
+Device support is required.
+
+###### Interface
+
+```kotlin
+readDeviceManualData(bleWriteResponse, timeStampSecond, dataTypeList, dataListener)
+```
+
+###### Parameter Explanation
+| Parameter Name   | Type                            | Description                                                  |
+| ---------------- | ------------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | BleWriteResponse                | Listener for write operations                                |
+| timeStampSecond  | long                            | Timestamp in seconds. Device only reports data newer than this timestamp. 0 indicates no previous read |
+| dataTypeList     | List<DeviceManualDataType>      | Data types to read. Use `DeviceManualDataType.ALL` for all types |
+| dataListener     | IDeviceManualDetectDataListener | Listener for manual measurement data reading                 |
+
+**DeviceManualDataType** - Data types for reading
+```kotlin
+enum class DeviceManualDataType(val bitPosition: Int) {
+    /**
+     * 0x00: Blood Pressure<br>
+     * 0x01: Heart Rate<br>
+     * 0x02: Blood Glucose<br>
+     * 0x03: Stress<br>
+     * 0x04: Blood Oxygen<br>
+     * 0x05: Body Temperature<br>
+     * 0x06: MET<br>
+     * 0x07: HRV<br>
+     * 0x08: Blood Composition<br>
+     * 0x09: Mini Checkup<br>
+     * 0x0A: Emotion<br>
+     * 0x0B: Fatigue<br>
+     * 0x0C: Skin Conductance
+     */
+    BLOOD_PRESSURE(0),
+    HEART_RATE(1),
+    BLOOD_GLUCOSE(2),
+    STRESS(3),
+    BLOOD_OXYGEN(4),
+    BODY_TEMPERATURE(5),
+    MET(6),
+    HRV(7),
+    BLOOD_COMPOSITION(8),
+    MINI_CHECKUP(9),
+    EMOTION(10),            // Emotion (bit 10)
+    FATIGUE(11),            // Fatigue (bit 11)
+    SKIN_CONDUCTANCE(12),   // Skin Conductance (bit 12)
+    ALL(33);
+
+    // Calculate corresponding bitmask
+    val bitMask: Int
+        get() = 1 shl bitPosition
+}
+```
+
+###### Returned Data
+
+**IDeviceManualDetectDataListener** - Manual measurement data callback
+
+```kotlin
+    /**
+     * Blood pressure manual measurement data callback
+     *
+     * @param bloodPressureManualDataList Return all blood pressure manual measurement data
+     */
+    fun onBloodPressureDataChange(bloodPressureManualDataList: List<BloodPressureManualData>)
+
+    /**
+     * Heart rate manual measurement data callback
+     *
+     * @param heartRateManualDataList Return all heart rate manual measurement data
+     */
+    fun onHeartRateDataChange(heartRateManualDataList: List<HeartRateManualData>)
+
+    /**
+     * Blood glucose manual measurement data callback
+     *
+     * @param bloodGlucoseManualDataList Return all blood glucose manual measurement data
+     */
+    fun onBloodGlucoseDataChange(bloodGlucoseManualDataList: List<BloodGlucoseManualData>)
+
+    /**
+     * Pressure manual measurement data callback
+     *
+     * @param pressureManualDataList Return all pressure manual measurement data
+     */
+    fun onPressureManualDataChange(pressureManualDataList: List<PressureManualData>)
+
+    /**
+     * Blood oxygen manual measurement data callback
+     *
+     * @param bloodOxygenManualDataList Return all blood oxygen manual measurement data
+     */
+    fun onBloodOxygenDataChange(bloodOxygenManualDataList: List<BloodOxygenManualData>)
+
+    /**
+     * Body temperature manual measurement data callback
+     *
+     * @param bodyTemperatureManualDataList Return all body temperature manual measurement data
+     */
+    fun onBodyTemperatureDataChange(bodyTemperatureManualDataList: List<BodyTemperatureManualData>)
+
+    /**
+     * METO manual measurement data callback
+     *
+     * @param metoManualDataList Return all METO manual measurement data
+     */
+    fun onMetoManualDataChange(metoManualDataList: List<MetoManualData>)
+
+    /**
+     * HRV manual measurement data callback
+     *
+     * @param hrvManualDataList Return all HRV manual measurement data
+     */
+    fun onHrvManualDataChange(hrvManualDataList: List<HrvManualData>)
+
+    /**
+     * Blood component manual measurement data callback
+     *
+     * @param bloodComponentManualDataList Return all blood component manual measurement data
+     */
+    fun onBloodComponentManualDataChange(bloodComponentManualDataList: List<BloodComponentManualData>)
+
+    /**
+     * Mini checkup manual measurement data callback
+     *
+     * @param miniCheckupManualDataList Return all mini checkup manual measurement data
+     */
+    fun onMiniCheckupManualDataChange(miniCheckupManualDataList: List<MiniCheckupManualData>)
+
+    /**
+     * Emotion manual measurement data callback
+     *
+     * @param emotionManualDataList Return all emotion manual measurement data
+     */
+    fun onEmotionManualDataChange(emotionManualDataList: List<EmotionManualData>)
+
+    /**
+     * Fatigue manual measurement data callback
+     *
+     * @param fatigueManualDataList Return all fatigue manual measurement data
+     */
+    fun onFatigueManualDataChange(fatigueManualDataList: List<FatigueManualData>)
+
+    /**
+     * Skin conductance manual measurement data callback
+     *
+     * @param skinConductanceManualDataList Return all skin conductance manual measurement data
+     */
+    fun onSkinConductanceManualDataChange(skinConductanceManualDataList: List<SkinConductanceManualData>)
+
+    /**
+     * Return the read progress
+     *
+     * @param progress Progress value, range [0-1]
+     */
+    fun onReadProgress(progress: Float)
+
+    /**
+     * Read completed
+     */
+    fun onReadComplete()
+
+    /**
+     * Read failed
+     */
+    fun onReadFail()
+```
+
+**BloodPressureManualData**--Manually Measured Blood Pressure Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * Corresponding protocol type, 0x00: Bladder blood pressure (see bladder blood pressure single data structure for details)<br>0x01: Normal blood pressure
+ * Note: When version == 1, only systolic (high blood pressure), diastolic (low blood pressure) are valid, other values are meaningless
+ */
+private int version;
+
+/**
+ * Measurement mode, 0: Photoelectric, 1: Bladder
+ */
+private int measurementMode;
+
+/**
+ * Heart rate value
+ */
+private int heartRate;
+
+/**
+ * Systolic blood pressure (high blood pressure)
+ */
+private int systolic;
+
+/**
+ * Diastolic blood pressure (low blood pressure)
+ */
+private int diastolic;
+
+/**
+ * Test status
+ */
+private int testStatus;
+
+/**
+ * Result credibility
+ */
+private int resultCredibility;
+
+/**
+ * Height (cm)
+ */
+private int height;
+
+/**
+ * Weight (kg)
+ */
+private int weight;
+
+/**
+ * Age
+ */
+private int age;
+
+/**
+ * Gender: true for male
+ */
+private boolean isMale;
+
+/**
+ * Actual measurement duration, max 60 seconds
+ */
+private int testTime;
+
+/**
+ * Measurement failure timeout count: Return test failure if minimum pressure is not reached after this count
+ */
+private int testFailTimeoutCount;
+
+/**
+ * Pump model
+ */
+private int pumpModel;
+
+/**
+ * AFE model
+ */
+private int afeModel;
+
+/**
+ * Acceleration model
+ */
+private int accelerationModel;
+
+/**
+ * MCU model
+ */
+private int mcuModel;
+
+/**
+ * Algorithm version
+ */
+private String algorithmVersion;
+
+/**
+ * Software version
+ */
+private String softwareVersion;
+
+/**
+ * Attitude
+ */
+private int[] attitudeArray;
+
+/**
+ * Exercise amount
+ */
+private int[] sportArray;
+
+/**
+ * Pressure ADC
+ */
+private int[] pressureAdcArray;
+
+/**
+ * PPG data ADC
+ */
+private int[] ppgAdcArray;
+
+/**
+ * Acceleration X-axis ADC
+ */
+private int[] accelerationXArray;
+
+/**
+ * Acceleration Y-axis ADC
+ */
+private int[] accelerationYArray;
+
+/**
+ * Acceleration Z-axis ADC
+ */
+private int[] accelerationZArray;
+```
+
+**HeartRateManualData**--Manual Heart Rate Measurement Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * Corresponding protocol type. Different protocol types have different data structures.
+ */
+private int version;
+
+/**
+ * Pulse rate
+ */
+private int[] rate;
+```
+
+**HrvManualData**--Manually Measured HRV Data
+
+```java
+/**
+ * Measurement timestamp of this record
+ */
+private int timeStamp;
+
+/**
+ * Protocol type. Different protocol types correspond to different data structures.
+ */
+private int version;
+
+/**
+ * HRV values
+ */
+private int[] hrv;
+```
+
+**BloodComponentManualData**--Manual Measurement Data of Blood Components
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * Corresponding protocol type. Different protocol types contain different data structures.
+ */
+private int version;
+
+/**
+ * Uric acid value, keep 1 decimal place, unit: μmol/L, 1mg/dL = 59.5μmol/L
+ */
+private float uricAcid = 0f;
+
+/**
+ * Total cholesterol, keep 2 decimal places, unit: mmol/L
+ */
+private float tCHO = 0f;
+
+/**
+ * Triglyceride, keep 2 decimal places, unit: mmol/L
+ */
+private float tAG = 0f;
+
+/**
+ * High-density lipoprotein, keep 2 decimal places, unit: mmol/L
+ */
+private float hDL = 0f;
+
+/**
+ * Low-density lipoprotein, keep 2 decimal places, unit: mmol/L
+ */
+private float lDL = 0f;
+```
+
+**BloodGlucoseManualData**--Manually Measured Blood Glucose Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * 0x00: No blood glucose risk level<br>0x01: With blood glucose risk level
+ */
+private int version;
+
+/**
+ * Blood glucose value
+ */
+private float bloodGlucoseValue;
+
+/**
+ * Blood glucose risk level
+ */
+private EBloodGlucoseRiskLevel risk;
+```
+
+**BloodOxygenManualData**--Manual Blood Oxygen Measurement Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * 0x00: No blood glucose risk level<br>0x01: With blood glucose risk level
+ */
+private int version;
+
+/**
+ * Blood oxygen array
+ */
+private int[] oxygen;
+```
+
+**BodyTemperatureManualData**--Manually Measured Body Temperature Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * 0x00: Corresponding protocol type. Different protocol types have different data structures (default is 0x00 for later expansion)
+ */
+private int version;
+
+/**
+ * Skin temperature
+ */
+private float baseTemperature;
+
+/**
+ * Body temperature
+ */
+private float temperature;
+```
+
+**EmotionManualData**--Manually Measured Emotional Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * Corresponding protocol type. Different protocol types contain different data structures.
+ */
+private int version;
+
+/**
+ * Emotion, value range: [-10 ~ 10]
+ */
+private int emotion;
+
+```
+
+**FatigueManualData**--Manually Measured Fatigue Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * Corresponding protocol type. Different protocol types contain different data structures.
+ */
+private int version;
+
+/**
+ * Fatigue value (valid range: [0 - 99])
+ */
+private int fatigue;
+```
+
+**MiniCheckupManualData**--Micro-Checkup Manual Measurement Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * Corresponding protocol type. Different protocol types contain different data structures.
+ */
+private int version;
+
+/**
+ * Heart rate
+ */
+private int heart;
+
+/**
+ * Blood oxygen
+ */
+private int oxygen;
+
+/**
+ * Pressure
+ */
+private int pressure;
+
+/**
+ * Emotion (-10, 10)
+ */
+private int emotion;
+
+/**
+ * Fatigue
+ */
+private int fatigue;
+
+/**
+ * Blood glucose
+ */
+private float bloodGlucose;
+
+/**
+ * Blood glucose risk
+ */
+private int bloodGlucoseRisk;
+
+/**
+ * Body temperature
+ */
+private float temperature;
+
+/**
+ * Skin temperature
+ */
+private float baseTemperature;
+
+/**
+ * High blood pressure, range [60-300]
+ */
+private int highValue;
+
+/**
+ * Low blood pressure, range [20-200]
+ */
+private int lowValue;
+```
+
+**PressureManualData**--Manually Measured Pressure Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * Corresponding protocol type. Different protocol types contain different data structures.
+ */
+private int version;
+
+/**
+ * Pressure value (valid range: [0 - 100])
+ */
+private int pressure;
+```
+
+**SkinConductanceManualData**--Manual Electrodermal Measurement Data
+
+```java
+/**
+ * Measurement timestamp of this data record
+ */
+private int timeStamp;
+
+/**
+ * Corresponding protocol type. Different protocol types contain different data structures.
+ */
+private int version;
+
+/**
+ * Emotion level [-10,10]
+ */
+private int emotionLevel;
+
+/**
+ * Skin moisture [1,99]
+ */
+private int skinMoisture;
+
+/**
+ * Depression risk [0,2], 0: Low, 1: Medium, 2: High
+ */
+private int depressionRisk;
+
+/**
+ * Sympathetic nerve activity [1,99]
+ */
+private int snsActivation;
+
+/**
+ * Cortisol concentration, valid range [0,500] ug/L, normal range [0,230] ug/L.
+ * Common units: ug/dL or nmol/L.
+ * 10 ug/L = 1 ug/dL, 1 nmol/L = 0.36247 ug/L, 1 nmol/L = 0.036247 ug/dL
+ */
+private int cortisolValue;
+```
+
+```
+VPOperateManager.getInstance().readDeviceManualData(bleWriteResponse, timeStampSecond, dataTypeList, dataListener)
+```
+
+#### Manual measurement types supported by the current device
+
+```java
+VPOperateManager.getInstance().supportManualDetectTypes
+```
+
+
+
+## Automatic Measurement Function
+
+Prerequisite: Device must support automatic measurement function. Judgment condition:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportAutoMeasure
+```
+
+Note: All following interfaces require device support for automatic measurement.
+
+#### Reading Automatic Measurement Settings
+
+###### Prerequisites
+
+Device must support automatic measurement.
+
+###### Interface
+
+```markdown
+readAutoMeasureSettingData(bleWriteResponse, settingDataListener)
+```
+
+###### Parameter Explanation
+
+|   Parameter Name    |              Type               |                    Description                    |
+| :-----------------: | :-----------------------------: | :-----------------------------------------------: |
+|  bleWriteResponse   |        BleWriteResponse         |           Listener for write operations           |
+| settingDataListener | IAutoMeasureSettingDataListener | Listener returning automatic measurement settings |
+
+###### Returned Data
+
+**IAutoMeasureSettingDataListener** - Automatic measurement callback
+
+```kotlin
+/**
+ * Returns automatic measurement settings data
+ *
+ * @param autoMeasureDataList List of automatic measurement settings data
+ */
+fun onSettingDataChange(autoMeasureDataList: List<AutoMeasureData>)
+
+fun onSettingDataChangeFail()
+
+fun onSettingDataChangeSuccess()
+```
+
+**AutoMeasureData** - Automatic measurement data
+
+```kotlin
+// Protocol type
+var protocolType = 0
+
+// Function type
+var funType = EAutoMeasureType.PULSE_RATE
+
+// Function switch
+var isSwitchOpen = false
+
+// Minimum supported step unit (minutes)
+var stepUnit = 0
+
+// Supports time slot modification
+var isSlotModify = false
+
+// Supports interval modification
+var isIntervalModify = false
+
+// Supported time slot - start (minutes)
+var supportStartMinute = 0
+
+// Supported time slot - end (minutes)
+var supportEndMinute = 0
+
+// Measurement interval (minutes)
+var measureInterval = 0
+
+// Current test slot - start (minutes)
+var currentStartMinute = 0
+
+// Current test slot - end (minutes)
+var currentEndMinute = 0
+```
+
+**EAutoMeasureType** - Automatic measurement type enum
+
+```kotlin
+enum class EAutoMeasureType(val value: Int) {
+    PULSE_RATE(0),
+    BLOOD_PRESSURE(1),
+    BLOOD_GLUCOSE(2),
+    STRESS(3),
+    BLOOD_OXYGEN(4),
+    BODY_TEMPERATURE(5),
+    LORENZ(6),
+    HRV(7),
+    BLOOD_COMPOSITION(8);
+
+    companion object {
+        fun fromValue(value: Int): EAutoMeasureType? {
+            return values().find { it.value == value }
+        }
+    }
+}
+```
+
+###### Example Code
+
+```
+VPOperateManager.getInstance().readAutoMeasureSettingData(bleWriteResponse, settingDataListener)
+```
+
+
+
+#### Setting Automatic Measurement Settings
+
+###### Prerequisites
+
+Device must support automatic measurement.
+
+###### Interface
+
+```
+setAutoMeasureSettingData(bleWriteResponse, measureData, settingDataListener)
+```
+
+###### Parameter Explanation
+
+|   Parameter Name    |              Type               |           Description           |
+| :-----------------: | :-----------------------------: | :-----------------------------: |
+|  bleWriteResponse   |        BleWriteResponse         |  Listener for write operations  |
+|     measureData     |         AutoMeasureData         |   Automatic measurement data    |
+| settingDataListener | IAutoMeasureSettingDataListener | Listener for setting operations |
+
+###### Returned Data
+
+Same as in [Reading Device Manual Measurement Data]
+
+###### Example Code
+
+```
+VPOperateManager.getInstance().setAutoMeasureSettingData(bleWriteResponse, measureData, settingDataListener)
+```
+
+
+
+
+
+
+## Text & Image Push Function
+
+Prerequisite: Device must support text&image push function. Judgment condition:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportTextImagePush()
+```
+
+Note: All following interfaces require device support for text&image push.
+
+### Push Text message
+
+###### Prerequisites
+
+Device must support  text&image push.
+
+###### Interface
+
+```java
+/**
+     * 推送文字信息
+     * Pushes the text message
+     *
+     * @param msg              文字信息
+     *                         Text message content
+     * @param bleWriteResponse 蓝牙写入操作的回调
+     *                         Callback for the Bluetooth write operation
+     * @param listener         文字信息推送监听
+     *                         Listener for text message push events
+     */
+public void pushTextMsg(String msg, BleWriteResponse bleWriteResponse, ITextMsgPushListener listener) 
+```
+
+###### Parameter Explanation
+
+| Parameter Name   | Type                 | Description                     |
+| ---------------- | -------------------- | ------------------------------- |
+| msg              | String               | Need to send a text message     |
+| bleWriteResponse | BleWriteResponse     | Listener for write operations   |
+| listener         | ITextMsgPushListener | Listening for text push message |
+
+###### Interface
+
+**ITextMsgPushListener** -- Listening for text push message
+
+```java
+/**
+ * 文本消息推送监听
+ * Text Message Push Listener
+ */
+public interface ITextMsgPushListener extends IListener {
+
+    /**
+     * 文字信息推送成功
+     * Text message push succeeded
+     */
+    void onTextMsgPushSuccess();
+
+    /**
+     * 文字消息推送失败
+     * Text message push failed
+     */
+    void onTextMsgPushFailed();
+
+    /**
+     * 当前设备不支持该功能
+     * The current device does not support this feature/function.
+     */
+    void onFunctionNotSupport();
+}
+```
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().pushTextMsg(content, new BleWriteResponse() {
+    @Override
+    public void onResponse(int code) {
+        if(code!= Code.REQUEST_SUCCESS) {
+            tvPushInfo.setText("蓝牙数据发送失败");
+        }
+    }
+}, new ITextMsgPushListener() {
+    @Override
+    public void onTextMsgPushSuccess() {
+        tvPushInfo.setText("文本推送成功");
+    }
+
+    @Override
+    public void onTextMsgPushFailed() {
+        tvPushInfo.setText("文本推送失败");
+    }
+
+    @Override
+    public void onFunctionNotSupport() {
+        tvPushInfo.setText("不支持该功能");
+    }
+});
+```
+
+### Push Image message
+
+###### Prerequisites
+
+Device must support  text&image push.
+
+###### Interface
+
+```java
+/**
+     * 推送图片信息
+     * Pushes the image message
+     *
+     * @param imageFilePath 图片本地地址
+     *                      Local path of the image file
+     * @param listener      图片消息推送监听
+     *                      Listener for image message push events
+*/
+public void pushImageMsg(String imageFilePath, IImageMsgPushListener listener) 
+```
+
+###### Parameter Explanation
+
+| Parameter Name | Type                  | Description                              |
+| -------------- | --------------------- | ---------------------------------------- |
+| imageFilePath  | String                | Need to send the local path of the image |
+| listener       | IImageMsgPushListener | Listening for image information push     |
+
+###### Interface
+
+**IImageMsgPushListener** -- Listening for image information push
+
+```java
+public interface IImageMsgPushListener extends IListener {
+
+    /**
+     * 图片消息推送成功
+     * Image message push succeeded
+     */
+    void onImageMsgPushSuccess();
+
+    /**
+     * 图片消息推送进度回调
+     * Image message push progress callback
+     *
+     * @param currentBlock 当前块（已发送块）
+     * Current block (blocks sent)
+     * @param sumBlock     总块数
+     * Total number of blocks
+     * @param progress     进度百分比 (0-100)
+     * Progress percentage (0-100)
+     */
+    void onImageMsgPushProgress(int currentBlock, int sumBlock, int progress);
+
+    /**
+     * 图片推送失败/错误
+     * Image push failed/error
+     *
+     * @param errorCode 错误类型
+     * Error type
+     */
+    void onImageMsgPushFailed(ErrorCode errorCode);
+
+    /**
+     * 错误码
+     * Error Codes
+     */
+    enum ErrorCode {
+        /**
+         * 图片地址错误，不存在
+         * Image path error, file does not exist
+         */
+        IMAGE_PATH_ERROR("图片地址错误，不存在"),
+        /**
+         * 图片尺寸异常
+         * Image dimension anomaly
+         */
+        IMAGE_SIZE_ERROR("图片尺寸异常"),
+        /**
+         * 图片内存太大了
+         * Image file size is too large
+         */
+        IMAGE_TOO_LARGE("图片内存太大了"),
+        /**
+         * 传输终止
+         * Transmission terminated
+         */
+        TERMINATION("传输终止"),
+        /**
+         * 监听为空
+         * Listener is null
+         */
+        LISTENER_IS_NULL("监听为空"),
+        /**
+         * 没有先执行读取UI信息
+         * Must read UI base info first
+         */
+        NEED_READ_BASE_INFO("没有先执行读取UI信息"),
+        /**
+         * 文件不存在
+         * File does not exist
+         */
+        FILE_NOT_EXIST("文件不存在"),
+        /**
+         * 电量过低
+         * Low battery level
+         */
+        LOW_BATTERY("电量过低"),
+        /**
+         * 进入UI模式失败
+         * Failed to enter UI update mode
+         */
+        INTO_UPDATE_MODE_FAIL("进入UI模式失败"),
+        /**
+         * 文件没有4字节对齐
+         * File length is not 4-byte aligned
+         */
+        FILE_LENGTH_NOT_4_POWER("文件没有4字节对齐"),
+        /**
+         * crc校验失败
+         * CRC check failed
+         */
+        CHECK_CRC_FAIL("crc校验失败"),
+        /**
+         * 功能不支持
+         * Function not supported
+         */
+        FUNCTION_NOT_SUPPORT("功能不支持"),
+        /**
+         * 未知错误
+         * Unknown error
+         */
+        UNKNOWN("未知错误");
+
+        ErrorCode(String info){
+            this.info = info;
+        }
+
+        public String info;
+    }
+}
+```
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().pushImageMsg(pushImagePath, new IImageMsgPushListener() {
+    @Override
+    public void onImageMsgPushSuccess() {
+        tvPushInfo.setText("图片推送成功");
+    }
+
+    @Override
+    public void onImageMsgPushProgress(int currentBlock, int sumBlock, int progress) {
+        tvPushInfo.setText("图片推送进度：" + progress + "%");
+    }
+
+    @Override
+    public void onImageMsgPushFailed(ErrorCode errorCode) {
+        tvPushInfo.setText("图片推送错误：" + errorCode.info);
+    }
+});
+```
+
+
+
+## Mini-Checkup Function
+
+Prerequisite: Device must support mini-checkup function. Judgment condition:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportMiniCheckup()
+```
+
+Note: All the following interfaces can only be called if the device supports the mini-checkup function.
+
+### Start Mini-Checkup test
+
+###### Prerequisites
+
+Device must support  Mini-Checkup test.
+
+###### Interface
+
+```java
+/**
+     * <ul>
+     *     <li style="color:#1055d2">start mini-checkup test</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">开始微体检测量</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if response code equals Code.REQUEST_SUCCESS means write cmd success,otherwise means write cmd fail</li>
+     *    <li>写入操作的监听</li>
+     * </ul>
+     * @param listener
+     * <ul>
+     *    <li>The listener of mini-checkup</li>
+     *    <li>微体检测量监听</li>
+     * </ul>
+     */
+public void startMiniCheckup(BleWriteResponse bleWriteResponse, IMiniCheckupOptListener listener)
+```
+
+###### Parameter Explanation
+
+| Parameter Name   | Type                    | Description                    |
+| ---------------- | ----------------------- | ------------------------------ |
+| bleWriteResponse | BleWriteResponse        | Listener for write operations  |
+| listener         | IMiniCheckupOptListener | Listener for mini-checkup test |
+
+**IMiniCheckupOptListener** -- listener of mini-checkup
+
+```kotlin
+/**
+ * 微体检操作监听器 | Listener for mini physical checkup operations
+ * 用于监听微体检测量流程中的进度、成功、失败、停止等状态回调
+ * Used to listen for status callbacks such as progress, success, failure and stop during measurement
+ */
+interface IMiniCheckupOptListener {
+
+    /**
+     * 微体检测量进度回调 | Measurement progress callback
+     * @param progress 测量进度，取值范围 1–100 | Measurement progress, value range: 1–100
+     */
+    fun onMiniCheckupTestProgress(progress: Int)
+
+    /**
+     * APP 主动停止测量成功 | Callback when APP actively stops measurement successfully
+     */
+    fun onMiniCheckupStopSuccess()
+
+    /**
+     * 微体检测量失败 | Measurement failed callback
+     * @param errorCode 测量错误码，参考 EMiniCheckupTestErrorCode | Error code, see EMiniCheckupTestErrorCode for details
+     */
+    fun onMiniCheckupTestFailed(errorCode: EMiniCheckupTestErrorCode)
+
+    /**
+     * 微体检测量完成并获取有效结果 | Measurement completed with valid result
+     * @param testResultData 微体检最终测量数据 | Final measurement result data
+     */
+    fun onMiniCheckupSuccess(testResultData: MiniCheckupResultData)
+}
+```
+
+**EMiniCheckupTestErrorCode** -- The error code of mini-checkup
+
+```kotlin
+/**
+ * 微体检测量错误码(Mini Checkup Measurement Error Codes)
+ */
+enum class EMiniCheckupTestErrorCode {
+
+    /**
+     * 暂不支持该功能
+     * Function not support
+     */
+    FUNCTION_NOT_SUPPORT,
+
+    /**
+     * 测量结束但没有结果
+     * Measurement completed, but no result data obtained
+     */
+    TEST_COMPLETE_NO_RESULT,
+
+    /**
+     * 设备正在测量其他数据
+     * The device is currently measuring other data
+     */
+    DEVICE_BUSY,
+
+    /**
+     * 设备端低电
+     * Low power on the device side
+     */
+    LOW_POWER
+}
+```
+
+**MiniCheckupResultData** -- The result of mini-checkup test
+
+```java
+public class MiniCheckupResultData {
+
+    /**
+     * 心率 | Heart Rate
+     * 单位：次/分钟 | Unit: bpm
+     */
+    private int heartRate;
+
+    /**
+     * 血氧饱和度 | Blood Oxygen Saturation
+     * 单位：% | Unit: %
+     */
+    private int bloodOxygen;
+
+    /**
+     * 压力指数 | Stress Index
+     */
+    private int stress;
+
+    /**
+     * 情绪指数 | Emotional Index
+     * 值域：-10 ~ 10；-10=极度低落，10=极度高昂
+     * 【暂未启用，请勿使用】| Not enabled yet, please ignore
+     */
+    @Deprecated
+    private int emotion;
+
+    /**
+     * 疲劳度指数 | Fatigue Index
+     * 【暂未启用，请勿使用】| Not enabled yet, please ignore
+     */
+    @Deprecated
+    private int fatigue;
+
+    /**
+     * 血糖 | Blood Glucose
+     * 单位：mmol/L | Unit: mmol/L
+     */
+    private float bloodGlucose;
+
+    /**
+     * 体温 | Body Temperature
+     * 单位：摄氏度 | Unit: °C
+     */
+    private float bodyTemperature;
+
+    /**
+     * 收缩压（高压）| Systolic Blood Pressure
+     * 单位：mmHg | Unit: mmHg
+     */
+    private int systolicBloodPressure;
+
+    /**
+     * 舒张压（低压）| Diastolic Blood Pressure
+     * 单位：mmHg | Unit: mmHg
+     */
+    private int diastolicBloodPressure;
+
+    /**
+     * 心率变异性 | Heart Rate Variability (HRV)
+     * 自主神经系统评估指标
+     */
+    private int hrv;
+}
+```
+
+**MiniCheckupDetailData**--The result of mini-checkup test**(v2)**
+
+```java
+/**
+ * 微体检详情数据 | Mini Checkup Detail Data
+ * 包含微体检全流程生理与心理健康指标 | Includes physiological and psychological health indicators covering the entire micro-health checkup process.
+ */
+public class MiniCheckupDetailData {
+
+    /**
+     * 基础个人信息 | Basic Personal Information
+     */
+    private MiniCheckupBasePersonalInfo basePersonalInfo;
+
+    /**
+     * 心率 | Heart Rate
+     * 单位：次/分钟 | Unit: bpm
+     */
+    private int heartRate;
+
+    /**
+     * 血氧饱和度 | Blood Oxygen Saturation
+     * 单位：百分比 | Unit: %
+     */
+    private int bloodOxygen;
+
+    /**
+     * 压力指数 | Stress Index
+     */
+    private int stress;
+
+    /**
+     * 情绪指数 | Emotional Index
+     * 值域：-10 ~ 10；-10=极度低落，10=极度高昂 | Range: -10 ~ 10
+     */
+    private int emotion;
+
+    /**
+     * 疲劳度指数 | Fatigue Index
+     */
+    private int fatigue;
+
+    /**
+     * 血糖显示类型 | Blood Glucose Display Type
+     * 1=显示数值，2=显示风险等级 | 1=Show value, 2=Show risk level
+     */
+    private int bloodGlucoseType;
+
+    /**
+     * 血糖 | Blood Glucose
+     * 单位：mmol/L 或 mg/dL | Unit: mmol/L or mg/dL
+     */
+    private float bloodGlucose;
+
+    /**
+     * 体温 | Body Temperature
+     * 单位：摄氏度 | Unit: °C
+     */
+    private float bodyTemperature = -273.15f;
+
+    /**
+     * 原始温度 | Original Temperature
+     * 单位：摄氏度 | Unit: °C
+     */
+    private float originalTemperature = -273.15f;
+
+    /**
+     * 气泵式血压 | Air Pump Blood Pressure
+     */
+    private MiniCheckupBPAirPump bpAirPump;
+
+    /**
+     * 光电式血压 | Photoelectric Blood Pressure
+     */
+    private MiniCheckupBPPhotoelectric bpPhotoelectric;
+
+    /**
+     * 心率变异性 | Heart Rate Variability (HRV)
+     * 值域：1 ~ 210 | Range: 1 ~ 210
+     */
+    private int hrv;
+
+    /**
+     * 血液成分 | Blood Component
+     */
+    private MiniCheckupBloodComponent bloodComponent;
+
+    /**
+     * 身体成分 | Body Component
+     */
+    private MiniCheckupBodyComponent bodyComponent;
+
+    /**
+     * 皮电指标 | Skin Electricity Index
+     */
+    private MiniCheckupSkinElectricity skinElectricity;
+}
+
+/**
+ * 微体检基础个人信息 | Mini Checkup Basic Personal Info
+ */
+public class MiniCheckupBasePersonalInfo {
+    /**
+     * 性别 | Gender
+     * 0=女性，1=男性 | 0=Female, 1=Male
+     */
+    private int gender;
+
+    /**
+     * 年龄 | Age
+     * 单位：岁 | Unit: year
+     */
+    private int age;
+
+    /**
+     * 身高 | Height
+     * 单位：厘米 | Unit: cm
+     */
+    private int height;
+
+    /**
+     * 体重 | Weight
+     * 单位：千克 | Unit: kg
+     */
+    private int weight;
+}
+
+/**
+ * 微体检-气泵式血压 | Mini Checkup - Air Pump Blood Pressure
+ */
+public class MiniCheckupBPAirPump {
+    /**
+     * 收缩压(高压) | Systolic Blood Pressure
+     * 单位：毫米汞柱 | Unit: mmHg
+     */
+    private int systolicBloodPressure;
+
+    /**
+     * 舒张压(低压) | Diastolic Blood Pressure
+     * 单位：毫米汞柱 | Unit: mmHg
+     */
+    private int diastolicBloodPressure;
+}
+
+/**
+ * 微体检-光电式血压 | Mini Checkup - Photoelectric Blood Pressure
+ * 字段结构与气泵式血压一致 | Field structure is consistent with air pump blood pressure
+ */
+public class MiniCheckupBPPhotoelectric {
+    private int systolicBloodPressure;
+    private int diastolicBloodPressure;
+}
+
+/**
+ * 微体检-血液成分 | Mini Checkup - Blood Component
+ */
+public class MiniCheckupBloodComponent {
+    /**
+     * 尿酸 | Uric Acid
+     */
+    private float uricAcid;
+
+    /**
+     * 总胆固醇 | Total Cholesterol (TCHO)
+     */
+    private float tCHO;
+
+    /**
+     * 甘油三酯 | Triglyceride (TAG)
+     */
+    private float tAG;
+
+    /**
+     * 高密度脂蛋白 | High Density Lipoprotein (HDL)
+     */
+    private float hDL;
+
+    /**
+     * 低密度脂蛋白 | Low Density Lipoprotein (LDL)
+     */
+    private float lDL;
+}
+
+/**
+ * 微体检-身体成分 | Mini Checkup - Body Component
+ */
+public class MiniCheckupBodyComponent {
+    /**
+     * 性别 | Gender
+     * 0=女性，1=男性 | 0=Female, 1=Male
+     */
+    private int gender;
+
+    /**
+     * 年龄 | Age
+     */
+    private int age;
+
+    /**
+     * 身高 | Height
+     * 单位：厘米 | Unit: cm
+     */
+    private int height;
+
+    /**
+     * 体重 | Weight
+     * 单位：千克 | Unit: kg
+     */
+    private int weight;
+
+    /**
+     * 身体质量指数 | Body Mass Index (BMI)
+     * 有效范围：4.0 ~ 1114.0；小端序；上报值为实际值放大10倍
+     * Valid range: 4.0 ~ 1114.0; little-endian; reported value ×10
+     */
+    private float BMI;
+
+    /**
+     * 体脂率 | Body Fat Rate
+     * 有效范围：2.0 ~ 48.0 | Valid range: 2.0 ~ 48.0
+     */
+    private float bodyFatRate;
+
+    /**
+     * 脂肪量 | Fat Mass
+     * 有效范围：10.0 ~ 248.0 | Valid range: 10.0 ~ 248.0
+     */
+    private float fatRate;
+
+    /**
+     * 去脂体重 | Fat Free Mass (FFM)
+     * 有效范围：1.0 ~ 132.0 | Valid range: 1.0 ~ 132.0
+     */
+    private float FFM;
+
+    /**
+     * 肌肉率 | Muscle Rate
+     * 有效范围：39.0 ~ 90.0 | Valid range: 39.0 ~ 90.0
+     */
+    private float muscleRate;
+
+    /**
+     * 肌肉量 | Muscle Mass
+     * 有效范围：9.0 ~ 248.0 | Valid range: 9.0 ~ 248.0
+     */
+    private float muscleMass;
+
+    /**
+     * 皮下脂肪 | Subcutaneous Fat
+     * 有效范围：1.0 ~ 47.0 | Valid range: 1.0 ~ 47.0
+     */
+    private float subcutaneousFat;
+
+    /**
+     * 体内水分 | Body Water
+     * 有效范围：28.0 ~ 79.0 | Valid range: 28.0 ~ 79.0
+     */
+    private float bodyWater;
+
+    /**
+     * 含水量 | Water Content
+     * 有效范围：7.0 ~ 217.0 | Valid range: 7.0 ~ 217.0
+     */
+    private float waterContent;
+
+    /**
+     * 骨骼肌率 | Skeletal Muscle Rate
+     * 有效范围：13.0 ~ 69.0 | Valid range: 13.0 ~ 69.0
+     */
+    private float skeletalMuscleRate;
+
+    /**
+     * 骨量 | Bone Mass
+     * 有效范围：2.3 ~ 4.8 | Valid range: 2.3 ~ 4.8
+     */
+    private float boneMass;
+
+    /**
+     * 蛋白质占比 | Protein Proportion
+     * 有效范围：4.0 ~ 26.0 | Valid range: 4.0 ~ 26.0
+     */
+    private float proteinProportion;
+
+    /**
+     * 蛋白质量 | Protein Mass
+     * 有效范围：1.0 ~ 71.0 | Valid range: 1.0 ~ 71.0
+     */
+    private float proteinMass;
+
+    /**
+     * 基础代谢率 | Basal Metabolic Rate (BMR)
+     * 有效范围：25 ~ 14995 | Valid range: 25 ~ 14995
+     */
+    private float basalMetabolicRate;
+}
+
+/**
+ * 微体检-皮电指标 | Mini Checkup - Skin Electricity
+ */
+public class MiniCheckupSkinElectricity {
+    /**
+     * 情绪值 | Emotion Value
+     * 值域：-10 ~ 10 | Range: -10 ~ 10
+     */
+    private int emotion;
+
+    /**
+     * 皮肤含水量 | Skin Moisture Content
+     * 值域：1 ~ 99 | Range: 1 ~ 99
+     */
+    private int skinMoistureContent;
+
+    /**
+     * 抑郁症风险 | Depression Risk Level
+     * 0=低风险，1=中风险，2=高风险 | 0=Low, 1=Medium, 2=High
+     */
+    private int depressionRisk;
+
+    /**
+     * 交感神经活跃度 | Sympathetic Nerve Activity
+     * 值域：1 ~ 99 | Range: 1 ~ 99
+     */
+    private int sympatheticActivity;
+
+    /**
+     * 皮质醇浓度 | Cortisol Concentration
+     * 单位：微克/升 | Unit: ug/L
+     * 有效范围：0 ~ 500 ug/L | Valid range: 0 ~ 500 ug/L
+     * 正常参考范围：0 ~ 230 ug/L | Normal range: 0 ~ 230 ug/L
+     * 换算：10 ug/L = 1 ug/dL；1 nmol/L = 0.36247 ug/L
+     */
+    private int cortisolConcentration;
+}
+```
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().startMiniCheckup(code -> {
+    if (code == Code.REQUEST_SUCCESS) {
+        appendMsg("【开始】微体检指令写入成功！");
+    } else {
+        appendMsg("【开始】微体检指令写入失败！");
+    }
+}, miniCheckupOptListener);
+```
+
+### Stop Mini-Checkup test
+
+###### Prerequisites
+
+Device must support  Mini-Checkup test.
+
+###### Interface
+
+```java
+/**
+     * <ul>
+     *     <li style="color:#1055d2">stop mini-checkup test</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">停止微体检测量</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if response code equals Code.REQUEST_SUCCESS means write cmd success,otherwise means write cmd fail</li>
+     *    <li>写入操作的监听</li>
+     * </ul>
+     * @param listener
+     * <ul>
+     *    <li>The listener of mini-checkup</li>
+     *    <li>微体检测量监听</li>
+     * </ul>
+     */
+public void stoptMiniCheckup(BleWriteResponse bleWriteResponse, IMiniCheckupOptListener listener)
+```
+
+###### Parameter Explanation
+
+| Parameter Name   | Type                    | Description                    |
+| ---------------- | ----------------------- | ------------------------------ |
+| bleWriteResponse | BleWriteResponse        | Listener for write operations  |
+| listener         | IMiniCheckupOptListener | Listener for mini-checkup test |
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().stopMiniCheckup(code -> {
+    if (code == Code.REQUEST_SUCCESS) {
+        appendMsg("【停止】微体检指令写入成功！");
+    } else {
+        appendMsg("【停止】微体检指令写入失败！");
+    }
+}, miniCheckupOptListener);
+```
+
+
+
+## GSR (Galvanic Skin Response) Function
+
+Prerequisite: The device must support GSR functionality. The check condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportGSR()
+```
+
+Note: All the following interfaces must be called only if the device supports GSR functionality.
+
+### Start GSR Measurement
+
+###### Prerequisite
+
+The device must support GSR functionality.
+
+###### Interface
+
+```java
+***
+     * <ul>
+     *     <li style="color:#1055d2">Start GSR measurement</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">Start GSR Measurement</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     *    <li>Write operation listener</li>
+     * </ul>
+     * @param detectListener
+     * <ul>
+     *     <li style="color:#1055d2">gsr measurement callback</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">GSR Measurement Listener</li>
+     * </ul>
+     */
+ public void startDetectGsr(BleWriteResponse bleWriteResponse, IGsrDetectListener detectListener)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type               | Description              |
+| ---------------- | ------------------ | ------------------------ |
+| bleWriteResponse | BleWriteResponse   | Write operation listener |
+| listener         | IGsrDetectListener | GSR measurement listener |
+
+###### Data Return
+
+**IGsrDetectListener** -- GSR Measurement Callback
+
+```kotlin
+interface IGsrDetectListener : IListener {
+
+    /**
+     * GSR measurement progress
+     * @param progress Progress percentage
+     */
+    fun onGsrDetectProgress(progress:Int)
+
+    /**
+     * GSR measurement success
+     * @param detectResult The measurement result data
+     */
+    fun onGsrDetectSuccess(detectResult: GsrDetectResult)
+
+    /**
+     * GSR measurement failed
+     * @param detectAck GSR Measurement (GSR/EDA) Response Code or Status
+     */
+    fun onGsrDetectFailed(detectAck: GsrDetectAck)
+
+    /**
+     * GSR measurement stopped
+     */
+    fun onGsrDetectStop()
+}
+```
+
+**GsrDetectAck** -- GSR Measurement Error Code
+
+```kotlin
+/**
+ * GSR Measurement (GSR/EDA) Response Code or Status.
+ *
+ * @property value The corresponding raw byte value (0x00 to 0x05).
+ * @property description Status description.
+ */
+enum class GsrDetectAck(val value: Int, val description: String) {
+    /** 0x00: Available. The App should proceed with the normal measurement process only in this state. */
+    AVAILABLE(0x00, "Available, proceed with normal measurement"),
+
+    /** 0x01: Device is measuring pressure. Mutually exclusive. The App should display a device busy prompt. */
+    BUSY_MEASURING_PRESSURE(0x01, "Device busy: Measuring pressure"),
+
+    /** 0x02: Device is in a low battery state. */
+    LOW_BATTERY(0x02, "Device in low battery state"),
+
+    /** 0x03: Device is measuring other data. The App should display a device busy prompt. */
+    BUSY_MEASURING_OTHER(0x03, "Device busy: Measuring other data"),
+
+    /** 0x04: Device wearing check failed. The App should display an error prompt. */
+    WEARING_CHECK_FAILED(0x04, "Wearing check failed"),
+
+    /** 0x05: Measurement failed. */
+    MEASURE_FAILED(0x05, "Measurement failed");
+}
+```
+
+**GsrDetectResult** -- GSR Measurement Result
+
+```kotlin
+/**
+ * GSR Detection Result Data Class.
+ */
+data class GsrDetectResult(
+    /** Emotion Level [-10, 10] */
+    var emotionLevel: Int = 0,
+
+    /** Skin Moisture [1, 99] */
+    var skinMoisture: Int = 0,
+
+    /** Depression Risk [0, 2] */
+    var depressionRisk: DepressionRisk = DepressionRisk.LOW,
+
+    /** SNS (Sympathetic Nervous System) Activation [1, 99] */
+    var snsActivation: Int = 0,
+
+    /**
+     * Cortisol Value.
+     * Valid Range [0, 500] ug/L.
+     * Note: The unit is ug/L for easy comparison with the valid range.
+     */
+    var cortisolValue: Int = 0
+)
+```
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().startDetectGsr(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+                    // Write command response
+                }
+            }, new IGsrDetectListener() {
+                @Override
+                public void onGsrDetectProgress(int progress) {
+                    Logger.t(TAG).e("onGsrDetectProgress --》 " + progress);
+                }
+
+                @Override
+                public void onGsrDetectSuccess(@NonNull GsrDetectResult detectResult) {
+                    Logger.t(TAG).e("onGsrDetectSuccess --》 " + detectResult.toString());
+                }
+
+                @Override
+                public void onGsrDetectFailed(@NonNull GsrDetectAck detectAck) {
+                    Logger.t(TAG).e("onGsrDetectFailed --》 " + detectAck.getDescription());
+                }
+
+                @Override
+                public void onGsrDetectStop() {
+                    Logger.t(TAG).e("onGsrDetectStop --》 -- ");
+                }
+            });
+```
+
+### Stop GSR Measurement
+
+###### Prerequisite
+
+The device must support GSR functionality.
+
+###### Interface
+
+```java
+    /***
+     * <ul>
+     *     <li style="color:#1055d2">Stop GSR measurement</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">Stop GSR measurement</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     *    <li>Write operation listener</li>
+     * </ul>
+     */
+    public void stopDetectGsr(BleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type             | Description              |
+| ---------------- | ---------------- | ------------------------ |
+| bleWriteResponse | BleWriteResponse | Write operation listener |
+
+###### Example Code
+
+```java
+ VPOperateManager.getInstance().stopDetectGsr(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+                    // Write command response
+                }
+            });
+```
+
+## Pressure (Stress) Function
+
+Prerequisite: The device must support the pressure (stress) function. The check condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportStress()
+```
+
+Note: All the following interfaces must be called only if the device supports the pressure (stress) function.
+
+### Start Pressure Measurement
+
+###### Prerequisite
+
+The device must support the pressure (stress) function.
+
+###### Interface
+
+```java
+/***
+     * <ul>
+     *     <li style="color:#1055d2">Start stress measurement</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">开始压力测量</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     *    <li>Write operation listener</li>
+     * </ul>
+     * @param detectListener
+     * <ul>
+     *     <li style="color:#1055d2">Stress measurement callback</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">压力测量回调</li>
+     * </ul>
+     */
+    public void startDetectPressure(BleWriteResponse bleWriteResponse, IPressureDetectListener detectListener)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type                    | Description               |
+| ---------------- | ----------------------- | ------------------------- |
+| bleWriteResponse | BleWriteResponse        | Write operation listener  |
+| detectListener   | IPressureDetectListener | Pressure measure listener |
+
+###### Data Return
+
+**IPressureDetectListener** -- Pressure Measurement Callback
+
+```kotlin
+interface IPressureDetectListener {
+
+    /**
+     * Measuring callback
+     * @param progress Measurement progress
+     */
+    fun onDetecting(progress: Int)
+
+    /**
+     * Measurement success callback
+     * @param pressure The pressure value of this measurement, valid range [0,100]
+     */
+    fun onDetectSuccess(pressure: Int)
+
+    /**
+     * Measurement failed
+     * @param detectState Failure reason
+     */
+    fun onDetectFailed(detectState: PressureDetectState)
+
+    /**
+     * Measurement stopped
+     */
+    fun onDetectStop()
+}
+```
+
+**PressureDetectState** -- Pressure Measurement State (Failure Reason)
+
+```kotlin
+/**
+ * Pressure measurement state.
+ *
+ * Raw device ack mapping:
+ * `0x00` Available. The App should proceed with the normal measurement process only in this state.
+ * `0x01` Device is measuring pressure. Mutually exclusive. The App should display a device busy prompt.
+ * `0x02` Device is in a low battery state.
+ * `0x03` Device is measuring other data. The App should display a device busy prompt.
+ * `0x04` Device wearing check failed. The App should display an error prompt.
+ */
+enum class PressureDetectState(val code: Int, val des: String) {
+    /** 0x00 Available, proceed with normal measurement */
+    PROGRESS(0, "Available, proceed with normal measurement"),
+
+    /** 0x01 Device is measuring pressure. Mutually exclusive, device busy */
+    BUSY(1, "Device is measuring pressure, mutually exclusive, device is busy"),
+
+    /** 0x02 Low battery */
+    LOW_POWER(2, "Low battery"),
+
+    /** 0x03 Wearing check failed */
+    WEAR_OFF(3, "Wearing check failed")
+}
+```
+
+Note: The raw device ack mapping: `0x00` = measuring (progress/result returned), `0x01` or `0x03` = device busy (BUSY), `0x02` = low battery (LOW_POWER), `0x04` = wearing check failed (WEAR_OFF)
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().startDetectPressure(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+                    // Write command response
+                }
+            }, new IPressureDetectListener() {
+                @Override
+                public void onDetecting(int progress) {
+                    Logger.t(TAG).e("onDetecting --》 " + progress);
+                }
+
+                @Override
+                public void onDetectSuccess(int pressure) {
+                    Logger.t(TAG).e("onDetectSuccess --》 " + pressure);
+                }
+
+                @Override
+                public void onDetectFailed(@NonNull PressureDetectState detectState) {
+                    Logger.t(TAG).e("onDetectFailed --》 " + detectState.getDes());
+                }
+
+                @Override
+                public void onDetectStop() {
+                    Logger.t(TAG).e("onDetectStop --》 -- ");
+                }
+            });
+```
+
+### Stop Pressure Measurement
+
+###### Prerequisite
+
+The device must support the pressure (stress) function.
+
+###### Interface
+
+```java
+    /***
+     * <ul>
+     *     <li style="color:#1055d2">Stop stress measurement</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">结束压力测量</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     *    <li>Write operation listener</li>
+     * </ul>
+     */
+    public void stopDetectPressure(BleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type             | Description               |
+| ---------------- | ---------------- | ------------------------- |
+| bleWriteResponse | BleWriteResponse | Write operation listener  |
+
+###### Example Code
+
+```java
+ VPOperateManager.getInstance().stopDetectPressure(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+                    // Write command response
+                }
+            });
+```
+
+## Health Auxiliary Functions
+
+**Prerequisite:** The device must support health auxiliary functions. The judging condition is as follows:
+
+Kotlin
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportHealthAssessment
+```
+
+**Note:** All of the following interfaces can only be called if the device supports health auxiliary functions.
+
+#### Read Health Auxiliary Function Settings
+
+###### Prerequisite
+
+The device must support health auxiliary functions.
+
+###### Interface
+
+```
+readFunSwitchState(bleWriteResponse, funSwitchListener)
+```
+
+###### Parameter Explanation
+
+| **Parameter Name** | **Type**           | **Description**                  |
+| ------------------ | ------------------ | -------------------------------- |
+| bleWriteResponse   | BleWriteResponse   | Listener for the write operation |
+| funSwitchListener  | IFunSwitchListener | Listener for the function switch |
+
+###### Data Return
+
+**IFunSwitchListener** -- Function switch listener
+
+Java
+
+```java
+    /**
+     * Switch status changed
+     *
+     * @param con    Command type: 1 Set, 2 Read, 3 Device active report
+     * @param states Function states. Int represents the function type (see FunSwitchFlags for details), 
+     * EFunctionStatus represents the state of the function. 
+     * If a corresponding FunSwitchFlags is returned, it means it is supported; 
+     * otherwise, it is not supported.
+     */
+    void onFunSwitchStatusChanged(int con, Map<Integer, EFunctionStatus> states);
+```
+
+**FunSwitchFlags** -- Function Types
+
+Java
+
+```java
+    // Blood Glucose
+    public static final int BLOOD_GLUCOSE = 1;
+    // Blood Pressure
+    public static final int BLOOD_PRESSURE = 2;
+    // Blood Oxygen
+    public static final int BLOOD_OXYGEN = 3;
+    // Body Temperature
+    public static final int BODY_TEMPERATURE = 4;
+    // HRV
+    public static final int HRV = 5;
+    // Stress
+    public static final int STRESS = 6;
+    // MET
+    public static final int MET = 7;
+    // Blood Components
+    public static final int BLOOD_COMPONENT = 8;
+    // Body Composition
+    public static final int BODY_COMPONENT = 9;
+    // Micro Physical Examination
+    public static final int MICRO_PHYSICAL_EXAMINATION = 10;
+    // Emotion
+    public static final int EMOTION = 11;
+    // Fatigue
+    public static final int FATIGUE = 12;
+    // Nuclear Radiation
+    public static final int NUCLEAR_RADIATION = 13;
+    // Fall Reminder
+    public static final int FALLING_REMINDER = 14;
+    // AI Q&A
+    public static final int FALLING_AI_CHAT = 15;
+    // AI Watch Face
+    public static final int FALLING_AI_DIAL = 16;
+    // Electrodermal Activity (EDA) Test
+    public static final int SKIN_ELECTRIC_TEST = 17;
+```
+
+**EFunctionStatus** -- Function Status
+
+###### Sample Code
+
+Kotlin
+
+```
+VPOperateManager.getInstance().readFunSwitchState(bleWriteResponse, funSwitchListener)
+```
+
+------
+
+#### Set Health Auxiliary Function Switch
+
+###### Prerequisite
+
+The device must support health auxiliary functions, and the corresponding `FunSwitchFlags` must be returned during reading.
+
+###### Interface
+
+```
+setFunSwitchState(bleWriteResponse, funSwitchListener, funSwitch, status)
+```
+
+###### Parameter Explanation
+
+| **Parameter Name** | **Type**           | **Description**                               |
+| ------------------ | ------------------ | --------------------------------------------- |
+| bleWriteResponse   | BleWriteResponse   | Listener for the write operation              |
+| funSwitchListener  | IFunSwitchListener | Function listener                             |
+| funSwitch          | Int                | Function type, see FunSwitchFlags for details |
+| status             | EFunctionStatus    | Function status, used to set the switch       |
+
+###### Data Return
+
+**IFunSwitchListener** -- Health auxiliary function callback, identical to the read return.
+
+**funSwitch** -- Function type, see FunSwitchFlags for details.
+
+**status** -- Function status, used to set the switch.
+
+###### Sample Code
+
+Kotlin
+
+```
+VPOperateManager.getInstance().setFunSwitchState(bleWriteResponse, funSwitchListener, FunSwitchFlags.BLOOD_OXYGEN, EFunctionStatus.SUPPORT_OPEN)
+```
+
+------
+
+## 4G Functionality
+
+**Prerequisite:** The device must support 4G functionality. The judging condition is as follows:
+
+Kotlin
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupport4G
+```
+
+**Note:** All of the following interfaces can only be called if the device supports 4G functionality.
+
+#### Read 4G Device Configuration Information
+
+###### Prerequisite
+
+The device must support 4G functionality.
+
+###### Interface
+
+```kotlin
+read4gServerInfo(bleWriteResponse, configListener)
+```
+
+###### Parameter Explanation
+
+| **Parameter Name** | **Type**                   | **Description**                  |
+| ------------------ | -------------------------- | -------------------------------- |
+| bleWriteResponse   | BleWriteResponse           | Listener for the write operation |
+| configListener     | INetServer4gConfigListener | 4G functionality listener        |
+
+###### Data Return
+
+**INetServer4gConfigListener** -- 4G functionality listener
+
+Kotlin
+
+```kotlin
+    /* Read Success */
+    fun onReadSuccess(info: NetworkSever4gConfigInfo)
+    /* Device binding/Setting Success */
+    fun onSettingSuccess()
+    /* Device rejected/Setting Failed */
+    fun onSettingFailed()
+```
+
+**NetworkSever4gConfigInfo** -- 4G Configuration
+
+Kotlin
+
+```kotlin
+class NetworkSever4gConfigInfo {
+
+    // IP Address
+    var ipAddress: String? = null
+
+    // Port
+    var port: Int? = null
+
+    // Username, login account
+    var userName: String? = null
+
+    // Password, a random password generated by the App (not the login account password)
+    var password: String? = null
+
+    // Timestamp of the last synchronization between the APP/device and the server (in seconds)
+    var syncTime: Long? = null
+
+    // 4G Switch
+    var switch4g: Boolean? = null
+
+    // Data Upload Switch: Should be invalid when the 4G switch is OFF
+    var switchUpload: Boolean? = null
+
+    // Time interval for 4G reporting to the server (in minutes)
+    var reportInterval: Int? = null
+
+    // Recovery timestamp (in seconds)
+    var recoveryTime: Long? = null
+
+}
+```
+
+###### Sample Code
+
+Kotlin
+
+```
+VPOperateManager.getInstance().read4gServerInfo(bleWriteResponse, configListener)
+```
+
+------
+
+#### Set 4G Device Function Configuration
+
+###### Prerequisite
+
+The device must support 4G functionality.
+
+**Note:** Individual parameter setting is not supported. If you only need to set a specific item, you must modify that item within the configuration retrieved from the read operation and then set the entire configuration back.
+
+###### Interface
+
+```
+set4gServerInfo(config, bleWriteResponse, configListener)
+```
+
+###### Parameter Explanation
+
+| **Parameter Name** | **Type**                   | **Description**                  |
+| ------------------ | -------------------------- | -------------------------------- |
+| config             | NetworkSever4gConfigInfo   | 4G Configuration                 |
+| bleWriteResponse   | BleWriteResponse           | Listener for the write operation |
+| configListener     | INetServer4gConfigListener | 4G functionality listener        |
+
+###### Data Return
+
+**NetworkSever4gConfigInfo** -- 4G Configuration, identical to the read return.
+
+###### Sample Code
+
+Kotlin
+
+```
+VPOperateManager.getInstance().set4gServerInfo(config, bleWriteResponse, configListener)
+```
+
+------
+
+#### Clear 4G Device Account Information
+
+Used to clear account information on the device.
+
+###### Prerequisite
+
+The device must support 4G functionality.
+
+###### Interface
+
+```
+clear4gAccountInfo(bleWriteResponse, configListener)
+```
+
+###### Parameter Explanation
+
+| **Parameter Name** | **Type**                   | **Description**                  |
+| ------------------ | -------------------------- | -------------------------------- |
+| bleWriteResponse   | BleWriteResponse           | Listener for the write operation |
+| configListener     | INetServer4gConfigListener | 4G functionality listener        |
+
+###### Data Return
+
+**NetworkSever4gConfigInfo** -- 4G Configuration, identical to the read return.
+
+###### Sample Code
+
+Kotlin
+
+```kotlin
+VPOperateManager.getInstance().clear4gAccountInfo(bleWriteResponse, configListener)
+```
+
+#### Read device's IMEI Code
+
+###### interface
+
+```kotlin
+void readIMEIInfo(IBleWriteResponse bleWriteResponse, IReadIMEIInfoListener readIMEIInfoListener)
+```
+
+###### Parameter Explanation
+
+| Parameter name       | Type                  | Describe                              |
+| -------------------- | --------------------- | ------------------------------------- |
+| readIMEIInfoListener | IReadIMEIInfoListener | Listening for read device's IMEI Code |
+| bleWriteResponse     | IBleWriteResponse     | Listening for write operations        |
+
+**IReadIMEIInfoListener** --- Listening for read device's IMEI Code
+
+```java
+public interface IReadIMEIInfoListener extends IListener {
+    /**
+     * The result of read device IMEI code
+     *
+     * @param IMEI IMEI code
+     */
+    void onIMEIInfoRead(String IMEI);
+}
+```
+
+
+
+## BLE Device Rename
+
+#### BLE Device Rename
+
+Rename a BLE 4.0 device via App.
+
+###### Premise
+
+The device is connected.
+
+###### Interface
+
+```kotlin
+bleDeviceRename(deviceName, listener, bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type                  | Describe                       |
+| ---------------- | --------------------- | ------------------------------ |
+| deviceName       | String                | Device name                    |
+| listener         | IDeviceRenameListener | Rename callback listener       |
+| bleWriteResponse | IBleWriteResponse     | Listening for write operations |
+
+###### Return data
+
+**IDeviceRenameListener**
+
+```kotlin
+/**
+ * Device rename succeeded
+ *
+ * @param deviceName device name
+ */
+fun onDeviceRenameSuccess(deviceName: String)
+
+/**
+ * Device rename failed
+ *
+ * @param error       error type
+ * @param deviceName  device name
+ */
+fun onDeviceRenameFail(error: ERenameError, deviceName: String)
+```
+
+**ERenameError** -- Rename error type enumeration
+
+| Enum Value          | Describe                                               |
+| ------------------- | ------------------------------------------------------ |
+| LENGTH_0_ERROR      | Device name cannot be empty                            |
+| LENGTH_1_8_ERROR    | Device name length is abnormal, bytes cannot exceed 8  |
+| LENGTH_1_18_ERROR   | Device name length is abnormal, bytes cannot exceed 18 |
+| DEVICE_MODIFY_ERROR | Device responded with modification failure             |
+
+###### Example Code
+
+```kotlin
+VPOperateManager.getInstance().bleDeviceRename("MyDevice", object : IDeviceRenameListener {
+    override fun onDeviceRenameSuccess(deviceName: String) {
+    }
+
+    override fun onDeviceRenameFail(error: ERenameError, deviceName: String) {
+    }
+}, bleWriteResponse)
+```
+
+
+
+## Remind event function
+
+Before using the reminder event function, it is necessary to determine whether the device supports it.
+
+Condition：
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportRemindEvent()
+```
+
+#### Read remind event
+
+###### interface
+
+```kotlin
+readHistoricalDataReminderEvents(IBleWriteResponse bleWriteResponse, ERemindEvent event, long timestampSeconds)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type              | Describe                                      |
+| ---------------- | ----------------- | --------------------------------------------- |
+| event            | ERemindEvent      | The enum of remind event                      |
+| timestampSeconds | long              | The timestamp of remind event which need read |
+| bleWriteResponse | IBleWriteResponse | Listening for write operations                |
+
+**ERemindEvent** --- The type of remind event
+
+| Enum Value | Describe         |
+| ---------- | ---------------- |
+| ALL        | All remind event |
+| FALL       | fall event       |
+| SEDENTARY  | Sedentary event  |
+
+#### Set Listener of Remind Event
+
+###### interface
+
+```kotlin
+setReminderEventReportListener(IRemindEventListener listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name | Type                 | Describe                                                     |
+| -------------- | -------------------- | ------------------------------------------------------------ |
+| listener       | IRemindEventListener | Reading of reminder events and monitoring for proactive reporting. |
+
+**IRemindEventListener** -- Reading of reminder events and monitoring for proactive reporting.
+
+```kotlin
+interface IRemindEventListener {
+
+    /**
+     * 提醒事件读取结果回调
+     * Callback for remind event read result
+     */
+    fun onRemindEventRead(data: ArrayList<RemindEvent>)
+
+    /**
+     * 提醒事件触发主动回调
+     * Active callback triggered when remind event occurs
+     */
+    fun onRemindEventReport(data: ArrayList<RemindEvent>)
+}
+```
+
+## Health Light Function
+
+Before using the health light function, it is necessary to determine whether the device supports it.
+
+Condition：
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportHealthLight()
+```
+
+#### Add health light listener
+
+###### interface
+
+```kotlin
+addHealthLightListener(IHealthLightListener listener)
+```
+
+###### Parameter Explanation
+
+| Parameter name | Type                 | Describe                            |
+| -------------- | -------------------- | ----------------------------------- |
+| listener       | IHealthLightListener | The listener of Health Light status |
+
+**IHealthLightListener** -- The listener of Health Light status
+
+```kotlin
+interface IHealthLightListener {
+    /**
+     * Callback for health light setting operation
+     * @param isSuccess Operation result, true if set successfully
+     * @param status Current health light status, null if operation failed
+     */
+    fun onHealthLightStatusSetting(isSuccess: Boolean, status: EHealthLightStatus?)
+
+    /**
+     * Callback for reading health light status
+     * @param isSuccess Operation result, true if read successfully
+     * @param status Queried health light status, null if operation failed
+     */
+    fun onHealthLightStatusRead(isSuccess: Boolean, status: EHealthLightStatus?)
+
+    /**
+     * Active report callback of health light status from device
+     * @param status Real-time reported health light status, null for exception
+     */
+    fun onHealthLightStatusReport(status: EHealthLightStatus?)
+}
+```
+
+#### Set health light status
+
+###### interface
+
+```kotlin
+setHealthLightStatus(EHealthLightStatus status, IBleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type               | Describe                        |
+| ---------------- | ------------------ | ------------------------------- |
+| status           | EHealthLightStatus | The enum of health ligth status |
+| bleWriteResponse | IBleWriteResponse  | Listening for write operations  |
+
+**EHealthLightStatus** ---The enum of health ligth status
+
+| Parameter name | Describe               |
+| -------------- | ---------------------- |
+| OFF            | light is off           |
+| SLOW_FLASH     | slow flash             |
+| RAPID_FLASHING | rapid flashing         |
+| ALWAYS_ON      | the light is alawys on |
+
+#### Read health light status
+
+###### interface
+
+```kotlin
+readHealthLightStatus(IBleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Explanation
+
+| Parameter name   | Type              | Describe                       |
+| ---------------- | ----------------- | ------------------------------ |
+| bleWriteResponse | IBleWriteResponse | Listening for write operations |
+
+
+
+## MET Feature
+
+Prerequisite: The device must support the MET feature. The condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportMet()
+```
+
+Note: All the following interfaces can only be called when the device supports the MET feature.
+
+### Start MET Measurement
+
+Prerequisite: The device must support the MET App measurement feature. The condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportMetAppDetect()
+```
+
+###### Interface
+
+Java
+
+```
+/***
+     * <ul>
+     * <li style="color:#1055d2">Start Met measurement</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Start Met measurement</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     * <li>the response of write operate,if response code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     * <li>Listener for the write operation</li>
+     * </ul>
+     * @param detectListener
+     * <ul>
+     * <li style="color:#1055d2">Met measurement callback</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Met measurement callback</li>
+     * </ul>
+     */
+    public void startDetectMet(BleWriteResponse bleWriteResponse, IMetDetectListener detectListener)
+```
+
+###### Parameter Description
+
+| **Parameter Name** | **Type**           | **Description**                  |
+| ------------------ | ------------------ | -------------------------------- |
+| bleWriteResponse   | BleWriteResponse   | Listener for the write operation |
+| listener           | IMetDetectListener | Listener for MET measurement     |
+
+###### Data Return
+
+**IMetDetectListener** -- MET measurement callback
+
+Kotlin
+
+```
+interface IMetDetectListener {
+
+    /**
+     * Callback for Met measurement values.
+     * * Callback for Met  measurement values.
+     * * @param progress The current measurement progress.
+     * * @param Met The current Met measurement value, range [-10, 10]/ The current Met measurement value in milliseconds.
+     */
+    fun onMetDetect(progress: Int, met: Float)
+
+    /**
+     * Callback for measurement failure.
+     * * Callback for measurement failure.
+     * * @param detectState The specific state indicating the reason for failure.
+     */
+    fun onDetectFailed(detectState: MetDetectState)
+
+    /**
+     * Callback when the measurement is stopped.
+     * * Callback when the measurement is stopped.
+     * * This is triggered when the measurement process is manually or automatically terminated.
+     */
+    fun onDetectStop()
+}
+```
+
+**MetDetectState** -- Error codes for MET measurement
+
+Kotlin
+
+```
+enum class MetDetectState(val code: Int, val des: String) {
+    PROGRESS(0, "Available, the App side only proceeds with the normal measurement process in this state"),
+    BUSY(1, "The device is measuring other data, the App side displays that the device is busy"),
+    LOW_POWER(2, "Low power"),
+    WEAR_OFF(4, "Wear detection failed")
+}
+```
+
+###### Code Example
+
+Java
+
+```
+VPOperateManager.getInstance().startDetectMet(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+
+                }
+            }, new IMetDetectListener() {
+                @Override
+                public void onMetDetect(int progress, float met) {
+                    Logger.t(TAG).e("onMetDetect -> " + progress+",value="+met);
+                }
+
+                @Override
+                public void onDetectFailed(@NotNull MetDetectState detectState) {
+                    Logger.t(TAG).e("onDetectFailed -> " + detectState);
+                }
+
+                @Override
+                public void onDetectStop() {
+                    Logger.t(TAG).e("onDetectStop -> " );
+                }
+            });
+```
+
+### Stop MET Measurement
+
+###### Prerequisite
+
+The device must support both the MET feature and the MET App measurement feature.
+
+###### Interface
+
+Java
+
+```
+ /***
+     * <ul>
+     * <li style="color:#1055d2">Stop Met measurement</li>
+     * <li><br/></li>
+     * <li style="color:#555555">End Met measurement</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     * <li>the response of write operate,if response code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     * <li>Listener for the write operation</li>
+     * </ul>
+     */
+    public void stopDetectMet(BleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Description
+
+| **Parameter Name** | **Type**         | **Description**                  |
+| ------------------ | ---------------- | -------------------------------- |
+| bleWriteResponse   | BleWriteResponse | Listener for the write operation |
+
+###### Code Example
+
+Java
+
+```
+VPOperateManager.getInstance().stopDetectMet(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+
+                }
+            });
+```
+
+## Emotion Feature
+
+Prerequisite: The device must support the Emotion feature. The condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportEmotion()
+```
+
+Note: All the following interfaces can only be called when the device supports the Emotion feature.
+
+### Start Emotion Measurement
+
+Prerequisite: The device must support the Emotion App measurement feature. The condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportEmotionAppDetect()
+```
+
+###### Interface
+
+Java
+
+```
+ /***
+     * <ul>
+     * <li style="color:#1055d2">Start emotion measurement</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Start emotion measurement</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     * <li>the response of write operate,if response code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     * <li>Listener for the write operation</li>
+     * </ul>
+     * @param detectListener
+     * <ul>
+     * <li style="color:#1055d2">emotion measurement callback</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Emotion measurement callback</li>
+     * </ul>
+     */
+    public void startDetectEmotion(BleWriteResponse bleWriteResponse, IEmotionDetectListener detectListener) 
+```
+
+###### Parameter Description
+
+| **Parameter Name** | **Type**               | **Description**                  |
+| ------------------ | ---------------------- | -------------------------------- |
+| bleWriteResponse   | BleWriteResponse       | Listener for the write operation |
+| listener           | IEmotionDetectListener | Listener for Emotion measurement |
+
+###### Data Return
+
+**IEmotionDetectListener** -- Emotion measurement callback
+
+Kotlin
+
+```
+interface IEmotionDetectListener {
+
+    /**
+     * Callback for Emotion measurement values.
+     * * Callback for Emotion  measurement values.
+     * * @param progress The current measurement progress.
+     * * @param Emotion The current Emotion measurement value, range [-10, 10]/ The current Emotion measurement value in milliseconds.
+     */
+    fun onEmotionDetect(progress: Int, emotion: Int)
+
+    /**
+     * Callback for measurement failure.
+     * * Callback for measurement failure.
+     * * @param detectState The specific state indicating the reason for failure.
+     */
+    fun onDetectFailed(detectState: EmotionDetectState)
+
+    /**
+     * Callback when the measurement is stopped.
+     * * Callback when the measurement is stopped.
+     * * This is triggered when the measurement process is manually or automatically terminated.
+     */
+    fun onDetectStop()
+}
+```
+
+**EmotionDetectState** -- Error codes for Emotion measurement
+
+Kotlin
+
+```
+enum class EmotionDetectState(val code: Int, val des: String) {
+    /**
+     * `0x00` Available, the App side only proceeds with the normal measurement process in this state
+     * `0x01` The device is measuring pressure, mutually exclusive, the App side displays that the device is busy
+     * `0x02` The device is in a low power state
+     * `0x03` The device is measuring other data, the App side displays that the device is busy
+     * `0x04` Device wear detection failed, the App side displays an abnormal prompt
+     */
+    PROGRESS(0, "Available, the App side only proceeds with the normal measurement process in this state"),
+    BUSY(1, "The device is measuring other data, the App side displays that the device is busy"),
+    LOW_POWER(2, "Low power"),
+    WEAR_OFF(4, "Wear detection failed");
+}
+```
+
+Code Example
+
+Java
+
+```
+VPOperateManager.getInstance().startDetectGsr(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+
+                }
+            }, new IGsrDetectListener() {
+                @Override
+                public void onGsrDetectProgress(int progress) {
+                    Logger.t(TAG).e("onGsrDetectProgress -> " + progress);
+                }
+
+                @Override
+                public void onGsrDetectSuccess(@NonNull GsrDetectResult detectResult) {
+                    Logger.t(TAG).e("onGsrDetectSuccess -> " + detectResult.toString());
+                }
+
+                @Override
+                public void onGsrDetectFailed(@NonNull GsrDetectAck detectAck) {
+                    Logger.t(TAG).e("onGsrDetectFailed -> " + detectAck.getDescription());
+                }
+
+                @Override
+                public void onGsrDetectStop() {
+                    Logger.t(TAG).e("onGsrDetectStop -> -- ");
+                }
+            });
+```
+
+### Stop Emotion Measurement
+
+###### Prerequisite
+
+The device must support both the Emotion measurement feature and the App measurement feature.
+
+###### Interface
+
+Java
+
+```
+/***
+     * <ul>
+     * <li style="color:#1055d2">Stop emotion measurement</li>
+     * <li><br/></li>
+     * <li style="color:#555555">End emotion measurement</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     * <li>the response of write operate,if response code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     * <li>Listener for the write operation</li>
+     * </ul>
+     */
+    public void stopDetectEmotion(BleWriteResponse bleWriteResponse) 
+```
+
+###### Parameter Description
+
+| **Parameter Name** | **Type**         | **Description**                  |
+| ------------------ | ---------------- | -------------------------------- |
+| bleWriteResponse   | BleWriteResponse | Listener for the write operation |
+
+###### Code Example
+
+Java
+
+```
+       VPOperateManager.getInstance().stopDetectEmotion(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+
+                }
+            });
+```
+
+## Fatigue Feature
+
+Prerequisite: The device must support the Fatigue feature. The condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportFtg()
+```
+
+Note: All the following interfaces can only be called when the device supports the Fatigue feature.
+
+### Start Fatigue Measurement
+
+Prerequisite: The device must support the Fatigue App measurement feature. The condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportFtgAppDetect()
+```
+
+###### Interface
+
+Java
+
+```
+ /***
+     * <ul>
+     * <li style="color:#1055d2">Start detect the fatigue in real-time</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Start fatigue measurement</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     * <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     * <li>Listener for the write operation</li>
+     * </ul>
+     * @param fatigueDataListener
+     * <ul>
+     * <li>the listener of detect the fatigue </li>
+     * <li>Fatigue callback</li>
+     * </ul>
+     */
+    public void startDetectFatigue(IBleWriteResponse bleWriteResponse, IFatigueDataListener fatigueDataListener) 
+```
+
+###### Parameter Description
+
+| **Parameter Name**  | **Type**             | **Description**                  |
+| ------------------- | -------------------- | -------------------------------- |
+| bleWriteResponse    | BleWriteResponse     | Listener for the write operation |
+| fatigueDataListener | IFatigueDataListener | Listener for Fatigue measurement |
+
+###### Data Return
+
+**IFatigueDataListener** -- Fatigue measurement callback
+
+Java
+
+```
+public interface IFatigueDataListener extends IListener{
+    /**
+     * Returns the data of the fatigue operation
+     * @param fatigueData  Data of the fatigue operation
+     */
+    void onFatigueDataListener(FatigueData fatigueData);
+}
+```
+
+**FatigueData** -- Fatigue Data
+
+Java
+
+```
+public class FatigueData {
+    // Fatigue status
+    private EFatigueStatus fatigueState;
+    // Device status
+    private EDeviceStatus deviceState;
+    // Measurement progress
+    private int progress;
+    // Measurement value, range [0, 10]
+    private int value;
+}
+```
+
+Code Example
+
+Java
+
+```
+VPOperateManager.getInstance().startDetectFatigue(writeResponse, new IFatigueDataListener() {
+                @Override
+                public void onFatigueDataListener(FatigueData fatigueData) {
+                    String message = "Fatigue-Start:\n" + fatigueData.toString();
+                    Logger.t(TAG).i(message);
+                }
+            });
+```
+
+### Stop Fatigue Measurement
+
+###### Prerequisite
+
+The device must support both the Fatigue measurement feature and the App measurement feature.
+
+###### Interface
+
+Java
+
+```
+/***
+     * <ul>
+     * <li style="color:#1055d2">Stop detect fatigue in real-time</li>
+     * <li><br/></li>
+     * <li style="color:#555555">End fatigue measurement</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     * <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     * <li>Listener for the write operation</li>
+     * </ul>
+     * @param fatigueDataListener
+     * <ul>
+     * <li>the listener of detect fatigue</li>
+     * <li>Callback for the fatigue operation, returns fatigue data: whether it is supported, on/off status, progress, fatigue value</li>
+     * </ul>
+     */
+    public void stopDetectFatigue(IBleWriteResponse bleWriteResponse, IFatigueDataListener fatigueDataListener) 
+```
+
+###### Parameter Description
+
+| **Parameter Name**  | **Type**             | **Description**                  |
+| ------------------- | -------------------- | -------------------------------- |
+| bleWriteResponse    | BleWriteResponse     | Listener for the write operation |
+| fatigueDataListener | IFatigueDataListener | Listener for Fatigue data        |
+
+###### Code Example
+
+Java
+
+```
+      VPOperateManager.getInstance().stopDetectFatigue(writeResponse, new IFatigueDataListener() {
+                @Override
+                public void onFatigueDataListener(FatigueData fatigueData) {
+                    String message = "Fatigue-End:\n" + fatigueData.toString();
+                    Logger.t(TAG).i(message);
+                    sendMsg(message, 1);
+                }
+            });
+```
+
+
+
+## AI Function
+
+AI Function includes **AI Q&A** (the device asks questions by voice, the App performs speech recognition and AI answering) and **AI Watch Face** (the device describes by voice, the App generates a watch face with AI). The interaction flow is as follows:
+
+- The device reports request events and the App is notified through listener callbacks;
+- After performing actions such as recording, speech recognition and cloud AI processing, the App sends the result back to the device through the send interfaces;
+- Each callback (start recording / stop recording / result / regenerate / terminate, etc.) must be answered in order, otherwise the flow will be stuck.
+
+Before use, you need to register the listeners (`setAiListener`), and you can read the device AI configuration through `readAiConfig`.
+
+#### Precondition
+
+The device must support the AI function; check as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportAi()
+```
+
+#### Register AI Function Listeners
+
+Register the three listeners related to AI functions (config, Q&A, watch face). After registration, AI commands reported by the device will be called back to the App.
+
+###### API
+
+```
+setAiListener(configOptListener, aiqaOptListener, dialOptListener)
+```
+
+###### Parameters
+
+| Parameter         | Type                  | Description            |
+| ----------------- | --------------------- | ---------------------- |
+| configOptListener | OnAIConfigOptListener | AI config listener     |
+| aiqaOptListener   | OnAIQAOptListener     | AI Q&A listener        |
+| dialOptListener   | OnAIDialOptListener   | AI watch face listener |
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().setAiListener(object : OnAIConfigOptListener {
+    override fun onAIDeviceConfigReport(config: AIDeviceConfigBean) {}
+    override fun onAIDeviceConfigSettingResult(isSuccess: Boolean) {}
+    override fun onAIDeviceConfigRead(config: AIDeviceConfigBean) {}
+}, object : OnAIQAOptListener {
+    override fun onAIQAStartRecording() {}
+    override fun onAIQAStopRecording() {}
+    override fun onAIQAResult(errorCode: AIFunctionOpt.AIDeviceErrorCode) {}
+    override fun onAIQARegenerate() {}
+    override fun onAIQATerminateREQ() {}
+}, object : OnAIDialOptListener {
+    override fun onAIDialStartRecording() {}
+    override fun onAIDialStopRecording() {}
+    override fun onAIDialStartGenerate() {}
+    override fun onAIDialProgressSetting() {}
+    override fun onAIDialResultSettingACK() {}
+    //The preview-related callbacks below are answered automatically by the SDK's sendAiDialPreview; the App can ignore them
+    override fun onAIDialPreviewLengthGetACK(needGetPreviewLength: Int) {}
+    override fun onAIDialContinueGetPreviewDataREQ(needGetPreviewLength: Int) {}
+    override fun onAIDialPreviewDataReceiveComplete(errorCode: AIFunctionOpt.AIDeviceErrorCode) {}
+    override fun onAIDialSetDial() {}
+    override fun onAIDialRegenerate() {}
+    override fun onAIDialTerminateREQ() {}
+})
+```
+
+#### Read AI Configuration
+
+Read the device AI configuration (AI Q&A content max length, preview / watch face max size, AI drawing style, preview resolution, etc.). The result is returned through the **OnAIConfigOptListener.onAIDeviceConfigRead** callback; the device may also report the configuration actively after connection, which is returned through **onAIDeviceConfigReport**.
+
+###### API
+
+```
+readAiConfig(bleWriteResponse)
+```
+
+###### Parameters
+
+| Parameter        | Type              | Description              |
+| ---------------- | ----------------- | ------------------------ |
+| bleWriteResponse | IBleWriteResponse | Write operation callback |
+
+###### Return Data
+
+**AIDeviceConfigBean** -- Device AI configuration
+
+| Variable             | Type | Description                                                  |
+| -------------------- | ---- | ------------------------------------------------------------ |
+| aiQAContentMaxLength | Int  | AI Q&A content max length                                    |
+| previewMaxSize       | Int  | Watch face preview max size                                  |
+| dialMaxSize          | Int  | Watch face max size                                          |
+| aiDrawingStyle       | Int  | AI drawing style: 0x00 default / 0x01 3D rendering / 0x02 cyberpunk / 0x03 portrait photography / 0x04 anime / 0x05 cinematic / 0x06 scenery / 0x07 oil painting / 0x08 ink wash / 0x09 watercolor / 0x0A pixel style... |
+| previewResolutionW   | Int  | Preview resolution - width                                   |
+| previewResolutionH   | Int  | Preview resolution - height                                  |
+| previewAngleRadius   | Int  | Preview corner radius (0 means right angle)                  |
+| customDialFlag       | Int  | Custom photo watch face flag                                 |
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().readAiConfig({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+})
+```
+
+#### AI Q&A
+
+The device must support the AI Q&A function; check as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportAiQa()
+```
+
+The device starts voice questions, and the App completes recording, speech recognition and AI answering. Overall sequence:
+
+```
+Device                                        App
+  | ①report start recording ──onAIQAStartRecording()─>| Start recording
+  |<──sendAIQAStartRecordingResult(result) ②─────────| Recording finished, reply result
+  | ③report stop recording ──onAIQAStopRecording()───>| Stop recording
+  |<──sendAIQARecordingContent2Device(content) ④─────| Speech recognition, send text
+  | ⑤report Q&A result ──onAIQAResult()──────────────>| Received device result request
+  |<──sendAIQAResultCmd(answer) ⑥────────────────────| Call AI, send answer
+  | ⑦report regenerate ──onAIQARegenerate()──────────>| Regenerate
+  |<──sendAIQARegenerateResultCmd(answer) ⑧──────────| Send new answer
+  | ⑨report terminate request ──onAIQATerminateREQ()─>| Terminate interaction
+```
+
+##### Reply Start Recording Result
+
+After the device reports start recording, the App starts recording; after recording is finished, call this API to reply the recording result to the device.
+
+###### API
+
+```
+sendAIQAStartRecordingResult(bleWriteResponse, errorCode)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description                                                  |
+| ---------------- | ---------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Write operation callback                                     |
+| errorCode        | AIFunctionOpt.AIAppErrorCode | Recording result error code; SUCCESS on success, otherwise the corresponding error code |
+
+###### Return Data
+
+**OnAIQAOptListener.onAIQAStartRecording** -- The device requests to start recording
+
+```kotlin
+fun onAIQAStartRecording()
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIQAStartRecordingResult({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+}, AIFunctionOpt.AIAppErrorCode.SUCCESS)
+```
+
+##### Send Recording Recognition Content to Device
+
+After the device reports stop recording, the App stops recording and sends the recognized text content to the device (the SDK automatically splits into packets when the content is too long).
+
+###### API
+
+```
+sendAIQARecordingContent2Device(bleWriteResponse, errorCode, content)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description                                                  |
+| ---------------- | ---------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Write operation callback                                     |
+| errorCode        | AIFunctionOpt.AIAppErrorCode | Recognition result error code; SUCCESS on success; no content needed on failure, the SDK will send the failure command |
+| content          | String                       | Recognized text content (user question)                      |
+
+###### Return Data
+
+**OnAIQAOptListener.onAIQAStopRecording** -- The device requests to stop recording
+
+```kotlin
+fun onAIQAStopRecording()
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIQARecordingContent2Device({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+}, AIFunctionOpt.AIAppErrorCode.SUCCESS, "What is the weather like today")
+```
+
+##### Send AI Q&A Result
+
+After the device reports the Q&A result request, the App calls the cloud AI to get the answer and sends it to the device through this API (the SDK automatically splits into packets when the content is too long).
+
+###### API
+
+```
+sendAIQAResultCmd(bleWriteResponse, errorCode, content)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description                                                  |
+| ---------------- | ---------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Write operation callback                                     |
+| errorCode        | AIFunctionOpt.AIAppErrorCode | Q&A result error code; SUCCESS on success; no content needed on failure |
+| content          | String                       | AI answer text content                                       |
+
+###### Return Data
+
+**OnAIQAOptListener.onAIQAResult** -- The device reports the AI Q&A result
+
+```kotlin
+fun onAIQAResult(errorCode: AIFunctionOpt.AIDeviceErrorCode)
+```
+
+| Enum Value                               | Description                 |
+| ---------------------------------------- | --------------------------- |
+| SUCCESS                                  | Success                     |
+| PACKET_LOSS_OR_PREVIEW_CHECK_FAILED_0x80 | Packet loss or check failed |
+| DATA_RECEIVER_TIMEOUT_0x81               | Data receiver timeout       |
+| UNKNOWN                                  | Unknown error               |
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIQAResultCmd({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+}, AIFunctionOpt.AIAppErrorCode.SUCCESS, "It is sunny today, 26 degrees")
+```
+
+##### Send AI Q&A Regenerate Result
+
+After the device reports the regenerate request, the App regenerates the answer and sends it to the device through this API (the SDK automatically splits into packets when the content is too long).
+
+###### API
+
+```
+sendAIQARegenerateResultCmd(bleWriteResponse, errorCode, content)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description                                                  |
+| ---------------- | ---------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Write operation callback                                     |
+| errorCode        | AIFunctionOpt.AIAppErrorCode | Regenerate result error code; SUCCESS on success; no content needed on failure |
+| content          | String                       | Regenerated AI answer text content                           |
+
+###### Return Data
+
+**OnAIQAOptListener.onAIQARegenerate** -- The device requests to regenerate
+
+```kotlin
+fun onAIQARegenerate()
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIQARegenerateResultCmd({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+}, AIFunctionOpt.AIAppErrorCode.SUCCESS, "It is sunny today, 26 degrees, good for outdoor activities")
+```
+
+##### Terminate AI Q&A
+
+When the device reports the terminate request, **onAIQATerminateREQ** is called back, and the App should stop the current Q&A flow.
+
+###### Return Data
+
+**OnAIQAOptListener.onAIQATerminateREQ** -- The device requests to terminate AI Q&A
+
+```kotlin
+fun onAIQATerminateREQ()
+```
+
+#### AI Watch Face
+
+The device must support the AI watch face function; check as follows:
+
+```kotlin
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportAiDial()
+```
+
+The device starts voice description, and the App completes recording, speech recognition, AI watch face generation, and then transfers the preview data. Overall sequence:
+
+```
+Device                                        App
+  | ①report start recording ──onAIDialStartRecording()─>| Start recording
+  |<──sendAIDialStartRecordingResult(result) ②─────────| Recording finished, reply result
+  | ③report stop recording ──onAIDialStopRecording()───>| Stop recording
+  |<──sendAIDialRecordingResult(description) ④─────────| Speech recognition, send watch face description
+  | ⑤report start generating ──onAIDialStartGenerate()─>| Call AI drawing
+  |<──sendAIDialStartGenerateACK(result) ⑥─────────────| Reply start generating result
+  | ⑦report generating progress ──onAIDialProgressSetting()>| (Usually no need to handle)
+  |<──sendAIDialGenerateResult(length,CRC) ⑧───────────| AI generation finished, send watch face data length and CRC
+  | ⑨report generating result ACK ─onAIDialResultSettingACK()>| (Usually no need to handle)
+  | ⑩report preview length ─onAIDialPreviewLengthGetACK(length)>| Preview transfer (triggered by
+  | ⑪report continue data ─onAIDialContinueGetPreviewDataREQ(length)>| sendAiDialPreview; cropping/conversion/
+  | ⑫report data receive complete ─onAIDialPreviewDataReceiveComplete(result)>| CRC/packet sending/device request
+  |                                                       | responses are all handled by the SDK)
+  | ⑬report set watch face ──onAIDialSetDial()─────────>| Confirm set watch face
+  | ⑭report regenerate ──onAIDialRegenerate()──────────>| Regenerate
+  | ⑮report terminate request ──onAIDialTerminateREQ()─>| Terminate interaction
+  |<──sendAIDialTerminateACK() ⑯───────────────────────| Reply terminate confirmation
+```
+
+> After AI drawing is finished, the App only needs to call [Send AI Watch Face Preview](#send-ai-watch-face-preview) (`sendAiDialPreview(watchFaceImagePath, watchUIType, listener)`); the SDK automatically completes: cropping (big / scale / preview) → data conversion + CRC → send generation result → respond to device preview data requests and send packets. The device-side preview requests/responses (steps ⑩⑪⑫) are handled automatically by the SDK; after the preview data is received, the cropped results (big / scale / preview) are returned through the `OnAiDialPreviewSendListener.onPreviewSendComplete` callback.
+
+##### AI Watch Face Function Disabled (Region Not Supported)
+
+When the AI watch face function is not supported in the device region, the App sends this command to inform the device that the function is unavailable.
+
+###### API
+
+```
+sendAIDialDisableCMD(bleWriteResponse)
+```
+
+###### Parameters
+
+| Parameter        | Type              | Description              |
+| ---------------- | ----------------- | ------------------------ |
+| bleWriteResponse | IBleWriteResponse | Write operation callback |
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIDialDisableCMD({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+})
+```
+
+##### Reply Start Recording Result
+
+After the device reports start recording, the App starts recording; after recording is finished, call this API to reply the recording result to the device.
+
+###### API
+
+```
+sendAIDialStartRecordingResult(bleWriteResponse, errorCode)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description                                                  |
+| ---------------- | ---------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Write operation callback                                     |
+| errorCode        | AIFunctionOpt.AIAppErrorCode | Recording result error code; SUCCESS on success, otherwise the corresponding error code |
+
+###### Return Data
+
+**OnAIDialOptListener.onAIDialStartRecording** -- The device requests to start recording
+
+```kotlin
+fun onAIDialStartRecording()
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIDialStartRecordingResult({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+}, AIFunctionOpt.AIAppErrorCode.SUCCESS)
+```
+
+##### Send Watch Face Description Content
+
+After the device reports stop recording, the App stops recording and sends the recognized watch face description text to the device (the SDK automatically splits into packets when the content is too long).
+
+###### API
+
+```
+sendAIDialRecordingResult(bleWriteResponse, errorCode, content)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description                                                  |
+| ---------------- | ---------------------------- | ------------------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Write operation callback                                     |
+| errorCode        | AIFunctionOpt.AIAppErrorCode | Recognition result error code; SUCCESS on success; no content needed on failure |
+| content          | String                       | Recognized watch face description text                       |
+
+###### Return Data
+
+**OnAIDialOptListener.onAIDialStopRecording** -- The device requests to stop recording
+
+```kotlin
+fun onAIDialStopRecording()
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIDialRecordingResult({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+}, AIFunctionOpt.AIAppErrorCode.SUCCESS, "A round watch face in blue starry style")
+```
+
+##### Reply Start Generating Watch Face
+
+After the device reports start generating the watch face, the App calls AI drawing and replies the generation start result to the device.
+
+###### API
+
+```
+sendAIDialStartGenerateACK(bleWriteResponse, errorCode)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description                                      |
+| ---------------- | ---------------------------- | ------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Write operation callback                         |
+| errorCode        | AIFunctionOpt.AIAppErrorCode | Generation result error code; SUCCESS on success |
+
+###### Return Data
+
+**OnAIDialOptListener.onAIDialStartGenerate** -- The device requests to start generating the watch face
+
+```kotlin
+fun onAIDialStartGenerate()
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIDialStartGenerateACK({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+}, AIFunctionOpt.AIAppErrorCode.SUCCESS)
+```
+
+##### Send AI Watch Face Generation Result
+
+After AI drawing is finished, the App sends the generation result, watch face data length and CRC to the device; the device verifies and calls back the progress/result ACK.
+
+###### API
+
+```
+sendAIDialGenerateResult(bleWriteResponse, errorCode, dialLength, crc)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description                                      |
+| ---------------- | ---------------------------- | ------------------------------------------------ |
+| bleWriteResponse | IBleWriteResponse            | Write operation callback                         |
+| errorCode        | AIFunctionOpt.AIAppErrorCode | Generation result error code; SUCCESS on success |
+| dialLength       | Int                          | Watch face data length                           |
+| crc              | Int                          | Watch face data CRC                              |
+
+###### Return Data
+
+**OnAIDialOptListener.onAIDialProgressSetting** -- Generation progress setting ACK (usually no need to handle)
+
+```kotlin
+fun onAIDialProgressSetting()
+```
+
+**OnAIDialOptListener.onAIDialResultSettingACK** -- Generation result setting ACK (usually no need to handle)
+
+```kotlin
+fun onAIDialResultSettingACK()
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIDialGenerateResult({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+}, AIFunctionOpt.AIAppErrorCode.SUCCESS, dialLength, crc)
+```
+
+##### Send AI Watch Face Preview
+
+After AI drawing is finished, the App only needs to pass the generated watch face original image path and the screen type; the SDK automatically completes cropping (big / scale / preview), data conversion, CRC check, packet sending, and automatically responds to the device-side preview data requests (length / continue / receive complete), no App involvement needed.
+
+###### API
+
+```
+sendAiDialPreview(aiDialImagePath, watchUIType, listener)
+```
+
+###### Parameters
+
+| Parameter       | Type                        | Description                                                  |
+| --------------- | --------------------------- | ------------------------------------------------------------ |
+| aiDialImagePath | String                      | AI generated watch face original image path                  |
+| watchUIType     | EWatchUIType                | Screen type. Recommended to read from the device via `readWatchUiInfo(bleWriteResponse, EUIFromType.CUSTOM, IUIBaseInfoListener)` (`UIDataCustom.getCustomUIType()` in the callback); pass null to use the SDK default RECT_JL_240_284 |
+| listener        | OnAiDialPreviewSendListener | Preview sending result listener (carries cropped results)    |
+
+###### Return Data
+
+**OnAiDialPreviewSendListener** -- AI watch face preview sending listener
+
+```kotlin
+interface OnAiDialPreviewSendListener {
+    //Data sending progress
+    fun onDataSendProgress(
+        data: ByteArray?,
+        currentPackage: Int,
+        haveSendDataLength: Int,
+        totalDataLength: Int,
+        progress: Int,
+    )
+
+    //Data sending failed
+    fun onDataSendFailed(data: ByteArray?, failedTimes: Int)
+
+    //Preview sending failed
+    fun onPreviewSendFailed()
+
+    //Preview sending complete (carries cropped results: big / scale / preview; the App can use big / scale for watch face setting)
+    fun onPreviewSendComplete(
+        bigWatchFace: AiCropWatchFaceBitmap?,
+        scaleWatchFace: AiCropWatchFaceBitmap?,
+        previewWatchFace: AiCropWatchFaceBitmap?,
+    )
+}
+```
+
+**AiCropWatchFaceBitmap** -- AI cropped result bitmap
+
+| Variable | Type   | Description |
+| -------- | ------ | ----------- |
+| bitmap   | Bitmap | Bitmap      |
+| filePath | String | File path   |
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAiDialPreview(aiDialImagePath, uiType, object : OnAiDialPreviewSendListener {
+    override fun onDataSendProgress(
+        data: ByteArray?,
+        currentPackage: Int,
+        haveSendDataLength: Int,
+        totalDataLength: Int,
+        progress: Int,
+    ) {
+        //Sending progress
+    }
+
+    override fun onDataSendFailed(data: ByteArray?, failedTimes: Int) {}
+
+    override fun onPreviewSendFailed() {
+        //Sending failed; the user can be prompted to retry
+    }
+
+    override fun onPreviewSendComplete(
+        bigWatchFace: AiCropWatchFaceBitmap?,
+        scaleWatchFace: AiCropWatchFaceBitmap?,
+        previewWatchFace: AiCropWatchFaceBitmap?,
+    ) {
+        //Preview transfer complete; use bigWatchFace/scaleWatchFace for watch face setting
+    }
+})
+```
+
+> Notes:
+>
+> 1. **JL (Jieli) device**: the preview transfer is implemented inside the SDK, no App involvement needed (non-JL devices automatically use the normal channel); **three prerequisites must be completed before use** — ① open the Jieli notify via `VPOperateManager.openJLDataNotify(...)` (status: `isJLNotifyOpened()`); ② complete the device auth via `VPOperateManager.startJLDeviceAuth(...)` (status: `RcspAuthManager.isAuthPass()`); ③ **initialize the file system** via `JLWatchFaceManager.getInstance().checkJLSDKAndInit(listener)` (status: `isJLFatFileSystemInitSuccess()`; without it the transfer fails with `Watch system has not been initialized`), recommended to be done together when entering the AI function page (see demo `JLDeviceOPTActivity`);
+> 2. **Screen type**: pass it through the `watchUIType` parameter of `sendAiDialPreview` (recommended to read from the device, see the parameter table); when null, the SDK defaults to `RECT_JL_240_284`;
+> 3. The device-side preview request callbacks (`onAIDialPreviewLengthGetACK` / `onAIDialContinueGetPreviewDataREQ` / `onAIDialPreviewDataReceiveComplete`) are answered automatically by the SDK; the App can ignore them. `onPreviewSendComplete` (carrying the cropped big/scale/preview watch face) is called on **device B7 confirmation** or **JL channel transfer completion** (deduplicated; JL devices may skip B7 and directly send 0xB8 to set the watch face), so the App can use the big watch face in `onAIDialSetDial`.
+
+##### Set Watch Face and Regenerate
+
+When the device reports set watch face, **onAIDialSetDial** is called back and the App sets the watch face as current; when the device reports regenerate, **onAIDialRegenerate** is called back and the App regenerates with AI.
+
+###### Return Data
+
+**OnAIDialOptListener.onAIDialSetDial** -- The device reports set watch face
+
+```kotlin
+fun onAIDialSetDial()
+```
+
+**OnAIDialOptListener.onAIDialRegenerate** -- The device requests to generate the watch face again
+
+```kotlin
+fun onAIDialRegenerate()
+```
+
+###### Setting the Watch Face (handling in onAIDialSetDial)
+
+After receiving `onAIDialSetDial`, the App uses the **big watch face** (`bigWatchFace.filePath`) carried by the preview transfer complete callback (`onPreviewSendComplete`) to set the watch face. Detailed API descriptions are in the [Watch Face] chapter; only guidance is given here:
+
+| Device type | API to use                                                   | Detailed docs                  |
+| ----------- | ------------------------------------------------------------ | ------------------------------ |
+| JL (Jieli)  | `VPOperateManager.setJLWatchPhotoDial(bigWatchFacePath, listener)` | See [Photo Watch Face] chapter |
+| Non-JL      | `WatchUIType.getSendInputStream(...)` + `UiUpdateUtil.startSetUiStream(CUSTOM, ...)` | See [Local Watch Face] chapter |
+
+> ⚠️ **JL (Jieli) device note**: `setJLWatchPhotoDial` only transfers the watch face **background image** (bgp_w001/bgp_w000), **NOT the function elements** (time / date / steps / color etc.). After the background transfer completes, you must also call `VPOperateManager.setCustomWacthUi(...)` (`UICustomSetData`, see [Photo Watch Face] chapter) to re-apply the function elements; otherwise the device only shows the default photo watch face. Recommended (refer to GBand2): call about 150ms after the transfer succeeds:
+>
+> ```kotlin
+> //elements from UIDataCustom read via getCustomWatchUiInfo
+> val uiCustomSetData = UICustomSetData(false,
+>  uiDataCustom.timePosition, uiDataCustom.upTimeType,
+>  uiDataCustom.downTimeType, uiDataCustom.color888)
+> VPOperateManager.getInstance().setCustomWacthUi({}, uiCustomSetData) { }
+> ```
+
+##### Terminate AI Watch Face
+
+When the device reports the terminate request, **onAIDialTerminateREQ** is called back, and the App should call this API to reply the terminate confirmation.
+
+###### API
+
+```
+sendAIDialTerminateACK(bleWriteResponse)
+```
+
+###### Parameters
+
+| Parameter        | Type              | Description              |
+| ---------------- | ----------------- | ------------------------ |
+| bleWriteResponse | IBleWriteResponse | Write operation callback |
+
+###### Return Data
+
+**OnAIDialOptListener.onAIDialTerminateREQ** -- The device requests to terminate AI watch face
+
+```kotlin
+fun onAIDialTerminateREQ()
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().sendAIDialTerminateACK({
+    if (it != Code.REQUEST_SUCCESS) {
+        //Write command failed
+    }
+})
+```
+
+#### AI Opus to PCM
+
+In the AI Q&A / watch face flow, the opus audio file returned by the device can be decoded to a pcm file through this API for subsequent speech recognition.
+
+###### API
+
+```
+aiOpus2Pcm(opusFilePath, pcmFilePath, listener)
+```
+
+###### Parameters
+
+| Parameter    | Type                     | Description                         |
+| ------------ | ------------------------ | ----------------------------------- |
+| opusFilePath | String                   | opus audio file path                |
+| pcmFilePath  | String                   | Output path of the decoded pcm file |
+| listener     | OnOpusDecode2PcmListener | Decode result listener              |
+
+###### Return Data
+
+**OnOpusDecode2PcmListener** -- AI Opus to PCM decode result listener
+
+```kotlin
+interface OnOpusDecode2PcmListener {
+    //Decode complete; filePath is the decoded pcm file path
+    fun onDecodeComplete(filePath: String)
+
+    //Decode failed; filePath is the target pcm file path
+    fun onDecodeFailed(filePath: String)
+}
+```
+
+###### Example
+
+```kotlin
+VPOperateManager.getInstance().aiOpus2Pcm(opusFilePath, pcmFilePath, object : OnOpusDecode2PcmListener {
+    override fun onDecodeComplete(filePath: String) {
+        //Decode complete; speech recognition can be performed
+    }
+
+    override fun onDecodeFailed(filePath: String) {
+        //Decode failed
+    }
+})
+```
+
+#### AI Error Codes
+
+**AIFunctionOpt.AIAppErrorCode** -- App-side error codes (used when the App replies to the device)
+
+| Enum Value                               | Description                                                  |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| SUCCESS                                  | Success                                                      |
+| NO_MICROPHONE_PERMISSION_0x01            | No microphone permission                                     |
+| NO_VOICE_RECOGNITION_PERMISSION_0x02     | No voice recognition permission                              |
+| NETWORK_ERROR_0x03                       | Network error                                                |
+| RECORDING_FAILED_0x04                    | Recording failed                                             |
+| SPEECH_RECOGNITION_FAILED_0x05           | Speech recognition failed                                    |
+| AI_QA_FAILED_0x06                        | AI Q&A failed                                                |
+| AI_DRAWING_FAILED_0x07                   | AI drawing failed                                            |
+| SENSITIVE_WORDS_0x08                     | Sensitive words                                              |
+| SPEECH_RECOGNITION_OVER_UPPER_LIMIT_0x09 | Speech recognition upper limit reached                       |
+| AI_QA_OVER_UPPER_LIMIT_0x0A              | AI Q&A upper limit reached                                   |
+| AI_DRAWING_OVER_UPPER_LIMIT_0x0B         | AI drawing upper limit reached                               |
+| NO_MICROPHONE_0x0C                       | No Bluetooth microphone device found                         |
+| SYNCHRONIZING_DATA_0x0D                  | The App replies synchronizing data when the device reports AI data |
+| APP_USE_AI_FUNCTION_0x0E                 | The App is in use                                            |
+| REGION_NOT_SUPPORTED_0x0F                | Region not supported                                         |
+| UNKNOWN                                  | Unknown error                                                |
+
+**AIFunctionOpt.AIDeviceErrorCode** -- Device-side error codes (used when the device replies to the App)
+
+| Enum Value                               | Description                         |
+| ---------------------------------------- | ----------------------------------- |
+| SUCCESS                                  | Success                             |
+| PACKET_LOSS_OR_PREVIEW_CHECK_FAILED_0x80 | Packet loss or preview check failed |
+| DATA_RECEIVER_TIMEOUT_0x81               | Data receiver timeout               |
+| UNKNOWN                                  | Unknown error                       |
+
+**AIFunctionOpt.AIDialErrorCode** -- AI watch face speech problem error codes
+
+| Enum Value     | Description    |
+| -------------- | -------------- |
+| SUCCESS        | Success        |
+| TIMEOUT        | Timeout        |
+| UNRECOGNIZABLE | Unrecognizable |
+| LOW_VOLUME     | Low volume     |
+| UNKNOWN        | Unknown error  |
+
+
+
+## GPS Ephemeris (AGPS)
+
+#### Premise
+
+The device must support the ephemeris (AGPS) function (agpsFunction)
+
+**Note ⚠️**: The ephemeris file transfer requires an additional abnormal protection scenario: if the watch's battery is very low when the ephemeris transfer is initiated, the watch may shut down due to low battery during the transfer, and the ephemeris may become invalid after recharging. We recommend reading the watch's current battery level before each transfer, and forbidding the transfer if the battery is low.
+
+#### Process
+
+>Step 1. Determine whether the ephemeris function is supported (initialize the protocol channel when supported)
+>Step 2. Read the device AGPS basic information
+>Step 3. Download the ephemeris file
+>Step 4. Transfer the ephemeris file to the device
+
+#### Class name
+
+Note: **The class names used for this function are different from the previous ones**
+
+```kotlin
+val mUiUpdateUtil = UiUpdateUtil.getInstance();
+val uiServerHttpUtil = UiServerHttpUtil();
+```
+
+#### Step 1. Determine whether the ephemeris function is supported
+
+```kotlin
+//Support ephemeris function
+if (mUiUpdateUtil.isSupportChangeCustomAGPS()) {
+    //Initialize the protocol channel (MTU negotiation + register UI data Notify listener)
+    mUiUpdateUtil.init(context)
+} else {
+    //Does not support ephemeris function
+}
+```
+
+#### Step 2. Read the device AGPS basic information
+
+Note: **Before transferring the ephemeris, you must first read the device AGPS basic information; the returned receive address and CRC must be used for subsequent writing; and you need to call** `init(context)` **to warm up the channel before reading.**
+
+###### Class name
+
+UiUpdateUtil
+
+###### Interface
+
+```
+getAGPSWacthUiInfo(iuiBaseInfoFormAGPSListener)
+```
+
+###### Parameter description
+
+| Parameter name              | Type                        | Remarks                              |
+| --------------------------- | --------------------------- | ------------------------------------ |
+| iuiBaseInfoFormAGPSListener | IUIBaseInfoFormAGPSListener | Callback for reading AGPS basic info |
+
+###### Return data
+
+**IUIBaseInfoFormAGPSListener**
+
+```kotlin
+/**
+ * Return agps basic information
+ *
+ * @param uiDataAGPS agps basic information
+ */
+fun onBaseUiInfoFormAgps(uiDataAGPS:UIDataAGPS)
+```
+
+**UIDataAGPS**
+
+| Variable           | Type | Remarks                                               |
+| ------------------ | ---- | ----------------------------------------------------- |
+| dataReceiveAddress | Int  | UI data receive start address                         |
+| dataCanSendLength  | Int  | Receivable data length                                |
+| fileLength         | Long | File length to be sent                                |
+| crc                | Int  | CRC check value of the ephemeris file                 |
+| validDay           | Int  | Total valid duration of ephemeris file (unit: day)    |
+| validMinute        | Int  | Total valid duration of ephemeris file (unit: minute) |
+| packageIndex       | Int  | Which packet, counting from 1                         |
+| timeStamp          | Long | Timestamp of the ephemeris file                       |
+
+###### Sample code
+
+```kotlin
+UiUpdateUtil.getInstance().getAGPSWacthUiInfo(object : IUIBaseInfoFormAGPSListener {
+    override fun onBaseUiInfoFormAgps(uiDataAGPS: UIDataAGPS) {
+        //Read successfully, you can get dataReceiveAddress, crc, validMinute, etc. here
+    }
+})
+```
+
+#### Step 3. Download the ephemeris file
+
+Note: **This interface is a network request and cannot run on the main thread**
+
+###### Class name
+
+UiServerHttpUtil
+
+###### Interface
+
+```
+downLoadAGpsFile(isChina, sdkOadFilePath, onDownLoadListener)
+```
+
+###### Parameter description
+
+| Parameter name     | Type               | Remarks                                                      |
+| ------------------ | ------------------ | ------------------------------------------------------------ |
+| isChina            | Boolean            | Whether in China; domestic uses rx-networks.cn, abroad uses location.io |
+| sdkOadFilePath     | String             | Local save path of the ephemeris file (vp_agps.pgl)          |
+| onDownLoadListener | OnDownLoadListener | Download callback                                            |
+
+###### Return data
+
+OnDownLoadListener
+
+```kotlin
+/**
+ * Return the download progress value, range [0-1]
+ * @param progress
+ */
+fun onProgress(progress:Float);
+
+/**
+ * Download finished
+ */
+fun onFinish();
+```
+
+###### Sample code
+
+```kotlin
+Thread {
+    uiServerHttpUtil.downLoadAGpsFile(isInChina, filePath, object : OnDownLoadListener {
+        override fun onProgress(progress: Float) {
+            //Download progress progress [0-1]
+        }
+
+        override fun onFinish() {
+            //Download complete, can proceed to step 4 transfer
+        }
+    })
+}.start()
+```
+
+#### Step 4. Transfer the ephemeris file to the device
+
+Note: **Setting the ephemeris file timestamp to 0 means using the latest ephemeris; it is recommended to read the device battery before transfer, and forbid transfer when battery is low.**
+
+###### Class name
+
+UiUpdateUtil
+
+###### Interface
+
+```
+startSetUiStream(euiFromType, inputStream, uiUpdateListener)
+```
+
+###### Parameter description
+
+| Parameter name   | Type              | Remarks                                   |
+| ---------------- | ----------------- | ----------------------------------------- |
+| euiFromType      | EUIFromType       | UI type, fixed here as: EUIFromType.A_GPS |
+| inputStream      | InputStream       | Ephemeris file input stream               |
+| uiUpdateListener | IUiUpdateListener | UI upgrade callback                       |
+
+###### Return data
+
+**IUiUpdateListener**
+
+Same as [[Server watch face - Set Ui](#Step 5. Set UI)]
+
+###### Sample code
+
+```kotlin
+//Set the ephemeris timestamp (0 means latest)
+UiUpdateUtil.getInstance().setAGPSTimeStamp(0)
+
+val file = File(filePath)
+val inputStream: InputStream = context.contentResolver.openInputStream(Uri.fromFile(file))
+UiUpdateUtil.getInstance().startSetUiStream(
+    EUIFromType.A_GPS,
+    inputStream,
+    object : IUiUpdateListener {
+        override fun onUiUpdateStart() {
+        }
+
+        override fun onStartClearCache(sumCount: Int) {
+        }
+
+        override fun onClearCacheProgress(currentCount: Int, sumCount: Int, progress: Int) {
+        }
+
+        override fun onFinishClearCache() {
+        }
+
+        override fun onUiUpdateProgress(currentBlock: Int, sumBlock: Int, progress: Int) {
+        }
+
+        override fun onUiUpdateSuccess() {
+        }
+
+        override fun onUiUpdateFail(eUiUpdateError: EUiUpdateError?) {
+        }
+    }
+)
+```
+
+
+
+## Custom Project Features
+
+### JH58 PPG Test Function
+
+Prerequisites：This functionality is currently only available for the customized JH58 project; other projects can ignore it.
+
+####  Add PPG Test Switch Listener
+
+###### Interface
+
+```java
+    /**
+     * <ul>
+     *     <li style="color:#1055d2">Add ppg test swtich status change listener</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">添加PPG测量开关状态监听</li>
+     * </ul>
+     *
+     * @param listener
+     * <ul>
+     *    <li>PPG switch status operation monitoring</li>
+     *    <li>PPG开关状态操作监听</li>
+     * </ul>
+     */
+    public void addPPGTestSwitchStatusListener(IPPGSwitchOperaterListener listener)
+```
+
+###### Parameter Explanation
+
+| Parameter Name | Type                       | Description                |
+| -------------- | -------------------------- | -------------------------- |
+| listener       | IPPGSwitchOperaterListener | PPG switch status listener |
+
+**IPPGSwitchOperaterListener**--PPG switch status monitoring
+
+```kotlin
+/**
+ * PPG开关操作监听类 (PPG Switch Operation Listener Class)
+ */
+interface IPPGSwitchOperaterListener : IListener {
+    /**
+     * ppg开关状态读取结果 (Result of reading the PPG switch status)
+     */
+    fun onPPGSwitchStatusRead(switchStatus: PPGSwitchStatus)
+
+    /**
+     * ppg开关状态设置结果 (Result of setting the PPG switch status)
+     */
+    fun onPPGSwitchStatusSetting(switchStatus: PPGSwitchStatus)
+
+    /**
+     * ppg开关状态上报结果 (Result of reporting the PPG switch status)
+     * // Note: 'Reporting' usually means the device actively sends the status to the application.
+     */
+    fun onPPGSwitchStatusReport(switchStatus: PPGSwitchStatus)
+}
+```
+
+#### Read PPG measurement status switch
+
+The settings will be called back in the addPPGTestSwitchStatusListener(IPPGSwitchOperatorListener listener) listener.
+
+###### Interface
+
+```java
+ /***
+     * <ul>
+     *     <li style="color:#1055d2">read ppg test swtich status</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">读取PPG测量开关状态</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if response code equals Code.REQUEST_SUCCESS means write cmd success,otherwise means write cmd fail</li>
+     *    <li>写入操作的监听</li>
+     * </ul>
+     */
+    public void readPPGSwitchStatus(BleWriteResponse bleWriteResponse)
+```
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().readPPGSwitchStatus(code -> tvPPGOptInfo.setText("读取PPG测量开关状态指令发送" + (code == Code.REQUEST_SUCCESS ? "成功" : "失败")));
+```
+
+#### Set PPG measurement status switch
+
+The settings will be called back in the addPPGTestSwitchStatusListener(IPPGSwitchOperatorListener listener) listener.
+
+###### Interface
+
+```java
+/***
+     * <ul>
+     *     <li style="color:#1055d2">set ppg test switch status</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">设置PPG测量开关状态</li>
+     * </ul>
+     * @param ppgSwitchStatus
+     * <ul>
+     *    <li>Set the PPG measurement switch status</li>
+     *    <li>设置的PPG测量开关状态</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if response code equals Code.REQUEST_SUCCESS means write cmd success,otherwise means write cmd fail</li>
+     *    <li>写入操作的监听</li>
+     * </ul>
+     */
+public void setPPGSwitchStatus(PPGSwitchStatus ppgSwitchStatus, BleWriteResponse bleWriteResponse)
+```
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().setPPGSwitchStatus(ppgSwitchStatus, code -> tvPPGOptInfo.setText("设置PPG测量开关状态指令发送" + (code == Code.REQUEST_SUCCESS ? "成功" : "失败")));
+```
+
+
+
+#### Read PPG raw data
+
+###### Interface
+
+```java
+    /***
+     * <ul>
+     *     <li style="color:#1055d2">read ppg test raw data</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">读取PPG测量原始数据</li>
+     * </ul>
+     * @param startTime
+     * <ul>
+     *    <li>Start time for reading PPG raw data</li>
+     *    <li>读取PPG原始数据的开始时间</li>
+     * </ul>
+     * @param testMode
+     * <ul>
+     *    <li>Read PPG raw data in this mode</li>
+     *    <li>读取该模式下的PPG原始数据</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if response code equals Code.REQUEST_SUCCESS means write cmd success,otherwise means write cmd fail</li>
+     *    <li>写入操作的监听</li>
+     * </ul>
+     * @param listener
+     * <ul>
+     *    <li>Monitor PPG raw data reading and reporting</li>
+     *    <li>PPG原始数据读取上报的监听</li>
+     * </ul>
+     */
+    public void readPPGRawData(TimeData startTime, PPGTestMode testMode, BleWriteResponse bleWriteResponse, IPPGRawDataReadListener listener) 
+```
+
+###### Parameter Explanation
+
+| Parameter Name   | Type                    | Description                                                  |
+| ---------------- | ----------------------- | ------------------------------------------------------------ |
+| startTime        | TimeData                | The device will report data from that time onwards based on the time it reads the raw PPG data. |
+| testMode         | PPGTestMode             | Start time for reading PPG raw data,The device will report data from this timestamp onwards. |
+| bleWriteResponse | BleWriteResponse        | Listener for write operations                                |
+| listener         | IPPGRawDataReadListener | Listening for PPG raw data reading and reporting             |
+
+PPGTestMode
+
+```kotlin
+enum class PPGTestMode(val value: Byte, val des: String) {
+    MODE1(0x01, "每15分钟采集10秒时长，绿光+加速度原始数据"),
+    MODE2(0x02, "每5分钟采集1分钟时长，绿光+加速度原始数据"), ;
+
+    companion object {
+        fun toTestMode(@IntRange(from = 1, to = 2) value: Int): PPGTestMode {
+            return PPGTestMode.values().findLast {
+                it.value.toInt() == value
+            }!!
+        }
+    }
+}
+```
+
+**TimeData**
+
+```java
+public class TimeData {
+
+    public int year;
+    public int day;
+    public int month;
+    public int hour;
+    public int minute;
+    public int second;
+    /* 星期几 **/
+    public int weekDay;
+......
+}
+```
+
+**IPPGRawDataReadListener** -- Listening for PPG raw data reading and reporting
+
+```kotlin
+/**
+ * PPG原始数据的读取监听 (PPG Raw Data Read Listener)
+ */
+interface IPPGRawDataReadListener : IListener {
+    /**
+     * 开始读取PPG数据 (Start reading PPG data)
+     * @param count ppg数据的总组数 (Total number of PPG data groups/sets)
+     */
+    fun onPPGReadStart(count: Int)
+
+    /**
+     * 一组PPG原始数据读取监听 (Listener for reading one set/group of PPG raw data)
+     * @param index 第几组 (Which group/set number)
+     * @param count 总组数 (Total number of groups/sets)
+     * @param ppgRawData 该组的PPG原始数据 (The PPG raw data for this group/set)
+     */
+    fun onPPGRawDataRead(index: Int, count: Int, ppgRawData: PPGRawData)
+
+    /**
+     * 所有PPG原始数据均已读取完成 (All PPG raw data has been read completely)
+     * @param ppgReadData ppg原始数据 (The collected PPG raw data)
+     */
+    fun onPPGRawDataReadComplete(ppgReadData: PPGReadData)
+
+    /**
+     * PPG原始数据读取终止 (PPG raw data reading terminated/stopped)
+     */
+    fun onPPGRawDataReadStop()
+}
+```
+
+###### Example Code
+
+```java
+private void readPPGRawData() {
+    sb.setLength(0);
+    appendMsg("【读取】PPG原始数据");
+    VPOperateManager.getInstance().readPPGRawData(timeData, ppgTestMode, new BleWriteResponse() {
+        @Override
+        public void onResponse(int code) {
+            appendMsg("【读取PPG测量开关状态指令发送" + (code == Code.REQUEST_SUCCESS ? "成功】" : "失败】"));
+        }
+    }, new IPPGRawDataReadListener() {
+        @Override
+        public void onPPGReadStart(int count) {
+            appendMsg("开始读取PPG原始数据。\n一共" + count + "组数据");
+        }
+
+        @Override
+        public void onPPGRawDataRead(int index, int count, @NonNull PPGRawData ppgRawData) {
+            appendMsg("PPG原始数据读取中。\n[" + index + "/" + count + "] --> " + ppgRawData.toString());
+        }
+
+        @Override
+        public void onPPGRawDataReadComplete(@NonNull PPGReadData ppgReadData) {
+            appendMsg("PPG原始数据读取完成。\n" + ppgReadData);
+        }
+
+        @Override
+        public void onPPGRawDataReadStop() {
+            String content = tvPPGOptInfo.getText().toString();
+            appendMsg(content + "\nPPG原始数据读取停止。");
+        }
+    });
+}
+```
+
+
+
+#### PPG raw signal real-time transmission
+
+##### Add PPG raw signal monitoring
+
+###### Interface
+
+```java
+/**
+     * 设置PPG高频实时传输监听
+     * Configure PPG high-frequency real-time transmission monitoring
+     * @param listener
+     */
+public void addDevicePPGRealTimeTransferListener(IPPGRealTimeTransmissionListener listener)
+```
+
+###### IPPGRealTimeTransmissionListener
+
+```kotlin
+interface IPPGRealTimeTransmissionListener {
+
+
+    /**
+     * （手环请求）高频实时传输请求 (High-frequency real-time transfer request (from device/band))
+     * @param isRequestOpen 是否请求开启高频传输 (Whether the request is to enable high-frequency transmission)
+     */
+    fun onDeviceRequestPPGRealTimeTransfer(isRequestOpen: Boolean)
+
+    /**
+     * （App请求）高频实时传输请求 (High-frequency real-time transfer request (from App))
+     * @param isSuccess 是否成功 (Whether the request was successful)
+     */
+    fun onAppRequestPPGRealTimeTransfer(isSuccess: Boolean)
+
+
+    /**
+     * 绿光原始数据上报 (Green light raw data reporting)
+     * // Note: 'Reporting' typically means data actively sent from the device to the application.
+     */
+    fun onGreenLightDataReport(greenLightDataList: MutableList<Int>)
+
+    /**
+     * 加速度数据上报 (Acceleration data reporting)
+     * // Note: 'Reporting' typically means data actively sent from the device to the application.
+     */
+    fun onAccelerationDataReport(accDataList: MutableList<AccelerationData>)
+
+}
+```
+
+###### AccelerationData
+
+```kotlin
+/**
+ * 加速度数据 (Acceleration Data)
+ * @param x X轴加速度 (X-axis acceleration)
+ * @param y Y轴加速 (Y-axis acceleration)
+ * @param z Z轴加速 (Z-axis acceleration)
+ */
+data class AccelerationData(val x: Int, val y: Int, val z: Int)
+```
+
+##### The app actively enabled PPG real-time transmission.
+
+###### Interface
+
+```java
+/**
+ * app请求开始PPG实时传输 (App requests to start PPG real-time transmission)
+ *
+ * @param bleWriteResponse   指令写入结果回调 (Callback for the command write result)
+ * @param transmissionListener  PPG实时传输监听 (PPG real-time transmission listener)
+ */
+public void startPPGRealTimeTransmission(BleWriteResponse bleWriteResponse, IPPGRealTimeTransmissionListener transmissionListener)
+```
+
+##### The app actively stopped PPG real-time transmission.
+
+###### Interface
+
+```java
+/**
+ * app请求停止PPG实时传输 (App requests to stop PPG real-time transmission)
+ *
+ * @param bleWriteResponse 指令写入结果回调 (Callback for the command write result)
+ */
+public void stopPPGRealTimeTransmission(BleWriteResponse bleWriteResponse)
+```
+
+#### Active Measurement
+
+The active measurement feature for JH58 custom projects. The App can control the device to enable/disable active measurement (supporting both real-time transmission and breakpoint transmission modes), and receive raw PPG data (green light + acceleration) per second via listeners.
+
+##### Control Active Measurement State
+
+The control result will be returned in `IActiveMeasurementDataListener.onMeasurementStateResult()`.
+
+###### Interface
+
+java
+
+```java
+/**
+ * <ul>
+ *     <li style="color:#1055d2">JH58 active measurement state control </li>
+ *     <li><br/></li>
+ *     <li style="color:#555555">JH58 active measurement state control </li>
+ * </ul>
+ *
+ * @param state             <ul>
+ *                              <li>Measurement state</li>
+ *                              <li>Active measurement state</li>
+ *                          </ul>
+ * @param bleWriteResponse  <ul>
+ *                              <li>the response of write operation</li>
+ *                              <li>Listener for write operation</li>
+ *                          </ul>
+ * @param dataListener      <ul>
+ *                              <li>Mode 3 real-time data listener (can be null if only need state ack)</li>
+ *                              <li>Mode 3 real-time data listener (can be null if only state acknowledgment is required)</li>
+ *                          </ul>
+ */
+public void activeJH58MeasurementState(EJH58MeasurementState state, BleWriteResponse bleWriteResponse, IActiveMeasurementDataListener dataListener)
+```
+
+
+
+###### Parameter Explanation
+
+| Parameter        | Type                           | Description                                  |
+| :--------------- | :----------------------------- | :------------------------------------------- |
+| state            | EJH58MeasurementState          | Active measurement state                     |
+| bleWriteResponse | BleWriteResponse               | Listener for write operation                 |
+| dataListener     | IActiveMeasurementDataListener | Mode 3 real-time data listener (can be null) |
+
+**EJH58MeasurementState** —— Active measurement state enum
+
+kotlin
+
+```kotlin
+enum class EJH58MeasurementState(val value: Byte, val des: String) {
+    /** Enable measurement with real-time transmission */
+    ACTIVE_MEASUREMENT_REAL_TIME(0x01, "Active measurement - real-time"),
+
+    /** Enable measurement with breakpoint transmission (after Bluetooth disconnection and reconnection, the device pushes the data from 5 minutes before the disconnection and then resumes real-time reporting) */
+    ACTIVE_MEASUREMENT_BREAKPOINT(0x02, "Active measurement - breakpoint"),
+
+    /** Disable measurement */
+    CLOSE_ACTIVE_MEASUREMENT(0x03, "Close active measurement");
+}
+```
+
+
+
+| Enum Value                      | Description                                                  |
+| :------------------------------ | :----------------------------------------------------------- |
+| `ACTIVE_MEASUREMENT_REAL_TIME`  | Enable measurement with real-time transmission               |
+| `ACTIVE_MEASUREMENT_BREAKPOINT` | Enable measurement with breakpoint transmission (suitable for scenarios where after Bluetooth disconnection and reconnection, the device pushes the data from 5 minutes before the disconnection and then resumes real-time reporting) |
+| `CLOSE_ACTIVE_MEASUREMENT`      | Disable measurement                                          |
+
+##### Active Measurement Data Listener
+
+###### IActiveMeasurementDataListener —— Mode 3 PPG real‑time raw data reception listener
+
+kotlin
+
+```
+/**
+ * Mode 3 PPG real-time raw data reception listener
+ * Used for active measurement data callbacks of JH58
+ */
+interface IActiveMeasurementDataListener : IListener {
+
+    /**
+     * Acknowledgment of active measurement state setting
+     * @param state The state being set
+     * @param ack   Acknowledgment: 0x01 = success, 0x02 = device is in manual measurement (busy), 0x03 = device is in low battery state
+     */
+    fun onMeasurementStateResult(state: EJH58MeasurementState, ack: Int)
+
+    /**
+     * Start reporting active measurement data
+     * @param totalSeconds Total seconds (estimated by the device)
+     */
+    fun onActiveMeasurementDataStart(totalSeconds: Int)
+
+    /**
+     * Per‑second active measurement data report
+     * @param ppgRawData Raw PPG data for 1 second of active measurement
+     */
+    fun onActiveMeasurementDataReceived(ppgRawData: PPGRawData)
+}
+```
+
+
+
+| Callback Method                               | Description                                                  |
+| :-------------------------------------------- | :----------------------------------------------------------- |
+| `onMeasurementStateResult(state, ack)`        | Acknowledgment of active measurement state setting. `ack`: `0x01` = success, `0x02` = device busy (manual measurement in progress), `0x03` = device low battery |
+| `onActiveMeasurementDataStart(totalSeconds)`  | Start reporting active measurement data; `totalSeconds` is the estimated total seconds by the device |
+| `onActiveMeasurementDataReceived(ppgRawData)` | Per‑second active measurement data report; `ppgRawData` contains the raw green light signal and acceleration signal for that second |
+
+###### PPGRawData —— A set of raw PPG data
+
+kotlin
+
+```kotlin
+/**
+ * A set of raw PPG data
+ * @param index The index of the current data set
+ * @param ppgTestMode PPG measurement mode
+ */
+class PPGRawData(val index: Int, val ppgTestMode: PPGTestMode) {
+    /** Second‑level timestamp of the current data */
+    var timestamp: Long = 0
+
+    /** CRC calculated from this data packet, used to verify content integrity */
+    var crc: Int = 0
+
+    /** Length of this data packet */
+    var count: Int = 0
+
+    /** Collection of one‑second PPG data */
+    val ppgSecondDataList: MutableList<PPGSecondData>
+}
+```
+
+
+
+**Note**: For Mode 3, `ppgTestMode` is fixed to `PPGTestMode.MODE3`, and `ppgSecondDataList` typically contains only **1 second** of data per `PPGRawData` (list size is 1).
+
+###### PPGSecondData —— Per‑second PPG data
+
+kotlin
+
+```kotlin
+/**
+ * Per‑second PPG data
+ * @param contentLength Total length of the content
+ * @param greenRawData  Raw green light signal (3 bytes/sample, signed, little‑endian; 300 bytes per second = 100 samples)
+ * @param accRawData    Raw acceleration signal (2 bytes/axis, signed, little‑endian; X/Y/Z each at 50 Hz; 300 bytes per second = 50 samples)
+ */
+class PPGSecondData(
+    val contentLength: Int,
+    val greenRawData: ByteArray,
+    val accRawData: ByteArray
+) {
+    /** Parsed list of green light signal values (100 samples) */
+    val greenLightSignalList: MutableList<Int>
+
+    /** Parsed list of acceleration data (50 samples, each containing X/Y/Z axes) */
+    val accelerationList: MutableList<AccelerationData>
+}
+```
+
+
+
+| Property               | Type                          | Description                                                  |
+| :--------------------- | :---------------------------- | :----------------------------------------------------------- |
+| `contentLength`        | Int                           | Total raw content length for that second                     |
+| `greenRawData`         | ByteArray                     | Raw green light signal (300 bytes, 3 bytes/sample × 100 Hz)  |
+| `accRawData`           | ByteArray                     | Raw acceleration signal (300 bytes, 2 bytes/axis × 3 axes × 50 Hz) |
+| `greenLightSignalList` | MutableList<Int>              | Parsed green light signal values (automatically parsed by SDK) |
+| `accelerationList`     | MutableList<AccelerationData> | Parsed acceleration data list (automatically parsed by SDK)  |
+
+###### Example Code
+
+java
+
+```kotlin
+// 1. Enable active measurement (real‑time mode) and set data listener
+VPOperateManager.getInstance().activeJH58MeasurementState(
+    EJH58MeasurementState.ACTIVE_MEASUREMENT_REAL_TIME,
+    code -> {
+        appendMsg("Active measurement state control command sent " + (code == Code.REQUEST_SUCCESS ? "successfully" : "failed"));
+    },
+    new IActiveMeasurementDataListener() {
+        @Override
+        public void onMeasurementStateResult(@NonNull EJH58MeasurementState state, int ack) {
+            String ackDesc;
+            switch (ack) {
+                case 0x01: ackDesc = "Success"; break;
+                case 0x02: ackDesc = "Device busy"; break;
+                case 0x03: ackDesc = "Low battery"; break;
+                default: ackDesc = "Unknown(" + ack + ")"; break;
+            }
+            appendMsg("Active measurement state acknowledgment: " + state.getDes() + " -> " + ackDesc);
+        }
+
+        @Override
+        public void onActiveMeasurementDataStart(int totalSeconds) {
+            appendMsg("Start receiving active measurement data, estimated " + totalSeconds + " seconds");
+        }
+
+        @Override
+        public void onActiveMeasurementDataReceived(@NonNull PPGRawData ppgRawData) {
+            appendMsg("Received data for second " + ppgRawData.getIndex() + ": " + ppgRawData.toString());
+
+            // Parse the green light and acceleration data in each second
+            if (!ppgRawData.getPpgSecondDataList().isEmpty()) {
+                PPGSecondData secondData = ppgRawData.getPpgSecondDataList().get(0);
+                // Green light signal values
+                List<Integer> greenData = secondData.getGreenLightSignalList();
+                // Acceleration data (X/Y/Z axes)
+                List<AccelerationData> accData = secondData.getAccelerationList();
+            }
+        }
+    }
+);
+
+// 2. Disable active measurement (data listener can be null if not needed)
+VPOperateManager.getInstance().activeJH58MeasurementState(
+    EJH58MeasurementState.CLOSE_ACTIVE_MEASUREMENT,
+    code -> {
+        appendMsg("Close active measurement command sent " + (code == Code.REQUEST_SUCCESS ? "successfully" : "failed"));
+    },
+    null
+);
+```
+
+### ZT163 Project Device-Always-Off-Screen function
+
+Prerequisite: The device must be a ZT163 project device.
+
+Note: All the following interfaces will only work if the device is a ZT163 project device.
+
+#### Set ZT163 Device-Always-Off-Screen statue
+
+###### Interface
+
+```java
+/**
+     * [Set ZT163 Project Device Always Off Screen]
+     * <p>
+     * 设置 ZT163 项目常灭屏功能。
+     *
+     * @param isOpen           Function switch. | 是否开启：true-开启，false-关闭。
+     * @param bleWriteResponse Write operation response. | 蓝牙指令写入回调。
+     * @param listener         Operation listener. | 常灭屏功能操作监听。
+     */
+public void setZT163DeviceAlwaysOffScreen(boolean isOpen, BleWriteResponse bleWriteResponse, IZT163DeviceAlwaysOffScreenOptListener listener)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type               | Description                                       |
+| ---------------- | ------------------ | ------------------------------------------------- |
+| isOpen           | boolean            | true:open the function，false: close the function |
+| bleWriteResponse | BleWriteResponse   | Write operation listener                          |
+| listener         | IGsrDetectListener | ZT163 Device-Always-Off-Screen operation callback |
+
+#### Read ZT163 Device-Always-Off-Screen statue
+
+###### Interface
+
+```java
+/**
+     * [Read Always-Off-Screen Status] 读取 ZT163 设备常灭屏状态
+     *
+     * @param bleWriteResponse 写入操作回调 (Success if Code.REQUEST_SUCCESS)
+     * @param listener         状态监听器 (Handles data feedback)
+     */
+public void readZT163DeviceAlwaysOffScreen(BleWriteResponse bleWriteResponse, IZT163DeviceAlwaysOffScreenOptListener listener)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type               | Description                                       |
+| ---------------- | ------------------ | ------------------------------------------------- |
+| bleWriteResponse | BleWriteResponse   | Write operation listener                          |
+| listener         | IGsrDetectListener | ZT163 Device-Always-Off-Screen operation callback |
+
+**IZT163DeviceAlwaysOffScreenOptListener** -- ZT163 Device-Always-Off-Screen operation callback
+
+```kotlin
+/**
+ * Listener for ZT163 Device Always-Off-Screen operations.
+ * ZT163 项目设备常灭屏功能操作监听。
+ */
+interface IZT163DeviceAlwaysOffScreenOptListener : IListener {
+    /**
+     * Triggered when Always-Off-Screen setting is successful.
+     * 常灭屏设置成功。
+     * @param isOpen true: Enabled, false: Disabled.
+     */
+    fun onZT163DeviceAlwaysOffScreenSettingSuccess(isOpen: Boolean)
+
+    /**
+     * Triggered when Always-Off-Screen setting fails.
+     * 常灭屏设置失败。
+     */
+    fun onZT163DeviceAlwaysOffScreenSettingFailed()
+
+    /**
+     * Callback for Always-Off-Screen status reporting from device.
+     * 设备常灭屏状态主动上报。
+     * @param isOpen true: Enabled, false: Disabled.
+     */
+    fun onZT163DeviceAlwaysOffScreenReport(isOpen: Boolean)
+
+    /**
+     * Triggered when the current device does not support this feature.
+     * 当前设备不支持此功能。
+     */
+    fun onFunctionNotSupport()
+}
+```
+
+###### Example Code
+
+```java
+/**
+ * Activity for controlling ZT163 Device Always-Off-Screen feature.
+ * ZT163 设备常灭屏功能界面。
+ */
+public class ZT163DeviceAlwaysOffScreenActivity extends AppCompatActivity implements IZT163DeviceAlwaysOffScreenOptListener {
+
+    private TextView tvInfo;
+
+    @Override
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_zt163_device_always_off_screen);
+        
+        tvInfo = findViewById(R.id.tvInfo);
+
+        // Enable Always-Off-Screen | 开启常灭屏
+        findViewById(R.id.btnOpen).setOnClickListener(v -> {
+            VPOperateManager.getInstance().setZT163DeviceAlwaysOffScreen(true, code -> {
+                // Command sent callback | 指令发送回调
+            }, this);
+        });
+
+        // Disable Always-Off-Screen | 关闭常灭屏
+        findViewById(R.id.btnClose).setOnClickListener(v -> {
+            VPOperateManager.getInstance().setZT163DeviceAlwaysOffScreen(false, code -> {
+                // Command sent callback | 指令发送回调
+            }, this);
+        });
+
+        // Read Current Status | 读取当前状态
+        findViewById(R.id.btnRead).setOnClickListener(v -> {
+            VPOperateManager.getInstance().readZT163DeviceAlwaysOffScreen(code -> {
+                // Command sent callback | 指令发送回调
+            }, this);
+        });
+    }
+
+    @Override
+    public void onZT163DeviceAlwaysOffScreenSettingSuccess(boolean isOpen) {
+        String state = isOpen ? "ON/开启" : "OFF/关闭";
+        tvInfo.setText("Setting Success | 设置成功: " + state);
+    }
+
+    @Override
+    public void onZT163DeviceAlwaysOffScreenSettingFailed() {
+        tvInfo.setText("Setting Failed | 设置失败");
+    }
+
+    @Override
+    public void onZT163DeviceAlwaysOffScreenReport(boolean isOpen) {
+        String state = isOpen ? "ON/开启" : "OFF/关闭";
+        tvInfo.setText("Status Reported | 状态上报: " + state);
+    }
+
+    @Override
+    public void onFunctionNotSupport() {
+        tvInfo.setText("Function Not Supported | 当前设备不支持该功能");
+    }
+}
+```
+
+### QX17 Data Acquisition
+
+QX17 project data acquisition flow control feature, supporting real-time IMU (100Hz), GPS (1Hz), and heart rate (1Hz) data acquisition. The SDK implements internal packet loss detection and automatic retransmission.
+
+##### Call Flow
+
+```mermaid
+flowchart TD
+    Start((Connected & Password Verified)) --> SetListener[setVpQX17DataAcquisitionStateListener<br/>Set Global State Listener]
+    
+    SetListener --> Condition{Current Device State}
+
+    %% Path 1
+    Condition -- Active --> Path1[vpQX17ContinueDataAcquisition<br/>Continue Acquisition 1]
+
+    %% Path 2
+    Condition -- Inactive --> Path2[Call when acquisition is needed<br/>vpQX17StartDataAcquisition 2]
+
+    %% Merging
+    Path1 --> Callback[Data Callback]
+    Path2 --> Callback
+    
+    Callback --> Stop[vpQX17StopDataAcquisition<br/>Stop Acquisition]
+```
+
+##### Prerequisites
+
+Device is connected and password verification is complete
+
+
+
+#### Set Data Acquisition State Listener
+
+Set a global state listener to receive acquisition state changes reported by the device (e.g., after disconnection and reconnection). It is recommended to call this immediately after a successful connection.
+
+###### Interface
+
+```
+setVpQX17DataAcquisitionStateListener(listener)
+```
+
+###### Parameters
+
+| Parameter | Type                              | Description                     |
+| --------- | --------------------------------- | ------------------------------- |
+| listener  | IQX17DataAcquisitionStateListener | Data acquisition state callback |
+
+###### Return Data
+
+**IQX17DataAcquisitionStateListener** -- Data acquisition state listener
+
+```java
+/**
+ * Device reports current acquisition state
+ *
+ * @param isOpen true=acquisition is open, false=acquisition is closed
+ */
+void onQX17DataAcquisitionStatus(boolean isOpen);
+```
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().setVpQX17DataAcquisitionStateListener(new IQX17DataAcquisitionStateListener() {
+    @Override
+    public void onQX17DataAcquisitionStatus(boolean isOpen) {
+        // isOpen=true: device is currently acquiring data
+        // isOpen=false: device acquisition is currently stopped
+    }
+});
+```
+
+
+
+#### Start Data Acquisition
+
+Start real-time IMU, GPS, and heart rate data acquisition stream. The SDK automatically opens the data channel and performs packet loss detection and retransmission.
+
+###### Interface
+
+```
+vpQX17StartDataAcquisition(bleWriteResponse, listener)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description               |
+| ---------------- | ---------------------------- | ------------------------- |
+| bleWriteResponse | IBleWriteResponse            | BLE write response        |
+| listener         | IQX17DataAcquisitionListener | Data acquisition callback |
+
+###### Return Data
+
+**IQX17DataAcquisitionListener** -- Data acquisition callback
+
+```java
+/**
+ * Device reports current acquisition state
+ *
+ * @param isOpen true=acquisition is open, false=acquisition is closed
+ */
+void onQX17DataAcquisitionStatus(boolean isOpen);
+
+/**
+ * IMU data callback (100 samples per second)
+ *
+ * @param imuDataList IMU data list for this batch
+ */
+void onQX17IMUData(List<QX17IMUData> imuDataList);
+
+/**
+ * GPS data callback (1 sample per second)
+ *
+ * @param gpsData GPS location data
+ */
+void onQX17GPSData(QX17GPSData gpsData);
+
+/**
+ * Heart rate data callback (1 sample per second)
+ *
+ * @param heartRateData Heart rate data
+ */
+void onQX17HeartRateData(QX17HeartRateData heartRateData);
+```
+
+**QX17IMUData** -- IMU data
+
+| Variable  | Type  | Description                                  |
+| --------- | ----- | -------------------------------------------- |
+| ax        | short | Accelerometer X-axis                         |
+| ay        | short | Accelerometer Y-axis                         |
+| az        | short | Accelerometer Z-axis                         |
+| gx        | short | Gyroscope X-axis                             |
+| gy        | short | Gyroscope Y-axis                             |
+| gz        | short | Gyroscope Z-axis                             |
+| mx        | short | Magnetometer X-axis                          |
+| my        | short | Magnetometer Y-axis                          |
+| mz        | short | Magnetometer Z-axis                          |
+| timestamp | int   | Timestamp (ms offset from acquisition start) |
+
+**QX17GPSData** -- GPS data
+
+| Variable  | Type  | Description                                  |
+| --------- | ----- | -------------------------------------------- |
+| latitude  | float | Latitude                                     |
+| longitude | float | Longitude                                    |
+| accuracy  | float | Accuracy (meters)                            |
+| timestamp | int   | Timestamp (ms offset from acquisition start) |
+
+**QX17HeartRateData** -- Heart rate data
+
+| Variable  | Type | Description                                  |
+| --------- | ---- | -------------------------------------------- |
+| heartRate | int  | Heart rate value                             |
+| timestamp | int  | Timestamp (ms offset from acquisition start) |
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().vpQX17StartDataAcquisition(bleWriteResponse, new IQX17DataAcquisitionListener() {
+    @Override
+    public void onQX17DataAcquisitionStatus(boolean isOpen) {
+        // Acquisition state changed
+    }
+
+    @Override
+    public void onQX17IMUData(List<QX17IMUData> imuDataList) {
+        // Receive IMU data (accelerometer, gyroscope, magnetometer)
+    }
+
+    @Override
+    public void onQX17GPSData(QX17GPSData gpsData) {
+        // Receive GPS location data
+    }
+
+    @Override
+    public void onQX17HeartRateData(QX17HeartRateData heartRateData) {
+        // Receive heart rate data
+    }
+});
+```
+
+
+
+#### Stop Data Acquisition
+
+Stop the real-time data acquisition stream.
+
+###### Interface
+
+```
+vpQX17StopDataAcquisition(bleWriteResponse)
+```
+
+###### Parameters
+
+| Parameter        | Type              | Description        |
+| ---------------- | ----------------- | ------------------ |
+| bleWriteResponse | IBleWriteResponse | BLE write response |
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().vpQX17StopDataAcquisition(bleWriteResponse);
+```
+
+
+
+#### Continue Data Acquisition (Retransmission)
+
+Used in Bluetooth disconnection-reconnection scenarios. When the device reports via the state listener that acquisition is currently open, call this interface to resume data reception. The SDK automatically uses the last recorded timestamp to request retransmission of lost data.
+
+###### Interface
+
+```
+vpQX17ContinueDataAcquisition(bleWriteResponse, listener)
+```
+
+###### Parameters
+
+| Parameter        | Type                         | Description               |
+| ---------------- | ---------------------------- | ------------------------- |
+| bleWriteResponse | IBleWriteResponse            | BLE write response        |
+| listener         | IQX17DataAcquisitionListener | Data acquisition callback |
+
+###### Return Data
+
+Same as [Start Data Acquisition](#start-data-acquisition)
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().vpQX17ContinueDataAcquisition(bleWriteResponse, new IQX17DataAcquisitionListener() {
+    @Override
+    public void onQX17DataAcquisitionStatus(boolean isOpen) {
+    }
+
+    @Override
+    public void onQX17IMUData(List<QX17IMUData> imuDataList) {
+    }
+
+    @Override
+    public void onQX17GPSData(QX17GPSData gpsData) {
+    }
+
+    @Override
+    public void onQX17HeartRateData(QX17HeartRateData heartRateData) {
+    }
+});
+```
+
+#### Set Vibration Mode
+
+Control the device vibration motor to execute a specified vibration pattern.
+
+###### Interface
+
+```
+vpQX17SetVibrationMode(bleWriteResponse, mode, duration)
+```
+
+###### Parameters
+
+| Parameter        | Type               | Description                                   |
+| ---------------- | ------------------ | --------------------------------------------- |
+| bleWriteResponse | IBleWriteResponse  | BLE write response                            |
+| mode             | EQX17VibrationMode | Vibration mode enum, see vibration mode table |
+| duration         | int                | Duration (unit: 10ms), 0=use default pattern  |
+
+**EQX17VibrationMode** -- Vibration Mode Enum
+
+| Enum Value | Name      | Default Pattern (duration unit: ms)   |
+| ---------- | --------- | ------------------------------------- |
+| START      | Start     | Vibrate 100 → Pause 100 → Vibrate 100 |
+| END        | End       | (Vibrate 300 → Pause 150) x 3         |
+| NOTIFY     | Notify    | Vibrate 50                            |
+| ALERT      | Alert     | (Vibrate 80 → Pause 60) x 5           |
+| CONFIRM    | Confirm   | Vibrate 150                           |
+| BEAT       | Beat      | Vibrate 80                            |
+| CONNECTED  | Connected | Vibrate 100 → Pause 100 → Vibrate 100 |
+| ERROR      | Error     | Vibrate 1000                          |
+
+###### Example Code
+
+```java
+// Send "Start" vibration with default pattern
+VPOperateManager.getInstance().vpQX17SetVibrationMode(bleWriteResponse, EQX17VibrationMode.START, 0);
+
+// Send "Start" vibration with custom duration of 2550ms
+VPOperateManager.getInstance().vpQX17SetVibrationMode(bleWriteResponse, EQX17VibrationMode.START, 255);
+```
+
+### QH15 Health Data Function
+
+QH15 health data encompasses all health data settings, retrieval of the timestamp for the last data transmission, step count reading, and goal achievement settings.
+
+#### Set All Health Data
+
+###### Interface
+
+```
+void setQH15HealthData(QH15HealthData data, IBleWriteResponse bleWriteResponse, IQH15HealthDataOptListener listener)
+```
+
+###### Parameters
+
+| Parameter        | Type                       | Description                          |
+| ---------------- | -------------------------- | ------------------------------------ |
+| bleWriteResponse | IBleWriteResponse          | BLE write response                   |
+| data             | QH15HealthData             | QH15 Health Data                     |
+| listener         | IQH15HealthDataOptListener | QH15 Health Data Operation Listeners |
+
+**QH15HealthData** -- QH15 Health Data
+
+| **Variable**                  | **Type**     | **Description**                                 |
+| ----------------------------- | ------------ | ----------------------------------------------- |
+| **biosAge**                   | Int          | BIOS Age （0~120）                              |
+| **heartAge**                  | Int          | Heart Age（0~120）                              |
+| **fitnessAge**                | Int          | Fitness Age（0~120）                            |
+| **biosAgeStatus**             | HealthStatus | BIOS Age Status                                 |
+| **heartAgeStatus**            | HealthStatus | Heart Age Status                                |
+| **fitnessAgeStatus**          | HealthStatus | Fitness Age Status                              |
+| **biosAgeChange**             | Int          | BIOS Age Change Value（0~99）                   |
+| **heartAgeChange**            | Int          | Heart Age Change Value（0~99）                  |
+| **fitnessAgeChange**          | Int          | Fitness Age Change Value（0~99）                |
+| **biosAge90Days**             | IntArray     | 90 days data of BIOS age （0~120）              |
+| **heartAge90Days**            | IntArray     | 90 days data of heart age（0~120）              |
+| **fitnessAge90Days**          | IntArray     | 90 days data of fitness age（0~120）            |
+| **biosAgeLastMonth**          | Int          | Last month BIOS age data（0~120）               |
+| **heartAgeLastMonth**         | Int          | Last month heart age data（0~120）              |
+| **fitnessAgeLastMonth**       | Int          | Last month fitness age data（0~120）            |
+| **biosAgeLastYear**           | Int          | Last year BIOS age data（0~120）                |
+| **heartAgeLastYear**          | Int          | Last year heart age data（0~120）               |
+| **fitnessAgeLastYear**        | Int          | Last year fitness age data（0~120）             |
+| **biosAgeLastMonthStatus**    | HealthStatus | Last month BIOS age status                      |
+| **heartAgeLastMonthStatus**   | HealthStatus | Last month heart age status                     |
+| **fitnessAgeLastMonthStatus** | HealthStatus | Last month fitness age status                   |
+| **biosAgeLastYearStatus**     | HealthStatus | Last year BIOS age status                       |
+| **heartAgeLastYearStatus**    | HealthStatus | Last year heart age status                      |
+| **fitnessAgeLastYearStatus**  | HealthStatus | Last year fitness age status                    |
+| **biosAgeLastMonthChange**    | Int          | Last month BIOS age change value（0~99）        |
+| **heartAgeLastMonthChange**   | Int          | Last month heart age change value（0~99）       |
+| **fitnessAgeLastMonthChange** | Int          | Last month fitness age change value（0~99）     |
+| **biosAgeLastYearChange**     | Int          | Last year BIOS age change value（0~99）         |
+| **heartAgeLastYearChange**    | Int          | Last year heart age change value（0~99）        |
+| **fitnessAgeLastYearChange**  | Int          | Last year fitness age change value（0~99）      |
+| **cardiovascularRisk**        | Int          | Cardiovascular disease risk（0~100）            |
+| **dementiaRisk**              | Int          | Dementia risk（0~100）                          |
+| **diabetesRisk**              | Int          | Diabetes risk（0~100）                          |
+| **cardiovascularRiskStatus**  | HealthStatus | Cardiovascular risk status                      |
+| **dementiaRiskStatus**        | HealthStatus | Dementia risk status                            |
+| **diabetesRiskStatus**        | HealthStatus | Diabetes risk status                            |
+| **cardiovascularRiskChange**  | Int          | Cardiovascular risk change value（0~100）       |
+| **dementiaRiskChange**        | Int          | Dementia risk change value（0~100）             |
+| **diabetesRiskChange**        | Int          | Diabetes risk change value（0~100）             |
+| **heartAttackRisk**           | Int          | Heart attack risk（0~100）                      |
+| **strokeRisk**                | Int          | Stroke risk（0~100）                            |
+| **heartFailureRisk**          | Int          | Heart failure risk（0~100）                     |
+| **heartAttackRiskStatus**     | HealthStatus | Heart attack risk status                        |
+| **strokeRiskStatus**          | HealthStatus | Stroke risk status                              |
+| **heartFailureRiskStatus**    | HealthStatus | Heart failure risk status                       |
+| **heartAttackRiskChange**     | Int          | Heart attack risk change value（0~100）         |
+| **strokeRiskChange**          | Int          | Stroke risk change value（0~100）               |
+| **heartFailureRiskChange**    | Int          | Heart failure risk change value（0~100）        |
+| **memoryLossRisk**            | Int          | Memory decline risk（0~100）                    |
+| **fallInjuryRisk**            | Int          | Fall and injury risk（0~100）                   |
+| **loseIndependentRisk**       | Int          | Loss of self-care ability risk（0~100）         |
+| **memoryLossRiskStatus**      | HealthStatus | Memory decline risk status                      |
+| **fallInjuryRiskStatus**      | HealthStatus | Fall and injury risk status                     |
+| **loseIndependentRiskStatus** | HealthStatus | Loss of self-care ability risk status           |
+| **memoryLossRiskChange**      | Int          | Memory decline risk change value（0~100）       |
+| **fallInjuryRiskChange**      | Int          | Fall and injury risk change value（0~100）      |
+| **loseIndependentRiskChange** | Int          | Loss of self-care ability change value（0~100） |
+| **kidneyDiseaseRisk**         | Int          | Kidney disease risk（0~100）                    |
+| **nerveDamageRisk**           | Int          | Nerve damage risk（0~100）                      |
+| **visionLossRisk**            | Int          | Vision loss risk（0~100）                       |
+| **kidneyDiseaseRiskStatus**   | HealthStatus | Kidney disease risk status                      |
+| **nerveDamageRiskStatus**     | HealthStatus | Nerve damage risk status                        |
+| **visionLossRiskStatus**      | HealthStatus | Vision loss risk status                         |
+| **kidneyDiseaseRiskChange**   | Int          | Kidney disease risk change value（0~100）       |
+| **nerveDamageRiskChange**     | Int          | Nerve damage risk change value（0~100）         |
+| **visionLossRiskChange**      | Int          | Vision loss risk change value（0~100）          |
+| **nutritionStatus**           | Int          | Nutrition status（0~100）                       |
+| **goalStatus**                | Int          | Health goal status（0~100）                     |
+| **timestamp**                 | Int          | Downlink data timestamp                         |
+
+**HealthStatus** - Enum of Health Status Trends
+
+| Enum Value | Description               |
+| ---------- | ------------------------- |
+| INCREASE   | Health status is increase |
+| STABLE     | Health status is stable   |
+| DECREASE   | Health status is decrease |
+
+**IQH15HealthDataOptListener** -- QH15 Health Data Operation Listeners
+
+```java
+nterface IQH15HealthDataOptListener : IListener {
+
+    /**
+     * Step count report callback
+     * Triggered when actively reading step data or when step count reaches the target
+     * @param timestamp Current timestamp
+     * @param step Current step count
+     * @param id Current ID
+     */
+    fun onStepReport(timestamp: Long, step: Int, id: Int)
+
+    /**
+     * Callback for reading the timestamp of last health data
+     * @param timestamp Timestamp of the last health data, returns 0 if no data exists
+     */
+    fun onLastHealthDataTimestampRead(timestamp: Long)
+
+    /**
+     * Callback for successful data setting
+     */
+    fun onDataSettingSuccess()
+
+    /**
+     * Callback for failed data setting
+     */
+    fun onDataSettingFailed()
+}
+```
+
+#### Retrieve the Timestamp of the Last Set Health Data
+
+Users can use this timestamp to determine whether a data refresh is required. The result will be returned via the **IQH15HealthDataOptListener.onLastHealthDataTimestampRead** callback.
+
+###### Interface
+
+```java
+void getQH15HealthDataTimestamp(IBleWriteResponse bleWriteResponse, IQH15HealthDataOptListener listener)
+```
+
+###### Parameters
+
+| Parameter        | Type                       | Description                          |
+| ---------------- | -------------------------- | ------------------------------------ |
+| bleWriteResponse | IBleWriteResponse          | BLE write response                   |
+| listener         | IQH15HealthDataOptListener | QH15 Health Data Operation Listeners |
+
+#### Reading Step Count Data
+
+Users can use this interface to retrieve current step count data. The results will be returned via the **IQH15HealthDataOptListener.onStepReport** callback.
+
+###### Interface
+
+```java
+void readQH15StepData(IBleWriteResponse bleWriteResponse, IQH15HealthDataOptListener listener)
+```
+
+###### Parameters
+
+| Parameter        | Type                       | Description                          |
+| ---------------- | -------------------------- | ------------------------------------ |
+| bleWriteResponse | IBleWriteResponse          | BLE write response                   |
+| listener         | IQH15HealthDataOptListener | QH15 Health Data Operation Listeners |
+
+#### Set Health Goal Achievement Events
+
+Users can use this interface to set the current health goal achievement events on the device. The success or failure of the operation will be reported via the callbacks **IQH15HealthDataOptListener.onDataSettingSuccess** and **onDataSettingFailed**.
+
+###### Interface
+
+```java
+void setQH15ComplianceEvent(EQH15ComplianceType type, IBleWriteResponse bleWriteResponse, IQH15HealthDataOptListener listener)
+```
+
+###### Parameters
+
+| Parameter        | Type                       | Description                          |
+| ---------------- | -------------------------- | ------------------------------------ |
+| type             | EQH15ComplianceType        | Compliance Type Enum                 |
+| bleWriteResponse | IBleWriteResponse          | BLE write response                   |
+| listener         | IQH15HealthDataOptListener | QH15 Health Data Operation Listeners |
+
+**EQH15ComplianceType** --Compliance Type Enum
+
+| Enum Value         | Description        |
+| ------------------ | ------------------ |
+| BIOS_AGE           | BIOS AGE           |
+| HEART_AGE          | Heart Age          |
+| FITNESS_AGE        | Fitness Age        |
+| STEPS_GOAL         | Steps goal         |
+| NUTRITION_GOAL     | Nutrition goal     |
+| ALL_GOALS_ACHIEVED | All goals achieved |
+| NEW_FITNESS_GOAL   | New fitness goals  |
+
+### JH76 SN Code Setting
+
+JH76 customized function, **device support is required (JH76 customization)**. There is no need to call an interface to check whether the device supports this function.
+
+#### Read SN Code-readJH76SNCode
+
+Read the SN code currently set on the device. If the value length returned by the device is 0, it means no SN code has been set.
+
+###### Prerequisite
+
+Device is connected
+
+###### Interface
+
+```kotlin
+readJH76SNCode(listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter        | Type                    | Description                    |
+| ---------------- | ----------------------- | ------------------------------ |
+| listener         | IJH76SNCodeReadListener | SN code read callback listener |
+| bleWriteResponse | IBleWriteResponse       | BLE write response             |
+
+###### Return Data
+
+**IJH76SNCodeReadListener**
+
+```kotlin
+/**
+ * Read SN code result
+ *
+ * @param data SN code read result (isSet + SN code content)
+ */
+fun onJH76SNCodeRead(data: JH76SNCodeData)
+```
+
+**JH76SNCodeData** -- SN code read result
+
+| Parameter | Type    | Description                                             |
+| --------- | ------- | ------------------------------------------------------- |
+| isSet     | boolean | Whether the SN code has been set                        |
+| snCode    | String  | The SN code content (empty if not set)                  |
+
+#### Set SN Code-setJH76SNCode
+
+Set the device SN code. The SN code can only be digits, fixed at 10 digits, and cannot be all 0s. If the conditions are not met, the corresponding error code is returned directly and no command is sent.
+
+###### Prerequisite
+
+Device is connected
+
+###### Interface
+
+```kotlin
+setJH76SNCode(snCode, listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter        | Type                   | Description                                                   |
+| ---------------- | ---------------------- | ------------------------------------------------------------- |
+| snCode           | String                 | SN code (digits only, fixed 10 digits)                        |
+| listener         | IJH76SNCodeOptListener | Result callback listener, returns EJH76SNCodeError (0: success) |
+| bleWriteResponse | IBleWriteResponse      | BLE write response                                            |
+
+#### Modify SN Code-modifyJH76SNCode
+
+Modify the device SN code. Shares the same command as Set and overwrites directly. The SN code requirements are the same as Set.
+
+###### Interface
+
+```kotlin
+modifyJH76SNCode(snCode, listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+Same as Set SN Code-setJH76SNCode
+
+#### Delete SN Code-deleteJH76SNCode
+
+Delete the device SN code. The SN code value field sends 10 zeros.
+
+###### Interface
+
+```kotlin
+deleteJH76SNCode(listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter        | Type                   | Description                                                     |
+| ---------------- | ---------------------- | --------------------------------------------------------------- |
+| listener         | IJH76SNCodeOptListener | Result callback listener, returns EJH76SNCodeError (0: success) |
+| bleWriteResponse | IBleWriteResponse      | BLE write response                                              |
+
+###### Return Data
+
+**IJH76SNCodeOptListener**
+
+```kotlin
+/**
+ * Set/Modify/Delete SN code result
+ *
+ * @param error Result error code (0: success, non-0: failure)
+ */
+fun onJH76SNCodeOptResult(error: EJH76SNCodeError)
+```
+
+**EJH76SNCodeError** -- Result error code for Set/Modify/Delete
+
+| Enum Value     | Error Code | Description                                    |
+| -------------- | ---------- | ---------------------------------------------- |
+| SUCCESS        | 0          | Success                                        |
+| DEVICE_FAILED  | 1000       | Device returned failure                        |
+| INVALID_FORMAT | 1001       | Format error: SN code can only contain digits  |
+| INVALID_LENGTH | 1002       | Length error: SN code is fixed at 10 digits    |
+| ALL_ZERO       | 1003       | SN code cannot be all 0s                       |
+
+###### Sample Code
+
+```kotlin
+/// Read
+VPOperateManager.getInstance().readJH76SNCode({ data ->
+    if (data.isSet) {
+        resultLabel.text = "Query result: ${data.snCode}"
+    } else {
+        resultLabel.text = "SN code not set"
+    }
+}, bleWriteResponse)
+```
+
+```kotlin
+/// Set
+VPOperateManager.getInstance().setJH76SNCode("1234567890", { error ->
+    resultLabel.text = if (error == EJH76SNCodeError.SUCCESS) "Set successfully" else "Set failed: " + error.des
+}, bleWriteResponse)
+```
+
+```kotlin
+/// Modify
+VPOperateManager.getInstance().modifyJH76SNCode("1234567890", { error ->
+    resultLabel.text = if (error == EJH76SNCodeError.SUCCESS) "Modified successfully" else "Modify failed: " + error.des
+}, bleWriteResponse)
+```
+
+```kotlin
+/// Delete
+VPOperateManager.getInstance().deleteJH76SNCode({ error ->
+    resultLabel.text = if (error == EJH76SNCodeError.SUCCESS) "Deleted successfully" else "Delete failed: " + error.des
+}, bleWriteResponse)
+```
+
+### YM23PRO Wear Status Report and Test Status
+
+YM23PRO customized function, **device support is required (YM23PRO customization)**. There is no need to call an interface to check whether the device supports this function. The A7 flag is not used. It contains two groups of interfaces: Wear Status Report (Open/Close/Set Listener) and Test Status. Note: **the test status can only be sent after the wear status report is opened successfully**.
+
+> Notes:
+> 1. After the wear status report is enabled, the device first replies with an ACK (no wear/heart rate data attached); then the first wear detection result is pushed to the App via active report, and reports again whenever the wear state changes; when the test status is Testing or Repairing and the wear passes, the device reports the wear state and heart rate once per second.
+> 2. After the Bluetooth connection is disconnected, the states of both functions are cleared automatically and the enabling command must be sent again.
+> 3. It is recommended to enable the wear status report before sending the test status.
+
+#### Open Wear Status Report-openYM23ProWearReport
+
+Enable the wear status report function of the device.
+
+###### Prerequisite
+
+Device is connected
+
+###### Interface
+
+```kotlin
+openYM23ProWearReport(listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter        | Type                       | Description                                                              |
+| ---------------- | -------------------------- | ------------------------------------------------------------------------ |
+| listener         | IYM23ProWearReportListener | Wear status report callback listener                                     |
+| bleWriteResponse | IBleWriteResponse          | BLE write response                                                       |
+
+#### Close Wear Status Report-closeYM23ProWearReport
+
+Disable the wear status report function of the device. The device stops the active report after closing.
+
+###### Prerequisite
+
+Device is connected
+
+###### Interface
+
+```kotlin
+closeYM23ProWearReport(listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter        | Type                       | Description                          |
+| ---------------- | -------------------------- | ------------------------------------ |
+| listener         | IYM23ProWearReportListener | Wear status report callback listener |
+| bleWriteResponse | IBleWriteResponse          | BLE write response                   |
+
+###### Return Data
+
+**IYM23ProWearReportListener**
+
+```kotlin
+/**
+ * Reply of opening the wear status report
+ *
+ * @param status Device response status
+ */
+fun onYM23ProWearReportOpenResult(status: EYM23ProOptStatus)
+
+/**
+ * Reply of closing the wear status report
+ *
+ * @param status Device response status
+ */
+fun onYM23ProWearReportCloseResult(status: EYM23ProOptStatus)
+
+/**
+ * Device active report: wear state change or per-second timed report
+ *
+ * @param data Report data (report type + wear state + heart rate)
+ */
+fun onYM23ProWearReport(data: YM23ProWearReportData)
+```
+
+**YM23ProWearReportData** -- Wear status report data
+
+| Parameter  | Type               | Description                                                    |
+| ---------- | ------------------ | -------------------------------------------------------------- |
+| reportType | EYM23ProReportType | Report type                                                    |
+| wearState  | EYM23ProWearState  | Wear state                                                     |
+| heartRate  | int                | The latest detected heart rate in bpm, 0 when no valid value   |
+
+**EYM23ProOptStatus** -- Device response status
+
+| Enum Value | Description                  |
+| ---------- | ---------------------------- |
+| UNSUPPORT  | The protocol is not supported |
+| SUCCESS    | Success                      |
+| FAILED     | Failure                      |
+
+**EYM23ProReportType** -- Active report type
+
+| Enum Value   | Description                                                     |
+| ------------ | ---------------------------------------------------------------- |
+| WEAR_CHANGE  | Wear state change report (first detection result and subsequent changes) |
+| TIMED_REPORT | Per-second timed report (only when the test status is Testing/Repairing) |
+
+**EYM23ProWearState** -- Wear state
+
+| Enum Value | Description  |
+| ---------- | ------------ |
+| WEARED     | Wear passed  |
+| NOT_WEAR   | Not worn     |
+
+#### Set Wear Status Report Listener-setYM23ProWearReportListener
+
+Register the wear status report listener independently to receive the active reports from the device. The listener passed in when calling Open/Close is also registered automatically, so there is no need to call this interface repeatedly.
+
+###### Interface
+
+```kotlin
+setYM23ProWearReportListener(listener)
+```
+
+###### Parameter Description
+
+| Parameter | Type                       | Description                          |
+| --------- | -------------------------- | ------------------------------------ |
+| listener  | IYM23ProWearReportListener | Wear status report callback listener |
+
+#### Send Test Status-setYM23ProTestStatus
+
+Send the test status. There are 7 states in total, and the device displays the corresponding status icon and text synchronously. Testing/Repairing are in-progress states that trigger the per-second report of the wear status module; sending Idle exits the test UI.
+
+###### Prerequisite
+
+Device is connected AND the wear status report has been opened successfully (protocol requirement, to be guaranteed by the caller; the SDK does not block it internally)
+
+###### Interface
+
+```kotlin
+setYM23ProTestStatus(testStatus, listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter        | Type                       | Description                  |
+| ---------------- | -------------------------- | ---------------------------- |
+| testStatus       | EYM23ProTestStatus         | Test status                  |
+| listener         | IYM23ProTestStatusListener | Test status callback listener |
+| bleWriteResponse | IBleWriteResponse          | BLE write response           |
+
+###### Return Data
+
+**IYM23ProTestStatusListener**
+
+```kotlin
+/**
+ * Reply of sending the test status
+ *
+ * @param status     Device response status
+ * @param testStatus The actual current test status of the device, which can be used to confirm whether the status takes effect
+ */
+fun onYM23ProTestStatusResult(status: EYM23ProOptStatus, testStatus: EYM23ProTestStatus)
+```
+
+**EYM23ProTestStatus** -- Test status
+
+| Enum Value   | Tag  | Text Displayed on Device        |
+| ------------ | ---- | -------------------------------- |
+| IDLE         | 0x00 | Idle/Exit the test UI            |
+| TESTING      | 0x01 | Testing, please keep still       |
+| REPAIRING    | 0x02 | Repairing, please keep still     |
+| TEST_DONE    | 0x03 | Test completed, check the APP    |
+| REPAIR_DONE  | 0x04 | Repair completed, check the APP  |
+| TEST_PAUSE   | 0x05 | Test paused                      |
+| REPAIR_PAUSE | 0x06 | Repair paused                    |
+
+###### Sample Code
+
+```kotlin
+/// Open wear status report
+VPOperateManager.getInstance().openYM23ProWearReport(object : IYM23ProWearReportListener {
+    override fun onYM23ProWearReportOpenResult(status: EYM23ProOptStatus) {
+        resultLabel.text = if (status == EYM23ProOptStatus.SUCCESS) "Opened" else "Open failed: $status"
+    }
+
+    override fun onYM23ProWearReportCloseResult(status: EYM23ProOptStatus) {
+        resultLabel.text = if (status == EYM23ProOptStatus.SUCCESS) "Closed" else "Close failed: $status"
+    }
+
+    override fun onYM23ProWearReport(data: YM23ProWearReportData) {
+        resultLabel.text = "Wear report: $data"
+    }
+}, bleWriteResponse)
+```
+
+```kotlin
+/// Close wear status report
+VPOperateManager.getInstance().closeYM23ProWearReport({ status ->
+    resultLabel.text = if (status == EYM23ProOptStatus.SUCCESS) "Closed" else "Close failed"
+}, bleWriteResponse)
+```
+
+```kotlin
+/// Register the wear status report listener independently (optional)
+VPOperateManager.getInstance().setYM23ProWearReportListener(object : IYM23ProWearReportListener {
+    override fun onYM23ProWearReportOpenResult(status: EYM23ProOptStatus) {}
+
+    override fun onYM23ProWearReportCloseResult(status: EYM23ProOptStatus) {}
+
+    override fun onYM23ProWearReport(data: YM23ProWearReportData) {
+        resultLabel.text = "Wear report: $data"
+    }
+})
+```
+
+```kotlin
+/// Send test status (must be called after the wear status report is opened successfully)
+VPOperateManager.getInstance().setYM23ProTestStatus(EYM23ProTestStatus.TESTING, { status, testStatus ->
+    resultLabel.text = if (status == EYM23ProOptStatus.SUCCESS) "Sent, device status: $testStatus" else "Send failed: $status"
+}, bleWriteResponse)
+```
+
+### JH151 ECG Single-Lead Test Duration
+
+JH151 customized function, **device support is required**. There is no need to call an interface to check whether the device supports this function.
+
+The single-lead test duration is the countdown initial value of the ECG single-lead measurement, in seconds, (e.g. 30/60/180).
+
+
+#### Set ECG Single-Lead Test Duration
+
+Set the ECG single-lead test duration on the device. If the duration is out of range (0~65535), the callback returns failure directly and no command is sent.
+
+###### Prerequisite
+
+Device is connected
+
+###### Interface
+
+```kotlin
+setJH151ECGSingleLeadTestDuration(duration, listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter        | Type                               | Description                                        |
+| ---------------- | ---------------------------------- | -------------------------------------------------- |
+| duration         | int                                | Single-lead test duration (in seconds, 0~65535)    |
+| listener         | IECGSingleLeadTestDurationListener | Result callback listener                           |
+| bleWriteResponse | IBleWriteResponse                  | BLE write response                                 |
+
+#### Read ECG Single-Lead Test Duration
+
+Read the current ECG single-lead test duration on the device.
+
+###### Prerequisite
+
+Device is connected
+
+###### Interface
+
+```kotlin
+readJH151ECGSingleLeadTestDuration(listener, bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter        | Type                               | Description             |
+| ---------------- | ---------------------------------- | ----------------------- |
+| listener         | IECGSingleLeadTestDurationListener | Result callback listener |
+| bleWriteResponse | IBleWriteResponse                  | BLE write response      |
+
+###### Return Data
+
+**IECGSingleLeadTestDurationListener**
+
+```kotlin
+/**
+ * Set/Read ECG single-lead test duration result
+ *
+ * @param success  Whether the operation succeeded
+ * @param duration The echoed/current single-lead test duration (in seconds)
+ */
+fun onECGSingleLeadTestDurationResult(success: Boolean, duration: Int)
+```
+
+###### Example Code
+
+```kotlin
+/// Set the single-lead test duration to 30s
+VPOperateManager.getInstance().setJH151ECGSingleLeadTestDuration(30, { success, duration ->
+    if (success) {
+        resultLabel.text = "Set successfully, current duration=$duration s"
+    } else {
+        resultLabel.text = "Set failed"
+    }
+}, bleWriteResponse)
+```
+
+```kotlin
+/// Read the single-lead test duration
+VPOperateManager.getInstance().readJH151ECGSingleLeadTestDuration({ success, duration ->
+    if (success) {
+        resultLabel.text = "Current duration=$duration s"
+    } else {
+        resultLabel.text = "Read failed"
+    }
+}, bleWriteResponse)
+```
+
+### QH15 Family Guardian
+
+Prerequisite: The device must support the family guardian feature. The condition is as follows:
+
+```
+VpSpGetUtil.getVpSpVariInstance(applicationContext).isSupportSafetyProtection
+```
+
+Note: All the following interfaces can only be called when the device supports the family guardian feature.
+
+#### Set Safety Protection State
+
+###### Prerequisite
+
+Device is connected, and the QH15 family guardian listener has been registered (see Register Safety Protection Listener). It is recommended that the APP has been granted fine location permission and the system location switch is on.
+
+###### Interface
+
+Java
+
+```
+ /***
+     * <ul>
+     * <li style="color:#1055d2">QH15 family guardian: set the safety protection state (unified open/close interface)</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Set the safety protection state (unified open/close interface); the result is returned via IQH15SafetyProtectionListener.onQH15SafetyProtectionSetResult</li>
+     * </ul>
+     * @param isOpen
+     * <ul>
+     * <li>true to enable, false to disable</li>
+     * <li>true to enable, false to disable</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     * <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     * <li>Listener for the write operation</li>
+     * </ul>
+     */
+    public void setQH15SafetyProtection(boolean isOpen, IBleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Description
+
+| **Parameter Name**  | **Type**          | **Description**                  |
+| ------------------- | ----------------- | -------------------------------- |
+| isOpen              | boolean           | true to enable, false to disable |
+| bleWriteResponse    | IBleWriteResponse | Listener for the write operation |
+
+###### Data Return
+
+**EQH15SetProtectionFuncAckState** -- Ack result of setting the protection state (returned via IQH15SafetyProtectionListener.onQH15SafetyProtectionSetResult)
+
+Java
+
+```
+public enum EQH15SetProtectionFuncAckState {
+    // Success
+    SUCCESS,
+    // Watch battery too low to enable
+    LOW_BATTERY,
+    // Location module malfunction
+    LOCATION_MALFUNCTION
+}
+```
+
+Code Example
+
+Java
+
+```
+// Enable the guardian
+VPOperateManager.getInstance().setQH15SafetyProtection(true, writeResponse);
+// Disable the guardian
+VPOperateManager.getInstance().setQH15SafetyProtection(false, writeResponse);
+```
+
+#### Register Safety Protection Listener
+
+###### Prerequisite
+
+None (overwriting registration, only one global instance; register once during device connection initialization)
+
+###### Interface
+
+Java
+
+```
+ /***
+     * <ul>
+     * <li style="color:#1055d2">QH15 family guardian: register the safety protection listener</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Register the safety protection listener (including the ack callback of APP setting and the state change notification from watch-side operations)</li>
+     * </ul>
+     * @param listener
+     * <ul>
+     * <li>the listener of safety protection state</li>
+     * <li>Safety protection state listener</li>
+     * </ul>
+     */
+    public void addQH15SafetyProtectionListener(IQH15SafetyProtectionListener listener)
+```
+
+###### Parameter Description
+
+| **Parameter Name** | **Type**                      | **Description**                              |
+| ------------------ | ----------------------------- | -------------------------------------------- |
+| listener           | IQH15SafetyProtectionListener | QH15 family guardian state callback listener |
+
+###### Data Return
+
+**IQH15SafetyProtectionListener** -- QH15 family guardian state listener
+
+Java
+
+```
+public interface IQH15SafetyProtectionListener extends IListener {
+    /**
+     * Ack result of setting the safety protection state (device response after the APP sends the enable/disable command)
+     * @param ackState Ack result (success / low battery / location malfunction)
+     */
+    void onQH15SafetyProtectionSetResult(EQH15SetProtectionFuncAckState ackState);
+
+    /**
+     * Device-side safety protection state change notification (triggered by watch-side operations)
+     * Note: if the watch has already enabled the guardian, do NOT send the enable command again; just sync the local state and UI
+     * @param isOpen    true to enable, false to disable
+     * @param timestamp Timestamp in seconds
+     */
+    void onQH15SafetyProtectionStateChanged(boolean isOpen, long timestamp);
+}
+```
+
+Code Example
+
+Java
+
+```
+VPOperateManager.getInstance().addQH15SafetyProtectionListener(new IQH15SafetyProtectionListener() {
+            @Override
+            public void onQH15SafetyProtectionSetResult(EQH15SetProtectionFuncAckState ackState) {
+                // Result: SUCCESS / LOW_BATTERY (watch battery too low) / LOCATION_MALFUNCTION (location module malfunction)
+            }
+
+            @Override
+            public void onQH15SafetyProtectionStateChanged(boolean isOpen, long timestamp) {
+                // Watch-side manual switch, just sync the local state, do not send the enable command again
+            }
+        });
+```
+
+#### Register GNSS Location Listener
+
+###### Prerequisite
+
+None (overwriting registration, only one global instance; register once during device connection initialization)
+
+###### Interface
+
+Java
+
+```
+ /***
+     * <ul>
+     * <li style="color:#1055d2">QH15 family guardian: register the GNSS real-time location listener (including device request REQ and device push PUSH, distinguished by type)</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Register the GNSS real-time location listener (including device request REQ and device push PUSH, distinguished by type)</li>
+     * </ul>
+     * @param listener
+     * <ul>
+     * <li>the listener of GNSS real-time location data</li>
+     * <li>GNSS real-time location data listener</li>
+     * </ul>
+     */
+    public void addQH15GnssLocationListener(IQH15GnssLocationListener listener)
+```
+
+###### Parameter Description
+
+| **Parameter Name** | **Type**                  | **Description**                              |
+| ------------------ | ------------------------- | -------------------------------------------- |
+| listener           | IQH15GnssLocationListener | GNSS real-time location data callback listener |
+
+###### Data Return
+
+**IQH15GnssLocationListener** -- GNSS real-time location data listener
+
+Java
+
+```
+public interface IQH15GnssLocationListener extends IListener {
+    /**
+     * GNSS real-time location data notification
+     * @param type  EQH15SPType.REQ: the device requests the APP to provide location (after the APP obtains the system location, call pushQH15GnssLocationData to push it back);
+     *              EQH15SPType.PUSH: the device pushes real-time location data (just display it directly)
+     * @param model Location data (null when the frame data is incomplete)
+     */
+    void onQH15GnssLocation(EQH15SPType type, QH15SecurityProtectionModel model);
+}
+```
+
+**EQH15SPType** -- GNSS real-time location data notification type
+
+Java
+
+```
+public enum EQH15SPType {
+    // Request real-time location (the device requests the APP to provide location; after the APP obtains the location, call pushQH15GnssLocationData to push it back)
+    REQ,
+    // Push real-time location data (the device actively pushes real-time location, just display it directly)
+    PUSH
+}
+```
+
+**QH15SecurityProtectionModel** -- Safety protection location data
+
+Java
+
+```
+public class QH15SecurityProtectionModel {
+    // Bluetooth signal, range -128~0; the larger the value, the closer the distance and the stronger the signal. The device decides whether to adopt the APP coordinates based on this, default -128
+    private int rssi;
+    // Latitude (actual value, protocol value = actual value x 100000, 5 decimal places)
+    private double latitude;
+    // Longitude (actual value, protocol value = actual value x 100000, 5 decimal places)
+    private double longitude;
+    // GNSS state (a valid value is required when pushing)
+    private EQH15SecurityProtectionState gnssState;
+    // Altitude in centimeters, fill in 0 if not supported by hardware
+    private int altitude;
+}
+```
+
+**EQH15SecurityProtectionState** -- GNSS state
+
+Java
+
+```
+public enum EQH15SecurityProtectionState {
+    // No command
+    NONE,
+    // Effective location
+    EFFECTIVE_LOCATION,
+    // Invalid location
+    INVALID_LOCATION,
+    // Poor signal
+    POOR_SIGNAL,
+    // No permission
+    NO_PERMISSION
+}
+```
+
+Code Example
+
+Java
+
+```
+VPOperateManager.getInstance().addQH15GnssLocationListener(new IQH15GnssLocationListener() {
+            @Override
+            public void onQH15GnssLocation(EQH15SPType type, QH15SecurityProtectionModel model) {
+                if (type == EQH15SPType.REQ) {
+                    // Device asks for location: obtain the current location and call pushQH15GnssLocationData to push it back
+                } else if (type == EQH15SPType.PUSH) {
+                    // Device pushes real-time location, refresh UI when model.gnssState==EFFECTIVE_LOCATION and coordinates are non-zero
+                }
+            }
+        });
+```
+
+#### Assistance Information Configuration (Improves Device Positioning Speed and Accuracy)
+
+###### Prerequisite
+
+Device is connected
+
+###### Interface
+
+Java
+
+```
+ /***
+     * <ul>
+     * <li style="color:#1055d2">QH15 family guardian: push the location data to the device (assistance information configuration, which can improve the device positioning speed and accuracy)</li>
+     * <li><br/></li>
+     * <li style="color:#555555">Assistance information configuration (can improve the device positioning speed and accuracy). Typical flow: receive EQH15SPType.REQ -> APP obtains the current location -> build QH15SecurityProtectionModel and call this interface to push it back</li>
+     * </ul>
+     * @param model
+     * <ul>
+     * <li>the location data model, gnssState must be a valid value</li>
+     * <li>Location data model (gnssState must be a valid value)</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     * <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     * <li>Listener for the write operation</li>
+     * </ul>
+     */
+    public void pushQH15GnssLocationData(QH15SecurityProtectionModel model, IBleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Description
+
+| **Parameter Name** | **Type**                    | **Description**                                   |
+| ------------------ | --------------------------- | ------------------------------------------------- |
+| model              | QH15SecurityProtectionModel | Location data model (gnssState must be a valid value) |
+| bleWriteResponse   | IBleWriteResponse           | Listener for the write operation                  |
+
+Code Example
+
+Java
+
+```
+// Device requests location -> push it back after the APP obtains the location
+QH15SecurityProtectionModel model = new QH15SecurityProtectionModel(-128, 22.54900, 113.94521, EQH15SecurityProtectionState.EFFECTIVE_LOCATION, 0);
+VPOperateManager.getInstance().pushQH15GnssLocationData(model, writeResponse);
+```
+
+## Device Control Functions
+
+Device control related operations, including Reset, Factory Reset (Clear Data) and Power Off. All the following interfaces must be called when the device is connected.
+
+### Reset
+
+###### Interface
+
+```java
+/***
+     * <ul>
+     *     <li style="color:#1055d2">Reset the device data</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">复位数据</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     *    <li>Write operation listener</li>
+     * </ul>
+     */
+    public void resetDeviceData(IBleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type              | Description               |
+| ---------------- | ----------------- | ------------------------- |
+| bleWriteResponse | IBleWriteResponse | Write operation listener  |
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().resetDeviceData(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+                    // Write command response
+                }
+            });
+```
+
+### Factory Reset (Clear Data)
+
+###### Interface
+
+```java
+/***
+     * <ul>
+     *     <li style="color:#1055d2">Clear the device data</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">清除数据</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     *    <li>Write operation listener</li>
+     * </ul>
+     */
+    public void clearDeviceData(IBleWriteResponse bleWriteResponse)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type              | Description               |
+| ---------------- | ----------------- | ------------------------- |
+| bleWriteResponse | IBleWriteResponse | Write operation listener  |
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().clearDeviceData(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+                    // Write command response
+                }
+            });
+```
+
+### Power Off
+
+###### Interface
+
+```java
+/***
+     * <ul>
+     *     <li style="color:#1055d2">Power off the device</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">关机</li>
+     * </ul>
+     * @param bleWriteResponse
+     * <ul>
+     *    <li>the response of write oprate,if reponse code equals Code.REQUEST_SUCCESS  means write cmd success,otherwise means write cmd fail</li>
+     *    <li>Write operation listener</li>
+     * </ul>
+     * @param listener
+     * <ul>
+     *     <li style="color:#1055d2">Power off result callback, 0 means fail, 1 means success</li>
+     *     <li><br/></li>
+     *     <li style="color:#555555">关机结果回调监听，0表示失败，1表示成功</li>
+     * </ul>
+     */
+    public void powerOffDevice(IBleWriteResponse bleWriteResponse, IResponseListener listener)
+```
+
+###### Parameter Description
+
+| Parameter Name   | Type              | Description                |
+| ---------------- | ----------------- | -------------------------- |
+| bleWriteResponse | IBleWriteResponse | Write operation listener   |
+| listener         | IResponseListener | Power off result listener  |
+
+###### Data Return
+
+**IResponseListener** -- Power Off Result Callback
+
+```java
+public interface IResponseListener extends IListener {
+    void response(int state);
+}
+```
+
+state: 0 means fail, 1 means success
+
+Note: The device will disconnect the Bluetooth connection after powering off, so the callback of the power off command may not be returned. The App can determine whether the power off is successful by checking the disconnection state.
+
+###### Example Code
+
+```java
+VPOperateManager.getInstance().powerOffDevice(new IBleWriteResponse() {
+                @Override
+                public void onResponse(int code) {
+                    // Write command response
+                }
+            }, new IResponseListener() {
+                @Override
+                public void response(int state) {
+                    Logger.t(TAG).e("powerOffDevice response --》 " + (state == 1 ? "success" : "fail"));
+                }
+            });
+```
+

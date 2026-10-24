@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CameraCapture.kt · the camera writes its photo into cache/camera/ and the app reads it back. -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+</paths>

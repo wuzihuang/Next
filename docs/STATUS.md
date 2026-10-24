@@ -1,5 +1,27 @@
 # NEXTBODY · build status
 
+## 2026-10-24 — Production audit · Edge Functions match main
+
+Every non-AI Edge Function's live source was downloaded and compared byte for byte with
+`main` (e55cae41). `archive-data` and `meal` still ran their 2026-10-18 copies (older
+`_shared/db.ts` and `rate-limit.ts`, no runtime difference) and were redeployed from `main`:
+`archive-data` v17, `meal` v23. A second download matches `main` exactly; unauthenticated
+POST answers 401. `account-delete`, `export`, `feedback`, `mcp`, `meal-commit`,
+`meal-operation` and `metric-read` already matched. `day-settle` (v17, 2026-09-02) is a legacy
+bundle the CLI cannot download; its `index.ts` has not changed since 2026-09-01 and its one
+shared import, `serviceClient`, differs only by `autoRefreshToken: false`, so it was left
+alone. The AI functions were not compared or deployed. `billing-sync` and
+`revenuecat-webhook` stay live by owner decision, although the source dropped them on 10-15.
+
+Also checked on `gkgzwcxivnffsecshvfs`: all 125 migrations applied. Every public and nb
+table with a `user_id` references `auth.users` on delete cascade, so `purge_account` reaches
+all of them, and only `service_role` may execute it. 8 bound devices, 6 with a hardware key,
+no unkeyed duplicates. The review account exists and its nightly reset last succeeded
+2026-10-24 11:15 UTC. `nextbody-mcp` Pages runs `ab045e8`; `mcp-web/` has not changed since.
+App Store 1.0 (build 10) stays in review; main's app changes ship in the next version. The
+Shopify theme was not checked. The merged `codex/coach-concise-professional` and
+`cursor/pro-membership-2bc6` branches were deleted from origin.
+
 ## 2026-10-24 — DELETE EVERYTHING in one statement · production
 
 account-delete timed out on accounts with a month of band data: deleting raw_samples table by

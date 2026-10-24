@@ -11,9 +11,10 @@ screenshots (`feedback-images`). iOS and Android call it on the 120 s session an
 DELETING… / DELETED.
 
 Production `gkgzwcxivnffsecshvfs` carries both `20261024120000` and `20261024150000`;
-`account-delete` and `feedback` match this source. Still behind HEAD in production:
-`meal-commit` and `meal-operation` (decimal nutrients and plate fields from 367ea241; the
-database side has been live since 2026-10-18) and `export` (day boundary wording). The AI
+`account-delete` and `feedback` match this source. `meal-commit` (v23), `meal-operation`
+(v20) and `export` (v21) were then deployed from 2e4a306f: decimal nutrients and plate
+fields from 367ea241, whose database side had been live since 2026-10-18, and the day-boundary
+wording in the export. Unauthenticated POST to each answers 401. The AI
 functions were not compared or deployed.
 
 Also in this change: Profile settings split UNITS (weight + height only), HAPTICS (inline

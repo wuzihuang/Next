@@ -90,7 +90,12 @@ object ReviewAccount {
 
 /** Shared transport errors; read modules classify server conflicts without losing HTTP failures. */
 sealed class SupabaseFailure(message: String, cause: Throwable? = null) : Exception(message, cause) {
-    class Http(val code: Int, val body: String) : SupabaseFailure("HTTP $code: $body")
+    class Http(val code: Int, val body: String) : SupabaseFailure("HTTP $code: $body") {
+        /** The SQL exception behind a PostgREST failure. Its error body is
+         *  `{"code","message","details","hint"}`, and `raise exception 'NAME'` arrives as `message`. */
+        val serverMessage: String?
+            get() = runCatching { JSONObject(body).opt("message") as? String }.getOrNull()
+    }
     class Transport(val error: Throwable) : SupabaseFailure(error.localizedMessage ?: error.toString(), error)
 }
 

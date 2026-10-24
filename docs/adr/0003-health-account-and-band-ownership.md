@@ -15,8 +15,9 @@
 - 服务端：`20261024150000_one_band_one_account.sql` 用触发器把 `ble_identifier` 里的固件 MAC 规范成 `devices.hardware_key`，全局唯一（仅限未解绑的行）。别的账号再绑同一只手环会报 `DEVICE_OWNED_ELSEWHERE`；同一账号两个槽位绑同一只会报 `DEVICE_ALREADY_IN_SET`。用的是触发器而不是 RPC，所以已经装在手机上的旧版本也受这条规则约束。模拟器的两只假手环不计入。已有的重复绑定由最早那一行保留，后来的行不自动解绑，迁移会打印数量。
 - 手机端：槽位、佩戴声明、待上传的声明、同意状态都按账号分开存。没人登录时就没有手环。登出时断开连接、清掉本地通知，并删掉这台手机的推送 token；手环仍归原账号，它重新登录时就回来了。新账号在这台手机上看不到也连不上别人的手环。本机没有这个账号的手环时，按服务端的 MAC 恢复。
 - 只有配对页（用户亲自选这只手环）可以新建 `devices` 行，或者把行指向另一只手环；后台刷新只更新已有行的电量和固件。
+- 上传和认领：`20261024170000_band_keys_stay_with_their_account.sql` 把每个 `devices` 行带过的 key（固件 MAC，以及每台手机的 CoreBluetooth 别名）都记进 `nb.device_keys`。上传（`ingest_band_domain`，delta 和 bundle 都经过它）、`publish_sleep_night`，以及认领 key（`claim_device_key` 或直接改 `client_key`），只要碰到别的账号正绑着的手环，一律报 `DEVICE_OWNED_ELSEWHERE`。解绑之前就开始的那批自己的数据照收；没人绑着的 key 照旧收；模拟器的假手环不算任何人的。
 
-仍未覆盖的：上传（`ingest_band_domain`）还不校验 `p_device_key` 是否属于当前账号；没报 MAC 的固件无法参与唯一性判断。
+仍未覆盖的：旧版本直接写 `raw_samples`、`sleep_nights` 用的 RLS 插入策略还在，现在的版本不走这条路，但它不查手环归属；没报 MAC 的固件无法参与唯一性判断。
 
 ## 硬件前提
 

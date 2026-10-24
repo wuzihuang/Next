@@ -1,5 +1,32 @@
 # NEXTBODY · build status
 
+## 2026-10-24 — Review fixes for one band, one account · production
+
+The review of 1e7b5abd and 2e4a306f found four gaps, each fixed and tested:
+
+- Uploads never asked whose band they came from (the gap ADR 0003 listed). Migration
+  `20261024170000` keeps every key a devices row has carried (the MAC and each phone's
+  CoreBluetooth alias) in `nb.device_keys`. `ingest_band_domain` (and with it delta and bundle),
+  `publish_sleep_night` and a `client_key` claim refuse a band another account holds with
+  `DEVICE_OWNED_ELSEWHERE`. An account's own late upload from before a release is taken, a key
+  nobody holds is taken as before, and the mock bands are no one's.
+- Both apps told a held band from other failures by searching the error text. They now read
+  the raised name from PostgREST's error body (`SupabaseFailure.serverMessage`,
+  `DeviceRegistration.refusal`).
+- A background refresh could point an old row's alias at whatever band was on the link. Only
+  pairing writes `ble_identifier` now (`DeviceRegistration.bleIdentifierWrite`), on both
+  platforms.
+- `purge_account` had no test. `supabase/tests/purge_account.sql` checks that every reference to
+  auth.users cascades, that a purge leaves no row of the account, and that it touches no other.
+
+Verified: 11 SQL test files on a rebuilt database (both new ones plus every ingest, device,
+release and sleep file), and `band_keys_stay_with_their_account.sql` fails without the
+migration; `swift test` 1037/1037; Android `testDebugUnitTest` 175/175 + `assembleDebug`; iOS
+simulator Debug build. Before the push a read-only check found no key bound by two accounts and
+no live upload key that would be refused. `supabase db push --linked` applied only
+`20261024170000`. Readback: 16 keys recorded, both functions carry the check, grants unchanged,
+0 of the live upload keys refused. The app changes ship with the next build.
+
 ## 2026-10-24 — Production audit · Edge Functions match main
 
 Every non-AI Edge Function's live source was downloaded and compared byte for byte with

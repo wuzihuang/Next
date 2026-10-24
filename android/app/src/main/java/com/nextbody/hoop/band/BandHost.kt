@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.time.Instant
+import com.nextbody.hoop.services.SupabaseFailure
 import com.nextbody.hoop.services.saveCapabilities
 
 /**
@@ -54,7 +55,24 @@ enum class DeviceRegistration {
     ownedElsewhere,
     /** Already this account's, in its other slot. */
     alreadyInSet,
-    failed,
+    failed;
+
+    companion object {
+        /** The refusal a failed write carries: the name the trigger raised, read from PostgREST's
+         *  error body and from nowhere else the text might happen to appear. */
+        fun refusal(e: Throwable): DeviceRegistration = when ((e as? SupabaseFailure.Http)?.serverMessage) {
+            "DEVICE_OWNED_ELSEWHERE" -> ownedElsewhere
+            "DEVICE_ALREADY_IN_SET" -> alreadyInSet
+            else -> failed
+        }
+
+        /** The `ble_identifier` a registration writes onto the slot's existing row; null leaves it.
+         *  Only pairing, the person choosing this band, may point the row at another band. A
+         *  refresh keeps the band the row names and updates only its facts (ADR 0003). The
+         *  emulator seed never replaces a binding. */
+        fun bleIdentifierWrite(pairing: Boolean, existing: String?, linked: String?, seed: String): String? =
+            linked?.takeIf { pairing && it != seed && it != existing }
+    }
 }
 
 /** The firmware's MAC, the band's identity on the server — not a phone's alias. */

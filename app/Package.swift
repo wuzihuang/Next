@@ -131,6 +131,7 @@ let package = Package(
                 "BatteryLog.swift",
                 "BatteryDrainMath.swift",
                 "DeviceSlots.swift",
+                "DeviceRegistration.swift",
                 "DeviceReleaseOperation.swift",
                 "DeviceActivationGate.swift",
                 "VitalSample.swift",

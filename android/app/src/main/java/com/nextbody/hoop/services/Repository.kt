@@ -453,11 +453,10 @@ object Repository : RepositoryPort {
             if (id != null) {
                 val existingBle = bound.optStringOrNull("ble_identifier")
                 // Emulator seed must not steal a real binding and reset companionship.
-                // Outside pairing the only move allowed is an old row's alias becoming the MAC.
-                if (ble != null && ble != BoundBand.seedIdentifier && existingBle != ble &&
-                    (pairing || !isBandMac(existingBle))) {
-                    row["ble_identifier"] = ble
-                    row["ble_identifier_kind"] = if (isBandMac(ble)) "mac" else "uuid"
+                // Outside pairing the row keeps the band it names; a refresh writes only its facts.
+                DeviceRegistration.bleIdentifierWrite(pairing, existingBle, ble, BoundBand.seedIdentifier)?.let {
+                    row["ble_identifier"] = it
+                    row["ble_identifier_kind"] = if (isBandMac(it)) "mac" else "uuid"
                 }
                 if (row.isNotEmpty()) db.patch("devices", id, row)
                 rememberDevice(id, slot, bound.opt("bound_at"), identity?.name)
@@ -475,12 +474,7 @@ object Repository : RepositoryPort {
         } catch (e: Exception) {
             if (e is CancellationException && e !is SessionChangedException) throw e
             ServiceLog.record("Repository.registerDevice failed", e)
-            val reason = e.message.orEmpty()
-            when {
-                "DEVICE_OWNED_ELSEWHERE" in reason -> DeviceRegistration.ownedElsewhere
-                "DEVICE_ALREADY_IN_SET" in reason -> DeviceRegistration.alreadyInSet
-                else -> DeviceRegistration.failed
-            }
+            DeviceRegistration.refusal(e)
         }
     }
 

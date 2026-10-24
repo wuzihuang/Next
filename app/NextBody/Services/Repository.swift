@@ -401,16 +401,6 @@ final class Repository {
         return facts
     }
 
-    /// How the server took a band. A band is held by one account (`20261024150000`).
-    enum DeviceRegistration: Equatable {
-        case saved
-        /// Bound to another account; it has to be released there first.
-        case ownedElsewhere
-        /// Already this account's, in its other slot.
-        case alreadyInSet
-        case failed
-    }
-
     /// The transport NEXTBODY's row. Written at the end of pairing, not only after Home reconnects
     /// — a kill on the onboarding screens used to leave the account with no devices row.
     /// One bound row per slot (unbound_at is null). Since two HOOPs, one wearer a slot is
@@ -463,9 +453,9 @@ final class Repository {
             if let id = bound?["id"] as? String {
                 let existingBle = bound?["ble_identifier"] as? String
                 // Simulator seed must not steal a real binding and reset companionship.
-                // Outside pairing the only move allowed is an old row's alias becoming the MAC.
-                if let ble, ble != BoundBand.seedIdentifier, existingBle != ble,
-                   pairing || !Self.isMAC(existingBle) {
+                // Outside pairing the row keeps the band it names; a refresh writes only its facts.
+                if let ble = DeviceRegistration.bleIdentifierWrite(pairing: pairing, existing: existingBle,
+                                                                   linked: ble, seed: BoundBand.seedIdentifier) {
                     row["ble_identifier"] = ble
                     row["ble_identifier_kind"] = Self.isMAC(ble) ? "mac" : "uuid"
                 }
@@ -487,10 +477,7 @@ final class Repository {
             #if DEBUG
             NSLog("Repository.registerDevice failed: %@", "\(error)")
             #endif
-            let reason = String(describing: error)
-            if reason.contains("DEVICE_OWNED_ELSEWHERE") { return .ownedElsewhere }
-            if reason.contains("DEVICE_ALREADY_IN_SET") { return .alreadyInSet }
-            return .failed
+            return DeviceRegistration.refusal(error)
         }
     }
 
